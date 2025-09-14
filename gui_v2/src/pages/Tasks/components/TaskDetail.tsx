@@ -14,6 +14,7 @@ import { Task } from '../types';
 import dayjs from 'dayjs';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
+import { useAppDataStore } from '@/stores/appDataStore';
 
 const { Title, Text } = Typography;
 
@@ -32,6 +33,7 @@ const DEFAULT_TASK = {
     time_out: 3600,
   },
   objectives: '',
+  required_skills: [] as string[],
   metadata: {},
 };
 
@@ -62,6 +64,7 @@ type ExtendedTask = Task & {
   description?: string;
   latest_version?: string;
   objectives?: string;
+  required_skills?: string[];
   metadata_text?: string; // stringified metadata for editing
 };
 
@@ -79,6 +82,7 @@ const toDayjs = (date: string | Date | null | undefined) => {
 };
 
 export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as any, isNew = false, onSave, onCancel }) => {
+
   // Pre-process the task data to ensure dates are valid Dayjs objects or undefined
   const task = React.useMemo(() => {
     if (!rawTask || Object.keys(rawTask).length === 0) {
@@ -101,12 +105,39 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   const [form] = Form.useForm<ExtendedTask>();
   const [editMode, setEditMode] = React.useState(isNew);
   const [saving, setSaving] = React.useState(false);
+  // skills store and fetch-on-mount if needed
+  const skills = useAppDataStore((s) => s.skills);
+  const setSkills = useAppDataStore((s) => s.setSkills);
+
+  React.useEffect(() => {
+    const api = get_ipc_api();
+    const ensureSkills = async () => {
+      try {
+        let uname = username;
+        if (!uname) {
+          const loginInfo = await api.getLastLoginInfo<{ last_login: { username: string } }>();
+          if (loginInfo?.success) uname = loginInfo.data?.last_login?.username || '';
+        }
+        if (uname && (!skills || skills.length === 0)) {
+          const res = await api.getSkills<{ skills: any[] }>(uname, []);
+          if (res?.success && res.data?.skills) setSkills(res.data.skills as any);
+        }
+      } catch (e) {
+        // silent fail
+      }
+    };
+    ensureSkills();
+  }, [username, skills?.length, setSkills]);
 
   React.useEffect(() => {
     if (task) {
       const metaStr = (task as any).metadata ? JSON.stringify((task as any).metadata, null, 2) : '';
+      const requiredSkills = (task as any).required_skills
+        || (task as any).metadata?.required_skills
+        || [];
       form.setFieldsValue({
         ...(task as any),
+        required_skills: requiredSkills,
         metadata_text: metaStr,
       });
     } else {
@@ -150,9 +181,14 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           time_out: (values as any).schedule?.time_out || 3600,
         },
         objectives: (values as any).objectives || '',
+        required_skills: (values as any).required_skills || [],
         metadata: (values as any).metadata_text ? 
           JSON.parse((values as any).metadata_text) : {},
       };
+      // Keep required_skills mirrored in metadata for compatibility
+      if (payload && typeof payload.metadata === 'object') {
+        payload.metadata.required_skills = payload.required_skills;
+      }
 
       setSaving(true);
       const api = get_ipc_api();
@@ -175,8 +211,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       setSaving(false);
     }
   };
-
-
 
   return (
     <div style={{ maxHeight: '100%', overflow: 'auto', padding: '16px' }}>
@@ -225,17 +259,28 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                     <Input.TextArea rows={3} />
                   </Form.Item>
                 </Col>
+                <Col span={24}>
+                  <Form.Item label={t('pages.tasks.requiredSkills', 'Required Skills')} name="required_skills">
+                    <Select
+                      mode="multiple"
+                      allowClear
+                      placeholder={t('pages.tasks.requiredSkillsPlaceholder', 'Select required skills')}
+                      options={(skills || []).map((s: any) => ({ value: s.name, label: s.name }))}
+                      disabled={false}
+                    />
+                  </Form.Item>
+                </Col>
                 <Col span={12}>
                   <Form.Item label={t('pages.tasks.priorityLabel', 'Priority')} name="priority">
                     <Select
-                    allowClear
-                    onChange={(value) => {
-                      if (value === null || value === undefined) {
-                        form.setFieldsValue({ priority: 'none' });
-                      }
-                    }}
-                    options={PRIORITY_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.priority.${v}`, v) }))}
-                  />
+                      allowClear
+                      onChange={(value) => {
+                        if (value === null || value === undefined) {
+                          form.setFieldsValue({ priority: 'none' });
+                        }
+                      }}
+                      options={PRIORITY_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.priority.${v}`, v) }))}
+                    />
                   </Form.Item>
                 </Col>
                 <Col span={12}>
