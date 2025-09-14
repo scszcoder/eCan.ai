@@ -189,7 +189,7 @@ Here is the list of these MCP tools:
 
 With the above basic instruction set, one can pretty much create a skill for any task flow.
 
-##### Runnable Skill File (.rsk file)
+##### Runnable Skill - CompiledGraph
 this is a file to be run by the RPA virtual machine. 
 it contains reformated address including namespace.
 and as well as the entire code, also skill settings is
@@ -333,8 +333,8 @@ the inventory file is located in the installation user data directory ($ECBOT_DA
 sample inventory file is included in the software distribution.
 
 
-### Mission Skill match
-Each mission has a "skills" attributes, it's a string in the format of comma separated skill IDs, for example "1,5,6 ..."
+### Task Skill match
+Each task has a "skills" attributes, it's a string in the format of comma separated skill IDs, for example "1,5,6 ..."
 means this mission requires skill # 1, 5, 6 and so on. It's very important to make sure the main skill is the FIRST one 
 in the list. (for example for skills "72,18,33", skill#72 has to be the main skill which will in turn uses skill#18 and
 skill #33)
@@ -372,14 +372,9 @@ Here some default settings and assumptions:
 - the "scripts" directory contains the .csk file which defines all the anchors and info elements associated on the skill
 - This "images" and "scrpts" directories will then be uploaded to the cloud side, using the "CSK Upload" button under the skill editor menu.
 
-### Steps to Create a custom instruction 
-- for many scenarios, using ARAIS instrucitons maybe cumbersome to implement, if you know python, it would be much easier to just use python code to create a new instruction and call it in your skill code.
-- to augment the existing ARAIS with your own instruction, follow these steps:
-  - create "/my_rais_extensions/my_rais_extensions.json" in $ECBOT_DATA_HOME directory
-  - when code the instruction generator function, make sure the instrution definition json's "type" starts with "My:", and the instruction execution function name starts with "processMy", and the generator function name starts with "genStepMy". The instruction execution function should take a standard three input arguments: [step, si, pubSkills] where pubSkills holds the context of the main ecbot app.
 
-### Interfacing with Bots over the internet
-You will need to install myECB App on Android devices or iOS devices, once logged in, you will be able to view, control or chat with any bot in the field.
+### Interfacing with Agents over the internet
+You will need to install eCan.ai App on Android devices or iOS devices, once logged in, you will be able to view, control or chat with any bot in the field.
 Here is the message format in a chat window.
 - for regular chat, simply key in the message.
 - for sending a command, start the line with ":" character then followed by xml tags.

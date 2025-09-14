@@ -594,7 +594,7 @@ def query_fom_basics_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     try:
         logger.debug(f"[search_parts_chatter_skill] about to query fom basics: {type(state)}, {state}")
 
-        table_headers = list(state["search_results"].keys())
+        table_headers = list(state["search_results"]["preliminary_info"]["table_headers"])
         # need to set up state["tool_input"] to be components
         params = convert_table_headers_to_params(table_headers)
         state["tool_input"] = {
