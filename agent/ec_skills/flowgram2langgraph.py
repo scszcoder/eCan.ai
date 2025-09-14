@@ -24,7 +24,8 @@ function_registry = {
     "default": build_debug_node,
 }
 
-def evaluate_condition(state, conditions):
+def evaluate_condition_legacy(state, conditions):
+    """Legacy evaluator: list of { value: {left/right/operator} }. Kept for backward compatibility."""
     for cond in conditions:
         value = cond["value"]
         left = extract_value(state, value["left"])
@@ -74,12 +75,98 @@ def apply_operator(left, right, operator):
         return float(left) <= float(right)
     return False
 
-def make_condition_func(node_id, conditions, port_map):
-    def condition_func(state):
-        result = evaluate_condition(state, conditions)
-        return list(port_map.keys())[0] if result else list(port_map.keys())[1]
-    condition_func.__name__ = node_id
-    return condition_func
+def _safe_eval_expr(expr: str, state: dict) -> bool:
+    """Evaluate a simple python expression with extremely limited context.
+    Exposes 'state' and 'attributes' only. Returns False on error.
+    """
+    try:
+        safe_globals = {"__builtins__": {}}
+        safe_locals = {
+            "state": state,
+            "attributes": state.get("attributes", {}),
+        }
+        return bool(eval(expr, safe_globals, safe_locals))
+    except Exception:
+        return False
+
+
+def _is_truthy_state_condition(value_obj: dict, state: dict) -> bool:
+    """Support the simplified 'state.condition' mode, or fallback to left/is_true if provided."""
+    # Preferred: explicit left/operator from UI
+    left = None
+    if isinstance(value_obj, dict) and "left" in value_obj:
+        left = extract_value(state, value_obj["left"])  # pragma: no cover - passthrough
+        return bool(left) is True
+    # Fallback to state.get('condition') or attributes.condition
+    cond = state.get("condition")
+    if cond is None:
+        cond = state.get("attributes", {}).get("condition")
+    return bool(cond) is True
+
+
+def make_condition_selector(node_id: str, node_data: dict, port_map: dict):
+    """Build a selector for new condition model: conditions list with keys if_*/elif_*/else_*.
+    Returns a function(state) -> selected_port_id.
+    """
+    conditions = node_data.get("conditions", []) or []
+
+    # Sort by if -> elif... -> else
+    def _ctype(k: str) -> int:
+        if k.startswith("if_"): return 0
+        if k.startswith("elif_"): return 1
+        if k.startswith("else_"): return 2
+        return 1
+
+    ordered = sorted(conditions, key=lambda c: _ctype(c.get("key", "")))
+
+    def selector(state: dict):
+        # Evaluate IF/ELIF; default to ELSE if present; otherwise None
+        for cond in ordered:
+            key = cond.get("key", "")
+            val = cond.get("value")
+            if key.startswith("else_"):
+                # Only choose else if no prior branch matched; we continue loop and pick later if nothing matched
+                continue
+            # New formats:
+            # - { mode: 'state.condition', left:{...}, operator:'is_true' } or similar
+            # - { mode: 'custom', expr: '...' }
+            matched = False
+            if isinstance(val, dict):
+                mode = val.get("mode", "state.condition")
+                if mode == "state.condition":
+                    matched = _is_truthy_state_condition(val, state)
+                elif mode == "custom":
+                    expr = val.get("expr", "")
+                    matched = _safe_eval_expr(expr, state) if expr else False
+                else:
+                    # Legacy fallback
+                    try:
+                        matched = evaluate_condition_legacy(state, [cond])
+                    except Exception:
+                        matched = False
+            else:
+                # Legacy structure or empty; default False
+                matched = False
+
+            if matched:
+                # Return the port id that matches this condition key
+                if key in port_map:
+                    return key
+                # Some diagrams might use sourcePortID equal to the key; fall back to first mapping
+                return list(port_map.keys())[0] if port_map else None
+
+        # No IF/ELIF matched: pick ELSE if present
+        else_key = next((c.get("key") for c in ordered if str(c.get("key", "")).startswith("else_")), None)
+        if else_key and else_key in port_map:
+            return else_key
+        # Fallback: second mapping or first available
+        keys = list(port_map.keys())
+        if len(keys) > 1:
+            return keys[1]
+        return keys[0] if keys else None
+
+    selector.__name__ = node_id
+    return selector
 
 def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp_manager, edges_in_block):
     # Process all blocks (nodes) within the group/loop
@@ -218,22 +305,18 @@ def flowgram2langgraph(flowgram_json):
                     continue
                 workflow.add_edge(source_node, target_node)
 
-        # Add conditional edges
+        # Add conditional edges (supporting new Condition model)
         for node in flow.get("workFlow", {}).get("nodes", []):
             if node["type"] == "condition":
                 node_id = node["id"]
-                conditions = node["data"].get("conditions", [])
                 outgoing_edges = [e for e in flow.get("workFlow", {}).get("edges", []) if e["sourceNodeID"] == node_id]
                 port_map = {}
                 for edge in outgoing_edges:
                     port = edge.get("sourcePortID") # In Flowgram, the handle on the source node is the port
                     if port:
                         port_map[port] = edge["targetNodeID"]
-                workflow.add_conditional_edges(
-                    node_id,
-                    make_condition_func(node_id, conditions, port_map),
-                    path_map=port_map
-                )
+                selector = make_condition_selector(node_id, node.get("data", {}), port_map)
+                workflow.add_conditional_edges(node_id, selector, path_map=port_map)
     except Exception as e:
         err_msg = get_traceback(e, "ErrorFlowgram2Langgraph")
         logger.error(f"{err_msg}")

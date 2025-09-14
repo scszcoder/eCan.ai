@@ -40,6 +40,10 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
             type: 'constant',
             content: 'gpt-3.5-turbo',
           },
+          attachments: {
+            type: 'constant',
+            content: [],
+          },
           apiKey: {
             type: 'constant',
             content: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
@@ -70,6 +74,9 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
             },
             modelName: {
               type: 'string',
+            },
+            attachments: {
+              type: 'array',
             },
             apiKey: {
               type: 'string',
