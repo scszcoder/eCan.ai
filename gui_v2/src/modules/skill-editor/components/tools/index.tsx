@@ -8,7 +8,7 @@ import { useState, useEffect } from 'react';
 import { useRefresh } from '@flowgram.ai/free-layout-editor';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { Tooltip, IconButton, Divider } from '@douyinfe/semi-ui';
-import { IconUndo, IconRedo, IconPause, IconStop, IconForward, IconPlay } from '@douyinfe/semi-icons';
+import { IconUndo, IconRedo, IconPause, IconStop, IconForward, IconPlay, IconHelpCircle } from '@douyinfe/semi-icons';
 
 import { TestRunButton } from '../testrun/testrun-button';
 import { TestRunControlButton } from '../testrun/testrun-controls';
@@ -26,6 +26,7 @@ import { Comment } from './comment';
 import { AutoLayout } from './auto-layout';
 import { Open } from './open';
 import { Info } from './info';
+import { HelpPanel } from '../help/help-panel';
 import { NewPage } from './new-page';
 import { IPCAPI } from '../../../../services/ipc/api';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
@@ -38,6 +39,7 @@ export const Tools = () => {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [minimapVisible, setMinimapVisible] = useState(true);
+  const [helpVisible, setHelpVisible] = useState(false);
   useEffect(() => {
     const disposable = history.undoRedoService.onChange(() => {
       setCanUndo(history.canUndo());
@@ -116,6 +118,15 @@ export const Tools = () => {
         <NewPage disabled={playground.config.readonly} />
         <Save disabled={playground.config.readonly} />
         <Info />
+        {/* Help button */}
+        <Tooltip content="Help">
+          <IconButton
+            type="tertiary"
+            theme="borderless"
+            icon={<IconHelpCircle />}
+            onClick={() => setHelpVisible(true)}
+          />
+        </Tooltip>
         <TestRunButton disabled={playground.config.readonly} />
         <TestRunControlButton
           icon={<IconPause size="small" />}
@@ -142,6 +153,7 @@ export const Tools = () => {
           disabled={playground.config.readonly}
         />
       </ToolSection>
+      <HelpPanel visible={helpVisible} onCancel={() => setHelpVisible(false)} />
     </ToolContainer>
   );
 };

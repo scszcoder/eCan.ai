@@ -194,6 +194,7 @@ class NodeState(TypedDict):
     input: str
     attachments: List[FileAttachment]
     prompts: List[dict]
+    prompt_refs: dict
     formatted_prompts: List[dict]
     messages: List[Any]
     threads: List[dict]
