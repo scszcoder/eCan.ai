@@ -7,7 +7,6 @@ import { FormRenderProps, FlowNodeJSON, Field, FormMeta } from '@flowgram.ai/fre
 import { SubCanvasRender } from '@flowgram.ai/free-container-plugin';
 import {
   BatchOutputs,
-  BatchVariableSelector,
   createBatchOutputsFormPlugin,
   DisplayOutputs,
   IFlowRefValue,
@@ -17,6 +16,7 @@ import {
 import { defaultFormMeta } from '../default-form-meta';
 import { useIsSidebar, useNodeRenderContext } from '../../hooks';
 import { FormHeader, FormContent, FormItem, Feedback } from '../../form-components';
+import { Select, Input } from '@douyinfe/semi-ui';
 
 interface LoopNodeJSON extends FlowNodeJSON {
   data: {
@@ -29,16 +29,59 @@ export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
   const { readonly } = useNodeRenderContext();
   const formHeight = 85;
 
+  // Loop mode + while expression row
+  const loopModeAndExpr = (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      {/* Loop mode selector */}
+      <FormItem name={'loopMode'} type={'string'} vertical>
+        <Field<string> name={'loopMode'}>
+          {({ field }) => (
+            <Select
+              value={field.value || 'loopFor'}
+              onChange={(val) => field.onChange(val as string)}
+              optionList={[
+                { label: 'loopFor', value: 'loopFor' },
+                { label: 'loopWhile', value: 'loopWhile' },
+              ]}
+              style={{ width: 160 }}
+              size="small"
+              disabled={readonly}
+            />
+          )}
+        </Field>
+      </FormItem>
+
+      {/* While exit condition expression */}
+      <FormItem name={'loopWhileExpr'} type={'string'} vertical>
+        <Field<string> name={'loopWhileExpr'}>
+          {({ field }) => (
+            <Field<string> name={'loopMode'}>
+              {({ field: modeField }) => (
+                <Input
+                  value={field.value || ''}
+                  onChange={(val) => field.onChange(val)}
+                  placeholder={modeField.value === 'loopWhile' ? 'Enter exit condition expression' : 'Exit condition (loopWhile)'}
+                  disabled={readonly || modeField.value !== 'loopWhile'}
+                  style={{ width: '100%' }}
+                />
+              )}
+            </Field>
+          )}
+        </Field>
+      </FormItem>
+    </div>
+  );
+
   const loopFor = (
-    <Field<IFlowRefValue> name={`loopFor`}>
+    <Field<string> name={`loopCountExpr`}>
       {({ field, fieldState }) => (
-        <FormItem name={'loopFor'} type={'array'} required>
-          <BatchVariableSelector
+        <FormItem name={'loopCountExpr'} type={'string'} required>
+          <Input
+            value={field.value || ''}
+            onChange={(val) => field.onChange(val)}
+            placeholder={'Enter loop count (number or expression)'}
+            disabled={readonly}
             style={{ width: '100%' }}
-            value={field.value?.content}
-            onChange={(val) => field.onChange({ type: 'ref', content: val })}
-            readonly={readonly}
-            hasError={Object.keys(fieldState?.errors || {}).length > 0}
           />
           <Feedback errors={fieldState?.errors} />
         </FormItem>
@@ -68,7 +111,13 @@ export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
       <>
         <FormHeader />
         <FormContent>
-          {loopFor}
+          {loopModeAndExpr}
+          {/* Show loopFor selector only when loopMode is loopFor */}
+          <Field<string> name={'loopMode'}>
+            {({ field: modeField }) => (
+              modeField.value === 'loopFor' ? loopFor : null
+            )}
+          </Field>
           {loopOutputs}
         </FormContent>
       </>
@@ -78,7 +127,12 @@ export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
     <>
       <FormHeader />
       <FormContent>
-        {loopFor}
+        {loopModeAndExpr}
+        <Field<string> name={'loopMode'}>
+          {({ field: modeField }) => (
+            modeField.value === 'loopFor' ? loopFor : null
+          )}
+        </Field>
         <SubCanvasRender offsetY={-formHeight} />
         <DisplayOutputs displayFromScope />
       </FormContent>
@@ -90,7 +144,7 @@ export const formMeta: FormMeta = {
   ...defaultFormMeta,
   render: LoopFormRender,
   effect: {
-    loopFor: provideBatchInputEffect,
+    // loopFor array binding removed; loopCountExpr is a simple string now
   },
   plugins: [createBatchOutputsFormPlugin({ outputKey: 'loopOutputs' })],
 };

@@ -71,6 +71,10 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
       type: WorkflowNodeType.Loop,
       data: {
         title: `Loop_${++index}`,
+        // loop settings
+        loopMode: 'loopFor', // 'loopFor' | 'loopWhile'
+        loopCountExpr: '',   // used when loopMode === 'loopFor'
+        loopWhileExpr: '',   // used when loopMode === 'loopWhile'
       },
       blocks: [
         {
