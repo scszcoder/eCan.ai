@@ -18,6 +18,7 @@ import { IconButton, Dropdown } from '@douyinfe/semi-ui';
 import { IconMore } from '@douyinfe/semi-icons';
 
 import { FlowNodeRegistry } from '../../typings';
+import { WorkflowNodeType } from '../../nodes/constants';
 import { PasteShortcut } from '../../shortcuts/paste';
 import { CopyShortcut } from '../../shortcuts/copy';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
@@ -131,9 +132,11 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
           <Dropdown.Item onClick={handleCopy} disabled={registry.meta!.copyDisable === true}>
             Create Copy
           </Dropdown.Item>
-          <Dropdown.Item onClick={(e) => handleBreakpointToggle(e)}>
-            {isBreakpoint ? 'Clear Breakpoint' : 'Set Breakpoint'}
-          </Dropdown.Item>
+          {registry.type !== WorkflowNodeType.Condition && (
+            <Dropdown.Item onClick={(e) => handleBreakpointToggle(e)}>
+              {isBreakpoint ? 'Clear Breakpoint' : 'Set Breakpoint'}
+            </Dropdown.Item>
+          )}
           <Dropdown.Item
             onClick={handleDelete}
             disabled={!!(registry.canDelete?.(clientContext, node) || registry.meta!.deleteDisable)}
