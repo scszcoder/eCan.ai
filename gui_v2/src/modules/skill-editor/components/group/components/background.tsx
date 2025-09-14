@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { CSSProperties, FC, useEffect } from 'react';
+import { CSSProperties, FC, useEffect, MouseEvent as ReactMouseEvent } from 'react';
 
 import { useWatch, WorkflowNodeEntity } from '@flowgram.ai/free-layout-editor';
 
@@ -13,9 +13,10 @@ import { defaultColor, groupColors } from '../color';
 interface GroupBackgroundProps {
   node: WorkflowNodeEntity;
   style?: CSSProperties;
+  onDrag?: (e: ReactMouseEvent) => void;
 }
 
-export const GroupBackground: FC<GroupBackgroundProps> = ({ node, style }) => {
+export const GroupBackground: FC<GroupBackgroundProps> = ({ node, style, onDrag }) => {
   const colorName = useWatch<string>(GroupField.Color) ?? defaultColor;
   const color = groupColors[colorName];
 
@@ -45,9 +46,16 @@ export const GroupBackground: FC<GroupBackgroundProps> = ({ node, style }) => {
     <div
       className="workflow-group-background"
       data-flow-editor-selectable="true"
+      onMouseDown={(e) => {
+        // Prevent canvas pan/selection; only drag this group
+        e.stopPropagation();
+        e.preventDefault();
+        onDrag?.(e);
+      }}
       style={{
         ...style,
         backgroundColor: `${color['300']}29`,
+        cursor: 'move',
       }}
     />
   );
