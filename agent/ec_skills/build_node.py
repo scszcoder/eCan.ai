@@ -65,15 +65,15 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         variables = re.findall(r'\{(\w+)\}', system_prompt_template + user_prompt_template)
 
         # Get attributes from state, default to an empty dict if not present
-        attributes = state.get("attributes", {})
+        prompt_refs = state.get("prompt_refs", {})
 
         # Prepare the context for formatting the prompts by pulling values from the state
         format_context = {}
         for var in variables:
-            if var in attributes:
-                format_context[var] = attributes[var]
+            if var in prompt_refs:
+                format_context[var] = prompt_refs[var]
             else:
-                print(f"Warning: Variable '{{{var}}}' not found in state attributes. Using empty string.")
+                print(f"Warning: Variable '{{{var}}}' not found in state prompt_refs. Using empty string.")
                 format_context[var] = ""
 
         # Format the final prompts with values from the state
@@ -81,7 +81,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             final_system_prompt = system_prompt_template.format(**format_context)
             final_user_prompt = user_prompt_template.format(**format_context)
         except KeyError as e:
-            error_message = f"Error formatting prompt: Missing key {e} in state attributes."
+            error_message = f"Error formatting prompt: Missing key {e} in state prompt_refs."
             print(error_message)
             state['error'] = error_message
             return state
@@ -101,11 +101,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             # It's good practice to put results in specific keys
             if 'llm_responses' not in state:
                 state['llm_responses'] = []
-            state['llm_responses'].append(response.content)
-            
-            # Also update attributes for easy access by downstream nodes
-            attributes['last_llm_response'] = response.content
-            state['attributes'] = attributes
+            state['messages'].append(response.content)
+
 
         except Exception as e:
             error_message = f"LLM invocation failed: {e}"
