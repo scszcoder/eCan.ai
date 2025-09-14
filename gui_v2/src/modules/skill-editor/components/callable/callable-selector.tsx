@@ -203,7 +203,7 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
 
   return (
     <CallableSelectorWrapper>
-      <div className="selector-container" style={{ width: 210 }}>
+      <div className="selector-container" style={{ width: '100%', maxWidth: '100%' }}>
         <Select
           style={{ width: '100%' }}
           value={value?.name || selectedValue}
@@ -217,6 +217,8 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
             label: renderOption(func)
           }))}
           disabled={readonly}
+          dropdownMatchSelectWidth
+          size="small"
         />
         <Dropdown
           trigger="click"
