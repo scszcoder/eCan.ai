@@ -32,8 +32,8 @@ export function FormCallable() {
     <Field<CallableFunction> name="data.callable">
       {({ field, fieldState }: FieldRenderProps<CallableFunction>) => (
         <FormItem
-          name="tool" type="object" required={false}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          name="tool" type="object" required={false} vertical>
+          <div style={{ width: '100%', maxWidth: '100%' }}>
             <CallableSelector
               readonly={readonly}
               value={field.value}

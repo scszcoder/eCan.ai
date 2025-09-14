@@ -63,8 +63,11 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
         },
         inputs: {
           type: 'object',
-          required: ['modelName', 'apiKey', 'apiHost', 'temperature', 'prompt'],
+          required: ['modelProvider', 'modelName', 'apiKey', 'apiHost', 'temperature', 'prompt'],
           properties: {
+            modelProvider: {
+              type: 'string',
+            },
             modelName: {
               type: 'string',
             },

@@ -25,12 +25,16 @@ export const FormRender = ({ form }: FormRenderProps<any>) => {
               const currentProvider = (providerField.value as string) || providers[0] || 'OpenAI';
               const providerOptions = providers.map(p => ({ label: p, value: p }));
               return (
-                <Select
-                  value={currentProvider}
-                  onChange={(val) => providerField.onChange(val as string)}
-                  optionList={providerOptions}
-                  style={{ width: 220 }}
-                />
+                <div style={{ width: '100%', maxWidth: '100%' }}>
+                  <Select
+                    value={currentProvider}
+                    onChange={(val) => providerField.onChange(val as string)}
+                    optionList={providerOptions}
+                    style={{ width: '100%' }}
+                    dropdownMatchSelectWidth
+                    size="small"
+                  />
+                </div>
               );
             }}
           </Field>
@@ -51,12 +55,16 @@ export const FormRender = ({ form }: FormRenderProps<any>) => {
                     setTimeout(() => modelField.onChange(models[0]), 0);
                   }
                   return (
-                    <Select
-                      value={value}
-                      onChange={(val) => modelField.onChange(val as string)}
-                      optionList={modelOptions}
-                      style={{ width: 300 }}
-                    />
+                    <div style={{ width: '100%', maxWidth: '100%' }}>
+                      <Select
+                        value={value}
+                        onChange={(val) => modelField.onChange(val as string)}
+                        optionList={modelOptions}
+                        style={{ width: '100%' }}
+                        dropdownMatchSelectWidth
+                        size="small"
+                      />
+                    </div>
                   );
                 }}
               </Field>
