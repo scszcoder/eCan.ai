@@ -47,10 +47,13 @@ export const GroupBackground: FC<GroupBackgroundProps> = ({ node, style, onDrag 
       className="workflow-group-background"
       data-flow-editor-selectable="true"
       onMouseDown={(e) => {
-        // Prevent canvas pan/selection; only drag this group
-        e.stopPropagation();
-        e.preventDefault();
-        onDrag?.(e);
+        // Require Alt key to drag the group via background to avoid accidental moves
+        if (e.altKey) {
+          e.stopPropagation();
+          e.preventDefault();
+          onDrag?.(e);
+        }
+        // otherwise, allow event to bubble for normal interactions
       }}
       style={{
         ...style,

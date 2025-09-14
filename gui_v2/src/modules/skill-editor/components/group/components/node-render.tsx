@@ -51,9 +51,11 @@ export const GroupNodeRender = () => {
         className="workflow-group-drag-handle"
         data-flow-editor-selectable="false"
         onMouseDown={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          startDrag(e as MouseEvent);
+          if (e.altKey) {
+            e.stopPropagation();
+            e.preventDefault();
+            startDrag(e as MouseEvent);
+          }
         }}
         title="Drag Group"
       />
@@ -61,7 +63,9 @@ export const GroupNodeRender = () => {
         <>
           <GroupHeader
             onDrag={(e) => {
-              startDrag(e as MouseEvent);
+              if ((e as any).altKey) {
+                startDrag(e as MouseEvent);
+              }
             }}
             onFocus={onFocus}
             onBlur={onBlur}

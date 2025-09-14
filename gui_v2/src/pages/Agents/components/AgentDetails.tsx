@@ -5,8 +5,9 @@ import dayjs, { Dayjs } from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useUserStore } from '@/stores/userStore';
-import { get_ipc_api } from '@/services/ipc_api';
 import type { Agent } from '../types';
+import { useAppDataStore } from '@/stores/appDataStore';
+import { get_ipc_api } from '@/services/ipc_api';
 
 type Gender = 'gender_options.male' | 'gender_options.female';
 
@@ -33,6 +34,8 @@ const knownTitles = ['title.engineer', 'title.manager', 'title.analyst', 'title.
 const knownOrganizations = ['organization.rd', 'organization.sales', 'organization.marketing', 'organization.hr', 'organization.ops'];
 const knownSupervisors = ['agent_super_1', 'agent_super_2'];
 const knownSubordinates = ['agent_sub_1', 'agent_sub_2'];
+// Tasks and skills will be sourced from global store to link with Tasks/Skills pages
+// We keep fallback arrays in case store is empty to avoid empty UI when no data loaded yet
 const knownTasks = ['task_001', 'task_002', 'task_003'];
 const knownSkills = ['skill_001', 'skill_002', 'skill_003'];
 const knownVehicles = ['HostA (10.0.0.1)', 'HostB (10.0.0.2)', 'HostC (10.0.0.3)'];
@@ -44,6 +47,59 @@ const AgentDetails: React.FC = () => {
   const isNew = id === 'new';
   const username = useUserStore((s: any) => s.username);
   const { message } = App.useApp();
+
+  // Pull tasks and skills from global app data store (populated by Tasks/Skills pages)
+  const storeTasks = useAppDataStore((state) => state.tasks);
+  const storeSkills = useAppDataStore((state) => state.skills);
+  const setTasks = useAppDataStore((state) => state.setTasks);
+  const setSkills = useAppDataStore((state) => state.setSkills);
+
+  // Build options for selects. ListEditor expects string[] options.
+  // For tasks, use task.skill; for skills, use skill.name.
+  const taskOptions = useMemo(() => {
+    const skills = (storeTasks || [])
+      .map((t: any) => t.skill)
+      .filter(Boolean);
+    const unique = Array.from(new Set(skills));
+    return unique.length > 0 ? unique : knownTasks;
+  }, [storeTasks]);
+
+  const skillOptions = useMemo(() => {
+    const names = (storeSkills || [])
+      .map((s: any) => s.name)
+      .filter(Boolean);
+    const unique = Array.from(new Set(names));
+    return unique.length > 0 ? unique : knownSkills;
+  }, [storeSkills]);
+
+  // Proactively fetch tasks/skills if empty so dropdowns populate without visiting their pages first
+  useEffect(() => {
+    const api = get_ipc_api();
+    const fetchIfNeeded = async () => {
+      try {
+        let uname = username;
+        if (!uname) {
+          const loginInfo = await api.getLastLoginInfo<{ last_login: { username: string } }>();
+          if (loginInfo?.success) {
+            uname = loginInfo.data?.last_login?.username;
+          }
+        }
+        if (uname) {
+          if (!storeTasks || storeTasks.length === 0) {
+            const res = await api.getTasks<{ tasks: any[] }>(uname, []);
+            if (res?.success && res.data?.tasks) setTasks(res.data.tasks as any);
+          }
+          if (!storeSkills || storeSkills.length === 0) {
+            const res2 = await api.getSkills<{ skills: any[] }>(uname, []);
+            if (res2?.success && res2.data?.skills) setSkills(res2.data.skills as any);
+          }
+        }
+      } catch (e) {
+        // silent fail; UI will use fallbacks
+      }
+    };
+    fetchIfNeeded();
+  }, [username, storeTasks?.length, storeSkills?.length, setTasks, setSkills]);
 
   const [form] = Form.useForm<AgentDetailsForm>();
   const [editMode, setEditMode] = useState(isNew);
@@ -210,7 +266,7 @@ const AgentDetails: React.FC = () => {
 
       <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} styles={{ body: { padding: 16, height: '100%', overflow: 'hidden' } }}>
         <div style={{ height: '100%', overflowY: 'auto' }}>
-          <Form form={form} layout="vertical" disabled={!editMode}>
+          <Form form={form} layout="vertical">
             <Row gutter={[16, 16]}>
               <Col span={12}>
                 <Form.Item name="id" label={t('common.id') || 'ID'}>
@@ -347,9 +403,9 @@ const AgentDetails: React.FC = () => {
                         label={t('pages.agents.task') || 'Task'}
                         items={form.getFieldValue('tasks')}
                         setItems={(arr) => form.setFieldsValue({ tasks: arr })}
-                        options={knownTasks}
-                        editable={editMode}
-                        onEdit={(id) => navigate(`/tasks/details/${id}`)}
+                        options={taskOptions}
+                        editable={true}
+                        onEdit={() => navigate(`/tasks`)}
                       />
                     )}
                 </Form.Item>
@@ -365,9 +421,9 @@ const AgentDetails: React.FC = () => {
                         label={t('pages.agents.skill') || 'Skill'}
                         items={form.getFieldValue('skills')}
                         setItems={(arr) => form.setFieldsValue({ skills: arr })}
-                        options={knownSkills}
-                        editable={editMode}
-                        onEdit={(id) => navigate(`/skills/details/${id}`)}
+                        options={skillOptions}
+                        editable={true}
+                        onEdit={() => navigate(`/skills`)}
                       />
                     )}
                 </Form.Item>
