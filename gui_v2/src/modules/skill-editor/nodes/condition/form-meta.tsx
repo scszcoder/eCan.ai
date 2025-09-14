@@ -25,6 +25,9 @@ export const formMeta: FormMeta<FlowNodeJSON> = {
   validate: {
     title: ({ value }: { value: string }) => (value ? undefined : 'Title is required'),
     'conditions.*': ({ value }) => {
+      const key: string | undefined = value?.key;
+      const isElse = typeof key === 'string' && key.startsWith('else_');
+      if (isElse) return undefined;
       if (!value?.value) return 'Condition is required';
       return undefined;
     },

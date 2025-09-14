@@ -3,12 +3,12 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { useCallback, useLayoutEffect } from 'react';
+import { useCallback, useLayoutEffect, useMemo } from 'react';
 
 import { nanoid } from 'nanoid';
 import { Field, FieldArray, WorkflowNodePortsData } from '@flowgram.ai/free-layout-editor';
 import { ConditionRow, ConditionRowValueType } from '@flowgram.ai/form-materials';
-import { Button } from '@douyinfe/semi-ui';
+import { Button, Select, Input } from '@douyinfe/semi-ui';
 import { IconPlus, IconCrossCircleStroked } from '@douyinfe/semi-icons';
 
 import { useNodeRenderContext } from '../../../hooks';
@@ -84,20 +84,56 @@ export function ConditionInputs() {
               const isIf = conditionType === 'if';
               
               return (
-                <div key={value.key}>
-                  <FormItem name={conditionType} type="boolean" required={true} labelWidth={60}>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      <ConditionRow
-                        readonly={readonly || isElse}
-                        style={{ flexGrow: 1 }}
-                        value={value.value}
-                        onChange={(v) => handleValueChange(field, value, v)}
-                      />
-                      {!readonly && (
+                <div key={value.key} style={{ width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
+                  <FormItem name={conditionType} type="boolean" required={!isElse} labelWidth={80}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', maxWidth: '100%', paddingRight: 36, boxSizing: 'border-box', overflow: 'hidden' }}>
+                      {isElse ? (
+                        <div style={{ flex: 1, color: 'var(--semi-color-text-2)' }}>Else branch</div>
+                      ) : (
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: '100%' }}>
+                          {/* Mode selector */}
+                          <Select
+                            value={(value.value as any)?.mode || 'state.condition'}
+                            onChange={(val) => {
+                              const mode = String(val);
+                              if (mode === 'state.condition') {
+                                handleValueChange(field, value, {
+                                  mode,
+                                  // fixed check: state.condition is true
+                                  left: { type: 'ref', content: ['state', 'condition'] },
+                                  operator: 'is_true',
+                                });
+                              } else {
+                                handleValueChange(field, value, { mode, expr: '' });
+                              }
+                            }}
+                            optionList={[
+                              { label: 'state.condition', value: 'state.condition' },
+                              { label: 'custom expression', value: 'custom' },
+                            ]}
+                            disabled={readonly}
+                            size="small"
+                            style={{ width: '100%' }}
+                            dropdownMatchSelectWidth
+                          />
+                          {/* Custom expression input */}
+                          {((value.value as any)?.mode || 'state.condition') === 'custom' && (
+                            <Input
+                              value={(value.value as any)?.expr || ''}
+                              onChange={(val) => handleValueChange(field, value, { ...(value.value as any), mode: 'custom', expr: val })}
+                              placeholder={'Enter condition expression'}
+                              disabled={readonly}
+                              style={{ width: '100%' }}
+                            />
+                          )}
+                        </div>
+                      )}
+                      {!readonly && !isElse && !(isIf && index === 0) && (
                         <Button
                           theme="borderless"
                           disabled={readonly}
                           icon={<IconCrossCircleStroked />}
+                          size="small"
                           onClick={() => {
                             if (field.value) {
                               const newValue = field.value.filter(v => v.key !== value.key);
