@@ -54,6 +54,25 @@
     border: 1px solid #facc15;
 }
 
+/* Top-left drag handle (Alt+Drag to move group) */
+.workflow-group-drag-handle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 16px;
+    height: 16px;
+    border-top-left-radius: 8px;
+    pointer-events: auto;
+    cursor: move;
+    z-index: 2;
+    /* Subtle grip texture: dotted pattern */
+    background: radial-gradient(circle at 3px 3px, rgba(0, 0, 0, 0.25) 1px, transparent 1px) 0 0 / 6px 6px,
+                linear-gradient(135deg, rgba(0,0,0,0.08), rgba(255,255,255,0));
+}
+.workflow-group-drag-handle:hover {
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.15) inset;
+}
+
 .workflow-group-tools {
     display: flex;
     justify-content: flex-start;

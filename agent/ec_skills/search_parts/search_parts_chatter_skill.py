@@ -1003,6 +1003,8 @@ async def create_search_parts_chatter_skill(mainwin):
         workflow.add_node("pend_for_result", node_wrapper(pend_for_result_message_node, "pend_for_result", THIS_SKILL_NAME, OWNER))
         # workflow.set_entry_point("run_search")
 
+
+
         workflow.add_node("show_results", show_results_node)
         # workflow.add_conditional_edges("run_search", is_result_ready, ["show_results", "pend_for_result"])
 

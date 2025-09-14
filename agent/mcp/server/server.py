@@ -31,7 +31,12 @@ from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from .event_store import InMemoryEventStore
 from agent.ec_skills.dom.dom_utils import *
-from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_query_components, api_ecan_ai_get_nodes_prompts, api_ecan_ai_ocr_read_screen
+from agent.mcp.server.api.ecan_ai.ecan_ai_api import (
+    ecan_ai_api_query_components,
+    api_ecan_ai_get_nodes_prompts,
+    api_ecan_ai_ocr_read_screen,
+    ecan_ai_api_query_fom
+)
 from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
 from agent.mcp.server.scrapers.api_ecan_ai_cloud_search.api_ecan_ai_cloud_search import api_ecan_ai_cloud_search
 from agent.mcp.server.scrapers.selenium_search_component import selenium_search_component
