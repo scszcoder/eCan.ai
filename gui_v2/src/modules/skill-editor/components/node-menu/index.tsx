@@ -132,7 +132,7 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
           <Dropdown.Item onClick={handleCopy} disabled={registry.meta!.copyDisable === true}>
             Create Copy
           </Dropdown.Item>
-          {registry.type !== WorkflowNodeType.Condition && (
+          {![WorkflowNodeType.Condition, WorkflowNodeType.Loop, WorkflowNodeType.Group].includes(registry.type as any) && (
             <Dropdown.Item onClick={(e) => handleBreakpointToggle(e)}>
               {isBreakpoint ? 'Clear Breakpoint' : 'Set Breakpoint'}
             </Dropdown.Item>
