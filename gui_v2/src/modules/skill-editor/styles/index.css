@@ -83,4 +83,51 @@
     justify-content: center;
     align-items: center;
   }
-  
+
+  /* Small palm cursors for better precision on nodes/edges */
+  /* 16x16 SVG simplified palm; hotspot at 5,5 for finer precision */
+  .demo-editor [style*="cursor: move"],
+  .demo-editor [style*="cursor: grab"],
+  .demo-editor [style*="cursor: grabbing"],
+  .demo-editor [style*="cursor: pointer"],
+  .demo-editor .gedit-selector-bounds-foreground,
+  .demo-editor .gedit-selector-bounds-background {
+    cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'><g fill='%23ffffff' stroke='%23000' stroke-width='1.5'><path d='M7 11v-3c0-1.1.9-2 2-2s2 .9 2 2v3'/><path d='M11 11V7c0-1.1.9-2 2-2s2 .9 2 2v4'/><path d='M15 11V8.5c0-1.1.9-2 2-2s2 .9 2 2V13c0 3-2 6-6 6H9c-2.2 0-4-1.8-4-4v-2.5c0-1.1.9-2 2-2 .83 0 1.5.67 1.5 1.5V13'/></g></svg>") 5 5, move !important;
+  }
+
+  .demo-editor [style*="cursor: grabbing"] {
+    cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'><g fill='%23ffffff' stroke='%23000' stroke-width='1.5'><path d='M7 10.5v-2.5c0-1.1.9-2 2-2s2 .9 2 2V10'/><path d='M11 10.5V7.5c0-1.1.9-2 2-2s2 .9 2 2V10'/><path d='M15 10.5V8.25c0-1.1.9-2 2-2s2 .9 2 2V12.5c0 3-2 6-6 6H9c-2.2 0-4-1.8-4-4v-2c0-1.1.9-2 2-2 .83 0 1.5.67 1.5 1.5v.5'/></g></svg>") 5 5, grabbing !important;
+  }
+
+  /* Apply to SVG layers (nodes/edges typically render in SVG) */
+  .demo-editor svg,
+  .demo-editor svg g,
+  .demo-editor svg path,
+  .demo-editor svg line,
+  .demo-editor svg rect,
+  .demo-editor svg circle {
+    cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'><g fill='%23ffffff' stroke='%23000' stroke-width='1.5'><path d='M7 11v-3c0-1.1.9-2 2-2s2 .9 2 2v3'/><path d='M11 11V7c0-1.1.9-2 2-2s2 .9 2 2v4'/><path d='M15 11V8.5c0-1.1.9-2 2-2s2 .9 2 2V13c0 3-2 6-6 6H9c-2.2 0-4-1.8-4-4v-2.5c0-1.1.9-2 2-2 .83 0 1.5.67 1.5 1.5V13'/></g></svg>") 5 5, move !important;
+  }
+  /* Strong hover overrides for idle state */
+  .demo-editor svg:hover,
+  .demo-editor svg *:hover,
+  .demo-editor [class*="node"]:hover,
+  .demo-editor [class*="line"]:hover {
+    cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'><g fill='%23ffffff' stroke='%23000' stroke-width='1.5'><path d='M7 11v-3c0-1.1.9-2 2-2s2 .9 2 2v3'/><path d='M11 11V7c0-1.1.9-2 2-2s2 .9 2 2v4'/><path d='M15 11V8.5c0-1.1.9-2 2-2s2 .9 2 2V13c0 3-2 6-6 6H9c-2.2 0-4-1.8-4-4v-2.5c0-1.1.9-2 2-2 .83 0 1.5.67 1.5 1.5V13'/></g></svg>") 5 5, move !important;
+  }
+  .demo-editor svg:active,
+  .demo-editor svg g:active,
+  .demo-editor svg path:active,
+  .demo-editor svg line:active,
+  .demo-editor svg rect:active,
+  .demo-editor svg circle:active {
+    cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'><g fill='%23ffffff' stroke='%23000' stroke-width='1.5'><path d='M7 10.5v-2.5c0-1.1.9-2 2-2s2 .9 2 2V10'/><path d='M11 10.5V7.5c0-1.1.9-2 2-2s2 .9 2 2V10'/><path d='M15 10.5V8.25c0-1.1.9-2 2-2s2 .9 2 2V12.5c0 3-2 6-6 6H9c-2.2 0-4-1.8-4-4v-2c0-1.1.9-2 2-2 .83 0 1.5.67 1.5 1.5v.5'/></g></svg>") 5 5, grabbing !important;
+  }
+
+  /* Aggressive fallback inside editor: small palm for all interactive areas */
+  .demo-editor *:not(input):not(textarea):not(button) {
+    cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'><g fill='%23ffffff' stroke='%23000' stroke-width='1.5'><path d='M7 11v-3c0-1.1.9-2 2-2s2 .9 2 2v3'/><path d='M11 11V7c0-1.1.9-2 2-2s2 .9 2 2v4'/><path d='M15 11V8.5c0-1.1.9-2 2-2s2 .9 2 2V13c0 3-2 6-6 6H9c-2.2 0-4-1.8-4-4v-2.5c0-1.1.9-2 2-2 .83 0 1.5.67 1.5 1.5V13'/></g></svg>") 5 5, grab !important;
+  }
+  .demo-editor *:active:not(input):not(textarea):not(button) {
+    cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'><g fill='%23ffffff' stroke='%23000' stroke-width='1.5'><path d='M7 10.5v-2.5c0-1.1.9-2 2-2s2 .9 2 2V10'/><path d='M11 10.5V7.5c0-1.1.9-2 2-2s2 .9 2 2V10'/><path d='M15 10.5V8.25c0-1.1.9-2 2-2s2 .9 2 2V12.5c0 3-2 6-6 6H9c-2.2 0-4-1.8-4-4v-2c0-1.1.9-2 2-2 .83 0 1.5.67 1.5 1.5v.5'/></g></svg>") 5 5, grabbing !important;
+  }
