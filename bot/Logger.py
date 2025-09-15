@@ -4,6 +4,8 @@ import os
 import asyncio
 import traceback
 from app_context import AppContext
+from utils.path_manager import path_manager
+from utils.permission_helper import safe_append, safe_write
 
 # con = sqlite3.connect("mylog.db")
 # cur = con.cursor()
@@ -166,23 +168,19 @@ def log2File(gui_main, msg):
         else:
             log_user = "anonymous"
 
-    dailyLogDir = ecb_data_homepath + "/{}/runlogs/{}/{}".format(log_user, log_user, year)
-    dailyLogFile = ecb_data_homepath + "/{}/runlogs/{}/{}/log{}{}{}.txt".format(log_user, log_user, year, year, month,
-                                                                                day)
+    dailyLogDir = path_manager.get_log_path(log_user, year)
+    dailyLogFile = os.path.join(dailyLogDir, f"log{year}{month}{day}.txt")
     time = now.strftime("%H:%M:%S - ")
+
+    # Ensure directory exists
+    path_manager.ensure_directory_exists(dailyLogFile)
+
+    log_content = time + msg + "\n"
+
     if os.path.isfile(dailyLogFile):
-        file1 = open(dailyLogFile, "a", encoding='utf-8')  # append mode
-
-        file1.write(time + msg + "\n")
-        file1.close()
+        safe_append(dailyLogFile, log_content)
     else:
-        if not os.path.exists(dailyLogDir):
-            os.makedirs(dailyLogDir)
-
-        file1 = open(dailyLogFile, "w", encoding='utf-8')  # append mode
-
-        file1.write(time + msg + "\n")
-        file1.close()
+        safe_write(dailyLogFile, log_content)
 
 def log3(msg, mask='all', gui_main=None):
     try:
@@ -258,17 +256,20 @@ def log6(msg, mask='all', gui_main=None, mission=None, stepIdx=0, msgType="Actio
         day = now.strftime("%d")
         if gui_main:
             log_user = gui_main.log_user
-        dailyLogDir = ecb_data_homepath + "/{}/runlogs/{}/{}".format(log_user, log_user, year)
-        dailyLogFile = ecb_data_homepath + "/{}/runlogs/{}/{}/log{}{}{}.txt".format(log_user, log_user, year, year, month, day)
-        time = now.strftime("%H:%M:%S - ")
-        if os.path.isfile(dailyLogFile):
-            file1 = open(dailyLogFile, "a", encoding='utf-8')  # append mode
 
-            file1.write(time + msg + "\n")
-            file1.close()
+        dailyLogDir = path_manager.get_log_path(log_user, year)
+        dailyLogFile = os.path.join(dailyLogDir, f"log{year}{month}{day}.txt")
+        time = now.strftime("%H:%M:%S - ")
+
+        # Ensure directory exists
+        path_manager.ensure_directory_exists(dailyLogFile)
+
+        log_content = time + msg + "\n"
+
+        if os.path.isfile(dailyLogFile):
+            safe_append(dailyLogFile, log_content)
         else:
-            if not os.path.exists(dailyLogDir):
-                os.makedirs(dailyLogDir)
+            safe_write(dailyLogFile, log_content)
 
             file1 = open(dailyLogFile, "w", encoding='utf-8')  # append mode
 
@@ -329,17 +330,20 @@ async def log68(msg, mask='all', gui_main=None, mission=None, stepIdx=0, msgType
         day = now.strftime("%d")
         if gui_main:
             log_user = gui_main.log_user
-        dailyLogDir = ecb_data_homepath + "/{}/runlogs/{}/{}".format(log_user, log_user, year)
-        dailyLogFile = ecb_data_homepath + "/{}/runlogs/{}/{}/log{}{}{}.txt".format(log_user, log_user, year, year, month, day)
-        time = now.strftime("%H:%M:%S - ")
-        if os.path.isfile(dailyLogFile):
-            file1 = open(dailyLogFile, "a", encoding='utf-8')  # append mode
 
-            file1.write(time + msg + "\n")
-            file1.close()
+        dailyLogDir = path_manager.get_log_path(log_user, year)
+        dailyLogFile = os.path.join(dailyLogDir, f"log{year}{month}{day}.txt")
+        time = now.strftime("%H:%M:%S - ")
+
+        # Ensure directory exists
+        path_manager.ensure_directory_exists(dailyLogFile)
+
+        log_content = time + msg + "\n"
+
+        if os.path.isfile(dailyLogFile):
+            safe_append(dailyLogFile, log_content)
         else:
-            if not os.path.exists(dailyLogDir):
-                os.makedirs(dailyLogDir)
+            safe_write(dailyLogFile, log_content)
 
             file1 = open(dailyLogFile, "w", encoding='utf-8')  # append mode
 
@@ -383,10 +387,8 @@ def log2file(msg, category='None', mask='None', file='None'):
     if file == 'None':
         print(msg)
     else:
-        file1 = open(file, "a")
         print(msg)
-        file1.write(msg)
-        file1.close()
+        safe_append(file, msg)
 
 
 def getLogMasks():

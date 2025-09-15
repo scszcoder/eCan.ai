@@ -13,6 +13,7 @@ from app_context import AppContext
 from utils.gui_dispatch import post_to_main_thread
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from utils.logger_helper import logger_helper as logger
+from utils.path_manager import path_manager
 from gui.ipc.registry import IPCHandlerRegistry
 from agent.chats.chat_service import ChatService
 import tempfile
@@ -366,23 +367,24 @@ def handle_mark_message_as_read(request: IPCRequest, params: Optional[dict]) -> 
 @IPCHandlerRegistry.handler('upload_attachment')
 def handle_upload_attachment(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
     """
-    处理上传附件，将附件保存到临时目录，并返回 url、name、type、size 等信息。
+    Handle upload attachment, save attachment to temporary directory, and return url, name, type, size and other information.
     """
     try:
         name = params['name']
         file_type = params['type']
         size = params['size']
-        data = params['data']  # base64 或 bytes
+        data = params['data']  # base64 or bytes
         logger.debug(f"handle_upload_attachment handler called with params: {name},{file_type}, {size}")
-        # 生成唯一文件名，防止冲突
+        # Generate unique filename to prevent conflicts
         ext = os.path.splitext(name)[1]
         unique_name = f"{uuid.uuid4().hex}{ext}"
         main_window = AppContext.get_main_window()
-        # 使用 main_window.temp_dir 而不是 tempfile.gettempdir()
+        # Use main_window.temp_dir instead of tempfile.gettempdir()
         file_path = os.path.join(main_window.temp_dir, unique_name)
-        # 确保目录存在
-        os.makedirs(main_window.temp_dir, exist_ok=True)
-        # 保存文件
+        # Ensure directory exists using safe method
+
+        path_manager.ensure_directory_exists(file_path)
+        # Save file
         if isinstance(data, str):
             import base64
             if data.startswith('data:'):

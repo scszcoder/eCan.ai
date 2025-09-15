@@ -11,8 +11,8 @@ ecb_data_homepath = getECBotDataHome()
 
 def copy_skills_file():
     """
-        if release version should copy some resource skills files from running unzip temp file to appdata files,
-        only copy public files
+        If release version should copy some resource skills files from running unzip temp file to appdata files,
+        only copy public files. This ensures skills can be modified without permission issues.
     """
     ecbot_home_path = app_info.app_home_path
     app_skills_public_dir = ecbot_home_path + "/" + RESOURCE + "/" + FOLDER_SKILLS + "/public"
@@ -129,12 +129,12 @@ class AppSettings:
         # logger_helper.setup(APP_NAME, app_info.app_home_path + "/runlogs/" + APP_NAME + ".log", logging.DEBUG)
         # logger_helper.setup(APP_NAME, ecb_data_homepath + "/runlogs/" + APP_NAME + ".log", logging.DEBUG)
 
-        if getattr(sys, 'frozen', False):
-            create_appdata_dirs()
-            init_settings_files()
-            copy_skills_file()
-        else:
-            print('debug mode version so not need init some appdata config files')
+        # if getattr(sys, 'frozen', False):
+        #     create_appdata_dirs()
+        #     init_settings_files()
+        #     copy_skills_file()
+        # else:
+        #     print('debug mode version so not need init some appdata config files')
 
     @property
     def is_dev_mode(self):
