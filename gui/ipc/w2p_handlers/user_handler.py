@@ -50,7 +50,8 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
         result = login.handleLogin(username, password, machine_role)
 
         if result.get('success'):
-            token = str(uuid.uuid4()).replace('-', '')
+            from gui.ipc.token_manager import token_manager
+            token = token_manager.generate_token(username, machine_role)
             return create_success_response(request, {
                 'token': token,
                 'message': auth_messages.get_message('login_success')
@@ -216,12 +217,14 @@ def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         success, message, _ = login._handle_google_login(machine_role, schedule_mode)
 
         if success:
-            session_token = str(uuid.uuid4()).replace('-', '')
+            from gui.ipc.token_manager import token_manager
+            user_email = login.auth_manager.get_current_user()
+            session_token = token_manager.generate_token(user_email, machine_role)
             response_data = {
                 'token': session_token,
                 'message': auth_messages.get_message('google_login_success'),
                 'user_info': {
-                    'email': login.auth_manager.get_current_user()
+                    'email': user_email
                 }
             }
             return create_success_response(request, response_data)

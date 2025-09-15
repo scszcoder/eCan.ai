@@ -1,6 +1,5 @@
 import traceback
 from typing import TYPE_CHECKING, Any, Optional, Dict
-import uuid
 from app_context import AppContext
 if TYPE_CHECKING:
     from gui.MainGUI import MainWindow
@@ -35,21 +34,28 @@ def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
                 'INVALID_PARAMS',
                 error
             )
-        main_window: MainWindow = AppContext.main_window
+        main_window: MainWindow = AppContext.get_main_window()
         agents = main_window.agents
         all_tasks = []
         for agent in agents:
-            all_tasks.extend(agent.tasks)
-        # 获取用户名和密码
+            agent_tasks = agent.tasks
+            all_tasks.extend(agent_tasks)
+        
+        # 获取用户名
         username = data['username']
 
-        # 简单的密码验证
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
-        logger.info(f"Get tasks successful for user: {username}")
+        # 安全地序列化任务
+        serialized_tasks = []
+        for task in all_tasks:
+            try:
+                task_dict = task.to_dict()
+                serialized_tasks.append(task_dict)
+            except Exception as e:
+                logger.error(f"Failed to serialize task {getattr(task, 'id', 'unknown')}: {e}")
+
+        logger.info(f"Get tasks successful for user: {username}, found {len(serialized_tasks)} tasks")
         resultJS = {
-            'token': token,
-            'tasks': [task.to_dict() for task in all_tasks],
+            'tasks': serialized_tasks,
             'message': 'Get all successful'
         }
         logger.debug('get tasks resultJS:' + str(resultJS))
@@ -93,11 +99,8 @@ def handle_save_tasks(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         username = data['username']
 
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"save tasks successful for user: {username}")
         return create_success_response(request, {
-            'token': token,
             'message': 'Save tasks successful'
         })
 
@@ -140,11 +143,8 @@ def handle_new_tasks(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         username = data['username']
 
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"create tasks successful for user: {username}")
         return create_success_response(request, {
-            'token': token,
             'message': 'Create tasks successful'
         })
 
@@ -187,11 +187,8 @@ def handle_delete_tasks(request: IPCRequest, params: Optional[list[Any]]) -> IPC
         username = data['username']
 
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"delete tasks successful for user: {username}")
         return create_success_response(request, {
-            'token': token,
             'message': 'Delete tasks successful'
         })
 

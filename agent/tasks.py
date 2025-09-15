@@ -770,7 +770,7 @@ class TaskRunner(Generic[Context]):
                 "status": "sent"
             }
 
-            mainwin = AppContext.main_window
+            mainwin = AppContext.get_main_window()
             mainwin.chat_service.push_message_to_chat(target_chat_id, msg_data)
 
         except Exception as e:
@@ -791,7 +791,7 @@ class TaskRunner(Generic[Context]):
                 "content": {"type": "form", "form": chatData},
                 "status": "sent"
             }
-            mainwin = AppContext.main_window
+            mainwin = AppContext.get_main_window()
             mainwin.chat_service.push_message_to_chat(target_chat_id, msg_data)
         except Exception as e:
             ex_stat = "ErrorSendChat2GUI:" + traceback.format_exc() + " " + str(e)

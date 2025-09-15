@@ -131,7 +131,7 @@ try:
 
         progress_manager = create_startup_progress_manager(startup_splash)
     except Exception as e:
-        print(f"❌ Failed to initialize splash screen: {e}")
+        print(f"Failed to initialize splash screen: {e}")
         import traceback
         traceback.print_exc()
         # Create a dummy progress manager to continue startup
@@ -171,7 +171,7 @@ try:
 
     def main():
         """Main function"""
-        print("🚀 Entering main function...")
+        print("Entering main function...")
         progress_manager.update_progress(35, "Initializing application...")
 
         # Start hot reload monitoring (development mode)
@@ -233,7 +233,7 @@ try:
             logger.info("Running in production mode (built files)")
 
         # Create Web GUI (do not show yet; wait until resources are loaded)
-        print("🚀 Starting to create WebGUI instance...")
+        print("Starting to create WebGUI instance...")
         logger.info("Creating WebGUI instance...")
         progress_manager.update_progress(70, "Creating main interface...")
 
@@ -242,7 +242,7 @@ try:
             progress_manager.update_progress(progress, status)
 
         web_gui = WebGUI(splash=startup_splash, progress_callback=webgui_progress_callback)
-        print("✅ WebGUI instance created successfully")
+        print("WebGUI instance created successfully")
         logger.info("WebGUI instance created successfully")
 
         progress_manager.update_progress(80, "Setting up URL scheme handling...")
@@ -278,7 +278,7 @@ try:
         main()
     except Exception as e:
         error_info = traceback.format_exc()
-        print(f"\n❌ Application startup failed:")
+        print(f"\nApplication startup failed:")
         print(f"Error type: {type(e).__name__}")
         print(f"Error message: {str(e)}")
         print(f"\nComplete exception stack:")
@@ -296,7 +296,7 @@ try:
 except Exception as e:
     # Top-level exception handling, catch all import exceptions
     error_info = traceback.format_exc()
-    print(f"\n❌ Program import or initialization failed:")
+    print(f"\nProgram import or initialization failed:")
     print(f"Error type: {type(e).__name__}")
     print(f"Error message: {str(e)}")
     print(f"\nComplete exception stack:")
