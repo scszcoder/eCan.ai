@@ -147,8 +147,8 @@ def setup_application_info(app, logger=None):
     
     try:
         # Basic application information
-        app.setApplicationName("eCan")
-        app.setApplicationDisplayName("eCan")
+        app.setApplicationName("eCan.ai")
+        app.setApplicationDisplayName("eCan.ai")
         app.setOrganizationName("eCan Team")
         app.setOrganizationDomain("ecan.app")
         
@@ -292,8 +292,8 @@ def _setup_windows_app_info(app, logger=None):
             # Set additional Windows-specific properties
             try:
                 # Set window class name for better Windows integration
-                app.setApplicationName("eCan")
-                app.setApplicationDisplayName("eCan")
+                app.setApplicationName("eCan.ai")
+                app.setApplicationDisplayName("eCan.ai")
                 app.setApplicationVersion("1.0.0")
                 app.setOrganizationName("eCan")
                 app.setOrganizationDomain("ecan.ai")
@@ -307,9 +307,9 @@ def _setup_windows_app_info(app, logger=None):
             # Try to set the console window title as well
             try:
                 kernel32 = ctypes.windll.kernel32
-                kernel32.SetConsoleTitleW("eCan")
+                kernel32.SetConsoleTitleW("eCan.ai")
                 if logger:
-                    logger.debug("Console title set to: eCan")
+                    logger.debug("Console title set to: eCan.ai")
             except Exception as e:
                 if logger:
                     logger.debug(f"Failed to set console title: {e}")
@@ -788,8 +788,8 @@ def set_app_icon_early(app, logger=None):
                 # Set console title early
                 try:
                     kernel32 = ctypes.windll.kernel32
-                    kernel32.SetConsoleTitleW("eCan")
-                    log_msg("Early console title set to: eCan", 'debug')
+                    kernel32.SetConsoleTitleW("eCan.ai")
+                    log_msg("Early console title set to: eCan.ai", 'debug')
                 except Exception as e:
                     log_msg(f"Failed to set early console title: {e}", 'debug')
 

@@ -306,53 +306,78 @@ class AuthManager:
         return "ecan_refresh"
 
     def _store_refresh_token(self, username: str, refresh_token: str) -> bool:
-        """Store refresh token with fallback to file-based storage if keyring fails."""
+        """Store refresh token using chunked keyring storage for large tokens."""
         # First, validate the refresh token
         if not refresh_token or len(refresh_token.strip()) == 0:
             logger.error("Cannot store empty refresh token")
             return False
             
-        # Check token size - Windows Credential Manager has limitations
-        if len(refresh_token) > 2560:  # Windows Credential Manager limit
-            logger.warning(f"Refresh token too large ({len(refresh_token)} chars), using file fallback")
-            return self._store_refresh_token_file(username, refresh_token)
-            
         try:
-            # Try to store in keyring first
-            keyring.set_password(self._refresh_service(), username, refresh_token)
-            logger.info("Refresh token stored successfully in keyring")
-            return True
+            # Check if token is small enough for direct storage with base64 encoding
+            encoded_token = base64.b64encode(refresh_token.encode('utf-8')).decode('ascii')
+            if len(encoded_token) <= 1200:  # Conservative limit for direct base64 storage
+                try:
+                    safe_username = self._sanitize_username_for_keyring(username)
+                    keyring.set_password(self._refresh_service(), safe_username, encoded_token)
+                    logger.info("Refresh token stored successfully in keyring (direct base64)")
+                    return True
+                except Exception as e:
+                    logger.warning(f"Direct keyring storage failed: {e}, trying chunked storage")
+            
+            # Use chunked storage for large tokens or if direct storage failed
+            return self._store_refresh_token_chunked(username, refresh_token)
         except Exception as e:
-            logger.warning(f"Failed to store refresh token in keyring: {e}")
+            logger.warning(f"Failed to store refresh token in chunked keyring: {e}")
             logger.info("Falling back to file-based storage")
             return self._store_refresh_token_file(username, refresh_token)
 
     def _get_refresh_token(self, username: str) -> tuple[bool, str]:
-        """Get refresh token from keyring or file fallback."""
+        """Get refresh token from chunked keyring storage or file fallback."""
         try:
-            # Try keyring first
-            token = keyring.get_password(self._refresh_service(), username)
-            if token is not None and len(token.strip()) > 0:
+            # Try direct keyring first (base64 encoded)
+            safe_username = self._sanitize_username_for_keyring(username)
+            encoded_token = keyring.get_password(self._refresh_service(), safe_username)
+            if encoded_token is not None and len(encoded_token.strip()) > 0:
+                try:
+                    # Decode from base64
+                    token = base64.b64decode(encoded_token.encode('ascii')).decode('utf-8')
+                    return True, token
+                except Exception as decode_e:
+                    logger.debug(f"Failed to decode direct keyring token: {decode_e}")
+        except Exception as e:
+            logger.debug(f"Failed to get refresh token from direct keyring: {e}")
+        
+        try:
+            # Try chunked keyring
+            success, token = self._get_refresh_token_chunked(username)
+            if success and token and len(token.strip()) > 0:
                 return True, token
         except Exception as e:
-            logger.debug(f"Failed to get refresh token from keyring: {e}")
+            logger.debug(f"Failed to get refresh token from chunked keyring: {e}")
             
         # Try file fallback
         return self._get_refresh_token_file(username)
 
     def _delete_refresh_token(self, username: str) -> bool:
-        """Delete refresh token from both keyring and file storage."""
+        """Delete refresh token from both chunked keyring and file storage."""
         success = True
         
-        # Delete from keyring
+        # Delete from direct keyring (base64 encoded)
         try:
-            # Some keyring backends may not implement delete_password; fallback to overwrite empty
+            safe_username = self._sanitize_username_for_keyring(username)
             try:
-                keyring.delete_password(self._refresh_service(), username)  # type: ignore[attr-defined]
+                keyring.delete_password(self._refresh_service(), safe_username)  # type: ignore[attr-defined]
             except Exception:
-                keyring.set_password(self._refresh_service(), username, "")
+                keyring.set_password(self._refresh_service(), safe_username, "")
         except Exception as e:
-            logger.warning(f"Failed to delete refresh token from keyring: {e}")
+            logger.warning(f"Failed to delete refresh token from direct keyring: {e}")
+            success = False
+        
+        # Delete from chunked keyring
+        try:
+            self._delete_refresh_token_chunked(username)
+        except Exception as e:
+            logger.warning(f"Failed to delete refresh token from chunked keyring: {e}")
             success = False
             
         # Delete from file storage
@@ -428,6 +453,179 @@ class AuthManager:
         except Exception as e:
             logger.warning(f"Failed to delete refresh token file: {e}")
             return False
+
+    # --- Chunked keyring storage methods ---
+    
+    def _get_chunk_service_name(self, chunk_index: int) -> str:
+        """Get service name for a specific chunk."""
+        return f"ecan_refresh_chunk_{chunk_index}"
+    
+    def _get_chunk_count_service_name(self) -> str:
+        """Get service name for storing chunk count."""
+        return "ecan_refresh_chunk_count"
+    
+    def _store_refresh_token_chunked(self, username: str, refresh_token: str) -> bool:
+        """Store refresh token in chunks to handle Windows Credential Manager length limitations."""
+        try:
+            # Validate inputs
+            if not username or not refresh_token:
+                logger.error("Invalid username or refresh_token for chunked storage")
+                return False
+            
+            # Sanitize username for Windows Credential Manager
+            safe_username = self._sanitize_username_for_keyring(username)
+            
+            # Encode token to base64 to ensure Windows compatibility
+            encoded_token = base64.b64encode(refresh_token.encode('utf-8')).decode('ascii')
+            
+            # Windows Credential Manager safe chunk size for base64 data
+            chunk_size = 1200  # More conservative for base64 encoded data
+            
+            # Split encoded token into chunks
+            chunks = [encoded_token[i:i + chunk_size] for i in range(0, len(encoded_token), chunk_size)]
+            chunk_count = len(chunks)
+            
+            logger.info(f"Storing refresh token in {chunk_count} base64-encoded chunks for user {username}")
+            
+            # First, clean up any existing chunks
+            self._delete_refresh_token_chunked(username)
+            
+            # Store chunk count with safe username
+            keyring.set_password(self._get_chunk_count_service_name(), safe_username, str(chunk_count))
+            
+            # Store each chunk
+            for i, chunk in enumerate(chunks):
+                if not chunk:  # Skip empty chunks
+                    continue
+                    
+                service_name = self._get_chunk_service_name(i)
+                keyring.set_password(service_name, safe_username, chunk)
+                logger.debug(f"Stored base64 chunk {i + 1}/{chunk_count} ({len(chunk)} chars)")
+            
+            logger.info(f"Successfully stored refresh token in {chunk_count} base64-encoded chunks")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to store refresh token in chunks: {e}")
+            # Clean up partial storage on failure
+            try:
+                self._delete_refresh_token_chunked(username)
+            except Exception:
+                pass
+            return False
+    
+    def _get_refresh_token_chunked(self, username: str) -> tuple[bool, str]:
+        """Retrieve refresh token from chunked keyring storage."""
+        try:
+            # Sanitize username for consistency
+            safe_username = self._sanitize_username_for_keyring(username)
+            
+            # Get chunk count
+            chunk_count_str = keyring.get_password(self._get_chunk_count_service_name(), safe_username)
+            if not chunk_count_str:
+                return False, "No chunked token found"
+            
+            try:
+                chunk_count = int(chunk_count_str)
+            except ValueError:
+                logger.warning(f"Invalid chunk count: {chunk_count_str}")
+                return False, "Invalid chunk count"
+            
+            if chunk_count <= 0:
+                return False, "Invalid chunk count"
+            
+            logger.debug(f"Retrieving refresh token from {chunk_count} base64-encoded chunks")
+            
+            # Retrieve and concatenate chunks
+            chunks = []
+            for i in range(chunk_count):
+                service_name = self._get_chunk_service_name(i)
+                chunk = keyring.get_password(service_name, safe_username)
+                if chunk is None:
+                    logger.warning(f"Missing chunk {i + 1}/{chunk_count}")
+                    return False, f"Missing chunk {i + 1}"
+                chunks.append(chunk)
+                logger.debug(f"Retrieved base64 chunk {i + 1}/{chunk_count} ({len(chunk)} chars)")
+            
+            # Concatenate all chunks and decode from base64
+            encoded_token = ''.join(chunks)
+            try:
+                refresh_token = base64.b64decode(encoded_token.encode('ascii')).decode('utf-8')
+            except Exception as e:
+                logger.error(f"Failed to decode base64 token: {e}")
+                return False, "Failed to decode token"
+            
+            logger.info(f"Successfully retrieved and decoded refresh token from {chunk_count} chunks ({len(refresh_token)} total chars)")
+            return True, refresh_token
+            
+        except Exception as e:
+            logger.debug(f"Failed to get refresh token from chunks: {e}")
+            return False, str(e)
+    
+    def _delete_refresh_token_chunked(self, username: str) -> bool:
+        """Delete all chunks of a refresh token from keyring."""
+        try:
+            success = True
+            
+            # Sanitize username for consistency
+            safe_username = self._sanitize_username_for_keyring(username)
+            
+            # Get chunk count first
+            chunk_count_str = keyring.get_password(self._get_chunk_count_service_name(), safe_username)
+            if chunk_count_str:
+                try:
+                    chunk_count = int(chunk_count_str)
+                    logger.debug(f"Deleting {chunk_count} chunks for user {username}")
+                    
+                    # Delete each chunk
+                    for i in range(chunk_count):
+                        service_name = self._get_chunk_service_name(i)
+                        try:
+                            keyring.delete_password(service_name, safe_username)  # type: ignore[attr-defined]
+                        except Exception:
+                            # Fallback to overwrite with empty string
+                            try:
+                                keyring.set_password(service_name, safe_username, "")
+                            except Exception as e:
+                                logger.warning(f"Failed to delete chunk {i}: {e}")
+                                success = False
+                                
+                except ValueError:
+                    logger.warning(f"Invalid chunk count when deleting: {chunk_count_str}")
+            
+            # Delete chunk count
+            try:
+                keyring.delete_password(self._get_chunk_count_service_name(), safe_username)  # type: ignore[attr-defined]
+            except Exception:
+                try:
+                    keyring.set_password(self._get_chunk_count_service_name(), safe_username, "")
+                except Exception as e:
+                    logger.warning(f"Failed to delete chunk count: {e}")
+                    success = False
+            
+            if success:
+                logger.debug("Successfully deleted all refresh token chunks")
+            return success
+            
+        except Exception as e:
+            logger.warning(f"Failed to delete refresh token chunks: {e}")
+            return False
+    
+    def _sanitize_username_for_keyring(self, username: str) -> str:
+        """Sanitize username for Windows Credential Manager compatibility."""
+        if not username:
+            return "default_user"
+        
+        # Replace problematic characters that might cause issues in Windows Credential Manager
+        # Keep only alphanumeric, dots, underscores, and hyphens
+        import re
+        sanitized = re.sub(r'[^a-zA-Z0-9._-]', '_', username)
+        
+        # Ensure it's not too long (Windows has limits)
+        if len(sanitized) > 100:
+            sanitized = sanitized[:100]
+        
+        return sanitized
 
     def _set_saved_username(self, username: str) -> None:
         try:
