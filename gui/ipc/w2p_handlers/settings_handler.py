@@ -1,6 +1,5 @@
 import traceback
 from typing import Any, Optional, Dict
-import uuid
 from app_context import AppContext
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
@@ -37,13 +36,10 @@ def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         # 获取用户名和密码
         username = data['username']
         # 简单的密码验证
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"get settings successful for user: {username}")
         main_window = AppContext.get_main_window()
         settings = main_window.config_manager.general_settings.data
         resultJS = {
-            'token': token,
             'settings': settings,
             'message': 'Get settings successful'
         }

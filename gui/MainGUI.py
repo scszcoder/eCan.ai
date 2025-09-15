@@ -534,6 +534,13 @@ class MainWindow:
         self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         self.mcp_client = None
         self._sse_cm = None
+        
+        # 简化的初始化状态管理
+        self._initialization_status = {
+            'sync_init_complete': False,
+            'async_init_complete': False,
+            'fully_ready': False
+        }
         gui_flowgram_schema = self.config_manager.general_settings.data.get("gui_flowgram_schema", "")
         if gui_flowgram_schema:
             node_schema_file = self.my_ecb_data_homepath + gui_flowgram_schema
@@ -568,6 +575,32 @@ class MainWindow:
 
         # Start LightRAG server
         self._start_lightrag_deferred()
+        
+        # 更新同步初始化状态
+        self._initialization_status['sync_init_complete'] = True
+        logger.info("MainWindow synchronous initialization completed")
+
+    def is_fully_initialized(self) -> bool:
+        """检查是否完全初始化完成"""
+        return self._initialization_status.get('fully_ready', False)
+    
+    def get_main_window_safely(self):
+        """
+        Safely get MainWindow instance with initialization check.
+        
+        Returns:
+            Tuple[MainWindow, bool]: (main_window, is_ready)
+        """
+        try:
+            is_ready = self.is_fully_initialized()
+            if not is_ready:
+                return False
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"[MainGUI] Error accessing MainWindow: {e}")
+            return False
 
     def _start_lightrag_deferred(self):
         """Start LightRAG server in deferred mode."""
@@ -701,11 +734,11 @@ class MainWindow:
                 logger.info("🔧 Building agent skills...")
                 self.agent_skills = await build_agent_skills(self)
                 logger.info(f"✅ Built {len(self.agent_skills)} agent skills")
-
+                
                 logger.info("📝 Creating agent tasks...")
                 self.agent_tasks = create_agent_tasks(self)
                 logger.info(f"✅ Created {len(self.agent_tasks)} agent tasks")
-
+                
                 logger.info("🛠️ Obtaining agent tools...")
                 self.agent_tools = obtain_agent_tools(self)
                 logger.info(f"✅ Obtained {len(self.agent_tools)} agent tools")
@@ -714,19 +747,18 @@ class MainWindow:
                 self.agent_knowledges = build_agent_knowledges(self)
                 logger.info(f"✅ Built {len(self.agent_knowledges)} agent knowledges")
 
-                # tools = await mcp_load_tools()
-                logger.info("DONE build agent skills.....", len(self.agent_skills))
-
                 logger.info("🚀 Building agents...")
                 build_agents(self)
                 logger.info("✅ DONE build agents.....")
 
                 logger.info("🎯 Launching agents...")
-                # await self.launch_agents()
                 self.launch_agents()
                 logger.info("✅ DONE launch agents.....")
 
-                logger.info("🎉 Agent initialization completed successfully!")
+                # 标记异步初始化完成和系统完全就绪
+                self._initialization_status['async_init_complete'] = True
+                self._initialization_status['fully_ready'] = True
+                logger.info("MainWindow async initialization completed successfully!")
 
             except Exception as e:
                 logger.error(f"❌ Error during agent initialization: {e}")

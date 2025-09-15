@@ -6954,7 +6954,7 @@ def processECBUpdateMissions(step, i):
 def processECBDeleteMissions(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
-    mainWin = AppContext.main_window
+    mainWin = AppContext.get_main_window()
 
     try:
         symTab[step["flag"]] = True
@@ -7036,7 +7036,7 @@ def processECBDispatchTroops(step, i, mission):
 def processECBCollectBotProfiles(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
-    mainWin = AppContext.main_window
+    mainWin = AppContext.get_main_window()
 
     try:
         symTab[step["flag"]] = True
@@ -7056,7 +7056,7 @@ def processECBCollectBotProfiles(step, i):
 def processLogCrossNetwork(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
-    mainWin = AppContext.main_window
+    mainWin = AppContext.get_main_window()
 
     try:
         symTab[step["flag"]] = True
@@ -7079,7 +7079,7 @@ def processLogCrossNetwork(step, i, mission):
 def processLog(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
-    mainWin = AppContext.main_window
+    mainWin = AppContext.get_main_window()
 
     try:
         symTab[step["flag"]] = True
@@ -7101,7 +7101,7 @@ def processLog(step, i, mission):
 async def processLogCrossNetwork8(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
-    mainWin = AppContext.main_window
+    mainWin = AppContext.get_main_window()
 
     try:
         symTab[step["flag"]] = True

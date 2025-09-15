@@ -1,0 +1,126 @@
+.loading-progress-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+}
+
+.loading-progress-card {
+  width: 400px;
+  max-width: 90vw;
+  background: linear-gradient(135deg, #1e1e2e 0%, #2d2d42 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+}
+
+.loading-progress-content {
+  padding: 32px 24px;
+  text-align: center;
+}
+
+.loading-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.loading-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.loading-progress-bar {
+  margin-bottom: 32px;
+}
+
+.loading-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+  text-align: left;
+}
+
+.loading-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+
+.loading-step.loading {
+  background: rgba(24, 144, 255, 0.1);
+  border: 1px solid rgba(24, 144, 255, 0.3);
+}
+
+.loading-step.completed {
+  background: rgba(135, 208, 104, 0.1);
+  border: 1px solid rgba(135, 208, 104, 0.3);
+}
+
+.step-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.step-check {
+  color: #52c41a;
+  font-size: 16px;
+}
+
+.step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.step-label {
+  color: #ffffff;
+  font-size: 14px;
+  flex: 1;
+}
+
+.loading-step.completed .step-label {
+  color: #52c41a;
+}
+
+.loading-step.loading .step-label {
+  color: #1890ff;
+}
+
+.loading-description {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Animation for loading dots */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.loading-step.loading .step-dot {
+  animation: pulse 1.5s ease-in-out infinite;
+}
