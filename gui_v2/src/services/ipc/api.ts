@@ -49,6 +49,13 @@ export class IPCAPI {
     }
 
     /**
+     * 清理IPC请求队列
+     */
+    public clearQueue(): void {
+        this.ipcWCClient.clearQueue();
+    }
+
+    /**
      * 获取 IPCAPI 单例
      */
     public static getInstance(): IPCAPI {

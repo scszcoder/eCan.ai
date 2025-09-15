@@ -70,6 +70,9 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         localStorage.removeItem('username');
         // 清理userStore
         useUserStore.getState().setUsername(null);
+                
+        // 清理IPC请求队列
+        get_ipc_api().clearQueue();
         window.location.replace('/login');
     };
 
