@@ -146,12 +146,27 @@
     "newPassword": "新密码",
     "confirmCode": "验证码",
     "loginWithGoogle": "用谷歌账号登录",
-    "loginWithApple": "用苹果id登录"
+    "loginWithApple": "用苹果id登录",
+    "failed": "登录失败",
+    "error": "登录错误",
+    "googleSuccess": "谷歌登录成功",
+    "googleFailed": "谷歌登录失败",
+    "googleError": "谷歌登录错误"
   },
   "roles": {
     "commander": "指挥官",
     "platoon": "小分队",
     "staff_office": "参谋部"
+  },
+  "loading": {
+    "initializing": "正在初始化系统...",
+    "complete": "初始化完成",
+    "authentication": "身份验证",
+    "configuration": "加载配置",
+    "database": "初始化数据库",
+    "services": "启动服务",
+    "network": "设置网络",
+    "backgroundInit": "主要系统组件正在后台加载中。您可以立即开始使用应用程序。"
   },
   "languages": {
     "en-US": "English",

@@ -1,8 +1,5 @@
 import traceback
 from typing import TYPE_CHECKING, Any, Optional, Dict
-import uuid
-if TYPE_CHECKING:
-    from gui.MainGUI import MainWindow
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
@@ -34,16 +31,19 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                 error
             )
 
-        # 简单的密码验证
-        # 生成随机令牌
+        # 获取用户名
         username = data['username']
-        token = str(uuid.uuid4()).replace('-', '')
-        logger.info(f"[agent_handler] get agents successful for user: {username}")
-        main_window: MainWindow = AppContext.main_window
-        agents = main_window.agents
+        logger.info(f"[agent_handler] get agents request for user: {username}")
+        
+        main_window = AppContext.get_main_window()
+        if main_window is None:
+            logger.warning(f"[agent_handler] MainWindow not available for user: {username}, returning empty list")
+            agents = []
+        else:
+            agents = getattr(main_window, 'agents', []) or []
+            logger.info(f"[agent_handler] Successfully retrieved {len(agents)} agents for user: {username}")
 
         resultJS = {
-            'token': token,
             'agents': [agent.to_dict() for agent in agents],
             'message': 'Get all successful'
         }
@@ -88,11 +88,8 @@ def handle_save_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCR
         username = data['username']
 
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"[agent_handler] save agents successful for user: {username}")
         return create_success_response(request, {
-            'token': token,
             'message': 'Save agents successful'
         })
 
@@ -136,11 +133,8 @@ def handle_delete_agents(request: IPCRequest, params: Optional[list[Any]]) -> IP
         username = data['username']
 
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"[agent_handler] delete agents successful for user: {username}")
         return create_success_response(request, {
-            'token': token,
             'message': 'Delete agents successful'
         })
 
@@ -184,11 +178,8 @@ def handle_new_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         username = data['username']
 
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"[agent_handler] create agents successful for user: {username}")
         return create_success_response(request, {
-            'token': token,
             'message': 'Create agents successful'
         })
 

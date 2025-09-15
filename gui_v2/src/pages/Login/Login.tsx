@@ -5,7 +5,7 @@ import { UserOutlined, LockOutlined, LoadingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { APIResponse, IPCAPI } from '../../services/ipc';
 import { get_ipc_api } from '../../services/ipc_api';
-import { logger } from '../../utils/logger';
+import { tokenStorage } from '../../services/ipc/ipcWCClient';
 import { useUserStore } from '@/stores/userStore';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import logo from '../../assets/logoWhite22.png';
@@ -30,8 +30,8 @@ const Login: React.FC = () => {
 	// Hooks
 	const navigate = useNavigate();
 	const { t, i18n } = useTranslation();
-	const [form] = Form.useForm<LoginFormValues>();
 	const { message: messageApi } = App.useApp();
+	const [form] = Form.useForm<LoginFormValues>();
 
 	// State
 	const [mode, setMode] = useState<AuthMode>('login');
@@ -116,22 +116,36 @@ const Login: React.FC = () => {
 		const response: APIResponse<any> = await api.login(values.username, values.password, values.role, i18n.language);
 		if (response.success && response.data) {
 			console.log('[Login] Login successful', response.data);
-			const { token, message: successMessage } = response.data;
-			localStorage.setItem('token', token);
-			localStorage.setItem('isAuthenticated', 'true');
-			localStorage.setItem('userRole', values.role);
-			localStorage.setItem('username', values.username);
+			const { token, user_info } = response.data;
 			
-			useUserStore.getState().setUsername(values.username);
+			// 使用新的 token 存储系统
+			tokenStorage.setToken(token);
+			
+			// // 清理IPC请求队列（新登录）
+			// api.clearQueue();
+			
+			// 存储用户信息
+			localStorage.setItem('token', token);
+			localStorage.setItem('user_info', JSON.stringify({
+				username: user_info?.username || values.username,
+				role: user_info?.role || values.role,
+				email: user_info?.email
+			}));
+			localStorage.setItem('isAuthenticated', 'true');
+			localStorage.setItem('userRole', user_info?.role || values.role);
+			localStorage.setItem('username', user_info?.username || values.username);
+			
+			useUserStore.getState().setUsername(user_info?.username || values.username);
 			// 登录成功后启用页面刷新监听
 			pageRefreshManager.enable();
 			
 			messageApi.success(t('login.success'));
+			// Navigate immediately for better UX - main window initializes in background
 			setTimeout(() => {
 				navigate('/agents');
-			}, 3000)
+			}, 500)
 		} else {
-			logger.error('Login failed', response.error);
+			console.error('Login failed', response.error);
 			messageApi.error(response.error?.message || t('login.failed'));
 		}
 	};
@@ -167,7 +181,7 @@ const Login: React.FC = () => {
 			setCodeSent(true);
 			messageApi.success(t('login.forgotCodeSent'));
 		} catch (error) {
-			logger.error('Forgot password send code error:', error);
+			console.error('Forgot password send code error:', error);
 			messageApi.error(t('login.forgotCodeSendError'));
 		}
 	};
@@ -192,7 +206,7 @@ const Login: React.FC = () => {
 				messageApi.error(response.error?.message || t('login.failed'));
 			}
 		} catch (error) {
-			logger.error('Forgot password reset error:', error);
+			console.error('Forgot password reset error:', error);
 			messageApi.error(t('login.forgotResetError'));
 		}
 	};
@@ -215,7 +229,7 @@ const Login: React.FC = () => {
 					break;
 			}
 		} catch (error) {
-			logger.error(`${mode} error:`, error);
+			console.error(`${mode} error:`, error);
 			messageApi.error(t(`login.${mode === 'login' ? 'error' : mode + '.error'}`) + ': ' + (error instanceof Error ? error.message : String(error)));
 		} finally {
 			setLoading(false);
@@ -229,12 +243,12 @@ const Login: React.FC = () => {
       const api = get_ipc_api();
       if (!api) throw new Error(t('common.error'));
 
-      logger.info('Starting Google OAuth login');
+      console.log('Starting Google OAuth login');
       
       const response: APIResponse<any> = await api.googleLogin(i18n.language);
       
       if (response.success && response.data) {
-        logger.info('Google login successful', response.data);
+        console.log('Google login successful', response.data);
         
         const { token, user_info, message } = response.data;
         
@@ -253,19 +267,19 @@ const Login: React.FC = () => {
         // Show success message
         messageApi.success(message || t('login.googleSuccess') || 'Google login successful');
         
-        // Navigate to main page
-        setTimeout(() => {
-          navigate('/agents');
-        }, 1500);
+        // Navigate to main page immediately for better UX
+		setTimeout(() => {
+		  navigate('/agents');
+		}, 500);
         
       } else {
-        logger.error('Google login failed', response.error);
+        console.error('Google login failed', response.error);
         const errorMessage = response.error?.message || t('login.googleFailed') || 'Google login failed';
         messageApi.error(errorMessage);
       }
       
     } catch (error) {
-      logger.error('Google login error:', error);
+      console.error('Google login error:', error);
       const errorMessage = t('login.googleError') || 'Google login error';
       messageApi.error(`${errorMessage}: ${error instanceof Error ? error.message : String(error)}`);
     } finally {

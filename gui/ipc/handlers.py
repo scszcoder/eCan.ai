@@ -65,31 +65,28 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
         # 获取用户名和密码
         username = data['username']
 
-        login:Login = AppContext.login
-        agents = login.main_win.agents
+        main_window = AppContext.get_main_window()
+        agents = main_window.agents
         all_tasks = []
         for agent in agents:
             all_tasks.extend(agent.tasks)
 
-        skills = login.main_win.agent_skills
-        vehicles = login.main_win.vehicles
-        organizations = login.main_win.organizations
-        titles = login.main_win.titles
-        ranks = login.main_win.ranks
-        personalities = login.main_win.personalities
-        settings = login.main_win.general_settings
+        skills = main_window.agent_skills
+        vehicles = main_window.vehicles
+        organizations = main_window.organizations
+        titles = main_window.titles
+        ranks = main_window.ranks
+        personalities = main_window.personalities
+        settings = main_window.general_settings
         # knowledges = login.main_win.knowledges
         # chats = login.main_win.chats
         knowledges = {}
         chats = {}
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"Get all successful for user: {username}")
         resultJS = {
-            'token': token,
             'agents': [agent.to_dict() for agent in agents],
             'skills': [sk.to_dict() for sk in skills],
-            'tools': [tool.model_dump() for tool in login.main_win.mcp_tools_schemas],
+            'tools': [tool.model_dump() for tool in main_window.mcp_tools_schemas],
             'tasks': [task.to_dict() for task in all_tasks],
             'vehicles': [vehicle.genJson() for vehicle in vehicles],
             'settings': settings,
@@ -225,11 +222,8 @@ def handle_save_all(request: IPCRequest, params: Optional[list[Any]]) -> IPCResp
         username = data['username']
 
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"save all successful for user: {username}")
         return create_success_response(request, {
-            'token': token,
             'message': 'Save all successful'
         })
 
@@ -255,10 +249,7 @@ def handle_get_available_tests(request: IPCRequest, params: Optional[Any]) -> IP
     try:
         logger.debug(f"Get available tests handler called with request: {request}")
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         return create_success_response(request, {
-            'token': token,
             "tests": ["test1", "test2", "test3"],
             'message': 'Get available tests successful'
         })
@@ -286,13 +277,10 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
     try:
         logger.debug(f"Get start skill run handler called with request: {request}")
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
-        login: Login = AppContext.login
+        main_window = AppContext.get_main_window()
         skill = request.meta["skill_flowgram"]
-        results = run_dev_skill(login.main_win, skill)
+        results = run_dev_skill(main_window, skill)
         return create_success_response(request, {
-            'token': token,
             "results": results,
             'message': "Start skill run successful" if results["success"] else "Start skill run failed"
         })
@@ -319,12 +307,9 @@ def handle_cancel_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCRe
     try:
         logger.debug(f"Get cancel skill run called with request: {request}")
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
-        login: Login = AppContext.login
-        results = cancel_run_dev_skill(login.main_win)
+        main_window = AppContext.get_main_window()
+        results = cancel_run_dev_skill(main_window)
         return create_success_response(request, {
-            "token": token,
             "results": results,
             "message": "Cancelling skill run successful" if results["success"] else "Cancelling skill run failed"
         })
@@ -351,12 +336,9 @@ def handle_pause_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCRes
     try:
         logger.debug(f"Get pause skill run request: {request}")
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
-        login: Login = AppContext.login
-        results = pause_run_dev_skill(login.main_win)
+        main_window = AppContext.get_main_window()
+        results = pause_run_dev_skill(main_window)
         return create_success_response(request, {
-            "token": token,
             "results": results,
             "message": "Get pause skill run successful" if results["success"] else "Pausing skill run failed"
         })
@@ -383,12 +365,9 @@ def handle_resume_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCRe
     try:
         logger.debug(f"Get resume skill run called with request: {request}")
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
-        login: Login = AppContext.login
-        results = resume_run_dev_skill(login.main_win)
+        main_window = AppContext.get_main_window()
+        results = resume_run_dev_skill(main_window)
         return create_success_response(request, {
-            "token": token,
             "results": results,
             "message": "Resume skill run successful" if results["success"] else "Pausing skill run failed"
         })
@@ -415,12 +394,9 @@ def handle_step_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResp
     try:
         logger.debug(f"Get single step skill run called with request: {request}")
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
-        login: Login = AppContext.login
-        results = step_run_dev_skill(login.main_win)
+        main_window = AppContext.get_main_window()
+        results = step_run_dev_skill(main_window)
         return create_success_response(request, {
-            "token": token,
             "results": results,
             "message": "single step skill run successful" if results["success"] else "Single Stepping skill run failed"
         })
@@ -447,15 +423,12 @@ def handle_set_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -> 
     try:
         logger.debug(f"Get setting skill breakpoints with request: {request}")
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
-        login: Login = AppContext.login
+        main_window = AppContext.get_main_window()
         owner = params["username"]
         bps = [params["node_name"]]
-        results = set_bps_dev_skill(login.main_win, bps)
+        results = set_bps_dev_skill(main_window, bps)
         results = {"success": True}
         return create_success_response(request, {
-            "token": token,
             "results": results,
             "message": "Setting skill breakpoints successful" if results["success"] else "Setting skill breakpoints failed"
         })
@@ -482,17 +455,13 @@ def handle_clear_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -
     try:
         logger.debug(f"Get clearing skill breakpoints with request: {request}")
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         owner = params["username"]
         login: Login = AppContext.login
         bps = [params["node_name"]]
-        results = clear_bps_dev_skill(login.main_win, bps)
-        results = {"success": True}
+        login.main_win.clear_skill_breakpoints(owner, bps)
         return create_success_response(request, {
-            "token": token,
-            "results": results,
-            "message": "Clearing skill breakpoints successful" if results["success"] else "Clearing skill breakpoints failed"
+            "tests": ["test1", "test2", "test3"],
+            'message': 'Clear skill breakpoints successful'
         })
 
     except Exception as e:
@@ -518,10 +487,7 @@ def handle_request_skill_state(request: IPCRequest, params: Optional[Any]) -> IP
     try:
         logger.debug(f"Get current skill run state: {request}")
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         return create_success_response(request, {
-            'token': token,
             "tests": ["test1", "test2", "test3"],
             'message': 'Request skill state successful'
         })
@@ -548,10 +514,7 @@ def handle_inject_skill_state(request: IPCRequest, params: Optional[Any]) -> IPC
     try:
         logger.debug(f"injecting skill state: {request}")
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         return create_success_response(request, {
-            'token': token,
             "tests": ["test1", "test2", "test3"],
             'message': 'Get available tests successful'
         })
@@ -579,12 +542,9 @@ def handle_load_skill_schemas(request: IPCRequest, params: Optional[Any]) -> IPC
     try:
         logger.debug(f"loading skill schemas: {request}")
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         login: Login = AppContext.login
         node_schemas = login.main_win.node_schemas
         return create_success_response(request, {
-            'token': token,
             "node_schemas": node_schemas,
             'message': 'Load skill schemas successful'
         })
@@ -734,10 +694,9 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         logger.error(f"Error in run tests handler: {e} {traceback.format_exc()}")
         return create_error_response(
             request,
-            'LOGIN_ERROR',
+            'RUN_TESTS_ERROR',
             f"Error during run tests: {str(e)}"
         )
-
 
 @IPCHandlerRegistry.handler('stop_tests')
 def handle_stop_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
@@ -753,10 +712,7 @@ def handle_stop_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse
     try:
         logger.debug(f"Stop tests handler called with request: {request}")
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         return create_success_response(request, {
-            'token': token,
             "tests": ["test1", "test2", "test3"],
             'message': 'Stop tests successful'
         })
@@ -785,10 +741,7 @@ def handle_login_with_google(request: IPCRequest, params: Optional[Any]) -> IPCR
         login: Login = AppContext.login
         result = login.login_google()
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         return create_success_response(request, {
-            'token': token,
             "tests": ["test1", "test2", "test3"],
             'message': 'login with google successful'
         })

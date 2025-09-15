@@ -1,6 +1,5 @@
 import traceback
 from typing import TYPE_CHECKING, Any, Optional, Dict
-import uuid
 from app_context import AppContext
 if TYPE_CHECKING:
     from gui.MainGUI import MainWindow
@@ -38,12 +37,10 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
 
         # 获取用户名和密码
         username = data['username']
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"get tools successful for user: {username}")
 
-        main_window: MainWindow = AppContext.main_window
+        main_window: MainWindow = AppContext.get_main_window()
         resultJS = {
-            'token': token,
             'tools': [tool.model_dump() for tool in main_window.mcp_tools_schemas],
             'message': 'Get all successful'
         }
@@ -90,12 +87,10 @@ def handle_new_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
 
         # 获取用户名和密码
         username = data['username']
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"create tools successful for user: {username}")
 
-        main_window: MainWindow = AppContext.main_window
+        main_window: MainWindow = AppContext.get_main_window()
         resultJS = {
-            'token': token,
             'tools': [tool.model_dump() for tool in main_window.mcp_tools_schemas],
             'message': 'Create all successful'
         }
@@ -143,12 +138,10 @@ def handle_delete_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -
 
         # 获取用户名和密码
         username = data['username']
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"delete tools successful for user: {username}")
 
-        main_window: MainWindow = AppContext.main_window
+        main_window: MainWindow = AppContext.get_main_window()
         resultJS = {
-            'token': token,
             'tools': [tool.model_dump() for tool in main_window.mcp_tools_schemas],
             'message': 'Delete all successful'
         }

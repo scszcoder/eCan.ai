@@ -6,10 +6,10 @@ def get_agent_by_id(agent_id):
     Returns None if main window or agents are not yet initialized.
     """
     try:
-        main_window = AppContext.main_window
+        main_window = AppContext.get_main_window()
         if not main_window:
             return None
-        agents = getattr(main_window, 'agents', []) or []
+        agents = main_window.agents
         return next((ag for ag in agents if getattr(getattr(ag, 'card', None), 'id', None) == agent_id), None)
     except Exception:
         return None

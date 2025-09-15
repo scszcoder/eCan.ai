@@ -1,15 +1,10 @@
 import traceback
 from typing import TYPE_CHECKING, Any, Optional, Dict
-import uuid
 from app_context import AppContext
-if TYPE_CHECKING:
-    from gui.MainGUI import MainWindow
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from gui.LoginoutGUI import Login
-from app_context import AppContext
-
 from utils.logger_helper import logger_helper as logger
 from agent.ec_skills.dev_utils.skill_dev_utils import run_dev_skill
 
@@ -28,7 +23,7 @@ def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
     """
     try:
         logger.debug(f"Get skills handler called with request: {request}")
-        main_window: MainWindow = AppContext.main_window
+        main_window = AppContext.get_main_window()
         skills = main_window.agent_skills
         # 验证参数
         is_valid, data, error = validate_params(params, ['username'])
@@ -40,10 +35,8 @@ def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
                 error
             )
         username = data['username']
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"get skills successful for user: {username}")
         resultJS = {
-            'token': token,
             'skills': [sk.to_dict() for sk in skills],
             'message': 'Get all successful'
         }
@@ -90,11 +83,8 @@ def handle_save_skills(request: IPCRequest, params: Optional[list[Any]]) -> IPCR
         username = data['username']
 
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"save skills successful for user: {username}")
         return create_success_response(request, {
-            'token': token,
             'message': 'Save skills successful'
         })
 
@@ -166,15 +156,12 @@ def handle_run_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
     try:
         logger.debug(f"Get run skill handler called with request: {request}")
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         user = request["params"]["username"]
         skill_info = request["params"]["skill"]
         login: Login = AppContext.login
         results = run_dev_skill(login.main_win, skill_info)
 
         return create_success_response(request, {
-            'token': token,
             "results": results,
             'message': "Run skill starts successful" if results["success"] else "Start skill run failed"
         })
@@ -219,11 +206,8 @@ def handle_new_skills(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         username = data['username']
 
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"create skills successful for user: {username}")
         return create_success_response(request, {
-            'token': token,
             'message': 'Create skills successful'
         })
 
@@ -268,11 +252,8 @@ def handle_delete_skills(request: IPCRequest, params: Optional[list[Any]]) -> IP
         username = data['username']
 
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"delete skills successful for user: {username}")
         return create_success_response(request, {
-            'token': token,
             'message': 'Delete skills successful'
         })
 

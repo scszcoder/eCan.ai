@@ -536,9 +536,10 @@ class WebGUI(QMainWindow):
                 # Stop LightragServer
                 try:
                     logger.info("🔔 [DEBUG] Stopping LightragServer")
-                    if AppContext.main_window and hasattr(AppContext.main_window, 'lightrag_server'):
+                    mainwin = AppContext.get_main_window()
+                    if mainwin:
                         logger.info("🔔 [DEBUG] Found LightragServer, stopping...")
-                        AppContext.main_window.lightrag_server.stop()
+                        mainwin.lightrag_server.stop()
                         logger.info("🔔 [DEBUG] LightragServer stopped")
                     else:
                         logger.info("🔔 [DEBUG] LightragServer or MainWindow not found")

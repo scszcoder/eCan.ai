@@ -514,7 +514,7 @@ async def in_browser_send_keys(mainwin, args):
         crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
-            browser_context = AppContext.main_window.getBrowserContextById(args["context_id"])
+            browser_context = AppContext.get_main_window().getBrowserContextById(args["context_id"])
             browser = browser_context.browser
             page = await browser.get_current_page()
 

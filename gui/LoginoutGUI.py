@@ -144,6 +144,24 @@ class Login:
         # Fallback to direct auth logout if main window missing
         return self.auth_manager.logout()
 
+    def get_main_window_status(self):
+        """获取MainWindow的初始化状态"""
+        if not self.main_win:
+            return {"ready": False, "progress": 0, "status": "initializing"}
+        
+        # 使用MainWindow自身的状态管理
+        if hasattr(self.main_win, 'is_fully_initialized'):
+            is_fully_ready = self.main_win.is_fully_initialized()
+            
+            return {
+                "ready": is_fully_ready,
+                "progress": 100 if is_fully_ready else 0,
+                "status": "ready" if is_fully_ready else "not_ready"
+            }
+        
+        # 兜底方案：检查是否有基本的初始化完成标志
+        return {"ready": True, "progress": 100, "status": "ready"}
+    
     # Legacy methods for backward compatibility with IPC handlers
     def handleLogin(self, uname="", pw="", mrole=""):
         """Legacy login method for backward compatibility with IPC handlers."""
@@ -163,3 +181,8 @@ class Login:
         """Legacy confirm forgot password method for backward compatibility with IPC handlers."""
         result = self.auth_manager.confirm_forgot_password(username, confirm_code, new_password)
         return result['success'], result.get('error', 'Password reset successful.')
+    
+    def handleGetMainWindowStatus(self):
+        """IPC handler to get main window initialization status"""
+        status = self.get_main_window_status()
+        return status['ready'], status['progress'], status['status']

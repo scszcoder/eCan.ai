@@ -1,8 +1,6 @@
 import traceback
 from typing import TYPE_CHECKING, Any, Optional, Dict
 from app_context import AppContext
-if TYPE_CHECKING:
-    from gui.MainGUI import MainWindow
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 
@@ -24,7 +22,7 @@ def handle_get_schedules(request: IPCRequest, params: Optional[Dict[str, Any]]) 
     try:
         logger.debug(f"Get Schedule handler called with request: {request}")
 
-        main_window: MainWindow = AppContext.main_window
+        main_window = AppContext.get_main_window()
         agents = main_window.agents
         all_tasks = []
         for agent in agents:
