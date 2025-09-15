@@ -85,33 +85,27 @@ class IPCHandlerRegistry:
             return False, "TOKEN_VALIDATION_ERROR"
     
     @classmethod
-    def _check_system_ready(cls, timeout_seconds: int = 30) -> Tuple[bool, Optional[str]]:
-        """检查系统是否已准备就绪，带超时机制
+    def _check_system_ready(cls) -> Tuple[bool, Optional[str]]:
+        """立即检查系统是否已准备就绪（非阻塞）
         
-        Args:
-            timeout_seconds: 超时时间（秒），默认30秒
-            
         Returns:
             Tuple[bool, Optional[str]]: (是否就绪, 错误信息)
         """
-        import time
-        start_time = time.time()
-        
-        try:
-            from gui.MainGUI import MainWindow
+        try:            
+            main_window = AppContext.get_main_window()
             
-            while time.time() - start_time < timeout_seconds:
-                main_window, is_ready = MainWindow.get_main_window_safely()
+            if main_window is None:
+                logger.debug("[Registry] MainWindow not available yet")
+                return False, "MAIN_WINDOW_NOT_AVAILABLE"
                 
-                if main_window and is_ready:
-                    return True, None
-                
-                # 如果系统未就绪，等待0.1秒后重试
-                time.sleep(0.1)
+            # 立即检查系统状态，不等待
+            is_ready = main_window.get_main_window_safely()
             
-            # 超时后返回错误
-            logger.warning(f"[registry] System readiness check timed out after {timeout_seconds} seconds")
-            return False, "SYSTEM_NOT_READY_TIMEOUT"
+            if not is_ready:
+                logger.debug("[Registry] MainWindow not fully initialized yet")
+                return False, "SYSTEM_NOT_READY"
+                
+            return True, None
             
         except Exception as e:
             logger.error(f"[registry] Error checking system readiness: {e}")

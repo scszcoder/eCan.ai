@@ -584,8 +584,7 @@ class MainWindow:
         """检查是否完全初始化完成"""
         return self._initialization_status.get('fully_ready', False)
     
-    @staticmethod
-    def get_main_window_safely():
+    def get_main_window_safely(self):
         """
         Safely get MainWindow instance with initialization check.
         
@@ -593,30 +592,15 @@ class MainWindow:
             Tuple[MainWindow, bool]: (main_window, is_ready)
         """
         try:
-            from app_context import AppContext
-            from utils.logger_helper import logger_helper as logger
-            
-            main_window = AppContext.get_main_window()
-            if main_window is None:
-                logger.warning("[MainGUI] MainWindow not available")
-                return None, False
+            is_ready = self.is_fully_initialized()
+            if not is_ready:
+                return False
                 
-            # Check if MainWindow is fully initialized
-            if hasattr(main_window, 'is_fully_initialized'):
-                is_ready = main_window.is_fully_initialized()
-                if not is_ready:
-                    logger.warning("[MainGUI] MainWindow not fully initialized")
-                    return main_window, False
-            else:
-                logger.warning("[MainGUI] MainWindow missing is_fully_initialized method")
-                return main_window, False
-                
-            return main_window, True
+            return True
             
         except Exception as e:
-            from utils.logger_helper import logger_helper as logger
             logger.error(f"[MainGUI] Error accessing MainWindow: {e}")
-            return None, False
+            return False
 
     def _start_lightrag_deferred(self):
         """Start LightRAG server in deferred mode."""
