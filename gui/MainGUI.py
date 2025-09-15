@@ -903,7 +903,7 @@ class MainWindow:
             sk_full_name = sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSiteName()+"_"+sk.getPage()+"_"+sk.getName()
             logger.trace("PSK FILE NAME::::::::::"+str(ski)+"::["+str(sk.getSkid())+"::"+sk.getPrivacy()+":::::"+sk_full_name, "fetchSchedule", self)
             if sk.getPrivacy() == "public":
-                next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.homepath, first_step, "light")
+                next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.ecb_data_homepath, first_step, "light")
             else:
                 self.showMsg("GEN PRIVATE SKILL PSK::::::" + sk_full_name)
                 next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.my_ecb_data_homepath, first_step, "light")
@@ -5354,7 +5354,14 @@ class MainWindow:
                 if "type" in code_jsons[key]:
                     if code_jsons[key]["type"] == "Use Skill":
                         if "public" in code_jsons[key]["skill_path"]:
-                            dependency_file = self.homepath + "/resource/skills/" + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
+                            # For public skills, prioritize reading from user data directory, fallback to install directory if not exists
+                            user_skill_file = self.ecb_data_homepath + "/resource/skills/" + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
+                            install_skill_file = self.homepath + "/resource/skills/" + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
+
+                            if os.path.exists(user_skill_file):
+                                dependency_file = user_skill_file
+                            else:
+                                dependency_file = install_skill_file
                         else:
                             dependency_file = self.my_ecb_data_homepath + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
 

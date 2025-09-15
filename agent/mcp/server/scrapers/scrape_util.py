@@ -1,12 +1,14 @@
 import asyncio
 import csv
 import re
+import io
 from pathlib import Path
 from typing import Dict, List, Tuple
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from agent.agent_service import get_agent_by_id
-
+from utils.path_manager import path_manager
+from utils.permission_helper import safe_write
 
 def clean_text(txt: str) -> str:
     txt = re.sub(r"\s+", " ", txt or "").strip()
@@ -15,12 +17,19 @@ def clean_text(txt: str) -> str:
 
 def write_csv(rows: List[Dict[str, str]], header_order: List[str], out_path: Path):
     try:
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        with out_path.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=header_order, extrasaction="ignore")
-            writer.writeheader()
-            for r in rows:
-                writer.writerow(r)
+        # Ensure directory exists using safe method
+        path_manager.ensure_directory_exists(str(out_path))
+
+        # Write CSV content to string first
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=header_order, extrasaction="ignore")
+        writer.writeheader()
+        for r in rows:
+            writer.writerow(r)
+
+        # Use safe write method
+        safe_write(str(out_path), output.getvalue())
+
     except Exception as e:
         err_trace = get_traceback(e, "ErrorWriteCSV")
         logger.debug(err_trace)

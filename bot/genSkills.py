@@ -2,7 +2,6 @@ import json
 import os
 import traceback
 from datetime import datetime
-from idlelib.autocomplete import TRIGGERS
 
 from bot.basicSkill import genStepCreateRequestsSession
 from bot.Logger import log3, log6

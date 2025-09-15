@@ -33,6 +33,8 @@ from bot.Cloud import send_query_chat_request_to_cloud8, upload_file, req_cloud_
 from bot.lanAPI import req_lan_read_screen8
 from bot.Logger import log3, log6, log68
 from utils.logger_helper import logger_helper as logger
+from utils.permission_helper import safe_write, safe_append
+from utils.path_manager import path_manager
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from bot.missions import EBMISSION
@@ -1756,8 +1758,12 @@ async def readRandomWindow8(mission, win_title_keyword, log_user, session,  toke
     date_word = dtnow.strftime("%Y%m%d")
     dt_string = str(int(dtnow.timestamp()))
     log3("date string:" + dt_string)
-    fdir = ecb_data_homepath + f"/{log_user}/runlogs/{log_user}/" + date_word + "/b0m0/any_any_any_any/skills/any/images"
-    image_file = fdir + "scrn" + "_" + dt_string + ".png"
+    
+    fdir = path_manager.get_log_path(log_user, date_word, "b0m0/any_any_any_any/skills/any/images")
+    image_file = os.path.join(fdir, f"scrn_{dt_string}.png")
+
+    # Ensure directory exists
+    path_manager.ensure_directory_exists(image_file)
 
     screen_img, img_bytes, window_rect = captureScreenToFile(win_title_keyword, image_file)
     # "imageFile": "C:/Users/***/PycharmProjects/ecbot/resource/runlogs/20240328/b0m0/any_any_any_any/skills/any/images/*.png"
@@ -4342,23 +4348,27 @@ def processWriteFile(step, i):
             file_full_path = symTab[step["filename"]]
 
         log3("Write to file:" + file_full_path)
-        # create only if the dir doesn't exist
+
+        # Ensure directory exists
+        path_manager.ensure_directory_exists(file_full_path)
+
+        # Prepare content based on file type
+        if step["filetype"] == "json":
+            content = json.dumps(symTab[step["datasource"]], indent=2)
+        elif step["filetype"] == "txt":
+            if isinstance(symTab[step["datasource"]], list):
+                content = ''.join(symTab[step["datasource"]])
+            else:
+                content = str(symTab[step["datasource"]])
+        else:
+            content = str(symTab[step["datasource"]])
+
+        # Write or append using safe methods
         if step["mode"] == "overwrite":
-            with open(file_full_path, 'w') as fileTBW:
-                if step["filetype"] == "json":
-                    json.dump(symTab[step["datasource"]], fileTBW)
-                elif step["filetype"] == "txt":
-                    fileTBW.writelines(symTab[step["datasource"]])
-            fileTBW.close()
+            safe_write(file_full_path, content)
         else:
             # append mode
-            with open(file_full_path, 'a') as fileTBW:
-                if step["filetype"] == "json":
-                    json.dump(symTab[step["datasource"]], fileTBW)
-                elif step["filetype"] == "txt":
-                    fileTBW.writelines(symTab[step["datasource"]])
-
-            fileTBW.close()
+            safe_append(file_full_path, content)
 
 
     except Exception as e:
@@ -5256,8 +5266,7 @@ def processSaveHtml(step, i, mission, skill):
         date_word = dtnow.strftime("%Y%m%d")
         log3("date word:"+date_word)
 
-        fdir = ecb_data_homepath + f"/{mainwin.log_user}/runlogs/{mainwin.log_user}/"
-        fdir = fdir + date_word + "/"
+        fdir = path_manager.get_log_path(mainwin.log_user, date_word)
 
         platform = mission.getPlatform()
         app = mission.getApp()

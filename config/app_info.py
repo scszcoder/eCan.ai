@@ -129,17 +129,17 @@ class AppInfo:
         return root_dir
 
     def _appdata_temp_path(self):
-        """获取应用临时目录"""
+        """Get application temporary directory"""
         if platform.system() == 'Windows':
-            # 使用 LOCALAPPDATA 下的 APP_NAME 临时目录
+            # Use LOCALAPPDATA APP_NAME temporary directory
             appdata_local = os.environ.get('LOCALAPPDATA', tempfile.gettempdir())
             temp_path = os.path.join(appdata_local, APP_NAME, "Temp")
         else:  # macOS/Linux
-            # 使用用户主目录下的隐藏临时目录，跟随 APP_NAME
+            # Use hidden temporary directory under user home directory, following APP_NAME
             home_dir = str(Path.home())
             temp_path = os.path.join(home_dir, f".{APP_NAME}", "temp")
 
-        # 确保目录存在
+        # Ensure directory exists
         if not os.path.exists(temp_path):
             os.makedirs(temp_path, exist_ok=True)
 
