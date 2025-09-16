@@ -36,7 +36,15 @@ class AdsSettings:
             "batch_method": "min batches",
             "ads_port": 50325,
             "ads_api_key": "",
-            "ads_profile_dir": ""
+            "ads_profile_dir": "",
+            "default_scraper_email": "abc@gmail.com",
+            "chrome_version": "92",
+            "chromedriver_lut": {
+                "92": "chromedriver-win32/v92.0.4515.107/chromedriver.exe",
+                "120": "chromedriver-win64/v120.0.6099.62/chromedriver.exe",
+                "128": "chromedriver-win64/v128.0.6613.84/chromedriver.exe"
+            },
+            "chromedriver": "chromedriver-win64/v128.0.6613.84/chromedriver.exe"
         }
         
         return self.config_manager.load_json(self.settings_file, default_settings)

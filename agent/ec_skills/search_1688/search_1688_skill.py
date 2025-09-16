@@ -11,16 +11,16 @@ def check_browser_and_drivers(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    webdriver_path = mainwin.default_webdriver_path
+    webdriver_path = mainwin.getWebDriverPath()
 
     print("inital state:", state)
     try:
         url = state["attributes"]["url"]
         # global ads_config, local_api_key, local_api_port, sk_work_settings
-        ads_port = mainwin.ads_settings.get('ads_port', '50325')
-        ads_api_key = mainwin.ads_settings.get('ads_api_key', '')
-        ads_chrome_version = mainwin.ads_settings.get('chrome_version', '120')
-        scraper_email = mainwin.ads_settings.get("default_scraper_email", "")
+        ads_port = mainwin.getADSSettings().get('ads_port', '50325')
+        ads_api_key = mainwin.getADSSettings().get('ads_api_key', '')
+        ads_chrome_version = mainwin.getADSSettings().get('chrome_version', '120')
+        scraper_email = mainwin.getADSSettings().get("default_scraper_email", "")
         web_driver_options = ""
         print('check_browser_and_drivers:', 'ads_port:', ads_port, 'ads_api_key:', ads_api_key, 'ads_chrome_version:', ads_chrome_version)
         profiles = queryAdspowerProfile(ads_api_key, ads_port)

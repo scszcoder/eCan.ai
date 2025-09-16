@@ -43,6 +43,7 @@ from agent.a2a.langgraph_agent.utils import send_data_to_agent
 from agent.mcp.server.scrapers.eval_util import get_default_fom_form
 from agent.ec_skills.llm_utils.llm_utils import try_parse_json
 from agent.mcp.server.scrapers.digi_key_scrapers.unit_test import sample_pfs_1
+from agent.mcp.server.scrapers.eval_util import calculate_score, get_default_fom_form
 
 
 THIS_SKILL_NAME = "chatter for ecan.ai search parts and components web site"
@@ -239,7 +240,7 @@ def examine_filled_specs_node(state):
     else:
         logger.debug("[search_parts_chatter_skill] parametric filters NOT YET filled")
         state["condition"] = False
-        state["condition"] = True
+        state["condition"] = True       # just for testing...
 
     return state
 
@@ -586,6 +587,7 @@ def convert_table_headers_to_params(headers):
     return params
 
 def query_fom_basics_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
+    print("hello??????????????")
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
@@ -594,12 +596,14 @@ def query_fom_basics_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     try:
         logger.debug(f"[search_parts_chatter_skill] about to query fom basics: {type(state)}, {state}")
 
-        table_headers = list(state["search_results"]["preliminary_info"]["table_headers"])
+        table_headers = list(state["tool_result"][0].keys())
+        print("here are table headers string:", table_headers)
         # need to set up state["tool_input"] to be components
         params = convert_table_headers_to_params(table_headers)
+        i = 0
         state["tool_input"] = {
-            "component_results_info": { "component_name":state["attributes"]["preliminary_info"]["part name"],
-                                        "product_app":state["attributes"]["preliminary_info"]["applications_usage"],
+            "component_results_info": { "component_name":state["attributes"]["preliminary_info"][i]["part name"],
+                                        "product_app":state["attributes"]["preliminary_info"][i]["applications_usage"],
                                         "max_product_metrics": 3,
                                         "max_component_metrics": 3,
                                         "params": [
@@ -617,7 +621,7 @@ def query_fom_basics_node(state: NodeState, *, runtime: Runtime, store: BaseStor
 
         # what we should get here is a dict of parametric search filters based on the preliminary
         # component info, this should be passed to human for filling out and confirmation
-        logger.debug("[search_parts_chatter_skill]  query components completed:", type(tool_result), tool_result)
+        logger.debug("[search_parts_chatter_skill]  query fom basics tool call completed:", type(tool_result), tool_result)
 
         # Check if the tool call was successful
         if hasattr(tool_result, 'content') and tool_result.content and "completed" in tool_result.content[0].text:
@@ -627,19 +631,30 @@ def query_fom_basics_node(state: NodeState, *, runtime: Runtime, store: BaseStor
             meta = getattr(content0, 'meta', None)
             if meta is None:
                 meta = getattr(content0, '_meta', None)
-            state["tool_result"] = meta
 
+
+            if meta:
+                components = meta["components"]
+                state["tool_result"] = meta["components"]
+            else:
+                print("ERROR: no meta in tool result!!!!!!!!!!!!")
+                components = {}
+                state["tool_result"] = {}
+
+            print("state tool result:", state["tool_result"])
             # if parametric_search_filters are returned, pass them to human twin
             if state["tool_result"]:
+                i = 0
+                component = state["attributes"]["preliminary_info"][i]["part name"]
                 logger.debug("[search_parts_chatter_skill] tool result:", state["tool_result"])
-                fom_form = sample_metrics_0
+                # fom_form = sample_metrics_0
                 fom_form = {
                     "id": "eval_system_form",
                     "type": "score",
-                    "title": components[0].get('title', 'Component under search') if components else 'Component under search',
+                    "title": f'{component} under search',
                     "components": [
                         {
-                            "name": "price",
+                            "name": components["fom"]["component_level_metrics"]["price_parameter"],
                             "type": "integer",
                             "raw_value": 125,
                             "target_value": 125,
@@ -652,14 +667,14 @@ def query_fom_basics_node(state: NodeState, *, runtime: Runtime, store: BaseStor
                             "weight": 0.3
                         },
                         {
-                            "name": "availability",
+                            "name": components["fom"]["component_level_metrics"]["lead_time_parameter"],
                             "type": "integer",
                             "raw_value": 0,
                             "target_value": 0,
                             "max_value": 150,
                             "min_value": 0,
                             "unit": "days",
-                            "tooltip": "nuber of days before the part is available",
+                            "tooltip": "lead time/availablility of the component",
                             "score_formula": "",
                             "score_lut": {
                                 "20": 100,
@@ -673,11 +688,29 @@ def query_fom_basics_node(state: NodeState, *, runtime: Runtime, store: BaseStor
                             "type": "integer",
                             "raw_value": {
 
-                            }
+                            },
+                            "weight": 0.4
                         }
                     ]
                 }
+                print("fom form with price and lead time filled::", fom_form)
+                for fom_item in components["fom"]["component_level_metrics"]:
+                    item_name = fom_item["metric_name"]
+                    fom_form["components"][-1]["raw_value"][item_name] = {
+                        "name": item_name,
+                        "type": "integer",
+                        "raw_value": 0,
+                        "target_value": 0,
+                        "max_value": 100,
+                        "min_value": 0,
+                        "unit": "",
+                        "tooltip": "",
+                        "score_formula": fom_item["score_formula"],
+                        "score_lut": fom_item["score_lut"],
+                        "weight": fom_item["score_weight"],
+                    }
 
+                print("fom form to be filled:", fom_form)
                 state["result"] = {
                     "llm_result": "Here is a figure of merit (FOM) form to aid searching the parts you're looking for, please try your best to fill it out and send back to me. if you're not sure about certain parameters, just leave them blank. Also feel free to ask any questions about the meaning and implications of any parameters you're not sure about."}
                 # needs to make sure this is the response prompt......state["result"]["llm_result"]
@@ -773,6 +806,16 @@ async def browser_search_with_parametric_filters(mainwin, url, parametric_filter
         pass
     return result
 
+def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
+    logger.debug(f"re_rank_search_results_node about to re-rank search results: {state.tool_result['search_results']}")
+
+    calculate_score(state.tool_result['filled_fom_form'], state.tool_result['search_results'])
+
+    sorted_search_results = sorted(state.tool_result['search_results'], key=lambda x: x['score'], reverse=True)
+    n_results = min(state.attributes['max_n_results'], len(sorted_search_results))
+    print("n_results: ", n_results, len(sorted_search_results), state.attributes['max_n_results'])
+    sorted_search_results = sorted_search_results[:n_results]
+    return state
 
 
 def package_search_results_notification(search_results):
@@ -852,7 +895,11 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
 
     # site - [[{"name", "url"}, "name", "url", ....]...]
     site_categories = state["tool_result"]["components"][0].get("site_categories", [[]])
-    parametric_filters = state["attributes"].get("filled_parametric_filter", [[]])
+    in_pfs = state["attributes"].get("filled_parametric_filter", [])
+    if in_pfs:
+        parametric_filters = [in_pfs.get("fields", [])]
+    else:
+        parametric_filters = [[]]
 
     # url = state["tool_input"]["url"]
     url = {"url": "https://www.digikey.com/en/products", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
@@ -892,14 +939,16 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     # result = send_data_to_agent(agent_id, "json", state["attributes"], state)
     # result = self_agent.a2a_send_chat_message(self_agent, {"message": "search_parts_request", "params": state.attributes})
 
-    state["tool_result"] = package_search_results_notification(tool_result)
+    state["tool_result"] = tool_result.content[0].meta["results"]
+
+    print("state tool results:", state["tool_result"])
 
     return state
 
 def are_component_specs_filled(state):
     logger.debug(f"[search_parts_chatter_skill] are_component_specs_filled input:{state}")
     if state['condition']:
-        return "request_FOM"
+        return "run_search"
     else:
         return "pend_for_next_human_msg1"
 
@@ -930,7 +979,7 @@ def show_results_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -
     twin_agent = next((ag for ag in mainwin.agents if "twin" in ag.card.name.lower()), None)
 
     logger.debug("[search_parts_chatter_skill] show_results_node:", state)
-
+    notifiable = package_search_results_notification(state["tool_result"])
     # send self a message to trigger the real component search work-flow
     final_search_results = state["tool_result"]
     send_data_back2human("send_chat","notification", final_search_results, state)
@@ -963,7 +1012,7 @@ async def create_search_parts_chatter_skill(mainwin):
 
         workflow.add_node("pend_for_next_human_msg0", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg0", THIS_SKILL_NAME, OWNER))
 
-        # workflow.set_entry_point("query_component_specs")
+        workflow.set_entry_point("query_component_specs")
         workflow.add_node("query_component_specs", query_component_specs_node)
 
         workflow.add_conditional_edges("more_analysis_app", is_preliminary_component_info_ready, ["query_component_specs", "pend_for_next_human_msg0"])
@@ -978,15 +1027,27 @@ async def create_search_parts_chatter_skill(mainwin):
         workflow.add_node("pend_for_next_human_msg1", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg1", THIS_SKILL_NAME, OWNER))
         workflow.add_edge("pend_for_human_input_fill_specs", "examine_filled_specs")
 
-        workflow.set_entry_point("query_fom_basics")
+        workflow.add_node("run_search", run_local_search_node)
+
+        workflow.add_conditional_edges("examine_filled_specs", are_component_specs_filled, ["run_search", "pend_for_next_human_msg1"])
+        workflow.add_edge("pend_for_next_human_msg1", "examine_filled_specs")
+
+
+        # pend for result node is for cloud side search only, where search could take a while, and results come back asynchrously.
+        # workflow.add_node("pend_for_result", node_wrapper(pend_for_result_message_node, "pend_for_result", THIS_SKILL_NAME, OWNER))
+        # workflow.set_entry_point("run_search")
+
+        workflow.add_edge("run_search", "query_fom_basics")
+
+
+
+        # workflow.set_entry_point("query_fom_basics")
         workflow.add_node("query_fom_basics", query_fom_basics_node)
 
         workflow.add_node("request_FOM", request_FOM_node)
 
         workflow.add_edge("query_fom_basics", "request_FOM")
 
-        workflow.add_conditional_edges("examine_filled_specs", are_component_specs_filled, ["request_FOM", "pend_for_next_human_msg1"])
-        workflow.add_edge("pend_for_next_human_msg1", "examine_filled_specs")
 
         workflow.add_node("pend_for_human_input_fill_FOM", node_wrapper(pend_for_human_input_node, "pend_for_human_input_fill_FOM", THIS_SKILL_NAME, OWNER))
         workflow.add_edge("request_FOM", "pend_for_human_input_fill_FOM")
@@ -994,21 +1055,20 @@ async def create_search_parts_chatter_skill(mainwin):
         workflow.add_node("confirm_FOM", confirm_FOM_node)
         workflow.add_edge("pend_for_human_input_fill_FOM", "confirm_FOM")
 
-        workflow.add_node("pend_for_next_human_msg2", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg2", THIS_SKILL_NAME, OWNER))
+        # workflow.add_node("pend_for_next_human_msg2", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg2", THIS_SKILL_NAME, OWNER))
 
-        workflow.add_conditional_edges("confirm_FOM", is_FOM_filled, ["run_search", "pend_for_next_human_msg2"])
-        workflow.add_edge("pend_for_next_human_msg2", "confirm_FOM")
+        workflow.add_node("re_rank_search_results", re_rank_search_results_node)
 
-        workflow.add_node("run_search", run_local_search_node)
-        workflow.add_node("pend_for_result", node_wrapper(pend_for_result_message_node, "pend_for_result", THIS_SKILL_NAME, OWNER))
-        # workflow.set_entry_point("run_search")
+        workflow.add_conditional_edges("confirm_FOM", is_FOM_filled, ["re_rank_search_results", "pend_for_human_input_fill_FOM"])
+        # workflow.add_edge("pend_for_next_human_msg2", "confirm_FOM")
 
 
 
         workflow.add_node("show_results", show_results_node)
         # workflow.add_conditional_edges("run_search", is_result_ready, ["show_results", "pend_for_result"])
 
-        workflow.add_edge("run_search", "show_results")
+        # workflow.add_edge("run_search", "show_results")
+        workflow.add_edge("re_rank_search_results", "show_results")
 
         workflow.add_edge("show_results", END)
 

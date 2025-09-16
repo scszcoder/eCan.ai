@@ -339,6 +339,19 @@ export class IPCAPI {
         return this.executeRequest<T>('manage_callable', params);
     }
 
+    /**
+     * Editor support: fetch agents for chat_node party selector
+     */
+    public async getEditorAgents<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_editor_agents', {});
+    }
+
+    /**
+     * Editor support: fetch queues/events for pend_input_node
+     */
+    public async getEditorPendingSources<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_editor_pending_sources', {});
+    }
 }
 
 /**

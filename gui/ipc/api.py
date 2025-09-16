@@ -363,3 +363,25 @@ class IPCAPI:
         """
         params = {'agentTaskId': agent_task_id, 'langgraphState': langgraph_state, 'isRead': isRead, 'timestamp': timestamp, 'uid': uid}
         self._send_request('update_tasks_stat', params, callback=callback)
+
+    def get_editor_agents(
+        self,
+        callback: Optional[Callable[[APIResponse[Dict[str, Any]]], None]] = None
+    ) -> None:
+        """Fetch agents list (plus default 'human') for the Skill Editor node editor dropdowns.
+
+        Returns via callback an APIResponse with data schema:
+          { "agents": [{id, name, kind}], "defaults": {"top": "human"} }
+        """
+        self._send_request('get_editor_agents', {}, callback=callback)
+
+    def get_editor_pending_sources(
+        self,
+        callback: Optional[Callable[[APIResponse[Dict[str, Any]]], None]] = None
+    ) -> None:
+        """Fetch queues and events the Skill Editor can pend on.
+
+        Returns via callback an APIResponse with data schema:
+          { "queues": [{id, name}], "events": [{id, name}] }
+        """
+        self._send_request('get_editor_pending_sources', {}, callback=callback)

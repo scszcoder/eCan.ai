@@ -909,12 +909,12 @@ def page_scroll(web_driver, mainwin):
 
 def connect_to_adspower(mainwin, url):
     try:
-        webdriver_path = mainwin.default_webdriver_path
+        webdriver_path = mainwin.getWebDriverPath()
         # global ads_config, local_api_key, local_api_port, sk_work_settings
-        ads_port = mainwin.ads_settings.get('ads_port', 0)
-        ads_api_key = mainwin.ads_settings.get('ads_api_key', '')
-        ads_chrome_version = mainwin.ads_settings.get('chrome_version', '')
-        scraper_email = mainwin.ads_settings.get("default_scraper_email", "")
+        ads_port = mainwin.getADSSettings().get('ads_port', 0)
+        ads_api_key = mainwin.getADSSettings().get('ads_api_key', '')
+        ads_chrome_version = mainwin.getADSSettings().get('chrome_version', '')
+        scraper_email = mainwin.getADSSettings().get("default_scraper_email", "")
         web_driver_options = ""
         logger.debug(
             f'check_browser_and_drivers: ads_port: {ads_port}, ads_api_key: {ads_api_key}, ads_chrome_version: {ads_chrome_version}')
@@ -939,13 +939,13 @@ def connect_to_adspower(mainwin, url):
         time.sleep(3)
         # Navigate to the new URL in the new tab
         domTree = {}
-        # if url:
-        #     if not url.startswith("file:///"):
-        #         logger.debug(f"Navigating to live URL with .get(): {url}")
-        #         webdriver.get(url)
-        #         logger.info("opened live URL: " + url)
-        #     else:
-        #         logger.debug(f"Local file URL detected. Skipping webdriver.get() as it's already loaded.")
+        if url:
+            if not url.startswith("file:///"):
+                logger.debug(f"Navigating to live URL with .get(): {url}")
+                webdriver.get(url)
+                logger.info("opened live URL: " + url)
+            else:
+                logger.debug(f"Local file URL detected. Skipping webdriver.get() as it's already loaded.")
 
             # time.sleep(5)
 
@@ -1406,7 +1406,7 @@ async def api_ecan_ai_query_fom(mainwin, args):
     # the runbotworks task will then take over.....
     # including put reactive work into it.
     try:
-        print("api_ecan_ai_query_fom args: ", args['input']['components'])
+        print("api_ecan_ai_query_fom args: ", args['input'])
         components = ecan_ai_api_query_fom(mainwin, args['input']['component_results_info'])
         msg = "completed API query components results"
         result = TextContent(type="text", text=msg)
@@ -1457,18 +1457,13 @@ async def api_ecan_local_search_components(mainwin, args):
                         logger.error(err_trace)
                         continue
 
-            logger.debug(f"about to re-rank search results: {search_results}")
-            calculate_score(fom_form, search_results)
+            logger.debug(f"all collected search results: {search_results}")
 
-            sorted_search_results = sorted(search_results, key=lambda x: x['score'], reverse=True)
-            n_results = min(max_n_results, len(sorted_search_results))
-            print("n_results: ", n_results, len(sorted_search_results), max_n_results)
-            sorted_search_results = sorted_search_results[:n_results]
 
-            msg = "completed rpa operator report work results"
+            msg = "completed applying parametric filter to search for results"
             result = TextContent(type="text", text=msg)
             # meta must be a dictionary per MCP spec
-            result.meta = {"results": sorted_search_results, "count": len(sorted_search_results)}
+            result.meta = {"results": search_results}
             return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorAPIECANAILocalSearchComponents")

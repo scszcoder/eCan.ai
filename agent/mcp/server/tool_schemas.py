@@ -1429,31 +1429,37 @@ def build_agent_mcp_tools_schemas():
         description="send ecan_ai API to query figure of merit for an component.",
         inputSchema={
             "type": "object",
-            "required": ["component_results_info"],  # the root requires *input*
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "input": {  # nested object
+                "input": {
                     "type": "object",
-                    "required": ["component_name", "product_app", "params"],
+                    "required": ["component_results_info"],  # the root requires *input*
                     "properties": {
-                        "component_name": {
-                            "type": "string",
-                            "description": "name of the component."
-                        },
-                        "product_app": {
-                            "type": "array",
-                            "description": "list of products or applications.",
-                            "items": {
-                                "type": "string"
-                            }
-                        },
-                        "params": {
-                            "type": "array",
-                            "description": "list of parameters in dict.",
-                            "items": {
-                                "type": "object"
-                            }
+                        "input": {  # nested object
+                            "type": "object",
+                            "required": ["component_name", "product_app", "params"],
+                            "properties": {
+                                "component_name": {
+                                    "type": "string",
+                                    "description": "name of the component."
+                                },
+                                "product_app": {
+                                    "type": "array",
+                                    "description": "list of products or applications.",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "params": {
+                                    "type": "array",
+                                    "description": "list of parameters in dict.",
+                                    "items": {
+                                        "type": "object"
+                                    }
+                                }
+                            },
                         }
-                    },
+                    }
                 }
             }
         },
@@ -1560,16 +1566,16 @@ def build_agent_mcp_tools_schemas():
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["urls", "parametric_filters", "fom_form", "max_n_results"],
+                    "required": ["components", "urls", "parametric_filters", "fom_form", "max_n_results"],
                     "properties": {
-                        "urls": {
-                            "type": "object",
-                            "description": "categories dict with site names as the keys",
-                        },
                         "components": {
                             "type": "array",
                             "description": "optional: list of components with basic attributes.",
                             "items": {"type": "object"}
+                        },
+                        "urls": {
+                            "type": "object",
+                            "description": "categories dict with site names as the keys",
                         },
                         "parametric_filters": {
                             "type": "array",
