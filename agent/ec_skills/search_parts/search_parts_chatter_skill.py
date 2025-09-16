@@ -654,7 +654,7 @@ def query_fom_basics_node(state: NodeState, *, runtime: Runtime, store: BaseStor
                     "title": f'{component} under search',
                     "components": [
                         {
-                            "name": components["fom"]["component_level_metrics"]["price_parameter"],
+                            "name": components["fom"]["price_parameter"],
                             "type": "integer",
                             "raw_value": 125,
                             "target_value": 125,
@@ -667,7 +667,7 @@ def query_fom_basics_node(state: NodeState, *, runtime: Runtime, store: BaseStor
                             "weight": 0.3
                         },
                         {
-                            "name": components["fom"]["component_level_metrics"]["lead_time_parameter"],
+                            "name": components["fom"]["lead_time_parameter"],
                             "type": "integer",
                             "raw_value": 0,
                             "target_value": 0,
@@ -807,13 +807,14 @@ async def browser_search_with_parametric_filters(mainwin, url, parametric_filter
     return result
 
 def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
-    logger.debug(f"re_rank_search_results_node about to re-rank search results: {state.tool_result['search_results']}")
+    logger.debug(f"re_rank_search_results_node about to re-rank search results: {state["attributes"]['search_results']}")
 
-    calculate_score(state.tool_result['filled_fom_form'], state.tool_result['search_results'])
+    url_short = list(state["attributes"]['search_results'].keys())[0]
+    calculate_score(state["attributes"]['filled_fom_form'], state["attributes"]['search_results'][url_short])
 
-    sorted_search_results = sorted(state.tool_result['search_results'], key=lambda x: x['score'], reverse=True)
-    n_results = min(state.attributes['max_n_results'], len(sorted_search_results))
-    print("n_results: ", n_results, len(sorted_search_results), state.attributes['max_n_results'])
+    sorted_search_results = sorted(state["attributes"]['search_results'][url_short], key=lambda x: x['score'], reverse=True)
+    n_results = min(state["attributes"].get("max_n_results", 8), len(sorted_search_results))
+    print("n_results: ", n_results, len(sorted_search_results))
     sorted_search_results = sorted_search_results[:n_results]
     return state
 
@@ -905,7 +906,7 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     url = {"url": "https://www.digikey.com/en/products", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
     url = {"url": "https://www.digikey.com/en/products/filter/power-management-pmic/voltage-regulators-linear-low-drop-out-ldo-regulators/699", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
     # url = {"url": "file:///C:/temp/parametric/digikeySC/Voltage Regulators - Linear, Low Drop Out (LDO) Regulators _ Power Management (PMIC) _ Electronic Components Distributor DigiKey.html", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
-
+    url_short = "digikey"
     logger.debug("[search_parts_chatter_skill] site categories:", site_categories)
     # parametric_filters = sample_pfs_1
     # set up tool call input
@@ -940,6 +941,10 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     # result = self_agent.a2a_send_chat_message(self_agent, {"message": "search_parts_request", "params": state.attributes})
 
     state["tool_result"] = tool_result.content[0].meta["results"]
+    if state["attributes"]["search_results"]:
+        state["attributes"]["search_results"][url_short] = tool_result.content[0].meta["results"]
+    else:
+        state["attributes"]["search_results"] = {url_short: tool_result.content[0].meta["results"]}
 
     print("state tool results:", state["tool_result"])
 
@@ -956,9 +961,9 @@ def are_component_specs_filled(state):
 def is_FOM_filled(state):
     logger.debug(f"[search_parts_chatter_skill] is_FOM_filled input: {state}")
     if state['condition']:
-        return "run_search"
+        return "re_rank_search_results"
     else:
-        return "pend_for_next_human_msg2"
+        return "pend_for_human_input_fill_FOM"
 
 def is_result_ready(state):
     logger.debug(f"[search_parts_chatter_skill] is_result_ready input: {state}")
