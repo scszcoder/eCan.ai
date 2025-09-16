@@ -9,6 +9,10 @@ import traceback
 from bot.Logger import log3
 import json
 import time
+from utils.logger_helper import logger_helper as logger
+from utils.logger_helper import get_traceback
+from selenium.common.exceptions import InvalidArgumentException, WebDriverException
+
 
 API_CONN = "http://local/adspower.net:50360"
 
@@ -276,12 +280,38 @@ def startADSWebDriver(local_api_key, port_string, profile_id, in_driver_path, op
         # chrome_options.add_experimental_option("debuggerAddress", f"127.0.0.1:{debug_port}")
         chrome_options.add_experimental_option("debuggerAddress", selenium_address)
 
+        # Light anti-detection tweak compatible with remote debugging
+        # Avoid unsupported experimental options entirely except debuggerAddress
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+
         # Create a Service object using the path to chromedriver
         service = Service(executable_path=driver_path)
         # service = Service(ChromeDriverManager().install())
         print("service", service, "options:", chrome_options, "driver_path:", driver_path, "selenium_address:", selenium_address)
-        # Initialize WebDriver with the specified options and service
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+        # Initialize WebDriver, with fallback if some options are rejected
+        try:
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+        except InvalidArgumentException as e:
+            logger.warning(f"Chromedriver rejected some chromeOptions; retrying with minimal options. Error: {e}")
+            # Retry with only debuggerAddress (no extra args)
+            chrome_options_fallback = Options()
+            chrome_options_fallback.add_experimental_option("debuggerAddress", selenium_address)
+            driver = webdriver.Chrome(service=service, options=chrome_options_fallback)
+
+        try:
+            logger.debug(f"Stealth mode settings: navigator.webdriver: {driver.execute_script('return navigator.webdriver')}, -- should be False")
+            logger.debug(f"Stealth mode settings: navigator.plugins.length: {driver.execute_script('return navigator.plugins.length')}, -- should be > 0")
+        except WebDriverException:
+            pass
+
+        # inject a tiny patch to prevent detection (guarded)
+        try:
+            driver.execute_cdp_cmd(
+                "Page.addScriptToEvaluateOnNewDocument",
+                {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => false})"}
+            )
+        except WebDriverException:
+            pass
 
     elif "msg" in local_api_info:
         if local_api_info['msg'] == 'user account does not exist':
