@@ -890,6 +890,8 @@ class WebGUI(QMainWindow):
                 else:
                     logger.warning(f"Icon file not found: {icon_path}")
 
+                self._center_on_screen()
+
             except Exception as e:
                 logger.warning(f"WebGUI delayed taskbar icon setup failed: {e}")
 
@@ -1012,15 +1014,63 @@ class WebGUI(QMainWindow):
 
 
     def _center_on_screen(self):
-        """Center the window on the screen"""
-        screen = QApplication.primaryScreen()
-        if not screen:
-            return
-        sg = screen.availableGeometry()
-        self.move(
-            sg.center().x() - self.width() // 2,
-            sg.center().y() - self.height() // 2,
-        )
+        """Center the window on the screen with proper handling for frameless windows"""
+        try:
+            screen = QApplication.primaryScreen()
+            if not screen:
+                logger.warning("No primary screen found for centering")
+                return
+            
+            # Get screen geometry
+            sg = screen.availableGeometry()
+            logger.info(f"Screen geometry: {sg}")
+            
+            # Get current window size
+            window_width = self.width()
+            window_height = self.height()
+            
+            # Calculate center position
+            x = sg.center().x() - window_width // 2
+            y = sg.center().y() - window_height // 2
+            
+            # Ensure position is within screen bounds
+            x = max(sg.left(), min(x, sg.right() - window_width))
+            y = max(sg.top(), min(y, sg.bottom() - window_height))
+            
+            logger.info(f"Centering window: size=({window_width}, {window_height}), target=({x}, {y})")
+            
+            # For frameless windows on Windows, use Windows API for reliable positioning
+            if sys.platform == 'win32' and self.windowFlags() & Qt.FramelessWindowHint:
+                try:
+                    import ctypes
+                    hwnd = int(self.winId())
+                    if hwnd:
+                        user32 = ctypes.windll.user32
+                        # Use SetWindowPos for frameless windows
+                        SWP_NOSIZE = 0x0001
+                        SWP_NOZORDER = 0x0004
+                        SWP_SHOWWINDOW = 0x0040
+                        result = user32.SetWindowPos(hwnd, 0, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW)
+                        logger.info(f"Windows API SetWindowPos result: {result}")
+                        
+                        # Verify position
+                        QApplication.processEvents()
+                        final_pos = self.pos()
+                        logger.info(f"Final position: ({final_pos.x()}, {final_pos.y()})")
+                        return
+                except Exception as api_e:
+                    logger.warning(f"Windows API positioning failed: {api_e}")
+            
+            # Fallback to Qt positioning
+            self.move(x, y)
+            
+            # Process events and verify
+            QApplication.processEvents()
+            final_pos = self.pos()
+            logger.info(f"Qt move result - Final position: ({final_pos.x()}, {final_pos.y()})")
+            
+        except Exception as e:
+            logger.error(f"Failed to center window: {e}")
     
     def handle_oauth_success(self):
         """Handle successful OAuth authentication"""
