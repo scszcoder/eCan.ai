@@ -208,6 +208,7 @@ class NodeState(TypedDict):
     condition: bool
     case: str
     goals: List[Goal]
+    breakpoint: bool
 
 
 class ToT_Context(TypedDict):

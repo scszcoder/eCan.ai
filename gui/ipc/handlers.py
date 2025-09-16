@@ -15,6 +15,12 @@ from app_context import AppContext
 import asyncio
 from agent.ec_skills.dev_utils.skill_dev_utils import *
 
+# Optional import for TaskRunnerRegistry to discover queues; guarded to avoid import issues
+try:
+    from agent.tasks import TaskRunnerRegistry  # type: ignore
+except Exception:
+    TaskRunnerRegistry = None  # type: ignore
+
 def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
     """验证请求参数
     

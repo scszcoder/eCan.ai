@@ -2136,7 +2136,7 @@ def appsync_http_request(query_string, session, token, endpoint):
         response = session.request(
             url=endpoint,
             method='POST',
-            timeout=300,
+            timeout=1200,
             headers=headers,
             json={'query': query_string}
         )

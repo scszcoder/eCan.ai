@@ -951,7 +951,7 @@ def gen_query_fom_string(fom_info):
     product_app_str = json.dumps(fom_info.get('product_app', []))
 
     # Manually build the string for the 'params' list because GraphQL keys are not quoted.
-    params_list = fom_info.get('params', [])
+    params_list = fom_info.get('params', [[]])[0]
     params_str_list = []
     for param in params_list:
         # Escape any double quotes within the values to prevent breaking the query string
