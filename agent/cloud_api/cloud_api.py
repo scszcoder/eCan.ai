@@ -985,6 +985,48 @@ def gen_query_fom_string(fom_info):
 
 
 
+
+def gen_rank_results_string(rank_data_input):
+    """Generates a GraphQL query string for the queryFOM mutation, ensuring correct syntax."""
+
+    # Use json.dumps to safely format the list of strings for product_app.
+    # This handles quoting and commas automatically, creating a valid JSON array string.
+    product_app_str = json.dumps(rank_data_input.get('product_app', []))
+
+    # Manually build the string for the 'params' list because GraphQL keys are not quoted.
+    params_list = rank_data_input.get('params', [[]])[0]
+    params_str_list = []
+    for param in params_list:
+        # Escape any double quotes within the values to prevent breaking the query string
+        param_name = param.get('name', '').replace('"', '\\"')
+        param_ptype = param.get('ptype', '').replace('"', '\\"')
+        param_value = param.get('value', '').replace('"', '\\"')
+
+        # Note: GraphQL keys (name, ptype, value) are not quoted in the object definition.
+        param_str = f'{{name: "{param_name}", ptype: "{param_ptype}", value: "{param_value}"}}'
+        params_str_list.append(param_str)
+
+    # Join the list of parameter strings into a single string like "[{...}, {...}]"
+    params_str = f"[{', '.join(params_str_list)}]"
+
+    # Construct the final query using an f-string for clarity and correctness.
+    # This is much safer than manual string concatenation.
+    query_string = f"""
+        query MyQuery {{
+          queryRankResults(rank_data: {{
+            component_name: "{fom_info.get('component_name', '')}",
+            product_app: {product_app_str},
+            max_product_metrics: {fom_info.get('max_product_metrics', 0)},
+            max_component_metrics: {fom_info.get('max_component_metrics', 0)},
+            params: {params_str}
+          }})
+        }}
+    """
+
+    logger.debug(f"Generated queryRankResults string: {query_string}")
+    return query_string
+
+
 def gen_get_nodes_prompts_string(nodes):
     query_string = """
             query MyQuery {
@@ -1677,6 +1719,24 @@ def send_query_fom_request_to_cloud(session, token, fom_info, endpoint):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["queryFOM"])
+
+    return jresponse
+
+
+
+
+def send_rank_results_request_to_cloud(session, token, rank_data_inut, endpoint):
+
+    queryInfo = gen_rank_results_string(rank_data_inut)
+
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    logger.debug("send_query_rank_results_request_to_cloud, response:", jresp)
+    if "errors" in jresp:
+        screen_error = True
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["queryRankResults"])
 
     return jresponse
 

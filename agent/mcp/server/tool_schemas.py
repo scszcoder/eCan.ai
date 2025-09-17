@@ -1557,9 +1557,34 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
+
     tool_schema = types.Tool(
-        name="api_ecan_local_search_components",
-        description="run API to search components locally from this computer.",
+        name="api_ecan_ai_cloud_search",
+        description="run cloud API to re-rank search results based on human boss specified figure of merit.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["setup"],
+                    "properties": {
+                        "setup": {
+                            "type": "object",
+                            "description": "setup contains component preliminary info, parametric filter values, and result figure of merit schemes.",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+
+    tool_schema = types.Tool(
+        name="ecan_local_search_components",
+        description="Locally search components on designated site with parametric filters.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*

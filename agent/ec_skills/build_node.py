@@ -200,6 +200,8 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     method = config_metadata.get('method', 'GET').upper()
     headers_template = config_metadata.get('headers', {})
     params_template = config_metadata.get('params', {})
+    api_key = config_metadata.get('api_key', {})
+    attachments = config_metadata.get('attachments', [])
     is_sync = config_metadata.get('sync', True)
 
     if not endpoint_template:
@@ -229,12 +231,118 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         else: # POST, PUT, PATCH
             request_args['json'] = final_params
         
-        return request_args
+        # Inject API key if configured
+        try:
+            if api_key:
+                # Case 1: simple string -> default to Authorization: Bearer <token>
+                if isinstance(api_key, str):
+                    token = api_key.format(**attributes)
+                    request_args['headers'] = request_args.get('headers', {})
+                    # Do not overwrite if already provided
+                    request_args['headers'].setdefault('Authorization', f"Bearer {token}")
+                # Case 2: dict configuration
+                elif isinstance(api_key, dict):
+                    # Support nested style: {'header': {...}} or {'query': {...}}
+                    if 'header' in api_key or 'query' in api_key:
+                        for place in ['header', 'query']:
+                            if place in api_key and isinstance(api_key[place], dict):
+                                spec = api_key[place]
+                                name = spec.get('name', 'Authorization' if place == 'header' else 'api_key')
+                                value = spec.get('value')
+                                if value is None and spec.get('env_var'):
+                                    value = os.getenv(spec.get('env_var'), '')
+                                if isinstance(value, str):
+                                    value = value.format(**attributes)
+                                prefix = spec.get('prefix', '')
+                                full_value = f"{prefix}{value}" if prefix else value
+                                if place == 'header':
+                                    request_args['headers'] = request_args.get('headers', {})
+                                    request_args['headers'][name] = full_value
+                                else:  # query
+                                    if method in ['GET', 'DELETE']:
+                                        params = request_args.get('params') or {}
+                                        if not isinstance(params, dict):
+                                            params = {}
+                                        params[name] = full_value
+                                        request_args['params'] = params
+                                    else:
+                                        body = request_args.get('json') or {}
+                                        if not isinstance(body, dict):
+                                            body = {}
+                                        body[name] = full_value
+                                        request_args['json'] = body
+                    else:
+                        # Flat dict: {'in': 'header'|'query', 'name': 'Authorization', 'value': '...', 'env_var': '...', 'prefix': 'Bearer '}
+                        place = api_key.get('in', 'header')
+                        name = api_key.get('name', 'Authorization' if place == 'header' else 'api_key')
+                        value = api_key.get('value')
+                        if value is None and api_key.get('env_var'):
+                            value = os.getenv(api_key.get('env_var'), '')
+                        if isinstance(value, str):
+                            value = value.format(**attributes)
+                        prefix = api_key.get('prefix', '')
+                        full_value = f"{prefix}{value}" if prefix else value
+                        if place == 'header':
+                            request_args['headers'] = request_args.get('headers', {})
+                            request_args['headers'][name] = full_value
+                        else:
+                            if method in ['GET', 'DELETE']:
+                                params = request_args.get('params') or {}
+                                if not isinstance(params, dict):
+                                    params = {}
+                                params[name] = full_value
+                                request_args['params'] = params
+                            else:
+                                body = request_args.get('json') or {}
+                                if not isinstance(body, dict):
+                                    body = {}
+                                body[name] = full_value
+                                request_args['json'] = body
+        except Exception as e:
+            logger.debug(f"build_api_node api_key injection skipped due to error: {e}")
+
+        # Handle file attachments for multipart/form-data
+        opened_files = []
+        try:
+            files_arg = []
+            if attachments:
+                for att in attachments:
+                    if not isinstance(att, dict):
+                        continue
+                    field = att.get('field', 'file')
+                    path_tmpl = att.get('path') or att.get('filepath')
+                    if not path_tmpl:
+                        continue
+                    # Format path with attributes if templated
+                    path = path_tmpl.format(**attributes)
+                    filename = att.get('filename') or os.path.basename(path)
+                    content_type = att.get('content_type', 'application/octet-stream')
+                    f = open(path, 'rb')
+                    opened_files.append(f)
+                    files_arg.append((field, (filename, f, content_type)))
+
+            if files_arg:
+                request_args['files'] = files_arg
+                # When sending files, use form fields for params instead of JSON body
+                if 'json' in request_args:
+                    body = request_args.pop('json')
+                    request_args['data'] = body
+        except Exception as e:
+            # If attachments setup fails, close any opened files and continue without files
+            logger.debug(f"build_api_node attachments setup error: {e}")
+            for fh in opened_files:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+            opened_files = []
+
+        return request_args, opened_files
 
     # Define the synchronous version of the callable
     def sync_api_callable(state: dict) -> dict:
         print(f"Executing sync API node for endpoint: {endpoint_template}")
-        request_args = _prepare_request_args(state)
+        request_args, file_handles = _prepare_request_args(state)
         try:
             with httpx.Client() as client:
                 response = client.request(**request_args)
@@ -248,12 +356,18 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             error_msg = f"API call failed: {e}"
             print(error_msg)
             state['error'] = error_msg
+        finally:
+            for fh in file_handles:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
         return state
 
     # Define the asynchronous version of the callable
     async def async_api_callable(state: dict) -> dict:
         print(f"Executing async API node for endpoint: {endpoint_template}")
-        request_args = _prepare_request_args(state)
+        request_args, file_handles = _prepare_request_args(state)
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.request(**request_args)
@@ -267,6 +381,12 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             error_msg = f"API call failed: {e}"
             print(error_msg)
             state['error'] = error_msg
+        finally:
+            for fh in file_handles:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
         return state
 
     # return sync_api_callable if is_sync else async_api_callable
