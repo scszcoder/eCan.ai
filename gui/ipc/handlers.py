@@ -83,7 +83,7 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
         titles = main_window.titles
         ranks = main_window.ranks
         personalities = main_window.personalities
-        settings = main_window.general_settings
+        settings = main_window.config_manager.general_settings.data
         # knowledges = login.main_win.knowledges
         # chats = login.main_win.chats
         knowledges = {}

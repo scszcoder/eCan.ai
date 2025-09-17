@@ -807,7 +807,7 @@ async def browser_search_with_parametric_filters(mainwin, url, parametric_filter
     return result
 
 def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
-    logger.debug(f"re_rank_search_results_node about to re-rank search results: {state["attributes"]['search_results']}")
+    logger.debug(f"re_rank_search_results_node about to re-rank search results: {state['attributes']['search_results']}")
 
     url_short = list(state["attributes"]['search_results'].keys())[0]
     calculate_score(state["attributes"]['filled_fom_form'], state["attributes"]['search_results'][url_short])
