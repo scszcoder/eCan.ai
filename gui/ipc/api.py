@@ -169,6 +169,21 @@ class IPCAPI:
         """
         self._send_request('update_agents', data=agents, callback=callback)
 
+    def update_agents_scenes(
+            self,
+            agents_scenes: List[Any],
+            callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        设置配置
+
+        Args:
+            agents_scenes: agents
+                { agent_id: { scenes: [ {id, gif, script, audio, description}....]},....}
+            callback: 回调函数，接收 APIResponse[bool]
+        """
+        self._send_request('update_agents_scenes', data=agents_scenes, callback=callback)
+
 
     def update_skills(
             self,
