@@ -71,18 +71,23 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
           properties: {
             modelProvider: {
               type: 'string',
+              extra: { formComponent: 'input' },
             },
             modelName: {
               type: 'string',
+              extra: { formComponent: 'input' },
             },
             attachments: {
               type: 'array',
+              extra: { formComponent: 'custom-attachments', skipDefault: true },
             },
             apiKey: {
               type: 'string',
+              extra: { formComponent: 'input' },
             },
             apiHost: {
               type: 'string',
+              extra: { formComponent: 'input' },
             },
             temperature: {
               type: 'number',
