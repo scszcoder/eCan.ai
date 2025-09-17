@@ -1423,6 +1423,29 @@ async def api_ecan_ai_query_fom(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
+
+
+async def api_ecan_ai_rerank_results(mainwin, args):
+    # call put work received from A2A channel, put into today's work data structure
+    # the runbotworks task will then take over.....
+    # including put reactive work into it.
+    try:
+        print("api_ecan_ai_query_fom args: ", args['input'])
+        components = ecan_ai_api_rerank_results(mainwin, args['input']['component_results_info'])
+        msg = "completed API query components results"
+        result = TextContent(type="text", text=msg)
+        # meta must be a dict – wrap components list under a key to satisfy pydantic
+        result.meta = {"components": components}
+        print("api_ecan_ai_query_fom about to return: ", result)
+        return [result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorAPIECANAIQueryComponents")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
+
+
 async def ecan_local_search_components(mainwin, args):
     logger.debug(f"ecan_local_search_components initial state: {args}")
     try:
