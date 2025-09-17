@@ -5,6 +5,7 @@
 
 import { EditorRenderer, FreeLayoutEditorProvider } from '@flowgram.ai/free-layout-editor';
 import { useState } from 'react';
+import React from 'react';
 
 import '@flowgram.ai/free-layout-editor/index.css';
 import './styles/index.css';
@@ -60,19 +61,46 @@ export const Editor = () => {
   return (
     <EditorContainer>
       <div className="doc-free-feature-overview">
-        <FreeLayoutEditorProvider {...editorProps}>
-          <SidebarProvider>
-            <NodeInfoDisplay />
-            <div className="demo-container">
-              <EditorRenderer className="demo-editor">
-                {skillInfo?.skillName && <SkillNameLabel>{skillInfo.skillName}</SkillNameLabel>}
-              </EditorRenderer>
-            </div>
-            <Tools />
-            <SidebarRenderer />
-          </SidebarProvider>
-        </FreeLayoutEditorProvider>
+        <SkillEditorErrorBoundary>
+          <FreeLayoutEditorProvider {...editorProps}>
+            <SidebarProvider>
+              <NodeInfoDisplay />
+              <div className="demo-container">
+                <EditorRenderer className="demo-editor">
+                  {skillInfo?.skillName && <SkillNameLabel>{skillInfo.skillName}</SkillNameLabel>}
+                </EditorRenderer>
+              </div>
+              <Tools />
+              <SidebarRenderer />
+            </SidebarProvider>
+          </FreeLayoutEditorProvider>
+        </SkillEditorErrorBoundary>
       </div>
     </EditorContainer>
   );
 };
+
+class SkillEditorErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error?: Error }>{
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    // eslint-disable-next-line no-console
+    console.error('SkillEditor crashed:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 16 }}>
+          <h3>Skill Editor encountered an error</h3>
+          <pre style={{ whiteSpace: 'pre-wrap' }}>{String(this.state.error?.message || 'Unknown error')}</pre>
+        </div>
+      );
+    }
+    return this.props.children as React.ReactElement;
+  }
+}

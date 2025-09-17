@@ -29,6 +29,39 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => (
   </>
 );
 
+function normalizeFlowValueForSchema(val: any, schema: any) {
+  const toSafeString = (v: any) => {
+    if (v == null) return '';
+    return typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v);
+  };
+
+  try {
+    if (!schema) return val;
+    const t = schema.type;
+    // If it's already a FlowValue with content, coerce content types as needed
+    if (val && typeof val === 'object' && 'content' in val) {
+      const c = (val as any).content;
+      if (t === 'string' && typeof c !== 'string') {
+        return { ...val, content: toSafeString(c) };
+      }
+      if ((t === 'array' || t === 'object') && typeof c !== 'string') {
+        return { ...val, content: toSafeString(c) };
+      }
+      return val;
+    }
+    // If not a FlowValue, wrap for string/object/array to avoid editor crashes
+    if (t === 'string') {
+      return { type: 'constant', content: toSafeString(val) } as any;
+    }
+    if (t === 'array' || t === 'object') {
+      const defStr = t === 'array' ? '[]' : '{}';
+      const safe = val == null ? defStr : (typeof val === 'string' ? val : JSON.stringify(val, null, 2));
+      return { type: 'constant', content: safe } as any;
+    }
+  } catch (_) {}
+  return val;
+}
+
 export const defaultFormMeta: FormMeta<FlowNodeJSON> = {
   render: renderForm,
   validateTrigger: ValidateTrigger.onChange,
@@ -58,14 +91,43 @@ export const defaultFormMeta: FormMeta<FlowNodeJSON> = {
    * @param value
    * @param ctx
    */
-  formatOnInit: (value, ctx) => value,
+  formatOnInit: (value, ctx) => {
+    try {
+      const v = { ...(value as any) };
+      const data = v.data || {};
+      const inputsValues = { ...(data.inputsValues || {}) };
+      const inputsSchema = data.inputs?.properties || {};
+      // normalize each inputsValues entry against its schema
+      Object.keys(inputsValues).forEach((k) => {
+        inputsValues[k] = normalizeFlowValueForSchema(inputsValues[k], inputsSchema[k]);
+      });
+      v.data = { ...data, inputsValues };
+      return v;
+    } catch {
+      return value;
+    }
+  },
   /**
    * Save (toJSON) data transformation
    * 保存(toJSON) 数据转换
    * @param value
    * @param ctx
    */
-  formatOnSubmit: (value, ctx) => value,
+  formatOnSubmit: (value, ctx) => {
+    try {
+      const v = { ...(value as any) };
+      const data = v.data || {};
+      const inputsValues = { ...(data.inputsValues || {}) };
+      const inputsSchema = data.inputs?.properties || {};
+      Object.keys(inputsValues).forEach((k) => {
+        inputsValues[k] = normalizeFlowValueForSchema(inputsValues[k], inputsSchema[k]);
+      });
+      v.data = { ...data, inputsValues };
+      return v;
+    } catch {
+      return value;
+    }
+  },
   effect: {
     title: syncVariableTitle,
     outputs: provideJsonSchemaOutputs,
