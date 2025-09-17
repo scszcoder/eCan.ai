@@ -34,11 +34,18 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         A callable function that takes a state dictionary and returns the updated state.
     """
     # Extract configuration from metadata with sensible defaults
-    model_name = config_metadata.get("model_name", "gpt-3.5-turbo")
-    temperature = float(config_metadata.get("temperature", 0.7))
-    llm_provider = config_metadata.get("llm_provider", "openai").lower()
-    system_prompt_template = config_metadata.get("system_prompt", "")
-    user_prompt_template = config_metadata.get("user_prompt", "{input}")
+    try:
+        print("building llm node:", config_metadata)
+        model_provider = config_metadata["inputsValues"]["modelProvider"].get("content", "OpenAI")
+        model_name = config_metadata["inputsValues"]["modelName"].get("content", "gpt-3.5-turbo")
+        api_key = config_metadata["inputsValues"]["apiKey"].get("content", "")
+        temperature = float(config_metadata["inputsValues"]["temperature"].get("content", 0.5))
+        llm_provider = model_provider.lower()
+        system_prompt_template = config_metadata["inputsValues"]["systemPrompt"].get("content", "You are an AI assistant.")
+        user_prompt_template = config_metadata["inputsValues"]["prompt"].get("content", "You are an AI assistant.")
+    except Exception as e:
+        error_message = get_traceback(e, "ErrBuildLLMNode0")
+        logger.error(error_message)
 
     # Factory function to get the correct LLM client
     def get_llm_client(provider, model, temp):
@@ -54,7 +61,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             return ChatOpenAI(model=model, temperature=temp)
 
     # This is the actual function that will be executed as the node in the graph
-    def llm_node_callable(state: dict) -> dict:
+    def llm_node_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
         """
         The runtime callable for the LLM node. It formats prompts, invokes the LLM,
         and updates the state with the response.
@@ -101,6 +108,10 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             # It's good practice to put results in specific keys
             if 'llm_responses' not in state:
                 state['llm_responses'] = []
+            state['llm_responses'].append({'provider': llm_provider, 'model': model_name, 'content': response.content})
+            # Ensure messages list exists before appending
+            if 'messages' not in state or not isinstance(state.get('messages'), list):
+                state['messages'] = []
             state['messages'].append(response.content)
 
 
@@ -112,6 +123,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         return state
 
     full_node_callable = node_builder(llm_node_callable, node_name, skill_name, owner, bp_manager)
+
     return full_node_callable
 
 
@@ -196,15 +208,19 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         A sync or async callable function that takes a state dictionary.
     """
     # Extract configuration
-    endpoint_template = config_metadata.get('api_endpoint')
-    method = config_metadata.get('method', 'GET').upper()
-    headers_template = config_metadata.get('headers', {})
-    params_template = config_metadata.get('params', {})
-    api_key = config_metadata.get('api_key', {})
-    attachments = config_metadata.get('attachments', [])
+    print("building api node...", config_metadata)
+    api_endpoint = config_metadata["http"].get('apiUrl', "http://localhost:8000")
+    timeout = int(config_metadata["http"].get('timeout', 30))*10
+    retries = int(config_metadata["http"].get('retry', 3))
+    method = config_metadata["http"].get('apiMethod', "GET").upper()
+
+    headers_template = config_metadata["http"].get('requestHeadersValues', {'Content-Type': {'type': 'constant', 'content': 'application/json'}})
+    params_template = config_metadata["http"].get('requestParams', {})
+    api_key = config_metadata["http"].get('apiKey', "")
+    attachments = config_metadata["http"].get('attachments', [])
     is_sync = config_metadata.get('sync', True)
 
-    if not endpoint_template:
+    if not api_endpoint:
         print("Error: 'api_endpoint' is missing in config_metadata for api_node.")
         return lambda state: {**state, 'error': 'API endpoint not configured'}
 
@@ -221,7 +237,7 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     def _prepare_request_args(state):
         """Prepare final request arguments by formatting templates with state."""
         attributes = state.get("attributes", {})
-        final_url = endpoint_template.format(**attributes)
+        final_url = api_endpoint.format(**attributes)
         final_headers = _format_from_state(headers_template, attributes)
         final_params = _format_from_state(params_template, attributes)
 
@@ -340,8 +356,8 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         return request_args, opened_files
 
     # Define the synchronous version of the callable
-    def sync_api_callable(state: dict) -> dict:
-        print(f"Executing sync API node for endpoint: {endpoint_template}")
+    def sync_api_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
+        print(f"Executing sync API node for endpoint: {api_endpoint}")
         request_args, file_handles = _prepare_request_args(state)
         try:
             with httpx.Client() as client:
@@ -365,8 +381,8 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         return state
 
     # Define the asynchronous version of the callable
-    async def async_api_callable(state: dict) -> dict:
-        print(f"Executing async API node for endpoint: {endpoint_template}")
+    async def async_api_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
+        print(f"Executing async API node for endpoint: {api_endpoint}")
         request_args, file_handles = _prepare_request_args(state)
         try:
             async with httpx.AsyncClient() as client:
@@ -414,7 +430,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         print("Error: 'tool_name' is missing in config_metadata for mcp_tool_calling_node.")
         return lambda state: {**state, 'error': 'MCP tool_name not configured'}
 
-    def mcp_tool_callable(state: dict) -> dict:
+    def mcp_tool_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
         print(f"Executing MCP tool node for tool: {tool_name}")
 
         # By convention, the input for the tool is expected in state['tool_input']
