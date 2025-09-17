@@ -1399,25 +1399,36 @@ def selenium_wait_for_page_load(driver):
 
 
 def get_table_headers(driver) -> List[str]:
-    """Extracts the column headers from the search results table header."""
-    headers = []
+    """Extract the column headers in the exact order of TH elements.
+    Do NOT skip empty headers to keep alignment with TDs.
+    """
+    headers: List[str] = []
     try:
-        logger.debug("Extracting table headers with corrected selector...")
-        # CORRECTED SELECTOR based on user-provided HTML
+        logger.debug("Extracting table headers (aligned with TH count)...")
         header_row = driver.find_element(By.CSS_SELECTOR, "tr[data-testid='Draggable Headers']")
         header_cells = header_row.find_elements(By.TAG_NAME, "th")
 
-        for cell in header_cells:
+        for idx, cell in enumerate(header_cells):
+            text_val = ""
             try:
-                # The actual header text is nested within divs and a span.
-                header_text_element = cell.find_element(By.CSS_SELECTOR, "div[data-testid='custom-header-label'] span")
-                header_text = header_text_element.text.strip()
-                if header_text:  # Ensure we don't add empty headers
-                    headers.append(header_text)
-            except NoSuchElementException:
-                # Some header cells (like the first one for the drag handle) are intentionally empty. Skip them.
-                pass
-        logger.info(f"Successfully extracted headers: {headers}")
+                # Prefer label span text
+                el = cell.find_element(By.CSS_SELECTOR, "div[data-testid='custom-header-label'] span")
+                text_val = (el.text or "").strip()
+            except Exception:
+                text_val = ""
+
+            # As a secondary hint, try to infer from data-testid if present (e.g., draggable-header--100)
+            if not text_val:
+                try:
+                    dt = cell.get_attribute("data-testid") or ""
+                    if dt:
+                        text_val = dt
+                except Exception:
+                    pass
+
+            headers.append(text_val)
+
+        logger.info(f"Extracted {len(headers)} headers: {headers}")
     except Exception as e:
         logger.error(f"Could not extract table headers: {get_traceback(e)}")
     return headers
@@ -1564,16 +1575,25 @@ def apply_search_results_sort_safe(driver, header_text: str, asc: bool) -> bool:
             before_sort = ""
 
         # 2) Within the header, find the appropriate sort button
-        btn_xpath = ".//button[contains(@class,'asc')]" if asc else ".//button[contains(@class,'desc')]"
+        # Primary: Digi-Key uses data-testid like sort--<id>-asc / sort--<id>-dsc
+        testid_part = "-asc" if asc else "-dsc"
+        sort_btn = None
         try:
-            sort_btn = header.find_element(By.XPATH, btn_xpath)
+            sort_btn = header.find_element(By.XPATH, f".//button[contains(@data-testid, '{testid_part}')]")
         except Exception:
-            # Fallback: if class names differ, try any button with a sort icon, click once or twice accordingly
-            cand = header.find_elements(By.XPATH, ".//button")
-            if not cand:
-                logger.warning("No sort button found inside header '%s'", header_text)
-                return False
-            sort_btn = cand[0]
+            pass
+        if sort_btn is None:
+            # Fallback: class contains 'asc' / 'desc'
+            btn_xpath = ".//button[contains(@class,'asc')]" if asc else ".//button[contains(@class,'desc')]"
+            try:
+                sort_btn = header.find_element(By.XPATH, btn_xpath)
+            except Exception:
+                # Last resort: any button inside header
+                cand = header.find_elements(By.XPATH, ".//button")
+                if not cand:
+                    logger.warning("No sort button found inside header '%s'", header_text)
+                    return False
+                sort_btn = cand[0]
 
         # 3) Click sort
         try:
@@ -1680,8 +1700,11 @@ def extract_links_from_td(td) -> Dict[str, str]:
     try:
         img = td.find_element(By.CSS_SELECTOR, "img[data-testid='data-table-product-image']")
         src = img.get_attribute("src")
+        std_src = img.get_attribute("data-standard-url")
         if src:
             out["Image URL"] = src if src.startswith("http") else f"https:{src}"
+        if std_src:
+            out["Image Standard URL"] = std_src if std_src.startswith("http") else f"https:{std_src}"
     except Exception:
         pass
 
@@ -1730,13 +1753,16 @@ def parse_rows_on_page(driver) -> Tuple[List[Dict[str, str]], List[str]]:
             except Exception:
                 pass
 
+            # Start with a stable fallback based on data-atag if available
             key = preferred_key(key_raw) if key_raw else f"col{j}"
-            if key not in dynamic_keys_in_order:
-                dynamic_keys_in_order.append(key)
-
             if j < len(headers):
                 header = headers[j]
-                key = header
+                # If header text is non-empty, prefer it; otherwise keep the fallback to avoid misalignment
+                if header and header.strip():
+                    key = header.strip()
+
+            if key not in dynamic_keys_in_order:
+                dynamic_keys_in_order.append(key)
 
             print("setting key:", key)
             # cell text
