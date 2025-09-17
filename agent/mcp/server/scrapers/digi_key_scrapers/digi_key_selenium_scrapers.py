@@ -831,9 +831,9 @@ def format_elements(elems, max_items=10):
     #         lines.append(f"[{i}] {describe_element(el)}")
     return "\n".join(lines)
 
-def safe_big_scroll_down(driver, guard_mid=False):
+def safe_big_scroll_down(driver, n_screen=10, guard_mid=False):
     viewport_height = driver.execute_script("return window.innerHeight;")
-    n_screen = 30
+    n_screen = n_screen
     scroll_per_screen = 5
     _smooth_scroll_by(driver, viewport_height * n_screen, steps=n_screen*scroll_per_screen, delay=0.3)
     safe_scroll(driver, by=viewport_height * 30)
@@ -1423,16 +1423,189 @@ def get_table_headers(driver) -> List[str]:
     return headers
 
 
-def selenium_extract_search_results(webdriver):
+def _get_current_page_index(driver) -> Optional[int]:
+    """Detect current page number from pagination (disabled numeric button)."""
     try:
-        logger.debug("Parsing rows on current page...")
-        # The new helper function does all the work.
-        rows, _ = parse_rows_on_page(webdriver)
-        print(f"extracted # of rows {len(rows)}")
-        return rows
+        # Preferred: disabled numeric button indicates current page
+        cur_btn = driver.find_elements(By.XPATH, "//div[@data-testid='pagination-container']//button[starts-with(@data-testid,'btn-page-') and @disabled]")
+        if cur_btn:
+            val = cur_btn[0].get_attribute("value") or cur_btn[0].text
+            try:
+                return int(str(val).strip())
+            except Exception:
+                return None
+        # Fallback: tabindex='-1' often marks current page in MUI
+        cur_btn = driver.find_elements(By.XPATH, "//div[@data-testid='pagination-container']//button[starts-with(@data-testid,'btn-page-') and @tabindex='-1']")
+        if cur_btn:
+            val = cur_btn[0].get_attribute("value") or cur_btn[0].text
+            try:
+                return int(str(val).strip())
+            except Exception:
+                return None
+    except Exception:
+        return None
+    return None
+
+
+def _click_next_page(driver, timeout: int = 15) -> bool:
+    """Click the next page button and wait until page index increases. Returns True if page changed."""
+    try:
+        logger.debug("Clicking next page...")
+        prev_idx = _get_current_page_index(driver)
+        logger.debug(f"previous page index is...{prev_idx}")
+        next_btns = driver.find_elements(By.XPATH, "//div[@data-testid='pagination-container']//button[@data-testid='btn-next-page']")
+        if not next_btns:
+            logger.debug("next button not found!!!...")
+            return False
+        next_btn = next_btns[0]
+        # Try standard click; fallback to JS click
+        try:
+            logger.debug("next button found and clicking right now....")
+            next_btn.click()
+        except Exception:
+            try:
+                driver.execute_script("arguments[0].click();", next_btn)
+            except Exception:
+                return False
+
+        # Wait for page index to change or rows to refresh
+        def page_changed(drv):
+            cur = _get_current_page_index(drv)
+            return (prev_idx is None and cur is not None) or (cur is not None and prev_idx is not None and cur > prev_idx)
+
+        try:
+            WebDriverWait(driver, timeout).until(lambda d: page_changed(d))
+            return True
+        except Exception:
+            # As a fallback, wait for table rows to go stale/refresh
+            try:
+                WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "tr[class*='muwdap-tr'], tbody tr")))
+            except Exception:
+                pass
+            # Check once more
+            return page_changed(driver)
+    except Exception:
+        return False
+
+
+def selenium_extract_search_results(driver, max_n: Optional[int] = None, max_pages: Optional[int] = None):
+    """
+    Extract results across multiple pages using pagination controls.
+    - max_n: stop after collecting this many rows (if provided)
+    - max_pages: limit number of pages to traverse (defaults to MAX_PAGES constant if present)
+    Backward compatible with previous single-page behavior when limits are not provided.
+    """
+    try:
+        limit_pages = max_pages if max_pages is not None else MAX_PAGES
+        all_rows: List[Dict[str, str]] = []
+        pages = 0
+
+        while True:
+            logger.debug("Parsing rows on current page...")
+            rows, _ = parse_rows_on_page(driver)
+            logger.debug(f"Found {len(rows)} rows on page {pages + 1}")
+
+            if max_n is not None:
+                need = max(0, max_n - len(all_rows))
+                if need > 0:
+                    all_rows.extend(rows[:need])
+                # Stop early if reached desired count
+                if len(all_rows) >= max_n:
+                    break
+            else:
+                all_rows.extend(rows)
+
+            pages += 1
+            # Respect page limit if provided (or constant)
+            if limit_pages and pages >= limit_pages:
+                break
+
+            # Try go to next page; stop if cannot
+            if not _click_next_page(driver):
+                break
+            # Allow the next page to render content a bit before parsing
+            try:
+                WebDriverWait(driver, WAIT_TIMEOUT).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "tr[class*='muwdap-tr'], tbody tr"))
+                )
+            except Exception:
+                pass
+            time.sleep(0.3)
+
+        logger.debug(f"Total rows collected: {len(all_rows)} across {pages} page(s)")
+        print(f"extracted # of rows {len(all_rows)}")
+        return all_rows
     except Exception as e:
         logger.error(f"Error during selenium_extract_search_results: {get_traceback(e)}")
         return []
+
+
+
+def apply_search_results_sort_safe(driver, header_text: str, asc: bool) -> bool:
+    """Find the column with given header_text and click its sort button.
+    asc=True clicks the ascending button; asc=False clicks the descending button.
+    Returns True if a click was performed and we observed a change; otherwise False.
+    """
+    try:
+        logger.debug(f"Sorting search results on header '{header_text}' ascending={asc}")
+        wait = WebDriverWait(driver, 10)
+
+        # 1) Locate the header TH that contains an element whose normalized text == header_text
+        header = wait.until(
+            EC.presence_of_element_located(
+                (By.XPATH, f"//th[.//*[normalize-space(text())='{header_text}']]")
+            )
+        )
+
+        # Try to detect prior sort state via aria-sort if present
+        try:
+            before_sort = (header.get_attribute("aria-sort") or "").lower()
+        except Exception:
+            before_sort = ""
+
+        # 2) Within the header, find the appropriate sort button
+        btn_xpath = ".//button[contains(@class,'asc')]" if asc else ".//button[contains(@class,'desc')]"
+        try:
+            sort_btn = header.find_element(By.XPATH, btn_xpath)
+        except Exception:
+            # Fallback: if class names differ, try any button with a sort icon, click once or twice accordingly
+            cand = header.find_elements(By.XPATH, ".//button")
+            if not cand:
+                logger.warning("No sort button found inside header '%s'", header_text)
+                return False
+            sort_btn = cand[0]
+
+        # 3) Click sort
+        try:
+            sort_btn.click()
+        except Exception:
+            driver.execute_script("arguments[0].click();", sort_btn)
+
+        # 4) Wait for sort state to update (aria-sort change) or for rows to refresh
+        def sort_changed(drv):
+            try:
+                cur = header.get_attribute("aria-sort")
+            except Exception:
+                cur = None
+            if cur and cur != before_sort:
+                return True
+            # Fallback heuristic: table rows present (ensures DOM is ready)
+            try:
+                return bool(drv.find_elements(By.CSS_SELECTOR, "tr[class*='muwdap-tr'], tbody tr"))
+            except Exception:
+                return False
+
+        try:
+            WebDriverWait(driver, 10).until(lambda d: sort_changed(d))
+        except Exception:
+            pass
+
+        logger.debug("Sort click completed")
+        return True
+    except Exception as e:
+        logger.error(f"Error during sorting search results: {get_traceback(e)}")
+        return False
+
 
 def click_if_exists(driver, by, selector, timeout=2):
     try:
@@ -1464,7 +1637,12 @@ def extract_links_from_td(td) -> Dict[str, str]:
     out = {}
     # MPN + Product URL
     try:
-        mpn_a = td.find_element(By.CSS_SELECTOR, "[data-testid='data-table-product-number']")
+        # Prefer anchor directly if present, otherwise find by data-testid then closest ancestor anchor
+        try:
+            mpn_a = td.find_element(By.CSS_SELECTOR, "a[data-testid='data-table-product-number']")
+        except Exception:
+            mpn_label = td.find_element(By.CSS_SELECTOR, "[data-testid='data-table-product-number']")
+            mpn_a = mpn_label.find_element(By.XPATH, "./ancestor::a[1]")
         out["MPN"] = clean_text(mpn_a.text)
         href = mpn_a.get_attribute("href")
         if href:
@@ -1474,7 +1652,11 @@ def extract_links_from_td(td) -> Dict[str, str]:
 
     # Manufacturer + URL
     try:
-        mfr_a = td.find_element(By.CSS_SELECTOR, "[data-testid='data-table-mfr-link']")
+        try:
+            mfr_a = td.find_element(By.CSS_SELECTOR, "a[data-testid='data-table-mfr-link']")
+        except Exception:
+            mfr_label = td.find_element(By.CSS_SELECTOR, "[data-testid='data-table-mfr-link']")
+            mfr_a = mfr_label.find_element(By.XPATH, "./ancestor::a[1]")
         out["Manufacturer"] = clean_text(mfr_a.text)
         href = mfr_a.get_attribute("href")
         if href:
@@ -1484,21 +1666,15 @@ def extract_links_from_td(td) -> Dict[str, str]:
 
     # Datasheet URL (PDF icon link)
     try:
-        ds_a = td.find_element(By.CSS_SELECTOR, "a:has(svg[data-testid='icon-alt-pdf'])")
-        href = ds_a.get_attribute("href")
-        if href:
-            out["Datasheet URL"] = href
+        # Avoid :has selector for broad compatibility; directly find the svg then nearest ancestor link
+        ds_svg = td.find_elements(By.CSS_SELECTOR, "svg[data-testid='icon-alt-pdf']")
+        if ds_svg:
+            parent_link = ds_svg[0].find_element(By.XPATH, "./ancestor::a[1]")
+            href = parent_link.get_attribute("href")
+            if href:
+                out["Datasheet URL"] = href
     except Exception:
-        # older Chromes don't support :has; try a fallback
-        try:
-            ds_svg = td.find_elements(By.CSS_SELECTOR, "svg[data-testid='icon-alt-pdf']")
-            if ds_svg:
-                parent_link = ds_svg[0].find_element(By.XPATH, "./ancestor::a[1]")
-                href = parent_link.get_attribute("href")
-                if href:
-                    out["Datasheet URL"] = href
-        except Exception:
-            pass
+        pass
 
     # Image URL
     try:
@@ -1509,7 +1685,7 @@ def extract_links_from_td(td) -> Dict[str, str]:
     except Exception:
         pass
 
-    return links
+    return out
 
 
 def parse_rows_on_page(driver) -> Tuple[List[Dict[str, str]], List[str]]:
@@ -1686,6 +1862,7 @@ def digi_key_selenium_search_component(driver, pfs, category_phrase, site_url):
         # selenium_wait_for_results_container(driver)
         time.sleep(3)
         safe_big_scroll_down(driver)
+
         logger.debug(f"done big scroll......")
 
         logger.debug(f"extracting search results......")
@@ -1700,6 +1877,28 @@ def digi_key_selenium_search_component(driver, pfs, category_phrase, site_url):
     return results
 
 
+def digi_key_selenium_sort_and_extract_results(driver,  header, ascending, max_n):
+    try:
+        logger.debug("digi_key_selenium_sort_and_extract_results... accessing driver")
+        apply_search_results_sort_safe(driver, header, ascending)
+
+        logger.debug(f"waiting for search results to show up completely......")
+        # selenium_wait_for_results_container(driver)
+        time.sleep(3)
+        safe_big_scroll_down(driver)
+
+        logger.debug(f"sort finished, now extracting rows of results")
+
+        logger.debug(f"extracting search results......")
+        components_results = selenium_extract_search_results(driver, max_n)
+        logger.debug(f"search results collected......{components_results}")
+        results = {"status": "success", "components": components_results}
+
+    except Exception as e:
+        err_msg = get_traceback(e, "ErrorDigikeySeleniumSortAndExtractResults")
+        results = {"status": "failed", "error": err_msg, "components": []}
+
+    return results
 
 
 if __name__ == "__main__":
