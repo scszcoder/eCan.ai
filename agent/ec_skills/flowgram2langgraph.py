@@ -14,9 +14,9 @@ from agent.ec_skill import NodeState
 # You need to populate this in your real implementation
 function_registry = {
     "llm": build_llm_node,
-    "basic": build_basic_node,
+    "basic": build_mcp_tool_calling_node,
     "code": build_basic_node,
-    "api": build_api_node,
+    "http-api": build_api_node,
     "loop": build_loop_node,
     "condition": build_condition_node,
     "tool": build_mcp_tool_calling_node,
