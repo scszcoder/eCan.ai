@@ -24,3 +24,22 @@ def selenium_search_component(webdriver, pf, site_cats):
         all_results = []
 
     return all_results
+
+
+def selenium_sort_search_results(webdriver, header_text, ascending, max_n, site_url):
+    try:
+        logger.debug(f"selenium_search_component started......{header_text}")
+        all_results = []
+
+        if "digikey" in site_url:
+            logger.debug("sorting digikey search results")
+            results = digi_key_selenium_sort_and_extract_results(webdriver, header_text, ascending, max_n)
+
+            if results["status"] == "success":
+                all_results.extend(results["components"])
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorSeleniumSearchComponent")
+        logger.debug(err_trace)
+        all_results = []
+
+    return all_results
