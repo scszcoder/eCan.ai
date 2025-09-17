@@ -37,6 +37,7 @@ export class IPCHandlers {
         this.registerHandler('set_config', this.setConfig);
         this.registerHandler('notify_event', this.notifyEvent);
         this.registerHandler('update_agents', this.updateAgents);
+        this.registerHandler('update_agents_scenes', this.updateAgentsScenes);
         this.registerHandler('update_skills', this.updateSkills);
         this.registerHandler('update_tasks', this.updateTasks);
         this.registerHandler('update_knowledge', this.updateKnowledges);
@@ -84,6 +85,12 @@ export class IPCHandlers {
 
     async updateAgents(request: IPCRequest): Promise<unknown> {
         logger.info('Received update_agents request:', request.params);
+        useAppDataStore.getState().setAgents(request.params as any);
+        return { refreshed: true };
+    }
+
+    async updateAgentsScenes(request: IPCRequest): Promise<unknown> {
+    logger.info('Received update_agents_scenes request:', request.params);
         useAppDataStore.getState().setAgents(request.params as any);
         return { refreshed: true };
     }
