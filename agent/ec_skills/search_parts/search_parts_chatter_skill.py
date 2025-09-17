@@ -941,7 +941,7 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     # result = self_agent.a2a_send_chat_message(self_agent, {"message": "search_parts_request", "params": state.attributes})
 
     state["tool_result"] = tool_result.content[0].meta["results"]
-    if state["attributes"]["search_results"]:
+    if state["attributes"].get("search_results", {}):
         state["attributes"]["search_results"][url_short] = tool_result.content[0].meta["results"]
     else:
         state["attributes"]["search_results"] = {url_short: tool_result.content[0].meta["results"]}

@@ -179,6 +179,7 @@ def _collect_context_from_item(item: Dict[str, Any]) -> Dict[str, float]:
     if isinstance(item.get("components"), list):
         add_components(item["components"])
 
+    logger.debug("[eval_util] _collect_context_from_item", ctx)
     return ctx
 
 
@@ -291,6 +292,7 @@ def _score_component(
         sub_scores: List[Optional[float]] = []
         sub_weights: List[float] = []
         for sub_name in sub_names:
+            print("sub_name", sub_name)
             sub_comp = dict(rv[sub_name] or {})
             sub_comp.setdefault("name", sub_name)
             sc = _score_leaf_component(item, sub_comp, global_ctx)
@@ -333,6 +335,7 @@ def calculate_score(fom: Dict[str, Any], items: List[Dict[str, Any]], clamp: boo
     - If clamp=True, final score is clamped to [0, 100].
     """
     try:
+        logger.debug("[eval_util] calculate_score", fom, items)
         components = fom.get("components", []) or []
 
         for item in items:
@@ -342,8 +345,11 @@ def calculate_score(fom: Dict[str, Any], items: List[Dict[str, Any]], clamp: boo
             comp_scores: List[Optional[float]] = []
             comp_weights: List[float] = []
 
+            print("Item:", item)
             for comp in components:
+                print("comp", comp)
                 s = _score_component(item, comp, ctx)
+                print("score:", s)
                 comp_scores.append(s)
                 comp_weights.append(_to_float_or_none(comp.get("weight")) or 0.0)
 
@@ -356,6 +362,7 @@ def calculate_score(fom: Dict[str, Any], items: List[Dict[str, Any]], clamp: boo
             if sum(comp_weights) == 0:
                 # equal weighting among components that produced a score
                 cnt = sum(1 for s in comp_scores if s is not None)
+                print("cnt", cnt)
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorCalculateScores")
