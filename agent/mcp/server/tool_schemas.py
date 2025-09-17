@@ -1597,5 +1597,37 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
+    tool_schema = types.Tool(
+        name="ecan_local_sort_search_results",
+        description="locally sort search results based on certain column header text either in ascending order or descending order, then extract top max_n rows of results.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["sites"],
+                    "properties": {
+                        "sites": {
+                            "type": "array",
+                            "description": "list of json objects with basic attributes of url, header_text, ascending, and max_n.",
+                            "items": {
+                                "type": "object",
+                                "required": ["url", "header_text", "ascending", "max-n"],
+                                "properties": {
+                                    "url": {"type": "string"},
+                                    "header_text": {"type": "string"},
+                                    "ascending": {"type": "boolean"},
+                                    "max-n": {"type": "integer"}
+                                }
+                            }
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
 
     return tool_schemas

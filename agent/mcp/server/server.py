@@ -39,7 +39,10 @@ from agent.mcp.server.api.ecan_ai.ecan_ai_api import (
 )
 from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
 from agent.mcp.server.scrapers.api_ecan_ai_cloud_search.api_ecan_ai_cloud_search import api_ecan_ai_cloud_search
-from agent.mcp.server.scrapers.selenium_search_component import selenium_search_component
+from agent.mcp.server.scrapers.selenium_search_component import (
+    selenium_search_component,
+    selenium_sort_search_results
+)
 from agent.mcp.server.scrapers.eval_util import calculate_score, get_default_fom_form
 
 server_main_win = None
@@ -1420,8 +1423,8 @@ async def api_ecan_ai_query_fom(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
-async def api_ecan_local_search_components(mainwin, args):
-    logger.debug(f"api_ecan_local_search_components initial state: {args}")
+async def ecan_local_search_components(mainwin, args):
+    logger.debug(f"ecan_local_search_components initial state: {args}")
     try:
         vendors = list(args['input']["urls"].keys())
         print("vendors::", vendors)
@@ -1434,7 +1437,7 @@ async def api_ecan_local_search_components(mainwin, args):
             logger.debug(f"conncted to ads power and webdriver: {args['input']['urls']}")
             log_user = mainwin.user.replace("@", "_").replace(".", "_")
             pfs = args['input']["parametric_filters"]
-            logger.debug(f"Received pf in api_ecan_local_search_components: {pfs}")
+            logger.debug(f"Received pf in ecan_local_search_components: {pfs}")
             sites = args['input']['urls']
             fom_form = args['input'].get('fom_form', {})
             if not fom_form:
@@ -1466,9 +1469,48 @@ async def api_ecan_local_search_components(mainwin, args):
             result.meta = {"results": search_results}
             return [result]
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorAPIECANAILocalSearchComponents")
+        err_trace = get_traceback(e, "ErrorECANAILocalSearchComponents")
         logger.debug(err_trace)
         return [TextContent(type="text", text=err_trace)]
+
+
+
+
+async def ecan_local_sort_search_results(mainwin, args):
+    logger.debug(f"ecan_local_sort_search_results initial state: {args}")
+    try:
+        search_results = []
+        sites = args['input']['sites']
+        for site in sites:
+            try:
+                # Pass a list of URLs and the target category phrase to the selenium search helper
+                site_url = site['url']
+                asc = site["ascending"]
+                header_text = site["header_text"]
+                max_n = site["max_n"]
+
+                site_results = selenium_sort_search_results(webdriver, header_text, asc, max_n, site_url)
+
+                # extend accumulates in place; do not assign the None return value
+                search_results.extend(site_results)
+            except Exception as e:
+                # record error and continue
+                err_trace = get_traceback(e, "ErrorSeleniumSiteSortSearchResults")
+                logger.error(err_trace)
+                continue
+
+
+        msg = "completed applying sort to search results and export those results"
+        result = TextContent(type="text", text=msg)
+        # meta must be a dictionary per MCP spec
+        result.meta = {"results": search_results}
+        return [result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorECANAILocalSortSearchResults")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
 
 
 async def api_ecan_ai_img2text_icons(mainwin, args):
@@ -1555,7 +1597,8 @@ tool_function_mapping = {
         "api_ecan_ai_ocr_read_screen": api_ecan_ai_ocr_read_screen,
         "api_ecan_ai_cloud_search": api_ecan_ai_cloud_search,
         "mouse_act_on_screen": mouse_act_on_screen,
-        "api_ecan_local_search_components": api_ecan_local_search_components
+        "ecan_local_search_components": ecan_local_search_components,
+        "ecan_local_sort_search_results": ecan_local_sort_search_results
     }
 
 def set_server_main_win(mw):
