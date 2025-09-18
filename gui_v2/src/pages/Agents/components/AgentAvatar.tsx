@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useEffect } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import agentGifs, { logVideoSupport } from '@/assets/gifs'; // 需实现导入所有 gif
 import { Agent, AgentCard } from '../types';
 import { Button, Dropdown, Modal, message } from 'antd';
@@ -37,16 +37,18 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
   const rawDesc = (agent as any).description ?? (agent as any).card?.description;
   const safeName = typeof rawName === 'string' ? rawName : '';
   const safeDesc = typeof rawDesc === 'string' ? rawDesc : '';
-  const mediaUrl = useMemo<string>(() => getRandomGif(), []);
+  // 使用agent ID作为依赖，确保同一个Agent总是使用相同GIF
+  const mediaUrl = useMemo<string>(() => {
+    // 使用agent ID作为种子生成固定的随机数，确保一致性
+    if (!id) return getRandomGif();
+    const seed = id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
+    const index = seed % (agentGifs?.length || 1);
+    return Array.isArray(agentGifs) && agentGifs.length > 0 ? agentGifs[index] as string : '';
+  }, [id]);
 
   // 只要 mediaUrl 存在且以 .webm 或 .mp4 结尾就用 video
   const isVideo = Boolean(mediaUrl && typeof mediaUrl === 'string' && (mediaUrl.trim().toLowerCase().endsWith('.webm') || mediaUrl.trim().toLowerCase().endsWith('.mp4')));
-  const [error, setError] = React.useState(false);
-
-  // render 次数日志
-  const renderCount = useRef(0);
-  renderCount.current++;
-  // console.log(t('common.agent_avatar_render') || 'AgentAvatar render', id, t('common.count') || 'count:', renderCount.current, agent);
+  // const [error, setError] = React.useState(false); // 暂时不需要
 
   // 在第一次渲染时检测视频支持
   useEffect(() => {
@@ -55,9 +57,6 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
       logVideoSupport();
     }
   }, []);
-
-  console.log(t('common.is_video') || 'is video', isVideo, t('common.gif_url') || 'gif url:', mediaUrl);
-  // console.log(t('common.agent_gifs') || 'agentGifs:', agentGifs);
 
   const handleEdit = () => {
     if (!id) return;
@@ -116,7 +115,7 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
           />
         </div>
       ) : (
-        <img src={mediaUrl} alt={t('common.agent_working') || 'agent working'} className="agent-gif" style={{ width: 300, height: 300 * 9 / 16, objectFit: 'contain', borderRadius: 28, marginBottom: 26, background: '#222c', border: '4px solid var(--primary-color, #3b82f6)', boxShadow: '0 4px 18px 0 rgba(59,130,246,0.13)' }} onError={e => { console.error(t('common.img_load_error') || 'img load error', mediaUrl, e); setError(true); }} />
+        <img src={mediaUrl} alt={t('common.agent_working') || 'agent working'} className="agent-gif" style={{ width: 300, height: 300 * 9 / 16, objectFit: 'contain', borderRadius: 28, marginBottom: 26, background: '#222c', border: '4px solid var(--primary-color, #3b82f6)', boxShadow: '0 4px 18px 0 rgba(59,130,246,0.13)' }} onError={e => { console.error(t('common.img_load_error') || 'img load error', mediaUrl, e); }} />
       )}
       <div className="agent-info-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <span style={{ display: 'inline-flex', alignItems: 'center' }}>

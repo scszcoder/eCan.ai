@@ -15,9 +15,9 @@ interface LLMManagementProps {
 
 const LLMManagement: React.FC<LLMManagementProps> = ({ username, defaultLLM: propDefaultLLM, settingsLoaded, onDefaultLLMChange }) => {
   const { t } = useTranslation();
-  const { message } = App.useApp();
-  const { token } = theme.useToken();
   const { theme: currentTheme } = useTheme();
+  const { token } = theme.useToken();
+  const { modal, message } = App.useApp();
 
   // State management
   const [providers, setProviders] = useState<LLMProvider[]>([]);
@@ -36,7 +36,7 @@ const LLMManagement: React.FC<LLMManagementProps> = ({ username, defaultLLM: pro
   const showRestartNotification = (operationType: string) => {
     const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
     
-    Modal.info({
+    modal.info({
       title: (
         <span style={{ 
           color: token.colorText,
