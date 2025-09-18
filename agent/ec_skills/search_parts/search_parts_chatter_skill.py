@@ -525,42 +525,7 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
                     "title": components[0].get('title', 'Component under search') if components else 'Component under search',
                     "fields": parametric_filters
                 }
-                #     "fields": [
-                #         {
-                #             "id": "core",
-                #             "type": "select",
-                #             "label": "MCU Core",
-                #             "tooltip": "MCU Core Types",
-                #             "options": [
-                #                 { "label": "ATmega328P", "value": "ATmega328P" },
-                #                 { "label": "ESP32", "value": "ESP32" },
-                #                 { "label": "STM32F103", "value": "STM32F103" },
-                #                 { "label": "PIC16F84A", "value": "PIC16F84A" },
-                #                 { "label": "Arduino Nano", "value": "Arduino Nano" }
-                #             ],
-                #             "defaultValue": "ESP32"
-                #         },
-                #         {
-                #             "id": "factory",
-                #             "type": "text",
-                #             "label": "Factory",
-                #             "tooltip": "Test field type text",
-                #             "defaultValue": "ESP——32"
-                #         },
-                #         {
-                #             "id": "voltage",
-                #             "type": "select",
-                #             "label": "Operating Voltage",
-                #             "tooltip": "Operation Voltage Options",
-                #             "options": [
-                #                 { "label": "3.3V", "value": "3.3V" },
-                #                 { "label": "5V", "value": "5V" },
-                #                 { "label": "12V", "value": "12V" }
-                #             ],
-                #             "defaultValue": "3.3V"
-                #         }
-                #     ]
-                # }
+
                 state["result"] = {"llm_result": "Here is a parametric search filter form to aid searching the parts you're looking for, please try your best to fill it out and send back to me. if you're not sure about certain parameters, just leave them blank. Also feel free to ask any questions about the meaning and implications of any parameters you're not sure about."}
                 # needs to make sure this is the response prompt......state["result"]["llm_result"]
                 send_data_back2human("send_chat","form", fe_parametric_filter, state)
@@ -729,16 +694,130 @@ def query_fom_basics_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     return state
 
 
+def local_sort_search_results_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
+    logger.debug(f"[search_parts_chatter_skill] about to sort search results: {type(state)}, {state}")
+
+    try:
+        table_headers = state["tool_result"]["fom"]["component_level_metrics"]
+        print("here are table headers string:", table_headers)
+        # need to set up state["tool_input"] to be components
+        header_text = table_headers[0]["metric_name"]
+        ascending = True if table_headers[0]["sort_order"] == "asc" else False
+        sites = list(state["attributes"]["search_results"].keys())
+        i = 0
+        state["tool_input"] = {
+            "sites": [
+                {
+                    "url": sites[i],
+                    "ascending": ascending,
+                    "header_text": header_text,
+                    "max_n": 8
+                }
+            ]
+        }
+
+        async def run_tool_call():
+            return await mcp_call_tool("ecan_local_sort_search_results", {"input": state["tool_input"]})
+
+        # Always use a dedicated local loop to avoid interfering with any global loop
+        # Run the async call safely from sync
+        tool_result = run_async_in_sync(run_tool_call())
+
+        # what we should get here is a dict of parametric search filters based on the preliminary
+        # component info, this should be passed to human for filling out and confirmation
+        logger.debug("[search_parts_chatter_skill]  sort search results tool call completed:", type(tool_result),
+                     tool_result)
+
+        # Check if the tool call was successful
+        if hasattr(tool_result, 'content') and tool_result.content and "completed" in tool_result.content[0].text:
+            state["result"] = tool_result.content[0].text
+            # Prefer 'meta' attribute; fall back to '_meta' (wire format) if needed
+            content0 = tool_result.content[0]
+            meta = getattr(content0, 'meta', None)
+            if meta is None:
+                meta = getattr(content0, '_meta', None)
+
+            if meta:
+                components = meta["components"]
+                state["tool_result"] = meta["components"]
+            else:
+                print("ERROR: no meta in tool result!!!!!!!!!!!!")
+                components = {}
+                state["tool_result"] = {}
+
+            print("state tool result:", state["tool_result"])
+            # if parametric_search_filters are returned, pass them to human twin
+            if state["tool_result"]:
+                i = 0
+                component = state["attributes"]["preliminary_info"][i]["part name"]
+                logger.debug("[search_parts_chatter_skill] tool result:", state["tool_result"])
+                # fom_form = sample_metrics_0
+                rank_req = {
+                    "id": "eval_system_form",
+                    "type": "score",
+                    "title": f'{component} under search',
+                    "rows": lean_rows
+                }
+                print("fom form with price and lead time filled::", fom_form)
+                for fom_item in components["fom"]["component_level_metrics"]:
+                    item_name = fom_item["metric_name"]
+                    fom_form["components"][-1]["raw_value"][item_name] = {
+                        "name": item_name,
+                        "type": "integer",
+                        "raw_value": 0,
+                        "target_value": 0,
+                        "max_value": 100,
+                        "min_value": 0,
+                        "unit": "",
+                        "tooltip": "",
+                        "score_formula": fom_item["score_formula"],
+                        "score_lut": fom_item["score_lut"],
+                        "weight": fom_item["score_weight"],
+                    }
+
+                print("fom form to be filled:", fom_form)
+                state["result"] = {
+                    "llm_result": "Here is a figure of merit (FOM) form to aid searching the parts you're looking for, please try your best to fill it out and send back to me. if you're not sure about certain parameters, just leave them blank. Also feel free to ask any questions about the meaning and implications of any parameters you're not sure about."}
+                # needs to make sure this is the response prompt......state["result"]["llm_result"]
+                send_data_back2human("send_chat", "form", fom_form, state)
+        elif hasattr(tool_result, 'isError') and tool_result.isError:
+            state["error"] = tool_result.content[0].text if tool_result.content else "Unknown error occurred"
+        else:
+            state["error"] = "Unexpected tool result format"
+
+    except Exception as e:
+        state['error'] = get_traceback(e, "ErrorQueryComponentSpecsNode")
+        logger.error(state['error'])
+    finally:
+        # Nothing to do; local loop was closed above
+        pass
+
+    logger.debug("[search_parts_chatter_skill] query_fom_basics_node all done, current state is:", state)
+    return state
+
+
 # this function takes the prompt generated by LLM from the previous node and puts ranking method template
 # into the right place. This way, the correct data can be passed onto the GUI side of the chat interface.
 def prep_ranking_request(state: NodeState) -> NodeState:
     try:
         request = {}
-        if state.get("tool_result", None):
-            state["tool_result"]["qa_form_to_human"] = ranking_method_template
-        # highlight-next-line
-        else:
-            state["tool_result"] = {"qa_form_to_human": ranking_method_template}
+
+        request["fom_form"] = state["attributes"]["filled_fom_form"]
+
+        shrinked_rows = []
+
+        headers_of_interest = [
+            state["attributes"]["filled_fom_form"]['components'][0]["name"],
+            state["attributes"]["filled_fom_form"]['components'][1]["name"]
+            ]
+
+        headers_of_interest.extend(list(state["attributes"]["filled_fom_form"]['components'][2]["raw_value"].keys()))
+
+
+        request["rows"] = shrinked_rows
+
+
+
         return request
     except Exception as e:
         state['error'] = get_traceback(e, "ErrorPrepRankingRequest")
@@ -979,7 +1058,7 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
 
     logger.debug(f"[search_parts_chatter_skill] tool input::{state['tool_input']}")
     async def run_tool_call():
-        return await mcp_call_tool("api_ecan_local_search_components", {"input": state["tool_input"]})
+        return await mcp_call_tool("ecan_local_search_components", {"input": state["tool_input"]})
 
     # Always use a dedicated local loop to avoid interfering with any global loop
     # Run the async call safely from sync
@@ -1023,7 +1102,7 @@ def are_component_specs_filled(state):
 def is_FOM_filled(state):
     logger.debug(f"[search_parts_chatter_skill] is_FOM_filled input: {state}")
     if state['condition']:
-        return "re_rank_search_results"
+        return "local_sort_search_results"
     else:
         return "pend_for_human_input_fill_FOM"
 
@@ -1111,25 +1190,27 @@ async def create_search_parts_chatter_skill(mainwin):
         # workflow.set_entry_point("query_fom_basics")
         workflow.add_node("query_fom_basics", query_fom_basics_node)
 
-        workflow.add_node("request_FOM", request_FOM_node)
+        # workflow.add_node("request_FOM", request_FOM_node)
 
-        workflow.add_edge("query_fom_basics", "request_FOM")
+        workflow.add_edge("query_fom_basics", "pend_for_human_input_fill_FOM")
 
 
         workflow.add_node("pend_for_human_input_fill_FOM", node_wrapper(pend_for_human_input_node, "pend_for_human_input_fill_FOM", THIS_SKILL_NAME, OWNER))
-        workflow.add_edge("request_FOM", "pend_for_human_input_fill_FOM")
+        # workflow.add_edge("request_FOM", "pend_for_human_input_fill_FOM")
 
         workflow.add_node("confirm_FOM", confirm_FOM_node)
         workflow.add_edge("pend_for_human_input_fill_FOM", "confirm_FOM")
 
         # workflow.add_node("pend_for_next_human_msg2", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg2", THIS_SKILL_NAME, OWNER))
+        workflow.add_node("local_sort_search_results", local_sort_search_results_node)
 
         workflow.add_node("re_rank_search_results", re_rank_search_results_node)
 
-        workflow.add_conditional_edges("confirm_FOM", is_FOM_filled, ["re_rank_search_results", "pend_for_human_input_fill_FOM"])
+        workflow.add_conditional_edges("confirm_FOM", is_FOM_filled, ["local_sort_search_results", "pend_for_human_input_fill_FOM"])
         # workflow.add_edge("pend_for_next_human_msg2", "confirm_FOM")
 
 
+        workflow.add_edge("local_sort_search_results", "re_rank_search_results")
 
         # workflow.add_node("show_results", show_results_node)
         # workflow.add_conditional_edges("run_search", is_result_ready, ["show_results", "pend_for_result"])
