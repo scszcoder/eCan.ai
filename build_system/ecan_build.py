@@ -8,6 +8,7 @@ Simplified build script with standard optimizer integration
 import os
 import sys
 import json
+import plistlib
 import time
 import subprocess
 import platform
@@ -89,93 +90,34 @@ class FrontendBuilder:
         self.frontend_dir = project_root / "gui_v2"
 
     def build(self, force: bool = False) -> bool:
-        """Build frontend"""
+        """Build frontend (always build when directory exists)"""
         if not self.frontend_dir.exists():
             print("[WARNING] Frontend directory not found, skipping frontend build")
             return True
-
         print("[FRONTEND] Building frontend...")
-
         try:
-            # Install dependencies (if needed)
-            # if force:
-            #     print("[FRONTEND] Force mode: reinstalling dependencies...")
-            #     if not self._install_dependencies():
-            #         return False
-            print("[FRONTEND] skip installing dependencies...")
-            # Execute build
-            if not self._run_build(force):
-                return False
-            print("[SUCCESS] Frontend build completed")
-            return True
+            ok = self._run_build(force)
+            if ok:
+                print("[SUCCESS] Frontend build completed")
+            return ok
         except Exception as e:
             print(f"[ERROR] Frontend build failed: {e}")
             return False
     
-    def _install_dependencies(self) -> bool:
-        """Install dependencies"""
-        try:
-            print("[FRONTEND] Installing dependencies...")
-
-            # Set command and environment variables based on platform
-            if platform.system() == "Windows":
-                cmd = "npm install --legacy-peer-deps"
-                shell = True
-                # Windows encoding settings
-                env = os.environ.copy()
-                env['PYTHONIOENCODING'] = 'utf-8'
-                env['PYTHONLEGACYWINDOWSSTDIO'] = 'utf-8'
-                env['CHCP'] = '65001'  # Set code page to UTF-8
-            else:
-                cmd = ["npm", "ci", "--legacy-peer-deps"]
-                shell = False
-                # macOS/Linux environment settings
-                env = os.environ.copy()
-                env['LC_ALL'] = 'en_US.UTF-8'
-                env['LANG'] = 'en_US.UTF-8'
-
-            process = subprocess.Popen(
-                cmd,
-                cwd=self.frontend_dir,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                universal_newlines=True,
-                shell=shell,
-                env=env,
-                encoding='utf-8',
-                errors='replace'  # Replace undecodable characters instead of raising exceptions
-            )
-
-            # Display output in real-time
-            for line in iter(process.stdout.readline, ''):
-                if line:
-                    print(f"[FRONTEND] {line.rstrip()}")
-
-            return_code = process.wait()
-
-            if return_code != 0:
-                print(f"[ERROR] npm install failed with exit code: {return_code}")
-                return False
-
-            print("[SUCCESS] Dependencies installed successfully")
-            return True
-
-        except Exception as e:
-            print(f"[ERROR] Failed to install dependencies: {e}")
-            return False
+    # _install_dependencies removed: dependency install handled inside _run_build as needed
     
     def _run_build(self, force: bool = False) -> bool:
         """Execute build"""
         try:
-            print("[FRONTEND] Building frontend...")
-
             # If node_modules doesn't exist or force mode, run npm ci first
             need_install = force or not (self.frontend_dir / 'node_modules').exists()
             if need_install:
-                print("[FRONTEND] Installing dependencies (npm ci)...")
-                install_cmd = "npm install --legacy-peer-deps" if platform.system() == "Windows" else ["npm", "ci", "--legacy-peer-deps"]
+                print("[FRONTEND] Installing dependencies (optimized npm ci)...")
+                # Optimized npm command for faster installation
+                if platform.system() == "Windows":
+                    install_cmd = "npm ci --prefer-offline --no-audit --no-fund --legacy-peer-deps"
+                else:
+                    install_cmd = ["npm", "ci", "--prefer-offline", "--no-audit", "--no-fund", "--legacy-peer-deps"]
                 install_shell = platform.system() == "Windows"
                 install_env = os.environ.copy()
                 if platform.system() == "Windows":
@@ -234,32 +176,7 @@ class FrontendBuilder:
             return False
 
 
-class PyInstallerBuilder:
-    """PyInstaller builder using MiniSpecBuilder (unified path)"""
-
-    def __init__(self, config: BuildConfig, env: BuildEnvironment, project_root: Path):
-        self.config = config
-        self.env = env
-        self.project_root = project_root
-
-    def build(self, mode: str, force: bool = False) -> bool:
-        """Build application using MiniSpecBuilder (align with build.py)"""
-        print(f"[PYINSTALLER] Starting PyInstaller build using MiniSpecBuilder...")
-
-        try:
-            from build_system.minibuild_core import MiniSpecBuilder
-            minispec = MiniSpecBuilder()
-            success = minispec.build(mode)
-
-            if success:
-                print("[SUCCESS] PyInstaller build completed")
-                return True
-            else:
-                print("[ERROR] PyInstaller build failed")
-                return False
-        except Exception as e:
-            print(f"[ERROR] PyInstaller build failed: {e}")
-            return False
+# PyInstallerBuilder removed: unified build directly uses MiniSpecBuilder
 
 
 class InstallerBuilder:
@@ -641,8 +558,40 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
                 except Exception:
                     pass
 
-            # Create PKG using pkgbuild and productbuild
-            success = self._create_pkg_installer(app_bundle_dir, app_name, app_version, pkg_file, macos_config)
+            pkg_config = macos_config.get("pkg", {})
+            fast_pkg_mode = (self.mode == "fast")
+            fix_permissions_flag = pkg_config.get("fix_permissions", True)
+            prune_payload_flag = pkg_config.get("prune_payload", True)
+            use_productbuild = pkg_config.get("use_productbuild", not fast_pkg_mode)
+
+            if fast_pkg_mode:
+                print("[PKG] ⚡ FAST mode enabled - optimizing for speed")
+                if fix_permissions_flag or prune_payload_flag:
+                    print("[PKG] Skipping payload optimizations for faster build")
+                fix_permissions_flag = False  # Skip permission fixes
+                prune_payload_flag = False    # Skip file pruning
+                use_productbuild = False      # Skip productbuild (use component PKG directly)
+                print("[PKG] Fast mode optimizations applied")
+
+            # Optionally fix app bundle permissions to ensure system-wide install works
+            if fix_permissions_flag:
+                try:
+                    self._fix_app_permissions(app_bundle_dir)
+                    print("[PKG] Fixed app bundle permissions")
+                except Exception as e:
+                    print(f"[PKG] Warning: Failed to fix app permissions: {e}")
+
+            # Create PKG using pkgbuild (component-based)
+            success = self._create_pkg_installer(
+                app_bundle_dir,
+                app_name,
+                app_version,
+                pkg_file,
+                macos_config,
+                fix_permissions_flag,
+                prune_payload_flag,
+                use_productbuild
+            )
 
             if not success:
                 return False
@@ -652,6 +601,9 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
                 return False
 
             print(f"[SUCCESS] macOS PKG created: {pkg_file} ({pkg_file.stat().st_size / (1024*1024):.1f} MB)")
+
+            # Verify PKG package integrity
+            self._verify_pkg_integrity(pkg_file, app_name)
 
             # Remove any legacy PKG files to avoid duplicates
             legacy_pkg = self.dist_dir / f"{app_name}-{app_version}.pkg"
@@ -697,13 +649,22 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
 
 
 
-    def _create_pkg_installer(self, app_bundle_dir: Path, app_name: str, app_version: str, pkg_file: Path, macos_config: Dict[str, Any]) -> bool:
-        """Create PKG installer using simplified component-based approach.
+    def _create_pkg_installer(
+        self,
+        app_bundle_dir: Path,
+        app_name: str,
+        app_version: str,
+        pkg_file: Path,
+        macos_config: Dict[str, Any],
+        fix_permissions: bool,
+        prune_payload: bool,
+        use_productbuild: bool
+    ) -> bool:
+        """Create PKG installer using two-step approach to ensure correct installation path.
 
-        Simplified method focusing on reliability:
-        - Use only component-based packaging (most reliable)
-        - Better error handling and validation
-        - Reduced timeout and complexity
+        Two-step method for reliable installation to /Applications:
+        1. Create component package with pkgbuild
+        2. Create final installer with productbuild and distribution file
         """
         try:
             print(f"[PKG] Creating PKG installer: {pkg_file.name}")
@@ -717,54 +678,501 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
                 return False
 
             # Get configuration values
-            install_location = macos_config.get("install_location", "/Applications")
+            install_location = macos_config.get("install_location", "/Applications") or "/Applications"
+            if not install_location.startswith("/"):
+                install_location = f"/{install_location}"
             bundle_identifier = macos_config.get("bundle_identifier", f"com.ecan.{app_name.lower()}")
 
-            # Use component-based packaging (most reliable method)
-            print(f"[PKG] Creating component-based package...")
-            component_cmd = [
+            # Create temporary directory for intermediate files
+            temp_dir = self.project_root / "build" / "pkg_temp"
+            if temp_dir.exists():
+                # Be robust against CodeResources permission quirks
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            temp_dir.mkdir(parents=True, exist_ok=True)
+
+            print(f"[PKG] Creating PKG installer using root payload method with forced system domain...")
+
+            # Step 1: Create payload directory structure honoring install_location
+            payload_dir = temp_dir / "payload"
+            if payload_dir.exists():
+                shutil.rmtree(payload_dir, ignore_errors=True)
+
+            relative_install_root = install_location.lstrip("/")
+            if relative_install_root:
+                target_parent = payload_dir / relative_install_root
+            else:
+                target_parent = payload_dir
+            target_parent.mkdir(parents=True, exist_ok=True)
+
+            target_app = target_parent / f"{app_name}.app"
+
+            if target_app.exists():
+                shutil.rmtree(target_app, ignore_errors=True)
+
+            print(f"[PKG] Preparing payload at {target_app}")
+
+            # Use optimized copy method for faster payload creation
+            copy_success = False
+            start_time = time.perf_counter()
+            
+            # Try ditto first (fastest on macOS)
+            if shutil.which("ditto"):
+                try:
+                    cmd = ["ditto", "--noqtn", "--norsrc", str(app_bundle_dir), str(target_app)]
+                    subprocess.run(cmd, check=True, capture_output=True, timeout=300)
+                    copy_success = True
+                    duration = time.perf_counter() - start_time
+                    print(f"[PKG] ✓ Copied using ditto ({duration:.2f}s)")
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+                    print(f"[PKG] ditto failed, falling back to copytree")
+
+            # Fallback to optimized copytree
+            if not copy_success:
+                # Use copy2 for better performance with large files
+                shutil.copytree(
+                    app_bundle_dir, 
+                    target_app, 
+                    symlinks=True, 
+                    dirs_exist_ok=True,
+                    copy_function=shutil.copy2  # Faster than default copy function
+                )
+                duration = time.perf_counter() - start_time
+                print(f"[PKG] ✓ Copied using copytree ({duration:.2f}s)")
+            
+            # Fix permissions for the app in payload
+            if fix_permissions:
+                self._fix_app_permissions(target_app)
+                print(f"[PKG] Fixed permissions for app in payload: {target_app}")
+
+            # Prune unnecessary files to shrink payload size
+            if prune_payload:
+                self._prune_app_bundle(target_app)
+            
+            # Create scripts directory and install/uninstall scripts
+            scripts_dir = temp_dir / "scripts"
+            scripts_dir.mkdir(parents=True, exist_ok=True)
+            
+            app_install_path = str((Path(install_location) / f"{app_name}.app"))
+            app_install_dir = str(Path(app_install_path).parent)
+
+            component_plist = temp_dir / "component.plist"
+            self._create_component_plist(
+                component_plist,
+                bundle_identifier=bundle_identifier,
+                app_name=app_name,
+                app_version=app_version,
+                install_location=install_location
+            )
+            
+            # Create preinstall script to handle existing installations
+            preinstall_script = scripts_dir / "preinstall"
+            preinstall_content = f'''#!/bin/bash
+# Preinstall script for {app_name}
+APP_PATH="{app_install_path}"
+
+if [ -d "$APP_PATH" ]; then
+    echo "Removing existing {app_name}.app installation..."
+    # Unregister from Launch Services before removal
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$APP_PATH" 2>/dev/null || true
+    # Remove existing app
+    rm -rf "$APP_PATH"
+    echo "Existing installation removed"
+fi
+
+exit 0
+'''
+            with open(preinstall_script, 'w') as f:
+                f.write(preinstall_content)
+            preinstall_script.chmod(0o755)
+            print(f"[PKG] Created preinstall script: {preinstall_script}")
+            
+            # Create postinstall script to register with Launch Services
+            postinstall_script = scripts_dir / "postinstall"
+
+            postinstall_content = f'''#!/bin/bash
+# Postinstall script for {app_name}
+APP_PATH="{app_install_path}"
+APP_DIR="{app_install_dir}"
+
+if [ -d "$APP_PATH" ]; then
+    echo "Installing {app_name}.app to $APP_DIR"
+    
+    # Fix app bundle permissions to ensure proper execution
+    chmod -R 755 "$APP_PATH/Contents/MacOS"
+    chmod 644 "$APP_PATH/Contents/Info.plist"
+    
+    # Register with Launch Services to make app visible in Launchpad and Spotlight
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP_PATH"
+    
+    # Touch install directory to refresh Finder
+    touch "$APP_DIR"
+    
+    # Gentle Launchpad refresh without visual disruption
+    # This method updates the database without forcing a Dock restart
+    defaults write com.apple.dock ResetLaunchPad -bool true 2>/dev/null || true
+    
+    # Notify system of new application without forcing immediate refresh
+    # The app will appear in Launchpad within a few seconds naturally
+    echo "Note: {app_name} will appear in Launchpad shortly. If not visible immediately, try opening and closing Launchpad."
+    
+    echo "Successfully installed {app_name}.app to $APP_DIR"
+    echo "App should now be visible in Launchpad and Applications folder"
+else
+    echo "Error: {app_name}.app not found at $APP_PATH"
+    exit 1
+fi
+
+exit 0
+'''
+            with open(postinstall_script, 'w') as f:
+                f.write(postinstall_content)
+            postinstall_script.chmod(0o755)
+            print(f"[PKG] Created postinstall script: {postinstall_script}")
+            
+            # Create component package using --root method
+            component_pkg = temp_dir / f"{app_name}-component.pkg"
+            pkgbuild_cmd = [
                 "pkgbuild",
-                "--component", str(app_bundle_dir),
+                "--root", str(payload_dir),
                 "--identifier", bundle_identifier,
                 "--version", app_version,
-                "--install-location", install_location,
-                str(pkg_file)
+                "--install-location", "/",
+                "--scripts", str(scripts_dir),
+                "--component-plist", str(component_plist),
+                "--ownership", "recommended",
+                "--preserve-xattr",  # Preserve extended attributes
+                str(component_pkg)
             ]
-
-            result = subprocess.run(
-                component_cmd,
-                capture_output=True,
-                text=True,
-                timeout=300  # Reduced timeout to 5 minutes
-            )
-
+            
+            print(f"[PKG] Running pkgbuild: {' '.join(pkgbuild_cmd)}")
+            result = subprocess.run(pkgbuild_cmd, capture_output=True, text=True, timeout=1800)
             if result.returncode != 0:
-                print(f"[ERROR] pkgbuild failed:")
-                print(f"[ERROR] Command: {' '.join(component_cmd)}")
-                print(f"[ERROR] STDOUT: {result.stdout}")
-                print(f"[ERROR] STDERR: {result.stderr}")
+                print(f"[ERROR] pkgbuild failed: {result.stderr}")
                 return False
 
-            # Verify the PKG was created and has reasonable size
-            if not pkg_file.exists():
-                print(f"[ERROR] PKG file was not created: {pkg_file}")
+            if not component_pkg.exists():
+                print(f"[ERROR] Component PKG file was not created: {component_pkg}")
                 return False
+                
+            component_pkg_size = component_pkg.stat().st_size if component_pkg.exists() else 0
+            component_pkg_size_mb = component_pkg_size / (1024 * 1024)
+            print(f"[PKG] Component package created: {component_pkg.name} ({component_pkg_size_mb:.1f} MB)")
 
-            file_size = pkg_file.stat().st_size
-            if file_size < 1024:  # Less than 1KB is definitely wrong
-                print(f"[ERROR] PKG file too small ({file_size} bytes), likely corrupted")
-                pkg_file.unlink()  # Remove invalid file
-                return False
+            # Move component package into dedicated directory for productbuild lookup
+            size_threshold_bytes = 1.5 * 1024 * 1024 * 1024  # 1.5 GB
+            if use_productbuild and component_pkg_size > size_threshold_bytes:
+                print(f"[PKG] Component PKG size {component_pkg_size_mb:.1f} MB exceeds fast-build threshold; skipping productbuild")
+                use_productbuild = False
 
-            print(f"[SUCCESS] PKG created successfully: {file_size / (1024*1024):.1f} MB")
+            if use_productbuild:
+                packages_dir = temp_dir / "packages"
+                packages_dir.mkdir(exist_ok=True)
+                final_component_pkg = packages_dir / component_pkg.name
+                if final_component_pkg.exists():
+                    final_component_pkg.unlink()
+                shutil.move(str(component_pkg), str(final_component_pkg))
+                component_pkg = final_component_pkg
+
+                relative_pkg_path = f"packages/{component_pkg.name}"
+
+                # Step 2: Create Distribution that forces system domain and correct install location
+                distribution_file = temp_dir / "distribution.xml"
+                self._create_gui_distribution_file(
+                    distribution_file=distribution_file,
+                    app_name=app_name,
+                    app_version=app_version,
+                    bundle_identifier=bundle_identifier,
+                    component_pkg_name=relative_pkg_path,
+                    install_location=install_location
+                )
+
+                # Step 3: Build final product with productbuild
+                productbuild_cmd = [
+                    "productbuild",
+                    "--distribution", str(distribution_file),
+                    "--package-path", str(packages_dir),
+                    str(pkg_file)
+                ]
+                print(f"[PKG] Running productbuild: {' '.join(productbuild_cmd)}")
+                result = subprocess.run(productbuild_cmd, capture_output=True, text=True, timeout=1800)
+                productbuild_output = (result.stdout or "") + (result.stderr or "")
+                if result.returncode != 0:
+                    print(f"[ERROR] productbuild failed: {result.stderr}")
+                    return False
+                if "No package found" in productbuild_output:
+                    print(f"[ERROR] productbuild could not embed component package. Output: {productbuild_output.strip()}")
+                    return False
+
+                pkg_size_mb = pkg_file.stat().st_size / (1024 * 1024)
+                print(f"[SUCCESS] PKG created successfully: {pkg_size_mb:.1f} MB")
+                print(f"[PKG] Install location: /Applications (forced system domain)")
+            else:
+                # Directly use the component package as final PKG for faster builds
+                if pkg_file.exists():
+                    try:
+                        pkg_file.unlink()
+                    except Exception:
+                        pass
+                shutil.move(str(component_pkg), str(pkg_file))
+                pkg_size_mb = pkg_file.stat().st_size / (1024 * 1024)
+                print(f"[SUCCESS] Component PKG ready: {pkg_size_mb:.1f} MB")
+                print(f"[PKG] Install location: /Applications (component installer)")
+            
+            # Clean up temporary directory
+            try:
+                if temp_dir.exists():
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    print(f"[PKG] Cleaned up temporary directory: {temp_dir}")
+            except Exception as e:
+                print(f"[WARNING] Could not clean up temporary directory: {e}")
+            
             return True
 
-        except subprocess.TimeoutExpired:
-            print(f"[ERROR] PKG creation timed out after 5 minutes")
+        except subprocess.TimeoutExpired as timeout_err:
+            minutes = getattr(timeout_err, 'timeout', 0) / 60 if getattr(timeout_err, 'timeout', None) else 0
+            if minutes:
+                print(f"[ERROR] PKG creation timed out after {minutes:.1f} minutes")
+            else:
+                print("[ERROR] PKG creation timed out")
             return False
         except Exception as e:
-            print(f"[ERROR] PKG creation failed: {e}")
+            print(f"[ERROR] macOS PKG installer creation failed: {e}")
+            import traceback
+            print(f"[DEBUG] Traceback: {traceback.format_exc()}")
             return False
+
+    def _create_distribution_file(self, distribution_file: Path, app_name: str, app_version: str, bundle_identifier: str, install_location: str, component_pkg: Path) -> None:
+        """Create distribution XML file for productbuild to ensure correct install location"""
+        
+        # Calculate package size for installKBytes
+        pkg_size_kb = int(component_pkg.stat().st_size / 1024) if component_pkg.exists() else 700000
+        
+        distribution_xml = f'''<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+    <title>{app_name}</title>
+    <organization>com.ecan</organization>
+    <domains enable_localSystem="true"/>
+    <options customize="never" require-scripts="false" rootVolumeOnly="true" />
+    <choices-outline>
+        <line choice="default">
+            <line choice="{bundle_identifier}"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="{bundle_identifier}" visible="false">
+        <pkg-ref id="{bundle_identifier}"/>
+    </choice>
+    <pkg-ref id="{bundle_identifier}" version="{app_version}" installKBytes="{pkg_size_kb}" onConclusion="none">{component_pkg.name}</pkg-ref>
+    <installation-check script="pm_install_check();"/>
+    <script>
+    <![CDATA[
+        function pm_install_check() {{
+            if(!(system.compareVersions(system.version.ProductVersion, '11.0') >= 0)) {{
+                my.result.title = 'Unable to install';
+                my.result.message = 'This application requires macOS 11.0 or later.';
+                my.result.type = 'Fatal';
+                return false;
+            }}
+            return true;
+        }}
+    ]]>
+    </script>
+</installer-gui-script>'''
+
+        with open(distribution_file, 'w', encoding='utf-8') as f:
+            f.write(distribution_xml)
+        
+        print(f"[PKG] Created distribution file: {distribution_file}")
+        print(f"[PKG] Target install location: {install_location}")
+
+    def _create_component_plist(self, plist_path: Path, bundle_identifier: str, app_name: str, app_version: str, install_location: str) -> None:
+        """Write component bundle metadata so the installer always targets /Applications."""
+        relative_root = Path(install_location.lstrip("/")) / f"{app_name}.app"
+        relative_path = str(relative_root).strip("/")
+        if not relative_path:
+            relative_path = f"{app_name}.app"
+
+        bundle_entry = {
+            "BundleIsRelocatable": False,
+            "BundleIdentifier": bundle_identifier,
+            "BundleName": app_name,
+            "BundleVersion": app_version,
+            "RootRelativeBundlePath": relative_path
+        }
+
+        plist_path.write_bytes(plistlib.dumps([bundle_entry]))
+
+    def _create_gui_distribution_file(self, distribution_file: Path, app_name: str, app_version: str, bundle_identifier: str, component_pkg_name: str, install_location: str) -> None:
+        """Create distribution XML file that forces system domain installation."""
+        pkg_size_kb = 700000
+        try:
+            component_pkg_path = (distribution_file.parent / component_pkg_name).resolve()
+            if not component_pkg_path.exists():
+                fallback_path = distribution_file.parent / "packages" / Path(component_pkg_name).name
+                if fallback_path.exists():
+                    component_pkg_path = fallback_path
+            if component_pkg_path.exists():
+                pkg_size_kb = int(component_pkg_path.stat().st_size / 1024)
+        except Exception:
+            pass
+
+        distribution_xml = f'''<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+    <title>{app_name}</title>
+    <organization>com.ecan</organization>
+    <domains enable_localSystem="true" enable_currentUserHome="false" enable_anywhere="false"/>
+    <options customize="never" require-scripts="true" rootVolumeOnly="true"/>
+    <pkg-ref id="{bundle_identifier}"/>
+    <choices-outline>
+        <line choice="default">
+            <line choice="{bundle_identifier}"/>
+        </line>
+    </choices-outline>
+    <choice id="default" title="{app_name} Installation" description="Install {app_name} to {install_location}"/>
+    <choice id="{bundle_identifier}" visible="false">
+        <pkg-ref id="{bundle_identifier}"/>
+    </choice>
+    <pkg-ref id="{bundle_identifier}" installLocation="{install_location}" version="{app_version}" auth="root">{component_pkg_name}</pkg-ref>
+    <installation-check script="pm_install_check();"/>
+    <script>
+    <![CDATA[
+        function pm_install_check() {{
+            if(!(system.compareVersions(system.version.ProductVersion, '11.0') >= 0)) {{
+                my.result.title = 'Unable to install';
+                my.result.message = 'This application requires macOS 11.0 or later.';
+                my.result.type = 'Fatal';
+                return false;
+            }}
+            return true;
+        }}
+    ]]>
+    </script>
+</installer-gui-script>'''
+
+        with open(distribution_file, 'w', encoding='utf-8') as f:
+            f.write(distribution_xml)
+        print(f"[PKG] Created distribution file with forced system domain and installLocation: {install_location}")
+
+    def _fix_app_permissions(self, app_bundle_dir: Path) -> None:
+        """Fix app bundle permissions to ensure installer can write to /Applications.
+        Directories: 755, Files: 644, Executables in Contents/MacOS: 755
+        Also fixes PyInstaller permission issues with CodeResources and other files.
+        """
+        import stat
+        import os
+
+        if not app_bundle_dir.exists():
+            return
+        
+        # First, ensure we can modify all files (fix PyInstaller permission issues)
+        try:
+            # Recursively make all files and directories writable
+            for root, dirs, files in os.walk(app_bundle_dir):
+                # Fix directory permissions
+                for d in dirs:
+                    dir_path = Path(root) / d
+                    try:
+                        dir_path.chmod(0o755)
+                    except (OSError, PermissionError):
+                        pass  # Continue if we can't fix permissions
+                
+                # Fix file permissions
+                for f in files:
+                    file_path = Path(root) / f
+                    try:
+                        # Make file writable first, then set proper permissions
+                        file_path.chmod(0o644)
+                        # Special handling for executables and CodeResources
+                        if f == 'CodeResources' or file_path.suffix in ['.so', '.dylib'] or 'MacOS' in str(file_path):
+                            file_path.chmod(0o755)
+                    except (OSError, PermissionError):
+                        pass  # Continue if we can't fix permissions
+        except Exception as e:
+            print(f"[WARNING] Could not fix all permissions: {e}")
+            # Continue anyway
+
+        # Fix directory permissions
+        for p in app_bundle_dir.rglob("*"):
+            try:
+                if p.is_dir():
+                    p.chmod(0o755)
+                elif p.is_file():
+                    # Executables in Contents/MacOS should be 755
+                    if "Contents/MacOS" in str(p):
+                        p.chmod(0o755)
+                    else:
+                        # Regular files 644
+                        mode = p.stat().st_mode
+                        # Preserve execute bit if already set
+                        if mode & stat.S_IXUSR:
+                            p.chmod(0o755)
+                        else:
+                            p.chmod(0o644)
+            except Exception:
+                # Best-effort; skip errors
+                continue
+
+    def _prune_app_bundle(self, app_bundle_dir: Path) -> None:
+        """Remove cache/test artifacts from the payload to reduce PKG size."""
+        if not app_bundle_dir.exists():
+            return
+
+        try:
+            before_bytes = self._get_directory_size(app_bundle_dir)
+            prune_dirs = {"__pycache__", "tests", "test", "testing"}
+            prune_suffixes = {".pyc", ".pyo", ".pyd", ".log", ".map", ".pdb", ".tmp"}
+
+            removed_items = 0
+            removed_bytes = 0
+
+            for root, dirs, files in os.walk(app_bundle_dir, topdown=True):
+                root_path = Path(root)
+
+                # Remove unwanted directories first
+                for d in list(dirs):
+                    if d.lower() in prune_dirs:
+                        dir_path = root_path / d
+                        try:
+                            size_before = self._get_directory_size(dir_path)
+                            shutil.rmtree(dir_path, ignore_errors=True)
+                            removed_bytes += size_before
+                            removed_items += 1
+                            dirs.remove(d)
+                            print(f"[PKG] Pruned directory from payload: {dir_path}")
+                        except Exception:
+                            continue
+
+                # Remove individual files by suffix
+                for f in files:
+                    file_path = root_path / f
+                    if file_path.suffix.lower() in prune_suffixes:
+                        try:
+                            removed_bytes += file_path.stat().st_size
+                            file_path.unlink()
+                            removed_items += 1
+                        except Exception:
+                            continue
+
+            after_bytes = self._get_directory_size(app_bundle_dir)
+            delta_mb = (before_bytes - after_bytes) / (1024 * 1024)
+            if delta_mb > 0.1:
+                print(f"[PKG] Pruned payload by {delta_mb:.2f} MB ({removed_items} items)")
+        except Exception as e:
+            print(f"[PKG] Warning: Failed to prune payload: {e}")
+
+    def _get_directory_size(self, directory: Path) -> int:
+        total = 0
+        try:
+            for path in directory.rglob("*"):
+                if path.is_file():
+                    try:
+                        total += path.stat().st_size
+                    except OSError:
+                        continue
+        except Exception:
+            return total
+        return total
+
 
     def _validate_macos_build_environment(self) -> bool:
         """Validate macOS build environment and required tools"""
@@ -841,235 +1249,6 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
         normalized = arch_map.get(arch.lower(), 'amd64')  # Default to amd64
         print(f"[ARCH] Normalized architecture: {arch} -> {normalized}")
         return normalized
-
-    def _remove_pkg_relocate_tags(self, component_pkg: Path, temp_dir: Path) -> None:
-        """Remove relocate tags from PKG component PackageInfo to prevent installation issues"""
-        try:
-            print(f"[PKG] Fixing relocate issue in component package...")
-
-            # Extract the component package
-            extract_dir = temp_dir / "pkg_extract"
-            extract_dir.mkdir(exist_ok=True)
-
-            # Use xar to extract the package
-            extract_cmd = ["xar", "-xf", str(component_pkg), "-C", str(extract_dir)]
-            result = subprocess.run(extract_cmd, capture_output=True, text=True)
-
-            if result.returncode != 0:
-                print(f"[WARNING] Failed to extract component package: {result.stderr}")
-                return
-
-            # Find PackageInfo file - it might be in different locations
-            possible_locations = [
-                extract_dir / f"{component_pkg.stem}.pkg" / "PackageInfo",
-                extract_dir / "PackageInfo",
-                extract_dir / f"{component_pkg.name}" / "PackageInfo"
-            ]
-
-            package_info_file = None
-            for location in possible_locations:
-                if location.exists():
-                    package_info_file = location
-                    break
-
-            if not package_info_file:
-                print(f"[WARNING] PackageInfo not found in any of: {[str(loc) for loc in possible_locations]}")
-                # List actual contents to debug
-                try:
-                    contents = list(extract_dir.rglob("*"))
-                    print(f"[DEBUG] Extract directory contents: {[str(p) for p in contents[:10]]}")
-                except:
-                    pass
-                return
-
-            # Read and modify PackageInfo
-            with open(package_info_file, 'r') as f:
-                content = f.read()
-
-            # Remove relocate tags comprehensively
-            import re
-            original_content = content
-
-            # First, ensure relocatable is set to false
-            content = re.sub(r'relocatable="true"', 'relocatable="false"', content)
-
-            # Remove all relocate sections - handle both single line and multi-line
-            # Remove complete relocate blocks with content
-            content = re.sub(r'<relocate>.*?</relocate>', '', content, flags=re.DOTALL | re.MULTILINE)
-
-            # Remove any remaining relocate opening/closing tags
-            content = re.sub(r'<relocate[^>]*>', '', content)
-            content = re.sub(r'</relocate>', '', content)
-
-            # Clean up any extra whitespace left behind
-            content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)
-
-            if content != original_content:
-                print(f"[PKG] Successfully removed relocate tags from PackageInfo")
-                # Show what was removed for debugging
-                removed_lines = len(original_content.splitlines()) - len(content.splitlines())
-                print(f"[PKG] Removed {removed_lines} lines containing relocate information")
-            else:
-                print(f"[PKG] No relocate tags found to remove")
-
-            # Write back the modified content
-            with open(package_info_file, 'w') as f:
-                f.write(content)
-
-            # Repackage the component with optimizations
-            print(f"[PKG] Repackaging component (this may take a few minutes)...")
-
-            # Use optimized xar command with compression and parallel processing
-            repackage_cmd = [
-                "xar", "-cf", str(component_pkg),
-                "-C", str(extract_dir),
-                "--compression", "gzip",  # Use gzip compression for speed
-                "."
-            ]
-
-            # Set up environment for faster I/O
-            import os
-            env = os.environ.copy()
-            env['TMPDIR'] = str(temp_dir)  # Use our temp directory
-
-            result = subprocess.run(
-                repackage_cmd,
-                capture_output=True,
-                text=True,
-                timeout=900,  # 15 minutes timeout
-                env=env
-            )
-
-            if result.returncode != 0:
-                print(f"[WARNING] Failed to repackage component: {result.stderr}")
-            else:
-                print(f"[PKG] Successfully fixed relocate issue")
-
-        except Exception as e:
-            print(f"[WARNING] Failed to fix relocate issue: {e}")
-
-    def _create_postinstall_script(self, scripts_dir: Path, app_name: str, macos_config: Dict[str, Any]) -> None:
-        """Create simplified postinstall script for macOS PKG installer"""
-        try:
-            install_location = macos_config.get("install_location", "/Applications")
-            create_launchpad_shortcut = macos_config.get("create_launchpad_shortcut", True)
-
-            postinstall_script = scripts_dir / "postinstall"
-
-            # Create simplified postinstall script focusing on essential tasks only
-            script_content = f"""#!/bin/bash
-# eCan Post-Installation Script - Simplified Version
-# Handles essential post-installation tasks only
-
-set -e  # Exit on any error
-
-APP_NAME="{app_name}"
-APP_PATH="{install_location}/$APP_NAME.app"
-
-echo "eCan Post-Install: Starting essential tasks"
-
-# Verify application installation
-if [ ! -d "$APP_PATH" ]; then
-    echo "ERROR: Application not found at $APP_PATH"
-    exit 1
-fi
-
-echo "eCan Post-Install: Application found at $APP_PATH"
-
-# Set proper permissions for the application
-echo "eCan Post-Install: Setting application permissions"
-chmod -R 755 "$APP_PATH" 2>/dev/null || true
-
-# Ensure executable is executable
-EXECUTABLE_PATH="$APP_PATH/Contents/MacOS/$APP_NAME"
-if [ -f "$EXECUTABLE_PATH" ]; then
-    chmod +x "$EXECUTABLE_PATH" 2>/dev/null || true
-    echo "eCan Post-Install: Set executable permissions"
-else
-    echo "WARNING: Executable not found at $EXECUTABLE_PATH"
-fi
-
-# Register application with Launch Services (if enabled)"""
-
-            if create_launchpad_shortcut:
-                script_content += f"""
-echo "eCan Post-Install: Registering with Launch Services and Launchpad"
-
-# Method 1: Register with lsregister (standard way)
-LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
-if [ -x "$LSREGISTER" ]; then
-    echo "eCan Post-Install: Using lsregister to register application"
-    "$LSREGISTER" -f "$APP_PATH" 2>/dev/null || true
-
-    # Force rebuild of Launch Services database
-    "$LSREGISTER" -kill -r -domain local -domain system -domain user 2>/dev/null || true
-    echo "eCan Post-Install: Launch Services database rebuilt"
-else
-    echo "WARNING: lsregister not found"
-fi
-
-# Method 2: Touch the Applications folder to trigger Finder refresh
-echo "eCan Post-Install: Refreshing Applications folder"
-touch "{install_location}" 2>/dev/null || true
-
-# Method 3: Force Spotlight to reindex the Applications folder
-echo "eCan Post-Install: Triggering Spotlight reindex"
-mdimport "{install_location}" 2>/dev/null || true
-
-# Method 4: Notify system of new application (macOS 10.14+)
-echo "eCan Post-Install: Notifying system of application installation"
-if command -v notifyutil >/dev/null 2>&1; then
-    notifyutil -p com.apple.LaunchServices.database 2>/dev/null || true
-fi
-
-# Method 5: Clear icon cache (helps with icon display issues)
-echo "eCan Post-Install: Clearing icon cache"
-if [ -d "/Library/Caches/com.apple.iconservices.store" ]; then
-    rm -rf "/Library/Caches/com.apple.iconservices.store" 2>/dev/null || true
-fi
-
-# Clear user icon cache
-USER_ICON_CACHE="$HOME/Library/Caches/com.apple.iconservices.store"
-if [ -d "$USER_ICON_CACHE" ]; then
-    rm -rf "$USER_ICON_CACHE" 2>/dev/null || true
-fi
-
-echo "eCan Post-Install: Application registration completed"
-echo "eCan Post-Install: Note - It may take a few moments for the app to appear in Launchpad"
-echo "eCan Post-Install: You can also find the app in /Applications/eCan.app"""
-
-            script_content += f"""
-
-# Final verification
-if [ -d "$APP_PATH" ] && [ -f "$APP_PATH/Contents/Info.plist" ] && [ -f "$APP_PATH/Contents/MacOS/$APP_NAME" ]; then
-    echo "eCan Post-Install: Installation verification passed"
-else
-    echo "ERROR: Installation verification failed"
-    exit 1
-fi
-
-echo "eCan Post-Install: Tasks completed successfully"
-echo "eCan is now installed and ready to use"
-
-exit 0
-"""
-
-            # Write the script
-            with open(postinstall_script, 'w', encoding='utf-8') as f:
-                f.write(script_content)
-
-            # Make script executable
-            postinstall_script.chmod(0o755)
-
-            print(f"[PKG] Created simplified postinstall script with features:")
-            print(f"[PKG]   - Essential permissions setup")
-            if create_launchpad_shortcut:
-                print(f"[PKG]   - Launch Services registration")
-            print(f"[PKG]   - Install location: {install_location}")
-            print(f"[PKG]   - Simplified error handling for better reliability")
-
-        except Exception as e:
-            print(f"[WARNING] Failed to create postinstall script: {e}")
 
     def _create_simplified_distribution_xml(self, app_name: str, app_version: str, bundle_identifier: str, temp_dir: Path = None) -> str:
         """Create simplified distribution XML for productbuild"""
@@ -1358,142 +1537,6 @@ exit 0
 
 
 
-    def _create_entitlements_file(self, macos_config: Dict[str, Any]) -> Optional[Path]:
-        """Create entitlements file for macOS permissions"""
-        try:
-            permissions = macos_config.get("permissions", [])
-            if not permissions:
-                return None
-
-            # Map permission names to entitlement keys
-            permission_map = {
-                "screen_recording": "com.apple.security.device.screen-recording",
-                "accessibility": "com.apple.security.device.accessibility",
-                "camera": "com.apple.security.device.camera",
-                "microphone": "com.apple.security.device.microphone",
-                "location": "com.apple.security.personal-information.location",
-                "contacts": "com.apple.security.personal-information.addressbook",
-                "calendar": "com.apple.security.personal-information.calendars",
-                "photos": "com.apple.security.personal-information.photos-library"
-            }
-
-            entitlements_content = '''<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>com.apple.security.app-sandbox</key>
-    <true/>
-    <key>com.apple.security.network.client</key>
-    <true/>
-    <key>com.apple.security.network.server</key>
-    <true/>
-    <key>com.apple.security.files.user-selected.read-write</key>
-    <true/>
-'''
-
-            # Add requested permissions
-            for permission in permissions:
-                if permission in permission_map:
-                    entitlement_key = permission_map[permission]
-                    entitlements_content += f'''    <key>{entitlement_key}</key>
-    <true/>
-'''
-
-            entitlements_content += '''</dict>
-</plist>
-'''
-
-            # Write entitlements file
-            entitlements_file = self.project_root / "build" / "entitlements.plist"
-            entitlements_file.parent.mkdir(exist_ok=True)
-
-            with open(entitlements_file, 'w', encoding='utf-8') as f:
-                f.write(entitlements_content)
-
-            print(f"[INSTALLER] Created entitlements file: {entitlements_file}")
-            return entitlements_file
-
-        except Exception as e:
-            print(f"[WARNING] Failed to create entitlements file: {e}")
-            return None
-
-
-class ECanBuild:
-    """eCan build main class"""
-
-    def __init__(self, mode: str = "prod", version: str = None):
-        self.mode = mode
-        self.version = version
-        self.project_root = Path.cwd()
-
-        # Use unified configuration file
-        config_file = self.project_root / "build_system" / "build_config.json"
-        self.config = BuildConfig(config_file)
-
-        # If version is specified, update configuration
-        if self.version:
-            self.config.update_version(self.version)
-
-        self.env = BuildEnvironment()
-        self.frontend_builder = FrontendBuilder(self.project_root)
-        self.pyinstaller_builder = PyInstallerBuilder(self.config, self.env, self.project_root)
-        self.installer_builder = InstallerBuilder(self.config, self.env, self.project_root, self.mode)
-
-    def build(self, force: bool = False, skip_frontend: bool = None, skip_installer: bool = False, 
-              enable_sparkle: bool = False, verify_sparkle: bool = False) -> bool:
-        """Execute build"""
-        start_time = time.time()
-
-        print("=" * 60)
-        print("eCan Cross-Platform Build System v9.0")
-        print("=" * 60)
-
-        try:
-            # Check OTA dependencies (CI should have installed them)
-            if enable_sparkle or verify_sparkle:
-                print("[BUILD] Sparkle support enabled - checking dependencies...")
-            self._check_ota_dependencies()
-            
-            # If Sparkle verification is enabled, perform additional checks
-            if verify_sparkle:
-                if not self._verify_sparkle_environment():
-                    print("[ERROR] Sparkle verification failed!")
-                    return False
-            
-            # Build frontend (if needed)
-            if skip_frontend is None:
-                skip_frontend = self.mode == "prod"
-
-            if not skip_frontend:
-                if not self.frontend_builder.build(force):
-                    return False
-            else:
-                print("[FRONTEND] Skipped by flag --skip-frontend")
-
-            # Build main application
-            if not self.pyinstaller_builder.build(self.mode, force):
-                return False
-
-            # Build installer (if needed)
-            if not skip_installer:
-                print(f"[INFO] Creating installer for {self.mode} mode...")
-                if not self.installer_builder.build():
-                    print("[WARNING] Installer creation failed, but build continues")
-            else:
-                print("[INFO] Skipping installer creation")
-
-            # Display results
-            self._show_result(start_time)
-            return True
-
-        except KeyboardInterrupt:
-            print("\n[INFO] Build interrupted by user")
-            return False
-        except Exception as e:
-            print(f"[ERROR] Build failed: {e}")
-            return False
-
-
     def _check_ota_dependencies(self):
         """Check if OTA dependencies are available in third_party directory"""
         third_party_dir = self.project_root / "third_party"
@@ -1579,6 +1622,69 @@ class ECanBuild:
             else:
                 print("[OTA] [ERROR] winSparkle DLL not found")
     
+    def _verify_pkg_integrity(self, pkg_file: Path, app_name: str) -> bool:
+        """Verify PKG package integrity and contents"""
+        try:
+            print(f"[PKG] Verifying package integrity: {pkg_file.name}")
+            
+            # Check if pkgutil can read the package
+            check_cmd = ["pkgutil", "--check-signature", str(pkg_file)]
+            result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                print("[PKG] ✓ Package signature check passed")
+            else:
+                print(f"[PKG] ⚠ Package signature check failed (expected for unsigned packages): {result.stderr.strip()}")
+            
+            # List package contents to verify structure
+            list_cmd = ["pkgutil", "--files", str(pkg_file)]
+            result = subprocess.run(list_cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                files = result.stdout.strip().split('\n')
+                app_files = [f for f in files if f.startswith(f'Applications/{app_name}.app')]
+                
+                if app_files:
+                    print(f"[PKG] ✓ Package contains {len(app_files)} app bundle files")
+                    
+                    # Check for essential files
+                    essential_files = [
+                        f'Applications/{app_name}.app/Contents/Info.plist',
+                        f'Applications/{app_name}.app/Contents/MacOS/{app_name}'
+                    ]
+                    
+                    for essential in essential_files:
+                        if essential in files:
+                            print(f"[PKG] ✓ Essential file found: {essential}")
+                        else:
+                            print(f"[PKG] ⚠ Essential file missing: {essential}")
+                else:
+                    print(f"[PKG] ⚠ No app bundle files found in package")
+                    return False
+            else:
+                print(f"[PKG] ⚠ Could not list package contents: {result.stderr.strip()}")
+                return False
+            
+            # Get package info
+            info_cmd = ["pkgutil", "--pkg-info-plist", str(pkg_file)]
+            result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                print("[PKG] ✓ Package info accessible")
+                # Could parse plist here for more detailed verification
+            else:
+                print(f"[PKG] ⚠ Could not get package info: {result.stderr.strip()}")
+            
+            print("[PKG] Package integrity verification completed")
+            return True
+            
+        except subprocess.TimeoutExpired:
+            print("[PKG] ⚠ Package verification timed out")
+            return False
+        except Exception as e:
+            print(f"[PKG] ⚠ Package verification failed: {e}")
+            return False
+
     def _verify_sparkle_environment(self) -> bool:
         """Verify if Sparkle environment is complete"""
         third_party_dir = self.project_root / "third_party"
@@ -1639,17 +1745,3 @@ class ECanBuild:
         print(f"[INFO] Build mode: {self.mode}")
         print(f"[INFO] Platform: {self.env.platform}")
         print("=" * 60)
-
-
-# Note: This file is now a pure library file and should not be run directly
-# Please use build.py as the only entry point
-
-def main():
-    """Deprecated: Use build.py instead"""
-    print("[ERROR] Please use build.py as the build entry point")
-    print("[OK] Correct usage: python build.py fast")
-    sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
