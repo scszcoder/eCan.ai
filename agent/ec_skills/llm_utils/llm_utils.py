@@ -117,7 +117,7 @@ import requests
 from langgraph.graph import StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_openai import ChatOpenAI
-from langchain_community.chat_models import ChatAnthropic
+from langchain_community.chat_models import ChatAnthropic, ChatOllama
 from langchain_deepseek import ChatDeepSeek
 from langchain_qwq import ChatQwQ
 
@@ -154,22 +154,27 @@ def pick_llm(default_llm, llm_providers):
     from app_context import AppContext
     
     logger.info(f"Starting LLM selection process. Default LLM: {default_llm}")
+    logger.debug(f"Available providers: {[p.get('name') for p in llm_providers]}")
     
-    # Step 1: Check if default_llm is configured and has valid API key
+    # Step 1: Try to use the default LLM if configured
     if default_llm:
         logger.info(f"Checking default LLM provider: {default_llm}")
         default_provider = _find_provider_by_name(default_llm, llm_providers)
         
-        if default_provider and default_provider.get('api_key_configured', False):
-            logger.info(f"Default LLM provider {default_llm} is configured and has API key")
-            llm_instance = _create_llm_instance(default_provider)
-            if llm_instance:
-                logger.info(f"Successfully created LLM instance for {default_llm}")
-                return llm_instance
+        if default_provider:
+            logger.info(f"Found default provider: {default_provider.get('name')}")
+            if default_provider.get('api_key_configured', False):
+                logger.info(f"Default LLM provider {default_llm} is configured and has API key")
+                llm_instance = _create_llm_instance(default_provider)
+                if llm_instance:
+                    logger.info(f"Successfully created LLM instance using default provider: {default_llm}")
+                    return llm_instance
+                else:
+                    logger.warning(f"Failed to create LLM instance for {default_llm}, trying alternatives")
             else:
-                logger.warning(f"Failed to create LLM instance for {default_llm}, trying alternatives")
+                logger.warning(f"Default LLM provider {default_llm} found but API key not configured")
         else:
-            logger.warning(f"Default LLM provider {default_llm} is not configured or missing API key")
+            logger.warning(f"Default LLM provider {default_llm} not found in available providers")
     
     # Step 2: Select available provider by region
     country = get_country_by_ip()
@@ -182,8 +187,8 @@ def pick_llm(default_llm, llm_providers):
         llm_instance = _create_llm_instance(selected_provider)
         
         if llm_instance:
-            # Update default_llm setting
-            _update_default_llm_setting(selected_provider['name'])
+            # Update default_llm setting through LLM manager
+            _update_default_llm_via_manager(selected_provider['name'])
             logger.info(f"Successfully created LLM instance and updated default to: {selected_provider['name']}")
             return llm_instance
         else:
@@ -196,9 +201,24 @@ def pick_llm(default_llm, llm_providers):
 
 def _find_provider_by_name(provider_name, llm_providers):
     """Find provider by name in the providers list"""
+    if not provider_name:
+        return None
+        
+    provider_name_lower = provider_name.lower()
+    
+    # First try exact match
     for provider in llm_providers:
-        if provider.get('name') == provider_name:
+        if provider.get('name', '').lower() == provider_name_lower:
             return provider
+    
+    # Then try partial match (for cases like "ChatOpenAI" -> "OpenAI")
+    for provider in llm_providers:
+        provider_name_in_list = provider.get('name', '').lower()
+        if (provider_name_lower in provider_name_in_list or 
+            provider_name_in_list in provider_name_lower):
+            logger.info(f"Found provider by partial match: '{provider_name}' -> '{provider.get('name')}'")
+            return provider
+    
     return None
 
 
@@ -212,16 +232,28 @@ def _select_regional_provider(country, llm_providers):
     }
     
     preferences = regional_preferences.get(country, regional_preferences['default'])
+    logger.debug(f"Regional preferences for {country}: {preferences}")
     
     # Find first available provider with API key
     for preferred_name in preferences:
+        logger.debug(f"Looking for provider matching: {preferred_name}")
         for provider in llm_providers:
             provider_name = provider.get('name', '').lower()
-            if (preferred_name.lower() in provider_name and 
-                provider.get('api_key_configured', False)):
+            api_key_configured = provider.get('api_key_configured', False)
+            logger.debug(f"Checking provider: {provider.get('name')}, API key configured: {api_key_configured}")
+            
+            if (preferred_name.lower() in provider_name and api_key_configured):
                 logger.info(f"Found matching provider: {provider.get('name')} for preference: {preferred_name}")
                 return provider
     
+    # If no preferred providers found, try any available provider with API key
+    logger.debug("No preferred providers found, trying any available provider with API key")
+    for provider in llm_providers:
+        if provider.get('api_key_configured', False):
+            logger.info(f"Found available provider with API key: {provider.get('name')}")
+            return provider
+    
+    logger.warning("No providers found with configured API keys")
     return None
 
 
@@ -262,6 +294,10 @@ def _create_llm_instance(provider):
             model_name = model_name or 'claude-3-5-sonnet-20241022'
             return ChatAnthropic(model=model_name, temperature=0)
             
+        elif 'ollama' in provider_name:
+            model_name = model_name or 'llama3.2'
+            return ChatOllama(model=model_name, temperature=0)
+            
         else:
             logger.warning(f"Unknown provider type: {provider_name}")
             return None
@@ -271,18 +307,20 @@ def _create_llm_instance(provider):
         return None
 
 
-def _update_default_llm_setting(provider_name):
-    """Update the default_llm setting"""
+def _update_default_llm_via_manager(provider_name):
+    """Update default_llm setting via LLM manager"""
     try:
-        main_window = AppContext.get_main_window()
-        if main_window and hasattr(main_window, 'config_manager'):
-            main_window.config_manager.general_settings.default_llm = provider_name
-            main_window.config_manager.general_settings.save()
-            logger.info(f"Updated default_llm setting to: {provider_name}")
-        else:
-            logger.warning("Could not access config manager to update default_llm setting")
+        from app_context import AppContext
+        app_context = AppContext()
+        
+        mainwindow = app_context.get_main_window()
+        # Use LLM manager's method to update default LLM
+        success = mainwindow.config_manager.llm_manager.update_default_llm(provider_name)
+        if not success:
+            logger.warning(f"Failed to update default_llm setting via LLM manager")
+            
     except Exception as e:
-        logger.error(f"Error updating default_llm setting: {e}")
+        logger.error(f"Error updating default_llm setting via manager: {e}")
 
 
 def _fallback_llm_selection(country):

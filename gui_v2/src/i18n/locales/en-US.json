@@ -803,7 +803,13 @@
       "failed_to_delete_config": "Failed to delete configuration",
       "failed_to_add_provider": "Failed to add provider",
       "failed_to_set_default": "Failed to set default LLM",
-      "please_login_first": "Please log in first"
+      "please_login_first": "Please log in first",
+      "restart_required_title": "Restart Required",
+      "restart_required_message": "{{operation}} completed successfully. To ensure all changes take effect properly, please restart the application.",
+      "restart_required_options": "You can either log out and log back in, or completely restart the application.",
+      "api_key_update": "API key update",
+      "api_key_deletion": "API key deletion",
+      "default_llm_change": "Default LLM change"
     }
   },
   "search": {
