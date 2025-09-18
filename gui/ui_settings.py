@@ -10,6 +10,7 @@ import platform
 import os
 import time
 import json
+import threading
 from typing import List, Dict, Any, Optional
 from utils.logger_helper import logger_helper as logger
 from gui.utils.hardware_detector import get_hardware_detector
@@ -116,37 +117,8 @@ class SettingsManager:
         self.printers = []
         self.wifi_list = []
 
-        # Initialize hardware detection
-        try:
-            self.list_wifi_networks()
-            self.list_printers()
-
-            # Auto-configure hardware settings in general_settings if not already set
-            if hasattr(self.parent, 'config_manager'):
-                general_settings = self.parent.config_manager.general_settings
-                settings_changed = False
-
-                # Set current WiFi if not already set
-                current_wifi = get_default_wifi_ssid()
-                if current_wifi and not general_settings.default_wifi:
-                    general_settings.default_wifi = current_wifi
-                    settings_changed = True
-                    logger.info(f"Auto-set default WiFi to: {current_wifi}")
-
-                # Set default printer if not already set
-                printer_names = self.get_printer_names()
-                if printer_names and not general_settings.default_printer:
-                    general_settings.default_printer = printer_names[0]
-                    settings_changed = True
-                    logger.info(f"Auto-set default printer to: {printer_names[0]}")
-
-                # Save settings if any changes were made
-                if settings_changed:
-                    general_settings.save()
-                    logger.info("Hardware settings auto-configured and saved")
-
-        except Exception as e:
-            logger.error(f"Error initializing SettingsManager: {e}")
+        # Initialize hardware detection asynchronously to avoid blocking main thread
+        self._start_async_hardware_detection()
 
     def get_commander_run(self) -> bool:
         """Get commander self-run setting"""
@@ -534,6 +506,91 @@ class SettingsManager:
         except Exception as e:
             logger.error(f"Error getting hardware info: {e}")
             return {}
+
+    def _start_async_hardware_detection(self):
+        """Start asynchronous hardware detection to avoid blocking main thread"""
+        def hardware_detection_worker():
+            """Worker function for hardware detection"""
+            try:
+                logger.info("Starting asynchronous hardware detection...")
+                start_time = time.time()
+
+                # Detect hardware in background with timeout protection
+                try:
+                    self.list_wifi_networks()
+                    logger.debug("WiFi networks detection completed")
+                except Exception as e:
+                    logger.warning(f"WiFi detection failed in async mode: {e}")
+
+                try:
+                    self.list_printers()
+                    logger.debug("Printer detection completed")
+                except Exception as e:
+                    logger.warning(f"Printer detection failed in async mode: {e}")
+
+                # Auto-configure hardware settings in general_settings if not already set
+                if hasattr(self.parent, 'config_manager'):
+                    try:
+                        general_settings = self.parent.config_manager.general_settings
+                        settings_changed = False
+
+                        # Set current WiFi if not already set
+                        try:
+                            current_wifi = get_default_wifi_ssid()
+                            if current_wifi and not general_settings.default_wifi:
+                                general_settings.default_wifi = current_wifi
+                                settings_changed = True
+                                logger.info(f"Auto-set default WiFi to: {current_wifi}")
+                        except Exception as e:
+                            logger.warning(f"Failed to auto-set WiFi: {e}")
+
+                        # Set default printer if not already set
+                        try:
+                            printer_names = self.get_printer_names()
+                            if printer_names and not general_settings.default_printer:
+                                general_settings.default_printer = printer_names[0]
+                                settings_changed = True
+                                logger.info(f"Auto-set default printer to: {printer_names[0]}")
+                        except Exception as e:
+                            logger.warning(f"Failed to auto-set printer: {e}")
+
+                        # Save settings if any changes were made
+                        if settings_changed:
+                            try:
+                                general_settings.save()
+                                logger.info("Hardware settings auto-configured and saved")
+                            except Exception as e:
+                                logger.error(f"Failed to save hardware settings: {e}")
+
+                    except Exception as e:
+                        logger.error(f"Error accessing config manager in async detection: {e}")
+
+                detection_time = time.time() - start_time
+                logger.info(f"Asynchronous hardware detection completed successfully in {detection_time:.2f}s")
+
+            except Exception as e:
+                logger.error(f"Critical error in asynchronous hardware detection: {e}")
+                import traceback
+                logger.debug(f"Hardware detection error traceback: {traceback.format_exc()}")
+
+        # Start hardware detection in a daemon thread
+        try:
+            hardware_thread = threading.Thread(
+                target=hardware_detection_worker,
+                name="HardwareDetection",
+                daemon=True
+            )
+            hardware_thread.start()
+            logger.info("Hardware detection thread started in background")
+        except Exception as e:
+            logger.error(f"Failed to start hardware detection thread: {e}")
+            # Fallback to synchronous detection if thread creation fails
+            logger.warning("Falling back to synchronous hardware detection")
+            try:
+                self.list_wifi_networks()
+                self.list_printers()
+            except Exception as fallback_e:
+                logger.error(f"Fallback hardware detection also failed: {fallback_e}")
 
     def cleanup(self):
         """Clean up resources"""
