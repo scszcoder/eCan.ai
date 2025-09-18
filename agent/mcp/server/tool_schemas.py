@@ -1638,12 +1638,12 @@ def build_agent_mcp_tools_schemas():
                             "description": "list of json objects with basic attributes of url, header_text, ascending, and max_n.",
                             "items": {
                                 "type": "object",
-                                "required": ["url", "header_text", "ascending", "max-n"],
+                                "required": ["url", "header_text", "ascending", "max_n"],
                                 "properties": {
                                     "url": {"type": "string"},
                                     "header_text": {"type": "string"},
                                     "ascending": {"type": "boolean"},
-                                    "max-n": {"type": "integer"}
+                                    "max_n": {"type": "integer"}
                                 }
                             }
                         }
