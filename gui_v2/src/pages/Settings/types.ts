@@ -1,3 +1,32 @@
+// 统一的类型定义文件
+
+// LLM Provider 相关类型 - 匹配后端返回的数据结构
+export interface LLMProvider {
+  name: string;
+  display_name: string;
+  class_name: string;
+  provider: string;
+  description: string;
+  documentation_url: string;
+  is_local: boolean;
+  base_url: string | null;
+  default_model: string | null;
+  api_key_env_vars: string[];
+  supported_models: any[];
+
+  // User preferences
+  is_preferred: boolean;
+  preferred_model: string | null;
+  custom_parameters: any;
+  api_key_configured: boolean;  // 使用后端的字段名
+
+  // Validation status
+  is_valid: boolean;
+  validation_error: string | null;
+  missing_env_vars: string[];
+}
+
+// Settings 主接口
 export interface Settings {
   debug_mode: boolean;
   default_wifi: string;
@@ -28,7 +57,12 @@ export interface Settings {
   last_order_file: string;
   last_order_file_time: number;
   new_orders_path: string;
-  // theme: 'light' | 'dark';
-  // language: string;
-  // 更多属性...
+  default_llm: string;  // 默认使用的LLM提供商
 }
+
+// 工具函数
+export const maskApiKey = (apiKey: string | null): string => {
+  if (!apiKey) return '';
+  if (apiKey.length <= 10) return '*'.repeat(apiKey.length);
+  return `${apiKey.substring(0, 6)}${'*'.repeat(10)}${apiKey.substring(apiKey.length - 4)}`;
+};

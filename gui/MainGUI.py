@@ -4,7 +4,6 @@ import re
 import shutil
 import asyncio
 import time
-from dotenv import load_dotenv
 import httpx
 from qasync import QEventLoop
 import requests
@@ -513,23 +512,8 @@ class MainWindow:
             base_tmp = self.my_ecb_data_homepath # e.g., /tmp on Unix
             self.config_manager.general_settings.browser_use_file_system_path = os.path.join(self.my_ecb_data_homepath, f'browser_use_fs')
             self.config_manager.general_settings.save()
-        # Load environment variables before initializing ChatOpenAI
-        # For PyInstaller bundled app, try to load .env from the executable directory
-        if getattr(sys, 'frozen', False):
-            # Running in a PyInstaller bundle
-            bundle_dir = sys._MEIPASS
-            env_path = os.path.join(bundle_dir, '.env')
-        else:
-            # Running in normal Python environment
-            env_path = '.env'
-
-        if os.path.exists(env_path):
-            logger.info(f"\nLoading .env from: {env_path}")
-            load_dotenv(env_path)
-        else:
-            logger.warning(f"\nNo .env file found at: {env_path}")
         
-        self.llm = pick_llm(self.config_manager.general_settings.data)
+        self.llm = pick_llm(self.config_manager.general_settings.default_llm, self.config_manager.llm_manager.get_all_providers())
         self.agents = []
         self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         self.mcp_client = None

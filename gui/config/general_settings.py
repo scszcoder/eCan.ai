@@ -6,39 +6,13 @@ Integrates hardware detection functionality, replacing duplicate code from ui_se
 """
 
 import os
-import sys
-import subprocess
-import platform
-import time
-import traceback
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from typing import List, Optional, Any, TYPE_CHECKING
 from utils.logger_helper import logger_helper as logger
 
 if TYPE_CHECKING:
     from gui.manager.config_manager import ConfigManager
 
-# Platform-specific imports
-if sys.platform == "win32":
-    try:
-        import win32print
-        import pywintypes
-        import win32serviceutil
-    except ImportError:
-        win32print = None
-        pywintypes = None
-        win32serviceutil = None
-else:
-    win32print = None
-    pywintypes = None
-    win32serviceutil = None
-
-if sys.platform == "darwin":
-    try:
-        from CoreWLAN import CWInterface
-    except ImportError:
-        CWInterface = None
-else:
-    CWInterface = None
+# Platform-specific imports are handled by hardware_detector module
 
 
 class GeneralSettings:
@@ -66,7 +40,7 @@ class GeneralSettings:
         self._hardware_initialized = False
 
     def _load_settings(self) -> dict:
-        """Load settings data"""
+        """Load settings data with LLM providers initialization"""
         default_settings = {
             "schedule_mode": "auto",
             "debug_mode": False,
@@ -96,11 +70,21 @@ class GeneralSettings:
             "last_order_file_time": 0,
             "new_bots_file_path": "",
             "new_orders_path": "",
-            "mids_forced_to_run": []
+            "mids_forced_to_run": [],
+            "default_llm": ""  # Default LLM provider to use
         }
-        
-        return self.config_manager.load_json(self.settings_file, default_settings)
-        
+
+        # 加载基础设置
+        settings = self.config_manager.load_json(self.settings_file, default_settings)
+
+        # 确保所有必需的字段都存在
+        for key, value in default_settings.items():
+            if key not in settings:
+                settings[key] = value
+                logger.info(f"Added missing field '{key}' with default value: {value}")
+
+        return settings
+
     def save(self) -> bool:
         """Save settings"""
         return self.config_manager.save_json(self.settings_file, self._data)
@@ -111,8 +95,18 @@ class GeneralSettings:
 
     @property
     def data(self) -> dict:
-        """Get settings data dictionary"""
-        return self._data
+        """Get settings data dictionary (excluding LLM providers which are handled independently)"""
+        data = self._data.copy()
+        return data
+
+    def set_field(self, key: str, value: any) -> None:
+        """Set a specific field in the settings data"""
+        self._data[key] = value
+
+    def get_field(self, key: str, default=None) -> any:
+        """Get a specific field from the settings data"""
+        return self._data.get(key, default)
+
 
     # ==================== Basic Mode Settings ====================
     
@@ -392,6 +386,17 @@ class GeneralSettings:
     @mids_forced_to_run.setter
     def mids_forced_to_run(self, value: List[str]):
         self._data["mids_forced_to_run"] = value
+
+    # ==================== LLM Settings ====================
+    
+    @property
+    def default_llm(self) -> str:
+        """Default LLM provider to use"""
+        return self._data.get("default_llm", "")
+
+    @default_llm.setter
+    def default_llm(self, value: str):
+        self._data["default_llm"] = value
 
     # ==================== Convenience Methods ====================
     

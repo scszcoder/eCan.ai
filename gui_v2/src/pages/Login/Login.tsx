@@ -5,8 +5,7 @@ import { UserOutlined, LockOutlined, LoadingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { APIResponse, IPCAPI } from '../../services/ipc';
 import { get_ipc_api } from '../../services/ipc_api';
-import { tokenStorage } from '../../services/ipc/ipcWCClient';
-import { useUserStore } from '@/stores/userStore';
+import { userStorageManager } from '../../services/storage/UserStorageManager';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import logo from '../../assets/logoWhite22.png';
 import googleIcon from '../../assets/Google_Icons.png';
@@ -117,25 +116,19 @@ const Login: React.FC = () => {
 		if (response.success && response.data) {
 			console.log('[Login] Login successful', response.data);
 			const { token, user_info } = response.data;
-			
-			// 使用新的 token 存储系统
-			tokenStorage.setToken(token);
-			
-			// // 清理IPC请求队列（新登录）
-			// api.clearQueue();
-			
-			// 存储用户信息
-			localStorage.setItem('token', token);
-			localStorage.setItem('user_info', JSON.stringify({
-				username: user_info?.username || values.username,
-				role: user_info?.role || values.role,
-				email: user_info?.email
-			}));
-			localStorage.setItem('isAuthenticated', 'true');
-			localStorage.setItem('userRole', user_info?.role || values.role);
-			localStorage.setItem('username', user_info?.username || values.username);
-			
-			useUserStore.getState().setUsername(user_info?.username || values.username);
+
+			// 使用统一的用户存储管理器
+			const loginSession = {
+				token,
+				userInfo: {
+					username: user_info?.username || values.username,
+					role: user_info?.role || values.role,
+					email: user_info?.email
+				},
+				loginTime: Date.now()
+			};
+
+			userStorageManager.saveLoginSession(loginSession);
 			// 登录成功后启用页面刷新监听
 			pageRefreshManager.enable();
 			
@@ -251,15 +244,19 @@ const Login: React.FC = () => {
         console.log('Google login successful', response.data);
         
         const { token, user_info, message } = response.data;
-        
-        // Store minimal authentication state (UI only)
-        localStorage.setItem('token', token);
-        localStorage.setItem('isAuthenticated', 'true');
-        localStorage.setItem('userRole', 'Commander'); // Default role for Google users
-        localStorage.setItem('username', user_info.email);
-        
-        // Update user store (UI state only)
-        useUserStore.getState().setUsername(user_info.email);
+
+        // 使用统一的用户存储管理器
+        const loginSession = {
+          token,
+          userInfo: {
+            username: user_info.email,
+            role: 'Commander', // Default role for Google users
+            email: user_info.email
+          },
+          loginTime: Date.now()
+        };
+
+        userStorageManager.saveLoginSession(loginSession);
         
         // Enable page refresh monitoring
         pageRefreshManager.enable();
@@ -539,24 +536,6 @@ const Login: React.FC = () => {
 									</Button>
 								)}
 							</div>
-
-								{/* Debug Login Button */}
-								<Row style={{ marginTop: 16 }} hidden={true}>
-									<Col span={24}>
-										<Button
-											type="dashed"
-											danger
-											block
-											onClick={() => {
-												localStorage.setItem('isAuthenticated', 'true');
-												localStorage.setItem('userRole', 'Commander');
-												navigate('/dashboard');
-											}}
-										>
-											Debug Login (Skip Authentication)
-										</Button>
-									</Col>
-								</Row>
 						</Form>
 					</>
 				)}

@@ -2,6 +2,7 @@ import React, { Suspense } from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import MainLayout from '../components/Layout/MainLayout';
 import { Spin } from 'antd';
+import { userStorageManager } from '../services/storage/UserStorageManager';
 
 // 页面组件懒加载
 const Login = React.lazy(() => import('../pages/Login/index'));
@@ -55,7 +56,7 @@ export interface RouteConfig {
 
 // 检查认证状态
 export const isAuthenticated = () => {
-    return localStorage.getItem('isAuthenticated') === 'true';
+    return userStorageManager.isAuthenticated();
 };
 
 // 受保护的路由组件

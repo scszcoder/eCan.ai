@@ -15,20 +15,19 @@ import {
     AlignLeftOutlined,
     ReadOutlined,
     ExperimentOutlined,
-    UserOutlined,
-    LogoutOutlined
+    UserOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
-import { useUserStore } from '../../stores/userStore';
 import AppSider from './AppSider';
 import AppHeader from './AppHeader';
 import AppContent from './AppContent';
 import PageBackBreadcrumb from './PageBackBreadcrumb';
 import A11yFocusGuard from '../Common/A11yFocusGuard';
 import { get_ipc_api } from '@/services/ipc_api';
+import { userStorageManager } from '../../services/storage/UserStorageManager';
 
 
 const StyledLayout = styled(Layout)`
@@ -63,14 +62,15 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             // 可以根据需要处理错误
             console.error('Logout API error:', e);
         }
-        // 清理localStorage
-        localStorage.removeItem('isAuthenticated');
-        localStorage.removeItem('userRole');
-        localStorage.removeItem('token');
-        localStorage.removeItem('username');
-        // 清理userStore
-        useUserStore.getState().setUsername(null);
-                
+
+        // 使用统一存储管理器进行完整的logout处理
+        try {
+            userStorageManager.logout();
+        } catch (e) {
+            console.error('Storage cleanup error:', e);
+            // 即使storage清理失败，也要继续logout流程
+        }
+
         // 清理IPC请求队列
         get_ipc_api().clearQueue();
         window.location.replace('/login');
