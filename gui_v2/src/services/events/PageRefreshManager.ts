@@ -88,24 +88,24 @@ export class PageRefreshManager {
 
                 logger.info('✅ 用户状态已恢复:', userInfo.username);
 
-                // 验证会话有效性，尝试获取系统数据
-                const appData = await get_ipc_api().getAll(userInfo.username);
-                console.log('appData', appData);
+                // // 验证会话有效性，尝试获取系统数据
+                // const appData = await get_ipc_api().getAll(userInfo.username);
+                // console.log('appData', appData);
 
-                // 将API返回的数据保存到store中
-                if (appData?.data) {
-                    logger.info('PageRefreshManager: Get all system data successful');
-                    // 更新 store
-                    AppDataStoreHandler.updateStore(appData.data as any);
-                    logger.info('PageRefreshManager: System data restored in store.');
-                } else {
-                    logger.error('PageRefreshManager: Get all system data failed');
-                    // 如果获取系统数据失败，可能是会话过期，清理用户数据
-                    if (appData?.error?.code === 'TOKEN_REQUIRED' || appData?.error?.code === 'UNAUTHORIZED') {
-                        logger.warn('会话可能已过期，清理用户数据');
-                        userStorageManager.clearAllUserData();
-                    }
-                }
+                // // 将API返回的数据保存到store中
+                // if (appData?.data) {
+                //     logger.info('PageRefreshManager: Get all system data successful');
+                //     // 更新 store
+                //     AppDataStoreHandler.updateStore(appData.data as any);
+                //     logger.info('PageRefreshManager: System data restored in store.');
+                // } else {
+                //     logger.error('PageRefreshManager: Get all system data failed');
+                //     // 如果获取系统数据失败，可能是会话过期，清理用户数据
+                //     if (appData?.error?.code === 'TOKEN_REQUIRED' || appData?.error?.code === 'UNAUTHORIZED') {
+                //         logger.warn('会话可能已过期，清理用户数据');
+                //         userStorageManager.clearAllUserData();
+                //     }
+                // }
                 
                 logger.info('页面刷新后执行动作完成');
             } catch (error) {

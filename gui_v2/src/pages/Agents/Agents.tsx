@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
+import React, { useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useAppDataStore } from '../../stores/appDataStore';
 import { useUserStore } from '../../stores/userStore';
@@ -12,7 +12,7 @@ export interface AgentsRef {
   refresh: () => void;
 }
 
-const Agents = forwardRef<AgentsRef>((props, ref) => {
+const Agents = forwardRef<AgentsRef>((_props, ref) => {
     const { t } = useTranslation();
     const location = useLocation();
     const setAgents = useAppDataStore((state) => state.setAgents);
@@ -22,16 +22,32 @@ const Agents = forwardRef<AgentsRef>((props, ref) => {
     const agents = useAppDataStore((state) => state.agents);
     const hasFetchedRef = useRef(false);
     const isInitializedRef = useRef(false);
-    const lastLocationRef = useRef(location.pathname);
+    const renderCountRef = useRef(0);
+    // const lastLocationRef = useRef(location.pathname); // 暂时不需要
 
-    // 添加调试信息
-    console.log('Agents: Component rendered', { 
-      username, 
-      agentsCount: agents?.length || 0, 
-      location: location.pathname,
-      hasFetched: hasFetchedRef.current,
-      isInitialized: isInitializedRef.current
-    });
+    // 添加调试信息 - 只在开发环境显示
+    if (process.env.NODE_ENV === 'development') {
+      renderCountRef.current++;
+      
+      // 如果渲染次数过多，发出警告
+      if (renderCountRef.current > 5) {
+        console.warn('⚠️ Agents组件渲染次数过多:', renderCountRef.current, {
+          username, 
+          agentsCount: agents?.length || 0, 
+          location: location.pathname,
+          hasFetched: hasFetchedRef.current,
+          isInitialized: isInitializedRef.current
+        });
+      } else {
+        console.log(`🔄 Agents渲染 #${renderCountRef.current}:`, { 
+          username, 
+          agentsCount: agents?.length || 0, 
+          location: location.pathname,
+          hasFetched: hasFetchedRef.current,
+          isInitialized: isInitializedRef.current
+        });
+      }
+    }
 
     // 使用 useImperativeHandle 暴露稳定的方法
     useImperativeHandle(ref, () => ({
@@ -45,9 +61,17 @@ const Agents = forwardRef<AgentsRef>((props, ref) => {
 
     const fetchAgents = useCallback(async () => {
         if (!username) return;
-        // 简化缓存逻辑：总是获取数据，除非已经获取过且时间很短
+        
+        // 检查是否已经有数据且缓存仍然有效
         if (hasFetchedRef.current && shouldFetchAgents() === false) {
           console.log('Agents: Skipping fetch - already fetched and cache is valid');
+          return;
+        }
+        
+        // 如果已经有agents数据且是最近获取的，跳过请求
+        if (agents && agents.length > 0 && shouldFetchAgents() === false) {
+          console.log('Agents: Skipping fetch - data already available and fresh');
+          hasFetchedRef.current = true;
           return;
         }
 
@@ -81,20 +105,18 @@ const Agents = forwardRef<AgentsRef>((props, ref) => {
     useEffect(() => {
         // 只在组件首次挂载时执行，避免重复初始化
         console.log('Agents: useEffect called', { isInitialized: isInitializedRef.current, username });
-        // 简化逻辑：总是尝试获取数据
-        if (!isInitializedRef.current || !hasFetchedRef.current) {
+        
+        // 只有在用户名存在且未初始化时才获取数据
+        if (username && !isInitializedRef.current) {
             fetchAgents();
             isInitializedRef.current = true;
         }
-    }, [fetchAgents]);
+    }, [username]); // 只依赖username，避免fetchAgents导致的重复调用
 
     // 使用 Outlet 渲染子路由，这样主组件保持挂载状态
     return <Outlet />;
 });
 
 // 使用 React.memo 包装组件，避免不必要的重新渲染
-// 添加自定义比较函数，确保组件只在真正需要时重新渲染
-export default React.memo(Agents, () => {
-    // 由于这个组件没有props，总是返回true表示不需要重新渲染
-    return true;
-});
+// 由于这个组件主要是路由容器，props变化较少，使用默认比较即可
+export default React.memo(Agents);

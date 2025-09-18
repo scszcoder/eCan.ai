@@ -314,10 +314,28 @@ def _update_default_llm_via_manager(provider_name):
         app_context = AppContext()
         
         mainwindow = app_context.get_main_window()
+        
+        # 检查 MainWindow 是否已经初始化
+        if mainwindow is None:
+            logger.warning(f"MainWindow not yet initialized, skipping default_llm update for {provider_name}")
+            return
+            
+        # 检查 config_manager 是否存在
+        if not hasattr(mainwindow, 'config_manager') or mainwindow.config_manager is None:
+            logger.warning(f"ConfigManager not yet initialized, skipping default_llm update for {provider_name}")
+            return
+            
+        # 检查 llm_manager 是否存在
+        if not hasattr(mainwindow.config_manager, 'llm_manager') or mainwindow.config_manager.llm_manager is None:
+            logger.warning(f"LLMManager not yet initialized, skipping default_llm update for {provider_name}")
+            return
+        
         # Use LLM manager's method to update default LLM
         success = mainwindow.config_manager.llm_manager.update_default_llm(provider_name)
         if not success:
             logger.warning(f"Failed to update default_llm setting via LLM manager")
+        else:
+            logger.info(f"Successfully updated default_llm to {provider_name} via LLM manager")
             
     except Exception as e:
         logger.error(f"Error updating default_llm setting via manager: {e}")

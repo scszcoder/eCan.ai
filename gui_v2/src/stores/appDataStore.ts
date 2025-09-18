@@ -23,6 +23,10 @@ export interface AppData {
   error: string | null;
   initialized: boolean;
   agentsLastFetched: number | null; // 记录最后获取agents数据的时间戳
+  tasksLastFetched: number | null; // 记录最后获取tasks数据的时间戳
+  skillsLastFetched: number | null; // 记录最后获取skills数据的时间戳
+  toolsLastFetched: number | null; // 记录最后获取tools数据的时间戳
+  vehiclesLastFetched: number | null; // 记录最后获取vehicles数据的时闶戳
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setAgents: (agents: Agent[]) => void;
@@ -38,6 +42,11 @@ export interface AppData {
   setInitialized: (v: boolean) => void;
   getAgentById: (id: string) => Agent | null;
   shouldFetchAgents: () => boolean; // 判断是否需要重新获取agents数据
+  shouldFetchTasks: () => boolean; // 判断是否需要重新获取tasks数据
+  shouldFetchSkills: () => boolean; // 判断是否需要重新获取skills数据
+  shouldFetchTools: () => boolean; // 判断是否需要重新获取tools数据
+  shouldFetchVehicles: () => boolean; // 判断是否需要重新获取vehicles数据
+  shouldFetchData: (dataType: 'agents' | 'tasks' | 'skills' | 'tools' | 'vehicles') => boolean; // 通用的数据获取判断
 }
 
 const useAppDataStore = create<AppData>()(
@@ -55,14 +64,18 @@ const useAppDataStore = create<AppData>()(
       error: null,
       initialized: false,
       agentsLastFetched: null, // Initialize agentsLastFetched
+      tasksLastFetched: null,
+      skillsLastFetched: null,
+      toolsLastFetched: null,
+      vehiclesLastFetched: null,
       setLoading: (loading) => set({ isLoading: loading }),
       setError: (error) => set({ error }),
       setAgents: (agents) => set({ agents, agentsLastFetched: Date.now() }),
-      setTasks: (tasks) => set({ tasks }),
-      setSkills: (skills) => set({ skills }),
+      setTasks: (tasks) => set({ tasks, tasksLastFetched: Date.now() }),
+      setSkills: (skills) => set({ skills, skillsLastFetched: Date.now() }),
       setKnowledges: (knowledges) => set({ knowledges }),
-      setTools: (tools) => set({ tools }),
-      setVehicles: (vehicles) => set({ vehicles }),
+      setTools: (tools) => set({ tools, toolsLastFetched: Date.now() }),
+      setVehicles: (vehicles) => set({ vehicles, vehiclesLastFetched: Date.now() }),
       setSettings: (settings) => set({ settings }),
 
       // Chat actions implementation
@@ -82,6 +95,43 @@ const useAppDataStore = create<AppData>()(
         const now = Date.now();
         const diff = now - lastFetched;
         // Re-fetch agents every 5 minutes
+        return diff > 5 * 60 * 1000;
+      },
+      shouldFetchTasks: () => {
+        const lastFetched = get().tasksLastFetched;
+        if (!lastFetched) return true;
+        const now = Date.now();
+        const diff = now - lastFetched;
+        return diff > 5 * 60 * 1000;
+      },
+      shouldFetchSkills: () => {
+        const lastFetched = get().skillsLastFetched;
+        if (!lastFetched) return true;
+        const now = Date.now();
+        const diff = now - lastFetched;
+        return diff > 5 * 60 * 1000;
+      },
+      shouldFetchTools: () => {
+        const lastFetched = get().toolsLastFetched;
+        if (!lastFetched) return true;
+        const now = Date.now();
+        const diff = now - lastFetched;
+        return diff > 5 * 60 * 1000;
+      },
+      shouldFetchVehicles: () => {
+        const lastFetched = get().vehiclesLastFetched;
+        if (!lastFetched) return true;
+        const now = Date.now();
+        const diff = now - lastFetched;
+        return diff > 5 * 60 * 1000;
+      },
+      shouldFetchData: (dataType) => {
+        const state = get();
+        const lastFetchedKey = `${dataType}LastFetched` as keyof typeof state;
+        const lastFetched = state[lastFetchedKey] as number | null;
+        if (!lastFetched) return true;
+        const now = Date.now();
+        const diff = now - lastFetched;
         return diff > 5 * 60 * 1000;
       },
     }),
