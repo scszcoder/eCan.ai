@@ -16,37 +16,14 @@ import {
 import { IPCWebChannel } from './types';
 import { getHandlers } from './handlers';
 import { logger } from '../../utils/logger';
-// Token storage functionality integrated directly
-class TokenStorage {
-    private static readonly TOKEN_KEY = 'ipc_auth_token';
-    
-    static getToken(): string | null {
-        try {
-            return localStorage.getItem(this.TOKEN_KEY);
-        } catch (error) {
-            logger.error('Failed to get token from localStorage:', error);
-            return null;
-        }
-    }
-    
-    static setToken(token: string): void {
-        try {
-            localStorage.setItem(this.TOKEN_KEY, token);
-        } catch (error) {
-            logger.error('Failed to set token in localStorage:', error);
-        }
-    }
-    
-    static removeToken(): void {
-        try {
-            localStorage.removeItem(this.TOKEN_KEY);
-        } catch (error) {
-            logger.error('Failed to remove token from localStorage:', error);
-        }
-    }
-}
+import { userStorageManager } from '../storage/UserStorageManager';
 
-const tokenStorage = TokenStorage;
+// Legacy token storage for backward compatibility
+const tokenStorage = {
+    getToken: () => userStorageManager.getToken(),
+    setToken: (token: string) => userStorageManager.setToken(token),
+    removeToken: () => userStorageManager.removeToken()
+};
 
 // 请求优先级枚举
 export enum RequestPriority {

@@ -1,8 +1,7 @@
 import { logger } from '../../utils/logger';
-import { APIResponse } from '../ipc';
 import { get_ipc_api } from '../../services/ipc_api';
-import { useUserStore } from '../../stores/userStore';
 import { AppDataStoreHandler } from '../../stores/AppDataStoreHandler';
+import { userStorageManager } from '../storage/UserStorageManager';
 
 // 页面刷新后的操作类型
 export type PageRefreshAction = () => void | Promise<void>;
@@ -25,12 +24,7 @@ export class PageRefreshManager {
         return PageRefreshManager.instance;
     }
 
-    // 检查用户是否已登录
-    private checkUserLoginStatus(): boolean {
-        const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
-        const token = localStorage.getItem('token');
-        return isAuthenticated && !!token;
-    }
+
 
     // 初始化管理器
     public initialize(): void {
@@ -44,14 +38,15 @@ export class PageRefreshManager {
         this.registerDefaultActions();
         this.isInitialized = true;
         
-        // 检查用户登录状态，如果已登录则自动启用
-        if (this.checkUserLoginStatus()) {
-            this.isEnabled = true;
-            logger.info('PageRefreshManager 初始化完成（用户已登录，自动启用）');
-        } else {
-            this.isEnabled = false;
-            logger.info('PageRefreshManager 初始化完成（用户未登录，默认禁用）');
-        }
+        // 不管localStorage中是否有数据，都要尝试从后端获取用户状态
+        this.isEnabled = true;
+        logger.info('PageRefreshManager 初始化完成（总是启用，尝试恢复用户状态）');
+
+        // 立即执行一次恢复操作
+        logger.info('🔄 立即尝试恢复用户状态');
+        this.executeAllActions().catch(error => {
+            logger.error('❌ 初始化时执行恢复操作失败:', error);
+        });
     }
 
     // 启用页面刷新操作（登录成功后调用）
@@ -76,31 +71,41 @@ export class PageRefreshManager {
         // 注册获取登录信息的操作
         this.registerAction('getLastLoginInfo', async () => {
             try {
-                logger.info('页面刷新后获取登录信息');
-                // 这里调用您的API
-                const response: APIResponse<any> = await get_ipc_api().getLastLoginInfo();
-				if (response?.data?.last_login) {
-					const { username, password, machine_role } = response.data.last_login;
-					logger.info('last_login', response.data.last_login);
-                    localStorage.setItem('username', username);
-			
-                    useUserStore.getState().setUsername(username);
-                    // 获取系统数据
-					const appData = await get_ipc_api().getAll(username);
-					console.log('appData', appData);
-                    
-					// 将API返回的数据保存到store中
-					if (appData?.data) {
-                        logger.info('PageRefreshManager: Get all system data successful');
-                        // 更新 store
-                        AppDataStoreHandler.updateStore(appData.data as any);
-                        logger.info('PageRefreshManager: System data restored in store.');
-					} else {
-                        logger.error('PageRefreshManager: Get all system data failed');
+                logger.info('页面刷新后尝试恢复用户状态');
+
+                // 使用统一存储管理器检查和恢复用户状态
+                const restored = userStorageManager.restoreUserState();
+                if (!restored) {
+                    logger.info('没有找到有效的用户会话，跳过自动登录恢复');
+                    return;
+                }
+
+                const userInfo = userStorageManager.getUserInfo();
+                if (!userInfo) {
+                    logger.error('用户信息恢复失败');
+                    return;
+                }
+
+                logger.info('✅ 用户状态已恢复:', userInfo.username);
+
+                // 验证会话有效性，尝试获取系统数据
+                const appData = await get_ipc_api().getAll(userInfo.username);
+                console.log('appData', appData);
+
+                // 将API返回的数据保存到store中
+                if (appData?.data) {
+                    logger.info('PageRefreshManager: Get all system data successful');
+                    // 更新 store
+                    AppDataStoreHandler.updateStore(appData.data as any);
+                    logger.info('PageRefreshManager: System data restored in store.');
+                } else {
+                    logger.error('PageRefreshManager: Get all system data failed');
+                    // 如果获取系统数据失败，可能是会话过期，清理用户数据
+                    if (appData?.error?.code === 'TOKEN_REQUIRED' || appData?.error?.code === 'UNAUTHORIZED') {
+                        logger.warn('会话可能已过期，清理用户数据');
+                        userStorageManager.clearAllUserData();
                     }
-				} else {
-					logger.error('获取登录信息失败');
-				}
+                }
                 
                 logger.info('页面刷新后执行动作完成');
             } catch (error) {
@@ -115,14 +120,7 @@ export class PageRefreshManager {
     private setupEventListeners(): void {
         // 监听页面重新加载完成事件
         const handleLoad = () => {
-            logger.info('页面重新加载完成，检查是否执行操作');
-            
-            // 检查是否启用页面刷新操作
-            if (!this.isEnabled) {
-                logger.info('页面刷新操作已禁用（用户未登录），跳过执行');
-                return;
-            }
-            
+            logger.info('🔄 页面重新加载完成，执行恢复操作');
             this.executeAllActions();
         };
 
@@ -168,13 +166,7 @@ export class PageRefreshManager {
 
     // 执行所有注册的操作
     public async executeAllActions(): Promise<void> {
-        // 检查是否启用
-        if (!this.isEnabled) {
-            logger.info('页面刷新操作已禁用（用户未登录），跳过执行');
-            return;
-        }
-
-        logger.info(`执行 ${this.actions.size} 个页面刷新操作`);
+        logger.info(`🔄 执行 ${this.actions.size} 个页面刷新操作`);
         
         const promises: Promise<void>[] = [];
         

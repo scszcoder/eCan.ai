@@ -114,27 +114,26 @@ def handle_save_settings(request: IPCRequest, params: Optional[list[Any]]) -> IP
         # 保存设置到 general_settings
         general_settings = main_window.config_manager.general_settings
 
-        # 更新设置值
-        updated_fields = []
-        for key, value in settings_data.items():
-            if hasattr(general_settings, key):
-                try:
-                    setattr(general_settings, key, value)
-                    updated_fields.append(key)
-                    logger.debug(f"Updated {key} = {value}")
-                except Exception as e:
-                    logger.warning(f"Failed to set {key} = {value}: {e}")
-            else:
-                logger.warning(f"Unknown setting field: {key}")
+        # 使用 update_data 方法统一处理所有设置数据
+        try:
+            general_settings.update_data(settings_data)
+            logger.info(f"Settings updated successfully. Fields: {list(settings_data.keys())}")
+        except Exception as e:
+            logger.error(f"Failed to update settings data: {e}")
+            return create_error_response(
+                request,
+                'UPDATE_ERROR',
+                f"Failed to update settings: {str(e)}"
+            )
 
         # 保存到文件
         try:
             general_settings.save()
-            logger.info(f"Settings saved successfully. Updated fields: {updated_fields}")
+            logger.info(f"Settings saved successfully")
 
             return create_success_response(request, {
                 'message': 'Settings saved successfully',
-                'updated_fields': updated_fields
+                'updated_fields': list(settings_data.keys())
             })
 
         except Exception as e:

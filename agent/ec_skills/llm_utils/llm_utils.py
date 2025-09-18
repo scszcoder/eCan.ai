@@ -134,54 +134,174 @@ def get_country_by_ip() -> str | None:
     return None
 
 
-def pick_llm(settings):
-    """Return appropriate LLM instance depending on IP location."""
+def pick_llm(default_llm, llm_providers):
+    """
+    Return appropriate LLM instance with intelligent provider selection.
+    
+    Logic:
+    1. Check if default_llm is configured and has valid API key
+    2. If not, select available provider by region (CN: DeepSeek/Qwen, US: OpenAI/Claude)
+    3. Update default_llm setting if a new provider is selected
+    4. Fallback to hardcoded defaults if no providers are available
+    
+    Args:
+        default_llm: Current default LLM provider name
+        llm_providers: List of available LLM providers with configuration
+        
+    Returns:
+        LLM instance or None if all attempts fail
+    """
+    from app_context import AppContext
+    
+    logger.info(f"Starting LLM selection process. Default LLM: {default_llm}")
+    
+    # Step 1: Check if default_llm is configured and has valid API key
+    if default_llm:
+        logger.info(f"Checking default LLM provider: {default_llm}")
+        default_provider = _find_provider_by_name(default_llm, llm_providers)
+        
+        if default_provider and default_provider.get('api_key_configured', False):
+            logger.info(f"Default LLM provider {default_llm} is configured and has API key")
+            llm_instance = _create_llm_instance(default_provider)
+            if llm_instance:
+                logger.info(f"Successfully created LLM instance for {default_llm}")
+                return llm_instance
+            else:
+                logger.warning(f"Failed to create LLM instance for {default_llm}, trying alternatives")
+        else:
+            logger.warning(f"Default LLM provider {default_llm} is not configured or missing API key")
+    
+    # Step 2: Select available provider by region
     country = get_country_by_ip()
-    print(f"Detected country: {country}")
+    logger.info(f"Detected country: {country}, selecting regional provider")
+    
+    selected_provider = _select_regional_provider(country, llm_providers)
+    
+    if selected_provider:
+        logger.info(f"Selected regional provider: {selected_provider['name']}")
+        llm_instance = _create_llm_instance(selected_provider)
+        
+        if llm_instance:
+            # Update default_llm setting
+            _update_default_llm_setting(selected_provider['name'])
+            logger.info(f"Successfully created LLM instance and updated default to: {selected_provider['name']}")
+            return llm_instance
+        else:
+            logger.error(f"Failed to create LLM instance for selected provider: {selected_provider['name']}")
+    
+    # Step 3: Fallback to hardcoded defaults
+    logger.warning("No configured providers available, falling back to hardcoded defaults")
+    return _fallback_llm_selection(country)
 
-    if country == "CN":
-        # Prefer DeepSeek, fallback to Qwen
-        try:
-            if settings.get("cn_llm_provider", False):
-                if settings.get("cn_llm_model") == "deepseek":
-                    if settings.get("cn_llm_model", False):
-                        cn_llm = ChatDeepSeek(model=settings.get("cn_llm_model"), temperature=0)
-                    else:
-                        cn_llm = ChatDeepSeek(model="deepseek-chat", temperature=0)
-                elif settings.get("cn_llm_model") == "qwen":
-                    if settings.get("cn_llm_model", False):
-                        cn_llm = ChatQwQ(model=settings.get("cn_llm_model"), temperature=0)
-                    else:
-                        cn_llm = ChatQwQ(model="qwq-plus", temperature=0)
-            else:
-                cn_llm = ChatDeepSeek(model="deepseek-chat", temperature=0)
-            return cn_llm
-        except Exception:
-            cn_llm = None
-            return cn_llm
-    elif country == "US":
-        try:
-            if settings.get("us_llm_provider", False):
-                if settings.get("us_llm_model") == "openai":
-                    if settings.get("us_llm_model", False):
-                        us_llm = ChatOpenAI(model=settings.get("us_llm_model"), temperature=0)
-                    else:
-                        us_llm = ChatOpenAI(model="gpt-4o", temperature=0)
-                elif settings.get("us_llm_model") == "claude":
-                    if settings.get("us_llm_model", False):
-                        us_llm = ChatAnthropic(model=settings.get("us_llm_model"), temperature=0)
-                    else:
-                        us_llm = ChatAnthropic(model="claude-sonnet-4-20250514", temperature=0)
-            else:
-                us_llm = ChatOpenAI(model="gpt-4o", temperature=0)
 
-            return us_llm
-        except Exception:
-            # us_llm = ChatAnthropic(model="claude-sonnet-4-20250514", temperature=0)
-            us_llm = None
-            return us_llm
-    else:
-        return ChatOpenAI(model="gpt-4o", temperature=0)
+def _find_provider_by_name(provider_name, llm_providers):
+    """Find provider by name in the providers list"""
+    for provider in llm_providers:
+        if provider.get('name') == provider_name:
+            return provider
+    return None
+
+
+def _select_regional_provider(country, llm_providers):
+    """Select best available provider based on region"""
+    # Define regional preferences
+    regional_preferences = {
+        'CN': ['deepseek', 'qwen', 'openai', 'claude'],  # China prefers local providers
+        'US': ['openai', 'claude', 'deepseek', 'qwen'],  # US prefers US providers
+        'default': ['openai', 'claude', 'qwen', 'deepseek']  # Default order
+    }
+    
+    preferences = regional_preferences.get(country, regional_preferences['default'])
+    
+    # Find first available provider with API key
+    for preferred_name in preferences:
+        for provider in llm_providers:
+            provider_name = provider.get('name', '').lower()
+            if (preferred_name.lower() in provider_name and 
+                provider.get('api_key_configured', False)):
+                logger.info(f"Found matching provider: {provider.get('name')} for preference: {preferred_name}")
+                return provider
+    
+    return None
+
+
+def _create_llm_instance(provider):
+    """Create LLM instance based on provider configuration"""
+    try:
+        provider_name = provider.get('name', '').lower()
+        supported_models = provider.get('supported_models', [])
+        preferred_model = provider.get('preferred_model')
+        default_model_name = provider.get('default_model')
+        
+        # Determine which model to use
+        model_name = None
+        if preferred_model:
+            model_name = preferred_model
+        elif default_model_name:
+            model_name = default_model_name
+        elif supported_models:
+            # Use the first supported model's model_id
+            first_model = supported_models[0]
+            model_name = first_model.get('model_id', first_model.get('name'))
+        
+        logger.info(f"Creating LLM instance for {provider_name} with model: {model_name}")
+        
+        if 'deepseek' in provider_name:
+            model_name = model_name or 'deepseek-chat'
+            return ChatDeepSeek(model=model_name, temperature=0)
+            
+        elif 'qwen' in provider_name or 'qwq' in provider_name:
+            model_name = model_name or 'qwq-plus'
+            return ChatQwQ(model=model_name, temperature=0)
+            
+        elif 'openai' in provider_name:
+            model_name = model_name or 'gpt-4o'
+            return ChatOpenAI(model=model_name, temperature=0)
+            
+        elif 'claude' in provider_name or 'anthropic' in provider_name:
+            model_name = model_name or 'claude-3-5-sonnet-20241022'
+            return ChatAnthropic(model=model_name, temperature=0)
+            
+        else:
+            logger.warning(f"Unknown provider type: {provider_name}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error creating LLM instance for {provider.get('name')}: {e}")
+        return None
+
+
+def _update_default_llm_setting(provider_name):
+    """Update the default_llm setting"""
+    try:
+        main_window = AppContext.get_main_window()
+        if main_window and hasattr(main_window, 'config_manager'):
+            main_window.config_manager.general_settings.default_llm = provider_name
+            main_window.config_manager.general_settings.save()
+            logger.info(f"Updated default_llm setting to: {provider_name}")
+        else:
+            logger.warning("Could not access config manager to update default_llm setting")
+    except Exception as e:
+        logger.error(f"Error updating default_llm setting: {e}")
+
+
+def _fallback_llm_selection(country):
+    """Fallback LLM selection when no configured providers are available"""
+    logger.warning("Using fallback LLM selection - API keys may not be configured")
+    
+    try:
+        if country == "CN":
+            logger.info("Fallback: Using DeepSeek for China")
+            return ChatDeepSeek(model="deepseek-chat", temperature=0)
+        elif country == "US":
+            logger.info("Fallback: Using OpenAI for US")
+            return ChatOpenAI(model="gpt-4o", temperature=0)
+        else:
+            logger.info("Fallback: Using OpenAI as default")
+            return ChatOpenAI(model="gpt-4o", temperature=0)
+    except Exception as e:
+        logger.error(f"Fallback LLM creation failed: {e}")
+        return None
 
 
 

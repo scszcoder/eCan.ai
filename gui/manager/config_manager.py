@@ -116,6 +116,14 @@ class ConfigManager:
             self._search_settings = SearchSettings(self)
         return self._search_settings
 
+    @property
+    def llm_manager(self):
+        """LLM manager entity"""
+        if not hasattr(self, '_llm_manager'):
+            from gui.manager.llm_manager import LLMManager
+            self._llm_manager = LLMManager(self)
+        return self._llm_manager
+
     def save_all_settings(self) -> bool:
         """Save all settings"""
         try:

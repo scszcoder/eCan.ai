@@ -2,53 +2,54 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, Form, Select, Switch, Button, App, Input, Row, Col } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import { logger } from '../../utils/logger';
-import type { Settings } from './types';
+
 import { useUserStore } from '../../stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
-import { useLocation } from 'react-router-dom';
 
-// type Theme = 'light' | 'dark' | 'system';
+import type { Settings } from './types';
+import { LLMManagement } from './components';
 
 const initialSettings: Settings = {
+  schedule_mode: 'auto',
   debug_mode: false,
   default_wifi: '',
   default_printer: '',
   display_resolution: '',
   default_webdriver_path: '',
-  img_engine: '',
-  local_user_db_host: '',
-  local_user_db_port: '',
-  local_agent_db_host: '',
-  local_agent_db_port: '',
-  local_agent_ports: [],
-  local_server_port: '',
+  build_dom_tree_script_path: '',
+  new_orders_dir: 'c:/ding_dan/',
+  local_user_db_host: '127.0.0.1',
+  local_user_db_port: '5080',
+  local_agent_db_host: '192.168.0.16',
+  local_agent_db_port: '6668',
   lan_api_endpoint: '',
-  last_bots_file: '',
-  last_bots_file_time: 0,
-  mids_forced_to_run: [],
-  new_orders_dir: '',
-  new_bots_file_path: '',
   wan_api_endpoint: '',
   ws_api_endpoint: '',
-  schedule_engine: '',
-  schedule_mode: '',
-  wan_api_key: '',
+  img_engine: 'lan',
+  schedule_engine: 'wan',
+  local_agent_ports: [3600, 3800],
   browser_use_file_system_path: '',
+  local_server_port: '4668',
   gui_flowgram_schema: '',
-  build_dom_tree_script_path: '',
+  wan_api_key: '',
+  last_bots_file: '',
+  last_bots_file_time: 0,
   last_order_file: '',
   last_order_file_time: 0,
+  new_bots_file_path: '',
   new_orders_path: '',
+  mids_forced_to_run: [],
+  default_llm: ''  // Default LLM provider to use
 };
 
 const Settings: React.FC = () => {
   const { t } = useTranslation();
-  const [form] = Form.useForm<Settings>();
+  const [form] = Form.useForm();
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
+  const [settingsData, setSettingsData] = useState<Settings | null>(null);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const username = useUserStore((state) => state.username);
-  const location = useLocation();
 
   const isMountedRef = useRef(false);
 
@@ -57,216 +58,555 @@ const Settings: React.FC = () => {
     return () => { isMountedRef.current = false; };
   }, []);
 
-  // 加载设置
+  // Listen for username changes
+  useEffect(() => {
+    console.log('👤 Username changed:', username);
+    if (username) {
+      console.log('✅ Username available, will trigger loadSettings');
+      // Reset settings loading state
+      setSettingsLoaded(false);
+    } else {
+      console.log('❌ No username available');
+      setSettingsLoaded(false);
+      form.resetFields();
+    }
+  }, [username, form]);
+
+  // Load settings
   const loadSettings = useCallback(async () => {
-    if (!username) return;
+    console.log('🔄 loadSettings called, username:', username);
+    if (!username) {
+      console.log('❌ No username, skipping loadSettings');
+      return;
+    }
     try {
       setLoading(true);
-      const response = await get_ipc_api().getSettings<{ settings: Settings }>(username);
-      console.log(response.data);
+      console.log('📡 Step 1: Calling getSettings API first (before LLM providers)');
+      console.log('📡 Calling getSettings API with username:', username);
+      const response = await get_ipc_api().getSettings<{ settings: any }>(username);
+      console.log('Settings response:', response);
+      console.log('Settings data:', response?.data);
       if (response && response.success && response.data) {
         const settings = response.data.settings;
+        console.log('Settings object:', settings);
+
         if (isMountedRef.current) {
-          form.setFieldsValue({
-            ...settings
-          });
+          // Save complete settings data
+          setSettingsData(settings);
+
+          // Set form data
+          const formData = { ...settings };
+
+          form.setFieldsValue(formData);
+          console.log('✅ Form values set successfully');
+          console.log('✅ Settings data saved, default_llm:', settings.default_llm);
+
+          // Mark settings as loaded
+          setSettingsLoaded(true);
+          console.log('✅ Settings loaded, LLM components can now load');
         }
       } else {
-        logger.warn('Settings response was not successful:', response);
-        if (isMountedRef.current) {
-          form.setFieldsValue({});
-        }
+        console.error('❌ Failed to load settings:', response);
+        message.error('Failed to load settings');
       }
     } catch (error) {
-      logger.error('Failed to load settings:', error instanceof Error ? error.message : 'Unknown error');
-      if (isMountedRef.current) {
-        form.setFieldsValue({});
-      }
+      console.error('❌ Error loading settings:', error);
       message.error('Failed to load settings');
     } finally {
       setLoading(false);
     }
-  }, [form, username]);
+  }, [username, form, message]);
 
-  // 初始化加载设置
-  useEffect(() => {
-    loadSettings();
-  }, [loadSettings]);
+  // Handle default LLM change from LLMManagement component
+  const handleDefaultLLMChange = useCallback((newDefaultLLM: string) => {
+    // Update local settings data
+    setSettingsData(prevSettings => {
+      if (prevSettings) {
+        return { ...prevSettings, default_llm: newDefaultLLM };
+      }
+      return prevSettings;
+    });
+  }, []);
 
-  // 处理刷新
-  const handleRefresh = useCallback(async () => {
-    await loadSettings();
-    message.success(t('pages.settings.refreshed'));
-  }, [loadSettings, message, t]);
+  // Generate a key for form to force re-render when default_llm changes
+  const formKey = `settings-form-${settingsData?.default_llm || 'none'}`;
 
+  // Save settings
   const handleSave = async (values: Settings) => {
+    if (!username) {
+      message.error('Please log in first');
+      return;
+    }
+
     try {
       setLoading(true);
-      const response = await get_ipc_api().saveSettings(values);
+      console.log('💾 Saving settings:', values);
+      
+      const response = await get_ipc_api().saveSettings({ username, ...values });
       if (response && response.success) {
-        message.success(t('pages.settings.saved'));
+        message.success('Settings saved successfully');
+        console.log('✅ Settings saved successfully');
       } else {
-        throw new Error(response?.error?.message || 'Failed to save settings');
+        console.error('❌ Failed to save settings:', response);
+        message.error('Failed to save settings');
       }
     } catch (error) {
-      logger.error('Failed to save settings:', error);
-      message.error(t('pages.settings.saveError'));
+      console.error('❌ Error saving settings:', error);
+      message.error('Failed to save settings');
     } finally {
       setLoading(false);
     }
   };
 
-  // 统一 label 国际化函数
-  const getLabel = (key: string) =>
-    t(`pages.settings.${key}`) ||
-    t(`settings.${key}`) ||
-    t(`settingsForm.${key}`) ||
-    key;
-
-  const cardTitle = (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-      <span>{t('pages.settings.title')}</span>
-      <Button
-        type="text"
-        icon={<ReloadOutlined style={{ color: 'white' }} />}
-        onClick={handleRefresh}
-        loading={loading}
-        title={t('pages.settings.refresh')}
-      />
-    </div>
-  );
-
-  const containerRef = useRef<HTMLDivElement>(null);
-  const saveScroll = () => {
-    const container = containerRef.current;
-    if (container) {
-      localStorage.setItem('settingsScrollTop', String(container.scrollTop));
-    }
-  };
-  const restoreScroll = () => {
-    const container = containerRef.current;
-    if (container) {
-      const saved = localStorage.getItem('settingsScrollTop');
-      if (saved) {
-        container.scrollTop = Number(saved);
-      }
-    }
+  // Reload settings
+  const handleReload = () => {
+    loadSettings();
   };
 
+  // Initial loading
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const handleScroll = () => {
-      localStorage.setItem('settingsScrollTop', String(container.scrollTop));
-    };
-    container.addEventListener('scroll', handleScroll);
-    // 页面加载时恢复滚动
-    const saved = localStorage.getItem('settingsScrollTop');
-    if (saved) {
-      container.scrollTop = Number(saved);
+    if (username) {
+      loadSettings();
     }
-    return () => {
-      container.removeEventListener('scroll', handleScroll);
-    };
-  }, []);
+  }, [username, loadSettings]);
 
   return (
-    <div
-      className="settings-container"
-      ref={containerRef}
-      style={{ height: '100%', maxHeight: 'calc(100vh - 64px)', overflowY: 'auto' }}
-    >
+    <div style={{ padding: '20px' }}>
       <Card
-        title={cardTitle}
-        className="settings-card"
-        loading={loading}
-        styles={{ body: { padding: 16 } }}
-        style={{ maxWidth: 1200, margin: '0 auto' }}
+        title={t('common.settings')}
+        extra={
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={handleReload}
+            loading={loading}
+          >
+            {t('common.reload')}
+          </Button>
+        }
       >
-        {/* 其余设置分组 */}
         <Form
-          key={location.pathname + '-main'}
+          key={formKey}
           form={form}
           layout="vertical"
           onFinish={handleSave}
-          initialValues={initialSettings}
-          preserve={false}
+          preserve={true}
+          initialValues={settingsData || initialSettings}
         >
-          {/* 基础设置（去除语言和主题） */}
-          <Card title={getLabel('basic')} style={{ marginBottom: 8 }} styles={{ body: { padding: 12 } }}>
-            <Row gutter={12}>
-              <Col span={12}><Form.Item label={getLabel('display_resolution')} name="display_resolution"><Input size="small" placeholder={getLabel('display_resolution')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('debug_mode')} name="debug_mode" valuePropName="checked"><Switch size="small" /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('default_wifi')} name="default_wifi"><Input size="small" placeholder={getLabel('default_wifi')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('default_webdriver_path')} name="default_webdriver_path"><Input size="small" placeholder={getLabel('default_webdriver_path')} /></Form.Item></Col>
+          {/* 基础模式设置 */}
+          <Card
+            title={t('pages.settings.basic_mode_settings')}
+            size="small"
+            style={{ marginBottom: '8px' }}
+            styles={{ body: { padding: '12px 16px 8px 16px' } }}
+          >
+            <Row gutter={[16, 4]}>
+              <Col span={12}>
+                <Form.Item
+                  name="debug_mode"
+                  label={t('pages.settings.debug_mode')}
+                  valuePropName="checked"
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Switch size="small" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="schedule_mode"
+                  label={t('pages.settings.schedule_mode')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Select size="small">
+                    <Select.Option value="auto">Auto</Select.Option>
+                    <Select.Option value="manual">Manual</Select.Option>
+                    <Select.Option value="test">Test</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Col>
             </Row>
           </Card>
-          {/* 网络与端口 */}
-          <Card title={getLabel('network')} style={{ marginBottom: 8 }} styles={{ body: { padding: 12 } }}>
-            <Row gutter={12}>
-              <Col span={12}><Form.Item label={getLabel('local_user_db_host')} name="local_user_db_host"><Input size="small" placeholder={getLabel('local_user_db_host')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('local_user_db_port')} name="local_user_db_port"><Input size="small" placeholder={getLabel('local_user_db_port')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('local_agent_db_host')} name="local_agent_db_host"><Input size="small" placeholder={getLabel('local_agent_db_host')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('local_agent_db_port')} name="local_agent_db_port"><Input size="small" placeholder={getLabel('local_agent_db_port')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('local_agent_ports')} name="local_agent_ports" getValueFromEvent={(vals: any[]) => (vals || []).map((v: any) => Number(v))}>
-                <Select
-                  mode="tags"
-                  style={{ width: '100%' }}
-                  tokenSeparators={[',']}
-                  placeholder={getLabel('local_agent_ports')}
-                  size="small"
+
+          {/* 硬件设置 */}
+          <Card
+            title={t('pages.settings.hardware_settings')}
+            size="small"
+            style={{ marginBottom: '8px' }}
+            styles={{ body: { padding: '12px 16px 8px 16px' } }}
+          >
+            <Row gutter={[16, 4]}>
+              <Col span={8}>
+                <Form.Item
+                  name="default_wifi"
+                  label={t('pages.settings.default_wifi')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input size="small" placeholder="Enter default WiFi" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item
+                  name="default_printer"
+                  label={t('pages.settings.default_printer')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input size="small" placeholder="Enter default printer" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item
+                  name="display_resolution"
+                  label={t('pages.settings.display_resolution')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Select size="small">
+                    <Select.Option value="D1920X1080">1920x1080</Select.Option>
+                    <Select.Option value="D2560X1440">2560x1440</Select.Option>
+                    <Select.Option value="D3840X2160">3840x2160</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+          </Card>
+
+          {/* 引擎和端口设置 */}
+          <Card
+            title={t('pages.settings.engine_port_settings')}
+            size="small"
+            style={{ marginBottom: '8px' }}
+            styles={{ body: { padding: '12px 16px 8px 16px' } }}
+          >
+            <Row gutter={[16, 4]}>
+              <Col span={8}>
+                <Form.Item
+                  name="img_engine"
+                  label={t('pages.settings.img_engine')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Select size="small">
+                    <Select.Option value="lan">LAN</Select.Option>
+                    <Select.Option value="wan">WAN</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item
+                  name="schedule_engine"
+                  label={t('pages.settings.schedule_engine')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Select size="small">
+                    <Select.Option value="lan">LAN</Select.Option>
+                    <Select.Option value="wan">WAN</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item
+                  name="local_server_port"
+                  label={t('pages.settings.local_server_port')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input size="small" placeholder="Enter local server port" />
+                </Form.Item>
+              </Col>
+            </Row>
+          </Card>
+
+          {/* 路径设置 */}
+          <Card
+            title={t('pages.settings.path_settings')}
+            size="small"
+            style={{ marginBottom: '8px' }}
+            styles={{ body: { padding: '12px 16px 8px 16px' } }}
+          >
+            <Row gutter={[16, 4]}>
+              <Col span={12}>
+                <Form.Item
+                  name="default_webdriver_path"
+                  label={t('pages.settings.default_webdriver_path')}
+                  style={{ marginBottom: '6px' }}
+                >
+                  <Input size="small" placeholder="Enter webdriver path" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="build_dom_tree_script_path"
+                  label={t('pages.settings.build_dom_tree_script_path')}
+                  style={{ marginBottom: '6px' }}
+                >
+                  <Input size="small" placeholder="Enter DOM tree script path" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="browser_use_file_system_path"
+                  label={t('pages.settings.browser_use_file_system_path')}
+                  style={{ marginBottom: '6px' }}
+                >
+                  <Input size="small" placeholder="Enter browser file system path" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="new_orders_dir"
+                  label={t('pages.settings.new_orders_dir')}
+                  style={{ marginBottom: '6px' }}
+                >
+                  <Input size="small" placeholder="Enter new orders directory" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="new_orders_path"
+                  label={t('pages.settings.new_orders_path')}
+                  style={{ marginBottom: '6px' }}
+                >
+                  <Input size="small" placeholder="Enter new orders path" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="new_bots_file_path"
+                  label={t('pages.settings.new_bots_file_path')}
+                  style={{ marginBottom: '6px' }}
+                >
+                  <Input size="small" placeholder="Enter new bots file path" />
+                </Form.Item>
+              </Col>
+            </Row>
+          </Card>
+
+          {/* 数据库设置 */}
+          <Card
+            title={t('pages.settings.database_settings')}
+            size="small"
+            style={{ marginBottom: '8px' }}
+            styles={{ body: { padding: '12px 16px 8px 16px' } }}
+          >
+            <Row gutter={[16, 4]}>
+              <Col span={12}>
+                <Form.Item
+                  name="local_user_db_host"
+                  label={t('pages.settings.local_user_db_host')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input size="small" placeholder="Enter user DB host" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="local_user_db_port"
+                  label={t('pages.settings.local_user_db_port')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input size="small" placeholder="Enter user DB port" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="local_agent_db_host"
+                  label={t('pages.settings.local_agent_db_host')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input size="small" placeholder="Enter agent DB host" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="local_agent_db_port"
+                  label={t('pages.settings.local_agent_db_port')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input size="small" placeholder="Enter agent DB port" />
+                </Form.Item>
+              </Col>
+            </Row>
+          </Card>
+
+          {/* API端点设置 */}
+          <Card
+            title={t('pages.settings.api_endpoint_settings')}
+            size="small"
+            style={{ marginBottom: '8px' }}
+            styles={{ body: { padding: '12px 16px 8px 16px' } }}
+          >
+            <Row gutter={[16, 4]}>
+              <Col span={12}>
+                <Form.Item
+                  name="lan_api_endpoint"
+                  label={t('pages.settings.lan_api_endpoint')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input size="small" placeholder="Enter LAN API endpoint" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="wan_api_endpoint"
+                  label={t('pages.settings.wan_api_endpoint')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input size="small" placeholder="Enter WAN API endpoint" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="ws_api_endpoint"
+                  label={t('pages.settings.ws_api_endpoint')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input size="small" placeholder="Enter WebSocket API endpoint" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="wan_api_key"
+                  label={t('pages.settings.wan_api_key')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input.Password size="small" placeholder="Enter WAN API key" />
+                </Form.Item>
+              </Col>
+            </Row>
+          </Card>
+
+          {/* 文件跟踪和其他设置 */}
+          <Card
+            title={t('pages.settings.file_tracking_other_settings')}
+            size="small"
+            style={{ marginBottom: '8px' }}
+            styles={{ body: { padding: '12px 16px 8px 16px' } }}
+          >
+            <Row gutter={[16, 4]}>
+              <Col span={12}>
+                <Form.Item
+                  name="last_bots_file"
+                  label={t('pages.settings.last_bots_file')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input size="small" placeholder="Enter last bots file" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="last_order_file"
+                  label={t('pages.settings.last_order_file')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input size="small" placeholder="Enter last order file" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="gui_flowgram_schema"
+                  label={t('pages.settings.gui_flowgram_schema')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input size="small" placeholder="Enter GUI flowgram schema" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="default_llm"
+                  label={t('pages.settings.default_llm')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input size="small" placeholder="Default LLM (managed by LLM Management below)" disabled />
+                </Form.Item>
+              </Col>
+            </Row>
+          </Card>
+
+          {/* Advanced Settings Section */}
+          <Row gutter={16}>
+            <Col span={24}>
+              <h3 style={{ marginTop: '20px', marginBottom: '16px', borderBottom: '1px solid #d9d9d9', paddingBottom: '8px' }}>
+                {t('pages.settings.advanced_settings')}
+              </h3>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="local_agent_ports"
+                label={t('pages.settings.local_agent_ports')}
+                tooltip="Comma-separated port numbers (e.g., 3600,3800)"
+              >
+                <Input
+                  placeholder="Enter ports (e.g., 3600,3800)"
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    const ports = value.split(',').map(p => parseInt(p.trim())).filter(p => !isNaN(p));
+                    form.setFieldValue('local_agent_ports', ports);
+                  }}
                 />
-              </Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('local_server_port')} name="local_server_port"><Input size="small" placeholder={getLabel('local_server_port')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('lan_api_endpoint')} name="lan_api_endpoint"><Input size="small" placeholder={getLabel('lan_api_endpoint')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('wan_api_endpoint')} name="wan_api_endpoint"><Input size="small" placeholder={getLabel('wan_api_endpoint')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('ws_api_endpoint')} name="ws_api_endpoint"><Input size="small" placeholder={getLabel('ws_api_endpoint')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('wan_api_key')} name="wan_api_key"><Input size="small" placeholder={getLabel('wan_api_key')} /></Form.Item></Col>
-            </Row>
-          </Card>
-          {/* 打印与文件 */}
-          <Card title={getLabel('print_file')} style={{ marginBottom: 8 }} styles={{ body: { padding: 12 } }}>
-            <Row gutter={12}>
-              <Col span={12}><Form.Item label={getLabel('default_printer')} name="default_printer"><Input size="small" placeholder={getLabel('default_printer')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('new_orders_dir')} name="new_orders_dir"><Input size="small" placeholder={getLabel('new_orders_dir')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('new_bots_file_path')} name="new_bots_file_path"><Input size="small" placeholder={getLabel('new_bots_file_path')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('last_bots_file')} name="last_bots_file"><Input size="small" placeholder={getLabel('last_bots_file')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('last_bots_file_time')} name="last_bots_file_time"><Input size="small" placeholder={getLabel('last_bots_file_time')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('last_order_file')} name="last_order_file"><Input size="small" placeholder={getLabel('last_order_file')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('last_order_file_time')} name="last_order_file_time"><Input size="small" placeholder={getLabel('last_order_file_time')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('new_orders_path')} name="new_orders_path"><Input size="small" placeholder={getLabel('new_orders_path')} /></Form.Item></Col>
-            </Row>
-          </Card>
-          {/* 调度与引擎 */}
-          <Card title={getLabel('engine')} style={{ marginBottom: 8 }} styles={{ body: { padding: 12 } }}>
-            <Row gutter={12}>
-              <Col span={12}><Form.Item label={getLabel('img_engine')} name="img_engine"><Input size="small" placeholder={getLabel('img_engine')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('schedule_engine')} name="schedule_engine"><Input size="small" placeholder={getLabel('schedule_engine')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('schedule_mode')} name="schedule_mode"><Input size="small" placeholder={getLabel('schedule_mode')} /></Form.Item></Col>
-            </Row>
-          </Card>
-          {/* 高级设置 */}
-          <Card title={getLabel('advanced')} style={{ marginBottom: 8 }} styles={{ body: { padding: 12 } }}>
-            <Row gutter={12}>
-              <Col span={12}><Form.Item label={getLabel('browser_use_file_system_path')} name="browser_use_file_system_path"><Input size="small" placeholder={getLabel('browser_use_file_system_path')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('gui_flowgram_schema')} name="gui_flowgram_schema"><Input size="small" placeholder={getLabel('gui_flowgram_schema')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('build_dom_tree_script_path')} name="build_dom_tree_script_path"><Input size="small" placeholder={getLabel('build_dom_tree_script_path')} /></Form.Item></Col>
-              <Col span={24}><Form.Item label={getLabel('mids_forced_to_run')} name="mids_forced_to_run">
-                <Select
-                  mode="tags"
-                  style={{ width: '100%' }}
-                  tokenSeparators={[',']}
-                  placeholder={getLabel('mids_forced_to_run')}
-                  size="small"
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="last_bots_file_time"
+                label={t('pages.settings.last_bots_file_time')}
+              >
+                <Input type="number" placeholder="Last bots file timestamp" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="last_order_file_time"
+                label={t('pages.settings.last_order_file_time')}
+              >
+                <Input type="number" placeholder="Last order file timestamp" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="mids_forced_to_run"
+                label={t('pages.settings.mids_forced_to_run')}
+                tooltip="JSON array format (e.g., [1,2,3])"
+              >
+                <Input.TextArea
+                  placeholder='Enter JSON array (e.g., [1,2,3])'
+                  rows={2}
+                  onChange={(e) => {
+                    try {
+                      const value = e.target.value.trim();
+                      if (value) {
+                        const parsed = JSON.parse(value);
+                        if (Array.isArray(parsed)) {
+                          form.setFieldValue('mids_forced_to_run', parsed);
+                        }
+                      } else {
+                        form.setFieldValue('mids_forced_to_run', []);
+                      }
+                    } catch (error) {
+                      // Invalid JSON, keep current value
+                    }
+                  }}
                 />
-              </Form.Item></Col>
-            </Row>
-          </Card>
+              </Form.Item>
+            </Col>
+          </Row>
+
           <Form.Item>
-            <Button type="primary" htmlType="submit" loading={loading} size="small">{t('common.save')}</Button>
+            <Button type="primary" htmlType="submit" loading={loading}>
+              {t('common.save')}
+            </Button>
           </Form.Item>
         </Form>
       </Card>
+
+      {/* 🎯 New independent LLM management component */}
+      <LLMManagement
+        username={username}
+        defaultLLM={settingsData?.default_llm || ''}
+        settingsLoaded={settingsLoaded}
+        onDefaultLLMChange={handleDefaultLLMChange}
+      />
     </div>
   );
 };

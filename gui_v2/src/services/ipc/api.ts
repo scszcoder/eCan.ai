@@ -170,6 +170,37 @@ export class IPCAPI {
         return this.executeRequest<T>('get_settings', {username});
     }
 
+    // LLM Management APIs
+    public async getLLMProviders<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_llm_providers', {});
+    }
+
+    public async setDefaultLLM<T>(name: string, username: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('set_default_llm', { name, username });
+    }
+
+    public async updateLLMProvider<T>(name: string, apiKey: string, azureEndpoint?: string, awsAccessKeyId?: string, awsSecretAccessKey?: string): Promise<APIResponse<T>> {
+        const params: any = { name, api_key: apiKey };
+        if (azureEndpoint) {
+            params.azure_endpoint = azureEndpoint;
+        }
+        if (awsAccessKeyId) {
+            params.aws_access_key_id = awsAccessKeyId;
+        }
+        if (awsSecretAccessKey) {
+            params.aws_secret_access_key = awsSecretAccessKey;
+        }
+        return this.executeRequest<T>('update_llm_provider', params);
+    }
+
+    public async deleteLLMProviderConfig<T>(name: string, username: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('delete_llm_provider_config', { name, username });
+    }
+
+    public async getLLMProviderApiKey<T>(name: string, showFull: boolean = false): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_llm_provider_api_key', { name, show_full: showFull });
+    }
+
     public async runTest<T>(username: string, tests: TestConfig[]): Promise<APIResponse<T>> {
         return this.executeRequest<T>('run_tests', { tests });
     }
