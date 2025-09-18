@@ -1,0 +1,42 @@
+{
+  "validation_rules": {
+    "OPENAI_API_KEY": {
+      "prefix": "sk-",
+      "min_length": 20,
+      "description": "OpenAI API key should start with 'sk-'"
+    },
+    "ANTHROPIC_API_KEY": {
+      "prefix": "sk-ant-",
+      "min_length": 20,
+      "description": "Anthropic API key should start with 'sk-ant-'"
+    },
+    "DEEPSEEK_API_KEY": {
+      "prefix": "sk-",
+      "min_length": 20,
+      "description": "DeepSeek API key should start with 'sk-'"
+    },
+    "GEMINI_API_KEY": {
+      "min_length": 20,
+      "description": "Gemini API key"
+    },
+    "DASHSCOPE_API_KEY": {
+      "min_length": 20,
+      "description": "DashScope API key"
+    },
+    "AZURE_OPENAI_API_KEY": {
+      "min_length": 20,
+      "description": "Azure OpenAI API key"
+    }
+  },
+  "patterns": {
+    "api_key_suffixes": ["_API_KEY", "_KEY", "_TOKEN", "_SECRET", "_PASSWORD"],
+    "special_variables": ["AZURE_ENDPOINT", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+    "orphaned_patterns": ["VSCODE_DEBUGPY_ADAPTER_ENDPOINTS"]
+  },
+  "masking": {
+    "show_prefix_chars": 8,
+    "show_suffix_chars": 4,
+    "min_length_for_masking": 12,
+    "fallback_prefix_chars": 4
+  }
+}

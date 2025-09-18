@@ -9,8 +9,10 @@ import sys
 import platform
 import os
 import time
+import json
 from typing import List, Dict, Any, Optional
 from utils.logger_helper import logger_helper as logger
+from gui.utils.hardware_detector import get_hardware_detector
 
 # Note: Hardware detection related imports have been moved to shared hardware detector
 # Platform-specific imports are now handled by gui.utils.hardware_detector
@@ -42,7 +44,6 @@ def win_list_printers(server: str | None = None, level: int = 2):
     """
     try:
         # Use shared hardware detector
-        from gui.utils.hardware_detector import get_hardware_detector
         detector = get_hardware_detector()
         return detector.detect_printers()
     except Exception as e:
@@ -57,7 +58,6 @@ def mac_list_printers():
     """
     try:
         # Use shared hardware detector
-        from gui.utils.hardware_detector import get_hardware_detector
         detector = get_hardware_detector()
         return detector.detect_printers()
     except Exception as e:
@@ -71,7 +71,6 @@ def _run_wifi_command(command_type: str) -> Optional[str]:
     """
     try:
         # Use shared hardware detector
-        from gui.utils.hardware_detector import get_hardware_detector
         detector = get_hardware_detector()
         return detector._run_wifi_command(command_type)
     except Exception as e:
@@ -85,7 +84,6 @@ def get_default_wifi_ssid() -> Optional[str]:
     """
     try:
         # Use shared hardware detector
-        from gui.utils.hardware_detector import get_hardware_detector
         detector = get_hardware_detector()
         return detector.get_current_wifi()
     except Exception as e:
@@ -122,12 +120,31 @@ class SettingsManager:
         try:
             self.list_wifi_networks()
             self.list_printers()
-            # Set current WiFi in general_settings if not already set
-            current_wifi = get_default_wifi_ssid()
-            if current_wifi and hasattr(self.parent, 'config_manager'):
-                if not self.parent.config_manager.general_settings.default_wifi:
-                    self.parent.config_manager.general_settings.default_wifi = current_wifi
-                    self.parent.config_manager.general_settings.save()
+
+            # Auto-configure hardware settings in general_settings if not already set
+            if hasattr(self.parent, 'config_manager'):
+                general_settings = self.parent.config_manager.general_settings
+                settings_changed = False
+
+                # Set current WiFi if not already set
+                current_wifi = get_default_wifi_ssid()
+                if current_wifi and not general_settings.default_wifi:
+                    general_settings.default_wifi = current_wifi
+                    settings_changed = True
+                    logger.info(f"Auto-set default WiFi to: {current_wifi}")
+
+                # Set default printer if not already set
+                printer_names = self.get_printer_names()
+                if printer_names and not general_settings.default_printer:
+                    general_settings.default_printer = printer_names[0]
+                    settings_changed = True
+                    logger.info(f"Auto-set default printer to: {printer_names[0]}")
+
+                # Save settings if any changes were made
+                if settings_changed:
+                    general_settings.save()
+                    logger.info("Hardware settings auto-configured and saved")
+
         except Exception as e:
             logger.error(f"Error initializing SettingsManager: {e}")
 
@@ -334,7 +351,6 @@ class SettingsManager:
         """
         try:
             # Use shared hardware detector
-            from gui.utils.hardware_detector import get_hardware_detector
             detector = get_hardware_detector()
             self.printers = detector.detect_printers()
 
@@ -371,7 +387,6 @@ class SettingsManager:
         """
         try:
             # Use shared hardware detector
-            from gui.utils.hardware_detector import get_hardware_detector
             detector = get_hardware_detector()
             self.wifi_list = detector.detect_wifi_networks()
 
@@ -430,7 +445,6 @@ class SettingsManager:
             True if exported successfully, False otherwise
         """
         try:
-            import json
             export_data = {
                 'export_timestamp': time.time(),
                 'settings': self.get_all_settings(),
@@ -458,7 +472,6 @@ class SettingsManager:
             True if imported successfully, False otherwise
         """
         try:
-            import json
             with open(filepath, 'r', encoding='utf-8') as f:
                 import_data = json.load(f)
 

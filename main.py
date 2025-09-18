@@ -162,6 +162,18 @@ try:
     # Runtime environment is already initialized above
     progress_manager.update_progress(20, "Setting up environment...")
 
+    # Load shell environment variables early (for non-terminal launches)
+    progress_manager.update_progress(22, "Loading environment variables...")
+    try:
+        from utils.env import load_shell_environment
+        loaded_count = load_shell_environment()
+        if loaded_count > 0:
+            print(f"Loaded {loaded_count} environment variables from shell configuration")
+        else:
+            print("No additional environment variables loaded")
+    except Exception as e:
+        print(f"Warning: Failed to load shell environment variables: {e}")
+
     # Import other necessary modules
     progress_manager.update_progress(30, "Loading Login components...")
     from gui.LoginoutGUI import Login

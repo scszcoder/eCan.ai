@@ -38,26 +38,7 @@ class LLMManager:
             config_manager: Configuration manager instance
         """
         self.config_manager = config_manager
-        self.settings_file = os.path.join(config_manager.user_data_path, 'llm_settings.json')
-        self._user_settings = self._load_user_settings()
     
-    def _load_user_settings(self) -> dict:
-        """Load user LLM settings"""
-        default_settings = {
-            "preferred_providers": {},  # provider_name -> bool
-            "model_preferences": {},    # provider_name -> model_name
-            "custom_parameters": {},    # provider_name -> {param: value}
-            "api_key_configured": {},   # provider_name -> bool (for UI display)
-            "last_updated": None
-        }
-        
-        return self.config_manager.load_json(self.settings_file, default_settings)
-    
-    def save_user_settings(self) -> bool:
-        """Save user LLM settings"""
-        import datetime
-        self._user_settings["last_updated"] = datetime.datetime.now().isoformat()
-        return self.config_manager.save_json(self.settings_file, self._user_settings)
 
     # API Key Management Methods - Using Environment Variables
 
@@ -81,10 +62,13 @@ class LLMManager:
             if not api_key or not api_key.strip():
                 return False, "API key cannot be empty"
 
-            # Store as environment variable
+            # Store as environment variable (for current session)
             os.environ[env_var] = api_key.strip()
 
-            logger.info(f"API key stored successfully for {env_var}")
+            # Persist to system environment variables for future sessions
+            self._persist_to_system_env(env_var, api_key.strip())
+
+            logger.info(f"API key stored successfully for {env_var} (current session and system env)")
             return True, None
 
         except Exception as e:
@@ -119,11 +103,12 @@ class LLMManager:
         Returns:
             True if API key exists, False otherwise
         """
-        return self.retrieve_api_key(env_var) is not None
+        value = os.environ.get(env_var)
+        return bool(value and value.strip())
 
     def delete_api_key(self, env_var: str) -> bool:
         """
-        Delete an API key from environment variable
+        Delete an API key from environment variable and system configuration
 
         Args:
             env_var: Environment variable name
@@ -132,18 +117,65 @@ class LLMManager:
             True if deleted successfully, False otherwise
         """
         try:
-            if env_var in os.environ:
-                del os.environ[env_var]
-                logger.info(f"API key deleted for {env_var}")
-            return True
+            logger.info(f"🗑️  Starting deletion process for {env_var}")
+            
+            # Check if variable exists before deletion
+            current_value = os.environ.get(env_var)
+            if current_value:
+                masked_value = self._get_masked_api_key_value(env_var, current_value)
+                logger.info(f"🔍 Found {env_var} in current session: {masked_value}")
+            else:
+                logger.info(f"❌ {env_var} not found in current session")
+            
+            # Delete from current session
+            session_deleted = self._delete_from_current_session(env_var)
+            
+            # Delete from system environment configuration
+            system_deleted = self._delete_from_system_env(env_var)
+            
+            # Verify deletion and cleanup
+            self._verify_and_cleanup_deletion(env_var, session_deleted, system_deleted)
+            
+            return True  # Always return True to avoid blocking UI
 
         except Exception as e:
-            logger.error(f"Failed to delete API key for {env_var}: {e}")
+            logger.error(f"❌ Failed to delete API key for {env_var}: {e}")
+            logger.debug(f"Deletion error details", exc_info=True)
             return False
+    
+    def _delete_from_current_session(self, env_var: str) -> bool:
+        """Delete API key from current session"""
+        if env_var in os.environ:
+            del os.environ[env_var]
+            logger.info(f"🗑️  API key deleted from current session: {env_var}")
+            return True
+        return False
+    
+    def _verify_and_cleanup_deletion(self, env_var: str, session_deleted: bool, system_deleted: bool) -> None:
+        """Verify deletion and perform cleanup"""
+        # Verify deletion
+        after_value = os.environ.get(env_var)
+        if after_value:
+            masked_value = self._get_masked_api_key_value(env_var, after_value)
+            logger.warning(f"⚠️  {env_var} still exists in environment after deletion: {masked_value}")
+        else:
+            logger.info(f"✅ {env_var} successfully removed from environment")
+        
+        # Log completion status
+        if session_deleted or system_deleted:
+            logger.info(f"🎯 API key deletion completed for {env_var} (session: {session_deleted}, system: {system_deleted})")
+        else:
+            logger.warning(f"⚠️  No deletion performed for {env_var} (not found in session or system)")
+    
+    def _get_masked_api_key_value(self, env_var: str, value: str) -> str:
+        """Get masked value for logging using centralized validator"""
+        from gui.utils.api_key_validator import get_api_key_validator
+        validator = get_api_key_validator()
+        return validator.mask_api_key(value)
 
     def validate_api_key_format(self, env_var: str, api_key: str) -> Tuple[bool, Optional[str]]:
         """
-        Validate API key format for specific providers
+        Validate API key format using centralized validator
 
         Args:
             env_var: Environment variable name
@@ -152,86 +184,10 @@ class LLMManager:
         Returns:
             Tuple of (is_valid, error_message)
         """
-        if not api_key or not api_key.strip():
-            return False, "API key cannot be empty"
+        from gui.utils.api_key_validator import get_api_key_validator
+        validator = get_api_key_validator()
+        return validator.validate_api_key(env_var, api_key)
 
-        api_key = api_key.strip()
-
-        # Basic validation based on environment variable patterns
-        if env_var == "OPENAI_API_KEY":
-            if not api_key.startswith("sk-"):
-                return False, "OpenAI API key should start with 'sk-'"
-            if len(api_key) < 20:
-                return False, "OpenAI API key is too short"
-
-        elif env_var == "ANTHROPIC_API_KEY":
-            if not api_key.startswith("sk-ant-"):
-                return False, "Anthropic API key should start with 'sk-ant-'"
-            if len(api_key) < 20:
-                return False, "Anthropic API key is too short"
-
-        elif env_var == "GEMINI_API_KEY":
-            if len(api_key) < 20:
-                return False, "Gemini API key is too short"
-
-        elif env_var == "DEEPSEEK_API_KEY":
-            if not api_key.startswith("sk-"):
-                return False, "DeepSeek API key should start with 'sk-'"
-            if len(api_key) < 20:
-                return False, "DeepSeek API key is too short"
-
-        elif env_var == "DASHSCOPE_API_KEY":
-            if len(api_key) < 20:
-                return False, "DashScope API key is too short"
-
-        elif env_var in ["AZURE_OPENAI_API_KEY"]:
-            if len(api_key) < 20:
-                return False, "Azure OpenAI API key is too short"
-
-        elif env_var == "AZURE_ENDPOINT":
-            if not api_key.startswith("https://"):
-                return False, "Azure endpoint should start with 'https://'"
-            if ".openai.azure.com" not in api_key:
-                return False, "Azure endpoint should contain '.openai.azure.com'"
-
-        elif env_var == "AWS_ACCESS_KEY_ID":
-            if len(api_key) < 16:
-                return False, "AWS Access Key ID is too short"
-            if not api_key.startswith("AKIA"):
-                return False, "AWS Access Key ID should start with 'AKIA'"
-
-        elif env_var == "AWS_SECRET_ACCESS_KEY":
-            if len(api_key) < 40:
-                return False, "AWS Secret Access Key is too short"
-
-        return True, None
-
-    def export_api_keys_masked(self) -> Dict[str, Optional[str]]:
-        """
-        Export all API keys with masking for display
-
-        Returns:
-            Dictionary of env_var -> masked_value
-        """
-        masked_keys = {}
-
-        # Get all required environment variables from LLM config
-        all_env_vars = set()
-        for provider in llm_config.get_all_providers().values():
-            all_env_vars.update(provider.api_key_env_vars)
-
-        for env_var in all_env_vars:
-            api_key = self.retrieve_api_key(env_var)
-            if api_key:
-                # Mask the API key (show first 4 and last 4 characters)
-                if len(api_key) > 8:
-                    masked_keys[env_var] = f"{api_key[:4]}{'*' * (len(api_key) - 8)}{api_key[-4:]}"
-                else:
-                    masked_keys[env_var] = "*" * len(api_key)
-            else:
-                masked_keys[env_var] = None
-
-        return masked_keys
 
     def get_api_key_info(self) -> List[APIKeyInfo]:
         """
@@ -305,10 +261,10 @@ class LLMManager:
         providers = []
         
         for provider_name, provider_config in llm_config.get_all_providers().items():
-            # Get user preferences
-            is_preferred = self._user_settings.get("preferred_providers", {}).get(provider_name, False)
-            preferred_model = self._user_settings.get("model_preferences", {}).get(provider_name)
-            custom_params = self._user_settings.get("custom_parameters", {}).get(provider_name, {})
+            # No user preferences (simplified)
+            is_preferred = False
+            preferred_model = None
+            custom_params = {}
 
             # Check if API keys are configured using environment variables
             api_key_configured = self._check_provider_api_keys_configured(provider_config)
@@ -353,49 +309,10 @@ class LLMManager:
                 return provider
         return None
     
-    def set_provider_preference(self, provider_name: str, is_preferred: bool) -> bool:
-        """Set provider preference"""
-        try:
-            if "preferred_providers" not in self._user_settings:
-                self._user_settings["preferred_providers"] = {}
-            
-            self._user_settings["preferred_providers"][provider_name] = is_preferred
-            return self.save_user_settings()
-        except Exception as e:
-            logger.error(f"Error setting provider preference: {e}")
-            return False
-    
-    def set_model_preference(self, provider_name: str, model_name: str) -> bool:
-        """Set preferred model for a provider"""
-        try:
-            if "model_preferences" not in self._user_settings:
-                self._user_settings["model_preferences"] = {}
-            
-            self._user_settings["model_preferences"][provider_name] = model_name
-            return self.save_user_settings()
-        except Exception as e:
-            logger.error(f"Error setting model preference: {e}")
-            return False
-    
-    def set_custom_parameters(self, provider_name: str, parameters: Dict[str, Any]) -> bool:
-        """Set custom parameters for a provider"""
-        try:
-            if "custom_parameters" not in self._user_settings:
-                self._user_settings["custom_parameters"] = {}
-            
-            self._user_settings["custom_parameters"][provider_name] = parameters
-            return self.save_user_settings()
-        except Exception as e:
-            logger.error(f"Error setting custom parameters: {e}")
-            return False
     
     def get_preferred_providers(self) -> List[str]:
         """Get list of preferred provider names"""
-        preferred = []
-        for provider_name, is_preferred in self._user_settings.get("preferred_providers", {}).items():
-            if is_preferred:
-                preferred.append(provider_name)
-        return preferred
+        return []  # No preferences stored
     
     def get_provider_summary(self) -> Dict[str, Any]:
         """Get summary of provider status"""
@@ -407,8 +324,7 @@ class LLMManager:
         
         summary.update({
             "preferred_providers": preferred_count,
-            "providers_with_api_keys": configured_with_keys,
-            "user_settings_file": self.settings_file
+            "providers_with_api_keys": configured_with_keys
         })
         
         return summary
@@ -421,7 +337,7 @@ class LLMManager:
             return []
         
         models = []
-        preferred_model = self._user_settings.get("model_preferences", {}).get(provider_name)
+        preferred_model = None  # No preferences stored
         
         for model in provider_config.supported_models:
             model_data = asdict(model)
@@ -497,20 +413,159 @@ class LLMManager:
             "api_keys": self.get_api_key_info_for_ui()
         }
 
-    def bulk_store_api_keys(self, api_keys: Dict[str, str]) -> Dict[str, Tuple[bool, Optional[str]]]:
-        """
-        Store multiple API keys at once
 
-        Args:
-            api_keys: Dict mapping env_var to api_key
+    def _persist_to_system_env(self, env_var: str, api_key: str):
+        """Persist API key to system environment variables"""
+        try:
+            import platform
+            import subprocess
+            
+            system = platform.system()
+            masked_key = api_key[:8] + "..." + api_key[-8:] if len(api_key) > 16 else api_key[:4] + "..."
+            
+            if system == "Darwin":  # macOS
+                self._persist_macos_env(env_var, api_key)
+                logger.info(f"API key persisted to macOS environment: {env_var}={masked_key}")
+                
+            elif system == "Windows":
+                self._persist_windows_env(env_var, api_key)
+                logger.info(f"API key persisted to Windows environment: {env_var}={masked_key}")
+                
+            else:  # Linux
+                self._persist_linux_env(env_var, api_key)
+                logger.info(f"API key persisted to Linux environment: {env_var}={masked_key}")
+                
+        except Exception as e:
+            logger.error(f"Failed to persist to system environment: {e}")
+            # Fallback: provide manual instructions
+            self._provide_manual_instructions(env_var, api_key)
+    
+    def _persist_macos_env(self, env_var: str, api_key: str):
+        """Persist environment variable on macOS"""
+        import os
+        import subprocess
+        
+        # Try to determine the user's shell
+        shell = os.environ.get('SHELL', '/bin/zsh')
+        
+        if 'zsh' in shell:
+            config_file = os.path.expanduser('~/.zshrc')
+        else:
+            config_file = os.path.expanduser('~/.bash_profile')
+        
+        # Read existing content
+        existing_content = ""
+        if os.path.exists(config_file):
+            with open(config_file, 'r', encoding='utf-8') as f:
+                existing_content = f.read()
+        
+        # Check if the environment variable already exists
+        export_line = f'export {env_var}='
+        lines = existing_content.split('\n')
+        updated = False
+        
+        # Update existing line or add new one
+        for i, line in enumerate(lines):
+            if line.strip().startswith(export_line):
+                lines[i] = f'export {env_var}="{api_key}"'
+                updated = True
+                break
+        
+        if not updated:
+            lines.append(f'export {env_var}="{api_key}"')
+        
+        # Write back to file
+        with open(config_file, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines))
+        
+        logger.info(f"Environment variable added to {config_file}")
 
-        Returns:
-            Dict mapping env_var to (success, error_message)
-        """
-        results = {}
-        for env_var, api_key in api_keys.items():
-            results[env_var] = self.store_api_key(env_var, api_key)
-        return results
+    def _persist_windows_env(self, env_var: str, api_key: str):
+        """Persist environment variable on Windows"""
+        import subprocess
+        
+        try:
+            # Use setx command to set user environment variable
+            subprocess.run(['setx', env_var, api_key], check=True, capture_output=True)
+            logger.info(f"Environment variable set using setx command")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to set environment variable using setx: {e}")
+            raise
+
+    def _persist_linux_env(self, env_var: str, api_key: str):
+        """Persist environment variable on Linux"""
+        import os
+        
+        # Try ~/.bashrc first, then ~/.profile
+        config_files = [
+            os.path.expanduser('~/.bashrc'),
+            os.path.expanduser('~/.profile')
+        ]
+        
+        for config_file in config_files:
+            try:
+                # Read existing content
+                existing_content = ""
+                if os.path.exists(config_file):
+                    with open(config_file, 'r', encoding='utf-8') as f:
+                        existing_content = f.read()
+                
+                # Check if the environment variable already exists
+                export_line = f'export {env_var}='
+                lines = existing_content.split('\n')
+                updated = False
+                
+                # Update existing line or add new one
+                for i, line in enumerate(lines):
+                    if line.strip().startswith(export_line):
+                        lines[i] = f'export {env_var}="{api_key}"'
+                        updated = True
+                        break
+                
+                if not updated:
+                    lines.append(f'export {env_var}="{api_key}"')
+                
+                # Write back to file
+                with open(config_file, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(lines))
+                
+                logger.info(f"Environment variable added to {config_file}")
+                break  # Success, no need to try other files
+                
+            except Exception as e:
+                logger.debug(f"Failed to update {config_file}: {e}")
+                continue
+
+    def _provide_manual_instructions(self, env_var: str, api_key: str):
+        """Provide manual instructions as fallback"""
+        import platform
+        system = platform.system()
+        masked_key = api_key[:8] + "..." + api_key[-8:] if len(api_key) > 16 else api_key[:4] + "..."
+        
+        logger.warning(f"""
+=== Manual Setup Required ===
+Automatic persistence failed. Please set manually:
+{env_var}={masked_key}
+
+For {system}, please refer to system documentation for setting environment variables.
+===============================
+""")
+    
+    
+    def update_default_llm(self, provider_name: str) -> bool:
+        """Update default LLM setting in configuration"""
+        try:
+            # Update the general settings
+            self.config_manager.general_settings.default_llm = provider_name
+            self.config_manager.general_settings.save()
+            
+            logger.info(f"Updated default_llm setting to: {provider_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating default_llm setting: {e}")
+            return False
+    
 
     def _get_env_var_display_name(self, env_var: str) -> str:
         """Get user-friendly display name for environment variable"""
@@ -538,5 +593,169 @@ class LLMManager:
             return api_key[:8] + "*" * (len(api_key) - 12) + api_key[-4:]
         else:
             return api_key[:2] + "*" * (len(api_key) - 2)
+
+    def _delete_from_system_env(self, env_var: str) -> bool:
+        """Delete environment variable from system configuration files
+        
+        Returns:
+            bool: True if deletion was attempted, False if failed
+        """
+        try:
+            import platform
+            import subprocess
+            import os
+            
+            system = platform.system()
+            deleted = False
+            
+            if system == "Darwin":  # macOS
+                deleted = self._delete_macos_env(env_var)
+                if deleted:
+                    logger.info(f"Environment variable deleted from macOS config: {env_var}")
+                else:
+                    logger.info(f"Environment variable not found in macOS config: {env_var}")
+                
+            elif system == "Windows":
+                deleted = self._delete_windows_env(env_var)
+                if deleted:
+                    logger.info(f"Environment variable deleted from Windows config: {env_var}")
+                else:
+                    logger.info(f"Environment variable not found in Windows config: {env_var}")
+                
+            else:  # Linux
+                deleted = self._delete_linux_env(env_var)
+                if deleted:
+                    logger.info(f"Environment variable deleted from Linux config: {env_var}")
+                else:
+                    logger.info(f"Environment variable not found in Linux config: {env_var}")
+            
+            # Force cleanup deleted API keys using unified env_utils method
+            # This ensures we clean up any inherited or cached environment variables
+            from utils.env import cleanup_deleted_api_keys
+            cleaned_count = cleanup_deleted_api_keys(env_var)  # Pass the specific key being deleted
+            logger.info(f"Environment cleanup completed, removed {cleaned_count} variables")
+            
+            return deleted
+                
+        except Exception as e:
+            logger.error(f"Failed to delete from system environment: {e}")
+            return False
+
+
+    def _delete_macos_env(self, env_var: str) -> bool:
+        """Delete environment variable from macOS shell configuration
+        
+        Returns:
+            bool: True if variable was found and removed, False otherwise
+        """
+        import os
+        
+        # Try to determine the user's shell
+        shell = os.environ.get('SHELL', '/bin/zsh')
+        
+        if 'zsh' in shell:
+            config_file = os.path.expanduser('~/.zshrc')
+        else:
+            config_file = os.path.expanduser('~/.bash_profile')
+        
+        if not os.path.exists(config_file):
+            logger.debug(f"Config file {config_file} does not exist")
+            return False
+        
+        # Read existing content
+        with open(config_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        # Filter out lines containing the environment variable
+        export_pattern = f'export {env_var}='
+        filtered_lines = []
+        removed_count = 0
+        
+        for line in lines:
+            if line.strip().startswith(export_pattern):
+                removed_count += 1
+                logger.debug(f"Removing line from {config_file}: {line.strip()}")
+            else:
+                filtered_lines.append(line)
+        
+        if removed_count > 0:
+            # Write back to file
+            with open(config_file, 'w', encoding='utf-8') as f:
+                f.writelines(filtered_lines)
+            logger.info(f"Removed {removed_count} lines for {env_var} from {config_file}")
+            return True
+        else:
+            logger.debug(f"No lines found for {env_var} in {config_file}")
+            return False
+
+    def _delete_windows_env(self, env_var: str) -> bool:
+        """Delete environment variable from Windows registry
+        
+        Returns:
+            bool: True if variable was found and removed, False otherwise
+        """
+        import subprocess
+        
+        try:
+            # Use reg command to delete user environment variable
+            result = subprocess.run(['reg', 'delete', 'HKEY_CURRENT_USER\\Environment', '/v', env_var, '/f'], 
+                         check=True, capture_output=True, text=True)
+            logger.info(f"Environment variable deleted from Windows registry: {env_var}")
+            return True
+        except subprocess.CalledProcessError as e:
+            logger.debug(f"Failed to delete from Windows registry (may not exist): {env_var}")
+            return False
+
+    def _delete_linux_env(self, env_var: str) -> bool:
+        """Delete environment variable from Linux shell configuration
+        
+        Returns:
+            bool: True if variable was found and removed from any file, False otherwise
+        """
+        import os
+        
+        # Try multiple shell configurations
+        config_files = [
+            os.path.expanduser('~/.bashrc'),
+            os.path.expanduser('~/.profile'),
+            os.path.expanduser('~/.bash_profile'),
+            os.path.expanduser('~/.zshrc')
+        ]
+        
+        export_pattern = f'export {env_var}='
+        total_removed = 0
+        
+        for config_file in config_files:
+            if not os.path.exists(config_file):
+                continue
+                
+            try:
+                # Read existing content
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                
+                # Filter out lines containing the environment variable
+                filtered_lines = []
+                removed_count = 0
+                
+                for line in lines:
+                    if line.strip().startswith(export_pattern):
+                        removed_count += 1
+                        logger.debug(f"Removing line from {config_file}: {line.strip()}")
+                    else:
+                        filtered_lines.append(line)
+                
+                if removed_count > 0:
+                    # Write back to file
+                    with open(config_file, 'w', encoding='utf-8') as f:
+                        f.writelines(filtered_lines)
+                    logger.info(f"Removed {removed_count} lines for {env_var} from {config_file}")
+                    total_removed += removed_count
+                    
+            except Exception as e:
+                logger.debug(f"Failed to process {config_file}: {e}")
+                continue
+        
+        return total_removed > 0
 
 

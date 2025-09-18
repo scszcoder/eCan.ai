@@ -514,6 +514,7 @@ class MainWindow:
             self.config_manager.general_settings.save()
         
         self.llm = pick_llm(self.config_manager.general_settings.default_llm, self.config_manager.llm_manager.get_all_providers())
+        logger.info("LLM selected: ", self.llm)
         self.agents = []
         self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         self.mcp_client = None

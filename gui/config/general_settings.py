@@ -8,6 +8,7 @@ Integrates hardware detection functionality, replacing duplicate code from ui_se
 import os
 from typing import List, Optional, Any, TYPE_CHECKING
 from utils.logger_helper import logger_helper as logger
+from gui.utils.hardware_detector import get_hardware_detector
 
 if TYPE_CHECKING:
     from gui.manager.config_manager import ConfigManager
@@ -430,11 +431,11 @@ class GeneralSettings:
     def detect_hardware(self):
         """Detect hardware devices"""
         try:
-            from gui.utils.hardware_detector import get_hardware_detector
             detector = get_hardware_detector()
 
             # Detect all hardware
             hardware_info = detector.detect_all_hardware()
+            logger.info(f"Hardware detection completed using shared detector: {hardware_info}")
 
             # Update internal state
             self._printers = hardware_info['printers']
@@ -443,6 +444,13 @@ class GeneralSettings:
             # Auto-set default WiFi
             if not self.default_wifi and hardware_info['current_wifi']:
                 self.default_wifi = hardware_info['current_wifi']
+
+            # Auto-set default printer
+            printer_names = hardware_info['printer_names']
+            if not self.default_printer and printer_names:
+                # Set the first available printer as default
+                self.default_printer = printer_names[0]
+                logger.info(f"Auto-set default printer to: {self.default_printer}")
 
             logger.info("Hardware detection completed using shared detector")
         except Exception as e:
@@ -453,7 +461,7 @@ class GeneralSettings:
     def get_printer_names(self) -> List[str]:
         """Get printer names list"""
         self._ensure_hardware_initialized()
-        from gui.utils.hardware_detector import get_hardware_detector
+        
         detector = get_hardware_detector()
         return detector.get_printer_names()
 
@@ -469,7 +477,6 @@ class GeneralSettings:
 
     def get_current_wifi(self) -> Optional[str]:
         """Get current connected WiFi"""
-        from .hardware_detector import get_hardware_detector
         detector = get_hardware_detector()
         return detector.get_current_wifi()
 

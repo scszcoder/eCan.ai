@@ -828,7 +828,13 @@
       "failed_to_delete_config": "删除配置失败",
       "failed_to_add_provider": "添加提供商失败",
       "failed_to_set_default": "设置默认 LLM 失败",
-      "please_login_first": "请先登录"
+      "please_login_first": "请先登录",
+      "restart_required_title": "需要重启",
+      "restart_required_message": "{{operation}}已成功完成。为确保所有更改正确生效，请重新启动应用程序。",
+      "restart_required_options": "您可以选择注销后重新登录，或者完全重启应用程序。",
+      "api_key_update": "API 密钥更新",
+      "api_key_deletion": "API 密钥删除",
+      "default_llm_change": "默认 LLM 更改"
     }
   },
   "search": {
