@@ -28,7 +28,7 @@ def selenium_search_component(webdriver, pf, site_cats):
 
 def selenium_sort_search_results(webdriver, header_text, ascending, max_n, site_url):
     try:
-        logger.debug(f"selenium_search_component started......{header_text}")
+        logger.debug(f"selenium_sort_search_results started......{header_text}")
         all_results = []
 
         if "digikey" in site_url:

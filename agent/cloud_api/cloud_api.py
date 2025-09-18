@@ -987,44 +987,42 @@ def gen_query_fom_string(fom_info):
 
 
 def gen_rank_results_string(rank_data_input):
-    """Generates a GraphQL query string for the queryFOM mutation, ensuring correct syntax."""
+    """Generate a GraphQL query string for queryRankResults using AWSJSON fields.
 
-    # Use json.dumps to safely format the list of strings for product_app.
-    # This handles quoting and commas automatically, creating a valid JSON array string.
-    product_app_str = json.dumps(rank_data_input.get('product_app', []))
+    The AppSync schema expects:
+      input RankData { fom_form: AWSJSON!, rows: [AWSJSON!], component_info: AWSJSON! }
 
-    # Manually build the string for the 'params' list because GraphQL keys are not quoted.
-    params_list = rank_data_input.get('params', [[]])[0]
-    params_str_list = []
-    for param in params_list:
-        # Escape any double quotes within the values to prevent breaking the query string
-        param_name = param.get('name', '').replace('"', '\\"')
-        param_ptype = param.get('ptype', '').replace('"', '\\"')
-        param_value = param.get('value', '').replace('"', '\\"')
-
-        # Note: GraphQL keys (name, ptype, value) are not quoted in the object definition.
-        param_str = f'{{name: "{param_name}", ptype: "{param_ptype}", value: "{param_value}"}}'
-        params_str_list.append(param_str)
-
-    # Join the list of parameter strings into a single string like "[{...}, {...}]"
-    params_str = f"[{', '.join(params_str_list)}]"
-
-    # Construct the final query using an f-string for clarity and correctness.
-    # This is much safer than manual string concatenation.
-    query_string = f"""
-        query MyQuery {{
-          queryRankResults(rank_data: {{
-            component_name: "{fom_info.get('component_name', '')}",
-            product_app: {product_app_str},
-            max_product_metrics: {fom_info.get('max_product_metrics', 0)},
-            max_component_metrics: {fom_info.get('max_component_metrics', 0)},
-            params: {params_str}
-          }})
-        }}
+    Each AWSJSON value must be provided as a JSON string literal in the GraphQL query.
+    We accomplish this by double-encoding the Python object: json.dumps(json.dumps(obj)).
     """
 
-    logger.debug(f"Generated queryRankResults string: {query_string}")
-    return query_string
+    try:
+        fom_form = rank_data_input.get("fom_form", {})
+        rows = rank_data_input.get("rows", []) or []
+        component_info = rank_data_input.get("component_info", {})
+
+        # Double-encode to embed JSON as a GraphQL string literal (AWSJSON)
+        fom_form_literal = json.dumps(json.dumps(fom_form))          # => "\"{...}\""
+        rows_literals = [json.dumps(json.dumps(r)) for r in rows]    # => ["\"{...}\"", ...]
+        rows_array_literal = f"[{', '.join(rows_literals)}]"
+        component_info_literal = json.dumps(json.dumps(component_info))
+
+        query_string = f"""
+        query MyQuery {{
+          queryRankResults(rank_data: {{
+            fom_form: {fom_form_literal}
+            rows: {rows_array_literal}
+            component_info: {component_info_literal}
+          }})
+        }}
+        """
+
+        logger.debug(f"Generated queryRankResults string: {query_string}")
+        return query_string
+    except Exception as e:
+        logger.error(f"Error generating queryRankResults string: {e}\nrank_data_input={rank_data_input}")
+        # Fallback minimal query to avoid crash; server will error with useful message
+        return "query MyQuery { queryRankResults(rank_data: { fom_form: \"{}\", rows: [], component_info: \"{}\" }) }"
 
 
 def gen_get_nodes_prompts_string(nodes):

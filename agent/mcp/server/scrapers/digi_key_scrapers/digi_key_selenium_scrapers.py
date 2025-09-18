@@ -1559,6 +1559,14 @@ def apply_search_results_sort_safe(driver, header_text: str, asc: bool) -> bool:
     """
     try:
         logger.debug(f"Sorting search results on header '{header_text}' ascending={asc}")
+        # Guard: ensure a real WebDriver instance is passed, not a module like selenium.webdriver
+        # We avoid strict isinstance checks to support vendor-specific subclasses.
+        if not hasattr(driver, "find_element") or not hasattr(driver, "execute_script"):
+            logger.error(
+                "apply_search_results_sort_safe: invalid driver passed (expected Selenium WebDriver), got %r",
+                type(driver),
+            )
+            return False
         wait = WebDriverWait(driver, 10)
 
         # 1) Locate the header TH that contains an element whose normalized text == header_text
@@ -1574,6 +1582,7 @@ def apply_search_results_sort_safe(driver, header_text: str, asc: bool) -> bool:
         except Exception:
             before_sort = ""
 
+        logger.debug(f"Header found!!!!!")
         # 2) Within the header, find the appropriate sort button
         # Primary: Digi-Key uses data-testid like sort--<id>-asc / sort--<id>-dsc
         testid_part = "-asc" if asc else "-dsc"
@@ -1596,6 +1605,7 @@ def apply_search_results_sort_safe(driver, header_text: str, asc: bool) -> bool:
                 sort_btn = cand[0]
 
         # 3) Click sort
+        logger.debug(f"Sort button found!!!!!")
         try:
             sort_btn.click()
         except Exception:
@@ -1620,7 +1630,7 @@ def apply_search_results_sort_safe(driver, header_text: str, asc: bool) -> bool:
         except Exception:
             pass
 
-        logger.debug("Sort click completed")
+        logger.debug("Sort State Changed, sort click completed")
         return True
     except Exception as e:
         logger.error(f"Error during sorting search results: {get_traceback(e)}")
@@ -1765,8 +1775,19 @@ def parse_rows_on_page(driver) -> Tuple[List[Dict[str, str]], List[str]]:
                 dynamic_keys_in_order.append(key)
 
             print("setting key:", key)
-            # cell text
-            val = clean_text(td.text)
+            # cell text with stale-safe retrieval
+            val = ""
+            try:
+                # small retry to mitigate transient staleness
+                for _ in range(2):
+                    try:
+                        val = clean_text(td.text)
+                        break
+                    except StaleElementReferenceException:
+                        time.sleep(0.05)
+                        continue
+            except Exception:
+                val = ""
             if val:
                 row[key] = val
 
@@ -1891,9 +1912,9 @@ def digi_key_selenium_search_component(driver, pfs, category_phrase, site_url):
 
         logger.debug(f"done big scroll......")
 
-        logger.debug(f"extracting search results......")
+        logger.debug(f"after pfs extracting search results......")
         components_results = selenium_extract_search_results(driver)
-        logger.debug(f"search results collected......{components_results}")
+        logger.debug(f"after pfs search results collected......{components_results}")
         results = {"status": "success", "components": components_results}
 
     except Exception as e:
@@ -1915,9 +1936,9 @@ def digi_key_selenium_sort_and_extract_results(driver,  header, ascending, max_n
 
         logger.debug(f"sort finished, now extracting rows of results")
 
-        logger.debug(f"extracting search results......")
+        logger.debug(f"after sort extracting search results......")
         components_results = selenium_extract_search_results(driver, max_n)
-        logger.debug(f"search results collected......{components_results}")
+        logger.debug(f"after sort search results collected......{components_results}")
         results = {"status": "success", "components": components_results}
 
     except Exception as e:

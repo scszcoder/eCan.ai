@@ -3,6 +3,7 @@ import os
 import importlib.util
 import httpx
 import asyncio
+from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from agent.mcp.local_client import mcp_call_tool
 from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
 from agent.ec_skills.dev_defs import BreakpointManager
@@ -235,16 +236,110 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         return template
 
     def _prepare_request_args(state):
-        """Prepare final request arguments by formatting templates with state."""
+        """Prepare final request arguments by formatting templates with state.
+
+        - headers_template follows requestHeadersValues shape: {name: {type, content, ...}}
+        - params_template may be {values: {name: {type, content}}} or a flat dict.
+        """
         attributes = state.get("attributes", {})
         final_url = api_endpoint.format(**attributes)
-        final_headers = _format_from_state(headers_template, attributes)
-        final_params = _format_from_state(params_template, attributes)
 
-        request_args = {'method': method, 'url': final_url, 'headers': final_headers}
+        # Helper to flatten {key: {type, content}} -> {key: formatted_content}
+        def _flatten_kv(template):
+            out = {}
+            if not isinstance(template, dict):
+                return out
+            for k, v in template.items():
+                if isinstance(v, dict):
+                    # Prefer 'content' if present
+                    content = v.get('content')
+                    if isinstance(content, str):
+                        try:
+                            content = content.format(**attributes)
+                        except Exception:
+                            pass
+                        out[k] = content
+                    elif content is not None:
+                        out[k] = content
+                elif isinstance(v, str):
+                    try:
+                        out[k] = v.format(**attributes)
+                    except Exception:
+                        out[k] = v
+                else:
+                    out[k] = v
+            return out
+
+        # Build headers from requestHeadersValues
+        final_headers = {}
+        if isinstance(headers_template, dict):
+            final_headers.update(_flatten_kv(headers_template))
+
+        # Build params from requestParams (support both flat and values-schema form)
+        if isinstance(params_template, dict):
+            values = params_template.get('values') if 'values' in params_template else params_template
+            final_params = _flatten_kv(values if isinstance(values, dict) else {})
+        else:
+            final_params = {}
+
+        print("final_params:", final_params)
+        # Convenience: if GET/DELETE and no explicit params provided, promote non-standard headers to query params
+        # This supports simple GUI inputs where users add foo1/bar1 in headers area.
+        if method in ['GET', 'DELETE'] and not final_params and isinstance(headers_template, dict):
+            common_headers = {
+                'content-type','authorization','accept','user-agent','cache-control','connection','pragma',
+                'referer','origin','host','accept-encoding','accept-language'
+            }
+            promoted = {}
+            for k, v in headers_template.items():
+                key_l = k.lower()
+                if key_l in common_headers:
+                    continue
+                if isinstance(v, dict):
+                    content = v.get('content')
+                    if content is None:
+                        continue
+                    if isinstance(content, str):
+                        try:
+                            content = content.format(**attributes)
+                        except Exception:
+                            pass
+                    promoted[k] = content
+                elif isinstance(v, str):
+                    promoted[k] = v
+            if promoted:
+                final_params.update(promoted)
+
+        # Always merge primitive attributes into params/body (explicit params override attributes)
+        if isinstance(attributes, dict):
+            reserved_keys = {"__this_node__"}
+            attr_params = {}
+            for k, v in attributes.items():
+                if k in reserved_keys:
+                    continue
+                if isinstance(v, (str, int, float, bool)):
+                    attr_params[k] = v
+            if attr_params:
+                # attributes first, then explicit params so explicit wins on key conflicts
+                final_params = {**attr_params, **final_params}
+
+        # Merge any query string already present in apiUrl with final_params
+        request_args = {'method': method, 'headers': final_headers}
         if method in ['GET', 'DELETE']:
-            request_args['params'] = final_params
+            try:
+                parsed = urlparse(final_url)
+                existing_qs = dict(parse_qsl(parsed.query))
+                # final_params take precedence
+                merged_params = {**existing_qs, **final_params}
+                # rebuild URL without query; pass params separately
+                cleaned_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, '', parsed.fragment))
+                request_args['url'] = cleaned_url
+                request_args['params'] = merged_params
+            except Exception:
+                request_args['url'] = final_url
+                request_args['params'] = final_params
         else: # POST, PUT, PATCH
+            request_args['url'] = final_url
             request_args['json'] = final_params
         
         # Inject API key if configured
@@ -357,13 +452,33 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
     # Define the synchronous version of the callable
     def sync_api_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
-        print(f"Executing sync API node for endpoint: {api_endpoint}")
+        print(f"Executing sync API node for endpoint: {api_endpoint}, current state is:", state)
         request_args, file_handles = _prepare_request_args(state)
+        print(f"prepared request args::", request_args)
+
         try:
             with httpx.Client() as client:
-                response = client.request(**request_args)
+                # follow redirects to avoid 302 on some endpoints
+                response = client.request(**request_args, follow_redirects=True)
+                print("HTTP API response received:", response)
                 response.raise_for_status() # Raise an exception for bad status codes
-                state.setdefault('results', []).append(response.json())
+                # Prefer JSON; fall back to text for non-JSON endpoints
+                payload = None
+                ct = (response.headers.get('content-type') or '').lower()
+                if 'application/json' in ct:
+                    payload = response.json()
+                else:
+                    try:
+                        payload = response.json()
+                    except Exception:
+                        payload = response.text
+                state.setdefault('results', []).append({
+                    'status': response.status_code,
+                    'url': str(response.url),
+                    'headers': dict(response.headers),
+                    'body': payload,
+                })
+                print("recevied response payload is:", payload)
         except httpx.HTTPStatusError as e:
             error_msg = f"API call failed with status {e.response.status_code}: {e.response.text}"
             print(error_msg)
