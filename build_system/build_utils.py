@@ -8,7 +8,302 @@ import os
 import platform
 import shutil
 import time
+from datetime import datetime
 from pathlib import Path
+from typing import Optional, Dict, Any
+from enum import Enum
+
+
+class PlatformHandler:
+    """Minimal platform/arch helper consolidated into build_utils."""
+    WINDOWS = "windows"
+    MACOS = "macos"
+    LINUX = "linux"
+
+    AMD64 = "amd64"
+    ARM64 = "arm64"
+
+    def __init__(self):
+        self._platform = self._detect_platform()
+        self._architecture = self._detect_architecture()
+
+    @property
+    def platform(self) -> str:
+        return self._platform
+
+    @property
+    def architecture(self) -> str:
+        return self._architecture
+
+    @property
+    def is_windows(self) -> bool:
+        return self._platform == self.WINDOWS
+
+    @property
+    def is_macos(self) -> bool:
+        return self._platform == self.MACOS
+
+    @property
+    def is_linux(self) -> bool:
+        return self._platform == self.LINUX
+
+    @property
+    def is_arm64(self) -> bool:
+        return self._architecture == self.ARM64
+
+    @property
+    def is_amd64(self) -> bool:
+        return self._architecture == self.AMD64
+
+    def get_platform_identifier(self) -> str:
+        return f"{self._platform}-{self._architecture}"
+
+    def _detect_platform(self) -> str:
+        system = platform.system().lower()
+        if system == "darwin":
+            return self.MACOS
+        if system == "windows":
+            return self.WINDOWS
+        if system == "linux":
+            return self.LINUX
+        return system
+
+    def _detect_architecture(self) -> str:
+        machine = platform.machine().lower()
+        if machine in ("x86_64", "amd64"):
+            return self.AMD64
+        if machine in ("arm64", "aarch64"):
+            return self.ARM64
+        return machine
+
+
+# Expose a singleton for existing call sites
+platform_handler = PlatformHandler()
+
+
+class LogLevel(Enum):
+    """Log levels"""
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    SUCCESS = "SUCCESS"
+
+
+class BuildLogger:
+    """Unified build logger with component tracking"""
+    
+    def __init__(self, verbose: bool = False, log_file: Optional[Path] = None):
+        self.verbose = verbose
+        self.log_file = log_file
+        self.start_time = time.time()
+        self.component_times = {}
+        self.error_count = 0
+        self.warning_count = 0
+        
+        if self.log_file:
+            self.log_file.parent.mkdir(parents=True, exist_ok=True)
+            
+    def _format_message(self, level: LogLevel, component: str, message: str) -> str:
+        """Format log message with timestamp and component"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        return f"[{timestamp}] [{level.value}] [{component}] {message}"
+        
+    def _write_log(self, formatted_message: str) -> None:
+        """Write to console and file if configured"""
+        print(formatted_message)
+        
+        if self.log_file:
+            try:
+                with open(self.log_file, 'a', encoding='utf-8') as f:
+                    f.write(formatted_message + '\n')
+            except Exception:
+                pass  # Don't fail build due to logging issues
+                
+    def debug(self, message: str, component: str = "BUILD") -> None:
+        """Log debug message (only in verbose mode)"""
+        if self.verbose:
+            formatted = self._format_message(LogLevel.DEBUG, component, message)
+            self._write_log(formatted)
+            
+    def info(self, message: str, component: str = "BUILD") -> None:
+        """Log info message"""
+        formatted = self._format_message(LogLevel.INFO, component, message)
+        self._write_log(formatted)
+        
+    def warning(self, message: str, component: str = "BUILD") -> None:
+        """Log warning message"""
+        self.warning_count += 1
+        formatted = self._format_message(LogLevel.WARNING, component, message)
+        self._write_log(formatted)
+        
+    def error(self, message: str, component: str = "BUILD") -> None:
+        """Log error message"""
+        self.error_count += 1
+        formatted = self._format_message(LogLevel.ERROR, component, message)
+        self._write_log(formatted)
+        
+    def success(self, message: str, component: str = "BUILD") -> None:
+        """Log success message"""
+        formatted = self._format_message(LogLevel.SUCCESS, component, message)
+        self._write_log(formatted)
+        
+    def start_component(self, component: str, description: str = "") -> None:
+        """Start timing a build component"""
+        self.component_times[component] = time.time()
+        msg = f"Starting {component}"
+        if description:
+            msg += f": {description}"
+        self.info(msg, component)
+        
+    def end_component(self, component: str, success: bool = True) -> float:
+        """End timing a build component and return duration"""
+        if component not in self.component_times:
+            self.warning(f"Component {component} was not started", component)
+            return 0.0
+            
+        duration = time.time() - self.component_times[component]
+        status = "completed" if success else "failed"
+        self.info(f"Component {component} {status} in {duration:.2f}s", component)
+        
+        if not success:
+            self.error_count += 1
+            
+        return duration
+        
+    def get_stats(self) -> Dict[str, Any]:
+        """Get build statistics"""
+        return {
+            "total_time": time.time() - self.start_time,
+            "error_count": self.error_count,
+            "warning_count": self.warning_count,
+            "component_count": len(self.component_times),
+            "success": self.error_count == 0
+        }
+
+
+# Global logger instance
+build_logger = None
+
+def get_build_logger(verbose: bool = False, log_file: Optional[Path] = None) -> BuildLogger:
+    """Get or create the global build logger"""
+    global build_logger
+    if build_logger is None:
+        build_logger = BuildLogger(verbose=verbose, log_file=log_file)
+    return build_logger
+
+
+class URLSchemeBuildConfig:
+    """Handle URL scheme configuration during build process"""
+    
+    @staticmethod
+    def setup_url_scheme_for_build():
+        """Setup URL scheme configuration for current platform"""
+        system = platform.system().lower()
+        
+        if system == "darwin":
+            return URLSchemeBuildConfig._setup_macos_build()
+        elif system == "windows":
+            return URLSchemeBuildConfig._setup_windows_build()
+        elif system == "linux":
+            return URLSchemeBuildConfig._setup_linux_build()
+        else:
+            print(f"[WARNING] [URL_SCHEME] URL scheme build setup not supported for platform: {system}")
+            return False
+    
+    @staticmethod
+    def _setup_macos_build():
+        """Setup macOS build configuration"""
+        try:
+            # Ensure Info.plist exists in resource directory
+            info_plist_path = Path("resource/Info.plist")
+            if not info_plist_path.exists():
+                print("[ERROR] [URL_SCHEME] Info.plist not found in resource directory")
+                return False
+            
+            print("[URL_SCHEME] macOS URL scheme build configuration ready")
+            print("[URL_SCHEME] Info.plist with ecan:// scheme configuration found")
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] [URL_SCHEME] Failed to setup macOS build configuration: {e}")
+            return False
+    
+    @staticmethod
+    def _setup_windows_build():
+        """Setup Windows build configuration"""
+        try:
+            # Create Windows-specific build configuration
+            build_config = {
+                "url_scheme": "ecan",
+                "protocol_name": "eCan Protocol",
+                "executable_name": "eCan.exe",
+                "icon_file": "eCan.ico"
+            }
+            
+            # Save build configuration for PyInstaller
+            import json
+            config_path = Path("build_system/windows_url_scheme.json")
+            with open(config_path, 'w') as f:
+                json.dump(build_config, f, indent=2)
+            
+            print("[URL_SCHEME] Windows URL scheme build configuration created")
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] [URL_SCHEME] Failed to setup Windows build configuration: {e}")
+            return False
+    
+    @staticmethod
+    def _setup_linux_build():
+        """Setup Linux build configuration"""
+        try:
+            # Create desktop entry template
+            desktop_entry = """[Desktop Entry]
+Name=eCan
+Exec={executable_path} %u
+Icon=ecan
+Type=Application
+MimeType=x-scheme-handler/ecan
+Categories=Utility;Development;
+Comment=eCan Automation Platform
+"""
+            
+            # Save desktop entry template
+            template_path = Path("build_system/ecan.desktop.template")
+            with open(template_path, 'w') as f:
+                f.write(desktop_entry)
+            
+            print("[URL_SCHEME] Linux URL scheme build configuration created")
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] [URL_SCHEME] Failed to setup Linux build configuration: {e}")
+            return False
+    
+    @staticmethod
+    def get_pyinstaller_options():
+        """Get PyInstaller options for URL scheme support"""
+        system = platform.system().lower()
+        options = []
+        
+        if system == "darwin":
+            # macOS specific options
+            info_plist_path = Path("resource/Info.plist")
+            if info_plist_path.exists():
+                options.extend([
+                    f"--osx-bundle-identifier=com.ecan.app",
+                    f"--info-plist={info_plist_path.absolute()}"
+                ])
+        
+        elif system == "windows":
+            # Windows specific options
+            options.extend([
+                # "--uac-admin",  # Request admin privileges for registry access - commented out to avoid elevation requirement
+                "--version-file=build_system/version_info.txt"
+            ])
+        
+        return options
 
 
 

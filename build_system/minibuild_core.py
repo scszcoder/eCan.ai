@@ -1,15 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Minibuild core: a simplified, maintainable build pipeline for PyInstaller.
-
-Design goals:
-- Single spec generator with minimal dynamic-import detection
-- Minimal config surface (reuse build_system/build_config.json where possible)
-- Default to onedir; onefile optional per mode
-- Works on Windows and macOS; supports macOS .app (BUNDLE) and PKG via existing InstallerBuilder
-- Very small hook surface (reuse existing build_system/pyinstaller_hooks)
-"""
+"""Minibuild core: simplified PyInstaller spec generation and build pipeline."""
 from __future__ import annotations
 
 import json
@@ -17,16 +8,119 @@ import sys
 import subprocess
 import os
 import shutil
+import logging
 
 from pathlib import Path
 from typing import Dict, List, Set, Any, Optional
 
-# Import platform handler
+# Import platform handler from consolidated build_utils
 try:
-    from .platform_handler import platform_handler
+    from .build_utils import platform_handler
 except ImportError:
     # Handle case when imported directly
-    from platform_handler import platform_handler
+    from build_utils import platform_handler
+
+
+class QtFrameworkFixer:
+    """Qt WebEngine macOS Framework Symlink Fixer for PyInstaller bundles"""
+    
+    def __init__(self, bundle_path: Path, verbose: bool = False):
+        """Initialize the Qt framework fixer"""
+        self.bundle_path = Path(bundle_path)
+        self.verbose = verbose
+        self.logger = self._setup_logger()
+        
+    def _setup_logger(self) -> logging.Logger:
+        """Setup logger for the fixer"""
+        logger = logging.getLogger("QtFrameworkFixer")
+        logger.setLevel(logging.DEBUG if self.verbose else logging.INFO)
+        
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('[QT-FRAMEWORK-FIX] %(message)s')
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+            
+        return logger
+    
+    def fix_qt_webengine(self) -> bool:
+        """Fix Qt WebEngine framework structure"""
+        if sys.platform != 'darwin':
+            self.logger.info("Skipping Qt framework fix (not macOS)")
+            return True
+            
+        try:
+            # Find QtWebEngineCore frameworks
+            frameworks = list(self.bundle_path.rglob("QtWebEngineCore.framework"))
+            
+            if not frameworks:
+                self.logger.info("No QtWebEngineCore frameworks found")
+                return True
+                
+            success = True
+            for framework in frameworks:
+                self.logger.info(f"Fixing framework: {framework}")
+                if not self._fix_framework_structure(framework):
+                    success = False
+                    
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"Failed to fix Qt WebEngine: {e}")
+            return False
+    
+    def _fix_framework_structure(self, framework_path: Path) -> bool:
+        """Fix individual framework structure - minimal and precise"""
+        try:
+            versions_dir = framework_path / "Versions"
+            if not versions_dir.exists():
+                self.logger.debug(f"No Versions directory in {framework_path}")
+                return True
+
+            # Only look for the common PyInstaller misplaced location
+            process_app = versions_dir / "Resources" / "Helpers" / "QtWebEngineProcess.app"
+            if not process_app.exists():
+                self.logger.debug(f"No QtWebEngineProcess.app found at expected PyInstaller location")
+                return True
+
+            self.logger.debug(f"Found QtWebEngineProcess.app at: {process_app}")
+
+            # Ensure version directory A exists
+            version_a = versions_dir / "A"
+            if not version_a.exists():
+                version_a.mkdir(exist_ok=True)
+                self.logger.debug(f"Created version directory: {version_a}")
+
+            # Ensure Current symlink exists
+            current_link = versions_dir / "Current"
+            if not current_link.exists():
+                current_link.symlink_to("A")
+                self.logger.debug(f"Created Current symlink: {current_link}")
+
+            # Create only the necessary QtWebEngineProcess symlink
+            expected_helpers = version_a / "Helpers"
+            expected_process = expected_helpers / "QtWebEngineProcess.app"
+
+            if not expected_process.exists():
+                expected_helpers.mkdir(parents=True, exist_ok=True)
+                relative_path = os.path.relpath(process_app, expected_helpers)
+                expected_process.symlink_to(relative_path)
+                self.logger.debug(f"Created QtWebEngineProcess symlink: {expected_process} -> {relative_path}")
+
+            # Create only the required framework-level Helpers symlink
+            helpers_link = framework_path / "Helpers"
+            if not helpers_link.exists():
+                try:
+                    helpers_link.symlink_to("Versions/Current/Helpers")
+                    self.logger.debug(f"Created Helpers symlink: {helpers_link}")
+                except Exception as e:
+                    self.logger.debug(f"Failed to create Helpers symlink: {e}")
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to fix framework structure: {e}")
+            return False
 
 
 class MiniSpecBuilder:
@@ -86,9 +180,6 @@ class MiniSpecBuilder:
         if profile.get("upx_compression", False):
             extra_args.append("--upx-dir=upx")
 
-        # Strip debug info is handled in spec file, not as command line arg
-        # if profile.get("strip_debug", False):
-        #     extra_args.append("--strip")
 
         cmd.extend(extra_args)
         print(f"[MINIBUILD] PyInstaller command: {' '.join(cmd)}")
@@ -220,14 +311,77 @@ class MiniSpecBuilder:
             except Exception as e:
                 print(f"[MINIBUILD] Warning: failed to remove spec {spec}: {e}")
 
-        # Remove dist directory completely
+        def _prepare_for_removal(target: Path) -> None:
+            """Best-effort: fix permissions so shutil.rmtree can succeed."""
+            try:
+                if platform_handler.is_macos:
+                    subprocess.run(["/bin/chmod", "-R", "u+w", str(target)], check=False)
+                    subprocess.run(["/usr/bin/chflags", "-R", "nouchg", str(target)], check=False)
+
+                for root, dirs, files in os.walk(target):
+                    root_path = Path(root)
+                    for name in dirs:
+                        try:
+                            (root_path / name).chmod(0o755)
+                        except Exception:
+                            pass
+                    for name in files:
+                        file_path = root_path / name
+                        try:
+                            file_path.chmod(0o644)
+                            if name == "CodeResources" or "MacOS" in file_path.parts:
+                                file_path.chmod(0o755)
+                        except Exception:
+                            pass
+
+                if platform_handler.is_macos:
+                    for cr_file in target.rglob("CodeResources"):
+                        try:
+                            cr_file.chmod(0o644)
+                            subprocess.run(["/usr/bin/chflags", "nouchg", str(cr_file)], check=False)
+                            cr_file.unlink(missing_ok=True)
+                            print(f"[MINIBUILD] Removed locked file: {cr_file}")
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        def _handle_remove_error(func, path, exc_info):
+            try:
+                Path(path).chmod(0o755)
+            except Exception:
+                pass
+            try:
+                if platform_handler.is_macos:
+                    subprocess.run(["/usr/bin/chflags", "nouchg", path], check=False)
+            except Exception:
+                pass
+            try:
+                func(path)
+            except Exception:
+                pass
+
+        # Remove dist directory completely (force even when macOS CodeResources is protected)
         dist_dir = self.project_root / "dist"
         if dist_dir.exists():
             try:
-                shutil.rmtree(dist_dir)
+                _prepare_for_removal(dist_dir)
+                shutil.rmtree(dist_dir, onerror=_handle_remove_error)
                 print(f"[MINIBUILD] Removed dist directory: {dist_dir}")
             except Exception as e:
                 print(f"[MINIBUILD] Warning: failed to remove dist {dist_dir}: {e}")
+
+        # Remove PyInstaller build directories (e.g., build/eCan_fast)
+        pyinstaller_build_root = self.project_root / "build"
+        if pyinstaller_build_root.exists():
+            for subdir in pyinstaller_build_root.iterdir():
+                if subdir.is_dir() and subdir.name.startswith(f"{app_name}_"):
+                    try:
+                        _prepare_for_removal(subdir)
+                        shutil.rmtree(subdir, onerror=_handle_remove_error)
+                        print(f"[MINIBUILD] Removed build directory: {subdir}")
+                    except Exception as e:
+                        print(f"[MINIBUILD] Warning: failed to remove build dir {subdir}: {e}")
 
     # ---- Spec generation ----
     def _write_spec(self, mode: str, profile: Dict[str, Any] = None) -> Path:
@@ -446,6 +600,9 @@ Auto-generated by eCan build system (simplified)
 """
 
 import sys
+import os
+import shutil
+import subprocess
 import platform as py_platform
 from pathlib import Path
 
@@ -453,8 +610,70 @@ from pathlib import Path
 project_root = Path(r'{str(self.project_root)}')
 print(f'[SPEC] Project root: {{project_root}}')
 
+
+def _force_remove(path: Path) -> None:
+    """删除已有的 app bundle，确保后续 PyInstaller 不会因权限问题失败"""
+    try:
+        if not path.exists():
+            return
+
+        if sys.platform == 'darwin':
+            subprocess.run(["/bin/chmod", "-R", "u+w", str(path)], check=False)
+            subprocess.run(["/usr/bin/chflags", "-R", "nouchg", str(path)], check=False)
+
+            for cr_file in path.rglob('CodeResources'):
+                try:
+                    cr_file.chmod(0o644)
+                    subprocess.run(["/usr/bin/chflags", "nouchg", str(cr_file)], check=False)
+                    cr_file.unlink()
+                except Exception:
+                    pass
+
+        for root, dirs, files in os.walk(path, topdown=False):
+            root_path = Path(root)
+            for name in files:
+                try:
+                    (root_path / name).chmod(0o644)
+                except Exception:
+                    pass
+            for name in dirs:
+                try:
+                    (root_path / name).chmod(0o755)
+                except Exception:
+                    pass
+
+        shutil.rmtree(path)
+        print(f'[SPEC] Removed existing bundle: {{path}}')
+    except Exception as exc:
+        print(f'[SPEC] Warning: failed to remove {{path}}: {{exc}}')
+
+try:
+    from PyInstaller.building import utils as _pyi_build_utils
+except Exception:
+    _pyi_build_utils = None
+
+try:
+    from PyInstaller.building import osx as _pyi_osx
+except Exception:
+    _pyi_osx = None
+
 # Architecture validation for macOS
 if sys.platform == 'darwin':
+    if _pyi_build_utils is not None:
+        def _safe_rmtree(target):
+            try:
+                _force_remove(Path(target))
+            except Exception as exc:
+                print(f'[SPEC] Warning: safe_rmtree fallback failed for {{target}}: {{exc}}')
+        _pyi_build_utils._rmtree = _safe_rmtree
+        if _pyi_osx is not None:
+            _pyi_osx._rmtree = _safe_rmtree
+
+    bundle_path = project_root / 'dist' / f'{app_name}.app'
+    if bundle_path.exists():
+        print(f'[SPEC] Cleaning previous bundle at {{bundle_path}}')
+        _force_remove(bundle_path)
+
     current_arch = py_platform.machine().lower()
     target_arch = '{target_arch or "auto"}'
     print(f'[SPEC] Current architecture: {{current_arch}}')
@@ -861,8 +1080,7 @@ if sys.platform == 'darwin':
         try:
             print("[MINIBUILD] Applying Qt framework path fixes...")
 
-            # Import the Qt framework fixer
-            from .macos_qt_webengine_framework_fixer import QtFrameworkFixer
+            # Use embedded Qt framework fixer
 
             # Find the built application bundle
             dist_dir = self.project_root / "dist"
@@ -897,4 +1115,3 @@ if sys.platform == 'darwin':
 
 
 __all__ = ["MiniSpecBuilder"]
-

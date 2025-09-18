@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-Unified Build Validator
-Integrates platform detection, environment validation, and build checks
-"""
+"""Unified Build Validator: platform detection, environment validation, and build checks."""
 
 import sys
 import os
@@ -13,17 +10,15 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 import json
 
-# Import existing modules
+# Import existing modules (platform handler consolidated into build_utils)
 try:
-    from .platform_handler import platform_handler
-    from .build_logger import get_build_logger
+    from .build_utils import platform_handler, get_build_logger
 except ImportError:
     # Fallback for direct execution
-    from platform_handler import platform_handler
-    from build_logger import get_build_logger
+    from build_utils import platform_handler, get_build_logger
 
 class BuildValidator:
-    """Unified build validation system"""
+    """Unified build validation system (platform, environment, project, dependencies, artifacts)."""
     
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
