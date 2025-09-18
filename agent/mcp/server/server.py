@@ -35,7 +35,8 @@ from agent.mcp.server.api.ecan_ai.ecan_ai_api import (
     ecan_ai_api_query_components,
     api_ecan_ai_get_nodes_prompts,
     api_ecan_ai_ocr_read_screen,
-    ecan_ai_api_query_fom
+    ecan_ai_api_query_fom,
+    ecan_ai_api_rerank_results
 )
 from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
 from agent.mcp.server.scrapers.api_ecan_ai_cloud_search.api_ecan_ai_cloud_search import api_ecan_ai_cloud_search
@@ -43,6 +44,7 @@ from agent.mcp.server.scrapers.selenium_search_component import (
     selenium_search_component,
     selenium_sort_search_results
 )
+
 from agent.mcp.server.scrapers.eval_util import calculate_score, get_default_fom_form
 
 server_main_win = None
@@ -1431,11 +1433,11 @@ async def api_ecan_ai_rerank_results(mainwin, args):
     # including put reactive work into it.
     try:
         print("api_ecan_ai_query_fom args: ", args['input'])
-        components = ecan_ai_api_rerank_results(mainwin, args['input']['component_results_info'])
+        final_results = ecan_ai_api_rerank_results(mainwin, args['input'])
         msg = "completed API query components results"
         result = TextContent(type="text", text=msg)
         # meta must be a dict – wrap components list under a key to satisfy pydantic
-        result.meta = {"components": components}
+        result.meta = {"final_notifiable_results": final_results}
         print("api_ecan_ai_query_fom about to return: ", result)
         return [result]
     except Exception as e:
@@ -1457,6 +1459,7 @@ async def ecan_local_search_components(mainwin, args):
         logger.debug(f"conncting to ads power: {url}")
         webdriver = connect_to_adspower(mainwin, url)
         if webdriver:
+            mainwin.setWebDriver(webdriver)
             logger.debug(f"conncted to ads power and webdriver: {args['input']['urls']}")
             log_user = mainwin.user.replace("@", "_").replace(".", "_")
             pfs = args['input']["parametric_filters"]
@@ -1504,6 +1507,17 @@ async def ecan_local_sort_search_results(mainwin, args):
     try:
         search_results = []
         sites = args['input']['sites']
+        # Acquire a real Selenium WebDriver instance (avoid passing a module)
+        web_driver = mainwin.getWebDriver()
+        if not web_driver and sites:
+            try:
+                # Use the first site's URL to initialize/connect the driver
+                first_site_url = sites[0]['url']
+                web_driver = connect_to_adspower(mainwin, first_site_url)
+            except Exception:
+                web_driver = None
+        logger.debug(f"WebDriver acquired for sorting: {type(web_driver)}")
+
         for site in sites:
             try:
                 # Pass a list of URLs and the target category phrase to the selenium search helper
@@ -1512,7 +1526,12 @@ async def ecan_local_sort_search_results(mainwin, args):
                 header_text = site["header_text"]
                 max_n = site["max_n"]
 
-                site_results = selenium_sort_search_results(webdriver, header_text, asc, max_n, site_url)
+                # Ensure we have a valid driver before calling into selenium pipeline
+                if not web_driver:
+                    logger.error("No WebDriver available for sorting operation; skipping site %s", site_url)
+                    continue
+
+                site_results = selenium_sort_search_results(web_driver, header_text, asc, max_n, site_url)
 
                 # extend accumulates in place; do not assign the None return value
                 search_results.extend(site_results)

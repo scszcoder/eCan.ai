@@ -218,7 +218,7 @@ class ManagedTask(Task):
             step = {}
 
             for step in agen:
-                print("synced Step output:", step)
+                # print("synced Step output:", step)
 
                 # Check for cancellation signal
                 if self.cancellation_event.is_set():

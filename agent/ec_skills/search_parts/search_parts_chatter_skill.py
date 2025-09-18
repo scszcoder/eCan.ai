@@ -738,48 +738,17 @@ def local_sort_search_results_node(state: NodeState, *, runtime: Runtime, store:
                 meta = getattr(content0, '_meta', None)
 
             if meta:
-                components = meta["components"]
-                state["tool_result"] = meta["components"]
+                search_results = meta["results"]
+                state["tool_result"] = meta["results"]
+                state["attributes"]["sorted_search_results"] = meta["results"]
             else:
                 print("ERROR: no meta in tool result!!!!!!!!!!!!")
-                components = {}
-                state["tool_result"] = {}
+                search_results = []
+                state["tool_result"] = []
+                state["attributes"]["sorted_search_results"] = []
 
             print("state tool result:", state["tool_result"])
-            # if parametric_search_filters are returned, pass them to human twin
-            if state["tool_result"]:
-                i = 0
-                component = state["attributes"]["preliminary_info"][i]["part name"]
-                logger.debug("[search_parts_chatter_skill] tool result:", state["tool_result"])
-                # fom_form = sample_metrics_0
-                rank_req = {
-                    "id": "eval_system_form",
-                    "type": "score",
-                    "title": f'{component} under search',
-                    "rows": lean_rows
-                }
-                print("fom form with price and lead time filled::", fom_form)
-                for fom_item in components["fom"]["component_level_metrics"]:
-                    item_name = fom_item["metric_name"]
-                    fom_form["components"][-1]["raw_value"][item_name] = {
-                        "name": item_name,
-                        "type": "integer",
-                        "raw_value": 0,
-                        "target_value": 0,
-                        "max_value": 100,
-                        "min_value": 0,
-                        "unit": "",
-                        "tooltip": "",
-                        "score_formula": fom_item["score_formula"],
-                        "score_lut": fom_item["score_lut"],
-                        "weight": fom_item["score_weight"],
-                    }
 
-                print("fom form to be filled:", fom_form)
-                state["result"] = {
-                    "llm_result": "Here is a figure of merit (FOM) form to aid searching the parts you're looking for, please try your best to fill it out and send back to me. if you're not sure about certain parameters, just leave them blank. Also feel free to ask any questions about the meaning and implications of any parameters you're not sure about."}
-                # needs to make sure this is the response prompt......state["result"]["llm_result"]
-                send_data_back2human("send_chat", "form", fom_form, state)
         elif hasattr(tool_result, 'isError') and tool_result.isError:
             state["error"] = tool_result.content[0].text if tool_result.content else "Unknown error occurred"
         else:
@@ -792,7 +761,7 @@ def local_sort_search_results_node(state: NodeState, *, runtime: Runtime, store:
         # Nothing to do; local loop was closed above
         pass
 
-    logger.debug("[search_parts_chatter_skill] query_fom_basics_node all done, current state is:", state)
+    logger.debug("[search_parts_chatter_skill] local_sort_search_results_node all done, current state is:", state)
     return state
 
 
@@ -800,9 +769,9 @@ def local_sort_search_results_node(state: NodeState, *, runtime: Runtime, store:
 # into the right place. This way, the correct data can be passed onto the GUI side of the chat interface.
 def prep_ranking_request(state: NodeState) -> NodeState:
     try:
-        request = {}
+        rerank_req = {}
 
-        request["fom_form"] = state["attributes"]["filled_fom_form"]
+        rerank_req["fom_form"] = state["attributes"]["filled_fom_form"]
 
         shrinked_rows = []
 
@@ -813,17 +782,28 @@ def prep_ranking_request(state: NodeState) -> NodeState:
 
         headers_of_interest.extend(list(state["attributes"]["filled_fom_form"]['components'][2]["raw_value"].keys()))
 
+        result_rows = state["attributes"]["sorted_search_results"]
+        # Keep only columns whose headers are in headers_of_interest, preserve order
+        shrinked_rows = []
+        try:
+            for row in result_rows:
+                filtered = {h: row[h] for h in headers_of_interest if h in row}
+                shrinked_rows.append(filtered)
+        except Exception:
+            # If anything goes wrong, fall back to empty list to avoid crashing the pipeline
+            shrinked_rows = []
+        rerank_req["rows"] = shrinked_rows
 
-        request["rows"] = shrinked_rows
+        rerank_req["component_info"] = state["attributes"]["preliminary_info"]
 
+        print("about to request rerank results: ", rerank_req)
 
-
-        return request
+        return rerank_req
     except Exception as e:
         state['error'] = get_traceback(e, "ErrorPrepRankingRequest")
         logger.debug(state['error'])
 
-    return request
+    return rerank_req
 
 def prep_component_specs_qa_form_node(state: NodeState) -> NodeState:
     try:
@@ -894,10 +874,6 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
     try:
         logger.debug(f"[search_parts_chatter_skill] about to query rerank search results: {type(state)}, {state}")
 
-        table_headers = list(state["tool_result"][0].keys())
-        print("here are table headers string:", table_headers)
-        # need to set up state["tool_input"] to be components
-        params = convert_table_headers_to_params(table_headers)
         i = 0
         state["tool_input"] = prep_ranking_request(state)
 
@@ -910,8 +886,7 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
 
         # what we should get here is a dict of parametric search filters based on the preliminary
         # component info, this should be passed to human for filling out and confirmation
-        logger.debug("[search_parts_chatter_skill]  query rank results tool call completed:", type(tool_result),
-                     tool_result)
+        logger.debug("[search_parts_chatter_skill]  query rank results tool call completed:", type(tool_result), tool_result)
 
         # Check if the tool call was successful
         if hasattr(tool_result, 'content') and tool_result.content and "completed" in tool_result.content[0].text:
