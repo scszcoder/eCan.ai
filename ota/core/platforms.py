@@ -17,11 +17,22 @@ from .errors import (
 
 
 class SparkleUpdater:
-    """macOS Sparkle更新器"""
+    """macOS Sparkle更新器
+    
+    注意: 真实的Sparkle框架不提供CLI工具，这里使用appcast解析作为替代方案
+    在生产环境中应该使用Sparkle的原生Objective-C API
+    """
     
     def __init__(self, ota_manager):
         self.ota_manager = ota_manager
         self.sparkle_framework_path = self._find_sparkle_framework()
+        # 导入appcast解析功能
+        try:
+            from .appcast import parse_appcast, select_latest_for_platform, normalize_arch_tag
+            self.appcast_parser = True
+        except ImportError:
+            logger.warning("Appcast parser not available, falling back to generic updater")
+            self.appcast_parser = False
         
     def _find_sparkle_framework(self) -> Optional[str]:
         """查找Sparkle框架路径"""
@@ -54,115 +65,191 @@ class SparkleUpdater:
         return None
     
     def check_for_updates(self, silent: bool = False, return_info: bool = False):
-        """检查更新，返回(是否有更新, 更新信息)"""
+        """检查更新，返回(是否有更新, 更新信息)
+        
+        由于真实的Sparkle框架不提供CLI工具，这里使用appcast解析作为替代方案
+        """
         try:
-            if not self.sparkle_framework_path:
-                raise PlatformError(
-                    UpdateErrorCode.FRAMEWORK_NOT_FOUND,
-                    "Sparkle framework not found",
-                    {"searched_paths": [
-                        "/Applications/ECBot.app/Contents/Frameworks/Sparkle.framework",
-                        os.path.join(self.ota_manager.app_home_path, "Frameworks", "Sparkle.framework"),
-                        "/Library/Frameworks/Sparkle.framework"
-                    ]}
-                )
+            # 如果没有appcast解析器，回退到通用更新器逻辑
+            if not self.appcast_parser:
+                logger.warning("Sparkle framework found but appcast parser unavailable, using fallback method")
+                return self._fallback_check_for_updates(silent, return_info)
             
-            # 首先尝试打包的CLI包装器
-            cli_path = None
-            if hasattr(sys, '_MEIPASS'):
-                bundled_cli = os.path.join(sys._MEIPASS, "third_party", "sparkle", "sparkle-cli")
-                if os.path.exists(bundled_cli):
-                    cli_path = bundled_cli
-            
-            # 如果没有找到打包的CLI，尝试框架内的CLI
-            if not cli_path:
-                framework_cli = os.path.join(self.sparkle_framework_path, "Versions", "Current", "Resources", "sparkle-cli")
-                if os.path.exists(framework_cli):
-                    cli_path = framework_cli
-            
-            # 最后尝试项目内的CLI包装器
-            if not cli_path:
-                project_cli = os.path.join(self.ota_manager.app_home_path, "third_party", "sparkle", "sparkle-cli")
-                if os.path.exists(project_cli):
-                    cli_path = project_cli
-            
-            # 检查CLI工具是否存在
-            if not cli_path or not os.path.exists(cli_path):
-                raise PlatformError(
-                    UpdateErrorCode.CLI_TOOL_NOT_FOUND,
-                    f"Sparkle CLI not found. Searched locations: framework, bundled, project",
-                    {"framework_path": self.sparkle_framework_path, "searched_paths": [
-                        os.path.join(self.sparkle_framework_path, "Versions", "Current", "Resources", "sparkle-cli"),
-                        os.path.join(sys._MEIPASS, "third_party", "sparkle", "sparkle-cli") if hasattr(sys, '_MEIPASS') else None,
-                        os.path.join(self.ota_manager.app_home_path, "third_party", "sparkle", "sparkle-cli")
-                    ]}
-                )
-            
-            # 检查是否可执行
-            if not os.access(cli_path, os.X_OK):
-                raise PlatformError(
-                    UpdateErrorCode.PERMISSION_DENIED,
-                    f"Sparkle CLI not executable: {cli_path}",
-                    {"cli_path": cli_path}
-                )
-            
-            cmd = [cli_path, "check"]
-            if silent:
-                cmd.append("--silent")
-                
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            has_update = result.returncode == 0
-            update_info = result.stdout if has_update else None
-            return (has_update, update_info) if return_info else has_update
+            # 使用appcast解析进行更新检查
+            return self._check_via_appcast(silent, return_info)
             
         except subprocess.TimeoutExpired as e:
             error = UpdateError(
                 UpdateErrorCode.CONNECTION_TIMEOUT,
                 "Sparkle check timed out",
-                {"timeout": 30, "command": cmd}
+                {"timeout": 30, "command": ["sparkle-cli", "check"]}
             )
             logger.error(str(error))
             if return_info:
                 return False, error
             return False
+    
+    def _check_via_appcast(self, silent: bool = False, return_info: bool = False):
+        """通过appcast检查更新"""
+        try:
+            import requests
+            from .appcast import parse_appcast, select_latest_for_platform, normalize_arch_tag
             
-        except UpdateError:
-            # 重新抛出我们的自定义错误
-            raise
+            # 获取平台配置
+            plat_config = ota_config.get_platform_config()
+            arch = normalize_arch_tag(platform.machine())
             
+            # 获取appcast URL
+            appcast_urls = plat_config.get('appcast_urls', {})
+            appcast_url = appcast_urls.get(arch) or plat_config.get('appcast_url')
+            
+            if not appcast_url:
+                raise PlatformError(
+                    UpdateErrorCode.INVALID_CONFIG,
+                    "No appcast URL configured for macOS platform",
+                    {"platform_config": plat_config}
+                )
+            
+            # 获取appcast内容
+            response = requests.get(appcast_url, timeout=10)
+            response.raise_for_status()
+            
+            # 解析appcast
+            items = parse_appcast(response.text)
+            selected = select_latest_for_platform(
+                items, 
+                None, 
+                self.ota_manager.app_version, 
+                arch_tag=arch
+            )
+            
+            if selected:
+                update_info = {
+                    "update_available": True,
+                    "latest_version": selected.version,
+                    "download_url": selected.url,
+                    "file_size": selected.length or 0,
+                    "signature": selected.ed_signature or "",
+                    "description": selected.description_html or "",
+                    "source": "sparkle_appcast"
+                }
+                return (True, update_info) if return_info else True
+            else:
+                return (False, None) if return_info else False
+                
         except Exception as e:
-            error = create_error_from_exception(e, "Sparkle update check")
+            error = create_error_from_exception(e, "Sparkle appcast check")
             logger.error(str(error))
             if return_info:
                 return False, error
             return False
     
-    def install_update(self, package_manager=None) -> bool:
-        """安装更新"""
+    def _fallback_check_for_updates(self, silent: bool = False, return_info: bool = False):
+        """回退到通用更新检查方法"""
         try:
-            sparkle_path = self._find_sparkle_framework()
-            if not sparkle_path:
+            # 使用通用更新器的逻辑，避免循环导入
+            return self._generic_update_check(silent, return_info)
+        except Exception as e:
+            error = create_error_from_exception(e, "Sparkle fallback check")
+            logger.error(str(error))
+            if return_info:
+                return False, error
+            return False
+    
+    def _generic_update_check(self, silent: bool = False, return_info: bool = False):
+        """通用更新检查逻辑"""
+        try:
+            import requests
+            
+            # 使用JSON API进行检查
+            update_url = f"{self.ota_manager.update_server_url}/api/check"
+            params = {
+                "app": "ecbot",
+                "version": self.ota_manager.app_version,
+                "platform": "darwin",
+                "arch": platform.machine()
+            }
+            
+            response = requests.get(update_url, params=params, timeout=10)
+            response.raise_for_status()
+            
+            if response.status_code == 200:
+                data = response.json()
+                has_update = data.get("update_available", False)
+                update_info = data if has_update else None
+                return (has_update, update_info) if return_info else has_update
+            else:
+                return (False, None) if return_info else False
+                
+        except Exception as e:
+            logger.error(f"Generic update check failed: {e}")
+            return (False, None) if return_info else False
+    
+    def install_update(self, package_manager=None) -> bool:
+        """安装更新
+        
+        注意: 真实的Sparkle安装需要使用原生API或手动处理DMG文件
+        这里提供基本的DMG安装逻辑
+        """
+        try:
+            if not package_manager or not package_manager.current_package:
+                logger.error("No package available for installation")
                 return False
             
-            cmd = [
-                os.path.join(sparkle_path, "Versions", "Current", "Resources", "sparkle-cli"),
-                "install"
-            ]
+            package = package_manager.current_package
+            if not package.is_downloaded or not package.download_path:
+                logger.error("Package not downloaded")
+                return False
             
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            return result.returncode == 0
+            # 基本的DMG安装逻辑
+            return self._install_dmg(package.download_path)
             
         except Exception as e:
             logger.error(f"Sparkle install failed: {e}")
             return False
+    
+    def _install_dmg(self, dmg_path) -> bool:
+        """安装DMG文件的基本逻辑"""
+        try:
+            logger.info(f"Installing DMG: {dmg_path}")
+            
+            # 在开发模式下，只记录而不实际安装
+            if ota_config.is_dev_mode():
+                logger.info("Development mode: DMG installation simulated")
+                return True
+            
+            # 实际的DMG安装需要:
+            # 1. 挂载DMG
+            # 2. 复制应用到Applications
+            # 3. 卸载DMG
+            # 4. 重启应用
+            
+            # 这里提供基本框架，实际实现需要根据具体需求
+            logger.warning("DMG installation not fully implemented - manual installation required")
+            return False
+            
+        except Exception as e:
+            logger.error(f"DMG installation failed: {e}")
+            return False
 
 
 class WinSparkleUpdater:
-    """Windows winSparkle更新器"""
+    """Windows winSparkle更新器
+    
+    注意: 真实的winSparkle不提供CLI工具，这里使用appcast解析作为替代方案
+    在生产环境中应该使用winSparkle的原生C++ API
+    """
     
     def __init__(self, ota_manager):
         self.ota_manager = ota_manager
         self.winsparkle_dll_path = self._find_winsparkle_dll()
+        # 导入appcast解析功能
+        try:
+            from .appcast import parse_appcast, select_latest_for_platform, normalize_arch_tag
+            self.appcast_parser = True
+        except ImportError:
+            logger.warning("Appcast parser not available, falling back to generic updater")
+            self.appcast_parser = False
         
     def _find_winsparkle_dll(self) -> Optional[str]:
         """查找winSparkle DLL路径"""
@@ -235,58 +322,167 @@ class WinSparkleUpdater:
         return None
     
     def check_for_updates(self, silent: bool = False, return_info: bool = False):
-        """检查更新"""
-        if not self.winsparkle_dll_path:
-            logger.error("winSparkle DLL not found")
-            return (False, None) if return_info else False
+        """检查更新
         
+        由于真实的winSparkle不提供CLI工具，这里使用appcast解析作为替代方案
+        """
         try:
-            # 查找CLI工具
-            cli_path = self._find_winsparkle_cli()
-            if not cli_path:
-                logger.error("winSparkle CLI not found")
-                return (False, None) if return_info else False
+            # 如果没有appcast解析器，回退到通用更新器逻辑
+            if not self.appcast_parser:
+                logger.warning("winSparkle DLL found but appcast parser unavailable, using fallback method")
+                return self._fallback_check_for_updates(silent, return_info)
             
-            cmd = [cli_path, "check"]
-            if silent:
-                cmd.append("--silent")
-                
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            has_update = result.returncode == 0
-            update_info = result.stdout if has_update else None
-            return (has_update, update_info) if return_info else has_update
+            # 使用appcast解析进行更新检查
+            return self._check_via_appcast(silent, return_info)
             
-        except subprocess.TimeoutExpired:
-            logger.error("winSparkle check timed out")
-            return (False, None) if return_info else False
-        except FileNotFoundError:
-            logger.error("winSparkle CLI executable not found")
-            return (False, None) if return_info else False
         except Exception as e:
-            logger.error(f"winSparkle check failed: {e}")
+            error = create_error_from_exception(e, "WinSparkle update check")
+            logger.error(str(error))
+            if return_info:
+                return False, error
+            return False
+    
+    def _check_via_appcast(self, silent: bool = False, return_info: bool = False):
+        """通过appcast检查更新"""
+        try:
+            import requests
+            from .appcast import parse_appcast, select_latest_for_platform, normalize_arch_tag
+            
+            # 获取平台配置
+            plat_config = ota_config.get_platform_config()
+            arch = normalize_arch_tag(platform.machine())
+            
+            # 获取appcast URL
+            appcast_urls = plat_config.get('appcast_urls', {})
+            appcast_url = appcast_urls.get(arch) or plat_config.get('appcast_url')
+            
+            if not appcast_url:
+                raise PlatformError(
+                    UpdateErrorCode.INVALID_CONFIG,
+                    "No appcast URL configured for Windows platform",
+                    {"platform_config": plat_config}
+                )
+            
+            # 获取appcast内容
+            response = requests.get(appcast_url, timeout=10)
+            response.raise_for_status()
+            
+            # 解析appcast
+            items = parse_appcast(response.text)
+            selected = select_latest_for_platform(
+                items, 
+                None, 
+                self.ota_manager.app_version, 
+                arch_tag=arch
+            )
+            
+            if selected:
+                update_info = {
+                    "update_available": True,
+                    "latest_version": selected.version,
+                    "download_url": selected.url,
+                    "file_size": selected.length or 0,
+                    "signature": selected.ed_signature or "",
+                    "description": selected.description_html or "",
+                    "source": "winsparkle_appcast"
+                }
+                return (True, update_info) if return_info else True
+            else:
+                return (False, None) if return_info else False
+                
+        except Exception as e:
+            error = create_error_from_exception(e, "WinSparkle appcast check")
+            logger.error(str(error))
+            if return_info:
+                return False, error
+            return False
+    
+    def _fallback_check_for_updates(self, silent: bool = False, return_info: bool = False):
+        """回退到通用更新检查方法"""
+        try:
+            # 使用通用更新器的逻辑，避免循环导入
+            return self._generic_update_check(silent, return_info)
+        except Exception as e:
+            error = create_error_from_exception(e, "WinSparkle fallback check")
+            logger.error(str(error))
+            if return_info:
+                return False, error
+            return False
+    
+    def _generic_update_check(self, silent: bool = False, return_info: bool = False):
+        """通用更新检查逻辑"""
+        try:
+            import requests
+            
+            # 使用JSON API进行检查
+            update_url = f"{self.ota_manager.update_server_url}/api/check"
+            params = {
+                "app": "ecbot",
+                "version": self.ota_manager.app_version,
+                "platform": "windows",
+                "arch": platform.machine()
+            }
+            
+            response = requests.get(update_url, params=params, timeout=10)
+            response.raise_for_status()
+            
+            if response.status_code == 200:
+                data = response.json()
+                has_update = data.get("update_available", False)
+                update_info = data if has_update else None
+                return (has_update, update_info) if return_info else has_update
+            else:
+                return (False, None) if return_info else False
+                
+        except Exception as e:
+            logger.error(f"Generic update check failed: {e}")
             return (False, None) if return_info else False
     
     def install_update(self, package_manager=None) -> bool:
-        """安装更新"""
+        """安装更新
+        
+        注意: 真实的winSparkle安装需要使用原生API或手动处理EXE/MSI文件
+        这里提供基本的Windows安装逻辑
+        """
         try:
-            # 查找CLI工具
-            cli_path = self._find_winsparkle_cli()
-            if not cli_path:
-                logger.error("winSparkle CLI not found for installation")
+            if not package_manager or not package_manager.current_package:
+                logger.error("No package available for installation")
                 return False
             
-            cmd = [cli_path, "install"]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)  # 5分钟超时
-            return result.returncode == 0
+            package = package_manager.current_package
+            if not package.is_downloaded or not package.download_path:
+                logger.error("Package not downloaded")
+                return False
             
-        except subprocess.TimeoutExpired:
-            logger.error("winSparkle install timed out")
-            return False
-        except FileNotFoundError:
-            logger.error("winSparkle CLI executable not found for installation")
-            return False
+            # 基本的Windows安装逻辑
+            return self._install_windows_package(package.download_path)
+            
         except Exception as e:
-            logger.error(f"winSparkle install failed: {e}")
+            logger.error(f"WinSparkle install failed: {e}")
+            return False
+    
+    def _install_windows_package(self, package_path) -> bool:
+        """安装Windows更新包的基本逻辑"""
+        try:
+            logger.info(f"Installing Windows package: {package_path}")
+            
+            # 在开发模式下，只记录而不实际安装
+            if ota_config.is_dev_mode():
+                logger.info("Development mode: Windows package installation simulated")
+                return True
+            
+            # 实际的Windows安装需要:
+            # 1. 检查文件类型(.exe, .msi)
+            # 2. 以适当权限运行安装程序
+            # 3. 处理UAC提示
+            # 4. 重启应用
+            
+            # 这里提供基本框架，实际实现需要根据具体需求
+            logger.warning("Windows package installation not fully implemented - manual installation required")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Windows package installation failed: {e}")
             return False
 
 

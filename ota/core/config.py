@@ -175,25 +175,44 @@ class OTAConfig:
         return self.is_dev_mode() and self.config.get("allow_http_in_dev", True)
     
     def get_public_key_path(self) -> Optional[str]:
-        """获取数字签名验证公钥路径"""
+        """简化的公钥路径获取"""
         # 优先使用配置文件中的路径
         config_path = self.config.get("public_key_path")
         if config_path and os.path.exists(config_path):
             return config_path
         
-        # 尝试默认路径
+        # 简化的默认路径搜索
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         default_paths = [
-            os.path.join(os.path.dirname(__file__), "..", "..", "keys", "public_key.pem"),
-            os.path.join(os.path.expanduser("~"), ".ecbot", "public_key.pem"),
-            "/etc/ecbot/public_key.pem"  # Linux系统路径
+            os.path.join(project_root, "ota-certificates", "keys", "ed25519_public_key.pem"),
+            os.path.join(project_root, "keys", "public_key.pem")
         ]
         
         for path in default_paths:
             if os.path.exists(path):
+                logger.info(f"Found public key at default location: {path}")
                 return path
         
+        logger.warning("No public key found")
         return None
+    
+    def validate_config(self) -> bool:
+        """简化的配置验证"""
+        # 只验证最关键的配置
+        update_server = self.get_update_server()
+        if not update_server or not (update_server.startswith('http://') or update_server.startswith('https://')):
+            logger.error("Invalid update server URL")
+            return False
+        
+        logger.info("Configuration validation passed")
+        return True
+    
+    # 移除了get_secure_config方法 - 过度实现
 
 
 # 全局配置实例
-ota_config = OTAConfig() 
+ota_config = OTAConfig()
+
+# 启动时验证配置
+if not ota_config.validate_config():
+    logger.warning("OTA configuration validation failed - some features may not work correctly")

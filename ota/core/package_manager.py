@@ -186,18 +186,39 @@ class PackageManager:
     def _verify_digital_signature(self, file_path: Path, signature: str, public_key_path: Optional[str]) -> bool:
         """验证数字签名"""
         try:
+            # 检查加密库可用性
             if not CRYPTO_AVAILABLE:
+                error_msg = "Cryptography library not available for signature verification"
                 if ota_config.get('signature_required', True):
-                    logger.error("Cryptography library not available while signature_required=true")
+                    logger.error(f"{error_msg} (signature_required=true)")
                     return False
-                logger.warning("Cryptography library not available, skipping digital signature verification")
+                logger.warning(f"{error_msg}, skipping verification")
                 return True
 
-            if not public_key_path or not os.path.exists(public_key_path):
+            # 检查公钥文件
+            if not public_key_path:
+                error_msg = "Public key path not provided"
                 if ota_config.get('signature_required', True):
-                    logger.error("Public key not available while signature_required=true")
+                    logger.error(f"{error_msg} (signature_required=true)")
                     return False
-                logger.warning("Public key not available, skipping digital signature verification")
+                logger.warning(f"{error_msg}, skipping verification")
+                return True
+            
+            if not os.path.exists(public_key_path):
+                error_msg = f"Public key file not found: {public_key_path}"
+                if ota_config.get('signature_required', True):
+                    logger.error(f"{error_msg} (signature_required=true)")
+                    return False
+                logger.warning(f"{error_msg}, skipping verification")
+                return True
+            
+            # 检查签名格式
+            if not signature or len(signature.strip()) == 0:
+                error_msg = "Empty or invalid signature"
+                if ota_config.get('signature_required', True):
+                    logger.error(f"{error_msg} (signature_required=true)")
+                    return False
+                logger.warning(f"{error_msg}, skipping verification")
                 return True
             
             # 读取公钥
@@ -218,6 +239,7 @@ class PackageManager:
             
             # 验证签名（支持 RSA-PSS 与 Ed25519）
             if isinstance(public_key, rsa.RSAPublicKey):
+                logger.info("Verifying RSA-PSS signature")
                 public_key.verify(
                     signature_bytes,
                     file_data,
@@ -228,20 +250,25 @@ class PackageManager:
                     hashes.SHA256()
                 )
             elif isinstance(public_key, ed25519.Ed25519PublicKey):
+                logger.info("Verifying Ed25519 signature")
                 # Sparkle 2 edSignature 使用 Ed25519 对整个下载文件签名（Base64 编码）
                 public_key.verify(signature_bytes, file_data)
             else:
-                logger.error("Unsupported public key type for signature verification")
+                key_type = type(public_key).__name__
+                logger.error(f"Unsupported public key type: {key_type}")
                 return False
             
             logger.info("Digital signature verification successful")
             return True
             
-        except InvalidSignature:
-            logger.error("Digital signature verification failed: Invalid signature")
+        except InvalidSignature as e:
+            logger.error(f"Digital signature verification failed: Invalid signature - {e}")
+            return False
+        except ValueError as e:
+            logger.error(f"Digital signature verification failed: Invalid key or signature format - {e}")
             return False
         except Exception as e:
-            logger.error(f"Digital signature verification error: {e}")
+            logger.error(f"Digital signature verification error: {type(e).__name__}: {e}")
             return False
     
     def _verify_package_format(self, file_path: Path) -> bool:
