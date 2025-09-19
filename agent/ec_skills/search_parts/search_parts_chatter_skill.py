@@ -747,7 +747,7 @@ def local_sort_search_results_node(state: NodeState, *, runtime: Runtime, store:
                 state["tool_result"] = []
                 state["attributes"]["sorted_search_results"] = []
 
-            print("state tool result:", state["tool_result"])
+            print("local sort state tool result:", state["tool_result"])
 
         elif hasattr(tool_result, 'isError') and tool_result.isError:
             state["error"] = tool_result.content[0].text if tool_result.content else "Unknown error occurred"

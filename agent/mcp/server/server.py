@@ -1638,6 +1638,7 @@ tool_function_mapping = {
         "api_ecan_ai_get_nodes_prompts": api_ecan_ai_get_nodes_prompts,
         "api_ecan_ai_ocr_read_screen": api_ecan_ai_ocr_read_screen,
         "api_ecan_ai_cloud_search": api_ecan_ai_cloud_search,
+        "api_ecan_ai_rerank_results": api_ecan_ai_rerank_results,
         "mouse_act_on_screen": mouse_act_on_screen,
         "ecan_local_search_components": ecan_local_search_components,
         "ecan_local_sort_search_results": ecan_local_sort_search_results
