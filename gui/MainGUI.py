@@ -1,112 +1,168 @@
+# -*- coding: utf-8 -*-
+"""
+MainGUI.py - eCan.ai
+"""
+
+# ============================================================================
+# 1. Standard Library Imports
+# ============================================================================
 import ast
+import asyncio
+import base64
+import copy
+import glob
+import hashlib
+import importlib
+import importlib.util
 import json
+import math
+import os
+import platform
+import random
 import re
 import shutil
-import asyncio
+import sys
 import time
-import httpx
-from qasync import QEventLoop
-import requests
-from agent.ec_skills.llm_utils.llm_utils import pick_llm
+import traceback
+from _csv import reader
+from datetime import datetime, timedelta, timezone
+from os.path import exists
+from typing import List
+
+# ============================================================================
+# 2. Core Utility Imports
+# ============================================================================
 from utils.time_util import TimeUtil
+from utils.logger_helper import logger_helper as logger
+from bot.envi import getECBotDataHome
+
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
 
-from agent.chats.chat_service import ChatService
-from agent.chats.chats_db import ECBOT_CHAT_DB
+# ============================================================================
+# 3. Basic Model Imports (Required for startup)
+# ============================================================================
 from bot.ebbot import EBBOT
 from bot.missions import EBMISSION
-from common.models import VehicleModel
+from bot.vehicles import VEHICLE
+from common.models import BotModel, MissionModel, VehicleModel
+
 print(TimeUtil.formatted_now_with_ms() + " load MainGui #0 finished...")
+
+# ============================================================================
+# 4. Network Library Imports
+# ============================================================================
+import httpx
+import requests
+
+# ============================================================================
+# 5. Cryptography Library Imports
+# ============================================================================
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.fernet import Fernet
-import hashlib
-import base64
-
-import copy
-import math
-import sys
-import os
-import random
-import traceback
-from _csv import reader
-from os.path import exists
-import glob
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui #1 finished...")
-import importlib
-import importlib.util
-from common.models import BotModel, MissionModel
+
+# ============================================================================
+# 6. Database Related Imports
+# ============================================================================
 from common.db_init import init_db, get_session
 from common.services import MissionService, ProductService, SkillService, BotService, VehicleService
 
+# ============================================================================
+# 7. GUI Manager Imports
+# ============================================================================
 from gui.BotGUI import BotManager
-from bot.Cloud import send_dequeue_tasks_to_cloud, send_schedule_request_to_cloud, send_update_missions_ex_status_to_cloud, set_up_cloud, upload_file, send_add_missions_request_to_cloud, \
-    send_remove_missions_request_to_cloud, send_update_missions_request_to_cloud, send_add_bots_request_to_cloud, \
-    send_update_bots_request_to_cloud, send_remove_bots_request_to_cloud, send_add_skills_request_to_cloud, \
-    send_get_bots_request_to_cloud, send_query_chat_request_to_cloud, download_file, send_report_vehicles_to_cloud,\
-    send_update_vehicles_request_to_cloud
-print(TimeUtil.formatted_now_with_ms() + " load MainGui #2 finished...")
-from bot.Logger import log3
 from gui.MissionGUI import MissionManager
 from gui.PlatoonGUI import PlatoonManager
 from gui.ScheduleGUI import ScheduleManager
 from gui.SkillManagerGUI import SkillManager
 from gui.TrainGUI import TrainManager, ReminderManager
 from gui.VehicleMonitorGUI import VehicleMonitorManager
+from gui.ui_settings import SettingsManager
+
+print(TimeUtil.formatted_now_with_ms() + " load MainGui #2 finished...")
+
+# ============================================================================
+# 8. Cloud Service Imports
+# ============================================================================
+from bot.Cloud import (send_dequeue_tasks_to_cloud, send_schedule_request_to_cloud,
+                      send_update_missions_ex_status_to_cloud, set_up_cloud, upload_file,
+                      send_add_missions_request_to_cloud, send_remove_missions_request_to_cloud,
+                      send_update_missions_request_to_cloud, send_add_bots_request_to_cloud,
+                      send_update_bots_request_to_cloud, send_remove_bots_request_to_cloud,
+                      send_add_skills_request_to_cloud, send_get_bots_request_to_cloud,
+                      send_query_chat_request_to_cloud, download_file, send_report_vehicles_to_cloud,
+                      send_update_vehicles_request_to_cloud)
+
+print(TimeUtil.formatted_now_with_ms() + " load MainGui #3 finished...")
+
+# ============================================================================
+# 9. Bot Module Imports
+# ============================================================================
+from bot.Logger import log3
 from bot.WorkSkill import WORKSKILL
 from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, updateIndividualProfileFromBatchSavedTxt
 from bot.basicSkill import processExternalHook, symTab, STEP_GAP, setMissionInput, getScreenSize
-from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable, ManagerTriggerTable
 from bot.inventories import INVENTORY
 from bot.wanChat import wanSendMessage, wanSendMessage8
+from bot.network import myname, fieldLinks, commanderIP, commanderXport, runCommanderLAN, runPlatoonLAN
+from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, prepRunSkill, readPSkillFile, addNameSpaceToAddress, rpaRunAllSteps, running_step_index
+from bot.labelSkill import handleExtLabelGenResults
+
+print(TimeUtil.formatted_now_with_ms() + " load MainGui #4 finished...")
+
+# ============================================================================
+# 10. External Library Imports
+# ============================================================================
 from lzstring import LZString
 import openpyxl
 import tzlocal
-from datetime import datetime, timedelta, timezone
-import platform
-from typing import List
-print(TimeUtil.formatted_now_with_ms() + " load MainGui #3 finished...")
-
-from bot.network import myname, fieldLinks, commanderIP, commanderXport, runCommanderLAN, runPlatoonLAN
-from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, prepRunSkill, readPSkillFile, addNameSpaceToAddress, rpaRunAllSteps, running_step_index
-from gui.ui_settings import SettingsManager
-
-from bot.vehicles import VEHICLE
-from gui.tool.MainGUITool import FileResource, StaticResource
-from utils.logger_helper import logger_helper as logger
-from gui.encrypt import *
-from bot.labelSkill import handleExtLabelGenResults
-print(TimeUtil.formatted_now_with_ms() + " load MainGui #4 finished...")
 import psutil
+import concurrent.futures
+from qasync import QEventLoop
+
+# ============================================================================
+# 11. GUI Tool Imports
+# ============================================================================
+from gui.tool.MainGUITool import FileResource, StaticResource
+from gui.encrypt import *
+from gui.unified_browser_manager import get_unified_browser_manager
+from auth.auth_manager import AuthManager
+
+print(TimeUtil.formatted_now_with_ms() + " load MainGui #5 finished...")
+
+# ============================================================================
+# 12. Agent Module Imports (Most time-consuming, placed last)
+# ============================================================================
+from agent.chats.chat_service import ChatService
+from agent.chats.chats_db import ECBOT_CHAT_DB
+from agent.ec_skills.llm_utils.llm_utils import pick_llm
 from agent.ec_skills.build_agent_skills import build_agent_skills
 from agent.ec_skills.save_agent_skills import save_agent_skills
 from agent.ec_agents.create_agent_tasks import create_agent_tasks
 from agent.ec_agents.build_agent_knowledges import build_agent_knowledges
 from agent.ec_agents.obtain_agent_tools import obtain_agent_tools
-print(TimeUtil.formatted_now_with_ms() + " load MainGui #5 finished...")
 from agent.mcp.server.tool_schemas import build_agent_mcp_tools_schemas
 from agent.ec_agents.build_agents import build_agents
 from agent.tasks import TaskRunnerRegistry
-import concurrent.futures
-from gui.unified_browser_manager import get_unified_browser_manager
-from auth.auth_manager import AuthManager
 from agent.mcp.local_client import mcp_client_manager
 from agent.ec_skills.build_node import get_default_node_schemas
 
+print(TimeUtil.formatted_now_with_ms() + " load MainGui #6 finished...")
 
-print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
+# ============================================================================
+# 13. Global Variables and Configuration
+# ============================================================================
 
 START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
-
 Tzs = ["eastern", "central", "mountain", "pacific", "alaska", "hawaii"]
-
 rpaConfig = None
-
 ecb_data_homepath = getECBotDataHome()
-
 in_data_string = ""
+
+print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
 
 # class MainWindow(QWidget):
