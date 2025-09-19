@@ -9,10 +9,12 @@ from utils.logger_helper import logger_helper
 
 class SkillService:
 
-    def __init__(self, main_win, session):
+    def __init__(self, main_win, session, engine=None):
         self.main_win = main_win
         self.session = session
-        sync_table_columns(SkillModel, 'skills')
+        self.engine = engine
+        # 传递 engine 参数给 sync_table_columns
+        sync_table_columns(SkillModel, 'skills', engine)
 
     def insert_skill(self, api_skills):
         local_skill = SkillModel()

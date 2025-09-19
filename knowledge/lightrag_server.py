@@ -73,7 +73,7 @@ class LightragServer:
             logger.info(f"[LightragServer] INPUT_DIR: {input_dir}, WORKING_DIR: {working_dir}, LOG_DIR: {log_dir}")
 
     def _setup_signal_handlers(self):
-        """Setup signal handlers"""
+        """Setup signal handlers (only works in main thread)"""
         def signal_handler(signum, frame):
             logger.info(f"[LightragServer] Received signal {signum}, stopping server...")
             self.stop()
@@ -81,15 +81,19 @@ class LightragServer:
                 sys.exit(0)
 
         try:
-            # Register signal handlers
-            signal.signal(signal.SIGTERM, signal_handler)
-            signal.signal(signal.SIGINT, signal_handler)
+            # Check if we're in the main thread
+            if threading.current_thread() is threading.main_thread():
+                # Register signal handlers only in main thread
+                signal.signal(signal.SIGTERM, signal_handler)
+                signal.signal(signal.SIGINT, signal_handler)
 
-            # macOS/Linux specific signals
-            if hasattr(signal, 'SIGHUP'):
-                signal.signal(signal.SIGHUP, signal_handler)
+                # macOS/Linux specific signals
+                if hasattr(signal, 'SIGHUP'):
+                    signal.signal(signal.SIGHUP, signal_handler)
 
-            logger.info("[LightragServer] Signal handlers registered")
+                logger.info("[LightragServer] Signal handlers registered in main thread")
+            else:
+                logger.debug("[LightragServer] Skipping signal handler setup - not in main thread")
         except Exception as e:
             logger.warning(f"[LightragServer] Failed to setup signal handlers: {e}")
 

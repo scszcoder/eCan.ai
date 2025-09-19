@@ -8,8 +8,6 @@ import httpx
 from qasync import QEventLoop
 import requests
 from agent.ec_skills.llm_utils.llm_utils import pick_llm
-from agent.mcp.config import mcp_http_base
-from agent.mcp.mcp_utils import wait_until_server_ready
 from utils.time_util import TimeUtil
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
 
@@ -35,7 +33,6 @@ from _csv import reader
 from os.path import exists
 import glob
 
-from PySide6.QtCore import QThreadPool
 print(TimeUtil.formatted_now_with_ms() + " load MainGui #1 finished...")
 import importlib
 import importlib.util
@@ -226,7 +223,6 @@ class MainWindow:
         self.platoons = []
         self.products = []
         self.zipper = LZString()
-        self.threadPool = QThreadPool()
         self.selected_bot_row = -1
         self.selected_mission_row = -1
         self.selected_bot_item = None
@@ -257,7 +253,6 @@ class MainWindow:
         self.todaysReport = []              # per task group. (inside this report, there are list of individual task/mission result report.
         self.todaysReports = []             # per vehicle/host
         self.todaysPlatoonReports = []
-        self.wifis = []
 
         if not os.path.exists(f"{self.my_ecb_data_homepath}/resource/data/"):
             os.makedirs(f"{self.my_ecb_data_homepath}/resource/data/")
@@ -319,13 +314,19 @@ class MainWindow:
         logger.debug(self.dbfile)
         logger.info("some vars init done4....")
         if "Commander" in self.machine_role:
+            # Optimized database initialization
+            logger.info("🗄️ Initializing database...")
             engine = init_db(self.dbfile)
             session = get_session(engine)
-            self.bot_service = BotService(self, session)
-            self.mission_service = MissionService(self, session)
-            self.product_service = ProductService(self, session)
-            self.skill_service = SkillService(self, session)
-            self.vehicle_service = VehicleService(self, session)
+
+            # Initialize services with optimized database session
+            logger.info("🔧 Initializing database services...")
+            self.bot_service = BotService(self, session, engine)
+            self.mission_service = MissionService(self, session, engine)
+            self.product_service = ProductService(self, session, engine)
+            self.skill_service = SkillService(self, session, engine)
+            self.vehicle_service = VehicleService(self, session, engine)
+            logger.info("✅ Database services initialized")
         else:
             self.bot_service = None
             self.mission_service = None
@@ -377,41 +378,38 @@ class MainWindow:
             logger.debug("vname:", v.getName(), "status:", v.getStatus(), )
 
         self.settings_manager: SettingsManager = SettingsManager(self)
-        # get current wifi ssid and stores it.
-        logger.debug("Checking Wifi on OS platform: "+self.platform)
-        self.wifis = self.settings_manager.get_wifi_networks()
-        logger.info("default wifi is:" + self.config_manager.general_settings.default_wifi)
 
         logger.debug("load local bots, mission, skills ")
         if ("Commander" in self.machine_role):
             self.readVehicleJsonFile()
-            self.showMsg("Vehicle files loaded"+json.dumps(self.vehiclesJsonData))
-            # load skills into memory.
-            if not self.config_manager.general_settings.debug_mode or self.config_manager.general_settings.schedule_mode == "auto":
-                logger.info("getting bots from cloud....")
-                self.bot_service.sync_cloud_bot_data(self.session, self.get_auth_token(), self)
-                logger.info("bot cloud done....")
-            logger.info("bot service sync cloud data")
+            logger.info("Vehicle files loaded"+json.dumps(self.vehiclesJsonData))
+
+            # Load local data first for immediate UI responsiveness
+            logger.info("Loading local bot data...")
             bots_data = self.bot_service.find_all_bots()
             logger.info("find all bots"  + str(len(bots_data)))
             self.loadLocalBots(bots_data)
-            self.showMsg("bots loaded")
+            logger.info("bots local data loaded")
 
             self.createNewBotsFromBotsXlsx()
 
-            if not self.config_manager.general_settings.debug_mode or self.config_manager.general_settings.schedule_mode == "auto":
-                self.mission_service.sync_cloud_mission_data(self.session, self.get_auth_token(), self)
-            logger.info("mission cloud synced")
+            logger.info("Loading local mission data...")
             missions_data = self.mission_service.find_missions_by_createon()
             logger.info("local mission data:", missions_data)
-            # missions_data = []      # test hack
             self.loadLocalMissions(missions_data)
-            log3("missions loaded")
+            logger.info("missions local data loaded")
             self.dailySkillsetUpdate()
-            log3("skills loaded")
+            logger.info("skills local data loaded")
+
+            # Start cloud sync in background (non-blocking)
+            if not self.config_manager.general_settings.debug_mode or self.config_manager.general_settings.schedule_mode == "auto":
+                logger.info("Starting background cloud data sync...")
+                asyncio.create_task(self._async_sync_cloud_data())
+            else:
+                logger.info("Cloud sync skipped (debug mode or manual schedule)")
 
         # Done with all UI stuff, now do the instruction set extension work.
-        self.showMsg("set up rais extensions ")
+        logger.info("set up rais extensions ")
         rais_extensions_file = self.my_ecb_data_homepath + "/my_rais_extensions/my_rais_extensions.json"
         rais_extensions_dir = self.my_ecb_data_homepath + "/my_rais_extensions/"
         added_handlers=[]
@@ -513,7 +511,7 @@ class MainWindow:
             self.config_manager.general_settings.browser_use_file_system_path = os.path.join(self.my_ecb_data_homepath, f'browser_use_fs')
             self.config_manager.general_settings.save()
         
-        self.llm = pick_llm(self.config_manager.general_settings.default_llm, self.config_manager.llm_manager.get_all_providers())
+        self.llm = pick_llm(self.config_manager.general_settings.default_llm, self.config_manager.llm_manager.get_all_providers(), self.config_manager)
         logger.info("LLM selected: ", self.llm)
         self.agents = []
         self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
@@ -541,29 +539,28 @@ class MainWindow:
                     self.showMsg("ERROR: unexpected json load error")
                     self.node_schemas = get_default_node_schemas()
 
-        logger.info("Building agent skills.....")
-        asyncio.create_task(self.async_agents_init())
-
-        # asyncio.run_coroutine_threadsafe(self.async_agents_init(), loop)
-        # await asyncio.gather(peer_task, monitor_task, chat_task, rpa_task_future)
+        # Initialize core async tasks first (non-blocking)
         loop = asyncio.get_event_loop()
         asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
 
         self.saveSettings()
         logger.info("vehicles after init:", [v.getName() for v in self.vehicles])
-
-        # Initialize browser manager
-        self.setupUnifiedBrowserManager()
-
-        # Start WebDriver initialization in background
-        asyncio.create_task(self._start_webdriver_initialization())
-
-        # Start LightRAG server
-        self._start_lightrag_deferred()
         
+        # Start agent initialization in background (delayed/lazy loading)
+        logger.info("Scheduling agent initialization for background...")
+        asyncio.create_task(self.async_agents_init())
+
+        # Initialize browser manager asynchronously (non-blocking)
+        logger.info("Scheduling browser manager initialization for background...")
+        asyncio.create_task(self._async_setup_browser_manager())
+
+        # Start LightRAG server asynchronously (fully non-blocking)
+        logger.info("Scheduling LightRAG server initialization for background...")
+        asyncio.create_task(self._async_start_lightrag())
+
         # 更新同步初始化状态
         self._initialization_status['sync_init_complete'] = True
-        logger.info("MainWindow synchronous initialization completed")
+        logger.info("MainWindow synchronous initialization completed - agents will initialize in background")
 
     def is_fully_initialized(self) -> bool:
         """检查是否完全初始化完成"""
@@ -594,31 +591,123 @@ class MainWindow:
             self.lightrag_server = LightragServer(
                 extra_env={"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"}
             )
+            # Start server process but don't wait for it to be ready
             self.lightrag_server.start(wait_ready=False)
             logger.info("LightRAG server started (deferred, non-blocking)")
         except Exception as e:
             logger.warning(f"Deferred LightRAG start failed: {e}")
 
-    async def initialize_mcp(self):
-        local_server_port = 4668
-        url = f"http://127.0.0.1:{local_server_port}/api/initialize"  # <-- you need to implement this
-        payload = {
-            "protocolVersion": "1.0",
-            "capabilities": {},
-            "clientInfo": {
-                "name": "MyAgentClient",
-                "version": "1.0"
-            }
-        }
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload)
-            result = response.json()
-            logger.info("Initialization successful:", result)
-            return result
 
     def stop_lightrag_server(self):
         self.lightrag_server.stop()
         self.lightrag_server = None
+
+    async def _async_sync_cloud_data(self):
+        """
+        Asynchronously sync cloud data in background without blocking UI
+        """
+        try:
+            logger.info("🌐 Starting background cloud data synchronization...")
+
+            # Sync bot data
+            logger.info("📥 Syncing bot data from cloud...")
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                self.bot_service.sync_cloud_bot_data,
+                self.session,
+                self.get_auth_token(),
+                self
+            )
+
+            # Reload local bots after cloud sync
+            logger.info("🔄 Reloading bot data after cloud sync...")
+            bots_data = self.bot_service.find_all_bots()
+            self.loadLocalBots(bots_data)
+            logger.info(f"✅ Bot cloud sync completed - {len(bots_data)} bots loaded")
+
+            # Sync mission data
+            logger.info("📥 Syncing mission data from cloud...")
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                self.mission_service.sync_cloud_mission_data,
+                self.session,
+                self.get_auth_token(),
+                self
+            )
+
+            # Reload local missions after cloud sync
+            logger.info("🔄 Reloading mission data after cloud sync...")
+            missions_data = self.mission_service.find_missions_by_createon()
+            self.loadLocalMissions(missions_data)
+            logger.info(f"✅ Mission cloud sync completed - {len(missions_data)} missions loaded")
+
+            # Update UI to reflect new data
+            logger.info("Cloud data sync completed successfully")
+            logger.info("🎉 Background cloud data synchronization completed successfully!")
+
+        except Exception as e:
+            logger.error(f"❌ Background cloud sync failed: {e}")
+            logger.error(f"Cloud sync error details: {traceback.format_exc()}")
+            logger.error(f"Cloud sync failed: {str(e)}")
+
+
+    async def _async_setup_browser_manager(self):
+        """
+        Asynchronously setup browser manager and WebDriver in background
+        """
+        try:
+            # Wait a bit to ensure main window is responsive first
+            await asyncio.sleep(1.0)
+
+            logger.info("🌐 Starting background browser manager initialization...")
+
+            # Run browser manager setup in executor to avoid blocking
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                self.setupUnifiedBrowserManager
+            )
+
+            # Start WebDriver initialization after browser manager is ready
+            await self._start_webdriver_initialization()
+
+            logger.info("✅ Browser manager and WebDriver initialization completed!")
+
+        except Exception as e:
+            logger.error(f"❌ Background browser setup failed: {e}")
+            logger.error(f"Browser setup error details: {traceback.format_exc()}")
+            # Don't crash the app if browser setup fails
+            # The app should continue to work without browser automation
+
+    async def _async_start_lightrag(self):
+        """
+        Asynchronously start LightRAG server in background
+        """
+        try:
+            # Wait a bit to ensure other services are ready
+            await asyncio.sleep(0.5)
+
+            logger.info("🧠 Starting LightRAG server initialization...")
+
+            # Initialize LightRAG server in main thread to allow signal handlers
+            # but run the actual server start in executor for non-blocking behavior
+            from knowledge.lightrag_server import LightragServer
+            self.lightrag_server = LightragServer(
+                extra_env={"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"}
+            )
+
+            # Start the server process in executor (this is the blocking part)
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.lightrag_server.start(wait_ready=False)
+            )
+
+            logger.info("✅ LightRAG server initialization completed!")
+
+        except Exception as e:
+            logger.error(f"❌ LightRAG server initialization failed: {e}")
+            logger.error(f"LightRAG error details: {traceback.format_exc()}")
+            # Don't crash the app if LightRAG fails
+            # The app should continue to work without knowledge services
 
     def get_auth_token(self):
         """Return a valid JWT for AppSync Authorization header.
@@ -648,123 +737,311 @@ class MainWindow:
 
     async def async_agents_init(self):
         """
-        Asynchronously initialize agents, must wait for server to be ready before continuing subsequent logic
-        Optimized timeout handling for PyInstaller environment
+        优化的异步 Agent 初始化 - 并行化和延迟加载策略
         """
+        import time
+        start_time = time.time()
+        
         try:
-            logger.info("initing agents async.....")
+            logger.info("🚀 Starting optimized async agents initialization...")
             local_server_port = self.get_local_server_port()
-
-            # Simplified server connection logic
-            server_timeout = 60  # Give PyInstaller more time for first unpacking
-            logger.info(f"Waiting for local server on port {local_server_port} (timeout: {server_timeout}s)")
-
+            
+            # 阶段1：并行等待服务器和预初始化
+            logger.info("⚡ Phase 1: Parallel server check and pre-initialization...")
+            
+            server_ready_task = self._wait_for_server_ready(local_server_port)
+            pre_init_task = self._pre_initialize_components()
+            
+            # 并行等待服务器就绪和预初始化
+            server_result, pre_init_result = await asyncio.gather(
+                server_ready_task,
+                pre_init_task,
+                return_exceptions=True
+            )
+            
+            # 检查服务器就绪结果
+            if isinstance(server_result, Exception):
+                logger.error(f"❌ Server readiness check failed: {server_result}")
+                raise server_result
+            
+            if isinstance(pre_init_result, Exception):
+                logger.warning(f"⚠️ Pre-initialization had issues: {pre_init_result}")
+            
+            elapsed_phase1 = time.time() - start_time
+            logger.info(f"✅ Phase 1 completed in {elapsed_phase1:.2f}s")
+            
+            # 阶段2：并行初始化核心组件
+            logger.info("🔄 Phase 2: Parallel core component initialization...")
+            phase2_start = time.time()
+            
+            # 并行执行可以独立运行的初始化任务
+            tasks = []
+            
+            # MCP 工具列表获取（可能很慢，放在后台）
+            tasks.append(self._get_mcp_tools_async())
+            
+            # Agent 组件初始化（部分可以并行）
+            tasks.append(self._initialize_agent_components_async())
+            
+            # 等待所有并行任务完成
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # 处理结果
+            mcp_tools_result, agent_components_result = results
+            
+            if isinstance(mcp_tools_result, Exception):
+                logger.warning(f"⚠️ MCP tools initialization failed: {mcp_tools_result}")
+                self.mcp_tools = []
+            else:
+                self.mcp_tools = mcp_tools_result
+                logger.info(f"✅ MCP tools ready: {len(self.mcp_tools)} tools available")
+            
+            if isinstance(agent_components_result, Exception):
+                logger.error(f"❌ Agent components initialization failed: {agent_components_result}")
+                raise agent_components_result
+            
+            elapsed_phase2 = time.time() - phase2_start
+            logger.info(f"✅ Phase 2 completed in {elapsed_phase2:.2f}s")
+            
+            # 阶段3：最终组装和启动（必须串行）
+            logger.info("🎯 Phase 3: Final assembly and launch...")
+            phase3_start = time.time()
+            
             try:
-                await wait_until_server_ready(f"http://127.0.0.1:{local_server_port}/healthz", timeout=server_timeout)
-                logger.info(f"✅ Local server ready on port {local_server_port}")
-            except RuntimeError as e:
-                logger.error(f"❌ Failed to connect to local server: {e}")
-                error_msg = f"Local server connection failed (port: {local_server_port}).\nError details: {str(e)}"
-                self.showMsg(error_msg)
-                raise RuntimeError(f"Server connection failed: {e}")
-            except Exception as e:
-                logger.error(f"❌ Unexpected error: {e}")
-                raise
-
-            # Server is ready, start initializing MCP client and agents
-            logger.info("🔄 Starting MCP client and agent initialization...")
-
-            url = mcp_http_base()  # streamable HTTP base (no trailing slash)
-            logger.info("MCP client created....")
-
-            # Get MCP tools list - using standard MCP client
-            try:
-                logger.info("📋 Listing MCP tools...")
-                tl_result = await mcp_client_manager.list_tools(url)
-
-                # Handle ListToolsResult object
-                if hasattr(tl_result, 'tools'):
-                    tl = tl_result.tools  # Get actual tools list
-                    logger.info(f"✅ Successfully listed {len(tl)} MCP tools")
-                elif isinstance(tl_result, list):
-                    tl = tl_result  # If directly returning list
-                    logger.info(f"✅ Successfully listed {len(tl)} MCP tools")
-                else:
-                    logger.warning(f"Unexpected tools result type: {type(tl_result)}")
-                    tl = []
-
-                logger.debug(f"Tools result type: {type(tl_result)}")
-                if tl:
-                    logger.debug(f"First tool: {tl[0] if len(tl) > 0 else 'None'}")
-
-            except Exception as e:
-                logger.error(f"❌ Failed to list MCP tools: {e}")
-                import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
-                # Continue execution, but log error
-                tl = []
-                logger.warning("Continuing with empty tool list...")
-
-            # tools = await self.mcp_client.get_tools(server_name="E-Commerce Agents Service")
-
-            # Initialize agent-related components
-            logger.info("🤖 Initializing agent components...")
-            self.agent_skills = []
-            self.agent_tasks = []
-            self.agent_tools = []
-            self.agent_knowledges = []
-
-            try:
-                # Initialize each component in order, waiting for each step to complete
-                logger.info("🔧 Building agent skills...")
-                self.agent_skills = await build_agent_skills(self)
-                logger.info(f"✅ Built {len(self.agent_skills)} agent skills")
-                
-                logger.info("📝 Creating agent tasks...")
-                self.agent_tasks = create_agent_tasks(self)
-                logger.info(f"✅ Created {len(self.agent_tasks)} agent tasks")
-                
-                logger.info("🛠️ Obtaining agent tools...")
-                self.agent_tools = obtain_agent_tools(self)
-                logger.info(f"✅ Obtained {len(self.agent_tools)} agent tools")
-
-                logger.info("📚 Building agent knowledges...")
-                self.agent_knowledges = build_agent_knowledges(self)
-                logger.info(f"✅ Built {len(self.agent_knowledges)} agent knowledges")
-
                 logger.info("🚀 Building agents...")
                 build_agents(self)
-                logger.info("✅ DONE build agents.....")
+                logger.info("✅ Agents built successfully")
 
                 logger.info("🎯 Launching agents...")
                 self.launch_agents()
-                logger.info("✅ DONE launch agents.....")
+                logger.info("✅ Agents launched successfully")
 
                 # 标记异步初始化完成和系统完全就绪
                 self._initialization_status['async_init_complete'] = True
                 self._initialization_status['fully_ready'] = True
-                logger.info("MainWindow async initialization completed successfully!")
+                
+                elapsed_phase3 = time.time() - phase3_start
+                total_elapsed = time.time() - start_time
+                
+                logger.info(f"✅ Phase 3 completed in {elapsed_phase3:.2f}s")
+                logger.info(f"🎉 Optimized async initialization completed in {total_elapsed:.2f}s!")
 
             except Exception as e:
-                logger.error(f"❌ Error during agent initialization: {e}")
+                logger.error(f"❌ Error during final assembly: {e}")
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
-                error_msg = f"Error occurred during agent initialization: {str(e)}\n\n" \
-                           f"This may be due to:\n" \
-                           f"1. Dependent services not fully started\n" \
-                           f"2. Missing or incorrect configuration files\n" \
-                           f"3. Network connection issues\n\n" \
-                           f"Please check logs for detailed information."
-                self.showMsg(error_msg)
-                # Throw exception because agent initialization failure will affect subsequent functionality
                 raise
 
         except Exception as e:
-            logger.error(f"Critical error in async_agents_init: {e}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            error_msg = f"Agent initialization failed: {str(e)}"
+            total_elapsed = time.time() - start_time
+            logger.error(f"❌ Async agents initialization failed after {total_elapsed:.2f}s: {e}")
+            
+            error_msg = f"Agent initialization failed: {str(e)}\n\n" \
+                       f"This may be due to:\n" \
+                       f"1. Server connection issues\n" \
+                       f"2. Missing configuration files\n" \
+                       f"3. Resource conflicts\n\n" \
+                       f"Please check logs for detailed information."
             self.showMsg(error_msg)
+            raise
+
+    async def _wait_for_server_ready(self, local_server_port: int):
+        """优化的服务器就绪等待"""
+        logger.info(f"🔍 Waiting for server on port {local_server_port}...")
+        from agent.mcp.mcp_utils import wait_until_server_ready
+        
+        try:
+            host = "127.0.0.1"
+            timeout = 30
+            await wait_until_server_ready(f"http://{host}:{local_server_port}/healthz", timeout=timeout)
+            logger.info(f"✅ Server ready on {host};port {local_server_port};timeout {timeout}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Server readiness check failed: {e}")
+            raise RuntimeError(f"Server connection failed on {host};port {local_server_port};timeout {timeout}: {e}")
+
+    async def _pre_initialize_components(self):
+        """
+        预初始化可以并行执行的组件
+        
+        核心目的：在等待服务器就绪的同时，并行执行不依赖服务器的准备工作，
+        充分利用等待时间，提高整体初始化效率。
+        
+        主要工作：
+        1. 初始化基础数据结构，避免后续访问未定义属性
+        2. 预加载耗时的模块，减少后续导入时间
+        3. 检查配置完整性，提前发现配置问题
+        
+        性能优化：
+        - 时间复用：在 I/O 等待期间充分利用 CPU
+        - 资源优化：预加载模块减少后续阻塞
+        - 错误隔离：预初始化失败不影响主流程
+        """
+        logger.info("🔧 Pre-initializing components...")
+        
+        try:
+            # 1. 初始化基础数据结构
+            # 目的：确保后续代码不会因为未初始化的属性而出错
+            self.agent_skills = []
+            self.agent_tasks = []
+            self.agent_tools = []
+            self.agent_knowledges = []
+            
+            # 2. 预加载必要的模块（减少后续导入时间）
+            # 目的：Python 模块导入是同步操作，预先导入可以减少后续初始化时的导入时间
+            logger.debug("📦 Pre-loading modules...")
+            try:
+                # 预导入耗时的模块，避免后续阻塞
+                import agent.ec_skills.build_agent_skills
+                import agent.ec_agents.create_agent_tasks
+                import agent.ec_agents.obtain_agent_tools
+                import agent.ec_agents.build_agent_knowledges
+                import agent.mcp.local_client
+                import agent.mcp.config
+                import agent.mcp.server.server
+                logger.debug("✅ Modules pre-loaded successfully")
+            except ImportError as e:
+                logger.debug(f"⚠️ Some modules not available for pre-loading: {e}")
+            
+            # 3. 检查和准备配置
+            # 目的：提前发现配置问题，避免在关键时刻才发现配置缺失
+            logger.debug("⚙️ Checking configurations...")
+            
+            # 检查必要的配置是否存在
+            if not hasattr(self, 'config_manager') or self.config_manager is None:
+                logger.debug("⚠️ Config manager not available")
+            
+            
+            logger.info("✅ Pre-initialization completed")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Pre-initialization failed: {e}")
+            return False
+
+    async def _get_mcp_tools_async(self):
+        """异步获取 MCP 工具列表"""
+        logger.info("📋 Getting MCP tools list...")
+        
+        try:
+            from agent.mcp.local_client import mcp_client_manager
+            from agent.mcp.config import mcp_http_base
+            
+            url = mcp_http_base()
+            tl_result = await mcp_client_manager.list_tools(url)
+
+            # Handle ListToolsResult object
+            if hasattr(tl_result, 'tools'):
+                tl = tl_result.tools
+                logger.info(f"✅ Successfully listed {len(tl)} MCP tools")
+            elif isinstance(tl_result, list):
+                tl = tl_result
+                logger.info(f"✅ Successfully listed {len(tl)} MCP tools")
+            else:
+                logger.warning(f"Unexpected tools result type: {type(tl_result)}")
+                tl = []
+
+            return tl
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get MCP tools: {e}")
+            return []
+
+    async def _initialize_agent_components_async(self):
+        """异步初始化 Agent 组件 - 改进的并行策略"""
+        logger.info("🤖 Initializing agent components...")
+        
+        try:
+            # 第一步：构建 Agent Skills（最耗时）
+            logger.info("🔧 Building agent skills...")
+            self.agent_skills = await self._build_agent_skills_optimized()
+            logger.info(f"✅ Built {len(self.agent_skills)} agent skills")
+            
+            # 第二步：并行初始化其他组件（这些组件相互独立）
+            logger.info("🔄 Parallel initialization of other components...")
+            tasks = [
+                self._create_agent_tasks_async(),
+                self._obtain_agent_tools_async(),
+                self._build_agent_knowledges_async()
+            ]
+            
+            # 等待所有任务完成
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # 处理结果
+            tasks_result, tools_result, knowledges_result = results
+            
+            if isinstance(tasks_result, Exception):
+                logger.warning(f"⚠️ Agent tasks initialization failed: {tasks_result}")
+                self.agent_tasks = []
+            else:
+                self.agent_tasks = tasks_result
+                logger.info(f"✅ Created {len(self.agent_tasks)} agent tasks")
+            
+            if isinstance(tools_result, Exception):
+                logger.warning(f"⚠️ Agent tools initialization failed: {tools_result}")
+                self.agent_tools = []
+            else:
+                self.agent_tools = tools_result
+                logger.info(f"✅ Obtained {len(self.agent_tools)} agent tools")
+            
+            if isinstance(knowledges_result, Exception):
+                logger.warning(f"⚠️ Agent knowledges initialization failed: {knowledges_result}")
+                self.agent_knowledges = []
+            else:
+                self.agent_knowledges = knowledges_result
+                logger.info(f"✅ Built {len(self.agent_knowledges)} agent knowledges")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Agent components initialization failed: {e}")
+            raise
+
+    async def _build_agent_skills_optimized(self):
+        """优化的 Agent Skills 构建"""
+        logger.info("🔧 Building agent skills (optimized)...")
+        
+        try:
+            from agent.ec_skills.build_agent_skills import build_agent_skills
+            skills = await build_agent_skills(self)
+            return skills
+        except Exception as e:
+            logger.error(f"❌ Failed to build agent skills: {e}")
+            raise
+
+    async def _create_agent_tasks_async(self):
+        """异步创建 Agent Tasks"""
+        try:
+            from agent.ec_agents.create_agent_tasks import create_agent_tasks
+            logger.debug("📝 Creating agent tasks...")
+            tasks = create_agent_tasks(self)
+            return tasks
+        except Exception as e:
+            logger.error(f"❌ Failed to create agent tasks: {e}")
+            raise
+
+    async def _obtain_agent_tools_async(self):
+        """异步获取 Agent Tools"""
+        try:
+            from agent.ec_agents.obtain_agent_tools import obtain_agent_tools
+            logger.debug("🛠️ Obtaining agent tools...")
+            tools = obtain_agent_tools(self)
+            return tools
+        except Exception as e:
+            logger.error(f"❌ Failed to obtain agent tools: {e}")
+            raise
+
+    async def _build_agent_knowledges_async(self):
+        """异步构建 Agent Knowledges"""
+        try:
+            from agent.ec_agents.build_agent_knowledges import build_agent_knowledges
+            logger.debug("📚 Building agent knowledges...")
+            knowledges = build_agent_knowledges(self)
+            return knowledges
+        except Exception as e:
+            logger.error(f"❌ Failed to build agent knowledges: {e}")
+            raise
 
     def wait_for_server(self, agent, timeout: float = 10.0):
         url = agent.get_card().url+'/ping'
@@ -978,7 +1255,7 @@ class MainWindow:
         return get_cpu_info_safely()
 
     def getWifis(self):
-        return self.wifis
+        return self.config_manager.general_settings.wifis
 
     def getWebDriverPath(self):
         return self.config_manager.general_settings.default_webdriver_path
@@ -3589,12 +3866,6 @@ class MainWindow:
         except Exception as e:
             logger.debug(f"Error shutting down ThreadPoolExecutor: {e}")
 
-        # Drain/stop Qt thread pool if used
-        try:
-            # Wait for queued runnables to finish quickly
-            self.threadPool.waitForDone(1000)  # 1s timeout
-        except Exception as e:
-            logger.debug(f"Error waiting for QThreadPool: {e}")
 
         # Finally, call auth logout and close window
         try:
