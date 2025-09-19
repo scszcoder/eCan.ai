@@ -1,129 +1,36 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                               QPushButton, QProgressBar, QTextEdit, QCheckBox)
-from PySide6.QtCore import Qt, QThread, Signal, QTimer
+                               QPushButton, QProgressBar, QTextEdit)
+from PySide6.QtCore import Qt
 
 from utils.logger_helper import logger_helper as logger
-from ..core.errors import UpdateError, get_user_friendly_message
 
 
-class UpdateCheckerThread(QThread):
-    """更新检查线程"""
-    update_found = Signal(bool, str)
-    check_finished = Signal()
-    error_occurred = Signal(str)
-    update_error = Signal(object)  # 传递UpdateError对象
+class SimpleUpdateDialog(QDialog):
+    """简化的更新对话框"""
     
-    def __init__(self, ota_updater, silent=False):
-        super().__init__()
-        self.ota_updater = ota_updater
-        self.silent = silent
-    
-    def run(self):
-        try:
-            # 检查是否被中断
-            if self.isInterruptionRequested():
-                return
-            
-            # 设置错误回调
-            def error_callback(error: UpdateError):
-                if not self.isInterruptionRequested():
-                    self.update_error.emit(error)
-            
-            self.ota_updater.set_error_callback(error_callback)
-            
-            # 再次检查中断
-            if self.isInterruptionRequested():
-                return
-                
-            has_update = self.ota_updater.check_for_updates(self.silent)
-            
-            # 检查中断后再发送信号
-            if not self.isInterruptionRequested():
-                if has_update:
-                    self.update_found.emit(True, "New update available")
-                else:
-                    self.update_found.emit(False, "No updates available")
-                    
-        except UpdateError as e:
-            if not self.isInterruptionRequested():
-                self.update_error.emit(e)
-        except Exception as e:
-            if not self.isInterruptionRequested():
-                self.error_occurred.emit(str(e))
-        finally:
-            if not self.isInterruptionRequested():
-                self.check_finished.emit()
-
-
-class UpdateInstallThread(QThread):
-    """更新安装线程"""
-    progress_updated = Signal(int)
-    install_finished = Signal(bool, str)
-    
-    def __init__(self, ota_updater):
-        super().__init__()
-        self.ota_updater = ota_updater
-    
-    def run(self):
-        try:
-            # 检查是否被中断
-            if self.isInterruptionRequested():
-                return
-            
-            # 再次检查中断
-            if self.isInterruptionRequested():
-                return
-            
-            # 设置进度回调
-            def progress_callback(progress):
-                if not self.isInterruptionRequested():
-                    self.progress_updated.emit(progress)
-            
-            success = self.ota_updater.install_update()
-            
-            # 检查中断后再发送信号
-            if not self.isInterruptionRequested():
-                if success:
-                    self.install_finished.emit(True, "Update installed successfully")
-                else:
-                    self.install_finished.emit(False, "Update installation failed")
-        except Exception as e:
-            if not self.isInterruptionRequested():
-                self.install_finished.emit(False, f"Installation error: {str(e)}")
-
-
-class UpdateDialog(QDialog):
-    """更新对话框"""
-    
-    def __init__(self, ota_updater, parent=None):
+    def __init__(self, parent=None, ota_updater=None):
         super().__init__(parent)
-        self.setWindowTitle("ECBot Update")
-        self.setModal(True)
-        self.setFixedSize(500, 400)
-        
         self.ota_updater = ota_updater
-        self.checker_thread = None
-        self.install_thread = None
+        self.update_info = None
         
         self.setup_ui()
         self.setup_connections()
         
-        # 自动检查更新
-        self.check_for_updates()
+        # 设置窗口属性
+        self.setWindowTitle("软件更新")
+        self.setModal(True)
+        self.resize(400, 250)
     
     def setup_ui(self):
-        """设置UI"""
+        """设置简化的用户界面"""
         layout = QVBoxLayout()
         
         # 标题
-        title_label = QLabel("ECBot Update")
-        title_label.setStyleSheet("font-size: 18px; font-weight: bold; margin: 10px;")
-        title_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title_label)
+        self.title_label = QLabel("<h3>ECBot 软件更新</h3>")
+        layout.addWidget(self.title_label)
         
         # 状态标签
-        self.status_label = QLabel("Checking for updates...")
-        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label = QLabel("准备检查更新...")
         layout.addWidget(self.status_label)
         
         # 进度条
@@ -132,126 +39,150 @@ class UpdateDialog(QDialog):
         layout.addWidget(self.progress_bar)
         
         # 更新信息
-        self.update_info = QTextEdit()
-        self.update_info.setMaximumHeight(150)
-        self.update_info.setVisible(False)
-        layout.addWidget(self.update_info)
+        self.info_text = QTextEdit()
+        self.info_text.setVisible(False)
+        self.info_text.setMaximumHeight(100)
+        layout.addWidget(self.info_text)
         
-        # 自动更新选项
-        self.auto_check_checkbox = QCheckBox("Automatically check for updates")
-        self.auto_check_checkbox.setChecked(True)
-        layout.addWidget(self.auto_check_checkbox)
+        # 版本信息
+        if self.ota_updater:
+            version_label = QLabel(f"当前版本: {self.ota_updater.app_version}")
+            layout.addWidget(version_label)
         
-        # 按钮布局
+        # 按钮
         button_layout = QHBoxLayout()
         
-        self.check_button = QPushButton("Check for Updates")
-        self.check_button.setEnabled(False)
+        self.check_button = QPushButton("检查更新")
+        self.install_button = QPushButton("安装更新")
+        self.install_button.setEnabled(False)
+        self.close_button = QPushButton("关闭")
+        
         button_layout.addWidget(self.check_button)
-        
-        self.install_button = QPushButton("Install Update")
-        self.install_button.setVisible(False)
         button_layout.addWidget(self.install_button)
-        
-        self.close_button = QPushButton("Close")
+        button_layout.addStretch()
         button_layout.addWidget(self.close_button)
         
         layout.addLayout(button_layout)
-        
         self.setLayout(layout)
     
     def setup_connections(self):
         """设置信号连接"""
         self.check_button.clicked.connect(self.check_for_updates)
         self.install_button.clicked.connect(self.install_update)
-        self.close_button.clicked.connect(self.accept)
-        self.auto_check_checkbox.toggled.connect(self.toggle_auto_check)
+        self.close_button.clicked.connect(self.close)
     
     def check_for_updates(self):
-        """检查更新"""
-        self.status_label.setText("Checking for updates...")
-        self.check_button.setEnabled(False)
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)  # 不确定进度
+        """简化的检查更新"""
+        if not self.ota_updater:
+            self.status_label.setText("更新器未初始化")
+            return
         
-        self.checker_thread = UpdateCheckerThread(self.ota_updater, silent=False)
-        self.checker_thread.update_found.connect(self.on_update_found)
-        self.checker_thread.check_finished.connect(self.on_check_finished)
-        self.checker_thread.error_occurred.connect(self.on_error)
-        self.checker_thread.update_error.connect(self.on_update_error)
-        self.checker_thread.start()
+        self.check_button.setEnabled(False)
+        self.status_label.setText("正在检查更新...")
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
+        
+        try:
+            # 直接调用检查，不使用线程
+            has_update, info = self.ota_updater.check_for_updates(silent=True, return_info=True)
+            
+            if has_update:
+                self.status_label.setText("发现新版本！")
+                self.update_info = info
+                if isinstance(info, dict):
+                    version = info.get('latest_version', 'Unknown')
+                    self.info_text.setText(f"最新版本: {version}")
+                else:
+                    self.info_text.setText(str(info))
+                self.info_text.setVisible(True)
+                self.install_button.setEnabled(True)
+            else:
+                self.status_label.setText("已是最新版本")
+                
+        except Exception as e:
+            self.status_label.setText(f"检查失败: {str(e)}")
+            logger.error(f"Update check failed: {e}")
+        
+        finally:
+            self.progress_bar.setVisible(False)
+            self.check_button.setEnabled(True)
     
-    def on_update_found(self, has_update, message):
-        """更新检查结果"""
-        if has_update:
-            self.status_label.setText("Update available!")
-            self.update_info.setVisible(True)
-            self.update_info.setPlainText(message)
-            self.install_button.setVisible(True)
-        else:
-            self.status_label.setText("No updates available")
-            self.update_info.setVisible(False)
-            self.install_button.setVisible(False)
+    
+    def install_update(self):
+        """简化的安装更新"""
+        if not self.ota_updater:
+            return
+        
+        # 确认对话框
+        from PySide6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self, 
+            "确认安装", 
+            "安装更新可能需要重启应用程序。是否继续？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply != QMessageBox.Yes:
+            return
+        
+        self.install_button.setEnabled(False)
+        self.status_label.setText("正在安装更新...")
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
+        
+        try:
+            success = self.ota_updater.install_update()
+            if success:
+                self.status_label.setText("更新安装成功！请重启应用程序。")
+                QMessageBox.information(self, "安装成功", "更新已安装完成。")
+            else:
+                self.status_label.setText("更新安装失败。")
+                QMessageBox.warning(self, "安装失败", "更新安装失败。")
+        except Exception as e:
+            error_msg = f"安装错误: {str(e)}"
+            self.status_label.setText(error_msg)
+            QMessageBox.critical(self, "安装错误", error_msg)
+        finally:
+            self.install_button.setEnabled(True)
+            self.progress_bar.setVisible(False)
+    
+    def cancel_operation(self):
+        """取消当前操作"""
+        if self.checker_thread and self.checker_thread.isRunning():
+            self.checker_thread.requestInterruption()
+            self.checker_thread.wait(3000)  # 等待3秒
+        
+        if self.download_thread and self.download_thread.isRunning():
+            self.download_thread.cancel()
+            self.download_thread.wait(3000)  # 等待3秒
+        
+        self.reset_ui_state()
     
     def on_check_finished(self):
         """检查完成"""
-        self.check_button.setEnabled(True)
         self.progress_bar.setVisible(False)
-    
-    def on_error(self, error_message):
-        """错误处理"""
-        self.status_label.setText(f"Error: {error_message}")
         self.check_button.setEnabled(True)
-        self.progress_bar.setVisible(False)
-        logger.error(f"Update check error: {error_message}")
     
-    def on_update_error(self, error: UpdateError):
-        """更新错误处理"""
-        user_message = get_user_friendly_message(error)
-        self.status_label.setText(f"Error: {user_message}")
-        
-        # 显示详细错误信息
-        if error.details:
-            details_text = f"Error Code: {error.code.value}\n"
-            details_text += f"Message: {error.message}\n"
-            if error.details:
-                details_text += f"Details: {error.details}"
-            self.update_info.setPlainText(details_text)
-            self.update_info.setVisible(True)
-        
+    def reset_ui_state(self):
+        """重置UI状态"""
+        self.progress_bar.setVisible(False)
+        self.cancel_button.setVisible(False)
         self.check_button.setEnabled(True)
-        self.progress_bar.setVisible(False)
-        logger.error(f"Update error: {error}")
-    
-    def install_update(self):
-        """安装更新"""
-        self.status_label.setText("Installing update...")
+        self.download_button.setEnabled(False)
         self.install_button.setEnabled(False)
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 100)
-        
-        self.install_thread = UpdateInstallThread(self.ota_updater)
-        self.install_thread.progress_updated.connect(self.progress_bar.setValue)
-        self.install_thread.install_finished.connect(self.on_install_finished)
-        self.install_thread.start()
+        self.status_label.setText("准备检查更新...")
     
-    def on_install_finished(self, success, message):
-        """安装完成"""
-        if success:
-            self.status_label.setText("Update installed successfully. Please restart the application.")
-            self.install_button.setVisible(False)
-        else:
-            self.status_label.setText(f"Installation failed: {message}")
-            self.install_button.setEnabled(True)
+    def _format_file_size(self, size_bytes: int) -> str:
+        """格式化文件大小"""
+        if size_bytes == 0:
+            return "未知大小"
         
-        self.progress_bar.setVisible(False)
-    
-    def toggle_auto_check(self, enabled):
-        """切换自动检查"""
-        if enabled:
-            self.ota_updater.start_auto_check()
-        else:
-            self.ota_updater.stop_auto_check()
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.1f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.1f} TB"
     
     def closeEvent(self, event):
         """关闭事件"""
@@ -263,7 +194,7 @@ class UpdateDialog(QDialog):
                 self.checker_thread.terminate()
                 self.checker_thread.wait()
         
-        if self.install_thread and self.install_thread.isRunning():
+        if hasattr(self, 'install_thread') and self.install_thread and self.install_thread.isRunning():
             self.install_thread.requestInterruption()
             if not self.install_thread.wait(3000):  # 等待3秒
                 logger.warning("Install thread did not stop gracefully, terminating...")
@@ -271,29 +202,125 @@ class UpdateDialog(QDialog):
                 self.install_thread.wait()
         
         event.accept()
+    
+    def on_update_found(self, has_update: bool, info: str):
+        """更新检查结果"""
+        if has_update:
+            self.status_label.setText("发现新版本！")
+            
+            # 解析更新信息
+            if isinstance(info, dict):
+                self.update_info = info
+                latest_version = info.get('latest_version', 'Unknown')
+                description = info.get('description', '无更新说明')
+                file_size = info.get('file_size', 0)
+                
+                self.latest_version_label.setText(f"最新版本: {latest_version}")
+                
+                # 格式化文件大小
+                size_str = self._format_file_size(file_size)
+                
+                update_text = f"""<h3>版本 {latest_version}</h3>
+                <p><b>文件大小:</b> {size_str}</p>
+                <p><b>更新内容:</b></p>
+                <p>{description}</p>"""
+                
+                self.info_text.setHtml(update_text)
+            else:
+                self.info_text.setText(str(info))
+            
+            self.info_text.setVisible(True)
+            self.download_button.setEnabled(True)
+        else:
+            self.status_label.setText("已是最新版本")
+            if self.ota_updater:
+                self.latest_version_label.setText(f"最新版本: {self.ota_updater.app_version}")
+    
+    def on_download_progress(self, progress: int):
+        """下载进度更新"""
+        self.progress_bar.setValue(progress)
+        self.status_label.setText(f"正在下载更新... {progress}%")
+    
+    def on_download_finished(self, success: bool):
+        """下载完成"""
+        self.progress_bar.setVisible(False)
+        self.cancel_button.setVisible(False)
+        
+        if success:
+            self.status_label.setText("下载完成，可以安装更新")
+            self.install_button.setEnabled(True)
+        else:
+            self.status_label.setText("下载失败")
+            self.download_button.setEnabled(True)
+    
+    def on_download_error(self, error_msg: str):
+        """下载错误"""
+        self.progress_bar.setVisible(False)
+        self.cancel_button.setVisible(False)
+        self.status_label.setText(f"下载失败: {error_msg}")
+        self.download_button.setEnabled(True)
+        
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.warning(self, "下载失败", f"更新下载失败:\n{error_msg}")
+    
+    def on_error_occurred(self, error_message: str):
+        """处理一般错误"""
+        self.status_label.setText(f"错误: {error_message}")
+        self.check_button.setEnabled(True)
+        self.progress_bar.setVisible(False)
+        logger.error(f"Update check error: {error_message}")
+    
+    def on_update_error(self, error):
+        """处理更新错误"""
+        from ..core.errors import get_user_friendly_message, get_recovery_suggestions
+        
+        user_message = get_user_friendly_message(error, self.current_language)
+        self.status_label.setText(f"错误: {user_message}")
+        
+        # 显示错误详情和恢复建议
+        suggestions = get_recovery_suggestions(error)
+        error_details = f"""<h3>更新检查失败</h3>
+        <p><b>错误信息:</b> {user_message}</p>
+        <p><b>建议解决方案:</b></p>
+        <ul>"""
+        
+        for suggestion in suggestions:
+            error_details += f"<li>{suggestion}</li>"
+        
+        error_details += "</ul>"
+        
+        self.info_text.setHtml(error_details)
+        self.info_text.setVisible(True)
+        
+        self.check_button.setEnabled(True)
+        self.progress_bar.setVisible(False)
+        logger.error(f"Update error: {error}")
+
+    def tr(self, text: str) -> str:
+        """简单的翻译函数"""
+        translations = {
+            '软件更新': 'Software Update' if self.current_language == 'en' else '软件更新',
+            '检查更新': 'Check Update' if self.current_language == 'en' else '检查更新',
+            '下载更新': 'Download Update' if self.current_language == 'en' else '下载更新',
+            '安装更新': 'Install Update' if self.current_language == 'en' else '安装更新',
+            '取消': 'Cancel' if self.current_language == 'en' else '取消',
+            '关闭': 'Close' if self.current_language == 'en' else '关闭'
+        }
+        return translations.get(text, text)
 
 
 class UpdateNotificationDialog(QDialog):
-    """更新通知对话框"""
+    """简化的更新通知对话框"""
     
-    def __init__(self, update_info, parent=None):
+    def __init__(self, update_info="发现新版本", parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Update Available")
+        self.setWindowTitle("更新通知")
         self.setModal(True)
-        self.setFixedSize(400, 300)
+        self.setFixedSize(300, 150)
         
-        self.setup_ui(update_info)
-    
-    def setup_ui(self, update_info):
-        """设置UI"""
         layout = QVBoxLayout()
         
-        # 标题
-        title_label = QLabel("Update Available")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold;")
-        layout.addWidget(title_label)
-        
-        # 更新信息
+        # 信息
         info_label = QLabel(update_info)
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
@@ -301,14 +328,17 @@ class UpdateNotificationDialog(QDialog):
         # 按钮
         button_layout = QHBoxLayout()
         
-        self.install_button = QPushButton("Install Now")
-        self.install_button.clicked.connect(self.accept)
-        button_layout.addWidget(self.install_button)
+        install_button = QPushButton("立即更新")
+        install_button.clicked.connect(self.accept)
+        button_layout.addWidget(install_button)
         
-        self.later_button = QPushButton("Later")
-        self.later_button.clicked.connect(self.reject)
-        button_layout.addWidget(self.later_button)
+        later_button = QPushButton("稍后")
+        later_button.clicked.connect(self.reject)
+        button_layout.addWidget(later_button)
         
         layout.addLayout(button_layout)
-        
-        self.setLayout(layout) 
+        self.setLayout(layout)
+
+
+# 为了向后兼容，保留原名称
+UpdateDialog = SimpleUpdateDialog

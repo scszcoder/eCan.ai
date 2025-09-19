@@ -92,24 +92,24 @@ class ConfigError(UpdateError):
 
 
 def get_user_friendly_message(error: UpdateError) -> str:
-    """获取用户友好的错误消息"""
+    """获取用户友好的错误消息（简化版）"""
     error_messages = {
-        UpdateErrorCode.NETWORK_ERROR: "网络连接失败，请检查网络设置后重试",
-        UpdateErrorCode.CONNECTION_TIMEOUT: "连接超时，请稍后重试",
-        UpdateErrorCode.SERVER_UNAVAILABLE: "更新服务器暂时不可用，请稍后重试",
-        UpdateErrorCode.SIGNATURE_VERIFICATION_FAILED: "更新包验证失败，可能存在安全风险",
-        UpdateErrorCode.HASH_VERIFICATION_FAILED: "更新包完整性验证失败，请重新下载",
-        UpdateErrorCode.PACKAGE_CORRUPTED: "更新包已损坏，请重新下载",
-        UpdateErrorCode.PLATFORM_NOT_SUPPORTED: "当前平台不支持自动更新",
-        UpdateErrorCode.FRAMEWORK_NOT_FOUND: "更新组件未找到，请重新安装应用程序",
-        UpdateErrorCode.CLI_TOOL_NOT_FOUND: "更新工具未找到，请重新安装应用程序",
-        UpdateErrorCode.PERMISSION_DENIED: "权限不足，请以管理员身份运行",
-        UpdateErrorCode.INSUFFICIENT_SPACE: "磁盘空间不足，请清理后重试",
-        UpdateErrorCode.INVALID_CONFIG: "配置文件无效，请重置配置",
-        UpdateErrorCode.MISSING_PUBLIC_KEY: "安全密钥缺失，无法验证更新包",
+        UpdateErrorCode.NETWORK_ERROR: "网络连接失败",
+        UpdateErrorCode.CONNECTION_TIMEOUT: "连接超时",
+        UpdateErrorCode.SERVER_UNAVAILABLE: "更新服务器不可用",
+        UpdateErrorCode.SIGNATURE_VERIFICATION_FAILED: "更新包验证失败",
+        UpdateErrorCode.HASH_VERIFICATION_FAILED: "更新包完整性验证失败",
+        UpdateErrorCode.PACKAGE_CORRUPTED: "更新包已损坏",
+        UpdateErrorCode.PLATFORM_NOT_SUPPORTED: "平台不支持",
+        UpdateErrorCode.FRAMEWORK_NOT_FOUND: "更新组件未找到",
+        UpdateErrorCode.CLI_TOOL_NOT_FOUND: "更新工具未找到",
+        UpdateErrorCode.PERMISSION_DENIED: "权限不足",
+        UpdateErrorCode.INSUFFICIENT_SPACE: "磁盘空间不足",
+        UpdateErrorCode.INVALID_CONFIG: "配置无效",
+        UpdateErrorCode.MISSING_PUBLIC_KEY: "安全密钥缺失",
         UpdateErrorCode.OPERATION_CANCELLED: "操作已取消",
-        UpdateErrorCode.ALREADY_IN_PROGRESS: "更新操作正在进行中",
-        UpdateErrorCode.UNKNOWN_ERROR: "发生未知错误，请联系技术支持"
+        UpdateErrorCode.ALREADY_IN_PROGRESS: "操作正在进行中",
+        UpdateErrorCode.UNKNOWN_ERROR: "未知错误"
     }
     
     return error_messages.get(error.code, error.message)
@@ -120,31 +120,68 @@ def create_error_from_exception(exc: Exception, context: str = "") -> UpdateErro
     import requests
     import builtins as _bi
     
+    # 添加更详细的错误信息
+    error_details = {
+        "context": context,
+        "original_error": str(exc),
+        "error_type": type(exc).__name__
+    }
+    
     if isinstance(exc, requests.exceptions.ConnectionError):
         return NetworkError(
-            f"网络连接失败: {str(exc)}",
-            {"context": context, "original_error": str(exc)}
+            f"Network connection failed in {context}: {str(exc)}",
+            error_details
         )
     elif isinstance(exc, requests.exceptions.Timeout):
         return UpdateError(
             UpdateErrorCode.CONNECTION_TIMEOUT,
-            f"连接超时: {str(exc)}",
-            {"context": context, "original_error": str(exc)}
+            f"Connection timeout in {context}: {str(exc)}",
+            error_details
+        )
+    elif isinstance(exc, requests.exceptions.HTTPError):
+        status_code = getattr(exc.response, 'status_code', 'unknown')
+        error_details["status_code"] = status_code
+        return UpdateError(
+            UpdateErrorCode.SERVER_UNAVAILABLE,
+            f"HTTP error {status_code} in {context}: {str(exc)}",
+            error_details
         )
     elif isinstance(exc, FileNotFoundError):
         return PlatformError(
             UpdateErrorCode.CLI_TOOL_NOT_FOUND,
-            f"文件未找到: {str(exc)}",
-            {"context": context, "original_error": str(exc)}
+            f"File not found in {context}: {str(exc)}",
+            error_details
         )
     elif isinstance(exc, _bi.PermissionError):
         return PermissionError(
-            f"权限不足: {str(exc)}",
-            {"context": context, "original_error": str(exc)}
+            f"Permission denied in {context}: {str(exc)}",
+            error_details
+        )
+    elif isinstance(exc, OSError):
+        return UpdateError(
+            UpdateErrorCode.INSUFFICIENT_SPACE if "No space left" in str(exc) else UpdateErrorCode.UNKNOWN_ERROR,
+            f"OS error in {context}: {str(exc)}",
+            error_details
+        )
+    elif isinstance(exc, ValueError):
+        return ConfigError(
+            UpdateErrorCode.INVALID_CONFIG,
+            f"Invalid value in {context}: {str(exc)}",
+            error_details
         )
     else:
         return UpdateError(
             UpdateErrorCode.UNKNOWN_ERROR,
-            f"未知错误: {str(exc)}",
-            {"context": context, "original_error": str(exc)}
+            f"Unexpected error in {context}: {str(exc)}",
+            error_details
         )
+
+# 简化版本：移除了复杂的辅助函数
+def should_retry_error(error: UpdateError) -> bool:
+    """判断错误是否可以重试"""
+    retryable_codes = {
+        UpdateErrorCode.NETWORK_ERROR,
+        UpdateErrorCode.CONNECTION_TIMEOUT,
+        UpdateErrorCode.SERVER_UNAVAILABLE
+    }
+    return error.code in retryable_codes
