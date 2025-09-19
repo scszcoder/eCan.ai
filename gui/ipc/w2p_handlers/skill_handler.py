@@ -6,7 +6,6 @@ from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from gui.LoginoutGUI import Login
 from utils.logger_helper import logger_helper as logger
-from agent.ec_skills.dev_utils.skill_dev_utils import run_dev_skill
 
 @IPCHandlerRegistry.handler('get_skills')
 def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
@@ -159,6 +158,9 @@ def handle_run_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
         user = request["params"]["username"]
         skill_info = request["params"]["skill"]
         login: Login = AppContext.login
+        
+        # 懒加载重的导入
+        from agent.ec_skills.dev_utils.skill_dev_utils import run_dev_skill
         results = run_dev_skill(login.main_win, skill_info)
 
         return create_success_response(request, {
