@@ -15,9 +15,7 @@ from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create
 from utils.logger_helper import logger_helper as logger
 from utils.path_manager import path_manager
 from gui.ipc.registry import IPCHandlerRegistry
-from agent.chats.chat_service import ChatService
 import tempfile
-from agent.chats.chat_utils import a2a_send_chat
 
 ECHO_REPLY_ENABLED = False  # 开关控制
 
@@ -75,6 +73,8 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         if ECHO_REPLY_ENABLED:
             echo_and_push_message_async(chatId, chat_args)
         else:
+            # 懒加载重的导入
+            from agent.chats.chat_utils import a2a_send_chat
             request['params']['human'] = True
             a2a_send_chat(main_window, request)
         return create_success_response(request, result)
@@ -570,6 +570,8 @@ def handle_chat_form_submit(request: IPCRequest, params: Optional[dict]) -> IPCR
             params["content"] = json.dumps(params.get("formData"))
             form_submit_req =IPCRequest(id="", type='request', method="form_submit", params=params, meta={}, timestamp=params["createAt"] )
             print("a2a_send_chat form submit:", form_submit_req)
+            # 懒加载重的导入
+            from agent.chats.chat_utils import a2a_send_chat
             request['params']['human'] = True
             a2a_send_chat(main_window, form_submit_req)
 
