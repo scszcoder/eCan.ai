@@ -56,10 +56,12 @@ MISSION_TABLE_DEF = [ {'name': 'mid', 'type': 'INTEGER', 'nullable': True, 'defa
 
 
 class MissionService:
-    def __init__(self, main_win, session):
+    def __init__(self, main_win, session, engine=None):
         self.main_win = main_win
         self.session = session
-        sync_table_columns(MissionModel, 'missions')
+        self.engine = engine
+        # 传递 engine 参数给 sync_table_columns
+        sync_table_columns(MissionModel, 'missions', engine)
 
     def find_missions_by_createon(self):
         current_time = datetime.now()

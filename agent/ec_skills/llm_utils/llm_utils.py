@@ -134,20 +134,21 @@ def get_country_by_ip() -> str | None:
     return None
 
 
-def pick_llm(default_llm, llm_providers):
+def pick_llm(default_llm, llm_providers, config_manager=None):
     """
     Return appropriate LLM instance with intelligent provider selection.
-    
+
     Logic:
     1. Check if default_llm is configured and has valid API key
     2. If not, select available provider by region (CN: DeepSeek/Qwen, US: OpenAI/Claude)
     3. Update default_llm setting if a new provider is selected
     4. Fallback to hardcoded defaults if no providers are available
-    
+
     Args:
         default_llm: Current default LLM provider name
         llm_providers: List of available LLM providers with configuration
-        
+        config_manager: Configuration manager instance (optional)
+
     Returns:
         LLM instance or None if all attempts fail
     """
@@ -188,7 +189,7 @@ def pick_llm(default_llm, llm_providers):
         
         if llm_instance:
             # Update default_llm setting through LLM manager
-            _update_default_llm_via_manager(selected_provider['name'])
+            _update_default_llm_via_config_manager(selected_provider['name'], config_manager)
             logger.info(f"Successfully created LLM instance and updated default to: {selected_provider['name']}")
             return llm_instance
         else:
@@ -307,38 +308,27 @@ def _create_llm_instance(provider):
         return None
 
 
-def _update_default_llm_via_manager(provider_name):
-    """Update default_llm setting via LLM manager"""
+def _update_default_llm_via_config_manager(provider_name, config_manager=None):
+    """Update default_llm setting via config manager"""
     try:
-        from app_context import AppContext
-        app_context = AppContext()
-        
-        mainwindow = app_context.get_main_window()
-        
-        # 检查 MainWindow 是否已经初始化
-        if mainwindow is None:
-            logger.warning(f"MainWindow not yet initialized, skipping default_llm update for {provider_name}")
+        if config_manager is None:
+            logger.warning(f"No config_manager provided, skipping default_llm update for {provider_name}")
             return
-            
-        # 检查 config_manager 是否存在
-        if not hasattr(mainwindow, 'config_manager') or mainwindow.config_manager is None:
-            logger.warning(f"ConfigManager not yet initialized, skipping default_llm update for {provider_name}")
-            return
-            
+
         # 检查 llm_manager 是否存在
-        if not hasattr(mainwindow.config_manager, 'llm_manager') or mainwindow.config_manager.llm_manager is None:
-            logger.warning(f"LLMManager not yet initialized, skipping default_llm update for {provider_name}")
+        if not hasattr(config_manager, 'llm_manager') or config_manager.llm_manager is None:
+            logger.warning(f"LLMManager not available in config_manager, skipping default_llm update for {provider_name}")
             return
-        
+
         # Use LLM manager's method to update default LLM
-        success = mainwindow.config_manager.llm_manager.update_default_llm(provider_name)
+        success = config_manager.llm_manager.update_default_llm(provider_name)
         if not success:
             logger.warning(f"Failed to update default_llm setting via LLM manager")
         else:
             logger.info(f"Successfully updated default_llm to {provider_name} via LLM manager")
-            
+
     except Exception as e:
-        logger.error(f"Error updating default_llm setting via manager: {e}")
+        logger.error(f"Error updating default_llm setting via config manager: {e}")
 
 
 def _fallback_llm_selection(country):

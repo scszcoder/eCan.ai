@@ -40,10 +40,12 @@ SA_TYPE_TABLE = {"TEXT": TEXT, "REAL": REAL, "INTEGER": INTEGER}
 
 
 class BotService:
-    def __init__(self, main_win, session):
+    def __init__(self, main_win, session, engine=None):
         self.main_win = main_win
         self.session = session
-        sync_table_columns(BotModel, "bots")
+        self.engine = engine
+        # 传递 engine 参数给 sync_table_columns
+        sync_table_columns(BotModel, "bots", engine)
 
     def delete_bots_by_botid(self, botid):
         # 构建删除表达式

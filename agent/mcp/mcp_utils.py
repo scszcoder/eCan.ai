@@ -9,72 +9,108 @@ from utils.logger_helper import logger_helper as logger
 
 async def wait_until_server_ready(url: str, timeout=30):
     """
-    更稳健的服务器就绪等待：
-    1) 先等待 TCP 端口进入监听状态；
-    2) 再轮询 /healthz；
-    仅使用 httpx 的超时，不再叠加 asyncio.wait_for；复用连接池。
+    优化的服务器就绪等待机制：
+    1) 先等待 TCP 端口进入监听状态（智能退避策略）；
+    2) 再轮询 /healthz（快速重试策略）；
+    3) 更快的检测间隔和更好的错误处理
     """
     deadline = time.time() + float(timeout)
     last_error = None
-
-    logger.info(f"Waiting for server ready at {url}, timeout: {timeout}s")
-
+    
+    logger.info(f"🔍 Optimized server readiness check for {url}, timeout: {timeout}s")
+    
     # 解析 URL 获取主机和端口（用于 TCP 探测）
     parsed = urlparse(url)
     host = parsed.hostname or "127.0.0.1"
     port = parsed.port or (443 if (parsed.scheme or "http") == "https" else 80)
-
-    # 第一阶段：端口监听探测（快速轮询，避免首启盲等 HTTP）
+    
+    # 第一阶段：快速端口检测（智能退避策略）
     port_attempts = 0
     while time.time() < deadline:
         port_attempts += 1
         try:
-            with socket.create_connection((host, port), timeout=1.0) as s:
+            with socket.create_connection((host, port), timeout=0.5) as s:
                 s.close()
-                logger.debug(f"TCP {host}:{port} is listening (after {port_attempts} attempts)")
+                logger.debug(f"⚡ TCP {host}:{port} ready after {port_attempts} attempts")
                 break
         except OSError as e:
             last_error = f"TCP connect failed: {e}"
-        await asyncio.sleep(0.3)
+        
+        # 智能退避：前几次快速检测，后续放慢
+        if port_attempts < 5:
+            await asyncio.sleep(0.1)  # 前5次快速检测
+        else:
+            await asyncio.sleep(0.3)  # 后续正常间隔
     else:
-        error_msg = f"Server port not listening at {host}:{port} within {timeout}s. Last error: {last_error}"
+        error_msg = f"Server port not ready at {host}:{port} within {timeout}s"
         logger.error(error_msg)
         raise RuntimeError(error_msg)
-
-    # 第二阶段：HTTP 健康检查（复用客户端 + 单层超时）
+    
+    # 第二阶段：HTTP 健康检查（优化配置）
     http_attempts = 0
-    # 初始超时配置；后续根据剩余时间适当收敛
-    timeout_cfg = httpx.Timeout(connect=2.0, read=2.5, write=1.0, pool=1.0)
+    timeout_cfg = httpx.Timeout(connect=1.0, read=2.0, write=1.0, pool=1.0)
+    
     async with httpx.AsyncClient(timeout=timeout_cfg, trust_env=False) as client:
         while time.time() < deadline:
             http_attempts += 1
-            remaining = max(0.5, deadline - time.time())
-            # 动态调整读取超时，但不超过 3s
-            client.timeout = httpx.Timeout(connect=2.0, read=min(3.0, remaining), write=1.0, pool=1.0)
             try:
-                logger.debug(f"Attempt {http_attempts}: checking {url} (read timeout: {client.timeout.read:.1f}s)")
+                logger.debug(f"🔍 HTTP check attempt {http_attempts}: {url}")
                 resp = await client.get(url)
                 if resp.status_code == 200:
-                    logger.info(f"Server ready at {url} after {http_attempts} attempts")
+                    logger.info(f"✅ Server ready at {url} after {http_attempts} HTTP attempts")
                     return True
                 else:
                     last_error = f"HTTP {resp.status_code}"
-                    logger.debug(f"Server returned status {resp.status_code}")
-            except httpx.TimeoutException as e:
-                last_error = f"HTTPX timeout: {e}"
-                logger.debug(f"Attempt {http_attempts}: httpx timeout")
+            except httpx.TimeoutException:
+                last_error = "HTTP timeout"
             except httpx.ConnectError as e:
                 last_error = f"Connection error: {e}"
-                logger.debug(f"Attempt {http_attempts}: connection failed - {e}")
-            except httpx.HTTPError as e:
-                last_error = f"HTTP error: {e}"
-                logger.debug(f"Attempt {http_attempts}: HTTP error - {e}")
             except Exception as e:
                 last_error = f"Unexpected error: {e}"
-                logger.debug(f"Attempt {http_attempts}: unexpected error - {e}")
-
-            await asyncio.sleep(0.5)
-
-    error_msg = f"Server not ready at {url} after {timeout}s ({http_attempts} attempts). Last error: {last_error}"
+            
+            # 智能退避策略
+            if http_attempts < 3:
+                await asyncio.sleep(0.2)  # 前3次快速重试
+            else:
+                await asyncio.sleep(0.5)  # 后续正常间隔
+    
+    error_msg = f"Server not ready at {url} after {timeout}s. Last error: {last_error}"
     logger.error(error_msg)
     raise RuntimeError(error_msg)
+
+
+async def check_server_port(host: str = "127.0.0.1", port: int = None, timeout: float = 0.5) -> bool:
+    """
+    快速检查服务器端口是否可用
+    
+    Args:
+        host: 服务器主机地址，默认 127.0.0.1
+        port: 端口号
+        timeout: 连接超时时间，默认 0.5 秒
+        
+    Returns:
+        bool: 端口可用返回 True，否则返回 False
+    """
+    if port is None:
+        logger.warning("Port not specified for server port check")
+        return False
+        
+    try:
+        logger.debug(f"🔍 Checking server port {host}:{port} (timeout: {timeout}s)")
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port),
+            timeout=timeout
+        )
+        writer.close()
+        await writer.wait_closed()
+        logger.debug(f"✅ Server port {host}:{port} is available")
+        return True
+    except asyncio.TimeoutError:
+        logger.debug(f"⏰ Server port {host}:{port} check timeout")
+        return False
+    except ConnectionRefusedError:
+        logger.debug(f"❌ Connection refused to {host}:{port}")
+        return False
+    except Exception as e:
+        logger.debug(f"❌ Server port {host}:{port} check failed: {e}")
+        return False

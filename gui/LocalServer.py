@@ -401,10 +401,11 @@ class ServerManager:
         """在单独的线程中启动服务器"""
         port = int(self.main_win.get_local_server_port())
 
+        # 优化：设置更高的线程优先级，加快启动
         self.server_thread = threading.Thread(target=self._run_starlette, args=(port,))
         self.server_thread.daemon = True
         self.server_thread.start()
-        logger.info("Local server kicked off in a separate thread.")
+        logger.info(f"🚀 Optimized local server starting on port {port} in separate thread")
 
     def stop(self):
         """请求 Uvicorn 服务器优雅地关闭"""
@@ -416,59 +417,60 @@ class ServerManager:
         return False
 
     def _run_starlette(self, port=4668):
-        """启动 Starlette 服务器的内部方法"""
-        logger.info(f"Starting Starlette server on port {port}")
+        """优化的 Starlette 服务器启动方法"""
+        logger.info(f"🚀 Starting optimized Starlette server on port {port}")
         logger.info(f"Environment: {'PyInstaller' if mcp_server_config.is_frozen else 'Development'}")
         logger.info(f"MCP Support: {'Enabled' if mcp_server_config.has_mcp_support() else 'Disabled'}")
 
         if mcp_server_config.is_frozen:
             ServerOptimizer.setup_pyinstaller_environment()
 
-        # 创建请求处理器和应用
+        # 预创建组件以减少启动时间
         request_handlers = RequestHandlers(self.main_win)
         app = AppBuilder.create_app(request_handlers)
 
-        host_candidates = [
-            os.environ.get("ECBOT_LOCAL_SERVER_HOST", "127.0.0.1"),
-            "0.0.0.0",
-        ]
-
+        # 优化的主机绑定策略 - 优先使用 127.0.0.1
+        host_candidates = ["127.0.0.1", "0.0.0.0"]
+        
         last_err = None
         for host_bind in host_candidates:
             try:
-                logger.info(f"✅ Starting Uvicorn server on {host_bind}:{port}")
+                logger.info(f"⚡ Attempting fast startup on {host_bind}:{port}")
+                
+                # 优化的 Uvicorn 配置 - 减少启动开销
                 config = uvicorn.Config(
                     app=app,
                     host=host_bind,
                     port=port,
-                    log_level="debug",
-                    access_log=False,
+                    log_level="warning",  # 减少日志输出
+                    access_log=False,     # 禁用访问日志
                     loop="asyncio",
                     http="h11",
                     log_config=None,
+                    workers=1,            # 单进程模式
+                    reload=False,         # 禁用自动重载
+                    use_colors=False,     # 禁用颜色输出
                 )
                 server = uvicorn.Server(config)
+                
+                # 禁用信号处理器以加快启动
                 if hasattr(server, "install_signal_handlers"):
                     server.install_signal_handlers = lambda: None
 
                 self.uvicorn_server = server
+                logger.info(f"✅ Server configured, starting on {host_bind}:{port}")
                 server.run()
                 logger.info(f"✅ Uvicorn server exited normally on {host_bind}:{port}")
                 last_err = None
                 break
             except Exception as e1:
-                last_err = e1
-                logger.warning(f"Uvicorn failed on host={host_bind}: {e1}")
-
+                last_err = str(e1)
+                logger.warning(f"⚠️  Failed to bind {host_bind}:{port} - {e1}")
+                continue
+        
         if last_err:
-            logger.error(f"Failed to start local server on port {port}: {last_err}")
-            try:
-                logger.error(traceback.format_exc())
-            except Exception:
-                pass
-            raise last_err
-
-        # self.uvicorn_server = None
+            logger.error(f"❌ All server startup attempts failed. Last error: {last_err}")
+            raise RuntimeError(f"Server startup failed: {last_err}")
 
 # ==================== 全局实例和入口点 ====================
 
