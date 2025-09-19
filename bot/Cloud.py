@@ -5,6 +5,8 @@ import base64
 import requests
 import aiohttp
 import asyncio
+import websocket
+import threading
 
 from bot.envi import getECBotDataHome
 from utils.logger_helper import logger_helper
@@ -2477,3 +2479,40 @@ def scramble_api_key(ak):
     salted = f"ECB|{ak}"
     scrambled = base64.b64encode(salted.encode("utf-8")).decode("utf-8")
     return scrambled
+
+
+# related to websocket sub/push to get long running task results
+# 2. Subscribe for completion
+subscription = """
+subscription OnComplete($id: ID!) {
+  onLLMTaskComplete(id: $id) {
+    id
+    status
+    result
+  }
+}
+"""
+
+def on_message(ws, message):
+    data = json.loads(message)
+    print("Subscription update:", json.dumps(data, indent=2))
+
+def subscribe_cloud_llm_task(task_id):
+    ws = websocket.WebSocketApp(
+        "wss://YOURAPPSYNC.appsync-realtime-api.REGION.amazonaws.com/graphql",
+        header={"x-api-key": API_KEY},
+        on_message=on_message,
+    )
+    threading.Thread(target=ws.run_forever).start()
+
+    # Send subscription payload after connect
+    ws.send(json.dumps(
+        {
+            "id": "1",
+            "type": "start",
+            "payload": {
+                "data": subscription,
+                "variables": {"id": task_id}
+            }
+        }
+    ))
