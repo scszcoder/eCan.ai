@@ -169,167 +169,234 @@ print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 class MainWindow:
     def __init__(self, auth_manager: AuthManager, mainloop, ip,
                  user, homepath, machine_role, schedule_mode):
+        """Initialize MainWindow with organized functional modules"""
+        logger.info("[MainWindow] 🚀 Starting MainWindow initialization...")
+        
+        # ============================================================================
+        # 1. CORE SYSTEM INITIALIZATION
+        # ============================================================================
+        self._init_core_system(auth_manager, mainloop, ip, user, homepath, machine_role, schedule_mode)
+        
+        # ============================================================================
+        # 2. USER & ENVIRONMENT SETUP
+        # ============================================================================
+        self._init_user_environment(user, machine_role)
+        
+        # ============================================================================
+        # 3. SYSTEM INFORMATION & HARDWARE
+        # ============================================================================
+        self._init_system_info()
+        
+        # ============================================================================
+        # 4. DIRECTORY & FILE SYSTEM SETUP
+        # ============================================================================
+        self._init_file_system()
+        
+        # ============================================================================
+        # 5. CONFIGURATION MANAGEMENT
+        # ============================================================================
+        self._init_configuration_manager()
+        
+        # ============================================================================
+        # 6. DATABASE & SERVICES INITIALIZATION
+        # ============================================================================
+        self._init_database_services()
+        
+        # ============================================================================
+        # 7. BUSINESS OBJECTS & DATA STRUCTURES
+        # ============================================================================
+        self._init_business_objects()
+        
+        # ============================================================================
+        # 8. NETWORK & COMMUNICATION SETUP
+        # ============================================================================
+        self._init_network_communication()
+        
+        # ============================================================================
+        # 9. LOCAL DATA LOADING & SYNC
+        # ============================================================================
+        self._init_local_data_loading()
+        
+        # ============================================================================
+        # 10. EXTENSIONS & PLUGINS
+        # ============================================================================
+        self._init_extensions_and_plugins()
+        
+        # ============================================================================
+        # 11. TASK & WORK MANAGEMENT
+        # ============================================================================
+        self._init_task_management()
+        
+        # ============================================================================
+        # 12. SERVER & AGENT INITIALIZATION
+        # ============================================================================
+        self._init_servers_and_agents()
+        
+        # ============================================================================
+        # 13. ASYNC TASKS & BACKGROUND SERVICES
+        # ============================================================================
+        self._init_async_tasks()
+        
+        # ============================================================================
+        # 14. FINALIZATION
+        # ============================================================================
+        self._finalize_initialization()
+        
+        logger.info("[MainWindow] ✅ MainWindow initialization completed successfully")
 
-        self.auth_manager = auth_manager  # Reference to auth manager for state and services
-        if homepath[len(homepath)-1] == "/":
-            self.homepath = homepath[:len(homepath)-1]
-        else:
-            self.homepath = homepath
+    def _init_core_system(self, auth_manager, mainloop, ip, user, homepath, machine_role, schedule_mode):
+        """Initialize core system components"""
+        logger.info("[MainWindow] 🔧 Initializing core system components...")
+        
+        # Core references
+        self.auth_manager = auth_manager
+        self.mainLoop: QEventLoop = mainloop
+        self.ip = ip
+        self.machine_role = machine_role
+        self.schedule_mode_param = schedule_mode  # Store for potential config override
+        
+        # Path normalization
+        self.homepath = homepath.rstrip('/')
+        
+        # Core queues for inter-component communication
         self.gui_net_msg_queue = asyncio.Queue()
         self.gui_rpa_msg_queue = asyncio.Queue()
         self.gui_manager_msg_queue = asyncio.Queue()
         self.virtual_cloud_task_queue = asyncio.Queue()
         self.gui_monitor_msg_queue = asyncio.Queue()
-        self.tz = self.obtainTZ()
-        self.file_resource = FileResource(self.homepath)
-        self.DONE_WITH_TODAY = True
         self.gui_chat_msg_queue = asyncio.Queue()
         self.wan_chat_msg_queue = asyncio.Queue()
+        
+        # Core resources
+        self.tz = self.obtainTZ()
+        self.file_resource = FileResource(self.homepath)
         self.static_resource = StaticResource()
-        self.all_ads_profiles_xls = "C:/AmazonSeller/SelfSwipe/test_all.xls"
         self.session = set_up_cloud()
-        self.mainLoop: QEventLoop = mainloop
         self.threadPoolExecutor = concurrent.futures.ThreadPoolExecutor(max_workers=16)
-        self.machine_role = machine_role
+        
+        # Machine role configuration
         if "Platoon" in self.machine_role:
             self.functions = "buyer,seller"
         elif "Commander" in self.machine_role:
             self.functions = "manager,hr,it"
         else:
             self.functions = ""
+            
+        logger.info(f"[MainWindow] ✅ Core system initialized - Role: {machine_role}, Functions: {self.functions}")
 
-        self.agent_skills = []
-        self.agent_tasks = []
-        self.agent_tools = []
-        self.agent_knowledges = []
-
-        self.todaysSchedule = {}
-        self.ip = ip
+    def _init_user_environment(self, user, machine_role):
+        """Initialize user environment and identity"""
+        logger.info("[MainWindow] 👤 Initializing user environment...")
+        
         self.owner = user
         # Normalize user to a safe email-like value
         self.user = user if (user and isinstance(user, str) and "@" in user) else "unknown@local"
+        
         # Build chat_id safely
         try:
             local_part, domain_part = self.user.split("@", 1)
         except ValueError:
             local_part, domain_part = self.user, "local"
+        
         domain_part_sanitized = domain_part.replace(".", "_")
         self.chat_id = f"{local_part}_{domain_part_sanitized}"
         self.log_user = self.chat_id
+        
+        # User-specific paths
         self.my_ecb_data_homepath = f"{ecb_data_homepath}/{self.log_user}"
-        if not os.path.exists(f"{self.my_ecb_data_homepath}/resource/data/"):
-            os.makedirs(f"{self.my_ecb_data_homepath}/resource/data/")
-        self.VEHICLES_FILE = self.my_ecb_data_homepath + "/vehicles.json"
+        self.ecb_data_homepath = ecb_data_homepath
+        
+        # Role-specific chat ID modification
         self.host_role = machine_role
-        self.screen_size = getScreenSize()
         if "Only" in self.host_role:
             self.chat_id = self.chat_id + "_Commander"
         else:
-            self.chat_id = self.chat_id+"_"+"".join(self.host_role.split())
-        logger.info("my chatId:", self.chat_id)
-        self.chat_service = ChatService.initialize(db_path=os.path.join(self.my_ecb_data_homepath, ECBOT_CHAT_DB))
-        logger.info("chat service initialized")
-        self.ecb_data_homepath = ecb_data_homepath
-        self.temp_dir = os.path.join(self.my_ecb_data_homepath, "temp")
-        logger.info("temp dir:" + self.temp_dir)
-        if not os.path.exists(self.temp_dir):
-            os.makedirs(self.temp_dir, exist_ok=True)
-            logger.info(f"build temp directory {self.temp_dir}")
-        self.staff_officer_on_line = False
-        self.working_state = "running_idle"
+            self.chat_id = self.chat_id + "_" + "".join(self.host_role.split())
+            
+        # User ID generation
         usrparts = self.user.split("@")
         usrdomainparts = usrparts[1].split(".")
         self.uid = usrparts[0] + "_" + usrdomainparts[0]
+        
+        logger.info(f"[MainWindow] ✅ User environment initialized - Chat ID: {self.chat_id}, UID: {self.uid}")
+
+    def _init_system_info(self):
+        """Initialize system information and hardware details"""
+        logger.info("[MainWindow] 💻 Initializing system information...")
+        
+        # System information
         system = platform.system()
         release = platform.release()
         version = platform.version()
         architecture = platform.architecture()[0]
         self.os_info = f"{system} {release} ({architecture}), Version: {version}"
         self.platform = platform.system().lower()[0:3]
-        self.cpuinfo = self._get_cpu_info_safely()
-        self.processor = self.cpuinfo.get('brand_raw', 'Unknown Processor')
-        self.cpu_cores = psutil.cpu_count(logical=False)  # Physical cores
-        self.cpu_threads = psutil.cpu_count(logical=True)  # Logical cores (including hyper-threading)
-        self.cpu_speed = self.cpuinfo.get('hz_advertised_friendly', 'Unknown Speed')
-
-        # Memory Information
-        self.virtual_memory = psutil.virtual_memory()
-        self.total_memory = self.virtual_memory.total / (1024 ** 3)  # Convert bytes to GB
-
-        # Font removed - no longer needed for UI
-        logger.info("cpu memory init done....")
-        self.sellerInventoryJsonData = None
-        self.botJsonData = None
-        self.inventories = []
-
-        self.bot_cookie_site_lists = {}
-        self.ads_profile_dir = self.my_ecb_data_homepath + "/ads_profiles/"
-        if not os.path.exists(self.ads_profile_dir):
-            os.makedirs(self.ads_profile_dir)
-
-        self.bot_states = ["active", "disabled", "banned", "deleted"]
-        self.todays_bot_profiles = []
-        # self.readBotJsonFile()
-        self.vehicles = [] # computers on LAN that can carry out bots's tasks.， basically tcp transports
-        self.bots = []
-        self.missions = [] # mission 0 will always default to be the fetch schedule mission
-        self.trMission = self.createTrialRunMission()
-        self.skills = []
-        self.missionsToday = []
-        self.platoons = []
-        self.products = []
-        self.zipper = LZString()
-        self.selected_bot_row = -1
-        self.selected_mission_row = -1
-        self.selected_bot_item = None
-        self.selected_mission_item = None
-        self.bot_manager = None
-        self.missionWin = None
-        self.lightrag_server = None
-        self.train_manager = None
-        self.reminder_manager = None
-        self.platoonWin = None
-        self.botsFingerPrintsReady = False
-        self.default_webdriver = None
-        # Log console removed - no longer needed
-        logger.info("some vars init done1....")
-
-        self.skill_manager = SkillManager(self)
-
-        self.machine_name = myname
-        self.commander_name = ""
-        self.system = platform.system()
+        self.system = system
+        
+        # OS short name
         if self.system == "Windows":
             self.os_short = "win"
         elif self.system == "Linux":
             self.os_short = "linux"
         elif self.system == "Darwin":
             self.os_short = "mac"
+            
+        # Hardware information
+        self.cpuinfo = self._get_cpu_info_safely()
+        self.processor = self.cpuinfo.get('brand_raw', 'Unknown Processor')
+        self.cpu_cores = psutil.cpu_count(logical=False)  # Physical cores
+        self.cpu_threads = psutil.cpu_count(logical=True)  # Logical cores
+        self.cpu_speed = self.cpuinfo.get('hz_advertised_friendly', 'Unknown Speed')
+        
+        # Memory information
+        self.virtual_memory = psutil.virtual_memory()
+        self.total_memory = self.virtual_memory.total / (1024 ** 3)  # Convert to GB
+        
+        # Screen information
+        self.screen_size = getScreenSize()
+        
+        # Machine identification
+        self.machine_name = myname
+        self.commander_name = ""
+        
+        logger.info(f"[MainWindow] ✅ System info initialized - OS: {self.os_info}, CPU: {self.processor}, Memory: {self.total_memory:.1f}GB")
 
-        self.todaysReport = []              # per task group. (inside this report, there are list of individual task/mission result report.
-        self.todaysReports = []             # per vehicle/host
-        self.todaysPlatoonReports = []
-
-        if not os.path.exists(f"{self.my_ecb_data_homepath}/resource/data/"):
-            os.makedirs(f"{self.my_ecb_data_homepath}/resource/data/")
-
+    def _init_file_system(self):
+        """Initialize file system directories and paths"""
+        logger.info("[MainWindow] 📁 Initializing file system...")
+        
+        # Create essential directories
+        resource_data_dir = f"{self.my_ecb_data_homepath}/resource/data/"
+        if not os.path.exists(resource_data_dir):
+            os.makedirs(resource_data_dir)
+            
+        self.temp_dir = os.path.join(self.my_ecb_data_homepath, "temp")
+        if not os.path.exists(self.temp_dir):
+            os.makedirs(self.temp_dir, exist_ok=True)
+            logger.info(f"Created temp directory: {self.temp_dir}")
+            
+        self.ads_profile_dir = self.my_ecb_data_homepath + "/ads_profiles/"
+        if not os.path.exists(self.ads_profile_dir):
+            os.makedirs(self.ads_profile_dir)
+            
+        # File paths
+        self.VEHICLES_FILE = self.my_ecb_data_homepath + "/vehicles.json"
         self.dbfile = f"{self.my_ecb_data_homepath}/resource/data/myecb.db"
         self.product_catelog_file = f"{self.my_ecb_data_homepath}/resource/data/product_catelog.json"
-        self.fetch_schedule_counter = 1
+        self.build_dom_tree_script_path = f"{self.homepath}/resource/build_dom_tree.js"
+        
+        # Legacy paths (to be cleaned up)
+        self.all_ads_profiles_xls = "C:/AmazonSeller/SelfSwipe/test_all.xls"
+        
+        # Initialize inventory data (requires file paths to be set)
         self.readSellerInventoryJsonFile("")
-        logger.info("some vars init done2....")
-        self.showMsg("main window ip:" + self.ip)
-        if "Commander" in self.machine_role:
-            self.tcpServer = None
-            self.commanderXport = None
-            self.commander_name = self.machine_name
-        elif self.machine_role == "Platoon":
-            self.showMsg("This is a platoon...")
-            self.commanderXport = None
-            self.commanderIP = commanderIP
-            self.tcpServer = None
+        
+        logger.info(f"[MainWindow] ✅ File system initialized - Data path: {self.my_ecb_data_homepath}")
 
-        logger.info("Initializing configuration manager...")
+    def _init_configuration_manager(self):
+        """Initialize configuration management system"""
+        logger.info("[MainWindow] ⚙️ Initializing configuration manager...")
+        
         from gui.manager import ConfigManager
         self.config_manager = ConfigManager(self.my_ecb_data_homepath)
 
@@ -341,15 +408,7 @@ class MainWindow:
         if not self.config_manager.general_settings.default_webdriver_path:
             self.config_manager.general_settings.default_webdriver_path = f"{self.homepath}/chromedriver-win64/chromedriver.exe"
 
-        # Configuration settings are now accessed directly through config_manager
-        # No need to store them as instance variables
-
-        logger.info("Configuration manager initialized successfully")
-        logger.debug("Debug Mode:" + str(self.config_manager.general_settings.debug_mode) +
-                    " Schedule Mode:" + str(self.config_manager.general_settings.schedule_mode))
-        logger.debug("self.platform==================================================>" + self.platform)
-
-
+        # Organization and role definitions
         self.organizations = [
             {"name":"agent resource"},
             {"name": "accounting"},
@@ -362,224 +421,319 @@ class MainWindow:
         self.titles = ["Director", "Product Manager", "Engineer Manager", "Team Leader", "Engineer", "Sales", "Analyst", "Senior Analyst"]
         self.ranks = ["E6", "E7", "E8", "E9", "E10", "E11", "E12", "E13", "E14", "E15", "E16", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8"]
         self.personalities = ["Introvert", "Extrovert"]
+        
+        logger.info(f"[MainWindow] ✅ Configuration manager initialized - Debug: {self.config_manager.general_settings.debug_mode}, Schedule: {self.config_manager.general_settings.schedule_mode}")
 
-
-        logger.debug("ADS SETTINGS:"+json.dumps(self.config_manager.ads_settings.data))
-        logger.debug("=========Done With Network Setup, Start Local DB Setup =========")
-        logger.debug("HOME PATH is::" + self.homepath, "info")
-        logger.debug(self.dbfile)
-        logger.info("some vars init done4....")
+    def _init_database_services(self):
+        """Initialize database and related services"""
+        logger.info("[MainWindow] 🗄️ Initializing database services...")
+        
         if "Commander" in self.machine_role:
-            # Optimized database initialization
-            logger.info("🗄️ Initializing database...")
+            # Initialize database for Commander role
             engine = init_db(self.dbfile)
             session = get_session(engine)
 
-            # Initialize services with optimized database session
-            logger.info("🔧 Initializing database services...")
+            # Initialize all database services
             self.bot_service = BotService(self, session, engine)
             self.mission_service = MissionService(self, session, engine)
             self.product_service = ProductService(self, session, engine)
             self.skill_service = SkillService(self, session, engine)
             self.vehicle_service = VehicleService(self, session, engine)
-            logger.info("✅ Database services initialized")
+            
+            logger.info("[MainWindow] ✅ Database services initialized for Commander role")
         else:
+            # Platoon role - no database services needed
             self.bot_service = None
             self.mission_service = None
             self.product_service = None
             self.skill_service = None
             self.vehicle_service = None
+            
+            logger.info("[MainWindow] ✅ Database services skipped for Platoon role")
+        
+                
+        # Initialize chat service
+        self.chat_service = ChatService.initialize(db_path=os.path.join(self.my_ecb_data_homepath, ECBOT_CHAT_DB))
+        logger.info("[MainWindow] ✅ Chat service initialized")
 
-        logger.info("some vars init done5....")
-        self.botRank = "soldier"  # this should be read from a file which is written during installation phase, user will select this during installation phase
+    def _init_business_objects(self):
+        """Initialize business objects and data structures"""
+        logger.info("[MainWindow] 📊 Initializing business objects...")
+        
+        # Core business objects
+        self.agent_skills = []
+        self.agent_tasks = []
+        self.agent_tools = []
+        self.agent_knowledges = []
+        
+        # Bot and mission management
+        self.bots = []
+        self.missions = []
+        self.skills = []
+        self.vehicles = []
+        self.platoons = []
+        self.products = []
+        self.inventories = []
+        
+        # Additional missing variables
+        self.commanderName = ""
+        
+        # Reports and tracking
+        self.todaysReport = []
+        self.todaysReports = []
+        self.todaysPlatoonReports = []
+        
+        # Mission and task tracking (missing variables)
+        self.missionsToday = []
+        self.todaysSchedule = {}
+        self.todays_scheduled_task_groups = {}
+        self.unassigned_scheduled_task_groups = {}
+        self.unassigned_reactive_task_groups = {}
+        
+        # UI state management
+        self.selected_bot_row = -1
+        self.selected_mission_row = -1
+        self.selected_bot_item = None
+        self.selected_mission_item = None
+        
+        # Component managers
+        self.bot_manager = None
+        self.missionWin = None
+        self.lightrag_server = None
+        self.train_manager = None
+        self.reminder_manager = None
+        self.platoonWin = None
+        self.unified_browser_manager = None
+        
+        # Bot states and profiles
+        self.bot_states = ["active", "disabled", "banned", "deleted"]
+        self.todays_bot_profiles = []
+        self.bot_cookie_site_lists = {}
+        
+        # Working state
+        self.botRank = "soldier"
         self.rpa_work_assigned_for_today = False
-        logger.debug("=========Done With Local DB Setup, Start GUI Setup =========")
-        # UI buttons removed - no longer needed
-
-        # menuFont removed - no longer needed for UI
-        # Search UI components removed - no longer needed
-        # QActions removed - UI components no longer needed
         self.running_mission = None
+        self.botsFingerPrintsReady = False
+        self.default_webdriver = None
+        self.working_state = "running_idle"
+        self.staff_officer_on_line = False
+        self.DONE_WITH_TODAY = True
+        
+        # Utility objects
+        self.zipper = LZString()
+        self.trMission = self.createTrialRunMission()
+        
+        # Initialize skill manager
+        self.skill_manager = SkillManager(self)
+        
+        # Initialize settings manager
+        self.settings_manager: SettingsManager = SettingsManager(self)
+        
+        # Data files
+        self.sellerInventoryJsonData = None
+        self.botJsonData = None
+        self.fetch_schedule_counter = 1
+        
+        logger.info("[MainWindow] ✅ Business objects initialized")
 
-        # Action disabling code removed - QActions no longer exist
-        logger.info("some vars init done6....")
-        # RPA quit dialog components removed - no longer needed
-
-        # finally start the network service
-        # because if we don't know who the real boss is, there no point doing any networking.....
-        if "Platoon" not in self.machine_role:
-            logger.info("run commander side networking......")
-            self.lan_task = self.mainLoop.create_task(runCommanderLAN(self))
-
-        else:
-            logger.info("run platoon side networking...")
-            self.lan_task = self.mainLoop.create_task(runPlatoonLAN(self, self.mainLoop))
-
-        # RPA quit dialog handlers removed - no longer needed
-
+    def _init_network_communication(self):
+        """Initialize network communication and related services"""
+        logger.info("[MainWindow] 🌐 Initializing network communication...")
+        
+        # Network state
         self.wan_connected = False
         self.wan_msg_subscribed = False
         self.websocket = None
+        
+        # Network configuration based on role
+        if "Commander" in self.machine_role:
+            self.tcpServer = None
+            self.commanderXport = None
+            self.commander_name = self.machine_name
+            self.commanderIP = ""  # Initialize for Commander role
+        elif self.machine_role == "Platoon":
+            self.commanderXport = None
+            self.commanderIP = commanderIP
+            self.tcpServer = None
+            
+        # Vehicle monitoring
         self.vehicle_monitor = VehicleMonitorManager(self)
-        logger.debug("================= DONE with GUI Setup ==============================")
+        
+        # Start network services based on role
+        if "Platoon" not in self.machine_role:
+            logger.info("[MainWindow] Starting commander side networking...")
+            self.lan_task = self.mainLoop.create_task(runCommanderLAN(self))
+        else:
+            logger.info("[MainWindow] Starting platoon side networking...")
+            self.lan_task = self.mainLoop.create_task(runPlatoonLAN(self, self.mainLoop))
+            
+        logger.info(f"[MainWindow] ✅ Network communication initialized - Role: {self.machine_role}")
 
-
-        self.todays_scheduled_task_groups = {}
-        self.unassigned_scheduled_task_groups = {}                # per vehicle, flatten task list
-        self.unassigned_reactive_task_groups = {}  # per vehicle, flatten task list
+        # Check vehicles after network initialization
         self.checkVehicles()
-
-        logger.info("Check Vehicles:", len(self.vehicles))
+        logger.info(f"[MainWindow] Vehicles checked: {len(self.vehicles)} found")
         for v in self.vehicles:
-            logger.debug("vname:", v.getName(), "status:", v.getStatus(), )
+            logger.debug(f"Vehicle: {v.getName()}, Status: {v.getStatus()}")
 
-        self.settings_manager: SettingsManager = SettingsManager(self)
-
-        logger.debug("load local bots, mission, skills ")
-        if ("Commander" in self.machine_role):
+    def _init_local_data_loading(self):
+        """Initialize and load local data"""
+        logger.info("[MainWindow] 📂 Loading local data...")
+        
+        if "Commander" in self.machine_role:
+            # Load vehicle configuration
             self.readVehicleJsonFile()
-            logger.info("Vehicle files loaded"+json.dumps(self.vehiclesJsonData))
+            logger.info(f"[MainWindow] Vehicle files loaded: {len(getattr(self, 'vehiclesJsonData', []))} vehicles")
 
-            # Load local data first for immediate UI responsiveness
-            logger.info("Loading local bot data...")
+            # Load local bot data for immediate UI responsiveness
             bots_data = self.bot_service.find_all_bots()
-            logger.info("find all bots"  + str(len(bots_data)))
+            logger.info(f"[MainWindow] Loading {len(bots_data)} bots from database")
             self.loadLocalBots(bots_data)
-            logger.info("bots local data loaded")
-
+            
+            # Create new bots from Excel if available
             self.createNewBotsFromBotsXlsx()
 
-            logger.info("Loading local mission data...")
+            # Load local mission data
             missions_data = self.mission_service.find_missions_by_createon()
-            logger.info("local mission data:", missions_data)
+            logger.info(f"[MainWindow] Loading {len(missions_data)} missions from database")
             self.loadLocalMissions(missions_data)
-            logger.info("missions local data loaded")
+            
+            # Update daily skillset
             self.dailySkillsetUpdate()
-            logger.info("skills local data loaded")
 
             # Start cloud sync in background (non-blocking)
             if not self.config_manager.general_settings.debug_mode or self.config_manager.general_settings.schedule_mode == "auto":
-                logger.info("Starting background cloud data sync...")
+                logger.info("[MainWindow] Starting background cloud data sync...")
                 asyncio.create_task(self._async_sync_cloud_data())
             else:
-                logger.info("Cloud sync skipped (debug mode or manual schedule)")
+                logger.info("[MainWindow] Cloud sync skipped (debug mode or manual schedule)")
+                
+        logger.info("[MainWindow] ✅ Local data loading completed")
 
-        # Done with all UI stuff, now do the instruction set extension work.
-        logger.info("set up rais extensions ")
+    def _init_extensions_and_plugins(self):
+        """Initialize extensions and plugins"""
+        logger.info("[MainWindow] 🔌 Initializing extensions and plugins...")
+        
+        # Load RAIS extensions
         rais_extensions_file = self.my_ecb_data_homepath + "/my_rais_extensions/my_rais_extensions.json"
-        rais_extensions_dir = self.my_ecb_data_homepath + "/my_rais_extensions/"
-        added_handlers=[]
-        logger.info("rais extension file:"+rais_extensions_file)
+        added_handlers = []
+        
         if os.path.isfile(rais_extensions_file):
-            with open(rais_extensions_file, 'r') as rais_extensions:
-                user_rais_modules = json.load(rais_extensions)
-                logger.info("user_rais_modules:", user_rais_modules)
-                for i, user_module in enumerate(user_rais_modules):
-                    module_file = self.my_ecb_data_homepath + "/" + user_module["dir"] + "/"+user_module["file"]
-                    added_ins = user_module['instructions']
-                    module_name = os.path.splitext(user_module["file"])[0]
-                    spec = importlib.util.spec_from_file_location(module_name, module_file)
-                    logger.debug("ext rais:", module_file, added_ins, module_name, spec)
-                    # Create a module object from the spec
-                    module = importlib.util.module_from_spec(spec)
-                    # Load the module
-                    spec.loader.exec_module(module)
+            try:
+                with open(rais_extensions_file, 'r') as rais_extensions:
+                    user_rais_modules = json.load(rais_extensions)
+                    logger.info(f"Loading {len(user_rais_modules)} RAIS extensions")
+                    
+                    for i, user_module in enumerate(user_rais_modules):
+                        module_file = self.my_ecb_data_homepath + "/" + user_module["dir"] + "/" + user_module["file"]
+                        added_ins = user_module['instructions']
+                        module_name = os.path.splitext(user_module["file"])[0]
+                        
+                        try:
+                            spec = importlib.util.spec_from_file_location(module_name, module_file)
+                            module = importlib.util.module_from_spec(spec)
+                            spec.loader.exec_module(module)
 
-                    for ins in added_ins:
-                        if hasattr(module, ins["handler"]):
-                            RAIS[ins["instruction name"]] = getattr(module, ins["handler"])
-                            ARAIS[ins["instruction name"]] = getattr(module, ins["handler"])
-                            logger.info("EXTENDING ARAIS", ins["instruction name"])
-
-        # now load experience file which will speed up icon matching
+                            for ins in added_ins:
+                                if hasattr(module, ins["handler"]):
+                                    RAIS[ins["instruction name"]] = getattr(module, ins["handler"])
+                                    ARAIS[ins["instruction name"]] = getattr(module, ins["handler"])
+                                    added_handlers.append(ins["instruction name"])
+                                    
+                        except Exception as e:
+                            logger.error(f"[MainWindow] Failed to load RAIS extension {module_name}: {e}")
+                            
+            except Exception as e:
+                logger.error(f"[MainWindow] Failed to load RAIS extensions file: {e}")
+                
+        # Load run experience file for icon matching optimization
         run_experience_file = self.my_ecb_data_homepath + "/run_experience.txt"
+        icon_match_dict = {}
+        
         if os.path.exists(run_experience_file):
             try:
                 with open(run_experience_file, 'rb') as fileTBRead:
                     icon_match_dict = json.load(fileTBRead)
-                    fileTBRead.close()
+                logger.info(f"[MainWindow] Loaded {len(icon_match_dict)} icon matching experiences")
             except json.JSONDecodeError:
-                self.showMsg("ERROR: json loads an wrongly formated json file")
-                icon_match_dict = {}
+                logger.error("[MainWindow] Error: Invalid JSON format in run experience file")
             except Exception as e:
-                self.showMsg("ERROR: unexpected json load error")
-                icon_match_dict = {}
+                logger.error(f"[MainWindow] Error loading run experience file: {e}")
+                
+        logger.info(f"✅ Extensions initialized - {len(added_handlers)} RAIS handlers, {len(icon_match_dict)} icon experiences")
 
-        self.showMsg("set up fetching schedule ")
-        # now hand daily tasks
+    def _init_task_management(self):
+        """Initialize task and work management"""
+        logger.info("[MainWindow] 📋 Initializing task management...")
+        
+        # Initialize work queues
         self.todays_work = {"tbd": [], "allstat": "working"}
         self.reactive_work = {"tbd": [], "allstat": "working"}
         self.todays_completed = []
         self.reactive_completed = []
         self.num_todays_task_groups = 0
         self.num_reactive_task_groups = 0
+        
+        # Setup scheduled work fetching for Commander role
         if "Commander" in self.host_role:
-            # For commander creates
             fetchCloudScheduledWork = {
                 "name": "fetch schedule",
-               "works": self.gen_default_fetch(),
-               "status": "yet to start",
-               "current widx": 0,
-               "completed" : [],
-               "aborted": []
+                "works": self.gen_default_fetch(),
+                "status": "yet to start",
+                "current widx": 0,
+                "completed": [],
+                "aborted": []
             }
-            logger.info("debug mode:", self.config_manager.general_settings.debug_mode, self.config_manager.general_settings.schedule_mode)
+            
+            # Add to work queue if in auto mode and not debug
             if not self.config_manager.general_settings.debug_mode and self.config_manager.general_settings.schedule_mode == "auto":
-                logger.info("add fetch schedule to todo list....")
+                logger.info("[MainWindow] Adding fetch schedule to work queue")
                 self.todays_work["tbd"].append(fetchCloudScheduledWork)
+            else:
+                logger.info(f"[MainWindow] Skipping auto schedule - Debug: {self.config_manager.general_settings.debug_mode}, Mode: {self.config_manager.general_settings.schedule_mode}")
+                
+        logger.info("[MainWindow] ✅ Task management initialized")
 
+    def _init_servers_and_agents(self):
+        """Initialize servers and agent systems"""
+        logger.info("[MainWindow] 🤖 Initializing servers and agents...")
+        
+        # Setup local web server and MCP server
+        os.environ["NO_PROXY"] = "localhost,127.0.0.1"
+        
         from agent.mcp.server.server import set_server_main_win
         from gui.LocalServer import start_local_server_in_thread
-        # setup local web server including MCP server.
-        os.environ["NO_PROXY"] = "localhost,127.0.0.1"
+        
         set_server_main_win(self)
         start_local_server_in_thread(self)
-
-        # async def setupAsyncTasks(self):
-        self.showMsg("ready to spawn mesg server task")
-        if not self.host_role == "Platoon":
-            if not self.host_role == "Staff Officer":
-                self.peer_task = asyncio.create_task(self.servePlatoons(self.gui_net_msg_queue))
-            else:
-                self.peer_task = asyncio.create_task(self.wait_forever())
-                # self.peer_task = asyncio.create_task(self.monitorTroop(self.gui_net_msg_queue))
-            # self.wan_sub_task = asyncio.create_task(subscribeToWanChat(self, self.get_auth_token(), self.chat_id))
-            # self.wan_msg_task = asyncio.create_task(wanHandleRxMessage(self))
-            self.showMsg("spawned wan chat task")
-
-        if self.host_role == "Platoon":
-            self.peer_task = asyncio.create_task(self.serveCommander(self.gui_net_msg_queue))
-            # self.wan_sub_task = asyncio.create_task(subscribeToWanChat(self, self.get_auth_token(), self.chat_id))
-            # self.wan_sub_task = asyncio.create_task(self.wait_forever())
-            # self.wan_msg_task = asyncio.create_task(self.wait_forever())
-
-        # the message queue are
-        self.monitor_task = asyncio.create_task(self.runRPAMonitor(self.gui_monitor_msg_queue))
-        self.showMsg("spawned RPA Monitor task")
-        self.showMsg("spawned runbot task")
-
-        self.chat_task = asyncio.create_task(self.connectChat(self.gui_chat_msg_queue))
-        self.showMsg("spawned chat task")
-
-        if not self.config_manager.general_settings.browser_use_file_system_path:
-            # create a temporary file system using agent ID
-            base_tmp = self.my_ecb_data_homepath # e.g., /tmp on Unix
-            self.config_manager.general_settings.browser_use_file_system_path = os.path.join(self.my_ecb_data_homepath, f'browser_use_fs')
-            self.config_manager.general_settings.save()
         
-        self.llm = pick_llm(self.config_manager.general_settings.default_llm, self.config_manager.llm_manager.get_all_providers(), self.config_manager)
-        logger.info("LLM selected: ", self.llm)
+        # Initialize LLM with proper error handling
+        try:
+            from agent.ec_skills.llm_utils.llm_utils import pick_llm
+            self.llm = pick_llm(
+                self.config_manager.general_settings.default_llm, 
+                self.config_manager.llm_manager.get_all_providers(), 
+                self.config_manager
+            )
+            logger.info(f"[MainWindow] LLM initialized: {type(self.llm).__name__}")
+        except Exception as e:
+            logger.error(f"[MainWindow] Failed to initialize LLM: {e}")
+            self.llm = None
+            
+        # Initialize agent-related components
         self.agents = []
         self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         self.mcp_client = None
         self._sse_cm = None
         
-        # 简化的初始化状态管理
-        self._initialization_status = {
-            'sync_init_complete': False,
-            'async_init_complete': False,
-            'fully_ready': False
-        }
+        # Initialize browser file system path if needed
+        if not self.config_manager.general_settings.browser_use_file_system_path:
+            self.config_manager.general_settings.browser_use_file_system_path = os.path.join(
+                self.my_ecb_data_homepath, 'browser_use_fs'
+            )
+            self.config_manager.general_settings.save()
+            
+        # Load GUI flowgram schema if configured
         gui_flowgram_schema = self.config_manager.general_settings.data.get("gui_flowgram_schema", "")
         if gui_flowgram_schema:
             node_schema_file = self.my_ecb_data_homepath + gui_flowgram_schema
@@ -587,39 +741,75 @@ class MainWindow:
                 try:
                     with open(node_schema_file, 'rb') as fileTBRead:
                         self.node_schemas = json.load(fileTBRead)
-                        fileTBRead.close()
-                except json.JSONDecodeError:
-                    self.showMsg("ERROR: json loads an wrongly formated json file")
+                    logger.info("[MainWindow] GUI flowgram schema loaded")
+                except (json.JSONDecodeError, Exception) as e:
+                    logger.error(f"[MainWindow] Failed to load GUI flowgram schema: {e}")
                     self.node_schemas = get_default_node_schemas()
-                except Exception as e:
-                    self.showMsg("ERROR: unexpected json load error")
-                    self.node_schemas = get_default_node_schemas()
+            else:
+                self.node_schemas = get_default_node_schemas()
+        else:
+            self.node_schemas = get_default_node_schemas()
+            
+        logger.info("[MainWindow] ✅ Servers and agents initialized")
 
-        # Initialize core async tasks first (non-blocking)
+    def _init_async_tasks(self):
+        """Initialize async tasks and background services"""
+        logger.info("[MainWindow] ⚡ Initializing async tasks...")
+        
+        # Setup peer communication tasks based on role
+        if self.host_role != "Platoon":
+            if self.host_role != "Staff Officer":
+                self.peer_task = asyncio.create_task(self.servePlatoons(self.gui_net_msg_queue))
+                logger.info("[MainWindow] Started platoon serving task")
+            else:
+                self.peer_task = asyncio.create_task(self.wait_forever())
+                logger.info("[MainWindow] Started staff officer waiting task")
+        else:
+            self.peer_task = asyncio.create_task(self.serveCommander(self.gui_net_msg_queue))
+            logger.info("[MainWindow] Started commander serving task")
+
+        # Initialize core monitoring and communication tasks
+        self.monitor_task = asyncio.create_task(self.runRPAMonitor(self.gui_monitor_msg_queue))
+        self.chat_task = asyncio.create_task(self.connectChat(self.gui_chat_msg_queue))
+        
+        # Initialize core async tasks (non-blocking)
         loop = asyncio.get_event_loop()
         asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
-
-        self.saveSettings()
-        logger.info("vehicles after init:", [v.getName() for v in self.vehicles])
         
-        # Start agent initialization in background (delayed/lazy loading)
-        logger.info("Scheduling agent initialization for background...")
+        logger.info("[MainWindow] ✅ Async tasks initialized")
+
+    def _finalize_initialization(self):
+        """Finalize initialization and start background services"""
+        logger.info("[MainWindow] 🏁 Finalizing initialization...")
+        
+        # Initialize status tracking
+        self._initialization_status = {
+            'sync_init_complete': False,
+            'async_init_complete': False,
+            'fully_ready': False
+        }
+        
+        # Save current settings
+        self.saveSettings()
+        
+        # Log final vehicle status
+        logger.info(f"[MainWindow] Final vehicle count: {len(self.vehicles)}")
+        for v in self.vehicles:
+            logger.debug(f"[MainWindow] Vehicle: {v.getName()}, Status: {v.getStatus()}")
+        
+        # Start background services (non-blocking)
+        logger.info("[MainWindow] Starting background services...")
         asyncio.create_task(self.async_agents_init())
-
-        # Initialize browser manager asynchronously (non-blocking)
-        logger.info("Scheduling browser manager initialization for background...")
         asyncio.create_task(self._async_setup_browser_manager())
-
-        # Start LightRAG server asynchronously (fully non-blocking)
-        logger.info("Scheduling LightRAG server initialization for background...")
         asyncio.create_task(self._async_start_lightrag())
-
-        # 更新同步初始化状态
+        
+        # Mark synchronous initialization as complete
         self._initialization_status['sync_init_complete'] = True
-        logger.info("MainWindow synchronous initialization completed - agents will initialize in background")
+        
+        logger.info("[MainWindow] ✅ MainWindow initialization completed successfully - background services starting")
 
     def is_fully_initialized(self) -> bool:
-        """检查是否完全初始化完成"""
+        """Check if initialization is fully completed"""
         return self._initialization_status.get('fully_ready', False)
     
     def get_main_window_safely(self):
@@ -627,15 +817,10 @@ class MainWindow:
         Safely get MainWindow instance with initialization check.
         
         Returns:
-            Tuple[MainWindow, bool]: (main_window, is_ready)
+            bool: True if ready, False otherwise
         """
         try:
-            is_ready = self.is_fully_initialized()
-            if not is_ready:
-                return False
-                
-            return True
-            
+            return self.is_fully_initialized()
         except Exception as e:
             logger.error(f"[MainGUI] Error accessing MainWindow: {e}")
             return False
@@ -649,9 +834,9 @@ class MainWindow:
             )
             # Start server process but don't wait for it to be ready
             self.lightrag_server.start(wait_ready=False)
-            logger.info("LightRAG server started (deferred, non-blocking)")
+            logger.info("[MainWindow] LightRAG server started (deferred, non-blocking)")
         except Exception as e:
-            logger.warning(f"Deferred LightRAG start failed: {e}")
+            logger.warning(f"[MainWindow] Deferred LightRAG start failed: {e}")
 
 
     def stop_lightrag_server(self):
@@ -663,7 +848,7 @@ class MainWindow:
         Asynchronously sync cloud data in background without blocking UI
         """
         try:
-            logger.info("🌐 Starting background cloud data synchronization...")
+            logger.info("[MainWindow] 🌐 Starting background cloud data synchronization...")
 
             # Sync bot data
             logger.info("📥 Syncing bot data from cloud...")
@@ -676,13 +861,13 @@ class MainWindow:
             )
 
             # Reload local bots after cloud sync
-            logger.info("🔄 Reloading bot data after cloud sync...")
+            logger.info("[MainWindow] 🔄 Reloading bot data after cloud sync...")
             bots_data = self.bot_service.find_all_bots()
             self.loadLocalBots(bots_data)
-            logger.info(f"✅ Bot cloud sync completed - {len(bots_data)} bots loaded")
+            logger.info(f"[MainWindow] ✅ Bot cloud sync completed - {len(bots_data)} bots loaded")
 
             # Sync mission data
-            logger.info("📥 Syncing mission data from cloud...")
+            logger.info("[MainWindow] 📥 Syncing mission data from cloud...")
             await asyncio.get_event_loop().run_in_executor(
                 None,
                 self.mission_service.sync_cloud_mission_data,
@@ -692,19 +877,19 @@ class MainWindow:
             )
 
             # Reload local missions after cloud sync
-            logger.info("🔄 Reloading mission data after cloud sync...")
+            logger.info("[MainWindow] 🔄 Reloading mission data after cloud sync...")
             missions_data = self.mission_service.find_missions_by_createon()
             self.loadLocalMissions(missions_data)
-            logger.info(f"✅ Mission cloud sync completed - {len(missions_data)} missions loaded")
+            logger.info(f"[MainWindow] ✅ Mission cloud sync completed - {len(missions_data)} missions loaded")
 
             # Update UI to reflect new data
-            logger.info("Cloud data sync completed successfully")
-            logger.info("🎉 Background cloud data synchronization completed successfully!")
+            logger.info("[MainWindow] Cloud data sync completed successfully")
+            logger.info("[MainWindow] 🎉 Background cloud data synchronization completed successfully!")
 
         except Exception as e:
-            logger.error(f"❌ Background cloud sync failed: {e}")
-            logger.error(f"Cloud sync error details: {traceback.format_exc()}")
-            logger.error(f"Cloud sync failed: {str(e)}")
+            logger.error(f"[MainWindow] ❌ Background cloud sync failed: {e}")
+            logger.error(f"[MainWindow] Cloud sync error details: {traceback.format_exc()}")
+            logger.error(f"[MainWindow] Cloud sync failed: {str(e)}")
 
 
     async def _async_setup_browser_manager(self):
@@ -715,7 +900,7 @@ class MainWindow:
             # Wait a bit to ensure main window is responsive first
             await asyncio.sleep(1.0)
 
-            logger.info("🌐 Starting background browser manager initialization...")
+            logger.info("[MainWindow] 🌐 Starting background browser manager initialization...")
 
             # Run browser manager setup in executor to avoid blocking
             await asyncio.get_event_loop().run_in_executor(
@@ -726,11 +911,11 @@ class MainWindow:
             # Start WebDriver initialization after browser manager is ready
             await self._start_webdriver_initialization()
 
-            logger.info("✅ Browser manager and WebDriver initialization completed!")
+            logger.info("[MainWindow] ✅ Browser manager and WebDriver initialization completed!")
 
         except Exception as e:
-            logger.error(f"❌ Background browser setup failed: {e}")
-            logger.error(f"Browser setup error details: {traceback.format_exc()}")
+            logger.error(f"[MainWindow] ❌ Background browser setup failed: {e}")
+            logger.error(f"[MainWindow] Browser setup error details: {traceback.format_exc()}")
             # Don't crash the app if browser setup fails
             # The app should continue to work without browser automation
 
@@ -742,7 +927,7 @@ class MainWindow:
             # Wait a bit to ensure other services are ready
             await asyncio.sleep(0.5)
 
-            logger.info("🧠 Starting LightRAG server initialization...")
+            logger.info("[MainWindow] 🧠 Starting LightRAG server initialization...")
 
             # Initialize LightRAG server in main thread to allow signal handlers
             # but run the actual server start in executor for non-blocking behavior
@@ -757,11 +942,11 @@ class MainWindow:
                 lambda: self.lightrag_server.start(wait_ready=False)
             )
 
-            logger.info("✅ LightRAG server initialization completed!")
+            logger.info("[MainWindow] ✅ LightRAG server initialization completed!")
 
         except Exception as e:
-            logger.error(f"❌ LightRAG server initialization failed: {e}")
-            logger.error(f"LightRAG error details: {traceback.format_exc()}")
+            logger.error(f"[MainWindow] ❌ LightRAG server initialization failed: {e}")
+            logger.error(f"[MainWindow] LightRAG error details: {traceback.format_exc()}")
             # Don't crash the app if LightRAG fails
             # The app should continue to work without knowledge services
 
@@ -793,104 +978,104 @@ class MainWindow:
 
     async def async_agents_init(self):
         """
-        优化的异步 Agent 初始化 - 并行化和延迟加载策略
+        Optimized asynchronous Agent initialization - parallelization and lazy loading strategy
         """
         import time
         start_time = time.time()
         
         try:
-            logger.info("🚀 Starting optimized async agents initialization...")
+            logger.info("[MainWindow] 🚀 Starting optimized async agents initialization...")
             local_server_port = self.get_local_server_port()
             
-            # 阶段1：并行等待服务器和预初始化
-            logger.info("⚡ Phase 1: Parallel server check and pre-initialization...")
+            # Phase 1: Parallel server waiting and pre-initialization
+            logger.info("[MainWindow] ⚡ Phase 1: Parallel server check and pre-initialization...")
             
             server_ready_task = self._wait_for_server_ready(local_server_port)
             pre_init_task = self._pre_initialize_components()
             
-            # 并行等待服务器就绪和预初始化
+            # Wait for server readiness and pre-initialization in parallel
             server_result, pre_init_result = await asyncio.gather(
                 server_ready_task,
                 pre_init_task,
                 return_exceptions=True
             )
             
-            # 检查服务器就绪结果
+            # Check server readiness results
             if isinstance(server_result, Exception):
-                logger.error(f"❌ Server readiness check failed: {server_result}")
+                logger.error(f"[MainWindow] ❌ Server readiness check failed: {server_result}")
                 raise server_result
             
             if isinstance(pre_init_result, Exception):
-                logger.warning(f"⚠️ Pre-initialization had issues: {pre_init_result}")
+                logger.warning(f"[MainWindow] ⚠️ Pre-initialization had issues: {pre_init_result}")
             
             elapsed_phase1 = time.time() - start_time
-            logger.info(f"✅ Phase 1 completed in {elapsed_phase1:.2f}s")
+            logger.info(f"[MainWindow] ✅ Phase 1 completed in {elapsed_phase1:.2f}s")
             
-            # 阶段2：并行初始化核心组件
-            logger.info("🔄 Phase 2: Parallel core component initialization...")
+            # Phase 2: Parallel initialization of core components
+            logger.info("[MainWindow] 🔄 Phase 2: Parallel core component initialization...")
             phase2_start = time.time()
             
-            # 并行执行可以独立运行的初始化任务
+            # Execute initialization tasks that can run independently in parallel
             tasks = []
             
-            # MCP 工具列表获取（可能很慢，放在后台）
+            # Get MCP tools list (potentially slow, run in background)
             tasks.append(self._get_mcp_tools_async())
             
-            # Agent 组件初始化（部分可以并行）
+            # Agent component initialization (some can be parallelized)
             tasks.append(self._initialize_agent_components_async())
             
-            # 等待所有并行任务完成
+            # Wait for all parallel tasks to complete
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
-            # 处理结果
+            # Process results
             mcp_tools_result, agent_components_result = results
             
             if isinstance(mcp_tools_result, Exception):
-                logger.warning(f"⚠️ MCP tools initialization failed: {mcp_tools_result}")
+                logger.warning(f"[MainWindow] ⚠️ MCP tools initialization failed: {mcp_tools_result}")
                 self.mcp_tools = []
             else:
                 self.mcp_tools = mcp_tools_result
-                logger.info(f"✅ MCP tools ready: {len(self.mcp_tools)} tools available")
+                logger.info(f"[MainWindow] ✅ MCP tools ready: {len(self.mcp_tools)} tools available")
             
             if isinstance(agent_components_result, Exception):
-                logger.error(f"❌ Agent components initialization failed: {agent_components_result}")
+                logger.error(f"[MainWindow] ❌ Agent components initialization failed: {agent_components_result}")
                 raise agent_components_result
             
             elapsed_phase2 = time.time() - phase2_start
-            logger.info(f"✅ Phase 2 completed in {elapsed_phase2:.2f}s")
+            logger.info(f"[MainWindow] ✅ Phase 2 completed in {elapsed_phase2:.2f}s")
             
-            # 阶段3：最终组装和启动（必须串行）
-            logger.info("🎯 Phase 3: Final assembly and launch...")
+            # Phase 3: Final assembly and launch (must be serial)
+            logger.info("[MainWindow] 🎯 Phase 3: Final assembly and launch...")
             phase3_start = time.time()
             
             try:
-                logger.info("🚀 Building agents...")
+                logger.info("[MainWindow] 🚀 Building agents...")
                 build_agents(self)
-                logger.info("✅ Agents built successfully")
+                logger.info("[MainWindow] ✅ Agents built successfully")
 
-                logger.info("🎯 Launching agents...")
+                logger.info("[MainWindow] 🎯 Launching agents...")
                 self.launch_agents()
-                logger.info("✅ Agents launched successfully")
+                logger.info("[MainWindow] ✅ Agents launched successfully")
 
-                # 标记异步初始化完成和系统完全就绪
+                # Mark async initialization complete and system fully ready
                 self._initialization_status['async_init_complete'] = True
                 self._initialization_status['fully_ready'] = True
                 
                 elapsed_phase3 = time.time() - phase3_start
                 total_elapsed = time.time() - start_time
                 
-                logger.info(f"✅ Phase 3 completed in {elapsed_phase3:.2f}s")
-                logger.info(f"🎉 Optimized async initialization completed in {total_elapsed:.2f}s!")
+                logger.info(f"[MainWindow] ✅ Phase 3 completed in {elapsed_phase3:.2f}s")
+                logger.info(f"[MainWindow] 🎉 Optimized async initialization completed in {total_elapsed:.2f}s!")
 
             except Exception as e:
-                logger.error(f"❌ Error during final assembly: {e}")
+                logger.error(f"[MainWindow] ❌ Error during final assembly: {e}")
                 import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
+                logger.error(f"[MainWindow] Traceback: {traceback.format_exc()}")
                 raise
 
         except Exception as e:
             total_elapsed = time.time() - start_time
-            logger.error(f"❌ Async agents initialization failed after {total_elapsed:.2f}s: {e}")
+            logger.error(f"[MainWindow] ❌ Async agents initialization failed after {total_elapsed:.2f}s: {e}")
             
             error_msg = f"Agent initialization failed: {str(e)}\n\n" \
                        f"This may be due to:\n" \
@@ -902,52 +1087,52 @@ class MainWindow:
             raise
 
     async def _wait_for_server_ready(self, local_server_port: int):
-        """优化的服务器就绪等待"""
-        logger.info(f"🔍 Waiting for server on port {local_server_port}...")
+        """Optimized server readiness waiting"""
+        logger.info(f"[MainWindow] 🔍 Waiting for server on port {local_server_port}...")
         from agent.mcp.mcp_utils import wait_until_server_ready
         
         try:
             host = "127.0.0.1"
             timeout = 30
             await wait_until_server_ready(f"http://{host}:{local_server_port}/healthz", timeout=timeout)
-            logger.info(f"✅ Server ready on {host};port {local_server_port};timeout {timeout}")
+            logger.info(f"[MainWindow] ✅ Server ready on {host};port {local_server_port};timeout {timeout}")
             return True
         except Exception as e:
-            logger.error(f"❌ Server readiness check failed: {e}")
-            raise RuntimeError(f"Server connection failed on {host};port {local_server_port};timeout {timeout}: {e}")
+            logger.error(f"[MainWindow] ❌ Server readiness check failed: {e}")
+            raise RuntimeError(f"[MainWindow] Server connection failed on {host};port {local_server_port};timeout {timeout}: {e}")
 
     async def _pre_initialize_components(self):
         """
-        预初始化可以并行执行的组件
+        Pre-initialize components that can be executed in parallel
         
-        核心目的：在等待服务器就绪的同时，并行执行不依赖服务器的准备工作，
-        充分利用等待时间，提高整体初始化效率。
+        Core purpose: While waiting for server readiness, execute preparation work that doesn't depend on the server in parallel,
+        making full use of waiting time to improve overall initialization efficiency.
         
-        主要工作：
-        1. 初始化基础数据结构，避免后续访问未定义属性
-        2. 预加载耗时的模块，减少后续导入时间
-        3. 检查配置完整性，提前发现配置问题
+        Main tasks:
+        1. Initialize basic data structures to avoid accessing undefined attributes later
+        2. Pre-load time-consuming modules to reduce subsequent import time
+        3. Check configuration completeness to discover configuration issues early
         
-        性能优化：
-        - 时间复用：在 I/O 等待期间充分利用 CPU
-        - 资源优化：预加载模块减少后续阻塞
-        - 错误隔离：预初始化失败不影响主流程
+        Performance optimization:
+        - Time reuse: Make full use of CPU during I/O waiting periods
+        - Resource optimization: Pre-loading modules reduces subsequent blocking
+        - Error isolation: Pre-initialization failure does not affect main flow
         """
         logger.info("🔧 Pre-initializing components...")
         
         try:
-            # 1. 初始化基础数据结构
-            # 目的：确保后续代码不会因为未初始化的属性而出错
+            # 1. Initialize basic data structures
+            # Purpose: Ensure subsequent code won't fail due to uninitialized attributes
             self.agent_skills = []
             self.agent_tasks = []
             self.agent_tools = []
             self.agent_knowledges = []
             
-            # 2. 预加载必要的模块（减少后续导入时间）
-            # 目的：Python 模块导入是同步操作，预先导入可以减少后续初始化时的导入时间
-            logger.debug("📦 Pre-loading modules...")
+            # 2. Pre-load necessary modules (reduce subsequent import time)
+            # Purpose: Python module import is synchronous operation, pre-importing can reduce import time during subsequent initialization
+            logger.debug("[MainWindow] 📦 Pre-loading modules...")
             try:
-                # 预导入耗时的模块，避免后续阻塞
+                # Pre-import time-consuming modules to avoid subsequent blocking
                 import agent.ec_skills.build_agent_skills
                 import agent.ec_agents.create_agent_tasks
                 import agent.ec_agents.obtain_agent_tools
@@ -955,28 +1140,28 @@ class MainWindow:
                 import agent.mcp.local_client
                 import agent.mcp.config
                 import agent.mcp.server.server
-                logger.debug("✅ Modules pre-loaded successfully")
+                logger.debug("[MainWindow] ✅ Modules pre-loaded successfully")
             except ImportError as e:
-                logger.debug(f"⚠️ Some modules not available for pre-loading: {e}")
+                logger.debug(f"[MainWindow] ⚠️ Some modules not available for pre-loading: {e}")
             
-            # 3. 检查和准备配置
-            # 目的：提前发现配置问题，避免在关键时刻才发现配置缺失
-            logger.debug("⚙️ Checking configurations...")
+            # 3. Check and prepare configurations
+            # Purpose: Discover configuration issues early, avoid finding missing configurations at critical moments
+            logger.debug("[MainWindow] ⚙️ Checking configurations...")
             
-            # 检查必要的配置是否存在
+            # Check if necessary configurations exist
             if not hasattr(self, 'config_manager') or self.config_manager is None:
-                logger.debug("⚠️ Config manager not available")
+                logger.debug("[MainWindow] ⚠️ Config manager not available")
             
             
-            logger.info("✅ Pre-initialization completed")
+            logger.info("[MainWindow] ✅ Pre-initialization completed")
             return True
             
         except Exception as e:
-            logger.warning(f"⚠️ Pre-initialization failed: {e}")
+            logger.warning(f"[MainWindow] ⚠️ Pre-initialization failed: {e}")
             return False
 
     async def _get_mcp_tools_async(self):
-        """异步获取 MCP 工具列表"""
+        """Asynchronously get MCP tools list"""
         logger.info("📋 Getting MCP tools list...")
         
         try:
@@ -1004,16 +1189,16 @@ class MainWindow:
             return []
 
     async def _initialize_agent_components_async(self):
-        """异步初始化 Agent 组件 - 改进的并行策略"""
+        """Asynchronously initialize Agent components - improved parallel strategy"""
         logger.info("🤖 Initializing agent components...")
         
         try:
-            # 第一步：构建 Agent Skills（最耗时）
+            # Step 1: Build Agent Skills (most time-consuming)
             logger.info("🔧 Building agent skills...")
             self.agent_skills = await self._build_agent_skills_optimized()
             logger.info(f"✅ Built {len(self.agent_skills)} agent skills")
             
-            # 第二步：并行初始化其他组件（这些组件相互独立）
+            # Step 2: Initialize other components in parallel (these components are independent of each other)
             logger.info("🔄 Parallel initialization of other components...")
             tasks = [
                 self._create_agent_tasks_async(),
@@ -1021,10 +1206,10 @@ class MainWindow:
                 self._build_agent_knowledges_async()
             ]
             
-            # 等待所有任务完成
+            # Wait for all tasks to complete
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
-            # 处理结果
+            # Process results
             tasks_result, tools_result, knowledges_result = results
             
             if isinstance(tasks_result, Exception):
@@ -1055,7 +1240,7 @@ class MainWindow:
             raise
 
     async def _build_agent_skills_optimized(self):
-        """优化的 Agent Skills 构建"""
+        """Optimized Agent Skills building"""
         logger.info("🔧 Building agent skills (optimized)...")
         
         try:
@@ -1067,7 +1252,7 @@ class MainWindow:
             raise
 
     async def _create_agent_tasks_async(self):
-        """异步创建 Agent Tasks"""
+        """Asynchronously create Agent Tasks"""
         try:
             from agent.ec_agents.create_agent_tasks import create_agent_tasks
             logger.debug("📝 Creating agent tasks...")
@@ -1078,7 +1263,7 @@ class MainWindow:
             raise
 
     async def _obtain_agent_tools_async(self):
-        """异步获取 Agent Tools"""
+        """Asynchronously obtain Agent Tools"""
         try:
             from agent.ec_agents.obtain_agent_tools import obtain_agent_tools
             logger.debug("🛠️ Obtaining agent tools...")
@@ -1089,7 +1274,7 @@ class MainWindow:
             raise
 
     async def _build_agent_knowledges_async(self):
-        """异步构建 Agent Knowledges"""
+        """Asynchronously build Agent Knowledges"""
         try:
             from agent.ec_agents.build_agent_knowledges import build_agent_knowledges
             logger.debug("📚 Building agent knowledges...")
@@ -1417,10 +1602,10 @@ class MainWindow:
         return None
 
     def getBrowserSession(self):
-        return self.browser_session()
+        return self.browser_session
 
     def getBrowserUseController(self):
-        return self.browser_use_controller()
+        return self.browser_use_controller
 
     def load_build_dom_tree_script(self):
         script = ""
@@ -4652,6 +4837,7 @@ class MainWindow:
             self.showMsg("Reading inventory file: "+inv_file_name)
             with open(inv_file_name, 'r', encoding='utf-8') as file:
                 self.sellerInventoryJsonData = json.load(file)
+                self.translateInventoryJson()
         else:
             self.showMsg("NO inventory file found!")
 
@@ -5344,14 +5530,14 @@ class MainWindow:
     def createMissionsFromFilesOrJsData(self, mfiles):
         missionsJson = []
         mTypeTable = {
-            "溜号": "browse",
-            "免评": "buy",
-            "直评": "directbuy",
-            "产品点星": "goodRating",
-            "产品好评": "goodFB",
-            "店铺点星": "storeRating",
-            "店铺好评": "storeFB",
-            "加购物车": "addCart",
+            "browse": "browse",
+            "free_review": "buy",
+            "direct_review": "directbuy",
+            "product_rating": "goodRating",
+            "product_feedback": "goodFB",
+            "store_rating": "storeRating",
+            "store_feedback": "storeFB",
+            "add_to_cart": "addCart",
         }
         for filename in mfiles:
             if filename != "":
