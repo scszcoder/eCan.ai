@@ -18,7 +18,7 @@
                 ]]>
             </description>
             <pubDate>Mon, 01 Jan 2024 12:00:00 +0000</pubDate>
-            <enclosure url="https://updates.ecbot.com/downloads/ECBot-1.1.0.dmg"
+            <enclosure url="http://127.0.0.1:8080/downloads/ECBot-1.1.0.dmg"
                        sparkle:version="1.1.0"
                        sparkle:os="macos"
                        length="52428800"
@@ -39,7 +39,7 @@
                 ]]>
             </description>
             <pubDate>Mon, 01 Jan 2024 12:00:00 +0000</pubDate>
-            <enclosure url="https://updates.ecbot.com/downloads/ECBot-1.1.0.exe"
+            <enclosure url="http://127.0.0.1:8080/downloads/ECBot-1.1.0.exe"
                        sparkle:version="1.1.0"
                        sparkle:os="windows"
                        length="41943040"

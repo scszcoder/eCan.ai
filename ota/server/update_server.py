@@ -19,9 +19,9 @@ UPDATE_CONFIG = {
             "description": "Added OTA update functionality and bug fixes",
             "release_date": "2024-01-01",
             "download_urls": {
-                "windows": "https://updates.ecbot.com/downloads/ECBot-1.1.0.exe",
-                "darwin": "https://updates.ecbot.com/downloads/ECBot-1.1.0.dmg",
-                "linux": "https://updates.ecbot.com/downloads/ECBot-1.1.0.tar.gz"
+                "windows": "http://127.0.0.1:8080/downloads/ECBot-1.1.0.exe",
+                "darwin": "http://127.0.0.1:8080/downloads/ECBot-1.1.0.dmg",
+                "linux": "http://127.0.0.1:8080/downloads/ECBot-1.1.0.tar.gz"
             },
             "file_sizes": {
                 "windows": 41943040,
@@ -119,6 +119,41 @@ def appcast():
             return "Appcast not found", 404
     except Exception as e:
         return f"Error serving appcast: {str(e)}", 500
+
+@app.route('/downloads/<filename>', methods=['GET'])
+def download_file(filename):
+    """模拟文件下载端点"""
+    try:
+        # 为了测试，创建一个模拟文件
+        import tempfile
+        import os
+        
+        # 创建临时文件模拟下载
+        temp_dir = Path(tempfile.gettempdir()) / "ecbot_ota_test"
+        temp_dir.mkdir(exist_ok=True)
+        
+        file_path = temp_dir / filename
+        
+        # 如果文件不存在，创建一个模拟文件
+        if not file_path.exists():
+            with open(file_path, 'wb') as f:
+                # 写入一些模拟数据
+                if filename.endswith('.exe'):
+                    # Windows executable模拟
+                    f.write(b'MZ' + b'\x00' * (41943040 - 2))  # 模拟exe文件
+                elif filename.endswith('.dmg'):
+                    # macOS DMG模拟
+                    f.write(b'\x00' * 52428800)  # 模拟dmg文件
+                else:
+                    # 其他文件
+                    f.write(b'ECBot Update Package\n' * 1000)
+        
+        print(f"Serving download: {filename} ({file_path.stat().st_size} bytes)")
+        return send_file(str(file_path), as_attachment=True, download_name=filename)
+        
+    except Exception as e:
+        print(f"Download error: {e}")
+        return jsonify({"error": f"Download failed: {str(e)}"}), 500
 
 @app.route('/health', methods=['GET'])
 def health():

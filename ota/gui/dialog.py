@@ -188,5 +188,14 @@ class UpdateNotificationDialog(QDialog):
         self.setLayout(layout)
 
 
-# For backward compatibility, keep original name
-UpdateDialog = SimpleUpdateDialog
+# 导入增强对话框
+try:
+    from .enhanced_dialog import EnhancedUpdateDialog
+    # 默认使用增强对话框
+    UpdateDialog = EnhancedUpdateDialog
+except ImportError:
+    # 如果导入失败，使用简单对话框作为后备
+    UpdateDialog = SimpleUpdateDialog
+
+# 为了向后兼容，保留原始名称
+SimpleDialog = SimpleUpdateDialog
