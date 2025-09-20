@@ -1,11 +1,15 @@
 """
-OTA构建工具（示例/占位）
-- 包含Sparkle/winSparkle构建脚本和打包工具的示例代码
-- 这些脚本默认禁用，仅用于参考与本地实验
-- 如需使用，请设置环境变量 ECBOT_ALLOW_BUILD_SCRIPTS=1
+OTA Build Tools (Examples/Placeholders)
+- Contains example code for Sparkle/winSparkle build scripts and packaging tools
+- These scripts are disabled by default, only for reference and local experiments
+- To use, set environment variable ECBOT_ALLOW_BUILD_SCRIPTS=1
+
+NOTE: Main build functionality is integrated into the unified build system.
+Use: python build.py [mode] for production builds.
 """
 
-# 示例构建脚本已默认禁用，如需使用请直接运行对应文件
-# 并设置环境变量 ECBOT_ALLOW_BUILD_SCRIPTS=1
+# Example build scripts are disabled by default
+# To use, run the corresponding file directly and set ECBOT_ALLOW_BUILD_SCRIPTS=1
+# For production builds, use the main build system: python build.py
 
-__all__ = []  # 不导出任何构建工具，避免误用 
+__all__ = []  # Do not export any build tools to avoid misuse

@@ -1,6 +1,6 @@
 """
-更新包管理器
-处理下载、验证和安装更新包
+Update package manager
+Handles downloading, verification and installation of update packages
 """
 
 import os
@@ -20,7 +20,7 @@ import requests
 from utils.logger_helper import logger_helper as logger
 from .config import ota_config
 
-# 尝试导入加密库
+# Try to import cryptography library
 try:
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import rsa, padding, ed25519
@@ -32,7 +32,7 @@ except ImportError:
 
 
 class UpdatePackage:
-    """更新包信息"""
+    """Update package information"""
     
     def __init__(self, version: str, download_url: str, file_size: int, 
                  signature: str, description: str = ""):
@@ -50,31 +50,31 @@ class UpdatePackage:
 
 
 class PackageManager:
-    """更新包管理器"""
+    """Update package manager"""
     
     def __init__(self, download_dir: Optional[str] = None):
         self.download_dir = Path(download_dir) if download_dir else Path(tempfile.gettempdir()) / "ecbot_updates"
         self.download_dir.mkdir(parents=True, exist_ok=True)
         self.current_package: Optional[UpdatePackage] = None
-        self._downloaded_files = []  # 跟踪下载的文件
+        self._downloaded_files = []  # Track downloaded files
         
         logger.info(f"Package manager initialized with download dir: {self.download_dir}")
     
     def download_package(self, package: UpdatePackage, progress_callback=None, max_retries=3) -> bool:
-        """下载更新包"""
+        """Download update package"""
         for attempt in range(max_retries):
             try:
                 logger.info(f"Downloading update package: {package.version} (attempt {attempt + 1}/{max_retries})")
                 
-                # 创建下载路径
+                # Create download path
                 filename = self._get_filename_from_url(package.download_url)
                 download_path = self.download_dir / filename
                 
-                # 如果文件已存在，删除它
+                # If file already exists, delete it
                 if download_path.exists():
                     download_path.unlink()
                 
-                # 开始下载
+                # Start download
                 response = requests.get(package.download_url, stream=True, timeout=30)
                 response.raise_for_status()
                 
@@ -93,9 +93,9 @@ class PackageManager:
                 
                 package.download_path = download_path
                 package.is_downloaded = True
-                self._downloaded_files.append(download_path)  # 跟踪下载的文件
+                self._downloaded_files.append(download_path)  # Track downloaded files
                 
-                # 验证文件大小
+                # Verify file size
                 if package.file_size > 0 and download_path.stat().st_size != package.file_size:
                     logger.error(f"File size mismatch: expected {package.file_size}, got {download_path.stat().st_size}")
                     if attempt < max_retries - 1:
@@ -109,7 +109,7 @@ class PackageManager:
             except requests.exceptions.RequestException as e:
                 logger.error(f"Network error during download (attempt {attempt + 1}): {e}")
                 if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt  # 指数退避
+                    wait_time = 2 ** attempt  # Exponential backoff
                     logger.info(f"Waiting {wait_time} seconds before retry...")
                     time.sleep(wait_time)
                     continue
@@ -125,7 +125,7 @@ class PackageManager:
         return False
     
     def verify_package(self, package: UpdatePackage, public_key_path: Optional[str] = None) -> bool:
-        """验证更新包"""
+        """Verify update package"""
         if not package.is_downloaded or not package.download_path:
             logger.error("Package not downloaded")
             return False
@@ -133,21 +133,21 @@ class PackageManager:
         try:
             logger.info(f"Verifying package: {package.version}")
             
-            # 1. 验证文件完整性（哈希）
+            # 1. Verify file integrity (hash)
             file_hash = self._calculate_file_hash(package.download_path)
             logger.info(f"Package hash: {file_hash}")
             
-            # 2. 基本哈希/数字签名验证
+            # 2. Basic hash/digital signature verification
             sig_required = ota_config.get('signature_required', True)
             if package.signature:
                 if self._is_hash_signature(package.signature):
-                    # 简单哈希验证
+                    # Simple hash verification
                     if file_hash != package.signature:
                         logger.error(f"Hash verification failed: expected {package.signature}, got {file_hash}")
                         return False
                     logger.info("Hash verification successful")
                 else:
-                    # 数字签名验证（Ed25519/RSA-PSS）
+                    # Digital signature verification (Ed25519/RSA-PSS)
                     if not public_key_path:
                         public_key_path = ota_config.get_public_key_path()
                     ok = self._verify_digital_signature(package.download_path, package.signature, public_key_path)
@@ -160,12 +160,12 @@ class PackageManager:
                     logger.error("Missing signature while signature_required=true")
                     return False
             
-            # 3. 文件格式验证
+            # 3. File format verification
             if not self._verify_package_format(package.download_path):
                 logger.error("Package format verification failed")
                 return False
             
-            # 4. 恶意软件扫描（基础检查）
+            # 4. Malware scan (basic check)
             if not self._basic_malware_scan(package.download_path):
                 logger.error("Package failed security scan")
                 return False
@@ -179,14 +179,14 @@ class PackageManager:
             return False
     
     def _is_hash_signature(self, signature: str) -> bool:
-        """判断签名是否为简单哈希"""
-        # MD5: 32字符, SHA1: 40字符, SHA256: 64字符
+        """Check if signature is a simple hash"""
+        # MD5: 32 chars, SHA1: 40 chars, SHA256: 64 chars
         return len(signature) in [32, 40, 64] and all(c in '0123456789abcdefABCDEF' for c in signature)
     
     def _verify_digital_signature(self, file_path: Path, signature: str, public_key_path: Optional[str]) -> bool:
-        """验证数字签名"""
+        """Verify digital signature"""
         try:
-            # 检查加密库可用性
+            # Check cryptography library availability
             if not CRYPTO_AVAILABLE:
                 error_msg = "Cryptography library not available for signature verification"
                 if ota_config.get('signature_required', True):
@@ -195,7 +195,7 @@ class PackageManager:
                 logger.warning(f"{error_msg}, skipping verification")
                 return True
 
-            # 检查公钥文件
+            # Check public key file
             if not public_key_path:
                 error_msg = "Public key path not provided"
                 if ota_config.get('signature_required', True):
@@ -212,7 +212,7 @@ class PackageManager:
                 logger.warning(f"{error_msg}, skipping verification")
                 return True
             
-            # 检查签名格式
+            # Check signature format
             if not signature or len(signature.strip()) == 0:
                 error_msg = "Empty or invalid signature"
                 if ota_config.get('signature_required', True):
@@ -221,23 +221,23 @@ class PackageManager:
                 logger.warning(f"{error_msg}, skipping verification")
                 return True
             
-            # 读取公钥
+            # Read public key
             with open(public_key_path, 'rb') as key_file:
                 public_key = serialization.load_pem_public_key(key_file.read())
             
-            # 读取文件内容
+            # Read file content
             with open(file_path, 'rb') as f:
                 file_data = f.read()
             
-            # 解码签名（假设是base64编码）
+            # Decode signature (assume base64 encoded)
             import base64
             try:
                 signature_bytes = base64.b64decode(signature)
             except Exception:
-                # 如果不是base64，尝试直接使用
+                # If not base64, try to use directly
                 signature_bytes = signature.encode('utf-8')
             
-            # 验证签名（支持 RSA-PSS 与 Ed25519）
+            # Verify signature (support RSA-PSS and Ed25519)
             if isinstance(public_key, rsa.RSAPublicKey):
                 logger.info("Verifying RSA-PSS signature")
                 public_key.verify(
@@ -251,7 +251,7 @@ class PackageManager:
                 )
             elif isinstance(public_key, ed25519.Ed25519PublicKey):
                 logger.info("Verifying Ed25519 signature")
-                # Sparkle 2 edSignature 使用 Ed25519 对整个下载文件签名（Base64 编码）
+                # Sparkle 2 edSignature uses Ed25519 to sign entire download file (Base64 encoded)
                 public_key.verify(signature_bytes, file_data)
             else:
                 key_type = type(public_key).__name__
@@ -272,17 +272,17 @@ class PackageManager:
             return False
     
     def _verify_package_format(self, file_path: Path) -> bool:
-        """验证包格式"""
+        """Verify package format"""
         try:
             if file_path.suffix == '.zip':
                 with zipfile.ZipFile(file_path, 'r') as zip_ref:
-                    # 检查ZIP文件完整性
+                    # Check ZIP file integrity
                     bad_file = zip_ref.testzip()
                     if bad_file:
                         logger.error(f"Corrupted file in ZIP: {bad_file}")
                         return False
                     
-                    # 检查危险文件路径
+                    # Check dangerous file paths
                     for name in zip_ref.namelist():
                         if '..' in name or name.startswith('/'):
                             logger.error(f"Dangerous path in ZIP: {name}")
@@ -290,7 +290,7 @@ class PackageManager:
                             
             elif file_path.suffix in ['.tar', '.gz', '.bz2']:
                 with tarfile.open(file_path, 'r:*') as tar_ref:
-                    # 检查危险文件路径
+                    # Check dangerous file paths
                     for member in tar_ref.getmembers():
                         if '..' in member.name or member.name.startswith('/'):
                             logger.error(f"Dangerous path in TAR: {member.name}")
@@ -303,23 +303,23 @@ class PackageManager:
             return False
     
     def _basic_malware_scan(self, file_path: Path) -> bool:
-        """基础恶意软件扫描"""
+        """Basic malware scan"""
         try:
-            # 检查文件大小是否合理
+            # Check if file size is reasonable
             file_size = file_path.stat().st_size
             max_size = 500 * 1024 * 1024  # 500MB
             if file_size > max_size:
                 logger.warning(f"Package size {file_size} exceeds maximum {max_size}")
                 return False
             
-            # 检查文件扩展名
+            # Check file extension
             allowed_extensions = {'.zip', '.tar', '.gz', '.bz2', '.dmg', '.exe', '.msi'}
             if file_path.suffix not in allowed_extensions:
                 logger.error(f"Disallowed file extension: {file_path.suffix}")
                 return False
             
-            # TODO: 可以集成第三方杀毒引擎
-            # 例如 ClamAV 或其他安全扫描工具
+            # TODO: Can integrate third-party antivirus engines
+            # For example ClamAV or other security scanning tools
             
             return True
             
@@ -328,7 +328,7 @@ class PackageManager:
             return False
     
     def install_package(self, package: UpdatePackage, install_dir: str) -> bool:
-        """安装更新包"""
+        """Install update package"""
         if not package.is_verified:
             logger.error("Package not verified")
             return False
@@ -337,17 +337,17 @@ class PackageManager:
         try:
             logger.info(f"Installing package: {package.version}")
             
-            # 检查安装目录
+            # Check install directory
             if not os.path.exists(install_dir):
                 logger.error(f"Install directory does not exist: {install_dir}")
                 return False
             
-            # 创建备份
+            # Create backup
             if self._should_backup(install_dir):
                 backup_path = self._create_backup(install_dir)
                 logger.info(f"Backup created: {backup_path}")
             
-            # 解压并安装
+            # Extract and install
             success = self._extract_and_install(package.download_path, install_dir)
             
             if success:
@@ -355,7 +355,7 @@ class PackageManager:
                 self.current_package = package
                 return True
             else:
-                # 恢复备份
+                # Restore backup
                 if backup_path and backup_path.exists():
                     self._restore_backup(backup_path, install_dir)
                     logger.info("Backup restored after failed installation")
@@ -378,13 +378,13 @@ class PackageManager:
             return False
     
     def cleanup(self, keep_current=False):
-        """清理下载的文件"""
+        """Clean up downloaded files"""
         try:
-            # 清理单个下载的文件
+            # Clean up individual downloaded files
             for file_path in self._downloaded_files[:]:
                 try:
                     if file_path.exists():
-                        # 如果要保留当前包，跳过它
+                        # If keeping current package, skip it
                         if keep_current and self.current_package and file_path == self.current_package.download_path:
                             continue
                         file_path.unlink()
@@ -393,22 +393,22 @@ class PackageManager:
                 except Exception as e:
                     logger.warning(f"Failed to clean up file {file_path}: {e}")
             
-            # 清理空目录
+            # Clean up empty directories
             if self.download_dir.exists():
                 try:
-                    # 只删除空目录
+                    # Only delete empty directories
                     if not any(self.download_dir.iterdir()):
                         self.download_dir.rmdir()
                         logger.info("Download directory cleaned up")
                 except OSError:
-                    # 目录不为空，这是正常的
+                    # Directory not empty, this is normal
                     pass
                     
         except Exception as e:
             logger.error(f"Cleanup failed: {e}")
     
     def cleanup_old_files(self, max_age_days=7):
-        """清理旧文件"""
+        """Clean up old files"""
         try:
             import time
             current_time = time.time()
@@ -428,12 +428,12 @@ class PackageManager:
             logger.error(f"Old file cleanup failed: {e}")
     
     def _get_filename_from_url(self, url: str) -> str:
-        """从URL获取文件名"""
+        """Get filename from URL"""
         parsed = urlparse(url)
         return os.path.basename(parsed.path)
     
     def _calculate_file_hash(self, file_path: Path, algorithm='sha256') -> str:
-        """计算文件哈希"""
+        """Calculate file hash"""
         if algorithm == 'md5':
             hasher = hashlib.md5()
         elif algorithm == 'sha1':
@@ -449,26 +449,26 @@ class PackageManager:
         return hasher.hexdigest()
     
     def _should_backup(self, install_dir: str) -> bool:
-        """是否应该创建备份"""
-        # 这里可以根据配置或文件大小决定
+        """Whether should create backup"""
+        # Can decide based on configuration or file size
         return True
     
     def _create_backup(self, install_dir: str) -> Path:
-        """创建备份"""
+        """Create backup"""
         backup_dir = self.download_dir / f"backup_{int(time.time())}"
         shutil.copytree(install_dir, backup_dir)
         return backup_dir
     
     def _restore_backup(self, backup_path: Path, install_dir: str):
-        """恢复备份"""
+        """Restore backup"""
         if os.path.exists(install_dir):
             shutil.rmtree(install_dir)
         shutil.copytree(backup_path, install_dir)
     
     def _extract_and_install(self, package_path: Path, install_dir: str) -> bool:
-        """解压并安装包；在开发模式下提供最小占位安装器支持 .dmg/.exe/.msi（默认关闭）。"""
+        """Extract and install package; provides minimal placeholder installer support for .dmg/.exe/.msi in dev mode (disabled by default)."""
         try:
-            # 开发模式占位安装器路径
+            # Dev mode placeholder installer path
             from .config import ota_config
             if package_path.suffix.lower() in ['.dmg', '.exe', '.msi']:
                 if not ota_config.is_dev_mode() or not ota_config.get("dev_installer_enabled", False):
@@ -481,7 +481,7 @@ class PackageManager:
                 shutil.rmtree(extract_dir)
             extract_dir.mkdir()
             
-            # 解压文件
+            # Extract files
             if package_path.suffix == '.zip':
                 with zipfile.ZipFile(package_path, 'r') as zip_ref:
                     zip_ref.extractall(extract_dir)
@@ -492,17 +492,17 @@ class PackageManager:
                 logger.error(f"Unsupported package format: {package_path.suffix}")
                 return False
             
-            # 查找安装脚本
+            # Find install script
             install_script = extract_dir / "install.py"
             if install_script.exists():
-                # 执行安装脚本
+                # Execute install script
                 result = subprocess.run([sys.executable, str(install_script), install_dir], 
                                      capture_output=True, text=True)
                 if result.returncode != 0:
                     logger.error(f"Install script failed: {result.stderr}")
                     return False
             else:
-                # 直接复制文件
+                # Copy files directly
                 for item in extract_dir.iterdir():
                     if item.is_dir():
                         shutil.copytree(item, Path(install_dir) / item.name, dirs_exist_ok=True)
@@ -516,21 +516,21 @@ class PackageManager:
             return False
 
     def _dev_install_installer(self, package_path: Path) -> bool:
-        """开发模式：最小占位安装器
-        - macOS .dmg：hdiutil attach -> 复制到目标目录 -> hdiutil detach
-        - Windows .exe/.msi：直接调用，是否静默由配置控制
+        """Dev mode: minimal placeholder installer
+        - macOS .dmg: hdiutil attach -> copy to target directory -> hdiutil detach
+        - Windows .exe/.msi: direct call, silent mode controlled by config
         """
         try:
             from .config import ota_config
             suffix = package_path.suffix.lower()
             if suffix == '.dmg' and sys.platform == 'darwin':
                 target_dir = Path(ota_config.get("dmg_target_dir", "/Applications"))
-                # 挂载 dmg
+                # Mount dmg
                 attach = subprocess.run(["hdiutil", "attach", str(package_path), "-nobrowse", "-quiet"], capture_output=True, text=True)
                 if attach.returncode != 0:
                     logger.error(f"Failed to attach dmg: {attach.stderr}")
                     return False
-                # 查找挂载点（简单假设第一个Volume）
+                # Find mount point (simple assumption: first Volume)
                 try:
                     import plistlib
                     info = subprocess.run(["hdiutil", "info", "-plist"], capture_output=True)
@@ -545,7 +545,7 @@ class PackageManager:
                     if not mount_point:
                         logger.error("Mount point not found for dmg")
                         return False
-                    # 复制 .app 到目标目录（如果存在）
+                    # Copy .app to target directory (if exists)
                     apps = [p for p in Path(mount_point).glob('*.app')]
                     if not apps:
                         logger.error("No .app found in dmg")
@@ -553,7 +553,7 @@ class PackageManager:
                     for app in apps:
                         subprocess.run(["cp", "-R", str(app), str(target_dir)], check=False)
                 finally:
-                    # 卸载 dmg
+                    # Unmount dmg
                     subprocess.run(["hdiutil", "detach", mount_point or ""], capture_output=True)
                 return True
             elif suffix in ('.exe', '.msi') and sys.platform.startswith('win'):
@@ -562,7 +562,7 @@ class PackageManager:
                 if quiet and suffix == '.msi':
                     args = ["msiexec", "/i", str(package_path), "/quiet"]
                 elif quiet and suffix == '.exe':
-                    # 常见静默参数；不同安装器可能不一致，仅作占位
+                    # Common silent parameters; different installers may vary, placeholder only
                     args.append("/quiet")
                 result = subprocess.run(args)
                 return result.returncode == 0
@@ -574,5 +574,5 @@ class PackageManager:
             return False
 
 
-# 全局包管理器实例
+# Global package manager instance
 package_manager = PackageManager() 
