@@ -58,6 +58,7 @@ class GeneralSettings:
             "lan_api_endpoint": "",
             "wan_api_endpoint": "",
             "ws_api_endpoint": "",
+            "ws_api_host": "",
             "img_engine": "lan",
             "schedule_engine": "wan",
             "local_agent_ports": [3600, 3800],
@@ -262,6 +263,15 @@ class GeneralSettings:
     @ws_api_endpoint.setter
     def ws_api_endpoint(self, value: str):
         self._data["ws_api_endpoint"] = value
+
+    @property
+    def ws_api_host(self) -> str:
+        """WebSocket API endpoint"""
+        return self._data.get("ws_api_host", "")
+
+    @ws_api_host.setter
+    def ws_api_host(self, value: str):
+        self._data["ws_api_host"] = value
 
     @property
     def wan_api_key(self) -> str:

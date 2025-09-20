@@ -7,8 +7,10 @@ import aiohttp
 import asyncio
 import websocket
 import threading
+from urllib.parse import urlparse, urlencode, urlunparse, parse_qsl
 
 from bot.envi import getECBotDataHome
+from typing import Optional, Tuple
 from utils.logger_helper import logger_helper
 import traceback
 from config.constants import API_DEV_MODE
@@ -2482,37 +2484,163 @@ def scramble_api_key(ak):
 
 
 # related to websocket sub/push to get long running task results
-# 2. Subscribe for completion
-subscription = """
-subscription OnComplete($id: ID!) {
-  onLLMTaskComplete(id: $id) {
-    id
-    status
-    result
-  }
-}
-"""
+def subscribe_cloud_llm_task(task_id: str, id_token: str, ws_url: Optional[str] = None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
+    """Subscribe to long-running LLM task updates over WebSocket.
 
-def on_message(ws, message):
-    data = json.loads(message)
-    print("Subscription update:", json.dumps(data, indent=2))
+    - Auth: uses Cognito IdToken via Authorization: Bearer <token>
+    - Returns the websocket client and the background thread running it.
+    """
 
-def subscribe_cloud_llm_task(task_id):
-    ws = websocket.WebSocketApp(
-        "wss://YOURAPPSYNC.appsync-realtime-api.REGION.amazonaws.com/graphql",
-        header={"x-api-key": API_KEY},
-        on_message=on_message,
-    )
-    threading.Thread(target=ws.run_forever).start()
+    def on_message(ws, message):
+        print("hello hello......")
+        try:
+            data = json.loads(message)
+        except Exception:
+            data = {"raw": message}
+        print("Subscription update:", json.dumps(data, indent=2))
 
-    # Send subscription payload after connect
-    ws.send(json.dumps(
-        {
-            "id": "1",
-            "type": "start",
-            "payload": {
-                "data": subscription,
-                "variables": {"id": task_id}
-            }
+        # Handle graphql-ws protocol server messages
+        msg_type = data.get("type")
+        if msg_type == "connection_ack":
+            # After ack, start the subscription (AppSync format: data + extensions.authorization)
+            try:
+                subscription = (
+                    """
+                    subscription OnComplete($id: String!) {
+                      onLongLLMTaskComplete(id: $id)
+                    }
+                    """
+                )
+                data_obj = {
+                    "query": subscription,
+                    "operationName": "OnComplete",
+                    "variables": {"id": task_id},
+                }
+                start_payload = {
+                    "id": "test-task-001",
+                    "type": "start",
+                    "payload": {
+                        "data": json.dumps(data_obj),
+                        "extensions": {
+                            "authorization": {
+                                "host": api_host,
+                                "Authorization": id_token,
+                            }
+                        },
+                    },
+                }
+                print("connection_ack received, sending start subscription ...")
+                ws.send(json.dumps(start_payload))
+            except Exception as e:
+                print("Failed to send start payload:", e)
+        elif msg_type in ("ka", "keepalive"):
+            # Keep-alive from server; no action required
+            return
+        elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "LongLLM1":
+            # Extract AWSJSON leaf result
+            payload_data = data.get("payload", {}).get("data", {})
+            result = None
+            if isinstance(payload_data, dict):
+                result = payload_data.get("onLongLLMTaskComplete")
+            # If result is a JSON string (AWSJSON), attempt to parse it
+            parsed = None
+            if isinstance(result, str):
+                try:
+                    parsed = json.loads(result)
+                except Exception:
+                    parsed = result
+            else:
+                parsed = result
+            print("Received subscription AWSJSON:", json.dumps(parsed, indent=2, ensure_ascii=False))
+        elif msg_type == "error":
+            print("Received error message from server:", json.dumps(data, indent=2))
+
+    def on_error(ws, error):
+        print("WebSocket error:", error)
+
+    def on_close(ws, status_code, msg):
+        print(f"WebSocket closed: code={status_code}, msg={msg}")
+
+    def on_open(ws):
+        print("web socket opened.......")
+        # Per AppSync graphql-ws, send connection_init first (payload empty; auth comes via URL params)
+        init_payload = {
+            "type": "connection_init",
+            "payload": {}
         }
+        try:
+            print("sending connection_init ...")
+            ws.send(json.dumps(init_payload))
+        except Exception as e:
+            print("Failed to send connection_init:", e)
+
+    # Resolve WS URL and ensure it's the AppSync realtime endpoint
+    if not ws_url:
+        ws_url = os.getenv("ECAN_WS_URL", "")
+    if not ws_url:
+        raise ValueError("WebSocket URL not provided and ECAN_WS_URL is not set")
+
+    # If developer accidentally passed the normal HTTPS AppSync API endpoint,
+    # convert it to the realtime WSS endpoint.
+    if ws_url.startswith("https://") and "appsync-api" in ws_url:
+        # https://XXXX.appsync-api.REGION.amazonaws.com/graphql ->
+        # wss://XXXX.appsync-realtime-api.REGION.amazonaws.com/graphql
+        try:
+            prefix = "https://"
+            rest = ws_url[len(prefix):]
+            rest = rest.replace("appsync-api", "appsync-realtime-api", 1)
+            ws_url = "wss://" + rest
+            print(f"Converted to realtime endpoint: {ws_url}")
+        except Exception:
+            pass
+
+    # Build signed realtime URL with required query params: header, payload
+    # header: base64-encoded JSON of { host, Authorization }
+    # payload: base64-encoded JSON of {}
+    parsed = urlparse(ws_url)
+    # For AppSync Realtime, the signed header must use the API host (appsync-api),
+    # not the realtime host. Convert host accordingly.
+    api_host = parsed.netloc.replace("appsync-realtime-api", "appsync-api")
+    header_obj = {
+        "host": api_host,
+        "Authorization": id_token,
+    }
+    payload_obj = {}
+    header_b64 = base64.b64encode(json.dumps(header_obj).encode("utf-8")).decode("utf-8")
+    payload_b64 = base64.b64encode(json.dumps(payload_obj).encode("utf-8")).decode("utf-8")
+
+    # Preserve existing query params and append header/payload
+    query = dict(parse_qsl(parsed.query))
+    query.update({
+        "header": header_b64,
+        "payload": payload_b64,
+    })
+    signed_url = urlunparse((
+        parsed.scheme,
+        parsed.netloc,
+        parsed.path,
+        parsed.params,
+        urlencode(query),
+        parsed.fragment,
     ))
+
+    print("ws_url ok.....")
+    headers = []
+
+    print("token seems to be ok.....")
+
+    ws = websocket.WebSocketApp(
+        signed_url,
+        header=headers,
+        on_message=on_message,
+        on_error=on_error,
+        on_close=on_close,
+        on_open=on_open,
+        subprotocols=["graphql-ws"],
+    )
+
+    print("launch web socket thread")
+    t = threading.Thread(target=ws.run_forever, daemon=True)
+    t.start()
+    print("web socket thread launched")
+    return ws, t
