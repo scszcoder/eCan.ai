@@ -272,7 +272,7 @@ class EnvironmentLoader:
     def _print_all_environment_variables(self):
         """Print all environment variables for debugging"""
         try:
-            logger.info("=== 系统环境变量列表 ===")
+            logger.info("=== System Environment Variables List ===")
             
             # Get all environment variables
             all_env_vars = dict(os.environ)
@@ -289,7 +289,7 @@ class EnvironmentLoader:
             
             # Print non-sensitive variables first
             if non_sensitive_vars:
-                logger.info(f"📋 非敏感环境变量 ({len(non_sensitive_vars)} 个):")
+                logger.info(f"📋 Non-sensitive environment variables ({len(non_sensitive_vars)} items):")
                 for key in sorted(non_sensitive_vars.keys()):
                     value = non_sensitive_vars[key]
                     # Limit length for very long values
@@ -298,14 +298,14 @@ class EnvironmentLoader:
             
             # Print sensitive variables with masking
             if sensitive_vars:
-                logger.info(f"🔐 敏感环境变量 ({len(sensitive_vars)} 个):")
+                logger.info(f"🔐 Sensitive environment variables ({len(sensitive_vars)} items):")
                 for key in sorted(sensitive_vars.keys()):
                     value = sensitive_vars[key]
                     masked_value = self._mask_sensitive_value(key, value)
                     logger.info(f"   {key}={masked_value}")
             
-            logger.info(f"📊 总计: {len(all_env_vars)} 个环境变量 (敏感: {len(sensitive_vars)}, 非敏感: {len(non_sensitive_vars)})")
-            logger.info("=== 环境变量列表结束 ===")
+            logger.info(f"📊 Total: {len(all_env_vars)} environment variables (sensitive: {len(sensitive_vars)}, non-sensitive: {len(non_sensitive_vars)})")
+            logger.info("=== End of Environment Variables List ===")
             
         except Exception as e:
             logger.error(f"Failed to print environment variables: {e}")
