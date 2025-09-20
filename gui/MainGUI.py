@@ -389,7 +389,7 @@ class MainWindow:
         self.all_ads_profiles_xls = "C:/AmazonSeller/SelfSwipe/test_all.xls"
 
         # Initialize inventory data (requires file paths to be set)
-        self.readSellerInventoryJsonFile("")
+        # self.readSellerInventoryJsonFile("")
 
         logger.info(f"[MainWindow] ✅ File system initialized - Data path: {self.my_ecb_data_homepath}")
 
@@ -1789,6 +1789,9 @@ class MainWindow:
 
     def getWSApiEndpoint(self):
         return self.config_manager.general_settings.ws_api_endpoint
+
+    def getWSApiHost(self):
+        return self.config_manager.general_settings.ws_api_host
 
     def getLanApiEndpoint(self):
         return self.config_manager.general_settings.lan_api_endpoint
