@@ -2504,20 +2504,17 @@ def subscribe_cloud_llm_task(task_id: str, id_token: str, ws_url: Optional[str] 
         if msg_type == "connection_ack":
             # After ack, start the subscription (AppSync format: data + extensions.authorization)
             try:
-                subscription = (
-                    """
-                    subscription OnComplete($id: String!) {
-                      onLongLLMTaskComplete(id: $id)
+                subscription = """
+                    subscription OnComplete {
+                      onLongLLMTaskComplete
                     }
-                    """
-                )
+                """
                 data_obj = {
                     "query": subscription,
-                    "operationName": "OnComplete",
-                    "variables": {"id": task_id},
+                    "operationName": "OnComplete"
                 }
                 start_payload = {
-                    "id": "test-task-001",
+                    "id": "LongLLM1",
                     "type": "start",
                     "payload": {
                         "data": json.dumps(data_obj),
