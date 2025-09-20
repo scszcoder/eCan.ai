@@ -457,7 +457,7 @@ class MenuManager:
             ota_updater = OTAUpdater()
             
             # Create and show update dialog, pass OTA updater instance
-            dialog = UpdateDialog(ota_updater, self.main_window)
+            dialog = UpdateDialog(parent=self.main_window, ota_updater=ota_updater)
             dialog.exec()
         except Exception as e:
             logger.error(f"Failed to show update dialog: {e}")
@@ -469,7 +469,7 @@ class MenuManager:
             settings_dialog = QDialog(self.main_window)
             settings_dialog.setWindowTitle("eCan Settings")
             settings_dialog.setModal(True)
-            settings_dialog.setFixedSize(500, 400)
+            settings_dialog.setFixedSize(600, 500)
             
             layout = QVBoxLayout()
             
@@ -478,22 +478,82 @@ class MenuManager:
             title_label.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
             layout.addWidget(title_label)
             
-            # Settings items (examples)
+            # OTA Update Settings Group
+            ota_group = QGroupBox("OTA Update Settings")
+            ota_layout = QVBoxLayout()
+            
+            # Server selection
+            server_layout = QHBoxLayout()
+            server_label = QLabel("Update Server:")
+            server_layout.addWidget(server_label)
+            
+            # Radio buttons for server selection
+            self.remote_server_radio = QRadioButton("Remote Server (GitHub)")
+            self.local_server_radio = QRadioButton("Local Test Server")
+            
+            # Load current configuration
+            try:
+                from ota.core.config import ota_config
+                if ota_config.is_using_local_server():
+                    self.local_server_radio.setChecked(True)
+                else:
+                    self.remote_server_radio.setChecked(True)
+            except Exception as e:
+                logger.warning(f"Failed to load OTA config: {e}")
+                self.remote_server_radio.setChecked(True)
+            
+            ota_layout.addWidget(self.remote_server_radio)
+            ota_layout.addWidget(self.local_server_radio)
+            
+            # Local server URL input
+            local_url_layout = QHBoxLayout()
+            local_url_label = QLabel("Local Server URL:")
+            
+            # 从配置中获取默认URL
+            try:
+                from ota.core.config import ota_config
+                default_url = ota_config.config.get("local_server_url", "http://127.0.0.1:8080")
+            except:
+                default_url = "http://127.0.0.1:8080"
+            
+            self.local_url_input = QLineEdit(default_url)
+            local_url_layout.addWidget(local_url_label)
+            local_url_layout.addWidget(self.local_url_input)
+            ota_layout.addLayout(local_url_layout)
+            
+            # Start local server button
+            start_server_button = QPushButton("Start Local Test Server")
+            start_server_button.clicked.connect(self.start_local_ota_server)
+            ota_layout.addWidget(start_server_button)
+            
+            ota_group.setLayout(ota_layout)
+            layout.addWidget(ota_group)
+            
+            # Other settings
+            other_group = QGroupBox("General Settings")
+            other_layout = QVBoxLayout()
+            
             auto_save_checkbox = QCheckBox("Auto-save projects")
             auto_save_checkbox.setChecked(True)
-            layout.addWidget(auto_save_checkbox)
+            other_layout.addWidget(auto_save_checkbox)
             
             dark_mode_checkbox = QCheckBox("Dark mode")
-            layout.addWidget(dark_mode_checkbox)
+            other_layout.addWidget(dark_mode_checkbox)
+            
+            other_group.setLayout(other_layout)
+            layout.addWidget(other_group)
             
             # Buttons
             button_layout = QHBoxLayout()
             ok_button = QPushButton("OK")
             cancel_button = QPushButton("Cancel")
+            apply_button = QPushButton("Apply")
             
-            ok_button.clicked.connect(settings_dialog.accept)
+            ok_button.clicked.connect(lambda: self.save_ota_settings(settings_dialog))
             cancel_button.clicked.connect(settings_dialog.reject)
+            apply_button.clicked.connect(lambda: self.save_ota_settings())
             
+            button_layout.addWidget(apply_button)
             button_layout.addWidget(ok_button)
             button_layout.addWidget(cancel_button)
             layout.addLayout(button_layout)
@@ -504,6 +564,77 @@ class MenuManager:
         except Exception as e:
             logger.error(f"Failed to show settings: {e}")
             QMessageBox.warning(self.main_window, "Error", "Failed to open settings")
+    
+    def save_ota_settings(self, dialog=None):
+        """保存OTA设置"""
+        try:
+            from ota.core.config import ota_config
+            
+            # 保存服务器选择
+            use_local = self.local_server_radio.isChecked()
+            ota_config.set_use_local_server(use_local)
+            
+            # 保存本地服务器URL
+            local_url = self.local_url_input.text().strip()
+            if local_url:
+                ota_config.set_local_server_url(local_url)
+            
+            logger.info(f"OTA settings saved: use_local={use_local}, local_url={local_url}")
+            QMessageBox.information(self.main_window, "Settings", "OTA settings saved successfully!")
+            
+            if dialog:
+                dialog.accept()
+                
+        except Exception as e:
+            logger.error(f"Failed to save OTA settings: {e}")
+            QMessageBox.warning(self.main_window, "Error", f"Failed to save settings: {e}")
+    
+    def start_local_ota_server(self):
+        """启动本地OTA测试服务器"""
+        try:
+            import subprocess
+            import sys
+            from pathlib import Path
+            
+            # 获取启动脚本路径
+            project_root = Path(__file__).parent.parent
+            start_script = project_root / "ota" / "start_local_server.py"
+            
+            if not start_script.exists():
+                QMessageBox.warning(self.main_window, "Error", f"Local server script not found: {start_script}")
+                return
+            
+            # 在新的命令行窗口中启动服务器
+            if sys.platform == "win32":
+                # Windows
+                subprocess.Popen([
+                    "cmd", "/c", "start", "cmd", "/k", 
+                    f"python \"{start_script}\""
+                ], shell=True)
+            else:
+                # macOS/Linux
+                subprocess.Popen([
+                    "gnome-terminal", "--", "python", str(start_script)
+                ])
+            
+            # 获取本地服务器URL用于显示
+            try:
+                from ota.core.config import ota_config
+                server_url = ota_config.config.get("local_server_url", "http://127.0.0.1:8080")
+            except:
+                server_url = "http://127.0.0.1:8080"
+            
+            QMessageBox.information(
+                self.main_window, 
+                "Server Starting", 
+                f"Local OTA test server is starting in a new window.\n"
+                f"Server will be available at: {server_url}\n\n"
+                "Check the terminal window for server status."
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to start local OTA server: {e}")
+            QMessageBox.warning(self.main_window, "Error", f"Failed to start server: {e}")
     
     def hide_app(self):
         """Hide application"""

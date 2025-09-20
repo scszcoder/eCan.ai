@@ -92,9 +92,8 @@ class SparkleUpdater:
             plat_config = ota_config.get_platform_config()
             arch = normalize_arch_tag(platform.machine())
             
-            # Get appcast URL
-            appcast_urls = plat_config.get('appcast_urls', {})
-            appcast_url = appcast_urls.get(arch) or plat_config.get('appcast_url')
+            # Get appcast URL using new configuration method
+            appcast_url = ota_config.get_appcast_url(arch)
             
             if not appcast_url:
                 raise PlatformError(
@@ -287,9 +286,8 @@ class WinSparkleUpdater:
             plat_config = ota_config.get_platform_config()
             arch = normalize_arch_tag(platform.machine())
             
-            # Get appcast URL
-            appcast_urls = plat_config.get('appcast_urls', {})
-            appcast_url = appcast_urls.get(arch) or plat_config.get('appcast_url')
+            # Get appcast URL using new configuration method
+            appcast_url = ota_config.get_appcast_url(arch)
             
             if not appcast_url:
                 raise PlatformError(
