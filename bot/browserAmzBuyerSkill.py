@@ -2264,7 +2264,7 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
 
 
 def genStepsWinADSAMZBrowserBrowseSearch(worksettings, stepN, theme):
-    log3("GENERATING genWinADSAMZBrowserBrowseSearchSkill===101===>")
+    log3("GENERATING genStepsWinADSAMZBrowserBrowseSearch===101===>")
     psk_words = ""
     this_step = stepN
     site_url = "https://www.amazon.com/"

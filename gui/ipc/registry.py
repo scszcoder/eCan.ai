@@ -30,7 +30,8 @@ class IPCHandlerRegistry:
     _whitelist: ClassVar[Set[str]] = {
         'login', 'signup', 'refresh_token', 'get_system_status',
         'ping', 'health_check', 'get_version', 'forgot_password',
-        'confirm_forgot_password', 'google_login', 'get_last_login'
+        'confirm_forgot_password', 'google_login', 'get_last_login',
+        'get_initialization_progress'  # 允许在系统未就绪时检查初始化进度
     }
     
     @classmethod

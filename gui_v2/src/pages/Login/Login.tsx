@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Row, Col, Form, Input, Button, Card, Select, Typography, App, Modal, Spin } from 'antd';
+import { Form, Input, Button, Card, Select, Typography, App, Modal, Spin } from 'antd';
 import { UserOutlined, LockOutlined, LoadingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { APIResponse, IPCAPI } from '../../services/ipc';
 import { get_ipc_api } from '../../services/ipc_api';
 import { userStorageManager } from '../../services/storage/UserStorageManager';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
+import { useInitializationProgress } from '../../hooks/useInitializationProgress';
+import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import logo from '../../assets/logoWhite22.png';
 import googleIcon from '../../assets/Google_Icons.png';
 import appleIcon from '../../assets/Apple_Icon3.png';
@@ -35,8 +37,31 @@ const Login: React.FC = () => {
 	// State
 	const [mode, setMode] = useState<AuthMode>('login');
 	const [loading, setLoading] = useState(false);
+	const [showInitProgress, setShowInitProgress] = useState(false);
 	// 新增本地 state 控制验证码发送
 	const [codeSent, setCodeSent] = useState(false);
+	// 登录成功状态，防止按钮状态重置
+	const [loginSuccessful, setLoginSuccessful] = useState(false);
+	// 忘记密码操作的loading状态
+	const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+
+	// Monitor backend initialization progress during login process
+	const { progress: initProgress } = useInitializationProgress(loading || showInitProgress);
+
+	// Navigate to main page when login is successful and UI is ready
+	useEffect(() => {
+		if ((loading || showInitProgress) && initProgress?.ui_ready && !loginSuccessful) {
+			setLoginSuccessful(true);
+			console.log('[Login] UI ready, navigating to main page. Background initialization will continue.');
+
+			// Small delay to show success state before navigation
+			setTimeout(() => {
+				setLoading(false);
+				setShowInitProgress(false);
+				navigate('/agents');
+			}, 500);
+		}
+	}, [initProgress, loading, showInitProgress, navigate, loginSuccessful]);
 
 	// Initialize IPC API and load login info
 	useEffect(() => {
@@ -109,37 +134,56 @@ const Login: React.FC = () => {
 	const handleModeChange = useCallback((newMode: AuthMode) => {
 		setMode(newMode);
 		form.resetFields();
+		// Reset all loading states when switching modes
+		setLoading(false);
+		setLoginSuccessful(false);
+		setForgotPasswordLoading(false);
+		setCodeSent(false);
 	}, [form]);
 
 	const handleLogin = async (values: LoginFormValues, api: IPCAPI) => {
-		const response: APIResponse<any> = await api.login(values.username, values.password, values.role, i18n.language);
-		if (response.success && response.data) {
-			console.log('[Login] Login successful', response.data);
-			const { token, user_info } = response.data;
+		try {
+			// Add timeout for login request
+			const loginPromise = api.login(values.username, values.password, values.role, i18n.language);
+			const timeoutPromise = new Promise<never>((_, reject) => {
+				setTimeout(() => reject(new Error('Login timeout after 30 seconds')), 30000);
+			});
 
-			// 使用统一的用户存储管理器
-			const loginSession = {
-				token,
-				userInfo: {
-					username: user_info?.username || values.username,
-					role: user_info?.role || values.role,
-					email: user_info?.email
-				},
-				loginTime: Date.now()
-			};
+			const response: APIResponse<any> = await Promise.race([loginPromise, timeoutPromise]);
 
-			userStorageManager.saveLoginSession(loginSession);
-			// 登录成功后启用页面刷新监听
-			pageRefreshManager.enable();
-			
-			messageApi.success(t('login.success'));
-			// Navigate immediately for better UX - main window initializes in background
-			setTimeout(() => {
-				navigate('/agents');
-			}, 500)
-		} else {
-			console.error('Login failed', response.error);
-			messageApi.error(response.error?.message || t('login.failed'));
+			if (response.success && response.data) {
+				console.log('[Login] Login successful', response.data);
+				const { token, user_info } = response.data;
+
+				// 使用统一的用户存储管理器
+				const loginSession = {
+					token,
+					userInfo: {
+						username: user_info?.username || values.username,
+						role: user_info?.role || values.role,
+						email: user_info?.email
+					},
+					loginTime: Date.now()
+				};
+
+				userStorageManager.saveLoginSession(loginSession);
+				// 登录成功后启用页面刷新监听
+				pageRefreshManager.enable();
+
+				messageApi.success(t('login.success'));
+				// Continue monitoring initialization progress (already started when login button was clicked)
+				// UI will navigate to main page as soon as ui_ready is true, background init will continue
+				setShowInitProgress(true);
+			} else {
+				console.error('Login failed', response.error);
+				messageApi.error(response.error?.message || t('login.failed'));
+				throw new Error(response.error?.message || 'Login failed');
+			}
+		} catch (error) {
+			console.error('Login error:', error);
+			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+			messageApi.error(t('login.error') + ': ' + errorMessage);
+			throw error; // Re-throw to be handled by handleSubmit
 		}
 	};
 
@@ -163,6 +207,9 @@ const Login: React.FC = () => {
 	};
 
 	const handleForgotPasswordSendCode = async () => {
+		if (forgotPasswordLoading) return; // Prevent double submission
+
+		setForgotPasswordLoading(true);
 		try {
 			const username = form.getFieldValue('username');
 			if (!username) {
@@ -170,16 +217,30 @@ const Login: React.FC = () => {
 				return;
 			}
 			const api = get_ipc_api();
-			await api.forgotPassword(username, i18n.language);
+			if (!api) throw new Error(t('common.error'));
+
+			// Add timeout for forgot password request
+			const forgotPromise = api.forgotPassword(username, i18n.language);
+			const timeoutPromise = new Promise<never>((_, reject) => {
+				setTimeout(() => reject(new Error('Forgot password timeout after 30 seconds')), 30000);
+			});
+
+			await Promise.race([forgotPromise, timeoutPromise]);
+
 			setCodeSent(true);
 			messageApi.success(t('login.forgotCodeSent'));
 		} catch (error) {
 			console.error('Forgot password send code error:', error);
-			messageApi.error(t('login.forgotCodeSendError'));
+			messageApi.error(t('login.forgotCodeSendError') + ': ' + (error instanceof Error ? error.message : String(error)));
+		} finally {
+			setForgotPasswordLoading(false);
 		}
 	};
 
 	const handleForgotPasswordReset = async () => {
+		if (forgotPasswordLoading) return; // Prevent double submission
+
+		setForgotPasswordLoading(true);
 		try {
 			const username = form.getFieldValue('username');
 			const confirmCode = form.getFieldValue('confirmCode');
@@ -189,7 +250,16 @@ const Login: React.FC = () => {
 				return;
 			}
 			const api = get_ipc_api();
-			const response = await api.confirmForgotPassword(username, confirmCode, newPassword, i18n.language);
+			if (!api) throw new Error(t('common.error'));
+
+			// Add timeout for reset password request
+			const resetPromise = api.confirmForgotPassword(username, confirmCode, newPassword, i18n.language);
+			const timeoutPromise = new Promise<never>((_, reject) => {
+				setTimeout(() => reject(new Error('Reset password timeout after 30 seconds')), 30000);
+			});
+
+			const response = await Promise.race([resetPromise, timeoutPromise]);
+
 			if (response.success) {
 				messageApi.success(t('login.forgotSuccess'));
 				setMode('login');
@@ -200,20 +270,30 @@ const Login: React.FC = () => {
 			}
 		} catch (error) {
 			console.error('Forgot password reset error:', error);
-			messageApi.error(t('login.forgotResetError'));
+			messageApi.error(t('login.forgotResetError') + ': ' + (error instanceof Error ? error.message : String(error)));
+		} finally {
+			setForgotPasswordLoading(false);
 		}
 	};
 
 	const handleSubmit = async (values: LoginFormValues) => {
+		if (loading || loginSuccessful) return; // Prevent double submission
+
 		setLoading(true);
+		setLoginSuccessful(false);
+
+		let loginAttempted = false;
+
 		try {
 			const api = get_ipc_api();
 			if (!api) throw new Error(t('common.error'));
 
 			switch (mode) {
 				case 'login':
+					loginAttempted = true;
 					await handleLogin(values, api);
-					break;
+					// Don't reset loading here for successful login - let the navigation effect handle it
+					return;
 				case 'signup':
 					await handleSignup(values, api);
 					break;
@@ -224,25 +304,44 @@ const Login: React.FC = () => {
 		} catch (error) {
 			console.error(`${mode} error:`, error);
 			messageApi.error(t(`login.${mode === 'login' ? 'error' : mode + '.error'}`) + ': ' + (error instanceof Error ? error.message : String(error)));
+
+			// For login failures, always reset loading state
+			if (mode === 'login' && loginAttempted) {
+				setLoading(false);
+				setLoginSuccessful(false);
+			}
 		} finally {
-			setLoading(false);
+			// Reset loading for non-login modes or if login wasn't attempted
+			if (mode !== 'login' || !loginAttempted) {
+				setLoading(false);
+			}
 		}
 	};
 
   // Google login handler
   const handleGoogleLogin = useCallback(async () => {
+    if (loading || loginSuccessful) return; // Prevent double submission
+
     setLoading(true);
+    setLoginSuccessful(false);
+
     try {
       const api = get_ipc_api();
       if (!api) throw new Error(t('common.error'));
 
       console.log('Starting Google OAuth login');
-      
-      const response: APIResponse<any> = await api.googleLogin(i18n.language);
-      
+
+      // Add timeout for Google login
+      const loginPromise = api.googleLogin(i18n.language);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Google login timeout after 30 seconds')), 30000);
+      });
+
+      const response: APIResponse<any> = await Promise.race([loginPromise, timeoutPromise]);
+
       if (response.success && response.data) {
         console.log('Google login successful', response.data);
-        
+
         const { token, user_info, message } = response.data;
 
         // 使用统一的用户存储管理器
@@ -257,32 +356,34 @@ const Login: React.FC = () => {
         };
 
         userStorageManager.saveLoginSession(loginSession);
-        
+
         // Enable page refresh monitoring
         pageRefreshManager.enable();
-        
+
         // Show success message
         messageApi.success(message || t('login.googleSuccess') || 'Google login successful');
-        
-        // Navigate to main page immediately for better UX
-		setTimeout(() => {
-		  navigate('/agents');
-		}, 500);
-        
+
+        setLoginSuccessful(true);
+        // Navigate to main page with delay to show success state
+        setTimeout(() => {
+          setLoading(false);
+          navigate('/agents');
+        }, 500);
+
       } else {
         console.error('Google login failed', response.error);
         const errorMessage = response.error?.message || t('login.googleFailed') || 'Google login failed';
         messageApi.error(errorMessage);
+        throw new Error(errorMessage);
       }
-      
+
     } catch (error) {
       console.error('Google login error:', error);
       const errorMessage = t('login.googleError') || 'Google login error';
       messageApi.error(`${errorMessage}: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
       setLoading(false);
     }
-  }, [i18n.language, navigate, messageApi]);
+  }, [i18n.language, navigate, messageApi, loading, loginSuccessful, t]);
 
   // Placeholder for Apple login to prevent runtime errors if referenced in JSX
   const handleAppleLogin = useCallback(() => {
@@ -315,6 +416,16 @@ const Login: React.FC = () => {
 					<Select.Option value="zh-CN">{t('languages.zh-CN')}</Select.Option>
 				</Select>
 			</div>
+
+			{/* Show initialization progress during login process */}
+			<LoadingProgress
+				visible={loading || showInitProgress}
+				progress={initProgress}
+				onComplete={() => {
+					setLoading(false);
+					setShowInitProgress(false);
+				}}
+			/>
 
 			<Card className="login-card">
 				{loading ? (
@@ -432,9 +543,14 @@ const Login: React.FC = () => {
 										block
 										size="large"
 										onClick={handleForgotPasswordSendCode}
+										loading={forgotPasswordLoading}
+										disabled={forgotPasswordLoading}
 										className="login-button"
 									>
-										{t('login.sendConfirmCode')}
+										{forgotPasswordLoading
+											? t('login.sending') || 'Sending...'
+											: t('login.sendConfirmCode')
+										}
 									</Button>
 								</Form.Item>
 							)}
@@ -467,9 +583,14 @@ const Login: React.FC = () => {
 											block
 											size="large"
 											onClick={handleForgotPasswordReset}
+											loading={forgotPasswordLoading}
+											disabled={forgotPasswordLoading}
 											className="login-button"
 										>
-											{t('login.resetPassword')}
+											{forgotPasswordLoading
+												? t('login.resetting') || 'Resetting...'
+												: t('login.resetPassword')
+											}
 										</Button>
 									</Form.Item>
 								</>
@@ -482,9 +603,19 @@ const Login: React.FC = () => {
 										size="large"
 										block
 										loading={loading}
+										disabled={loading || loginSuccessful}
 										className="login-button"
 									>
-										{mode === 'login' ? t('login.loginButton') : t('login.signUp')}
+										{loading && mode === 'login' && showInitProgress
+											? t('login.redirecting') || 'Redirecting...'
+											: loading
+												? t('login.loggingIn') || 'Logging in...'
+												: loginSuccessful
+													? t('login.loginSuccess') || 'Success!'
+													: mode === 'login'
+														? t('login.loginButton')
+														: t('login.signUp')
+										}
 									</Button>
 								</Form.Item>
 							)}
@@ -494,9 +625,16 @@ const Login: React.FC = () => {
 										block
 										size="large"
 										onClick={handleGoogleLogin}
-										icon={<img src={googleIcon} alt="Google" style={{ width: 18, height: 18 }} />}
+										loading={loading}
+										disabled={loading || loginSuccessful}
+										icon={!loading ? <img src={googleIcon} alt="Google" style={{ width: 18, height: 18 }} /> : undefined}
 									>
-										{t('login.loginWithGoogle') || 'Login with Google'}
+										{loading
+											? t('login.loggingIn') || 'Logging in...'
+											: loginSuccessful
+												? t('login.loginSuccess') || 'Success!'
+												: t('login.loginWithGoogle') || 'Login with Google'
+										}
 									</Button>
 								</Form.Item>
 							)}
