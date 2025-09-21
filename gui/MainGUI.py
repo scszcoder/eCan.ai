@@ -51,7 +51,6 @@ print(TimeUtil.formatted_now_with_ms() + " load MainGui #0 finished...")
 # ============================================================================
 # 4. Network Library Imports
 # ============================================================================
-import httpx
 import requests
 
 # ============================================================================
@@ -1178,7 +1177,7 @@ class MainWindow:
             ws_host = self.getWSApiHost()
             ws_endpoint = self.getWSApiEndpoint()
             token = self.get_auth_token()
-            logger.info("ws_host", ws_host, "token:", token)
+            logger.info("ws_host", ws_host, "token:", token[:100] if token else "", "ws_endpoint:", ws_endpoint)
 
             # Start the server process in executor (this is the blocking part)
             await asyncio.get_event_loop().run_in_executor(
