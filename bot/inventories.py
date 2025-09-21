@@ -69,9 +69,9 @@ class INVENTORY:
         return self.products
 
     def setJsonData(self, dj):
-        self.seller = dj["seller"]
-        self.allowed_bids = dj["allowed_bots"]
-        for p in dj["products"]:
+        self.seller = dj.get("seller", "")
+        self.allowed_bids = dj.get("allowed_bots", [])
+        for p in dj.get("products", []):
             new_prod = INV_PRODUCT()
             new_prod.setJsonData(p)
             self.products.append(new_prod)
