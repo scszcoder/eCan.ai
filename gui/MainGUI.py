@@ -8408,7 +8408,7 @@ class MainWindow:
             if len(json_string) < 128:
                 log3(f"Sending JSON Data to commander ::" + json.dumps(json_data), "sendLAN", self)
             else:
-                log3(f"Sending JSON Data to commander " + platoon_link["ip"] + ":: ..." + json_string[-127:], "sendLAN",
+                log3(f"Sending JSON Data to commander " + commander_link["ip"] + ":: ..." + json_string[-127:], "sendLAN",
                      self)
             encoded_json_string = json_string.encode('utf-8')
             length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
@@ -9353,7 +9353,7 @@ class MainWindow:
                 if not self.isValidAddr(bot.getShippingAddr()) and row["addr_street_line1"]:
                     bot.setShippingAddr(row["addr_street_line1"], row["addr_street_line2"], row["addr_city"], row["addr_state"], row["addr_zip"])
 
-            self.assignBotVehicle(bot)
+            self.assignBotVehicle(bot, vehiclesNeedsUpdate)
 
             if not bot.getOrg():
                 bot.setOrg("{}")
@@ -9362,7 +9362,7 @@ class MainWindow:
         print("bot ids for ones need update:", [b.getBid() for b in botsNeedsUpdate])
         return qualified, rowsNeedsUpdate, botsNeedsUpdate, vehiclesNeedsUpdate
 
-    def assignBotVehicle(self, bot):
+    def assignBotVehicle(self, bot, vehiclesNeedsUpdate):
         if not bot.getVehicle():
             bv = self.genBotVehicle(bot)
             if bv:
