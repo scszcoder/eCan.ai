@@ -75,13 +75,22 @@ class OTAUpdater:
         else:
             return GenericUpdater(self)
     
-    def check_for_updates(self, silent: bool = False) -> bool:
-        """Check for updates"""
+    def check_for_updates(self, silent: bool = False, return_info: bool = False):
+        """Check for updates
+        
+        Args:
+            silent: If True, suppress log messages
+            return_info: If True, return (has_update, update_info) tuple
+            
+        Returns:
+            bool or tuple: If return_info is False, returns bool indicating if update is available.
+                          If return_info is True, returns (has_update, update_info) tuple.
+        """
         with self._check_lock:
             if self.is_checking:
                 if not silent:
                     logger.info("Update check already in progress")
-                return False
+                return (False, None) if return_info else False
             
             self.is_checking = True
         
@@ -94,18 +103,21 @@ class OTAUpdater:
             if isinstance(update_info, UpdateError):
                 # Thread-safe error callback call
                 self._safe_error_callback(update_info)
-                return False
+                return (False, update_info) if return_info else False
             
             # Thread-safe callback call
             if has_update:
                 self._safe_callback(has_update, update_info)
             
-            return has_update
+            if return_info:
+                return has_update, update_info
+            else:
+                return has_update
             
         except UpdateError as e:
             logger.error(f"Update check failed: {e}")
             self._safe_error_callback(e)
-            return False
+            return (False, e) if return_info else False
         except Exception as e:
             logger.error(f"Update check failed with unexpected error: {e}")
             error = UpdateError(
@@ -114,7 +126,7 @@ class OTAUpdater:
                 {"original_error": str(e)}
             )
             self._safe_error_callback(error)
-            return False
+            return (False, error) if return_info else False
         finally:
             with self._check_lock:
                 self.is_checking = False

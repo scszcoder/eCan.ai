@@ -83,8 +83,13 @@ class MCPClientManager:
             manager_instance = Streamable_HTTP_Manager.get(url)
             await manager_instance.close()
             logger.info("✅ MCP client session closed successfully.")
-        except Exception as e:
-            logger.error(f"❌ Failed to close MCP client session: {e}")
+        except (RuntimeError, Exception) as e:
+            # Handle both RuntimeError from task group issues and other exceptions
+            if "cancel scope" in str(e) or "different task" in str(e):
+                logger.debug(f"MCP client session close: Task group exit error (expected during shutdown): {e}")
+            else:
+                logger.warning(f"MCP client session close: Unexpected error: {e}")
+            # Don't re-raise to avoid breaking the shutdown process
 
 
 

@@ -128,16 +128,14 @@ class EnvironmentLoader:
             
             if loaded_count > 0:
                 logger.info(f"Loaded {loaded_count} environment variables from system config")
-                # Log the launch context for debugging
-                if getattr(sys, 'frozen', False):
-                    logger.info(f"Running in PyInstaller bundle on {system} - shell environment loaded")
-                else:
-                    logger.info(f"Running in development on {system} - shell environment loaded")
+                # Log the launch context for debugging (simplified)
+                context = "PyInstaller bundle" if getattr(sys, 'frozen', False) else "development"
+                logger.info(f"Running in {context} on {system} - shell environment loaded")
             else:
                 logger.debug("No additional environment variables found in system config")
             
-            # Print all environment variables after loading (always print for debugging)
-            self._print_all_environment_variables()
+            # Print environment variables summary (non-blocking)
+            self._print_env_summary()
             
             return loaded_count
                     
@@ -269,8 +267,29 @@ class EnvironmentLoader:
         
         return loaded_count
     
+    def _print_env_summary(self):
+        """Print environment variables summary (fast, non-blocking)"""
+        try:
+            all_env_vars = dict(os.environ)
+            sensitive_count = sum(1 for key in all_env_vars.keys() if self._is_sensitive_variable(key))
+            non_sensitive_count = len(all_env_vars) - sensitive_count
+            
+            logger.info(f"📊 Environment Summary: {len(all_env_vars)} total (sensitive: {sensitive_count}, non-sensitive: {non_sensitive_count})")
+            
+            # Log a few key API keys if present (masked)
+            api_keys = [key for key in all_env_vars.keys() if '_API_KEY' in key.upper()]
+            if api_keys:
+                logger.info(f"🔑 API Keys found: {', '.join(api_keys[:3])}{'...' if len(api_keys) > 3 else ''}")
+            ecan_keys = [key for key in all_env_vars.keys() if 'ECAN_' in key.upper()]
+            if ecan_keys:
+                logger.info(f"🔑 eCan Keys found: {', '.join(ecan_keys[:3])}{'...' if len(ecan_keys) > 3 else ''}")
+ 
+
+        except Exception as e:
+            logger.debug(f"Failed to print environment summary: {e}")
+    
     def _print_all_environment_variables(self):
-        """Print all environment variables for debugging"""
+        """Print all environment variables for debugging (detailed, use sparingly)"""
         try:
             logger.info("=== System Environment Variables List ===")
             

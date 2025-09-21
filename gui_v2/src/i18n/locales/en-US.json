@@ -111,6 +111,8 @@
     "loginFailed": "Login failed",
     "loggingIn": "Logging in...",
     "redirecting": "Redirecting...",
+    "sending": "Sending...",
+    "resetting": "Resetting...",
     "systemInitializing": "System is initializing, please wait..."
   },
   "roles": {
@@ -125,8 +127,12 @@
     "services": "Services",
     "network": "Network",
     "pleaseWait": "Please wait while the system initializes...",
-    "almostReady": "Almost ready!"
+    "almostReady": "Almost ready!",
+    "initializing": "Initializing System...",
+    "complete": "Initialization Complete",
+    "backgroundInit": "Interface is ready to use. Background services are starting up..."
   },
+
   "system": {
     "initializing": "System Initializing",
     "initializingMessage": "The system is still loading, please wait a moment...",

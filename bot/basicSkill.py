@@ -748,7 +748,7 @@ def genStepStub(sname, fname, fargs, stepN):
     }
 
     if sname == "start skill":
-        log3("GEN STEP STUB START SKILL: "+fname)
+        logger.debug("GEN STEP STUB START SKILL: "+fname)
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 

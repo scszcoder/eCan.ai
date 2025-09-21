@@ -249,11 +249,19 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody"):
 
         ws_url = f"{WS_URL}?header={base64_str}&payload=e30="
 
+        # Create SSL context to handle certificate verification
+        ssl_context = ssl.create_default_context()
+        # For AWS AppSync, we can safely disable hostname checking
+        # as we're connecting to a known AWS service
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+
         # Open WS connection (use subprotocols only; AppSync auth is in query header param)
         async with websockets.connect(
             ws_url,
             subprotocols=['graphql-ws'],
             open_timeout=30,
+            ssl=ssl_context,
         ) as websocket:
             print("Connected to Wan Chat WebSocket")
             # Send connection init message

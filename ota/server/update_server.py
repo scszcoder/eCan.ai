@@ -19,9 +19,9 @@ UPDATE_CONFIG = {
             "description": "Added OTA update functionality and bug fixes",
             "release_date": "2024-01-01",
             "download_urls": {
-                "windows": "https://updates.ecbot.com/downloads/ECBot-1.1.0.exe",
-                "darwin": "https://updates.ecbot.com/downloads/ECBot-1.1.0.dmg",
-                "linux": "https://updates.ecbot.com/downloads/ECBot-1.1.0.tar.gz"
+                "windows": "http://127.0.0.1:8080/downloads/ECBot-1.1.0.exe",
+                "darwin": "http://127.0.0.1:8080/downloads/ECBot-1.1.0.dmg",
+                "linux": "http://127.0.0.1:8080/downloads/ECBot-1.1.0.tar.gz"
             },
             "file_sizes": {
                 "windows": 41943040,
@@ -120,6 +120,41 @@ def appcast():
     except Exception as e:
         return f"Error serving appcast: {str(e)}", 500
 
+@app.route('/downloads/<filename>', methods=['GET'])
+def download_file(filename):
+    """模拟文件下载端点"""
+    try:
+        # 为了测试，创建一个模拟文件
+        import tempfile
+        import os
+        
+        # 创建临时文件模拟下载
+        temp_dir = Path(tempfile.gettempdir()) / "ecbot_ota_test"
+        temp_dir.mkdir(exist_ok=True)
+        
+        file_path = temp_dir / filename
+        
+        # 如果文件不存在，创建一个模拟文件
+        if not file_path.exists():
+            with open(file_path, 'wb') as f:
+                # 写入一些模拟数据
+                if filename.endswith('.exe'):
+                    # Windows executable模拟
+                    f.write(b'MZ' + b'\x00' * (41943040 - 2))  # 模拟exe文件
+                elif filename.endswith('.dmg'):
+                    # macOS DMG模拟
+                    f.write(b'\x00' * 52428800)  # 模拟dmg文件
+                else:
+                    # 其他文件
+                    f.write(b'ECBot Update Package\n' * 1000)
+        
+        print(f"Serving download: {filename} ({file_path.stat().st_size} bytes)")
+        return send_file(str(file_path), as_attachment=True, download_name=filename)
+        
+    except Exception as e:
+        print(f"Download error: {e}")
+        return jsonify({"error": f"Download failed: {str(e)}"}), 500
+
 @app.route('/health', methods=['GET'])
 def health():
     """健康检查"""
@@ -138,13 +173,48 @@ def index():
         ]
     })
 
-if __name__ == '__main__':
+def check_dependencies():
+    """检查依赖"""
+    try:
+        import flask
+        print("✓ Flask已安装")
+        return True
+    except ImportError:
+        print("✗ Flask未安装，请运行: pip install flask")
+        return False
+
+def main():
+    """主函数"""
+    print("=" * 50)
+    print("ECBot 本地OTA测试服务器")
+    print("=" * 50)
+    
+    # 检查依赖
+    if not check_dependencies():
+        print("依赖检查失败，无法启动服务器")
+        return
+    
     print("Starting ECBot Update Server...")
     print("Available endpoints:")
-    print("  - GET /api/check-update")
-    print("  - GET /api/download-latest")
-    print("  - GET /appcast.xml")
-    print("  - GET /health")
+    for rule in app.url_map.iter_rules():
+        print(f"  - {rule.methods} {rule.rule}")
     
-    # 在开发模式下运行
-    app.run(host='0.0.0.0', port=8080, debug=True)
+    print("\n服务器信息:")
+    print("  - 地址: http://127.0.0.1:8080")
+    print("  - 端点:")
+    print("    * GET /api/check-update - 检查更新")
+    print("    * GET /appcast.xml - Sparkle appcast文件") 
+    print("    * GET /health - 健康检查")
+    print("    * GET / - 服务器信息")
+    
+    print("\n正在启动服务器...")
+    print("按 Ctrl+C 停止服务器")
+    print("-" * 50)
+    
+    try:
+        app.run(host="0.0.0.0", port=8080, debug=True)
+    except KeyboardInterrupt:
+        print("\n服务器已停止")
+
+if __name__ == "__main__":
+    main()
