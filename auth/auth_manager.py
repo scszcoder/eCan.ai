@@ -231,6 +231,14 @@ class AuthManager:
         except Exception as e:
             logger.warning(f"AuthManager: Failed to delete stored refresh token on logout: {e}")
 
+        # Clear IPC registry system ready cache
+        try:
+            from gui.ipc.registry import IPCHandlerRegistry
+            IPCHandlerRegistry.clear_system_ready_cache()
+            logger.debug("AuthManager: Cleared IPC registry system ready cache on logout")
+        except Exception as e:
+            logger.debug(f"AuthManager: Error clearing IPC registry cache: {e}")
+
         self.stop_refresh_task()  # Stop the background refresh task
         self.tokens = None
         self.current_user = None

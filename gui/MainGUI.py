@@ -115,10 +115,6 @@ print(TimeUtil.formatted_now_with_ms() + " load MainGui #4 finished...")
 # ============================================================================
 # 10. External Library Imports
 # ============================================================================
-from lzstring import LZString
-import openpyxl
-import tzlocal
-import psutil
 import concurrent.futures
 from qasync import QEventLoop
 
@@ -339,11 +335,27 @@ class MainWindow:
             logger.info("[MainWindow] ✅ Agents initialization completed")
             # Now mark system as fully ready since agents are loaded
             self._initialization_status['fully_ready'] = True
+
+            # 通知 IPC Registry 系统已就绪，清理缓存以确保立即生效
+            try:
+                from gui.ipc.registry import IPCHandlerRegistry
+                IPCHandlerRegistry.force_system_ready(True)
+            except Exception as cache_e:
+                logger.warning(f"[MainWindow] Failed to update IPC registry cache: {cache_e}")
+
             logger.info("[MainWindow] 🎉 System is now fully ready with all data loaded!")
         except Exception as e:
             logger.error(f"[MainWindow] ❌ Agents initialization failed: {e}")
             # Still mark as ready to prevent hanging, but log the issue
             self._initialization_status['fully_ready'] = True
+
+            # 即使失败也要通知 IPC Registry
+            try:
+                from gui.ipc.registry import IPCHandlerRegistry
+                IPCHandlerRegistry.force_system_ready(True)
+            except Exception as cache_e:
+                logger.warning(f"[MainWindow] Failed to update IPC registry cache: {cache_e}")
+
             logger.warning("[MainWindow] ⚠️ System marked as ready despite agents initialization failure")
 
         logger.info("[MainWindow] ✅ Async initialization finalized")
@@ -464,8 +476,9 @@ class MainWindow:
             self.os_short = "linux"
         elif self.system == "Darwin":
             self.os_short = "mac"
-
+        
         # Hardware information
+        import psutil
         self.cpuinfo = self._get_cpu_info_safely()
         self.processor = self.cpuinfo.get('brand_raw', 'Unknown Processor')
         self.cpu_cores = psutil.cpu_count(logical=False)  # Physical cores
@@ -568,8 +581,6 @@ class MainWindow:
             self._db_session = session
 
             # Initialize services in parallel using thread pool
-            import concurrent.futures
-
             # Define services to initialize
             services_config = [
                 ('bot_service', BotService),
@@ -717,6 +728,7 @@ class MainWindow:
         self.DONE_WITH_TODAY = True
 
         # Utility objects
+        from lzstring import LZString
         self.zipper = LZString()
         self.trMission = self.createTrialRunMission()
 
@@ -4290,6 +4302,14 @@ class MainWindow:
             logger.debug(f"Error shutting down ThreadPoolExecutor: {e}")
 
 
+        # Clear IPC registry system ready cache
+        try:
+            from gui.ipc.registry import IPCHandlerRegistry
+            IPCHandlerRegistry.clear_system_ready_cache()
+            logger.debug("Cleared IPC registry system ready cache on logout")
+        except Exception as e:
+            logger.debug(f"Error clearing IPC registry cache: {e}")
+
         # Finally, call auth logout and close window
         try:
             self.auth_manager.logout()
@@ -5595,6 +5615,7 @@ class MainWindow:
                         elif "xlsx" in filename:
                             try:
                                 log3("working on file:" + str(filename))
+                                import openpyxl
                                 xls = openpyxl.load_workbook(filename, data_only=True)
                                 botsJson = []
                                 title_cells = []
@@ -6406,6 +6427,7 @@ class MainWindow:
         self.owner = owner
 
     def get_vehicle_settings(self, forceful="false"):
+        import tzlocal
         vsettings = {
             "vwins": len([v for v in self.vehicles if v.getOS() == "win"]),
             "vmacs": len([v for v in self.vehicles if v.getOS() == "mac"]),
