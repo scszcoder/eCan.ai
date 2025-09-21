@@ -2555,13 +2555,13 @@ def subscribe_cloud_llm_task(task_id: str, id_token: str, ws_url: Optional[str] 
         print(f"WebSocket closed: code={status_code}, msg={msg}")
 
     def on_open(ws):
-        print("web socket opened.......")
+        logger_helper.debug("web socket opened.......")
         init_payload = {
             "type": "connection_init",
             "payload": {}
         }
         try:
-            print("sending connection_init ...")
+            logger_helper.debug("sending connection_init ...")
             ws.send(json.dumps(init_payload))
         except Exception as e:
             print("Failed to send connection_init:", e)
@@ -2570,6 +2570,7 @@ def subscribe_cloud_llm_task(task_id: str, id_token: str, ws_url: Optional[str] 
     if not ws_url:
         ws_url = os.getenv("ECAN_WS_URL", "")
     if not ws_url:
+        logger_helper.warning("Warning: WebSocket URL not provided and ECAN_WS_URL is not set. Cloud LLM subscription will be disabled.")
         raise ValueError("WebSocket URL not provided and ECAN_WS_URL is not set")
 
     if ws_url.startswith("https://") and "appsync-api" in ws_url:
@@ -2578,7 +2579,7 @@ def subscribe_cloud_llm_task(task_id: str, id_token: str, ws_url: Optional[str] 
             rest = ws_url[len(prefix):]
             rest = rest.replace("appsync-api", "appsync-realtime-api", 1)
             ws_url = "wss://" + rest
-            print(f"Converted to realtime endpoint: {ws_url}")
+            logger_helper.info(f"Converted to realtime endpoint: {ws_url}")
         except Exception:
             pass
 
