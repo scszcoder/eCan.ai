@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Progress, Typography, Card, Spin } from 'antd';
 import { CheckCircleOutlined, LoadingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import { useInitializationProgress } from '../../hooks/useInitializationProgress';
 import './LoadingProgress.css';
 
 const { Text } = Typography;
@@ -13,92 +14,163 @@ interface LoadingStep {
   loading: boolean;
 }
 
-interface LoadingProgressProps {
-  visible: boolean;
-  onComplete?: () => void;
+interface InitializationProgress {
+  ui_ready: boolean;
+  critical_services_ready: boolean;
+  async_init_complete: boolean;
+  fully_ready: boolean;
+  sync_init_complete: boolean;
+  message?: string;
 }
 
-const LoadingProgress: React.FC<LoadingProgressProps> = ({ visible, onComplete }) => {
+interface LoadingProgressProps {
+  visible: boolean;
+  progress?: InitializationProgress | null;
+  onComplete?: () => void;
+  mode?: 'fullscreen' | 'compact'; // Add mode prop for different display styles
+  title?: string; // Custom title
+}
+
+const LoadingProgress: React.FC<LoadingProgressProps> = ({
+  visible,
+  progress: externalProgress,
+  onComplete,
+  mode = 'fullscreen',
+  title
+}) => {
   const { t } = useTranslation();
+
+  // Use external progress if provided, otherwise use internal hook
+  // Only use internal hook if no external progress is provided at all (not even null)
+  const shouldUseInternalHook = visible && externalProgress === undefined;
+  const { progress: internalProgress, isLoading, error } = useInitializationProgress(shouldUseInternalHook);
+  const initProgress = externalProgress !== undefined ? externalProgress : internalProgress;
+
   const [steps, setSteps] = useState<LoadingStep[]>([
-    { key: 'auth', label: t('loading.authentication'), completed: true, loading: false },
-    { key: 'config', label: t('loading.configuration'), completed: false, loading: true },
+    { key: 'auth', label: t('loading.authentication'), completed: false, loading: false },
+    { key: 'config', label: t('loading.configuration'), completed: false, loading: false },
     { key: 'database', label: t('loading.database'), completed: false, loading: false },
     { key: 'services', label: t('loading.services'), completed: false, loading: false },
     { key: 'network', label: t('loading.network'), completed: false, loading: false },
   ]);
 
   const [currentStep, setCurrentStep] = useState(0);
-  const [progress, setProgress] = useState(20); // Start at 20% since auth is complete
+  const [progress, setProgress] = useState(0); // Start at 0%
 
+  // Update steps based on real initialization progress
   useEffect(() => {
     if (!visible) return;
 
-    // Simulate progressive loading steps
-    const intervals: NodeJS.Timeout[] = [];
+    let newProgress = 0;
+    let newCurrentStep = 0;
 
-    // Configuration step
-    intervals.push(setTimeout(() => {
-      setSteps(prev => prev.map((step, index) => 
-        index === 1 ? { ...step, completed: true, loading: false } : 
-        index === 2 ? { ...step, loading: true } : step
-      ));
-      setCurrentStep(1);
-      setProgress(40);
-    }, 800));
+    const newSteps = [...steps];
 
-    // Database step
-    intervals.push(setTimeout(() => {
-      setSteps(prev => prev.map((step, index) => 
-        index === 2 ? { ...step, completed: true, loading: false } : 
-        index === 3 ? { ...step, loading: true } : step
-      ));
-      setCurrentStep(2);
-      setProgress(60);
-    }, 1600));
+    // If we have initialization progress data
+    if (initProgress) {
+      // Authentication step - completed when we have progress data
+      newSteps[0] = { ...newSteps[0], completed: true, loading: false };
+      newProgress = Math.max(newProgress, 20);
+      newCurrentStep = Math.max(newCurrentStep, 0);
 
-    // Services step
-    intervals.push(setTimeout(() => {
-      setSteps(prev => prev.map((step, index) => 
-        index === 3 ? { ...step, completed: true, loading: false } : 
-        index === 4 ? { ...step, loading: true } : step
-      ));
-      setCurrentStep(3);
-      setProgress(80);
-    }, 2400));
+      // Configuration step (ui_ready)
+      if (initProgress.ui_ready) {
+        newSteps[1] = { ...newSteps[1], completed: true, loading: false };
+        newProgress = Math.max(newProgress, 40);
+        newCurrentStep = Math.max(newCurrentStep, 1);
+      } else {
+        newSteps[1] = { ...newSteps[1], completed: false, loading: true };
+      }
 
-    // Network step
-    intervals.push(setTimeout(() => {
-      setSteps(prev => prev.map((step, index) => 
-        index === 4 ? { ...step, completed: true, loading: false } : step
-      ));
-      setCurrentStep(4);
-      setProgress(100);
-    }, 3200));
+    // Database step (critical_services_ready)
+    if (initProgress.critical_services_ready) {
+      newSteps[2] = { ...newSteps[2], completed: true, loading: false };
+      newProgress = Math.max(newProgress, 60);
+      newCurrentStep = Math.max(newCurrentStep, 2);
+    } else if (initProgress.ui_ready) {
+      newSteps[2] = { ...newSteps[2], completed: false, loading: true };
+    }
 
-    // Complete
-    intervals.push(setTimeout(() => {
-      onComplete?.();
-    }, 3800));
+    // Services step (async_init_complete)
+    if (initProgress.async_init_complete) {
+      newSteps[3] = { ...newSteps[3], completed: true, loading: false };
+      newProgress = Math.max(newProgress, 80);
+      newCurrentStep = Math.max(newCurrentStep, 3);
+    } else if (initProgress.critical_services_ready) {
+      newSteps[3] = { ...newSteps[3], completed: false, loading: true };
+    }
 
-    return () => {
-      intervals.forEach(clearTimeout);
-    };
-  }, [visible, onComplete]);
+    // Network step (fully_ready)
+    if (initProgress.fully_ready) {
+      newSteps[4] = { ...newSteps[4], completed: true, loading: false };
+      newProgress = 100;
+      newCurrentStep = 4;
+
+      // Call onComplete when fully ready
+      setTimeout(() => {
+        onComplete?.();
+      }, 500);
+    } else if (initProgress.async_init_complete) {
+      newSteps[4] = { ...newSteps[4], completed: false, loading: true };
+    }
+    } else {
+      // No progress data yet - show authentication as loading
+      newSteps[0] = { ...newSteps[0], completed: false, loading: true };
+      newProgress = 10;
+      newCurrentStep = 0;
+    }
+
+    setSteps(newSteps);
+    setProgress(newProgress);
+    setCurrentStep(newCurrentStep);
+  }, [visible, initProgress, onComplete]);
 
   if (!visible) return null;
 
+  // Compact mode for showing in main page
+  if (mode === 'compact') {
+    return (
+      <div className="loading-progress-compact">
+        <Card size="small" className="loading-progress-compact-card">
+          <div className="loading-progress-compact-content">
+            <div className="loading-compact-header">
+              <Spin
+                indicator={<LoadingOutlined style={{ fontSize: 16 }} spin />}
+                spinning={progress < 100}
+                size="small"
+              />
+              <Text className="loading-compact-title">
+                {title || (progress < 100 ? t('loading.backgroundInit') : t('loading.complete'))}
+              </Text>
+            </div>
+            <Progress
+              percent={progress}
+              size="small"
+              strokeColor={{
+                '0%': '#108ee9',
+                '100%': '#87d068',
+              }}
+              showInfo={false}
+              className="loading-compact-progress"
+            />
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  // Fullscreen mode for login page
   return (
     <div className="loading-progress-overlay">
       <Card className="loading-progress-card">
         <div className="loading-progress-content">
           <div className="loading-header">
-            <Spin 
-              indicator={<LoadingOutlined style={{ fontSize: 24 }} spin />} 
+            <Spin
+              indicator={<LoadingOutlined style={{ fontSize: 24 }} spin />}
               spinning={progress < 100}
             />
             <Text className="loading-title">
-              {progress < 100 ? t('loading.initializing') : t('loading.complete')}
+              {title || (progress < 100 ? t('loading.initializing') : t('loading.complete'))}
             </Text>
           </div>
           

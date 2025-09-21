@@ -209,52 +209,52 @@ export class IPCWCClient {
     }
 
     /**
-     * 原有的发送请求方法，保持向后兼容，并统一处理 SYSTEM_NOT_READY 重试
+     * 发送请求方法，保持 SYSTEM_NOT_READY 重试机制
      * @param method - 请求方法名
      * @param params - 请求参数
      * @returns Promise 对象，解析为 IPC 响应结果
      */
     public async sendRequest(method: string, params?: unknown, timeout: number = DEFAULT_REQUEST_TIMEOUT): Promise<any> {
         // 对于 SYSTEM_NOT_READY 错误的重试配置
-        const maxRetries = 10; // 最大重试10次
+        const maxRetries = 60; // 最大重试60次
         const retryDelay = 1000; // 初始延迟1秒
-        const backoffMultiplier = 1.5; // 退避倍数
-        const maxRetryTime = 30000; // 最大重试时间30秒
-        
+        const backoffMultiplier = 1.0; // 退避倍数
+        const maxRetryTime = 60000; // 最大重试时间60秒
+
         let retryCount = 0;
         const startTime = Date.now();
-        
+
         while (retryCount <= maxRetries) {
             try {
                 const response = await this._sendSingleRequest(method, params, timeout);
-                
+
                 // 如果成功或者不是 SYSTEM_NOT_READY 错误，直接返回
-                if (response.status === 'success' || 
+                if (response.status === 'success' ||
                     (response.status === 'error' && response.error?.code !== 'SYSTEM_NOT_READY')) {
                     return response;
                 }
-                
+
                 // 检查是否超过最大重试时间
                 if (Date.now() - startTime > maxRetryTime) {
                     logger.warn(`[IPCWCClient] ${method} exceeded max retry time (${maxRetryTime/1000}s), giving up`);
                     return response;
                 }
-                
+
                 // 如果是 SYSTEM_NOT_READY 且还可以重试
                 if (retryCount < maxRetries) {
                     const delay = retryDelay * Math.pow(backoffMultiplier, retryCount);
                     logger.info(`[IPCWCClient] System not ready for ${method}, retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
-                    
+
                     // 等待延迟后重试
                     await new Promise(resolve => setTimeout(resolve, delay));
                     retryCount++;
                     continue;
                 }
-                
+
                 // 达到最大重试次数，返回最后的响应
                 logger.warn(`[IPCWCClient] ${method} failed after ${maxRetries} retries - System initialization taking longer than expected`);
                 return response;
-                
+
             } catch (error) {
                 // 对于网络错误等，不进行重试，直接抛出
                 throw error;

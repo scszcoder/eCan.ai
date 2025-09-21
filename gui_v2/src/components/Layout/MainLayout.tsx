@@ -24,6 +24,7 @@ import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import AppSider from './AppSider';
 import AppHeader from './AppHeader';
 import AppContent from './AppContent';
+import BackgroundInitIndicator from '../BackgroundInitIndicator';
 import PageBackBreadcrumb from './PageBackBreadcrumb';
 import A11yFocusGuard from '../Common/A11yFocusGuard';
 import { get_ipc_api } from '@/services/ipc_api';
@@ -124,6 +125,8 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                     <AppContent>{children}</AppContent>
                 </div>
             </StyledInnerLayout>
+            {/* Background initialization indicator */}
+            <BackgroundInitIndicator />
         </StyledLayout>
     );
 };

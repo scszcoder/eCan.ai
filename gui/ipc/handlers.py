@@ -761,5 +761,49 @@ def handle_login_with_google(request: IPCRequest, params: Optional[Any]) -> IPCR
         )
 
 
+@IPCHandlerRegistry.handler('get_initialization_progress')
+def handle_get_initialization_progress(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """Get MainWindow initialization progress
+
+    Args:
+        request: IPC request object
+        params: Request parameters (not used)
+
+    Returns:
+        IPCResponse: JSON response with initialization progress
+    """
+    try:
+        logger.debug(f"Get initialization progress handler called with request: {request}")
+
+        main_window = AppContext.get_main_window()
+        if main_window is None:
+            # MainWindow not yet created
+            return create_success_response(request, {
+                'ui_ready': False,
+                'critical_services_ready': False,
+                'async_init_complete': False,
+                'fully_ready': False,
+                'sync_init_complete': False,
+                'message': 'MainWindow not yet initialized'
+            })
+
+        # Get progress from MainWindow
+        progress = main_window.get_initialization_progress()
+        progress['message'] = 'Initialization progress retrieved successfully'
+
+        logger.debug(f"Initialization progress: {progress}")
+        return create_success_response(request, progress)
+
+    except Exception as e:
+        logger.error(f"Error in get initialization progress handler: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return create_error_response(
+            request,
+            'INIT_PROGRESS_ERROR',
+            f"Error getting initialization progress: {str(e)}"
+        )
+
+
 # 打印所有已注册的处理器
 logger.info(f"Registered handlers: {IPCHandlerRegistry.list_handlers()}")
