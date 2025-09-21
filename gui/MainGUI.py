@@ -802,6 +802,7 @@ class MainWindow:
         asyncio.create_task(self.async_agents_init())
         asyncio.create_task(self._async_setup_browser_manager())
         asyncio.create_task(self._async_start_lightrag())
+        self.wan_sub_task = asyncio.create_task(self._async_start_wan_chat())
 
         # Mark synchronous initialization as complete
         asyncio.create_task(self._async_start_llm_subscription())
@@ -948,16 +949,62 @@ class MainWindow:
             logger.info("[MainWindow] ✅ LightRAG server initialization completed!")
 
         except Exception as e:
-            logger.error(f"[MainWindow] ❌ LightRAG server initialization failed: {e}")
-            logger.error(f"[MainWindow] LightRAG error details: {traceback.format_exc()}")
-            # Don't crash the app if LightRAG fails
-            # The app should continue to work without knowledge services
+            logger.error(f"❌ LightRAG server initialization failed: {e}")
+            logger.error(f"LightRAG server error details: {traceback.format_exc()}")
+
+
+
+    async def _async_start_wan_chat(self):
+        """
+        Asynchronously start wan based chat service in background
+        """
+        try:
+            # Wait a bit to ensure other services are ready
+            await asyncio.sleep(0.5)
+
+            logger.info("[MainWindow] 🧠 Starting websocket wan chat...")
+
+            from bot.wanChat import subscribeToWanChat
+            # Start the websocket subscribe coroutine as a background task
+            token = self.get_auth_token()
+            # Wait for token to become available if auth flow is still initializing
+            wait_loops = 0
+            while not token or not isinstance(token, str) or not token.strip():
+                wait_loops += 1
+                if wait_loops % 10 == 1:
+                    logger.info("[MainWindow] Waiting for auth token before starting WAN chat...")
+                await asyncio.sleep(0.5)
+                token = self.get_auth_token()
+
+            # Kick off WAN chat in background so this method can complete
+            if getattr(self, 'wan_chat_task', None) and not self.wan_chat_task.done():
+                # a previous task exists; cancel and replace
+                try:
+                    self.wan_chat_task.cancel()
+                except Exception:
+                    pass
+            self.wan_chat_task = asyncio.create_task(subscribeToWanChat(self, token, self.chat_id))
+
+            # Wait up to 15 seconds for subscription to be acknowledged
+            for _ in range(30):
+                if getattr(self, 'get_wan_msg_subscribed', None) and self.get_wan_msg_subscribed():
+                    logger.info("[MainWindow] ✅ websocket wan chat initialization completed!")
+                    break
+                await asyncio.sleep(0.5)
+            else:
+                logger.warning("[MainWindow] ⚠️ WAN chat started but subscription not confirmed within timeout")
+
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ websocket wan chat initialization failed: {e}")
+            logger.error(f"[MainWindow] websocket wan chat error details: {traceback.format_exc()}")
+
+
 
     async def _async_start_llm_subscription(self):
-        from Cloud import subscribe_cloud_llm_task
         """
         Asynchronously start eCan's own cloud side LLM service subscription
         """
+        from Cloud import subscribe_cloud_llm_task
         try:
             # Wait a bit to ensure other services are ready
             await asyncio.sleep(0.5)
@@ -1011,6 +1058,8 @@ class MainWindow:
         except Exception as e:
             logger.error(f"Error getting auth token: {e}")
             return None
+
+
 
     async def async_agents_init(self):
         """
@@ -8556,11 +8605,6 @@ class MainWindow:
             else:
                 ex_stat = "ErrorSendMissionResultsFilesToCommander: traceback information not available:" + str(e)
             log3(ex_stat)
-
-
-
-
-
 
 
     def set_wan_connected(self, wan_stat):
