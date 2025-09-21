@@ -33,9 +33,26 @@ class SSEManager:
     async def close(self) -> None:
         async with self._lock:
             if self._tg is not None:
-                await self._tg.cancel_scope.cancel()
+                # Cancel background tasks first
+                self._tg.cancel_scope.cancel()
+
+                # Store reference to avoid race conditions
+                tg_to_close = self._tg
                 self._tg = None
                 self._session = None
+                self._ready = None
+
+                # Close the task group safely
+                try:
+                    # Wait for tasks to be cancelled
+                    await anyio.sleep(0.1)  # Give tasks time to respond to cancellation
+                    await tg_to_close.__aexit__(None, None, None)
+                except (RuntimeError, anyio.get_cancelled_exc_class()) as e:
+                    # Handle task group exit errors gracefully
+                    print(f"SSEManager: Task group exit error (expected during shutdown): {e}")
+                except Exception as e:
+                    print(f"SSEManager: Unexpected error during close: {e}")
+                    # Don't re-raise to avoid breaking the shutdown process
 
     # -------- internal ----------------------------------------------
     async def _open(self) -> None:
