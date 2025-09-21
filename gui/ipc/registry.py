@@ -187,7 +187,7 @@ class IPCHandlerRegistry:
                         return middleware_response
                     
                     # 调用处理器
-                    logger.debug(f"[registry] Calling sync handler for method {method}")
+                    logger.trace(f"[registry] Calling sync handler for method {method}")
                     return func(request, params)
                     
                 except Exception as e:

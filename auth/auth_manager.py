@@ -28,6 +28,15 @@ class AuthManager:
         self.ecb_data_homepath = getECBotDataHome()
         self.acct_file = self.ecb_data_homepath + "/uli.json"
         self.refresh_task = None
+
+        # Check keychain access on startup
+        keychain_ok, keychain_msg = self._check_keychain_access()
+        if keychain_ok:
+            logger.debug(f"Keychain status: {keychain_msg}")
+        else:
+            logger.warning(f"Keychain issue detected: {keychain_msg}")
+            logger.info("Refresh tokens will be stored in encrypted files as fallback")
+
         # Try to restore session from persisted refresh token
         # try:
         #     self.try_restore_session()
@@ -305,6 +314,64 @@ class AuthManager:
     def _refresh_service(self) -> str:
         return "ecan_refresh"
 
+    def _check_keychain_access(self) -> tuple[bool, str]:
+        """Check if keychain is accessible and provide diagnostic information."""
+        try:
+            import platform
+            if platform.system() != "Darwin":
+                return True, "Not macOS - keychain not applicable"
+
+            # Try a simple keychain operation
+            test_service = "ecan_keychain_test"
+            test_username = "test_user"
+            test_value = "test_value"
+
+            try:
+                keyring.set_password(test_service, test_username, test_value)
+                keyring.delete_password(test_service, test_username)
+                return True, "Keychain access is working"
+            except Exception as e:
+                error_msg = str(e)
+                if "(-25244" in error_msg:
+                    return False, "Keychain access denied (-25244). Try: 1) Unlock keychain in Keychain Access app, 2) Grant app permissions when prompted"
+                elif "(-25300" in error_msg:
+                    return False, "Keychain item not found (-25300). This is normal for test operations"
+                else:
+                    return False, f"Keychain error: {error_msg}"
+        except Exception as e:
+            return False, f"Keychain check failed: {e}"
+
+    def diagnose_keychain_issues(self) -> dict:
+        """Provide comprehensive keychain diagnostic information."""
+        import platform
+
+        diagnosis = {
+            "platform": platform.system(),
+            "keychain_accessible": False,
+            "issues": [],
+            "recommendations": []
+        }
+
+        if platform.system() != "Darwin":
+            diagnosis["keychain_accessible"] = True
+            diagnosis["recommendations"].append("Keychain not applicable on non-macOS systems")
+            return diagnosis
+
+        # Check keychain access
+        keychain_ok, keychain_msg = self._check_keychain_access()
+        diagnosis["keychain_accessible"] = keychain_ok
+
+        if not keychain_ok:
+            diagnosis["issues"].append(keychain_msg)
+            diagnosis["recommendations"].extend([
+                "Open 'Keychain Access' application",
+                "Ensure 'login' keychain is unlocked",
+                "Grant permission when prompted by the app",
+                "If issues persist, try: security unlock-keychain ~/Library/Keychains/login.keychain"
+            ])
+
+        return diagnosis
+
     def _store_refresh_token(self, username: str, refresh_token: str) -> bool:
         """Store refresh token using chunked keyring storage for large tokens."""
         # First, validate the refresh token
@@ -322,14 +389,24 @@ class AuthManager:
                     logger.info("Refresh token stored successfully in keyring (direct base64)")
                     return True
                 except Exception as e:
-                    logger.warning(f"Direct keyring storage failed: {e}, trying chunked storage")
+                    error_msg = str(e)
+                    logger.warning(f"Direct keyring storage failed: {error_msg}, trying chunked storage")
+
+                    # Provide specific guidance for macOS keychain errors
+                    if "(-25244" in error_msg or "Can't store password on keychain" in error_msg:
+                        logger.info("macOS Keychain access issue detected - will try alternative storage methods")
             
             # Use chunked storage for large tokens or if direct storage failed
             return self._store_refresh_token_chunked(username, refresh_token)
         except Exception as e:
             logger.warning(f"Failed to store refresh token in chunked keyring: {e}")
             logger.info("Falling back to file-based storage")
-            return self._store_refresh_token_file(username, refresh_token)
+            file_success = self._store_refresh_token_file(username, refresh_token)
+            if file_success:
+                logger.info("Refresh token successfully stored using file fallback")
+            else:
+                logger.error("Both keyring and file storage failed for refresh token")
+            return file_success
 
     def _get_refresh_token(self, username: str) -> tuple[bool, str]:
         """Get refresh token from chunked keyring storage or file fallback."""
@@ -506,7 +583,17 @@ class AuthManager:
             return True
             
         except Exception as e:
-            logger.error(f"Failed to store refresh token in chunks: {e}")
+            error_msg = str(e)
+            logger.error(f"Failed to store refresh token in chunks: {error_msg}")
+
+            # Provide specific guidance for macOS keychain errors
+            if "(-25244" in error_msg or "Can't store password on keychain" in error_msg:
+                logger.warning("macOS Keychain access denied. This is usually caused by:")
+                logger.warning("1. Keychain is locked - unlock it in Keychain Access app")
+                logger.warning("2. App lacks keychain permissions - grant access when prompted")
+                logger.warning("3. Development environment restrictions")
+                logger.info("Refresh token will be stored in encrypted file as fallback")
+
             # Clean up partial storage on failure
             try:
                 self._delete_refresh_token_chunked(username)
