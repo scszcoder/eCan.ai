@@ -173,13 +173,48 @@ def index():
         ]
     })
 
-if __name__ == '__main__':
+def check_dependencies():
+    """检查依赖"""
+    try:
+        import flask
+        print("✓ Flask已安装")
+        return True
+    except ImportError:
+        print("✗ Flask未安装，请运行: pip install flask")
+        return False
+
+def main():
+    """主函数"""
+    print("=" * 50)
+    print("ECBot 本地OTA测试服务器")
+    print("=" * 50)
+    
+    # 检查依赖
+    if not check_dependencies():
+        print("依赖检查失败，无法启动服务器")
+        return
+    
     print("Starting ECBot Update Server...")
     print("Available endpoints:")
-    print("  - GET /api/check-update")
-    print("  - GET /api/download-latest")
-    print("  - GET /appcast.xml")
-    print("  - GET /health")
+    for rule in app.url_map.iter_rules():
+        print(f"  - {rule.methods} {rule.rule}")
     
-    # 在开发模式下运行
-    app.run(host='0.0.0.0', port=8080, debug=True)
+    print("\n服务器信息:")
+    print("  - 地址: http://127.0.0.1:8080")
+    print("  - 端点:")
+    print("    * GET /api/check-update - 检查更新")
+    print("    * GET /appcast.xml - Sparkle appcast文件") 
+    print("    * GET /health - 健康检查")
+    print("    * GET / - 服务器信息")
+    
+    print("\n正在启动服务器...")
+    print("按 Ctrl+C 停止服务器")
+    print("-" * 50)
+    
+    try:
+        app.run(host="0.0.0.0", port=8080, debug=True)
+    except KeyboardInterrupt:
+        print("\n服务器已停止")
+
+if __name__ == "__main__":
+    main()

@@ -1,33 +1,10 @@
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                               QPushButton, QProgressBar, QTextEdit)
-from PySide6.QtCore import Qt
+"""
+ECBot OTA更新对话框模块
+提供标准的更新对话框组件
+"""
 
-from utils.logger_helper import logger_helper as logger
-
-
-class SimpleUpdateDialog(QDialog):
-    """Simplified update dialog"""
-    
-    def __init__(self, parent=None, ota_updater=None):
-        super().__init__(parent)
-        self.ota_updater = ota_updater
-        self.update_info = None
-        
-        self.setup_ui()
-        self.setup_connections()
-        
-        # Set window properties
-        self.setWindowTitle("Software Update")
-        self.setModal(True)
-        self.resize(400, 250)
-    
-    def setup_ui(self):
-        """Setup simplified user interface"""
-        layout = QVBoxLayout()
-        
-        # Title
-        self.title_label = QLabel("<h3>ECBot Software Update</h3>")
-        layout.addWidget(self.title_label)
+# 导入标准更新对话框
+from .update_dialog import UpdateDialog, UpdateNotificationDialog
         
         # Status label
         self.status_label = QLabel("Ready to check for updates...")
