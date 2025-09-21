@@ -280,7 +280,11 @@ class EnvironmentLoader:
             api_keys = [key for key in all_env_vars.keys() if '_API_KEY' in key.upper()]
             if api_keys:
                 logger.info(f"🔑 API Keys found: {', '.join(api_keys[:3])}{'...' if len(api_keys) > 3 else ''}")
-            
+            ecan_keys = [key for key in all_env_vars.keys() if 'ECAN_' in key.upper()]
+            if ecan_keys:
+                logger.info(f"🔑 eCan Keys found: {', '.join(ecan_keys[:3])}{'...' if len(ecan_keys) > 3 else ''}")
+ 
+
         except Exception as e:
             logger.debug(f"Failed to print environment summary: {e}")
     

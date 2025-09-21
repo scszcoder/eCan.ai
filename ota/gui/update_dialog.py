@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-增强的OTA更新对话框
-包含详细的下载进度条、安装确认窗口等功能
+ECBot OTA更新对话框 - 标准UI版本
+遵循ECBot的标准UI设计规范
 """
 
 import os
@@ -14,10 +15,10 @@ from typing import Optional, Dict, Any
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QProgressBar, QTextEdit, QMessageBox, QGroupBox, QFrame,
-    QApplication, QWidget, QGridLayout, QCheckBox
+    QGridLayout, QCheckBox, QSpacerItem, QSizePolicy
 )
 from PySide6.QtCore import Qt, QTimer, Signal, QThread
-from PySide6.QtGui import QFont, QPixmap, QIcon
+from PySide6.QtGui import QFont
 
 from utils.logger_helper import logger_helper as logger
 
@@ -144,7 +145,7 @@ class DownloadWorker(QThread):
 
 
 class InstallConfirmDialog(QDialog):
-    """安装确认对话框"""
+    """安装确认对话框 - ECBot标准UI"""
     
     def __init__(self, update_info, parent=None):
         super().__init__(parent)
@@ -152,25 +153,33 @@ class InstallConfirmDialog(QDialog):
         self.setup_ui()
         
     def setup_ui(self):
-        """设置UI"""
+        """设置UI - 遵循ECBot标准"""
         self.setWindowTitle("确认安装更新")
         self.setModal(True)
         self.setFixedSize(500, 400)
         
         layout = QVBoxLayout()
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
         
         # 标题
-        title_label = QLabel("<h2>🔄 准备安装更新</h2>")
+        title_label = QLabel("准备安装更新")
+        title_font = QFont()
+        title_font.setPointSize(14)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
         title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(title_label)
         
         # 更新信息组
         info_group = QGroupBox("更新信息")
         info_layout = QGridLayout()
+        info_layout.setSpacing(10)
         
         # 版本信息
         info_layout.addWidget(QLabel("新版本:"), 0, 0)
-        version_label = QLabel(f"<b>{self.update_info.get('latest_version', 'Unknown')}</b>")
+        version_label = QLabel(self.update_info.get('latest_version', 'Unknown'))
+        version_label.setStyleSheet("font-weight: bold;")
         info_layout.addWidget(version_label, 0, 1)
         
         # 文件大小
@@ -218,48 +227,25 @@ class InstallConfirmDialog(QDialog):
         
         # 警告信息
         warning_label = QLabel("⚠️ 安装过程中请不要关闭应用程序")
-        warning_label.setStyleSheet("color: orange; font-weight: bold;")
+        warning_label.setStyleSheet("color: #FF6B35; font-weight: bold;")
         warning_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(warning_label)
+        
+        # 添加弹性空间
+        layout.addItem(QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Expanding))
         
         # 按钮
         button_layout = QHBoxLayout()
         
-        self.install_button = QPushButton("🚀 立即安装")
-        self.install_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                font-size: 14px;
-                font-weight: bold;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-        """)
-        self.install_button.clicked.connect(self.accept)
-        
-        self.cancel_button = QPushButton("❌ 取消")
-        self.cancel_button.setStyleSheet("""
-            QPushButton {
-                background-color: #f44336;
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                font-size: 14px;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #da190b;
-            }
-        """)
+        self.cancel_button = QPushButton("取消")
         self.cancel_button.clicked.connect(self.reject)
-        
         button_layout.addWidget(self.cancel_button)
-        button_layout.addStretch()
+        
+        button_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        
+        self.install_button = QPushButton("立即安装")
+        self.install_button.clicked.connect(self.accept)
+        self.install_button.setDefault(True)
         button_layout.addWidget(self.install_button)
         
         layout.addLayout(button_layout)
@@ -286,8 +272,8 @@ class InstallConfirmDialog(QDialog):
         }
 
 
-class EnhancedUpdateDialog(QDialog):
-    """增强的更新对话框"""
+class UpdateDialog(QDialog):
+    """ECBot OTA更新对话框 - 标准UI版本"""
     
     def __init__(self, parent=None, ota_updater=None):
         super().__init__(parent)
@@ -298,38 +284,38 @@ class EnhancedUpdateDialog(QDialog):
         self.setup_ui()
         self.setup_connections()
         
-        # 设置窗口属性
+        # 设置窗口属性 - 遵循ECBot标准
         self.setWindowTitle("ECBot 软件更新")
         self.setModal(True)
-        self.resize(600, 450)
+        self.setFixedSize(600, 450)
         
     def setup_ui(self):
-        """设置用户界面"""
+        """设置用户界面 - ECBot标准UI"""
         layout = QVBoxLayout()
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
         
         # 标题区域
-        title_frame = QFrame()
-        title_frame.setStyleSheet("background-color: #f0f0f0; border-radius: 5px; padding: 10px;")
-        title_layout = QHBoxLayout()
-        
-        title_label = QLabel("<h2>🔄 ECBot 软件更新</h2>")
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
+        title_label = QLabel("ECBot 软件更新")
+        title_font = QFont()
+        title_font.setPointSize(16)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title_label)
         
         # 当前版本信息
         if self.ota_updater:
-            version_label = QLabel(f"当前版本: <b>{self.ota_updater.app_version}</b>")
-            title_layout.addWidget(version_label)
-        
-        title_frame.setLayout(title_layout)
-        layout.addWidget(title_frame)
+            version_label = QLabel(f"当前版本: {self.ota_updater.app_version}")
+            version_label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(version_label)
         
         # 状态区域
         status_group = QGroupBox("状态")
         status_layout = QVBoxLayout()
         
         self.status_label = QLabel("准备检查更新...")
-        self.status_label.setStyleSheet("font-size: 14px; padding: 5px;")
+        self.status_label.setStyleSheet("padding: 10px;")
         status_layout.addWidget(self.status_label)
         
         status_group.setLayout(status_layout)
@@ -342,18 +328,6 @@ class EnhancedUpdateDialog(QDialog):
         # 主进度条
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 2px solid grey;
-                border-radius: 5px;
-                text-align: center;
-                font-weight: bold;
-            }
-            QProgressBar::chunk {
-                background-color: #4CAF50;
-                border-radius: 3px;
-            }
-        """)
         progress_layout.addWidget(self.progress_bar)
         
         # 详细信息布局
@@ -363,7 +337,7 @@ class EnhancedUpdateDialog(QDialog):
         self.speed_label.setVisible(False)
         details_layout.addWidget(self.speed_label)
         
-        details_layout.addStretch()
+        details_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
         
         self.remaining_label = QLabel("剩余时间: --")
         self.remaining_label.setVisible(False)
@@ -386,86 +360,29 @@ class EnhancedUpdateDialog(QDialog):
         self.info_group.setLayout(info_layout)
         layout.addWidget(self.info_group)
         
+        # 添加弹性空间
+        layout.addItem(QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Expanding))
+        
         # 按钮区域
         button_layout = QHBoxLayout()
         
-        self.check_button = QPushButton("🔍 检查更新")
-        self.check_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2196F3;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                font-size: 12px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #1976D2;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-            }
-        """)
+        self.check_button = QPushButton("检查更新")
         
-        self.download_button = QPushButton("⬇️ 下载更新")
+        self.download_button = QPushButton("下载更新")
         self.download_button.setEnabled(False)
-        self.download_button.setStyleSheet("""
-            QPushButton {
-                background-color: #FF9800;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                font-size: 12px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #F57C00;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-            }
-        """)
         
-        self.install_button = QPushButton("🚀 安装更新")
+        self.install_button = QPushButton("安装更新")
         self.install_button.setEnabled(False)
-        self.install_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                font-size: 12px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-            }
-        """)
         
-        self.cancel_button = QPushButton("❌ 取消")
-        self.cancel_button.setStyleSheet("""
-            QPushButton {
-                background-color: #f44336;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                font-size: 12px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #da190b;
-            }
-        """)
+        self.cancel_button = QPushButton("取消")
+        self.cancel_button.setVisible(False)
         
         self.close_button = QPushButton("关闭")
         
         button_layout.addWidget(self.check_button)
         button_layout.addWidget(self.download_button)
         button_layout.addWidget(self.install_button)
-        button_layout.addStretch()
+        button_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
         button_layout.addWidget(self.cancel_button)
         button_layout.addWidget(self.close_button)
         
@@ -483,17 +400,17 @@ class EnhancedUpdateDialog(QDialog):
     def check_for_updates(self):
         """检查更新"""
         if not self.ota_updater:
-            self.status_label.setText("❌ 更新器未初始化")
+            self.status_label.setText("更新器未初始化")
             return
         
         self.check_button.setEnabled(False)
-        self.status_label.setText("🔍 正在检查更新...")
+        self.status_label.setText("正在检查更新...")
         
         try:
             has_update, info = self.ota_updater.check_for_updates(silent=True, return_info=True)
             
             if has_update:
-                self.status_label.setText("✅ 发现新版本！")
+                self.status_label.setText("发现新版本！")
                 self.update_info = info
                 
                 if isinstance(info, dict):
@@ -506,10 +423,10 @@ class EnhancedUpdateDialog(QDialog):
                 self.info_group.setVisible(True)
                 self.download_button.setEnabled(True)
             else:
-                self.status_label.setText("✅ 已是最新版本")
+                self.status_label.setText("已是最新版本")
                 
         except Exception as e:
-            self.status_label.setText(f"❌ 检查失败: {str(e)}")
+            self.status_label.setText(f"检查失败: {str(e)}")
             logger.error(f"Update check failed: {e}")
         
         finally:
@@ -550,7 +467,7 @@ class EnhancedUpdateDialog(QDialog):
         self.cancel_button.setVisible(False)
         
         if success:
-            self.status_label.setText(f"✅ {message}")
+            self.status_label.setText(message)
             self.install_button.setEnabled(True)
             
             # 显示下载完成通知
@@ -560,7 +477,7 @@ class EnhancedUpdateDialog(QDialog):
                 "更新文件下载完成！\n点击'安装更新'按钮开始安装。"
             )
         else:
-            self.status_label.setText(f"❌ {message}")
+            self.status_label.setText(message)
             self.download_button.setEnabled(True)
             
             # 隐藏进度相关控件
@@ -575,7 +492,7 @@ class EnhancedUpdateDialog(QDialog):
             self.download_worker.wait()  # 等待线程结束
             self.download_worker = None
         
-        self.status_label.setText("❌ 下载已取消")
+        self.status_label.setText("下载已取消")
         self.download_button.setEnabled(True)
         self.cancel_button.setVisible(False)
         
@@ -598,18 +515,18 @@ class EnhancedUpdateDialog(QDialog):
         
         # 开始安装
         self.install_button.setEnabled(False)
-        self.status_label.setText("🚀 正在安装更新...")
+        self.status_label.setText("正在安装更新...")
         
         try:
             # 这里可以根据安装选项进行相应处理
             if install_options['create_backup']:
-                self.status_label.setText("📦 正在创建备份...")
+                self.status_label.setText("正在创建备份...")
                 # TODO: 实现备份逻辑
             
             success = self.ota_updater.install_update()
             
             if success:
-                self.status_label.setText("✅ 安装成功！")
+                self.status_label.setText("安装成功！")
                 
                 if install_options['auto_restart']:
                     QMessageBox.information(
@@ -625,12 +542,12 @@ class EnhancedUpdateDialog(QDialog):
                         "更新安装成功！\n请手动重启应用程序以使用新版本。"
                     )
             else:
-                self.status_label.setText("❌ 安装失败")
+                self.status_label.setText("安装失败")
                 QMessageBox.warning(self, "安装失败", "更新安装失败，请稍后重试。")
                 
         except Exception as e:
             error_msg = f"安装错误: {str(e)}"
-            self.status_label.setText(f"❌ {error_msg}")
+            self.status_label.setText(error_msg)
             QMessageBox.critical(self, "安装错误", error_msg)
         finally:
             self.install_button.setEnabled(True)
@@ -656,5 +573,39 @@ class EnhancedUpdateDialog(QDialog):
             event.accept()
 
 
-# 为了向后兼容，保留原始名称
-UpdateDialog = EnhancedUpdateDialog
+# 简单的通知对话框
+class UpdateNotificationDialog(QDialog):
+    """简单的更新通知对话框"""
+    
+    def __init__(self, update_info="发现新版本", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("更新通知")
+        self.setModal(True)
+        self.setFixedSize(300, 150)
+        
+        layout = QVBoxLayout()
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # 信息
+        info_label = QLabel(update_info)
+        info_label.setWordWrap(True)
+        info_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(info_label)
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        
+        later_button = QPushButton("稍后")
+        later_button.clicked.connect(self.reject)
+        button_layout.addWidget(later_button)
+        
+        button_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        
+        install_button = QPushButton("立即更新")
+        install_button.clicked.connect(self.accept)
+        install_button.setDefault(True)
+        button_layout.addWidget(install_button)
+        
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
