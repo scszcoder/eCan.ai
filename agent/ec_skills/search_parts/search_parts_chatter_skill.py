@@ -103,6 +103,7 @@ def pend_for_human_input_node(state: NodeState, *, runtime: Runtime, store: Base
 
     interrupted = interrupt( # (1)!
         {
+            "i_tag": "chat_message",
             "prompt_to_human": state["result"], # (2)!
             "qa_form_to_human": qa_form,
             "notification_to_human": notification
@@ -146,6 +147,7 @@ def pend_for_human_fill_FOM_node(state: NodeState, *, runtime: Runtime, store: B
 
     interrupted = interrupt(  # (1)!
         {
+            "i_tag": "chat_message",
             "prompt_to_human": state["result"],  # (2)!
             "qa_form_to_human": qa_form,
             "notification_to_human": notification
@@ -186,6 +188,7 @@ def pend_for_human_fill_specs_node(state: NodeState, *, runtime: Runtime, store:
 
     interrupted = interrupt(  # (1)!
         {
+            "i_tag": "chat_message",
             "prompt_to_human": state["result"],  # (2)!
             "qa_form_to_human": qa_form,
             "notification_to_human": notification
@@ -292,6 +295,7 @@ def pend_for_result_message_node(state: NodeState, *, runtime: Runtime, store: B
 
     interrupted = interrupt( # (1)!
         {
+            "i_tag": "result_message",
             "prompt_to_human": state["result"], # (2)!
             "qa_form_to_human": qa_form,
             "notification_to_human": notification
@@ -898,16 +902,28 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
                 meta = getattr(content0, '_meta', None)
 
             if meta:
-                components = meta["components"]
-                state["tool_result"] = meta["components"]
+                cloud_task_id = meta["cloud_task_id"]
+                state["tool_result"] = meta["cloud_task_id"]
+                state["attributes"]["cloud_task_id"] = cloud_task_id
             else:
                 print("ERROR: no meta in tool result!!!!!!!!!!!!")
-                components = {}
+                cloud_task_id = {}
                 state["tool_result"] = {}
 
+
+            # interupt to wait for cloud side work results to arrive. and
+            interrupted = interrupt(  # (1)!
+                {
+                    "i_tag": cloud_task_id,
+                    "rank_results": {}
+                }
+            )
+
+            # now results comes back from cloud side, which trigger a resume action, and
+            # now we are back to this node, and start to put final results
             print("state tool result:", state["tool_result"])
             # if parametric_search_filters are returned, pass them to human twin
-            if state["tool_result"]:
+            if state["attributes"]["rank_results"]:
                 i = 0
                 component = state["attributes"]["preliminary_info"][i]["part name"]
                 logger.debug("[search_parts_chatter_skill] tool result:", state["tool_result"])

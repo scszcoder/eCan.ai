@@ -6,7 +6,7 @@ from agent.cloud_api.cloud_api import (
     send_query_components_request_to_cloud,
     send_get_nodes_prompts_request_to_cloud,
     send_query_fom_request_to_cloud,
-    send_rank_results_request_to_cloud
+    send_rank_results_request_to_cloud, send_start_long_llm_task_to_cloud
 )
 import json
 
@@ -83,7 +83,47 @@ def ecan_ai_api_query_fom(mainwin, fom_query):
     return fom_info
 
 
+#
+# def ecan_ai_api_rerank_results(mainwin, rank_query):
+#     filled_components = []
+#     try:
+#         session = mainwin.session
+#         token = mainwin.get_auth_token()
+#
+#         img_engine = mainwin.getImageEngine()
+#         if img_engine == "lan":
+#             img_endpoint = mainwin.getLanImageEndpoint()
+#             logger.debug("img endpoint:", img_endpoint)
+#         else:
+#             img_endpoint = mainwin.getWanImageEndpoint()
+#
+#         response = send_rank_results_request_to_cloud(session, token, rank_query, img_endpoint)
+#         logger.debug("send_query_fom_request_to_cloud: respnose:", response)
+#
+#         # Check for errors in the response
+#         if "errors" in response or "body" not in response:
+#             logger.error(f"Error from cloud: {response.get('errors')}")
+#             return []
+#
+#         body = json.loads(response["body"])
+#         if body.get("result") == "error":
+#             logger.error(f"Error from cloud lambda: {body.get('error')}")
+#             return []
+#
+#         scores = body["data"]
+#         logger.debug("score board:", scores)
+#
+#     except Exception as e:
+#         err_trace = get_traceback(e, "ErrorEcanAiApiRerankResults")
+#         logger.error(err_trace)
+#         fom_info = {}
+#
+#     return scores
 
+
+# since rerank take a long time, we have to use an async version, this
+# request will return a task id (sort of a ticket number), and the result
+# be pushed down from the cloud side when it is ready.
 def ecan_ai_api_rerank_results(mainwin, rank_query):
     filled_components = []
     try:
@@ -97,7 +137,13 @@ def ecan_ai_api_rerank_results(mainwin, rank_query):
         else:
             img_endpoint = mainwin.getWanImageEndpoint()
 
-        response = send_rank_results_request_to_cloud(session, token, rank_query, img_endpoint)
+        rank_request = {
+            "acct_site_id": mainwin.getAcctSiteId(),
+            "task_type": "rerank_search_results",
+            "task_data": rank_query
+        }
+
+        response = send_start_long_llm_task_to_cloud(session, token, rank_request, img_endpoint)
         logger.debug("send_query_fom_request_to_cloud: respnose:", response)
 
         # Check for errors in the response
@@ -110,17 +156,15 @@ def ecan_ai_api_rerank_results(mainwin, rank_query):
             logger.error(f"Error from cloud lambda: {body.get('error')}")
             return []
 
-        scores = body["data"]
-        logger.debug("score board:", scores)
+        cloud_task_id = body["data"]
+        logger.debug("cloud_task_id:", cloud_task_id)
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorEcanAiApiRerankResults")
         logger.error(err_trace)
         fom_info = {}
 
-    return scores
-
-
+    return cloud_task_id
 
 
 def api_ecan_ai_get_nodes_prompts(mainwin, nodes):

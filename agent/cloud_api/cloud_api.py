@@ -1,4 +1,6 @@
 import json
+import os
+import base64
 
 from bot.envi import getECBotDataHome
 from utils.logger_helper import logger_helper as logger
@@ -6,6 +8,12 @@ import traceback
 from config.constants import API_DEV_MODE
 from aiolimiter import AsyncLimiter
 from bot.Cloud import appsync_http_request, gen_daily_update_string
+import websocket
+import threading
+from urllib.parse import urlparse, urlencode, urlunparse, parse_qsl
+from typing import Optional, Tuple
+from utils.logger_helper import logger_helper
+
 
 limiter = AsyncLimiter(1, 1)  # Max 5 requests per second
 
@@ -1007,30 +1015,16 @@ def gen_rank_results_string(rank_data_input):
         rows_array_literal = f"[{', '.join(rows_literals)}]"
         component_info_literal = json.dumps(json.dumps(component_info))
 
-        # query_string = f"""
-        # query MyQuery {{
-        #   queryRankResults(rank_data: {{
-        #     fom_form: {fom_form_literal}
-        #     rows: {rows_array_literal}
-        #     component_info: {component_info_literal}
-        #   }})
-        # }}
-        # """
-
-        # Build a single AWSJSON payload per schema: startLongLLMTask(input: AWSJSON!)
-        input_payload = {
-            "fom_form": fom_form,
-            "rows": rows,
-            "component_info": component_info,
-        }
-        # Double-encode so the GraphQL literal is a JSON string (AWSJSON)
-        input_literal = json.dumps(json.dumps(input_payload))
-
         query_string = f"""
-        mutation MyMutation {{
-          startLongLLMTask(input: {input_literal})
+        query MyQuery {{
+          queryRankResults(rank_data: {{
+            fom_form: {fom_form_literal}
+            rows: {rows_array_literal}
+            component_info: {component_info_literal}
+          }})
         }}
         """
+
 
         logger.debug(f"Generated queryRankResults string: {query_string}")
         return query_string
@@ -1038,6 +1032,55 @@ def gen_rank_results_string(rank_data_input):
         logger.error(f"Error generating queryRankResults string: {e}\nrank_data_input={rank_data_input}")
         # Fallback minimal query to avoid crash; server will error with useful message
         return "query MyQuery { queryRankResults(rank_data: { fom_form: \"{}\", rows: [], component_info: \"{}\" }) }"
+
+
+
+
+def gen_start_long_llm_task_string(task_input):
+    """Generate a GraphQL query string for queryRankResults using AWSJSON fields.
+
+    The AppSync schema expects:
+      startLongLLMTask(task_input: AWSJSON!)
+      where task_input internally looks like:
+      {
+        "acct_site_id": "",
+        "task_type": "",
+        "task_data": { "fom_form": {...}, "rows": [{...}], "component_info": {...} }
+      }
+
+    For AWSJSON, the entire payload must be sent as a JSON string literal, i.e. the
+    whole dictionary is double-encoded: json.dumps(json.dumps(task_input)).
+    """
+
+    try:
+        # Validate and normalize structure
+        if not isinstance(task_input, dict):
+            raise ValueError("task_input must be a dict")
+
+        payload = {
+            "acct_site_id": task_input.get("acct_site_id", ""),
+            "task_type": task_input.get("task_type", ""),
+            "task_data": task_input.get("task_data", {}) or {}
+        }
+
+        # Double-encode so the GraphQL literal is a JSON string (AWSJSON)
+        input_literal = json.dumps(json.dumps(payload))
+
+        query_string = f"""
+        mutation MyMutation {{
+          startLongLLMTask(task_input: {input_literal})
+        }}
+        """
+
+        logger.debug(f"Generated startLongLLMTask string: {query_string}")
+        return query_string
+    except Exception as e:
+        logger.error(f"Error generating startLongLLMTask string: {e}\ninput={task_input}")
+        # Fallback minimal mutation with empty object
+        return "mutation MyMutation { startLongLLMTask(task_input: \"{}\") }"
+
+
+
 
 
 def gen_get_nodes_prompts_string(nodes):
@@ -1737,7 +1780,6 @@ def send_query_fom_request_to_cloud(session, token, fom_info, endpoint):
 
 
 
-
 def send_rank_results_request_to_cloud(session, token, rank_data_inut, endpoint):
 
     queryInfo = gen_rank_results_string(rank_data_inut)
@@ -1775,6 +1817,179 @@ def send_get_nodes_prompts_request_to_cloud(session, token, nodes, endpoint):
             return {"errors": [{"errorType": "ParseError", "message": str(e)}], "body": None}
 
 
+def send_start_long_llm_task_to_cloud(session, token, rank_data_inut, endpoint):
+
+    queryInfo = gen_start_long_llm_task_string(rank_data_inut)
+
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    logger.debug("send_start_long_llm_task_to_cloud, response:", jresp)
+    if "errors" in jresp:
+        screen_error = True
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["startLongLLMTask"])
+
+    return jresponse
 
 
 
+# related to websocket sub/push to get long running task results
+def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[str] = None) -> Tuple[
+    websocket.WebSocketApp, threading.Thread]:
+    """Subscribe to long-running LLM task updates over WebSocket.
+
+    Parameters:
+        acctSiteID: Account/site identifier used by the subscription filter.
+        id_token: Cognito/AppSync ID token (Authorization header).
+        ws_url: Optional AppSync GraphQL endpoint; if https, auto-converted to realtime wss.
+    """
+
+    def on_message(ws, message):
+        print("hello hello......")
+        try:
+            data = json.loads(message)
+        except Exception:
+            data = {"raw": message}
+        print("Subscription update:", json.dumps(data, indent=2))
+        # Determine message type for protocol handling
+        msg_type = data.get("type")
+
+        if msg_type == "connection_ack":
+            # After ack, start the subscription (AppSync format: data + extensions.authorization)
+            try:
+                # Match updated schema: requires acctSiteID variable
+                subscription = (
+                    """
+                    subscription OnComplete($acctSiteID: String!) {
+                      onLongLLMTaskComplete(acctSiteID: $acctSiteID) {
+                        id
+                        taskID
+                        status
+                        results
+                        timestamp
+                      }
+                    }
+                    """
+                )
+                data_obj = {
+                    "query": subscription,
+                    "operationName": "OnComplete",
+                    "variables": {"acctSiteID": acctSiteID},
+                }
+                start_payload = {
+                    "id": "LongLLM1",
+                    "type": "start",
+                    "payload": {
+                        "data": json.dumps(data_obj),
+                        "extensions": {
+                            "authorization": {
+                                "host": api_host,
+                                "Authorization": id_token,
+                            }
+                        },
+                    },
+                }
+                print("connection_ack received, sending start subscription ...")
+                ws.send(json.dumps(start_payload))
+            except Exception as e:
+                print("Failed to send start payload:", e)
+
+        elif msg_type in ("ka", "keepalive"):
+            # Keep-alive from server; no action required
+            return
+        elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "LongLLM1":
+            # Extract structured object result per schema
+            payload_data = data.get("payload", {}).get("data", {})
+            result_obj = None
+            if isinstance(payload_data, dict):
+                result_obj = payload_data.get("onLongLLMTaskComplete")
+            print("Received subscription result:", json.dumps(result_obj, indent=2, ensure_ascii=False))
+
+    def on_error(ws, error):
+        print("WebSocket error:", error)
+
+    def on_close(ws, status_code, msg):
+        print(f"WebSocket closed: code={status_code}, msg={msg}")
+
+    def on_open(ws):
+        logger_helper.debug("web socket opened.......")
+        init_payload = {
+            "type": "connection_init",
+            "payload": {}
+        }
+        try:
+            logger_helper.debug("sending connection_init ...")
+            ws.send(json.dumps(init_payload))
+        except Exception as e:
+            print("Failed to send connection_init:", e)
+
+    # Resolve WS URL and ensure it's the AppSync realtime endpoint
+    if not ws_url:
+        ws_url = os.getenv("ECAN_WS_URL", "")
+    if not ws_url:
+        logger_helper.warning(
+            "Warning: WebSocket URL not provided and ECAN_WS_URL is not set. Cloud LLM subscription will be disabled.")
+        raise ValueError("WebSocket URL not provided and ECAN_WS_URL is not set")
+
+    if ws_url.startswith("https://") and "appsync-api" in ws_url:
+        try:
+            prefix = "https://"
+            rest = ws_url[len(prefix):]
+            rest = rest.replace("appsync-api", "appsync-realtime-api", 1)
+            ws_url = "wss://" + rest
+            logger_helper.info(f"Converted to realtime endpoint: {ws_url}")
+        except Exception:
+            pass
+
+    parsed = urlparse(ws_url)
+    api_host = parsed.netloc.replace("appsync-realtime-api", "appsync-api")
+    header_obj = {
+        "host": api_host,
+        "Authorization": id_token,
+    }
+    payload_obj = {}
+    header_b64 = base64.b64encode(json.dumps(header_obj).encode("utf-8")).decode("utf-8")
+    payload_b64 = base64.b64encode(json.dumps(payload_obj).encode("utf-8")).decode("utf-8")
+
+    query = dict(parse_qsl(parsed.query))
+    query.update({
+        "header": header_b64,
+        "payload": payload_b64,
+    })
+    signed_url = urlunparse((
+        parsed.scheme,
+        parsed.netloc,
+        parsed.path,
+        parsed.params,
+        urlencode(query),
+        parsed.fragment,
+    ))
+
+    print("ws_url ok.....")
+    headers = []
+
+    print("token seems to be ok.....")
+
+    ws = websocket.WebSocketApp(
+        signed_url,
+        header=headers,
+        on_message=on_message,
+        on_error=on_error,
+        on_close=on_close,
+        on_open=on_open,
+        subprotocols=["graphql-ws"],
+    )
+
+    print("launch web socket thread")
+    # Configure SSL options to handle certificate verification issues
+    import ssl
+    ssl_context = ssl.create_default_context()
+    # For development/testing, you might want to disable certificate verification
+    # ssl_context.check_hostname = False
+    # ssl_context.verify_mode = ssl.CERT_NONE
+
+    t = threading.Thread(target=lambda: ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE}), daemon=True)
+    t.start()
+    print("web socket thread launched")
+    return ws, t
