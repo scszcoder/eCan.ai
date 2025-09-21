@@ -331,6 +331,8 @@ class MainWindow:
         agents_task = asyncio.create_task(self.async_agents_init())
         asyncio.create_task(self._async_setup_browser_manager())
         asyncio.create_task(self._async_start_lightrag())
+        self.wan_sub_task = asyncio.create_task(self._async_start_wan_chat())
+        asyncio.create_task(self._async_start_llm_subscription())
 
         # Wait for agents initialization to complete before marking system fully ready
         try:
@@ -1164,7 +1166,7 @@ class MainWindow:
         """
         Asynchronously start eCan's own cloud side LLM service subscription
         """
-        from Cloud import subscribe_cloud_llm_task
+        from bot.Cloud import subscribe_cloud_llm_task
         try:
             # Wait a bit to ensure other services are ready
             await asyncio.sleep(0.5)
@@ -1176,7 +1178,7 @@ class MainWindow:
             ws_host = self.getWSApiHost()
             ws_endpoint = self.getWSApiEndpoint()
             token = self.get_auth_token()
-            print("ws_host", ws_host, "token:", token)
+            logger.info("ws_host", ws_host, "token:", token)
 
             # Start the server process in executor (this is the blocking part)
             await asyncio.get_event_loop().run_in_executor(
@@ -8902,7 +8904,7 @@ class MainWindow:
 
 
     def think_about_a_reponse(self, thread):
-        print("Thinking about response.")
+        logger.info("Thinking about response.")
         current_time = datetime.now(timezone.utc)
         aws_datetime_string = current_time.isoformat()
 
@@ -8920,7 +8922,7 @@ class MainWindow:
         }]
         resp = send_query_chat_request_to_cloud(session, token, qs, self.getWanApiEndpoint())
 
-        print("THINK RESP:", resp)
+        logger.info("THINK RESP:", resp)
 
     # from ip find vehicle, and update its status, and
     def updateVehicleStatusToRunningIdle(self, ip):
