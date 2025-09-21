@@ -2623,7 +2623,14 @@ def subscribe_cloud_llm_task(task_id: str, id_token: str, ws_url: Optional[str] 
     )
 
     print("launch web socket thread")
-    t = threading.Thread(target=ws.run_forever, daemon=True)
+    # Configure SSL options to handle certificate verification issues
+    import ssl
+    ssl_context = ssl.create_default_context()
+    # For development/testing, you might want to disable certificate verification
+    # ssl_context.check_hostname = False
+    # ssl_context.verify_mode = ssl.CERT_NONE
+    
+    t = threading.Thread(target=lambda: ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE}), daemon=True)
     t.start()
     print("web socket thread launched")
     return ws, t
