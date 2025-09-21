@@ -1190,11 +1190,11 @@ class MainWindow:
             ws_endpoint = self.getWSApiEndpoint()
             token = self.get_auth_token()
             logger.info("ws_host", ws_host, "token:", token[:100] if token else "", "ws_endpoint:", ws_endpoint)
-
+            acctSiteID = self.getAcctSiteID()
             # Start the server process in executor (this is the blocking part)
             await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: subscribe_cloud_llm_task("test-task-001", token, ws_endpoint)
+                lambda: subscribe_cloud_llm_task(acctSiteID, token, ws_endpoint)
             )
 
             logger.info("✅ Cloud LLM Subscription initialization completed!")
@@ -1947,6 +1947,11 @@ class MainWindow:
 
     def getWSApiHost(self):
         return self.config_manager.general_settings.ws_api_host
+
+    def getAcctSiteID(self):
+        site = self.machine_name
+        user = self.user.replace("@", "_").replace(".", "_")
+        return f"{user}_{site}"
 
     def getLanApiEndpoint(self):
         return self.config_manager.general_settings.lan_api_endpoint

@@ -1433,15 +1433,16 @@ async def api_ecan_ai_rerank_results(mainwin, args):
     # including put reactive work into it.
     try:
         print("api_ecan_ai_query_fom args: ", args['input'])
-        final_results = ecan_ai_api_rerank_results(mainwin, args['input'])
-        msg = "completed API query components results"
+        cloud_task_id = ecan_ai_api_rerank_results(mainwin, args['input'])
+        msg = f"kicked of cloud side re-rank result task - with task id of {cloud_task_id}"
+
         result = TextContent(type="text", text=msg)
         # meta must be a dict – wrap components list under a key to satisfy pydantic
-        result.meta = {"final_notifiable_results": final_results}
-        print("api_ecan_ai_query_fom about to return: ", result)
+        result.meta = {"cloud_task_id": cloud_task_id}
+        print("api_ecan_ai_rerank_results about to return: ", result)
         return [result]
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorAPIECANAIQueryComponents")
+        err_trace = get_traceback(e, "ErrorAPIECANAIReRankResults")
         logger.debug(err_trace)
         return [TextContent(type="text", text=err_trace)]
 

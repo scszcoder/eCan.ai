@@ -199,6 +199,7 @@ class NodeState(TypedDict):
     messages: List[Any]
     threads: List[dict]
     metadata: dict
+    this_node: str
     attributes: dict
     result: dict
     tool_input: dict
@@ -350,7 +351,7 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                     state.pop("_resuming_from", None)
                 else:
                     logger.info(f"Breakpoint hit at node: {node_name}. Pausing before execution.")
-                    interrupt({"paused_at": node_name, "state": _safe_state_view(state)})
+                    interrupt({"paused_at": node_name, "i_tag": "breakpoint", "state": _safe_state_view(state)})
 
         # Execute the node function with retry logic
         while attempts < retries:
