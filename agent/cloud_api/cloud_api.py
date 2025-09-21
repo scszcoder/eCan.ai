@@ -810,7 +810,7 @@ def gen_remove_knowledges_string(removeOrders):
 
 def gen_update_knowledges_string(knowledges):
     query_string = """
-        mutation MyUMutation {
+        mutation MyMutation {
       updateKnowledges (input:[
     """
     rec_string = ""
@@ -1007,13 +1007,28 @@ def gen_rank_results_string(rank_data_input):
         rows_array_literal = f"[{', '.join(rows_literals)}]"
         component_info_literal = json.dumps(json.dumps(component_info))
 
+        # query_string = f"""
+        # query MyQuery {{
+        #   queryRankResults(rank_data: {{
+        #     fom_form: {fom_form_literal}
+        #     rows: {rows_array_literal}
+        #     component_info: {component_info_literal}
+        #   }})
+        # }}
+        # """
+
+        # Build a single AWSJSON payload per schema: startLongLLMTask(input: AWSJSON!)
+        input_payload = {
+            "fom_form": fom_form,
+            "rows": rows,
+            "component_info": component_info,
+        }
+        # Double-encode so the GraphQL literal is a JSON string (AWSJSON)
+        input_literal = json.dumps(json.dumps(input_payload))
+
         query_string = f"""
-        query MyQuery {{
-          queryRankResults(rank_data: {{
-            fom_form: {fom_form_literal}
-            rows: {rows_array_literal}
-            component_info: {component_info_literal}
-          }})
+        mutation MyMutation {{
+          startLongLLMTask(input: {input_literal})
         }}
         """
 
