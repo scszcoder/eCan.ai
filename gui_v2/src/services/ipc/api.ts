@@ -66,7 +66,7 @@ export class IPCAPI {
     }
 
     /**
-     * 执行 IPC 请求
+     * 执行 IPC 请求 - 使用队列机制以避免并发问题
      * @param method - 请求方法名
      * @param params - 请求参数
      * @returns Promise 对象，解析为 API 响应
@@ -74,7 +74,14 @@ export class IPCAPI {
     private async executeRequest<T>(method: string, params?: unknown): Promise<APIResponse<T>> {
         try {
             //logger.debug(`Executing ${method}`, params ? `with params: ${JSON.stringify(params)}` : '');
-            const response = await this.ipcWCClient.sendRequest(method, params) as IPCResponse;
+
+            // 对于 get_initialization_progress，使用 invoke 方法以利用队列和并发控制
+            let response: IPCResponse;
+            if (method === 'get_initialization_progress') {
+                response = await this.ipcWCClient.invoke(method, params) as IPCResponse;
+            } else {
+                response = await this.ipcWCClient.sendRequest(method, params) as IPCResponse;
+            }
 
             if (response.status === 'success') {
                 return {
@@ -382,6 +389,21 @@ export class IPCAPI {
      */
     public async getEditorPendingSources<T>(): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_editor_pending_sources', {});
+    }
+
+    /**
+     * 获取初始化进度
+     * @returns Promise 对象，解析为初始化进度信息
+     */
+    public async getInitializationProgress(): Promise<APIResponse<{
+        ui_ready: boolean;
+        critical_services_ready: boolean;
+        async_init_complete: boolean;
+        fully_ready: boolean;
+        sync_init_complete: boolean;
+        message: string;
+    }>> {
+        return this.executeRequest('get_initialization_progress');
     }
 }
 

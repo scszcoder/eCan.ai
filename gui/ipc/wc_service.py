@@ -69,7 +69,7 @@ class IPCWCService(QObject):
             data = json.loads(message)
             data_str = str(data)
             truncated_data = data_str[:800] + "..." if len(data_str) > 500 else data_str
-            logger.debug(f"[IPCWCService] web_to_python: Received message: {truncated_data}")
+            logger.trace(f"[IPCWCService] web_to_python: Received message: {truncated_data}")
 
             # 检查消息类型
             if 'type' not in data:
@@ -134,7 +134,7 @@ class IPCWCService(QObject):
 
         if handler_type == 'sync':
             # 直接在主线程调用同步处理器
-            logger.debug(f"[IPCWCService] Executing sync handler for method: {method}")
+            logger.trace(f"[IPCWCService] Executing sync handler for method: {method}")
             try:
                 params = request.get('params')
                 sync_response = handler(request, params)

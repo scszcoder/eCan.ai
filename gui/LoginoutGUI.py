@@ -141,7 +141,16 @@ class Login:
                 return True
         except Exception as e:
             logger.warning(f"handleLogout fallback due to error: {e}")
+
         # Fallback to direct auth logout if main window missing
+        # Clear IPC registry system ready cache in fallback case
+        try:
+            from gui.ipc.registry import IPCHandlerRegistry
+            IPCHandlerRegistry.clear_system_ready_cache()
+            logger.debug("LoginoutGUI: Cleared IPC registry system ready cache on logout fallback")
+        except Exception as e:
+            logger.debug(f"LoginoutGUI: Error clearing IPC registry cache: {e}")
+
         return self.auth_manager.logout()
 
     def get_main_window_status(self):
