@@ -17,9 +17,7 @@ import asyncio
 import platform
 import glob
 import chardet
-import pandas as pd
-import numpy as np
-from deepdiff import DeepDiff
+from utils.lazy_import import lazy
 import importlib.util
 import requests
 import io
@@ -39,14 +37,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from bot.missions import EBMISSION
 from bot.envi import getECBotDataHome
-from PIL import Image
 import shutil
 import zipfile
 
 import psutil
 
 import pyperclip
-from fuzzywuzzy import fuzz
 
 if sys.platform == 'win32':
     import win32gui
@@ -62,17 +58,6 @@ elif sys.platform == 'darwin':
         kCGNullWindowID
     )
 
-# fix bug of macos TypeError: '<' not supported between instances of 'str' and 'int' in _screenshot_osx
-# https://github.com/asweigart/pyautogui/issues/790
-import pyscreeze
-import PIL
-
-import pyautogui
-
-import pygetwindow as gw
-
-__PIL_TUPLE_VERSION = tuple(int(x) for x in PIL.__version__.split("."))
-pyscreeze.PIL__version__ = __PIL_TUPLE_VERSION
 
 symTab = globals()
 from pynput.mouse import Controller
@@ -275,7 +260,7 @@ def getScreenSize():
                 pass
 
         # Fallback to pyautogui for all platforms
-        return pyautogui.size()
+        return lazy.pyautogui.size()
 
     except Exception as e:
         # Ultimate fallback - return a reasonable default
@@ -1604,11 +1589,11 @@ def captureScreen(win_title_keyword, subArea=None):
     if win_title_keyword:
         window_name, window_rect = get_top_visible_window(win_title_keyword)
         # now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
-        im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+        im0 = lazy.pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
     else:
         log3("capture default top window")
         window_name, window_rect = get_top_visible_window("")
-        im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+        im0 = lazy.pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
 
     if subArea:
         subimage = im0.crop(subArea)
@@ -2317,11 +2302,11 @@ def takeScreenShot(win_title_keyword, subArea=None):
     if win_title_keyword:
         window_name, window_rect = get_top_visible_window(win_title_keyword)
         # now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
-        im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+        im0 = lazy.pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
     else:
         log3("capture default top window")
         window_name, window_rect = get_top_visible_window("")
-        im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+        im0 = lazy.pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
 
     return im0, window_rect
 
@@ -2860,7 +2845,7 @@ def find_clickable_object(sd, target, template, target_type, nth):
         ncols = 1+math.floor((xsorted[len(xsorted)-1]["loc"][0] - xsorted[0]["loc"][0]) / cell_width)
         nrows = 1+math.floor((ysorted[len(ysorted)-1]["loc"][1] - ysorted[0]["loc"][1]) / cell_height)
         # now place objects into their relavant row and colume position.
-        my_array = np.empty([nrows, ncols], dtype=object)
+        my_array = lazy.np.empty([nrows, ncols], dtype=object)
         for ob in ysorted:
             ri = math.floor((ob["loc"][1] - ysorted[0]["loc"][1])/cell_height)
             ci =  math.floor((ob["loc"][0] - xsorted[0]["loc"][0])/cell_width)
@@ -4750,7 +4735,7 @@ def matched_loc(pattern, text):
 # "breakpoint": break_here,
 # "status": flag
 def fuzzy_substring_match(small_string, large_string, threshold=85):
-    match_score = fuzz.partial_ratio(small_string, large_string)
+    match_score = lazy.fuzz.partial_ratio(small_string, large_string)
     return match_score >= threshold
 
 
@@ -6342,7 +6327,7 @@ def processReadXlsxFile(step, i):
 
         if os.path.exists(json_file):
             # with open(json_file, 'rb') as jf:
-            df = pd.read_excel(json_file, engine='openpyxl')
+            df = lazy.pd.read_excel(json_file, engine='openpyxl')
 
             # Convert the DataFrame to a list of dictionaries (JSON objects)
             symTab[step["result"]] = df.to_dict(orient='records')
@@ -6654,7 +6639,7 @@ def processBringWindowToFront(step, i):
     try:
         symTab[step["flag_var"]] = True
         # Find the window by its title
-        target_window = gw.getWindowsWithTitle(symTab[step["title_var"]])[0]
+        target_window = lazy.gw.getWindowsWithTitle(symTab[step["title_var"]])[0]
 
         # Activate the window (bring it to front)
         target_window.activate()

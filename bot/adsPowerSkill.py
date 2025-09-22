@@ -2,9 +2,8 @@ import copy
 import json
 import os
 import traceback
-from urllib.request import thishost
 
-import pandas as pd
+from utils.lazy_import import lazy
 
 from bot.Logger import log3
 from bot.basicSkill import genStepStub, genStepCreateData, genStepCallExtern, genStepOpenApp, genStepWait, \
@@ -1599,8 +1598,8 @@ def genStepSetupADS(all_fname, tbr_fname, exe_link, ver, stepN):
 # batch_csv is the resulting csv file name that will contain only bots associated profiles.
 def extractBatchOfProfiles(bots, all_profiles_xls, batch_xls):
     try:
-        # df = pd.read_csv(all_profiles_csv)
-        df = pd.read_excel(all_profiles_xls)
+        # df = lazy.pd.read_csv(all_profiles_csv)
+        df = lazy.pd.read_excel(all_profiles_xls)
 
         # Filter rows based on user name key in each dictionary
         this_batch_of_rows = []
@@ -1608,7 +1607,7 @@ def extractBatchOfProfiles(bots, all_profiles_xls, batch_xls):
             this_batch_of_rows.append(df[df['username'].str.strip() == bot.getEmail()])
 
         # Concatenate filtered rows into a new DataFrame
-        new_df = pd.concat(this_batch_of_rows)
+        new_df = lazy.pd.concat(this_batch_of_rows)
 
         # Save the new DataFrame to a CSV file
         # new_df.to_csv(batch_xls, index=False)
@@ -1725,10 +1724,10 @@ def combineProfilesXlsx(xlsProfilesToBeLoaded):
         if filename.endswith('.xlsx'):
             file_path = os.path.join(ads_profile_dir, filename)
             # Read the excel file and append it to the list
-            dfs.append(pd.read_excel(file_path))
+            dfs.append(lazy.pd.read_excel(file_path))
 
     # Concatenate all dataframes
-    combined_df = pd.concat(dfs, ignore_index=True)
+    combined_df = lazy.pd.concat(dfs, ignore_index=True)
 
     this_batch = os.path.join(ads_profile_dir, 'this_batch.xlsx')
     # Write the combined dataframe to a new excel file
@@ -1819,7 +1818,7 @@ def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists, thisHost):
         else:
             log3("WARNING: user not found in ADS profile txt..."+one_un+"  "+un, "genProfileXlsx", thisHost)
 
-    df = pd.DataFrame(new_pfJsons)
+    df = lazy.pd.DataFrame(new_pfJsons)
     log3("genProfileXlsx writing to xlsx:"+fname, "genProfileXlsx", thisHost)
     # Write DataFrame to Excel file
     df.to_excel(fname, index=False)
@@ -1841,7 +1840,7 @@ def genDefaultProfileXlsx(pfJsons, fname):
         new_pfJsons.append(pfJson)
 
 
-    df = pd.DataFrame(new_pfJsons)
+    df = lazy.pd.DataFrame(new_pfJsons)
     log3(">>writing to xlsx:"+fname)
     # Write DataFrame to Excel file
     df.to_excel(fname, index=False)
@@ -1862,7 +1861,7 @@ def agggregateProfileTxts2Xlsx(profile_names, xlsx_name, site_lists, thisHost):
             site_list = DEFAULT_SITE_LIST
         removeUselessCookies(pfJson, site_list)
         pfJson["cookie"]=json.dumps(pfJson["cookie"])
-    df = pd.DataFrame(pfJsons)
+    df = lazy.pd.DataFrame(pfJsons)
     log3("xlsx writing to:"+xlsx_name)
     # Write DataFrame to Excel file
     df.to_excel(xlsx_name, index=False)

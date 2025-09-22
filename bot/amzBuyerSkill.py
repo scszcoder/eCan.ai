@@ -17,7 +17,7 @@ from bot.scraperAmz import genStepAmzScrapeBuyOrdersHtml, amz_buyer_scrape_produ
     amz_buyer_scrape_product_reviews
 import time
 import os
-from fuzzywuzzy import fuzz
+from utils.lazy_import import lazy
 
 SAME_ROW_THRESHOLD = 16
 
@@ -3749,7 +3749,7 @@ def match_title_against_paragraph(title, paragraph, tolerance=66):
             window_text = " ".join(window)
 
             # Fuzzy match window with title
-            ratio = fuzz.partial_ratio(title, window_text)
+            ratio = lazy.fuzz.partial_ratio(title, window_text)
             if ratio > best_ratio:
                 best_win = window
                 best_win_text = window_text
@@ -3766,7 +3766,7 @@ def match_title_against_paragraph(title, paragraph, tolerance=66):
             print("best matched fuzz ratio:", best_ratio, tolerance, best_win_text)
             print("lines:", combined_line2)
             max_incorrect_words = 3
-            incorrect_words = sum(1 for t, w in zip(title_tokens, best_win) if fuzz.ratio(t, w) < 80)  # Adjust threshold as needed
+            incorrect_words = sum(1 for t, w in zip(title_tokens, best_win) if lazy.fuzz.ratio(t, w) < 80)  # Adjust threshold as needed
             print("incorrect_words:", incorrect_words)
 
             if incorrect_words <= max_incorrect_words  and len(combined_tokens) > len(title_tokens)/2:
@@ -3774,14 +3774,14 @@ def match_title_against_paragraph(title, paragraph, tolerance=66):
                 matched = True
     else:
         window_text = " ".join(combined_tokens)
-        ratio = fuzz.partial_ratio(title, window_text)
+        ratio = lazy.fuzz.partial_ratio(title, window_text)
         if ratio >= tolerance and len(combined_tokens) > len(title_tokens)/5:
             print("successfully partial matched fuzz ratio:", ratio, tolerance, len(combined_tokens), (title_tokens), window_text, "||||", title)
             matched = True
         else:
             # Allow for partial matches with up to 3 incorrect words
             max_incorrect_words = 3
-            incorrect_words = sum(1 for t, w in zip(title_tokens[:len(combined_tokens)], combined_tokens) if fuzz.ratio(t, w) < 80)
+            incorrect_words = sum(1 for t, w in zip(title_tokens[:len(combined_tokens)], combined_tokens) if lazy.fuzz.ratio(t, w) < 80)
             if ratio > 40 and len(combined_tokens) > len(title_tokens)/5:
                 print("not matched partial fuzz ratio:", ratio, tolerance, incorrect_words, window_text)
                 print("lines:", combined_line2)
@@ -3819,7 +3819,7 @@ def match_title_against_paragraph2(title, paragraph, tolerance=66):
             for i in range(len(title_tokens) - len(pre_ellipsis_tokens), -1, -1):  # Start from the end
                 window = title_tokens[i:i + len(pre_ellipsis_tokens)]
                 window_text = ' '.join(window)
-                ratio = fuzz.ratio(pre_ellipsis_text, window_text)
+                ratio = lazy.fuzz.ratio(pre_ellipsis_text, window_text)
                 if ratio > max_ratio:
                     max_ratio = ratio
                     match_index = i
@@ -3831,7 +3831,7 @@ def match_title_against_paragraph2(title, paragraph, tolerance=66):
             curtailed_title = ' '.join(title_tokens[:match_index + len(pre_ellipsis_text.split())])
             paragraph_up_to_ellipsis = combined_line2[:ellipsis_index].strip()  # Up to '...'
             start_word_index = len(paragraph_up_to_ellipsis.split()) - len(curtailed_title.split())
-            matched_flag = fuzz.partial_ratio(paragraph_up_to_ellipsis, curtailed_title) >= tolerance
+            matched_flag = lazy.fuzz.partial_ratio(paragraph_up_to_ellipsis, curtailed_title) >= tolerance
             if matched_flag:
                 matched_words = combined_words[start_word_index:len(paragraph_up_to_ellipsis.split())]
                 left_most = 100000
@@ -3872,7 +3872,7 @@ def match_title_against_paragraph2(title, paragraph, tolerance=66):
                 window_text = ' '.join(window)
 
                 # Fuzzy match window with title
-                ratio = fuzz.ratio(title, window_text)
+                ratio = lazy.fuzz.ratio(title, window_text)
                 if ratio > max_ratio:
                     max_ratio = ratio
                     best_match = window_text

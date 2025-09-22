@@ -9,7 +9,7 @@ import asyncio
 import traceback
 import time
 
-import numpy as np
+from utils.lazy_import import lazy
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
 
@@ -162,7 +162,7 @@ def gen_img(img1, img2, top_left_margin=(150, 90), padding = 40):
     # also add padding size for all the images except the last one
     v_pad = top_left_margin[1]
     h_pad = top_left_margin[0]
-    final_image = np.zeros((all_height+(len(images)-1)*padding + 2*v_pad, max_width + 2*h_pad, 3), dtype=np.uint8)
+    final_image = lazy.np.zeros((all_height+(len(images)-1)*padding + 2*v_pad, max_width + 2*h_pad, 3), dtype=lazy.np.uint8)
     final_image.fill(255)
     current_y = v_pad   # keep track of where your current image was last placed in the y coordinate
     current_x = h_pad
@@ -250,7 +250,7 @@ def reformat_label_pdf(working_dir, pdffile, site, order_data, product_book, fon
 
         # Convert to image using OpenCV
         image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        pil_image = np.array(image)
+        pil_image = lazy.np.array(image)
 
         print("pdf to img done....", working_dir + pdffile)
 
@@ -273,9 +273,9 @@ def reformat_label_pdf(working_dir, pdffile, site, order_data, product_book, fon
         gray = cv2.cvtColor(pil_image, cv2.COLOR_BGR2GRAY)
         gray = cv2.bilateralFilter(gray, 11, 17, 17)
 
-        kernel = np.ones((5, 5), np.uint8)
+        kernel = lazy.np.ones((5, 5), lazy.np.uint8)
         erosion = cv2.erode(gray, kernel, iterations=2)
-        kernel = np.ones((4, 4), np.uint8)
+        kernel = lazy.np.ones((4, 4), lazy.np.uint8)
         dilation = cv2.dilate(erosion, kernel, iterations=2)
 
         edged = cv2.Canny(dilation, 30, 200)
@@ -416,7 +416,7 @@ def add_text_to_img(in_img, text, text_loc, font_full_path="", default_font_name
     draw.text(text_loc, text, font=font, fill="Blue")  # Adjust position and text color
 
     # Convert back to OpenCV format
-    image_with_text = np.array(pil_image)
+    image_with_text = lazy.np.array(pil_image)
 
     # Convert back to PDF
     return image_with_text

@@ -5,9 +5,7 @@ import re
 from datetime import datetime
 from ping3 import ping
 
-import pandas as pd
-from openpyxl import Workbook
-from openpyxl.utils.dataframe import dataframe_to_rows
+from utils.lazy_import import lazy
 
 from bot.basicSkill import genStepHeader, genStepStub, genStepWait, genStepCreateData, genStepCallExtern, genStepUseSkill, \
     genStepOpenApp, genStepLoop, genStepExtractInfo, genStepSearchAnchorInfo, genStepMouseClick, genStepCheckCondition, \
@@ -981,14 +979,15 @@ def createLabelOrderFile(seller, weight_unit, orders, book, ofname):
             "description": ""
         } for o in orders]
 
-    df = pd.DataFrame(allorders)
+    df = lazy.pd.DataFrame(allorders)
 
     # Save to .xls file
     # Create a new workbook and select the active worksheet
-    wb = Workbook()
+    wb = lazy.openpyxl.Workbook()
     ws = wb.active
 
     # Write data to worksheet
+    from openpyxl.utils.dataframe import dataframe_to_rows
     for r in dataframe_to_rows(df, index=False, header=True):
         ws.append(r)
 

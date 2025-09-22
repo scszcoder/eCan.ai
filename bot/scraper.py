@@ -4,7 +4,7 @@ import re
 from calendar import isleap
 from bs4 import BeautifulSoup
 
-import numpy as np
+from utils.lazy_import import lazy
 
 from bot.Logger import log3
 
@@ -160,7 +160,7 @@ def find_file_name_box(sfn):
     icon_width = template.shape[1]
     log3("icon size: "+str(icon_height)+" "+str(icon_width))
     result = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
-    loc = np.where(result >= 0.85)
+    loc = lazy.np.where(result >= 0.85)
     count = 0
     match = None
     # get the full star match count.
@@ -199,7 +199,7 @@ def get_last_names(html_file):
 
     atags = soup.find_all('a')
     pn_i = [i for i, t in enumerate(atags) if len(t.contents) == 1 and not t.contents[0].name]
-    pn = np.array(atags)[pn_i].tolist()
+    pn = lazy.np.array(atags)[pn_i].tolist()
     n = (o.contents[0] for o in pn)
 
     start = subfinder(n, ['Name', 'Phone'], 'Address')
@@ -216,7 +216,7 @@ def get_last_names(html_file):
 
     last_names_i = [i for i, ln in enumerate(n) if i > start_idx and i < end_idx ]
     log3(json.dumps(last_names_i))
-    last_names = np.array(n)[last_names_i].tolist()
+    last_names = lazy.np.array(n)[last_names_i].tolist()
     log3(json.dumps(last_names))
     log3(str(len(last_names)))
 
@@ -231,7 +231,7 @@ def get_first_name_pages(html_file):
 
     atags = soup.find_all('a')
     pn_i = [i for i, t in enumerate(atags) if len(t.contents) == 1 and not t.contents[0].name]
-    pn = np.array(atags)[pn_i].tolist()
+    pn = lazy.np.array(atags)[pn_i].tolist()
     n = (o.contents[0] for o in pn)
 
     end_name = subfinder(n, ['1'])
@@ -253,7 +253,7 @@ def get_first_names(html_file):
 
     atags = soup.find_all('a')
     pn_i = [i for i, t in enumerate(atags) if len(t.contents) == 1 and not t.contents[0].name]
-    pn = np.array(atags)[pn_i].tolist()
+    pn = lazy.np.array(atags)[pn_i].tolist()
     n = (o.contents[0] for o in pn)
 
     start = subfinder(n, ['Name', 'Phone'], 'Address')
@@ -270,7 +270,7 @@ def get_first_names(html_file):
 
     last_names_i = [i for i, ln in enumerate(n) if i > start_idx and i < end_idx ]
     log3(json.dumps(last_names_i))
-    full_names = np.array(n)[last_names_i].tolist()
+    full_names = lazy.np.array(n)[last_names_i].tolist()
     log3(json.dumps(full_names))
     log3(str(len(full_names)))
 
