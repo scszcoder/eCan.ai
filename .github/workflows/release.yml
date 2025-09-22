@@ -541,6 +541,12 @@ jobs:
       with:
         platform: macos
 
+    - name: Setup Xcode License
+      if: steps.should_build.outputs.should_build == 'true'
+      uses: ./.github/actions/setup-xcode-license
+      with:
+        platform: macos
+
     - name: Check Build Environment
       if: steps.should_build.outputs.should_build == 'true'
       uses: ./.github/actions/check-build-env

@@ -1,0 +1,50 @@
+name: 'Setup Xcode License'
+description: 'Accept Xcode license agreement to enable command line tools'
+inputs:
+  platform:
+    description: 'Platform (windows, macos, linux)'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Accept Xcode License Agreement (macOS only)
+      if: ${{ inputs.platform == 'macos' }}
+      shell: bash
+      run: |
+        echo "=== Accepting Xcode License Agreement ==="
+        
+        # Check if Xcode command line tools are installed
+        if ! command -v xcodebuild >/dev/null 2>&1; then
+          echo "Xcode command line tools not found, installing..."
+          xcode-select --install || true
+          # Wait a bit for installation to start
+          sleep 5
+        fi
+        
+        # Check current license status
+        echo "Checking current Xcode license status..."
+        if sudo xcodebuild -checkFirstLaunchStatus 2>/dev/null; then
+          echo "Xcode license already accepted"
+        else
+          echo "Accepting Xcode license agreement..."
+          # Accept the license agreement non-interactively
+          sudo xcodebuild -license accept
+          echo "Xcode license accepted successfully"
+        fi
+        
+        # Verify lipo command is available
+        if command -v lipo >/dev/null 2>&1; then
+          echo "lipo command is available"
+          lipo -info /usr/bin/lipo 2>/dev/null || echo "lipo info check completed"
+        else
+          echo "WARNING: lipo command not found"
+        fi
+        
+        echo "Xcode license setup completed"
+
+    - name: Skip Xcode License (non-macOS)
+      if: ${{ inputs.platform != 'macos' }}
+      shell: bash
+      run: |
+        echo "Skipping Xcode license setup for platform: ${{ inputs.platform }}"
