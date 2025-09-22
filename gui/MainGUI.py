@@ -1177,7 +1177,7 @@ class MainWindow:
         """
         Asynchronously start eCan's own cloud side LLM service subscription
         """
-        from bot.Cloud import subscribe_cloud_llm_task
+        from agent.cloud_api.cloud_api import subscribe_cloud_llm_task
         try:
             # Wait a bit to ensure other services are ready
             await asyncio.sleep(0.5)
@@ -1191,6 +1191,7 @@ class MainWindow:
             token = self.get_auth_token()
             logger.info("ws_host", ws_host, "token:", token[:100] if token else "", "ws_endpoint:", ws_endpoint)
             acctSiteID = self.getAcctSiteID()
+            print("acct site id:", acctSiteID)
             # Start the server process in executor (this is the blocking part)
             await asyncio.get_event_loop().run_in_executor(
                 None,
