@@ -18,6 +18,7 @@ from langchain_core.messages import (
 	HumanMessage,
 	SystemMessage,
 )
+from queue import Queue
 from langchain.embeddings import init_embeddings
 from langgraph.store.memory import InMemoryStore
 
@@ -163,6 +164,7 @@ class EC_Agent(Agent):
 		)
 		logger.info("host:", host, "a2a server port:", a2a_server_port)
 		self.a2a_server.attach_agent(self)
+		self.a2a_msg_queue = Queue()
 
 		self.runner = TaskRunner(self)
 		self.human_chatter = HumanChatter(self)
@@ -209,6 +211,20 @@ class EC_Agent(Agent):
 		# Replace existing tasks with same ID or append if new
 		task_ids = {t.id for t in tasks}
 		self.tasks = [t for t in self.tasks if t.id not in task_ids] + tasks
+
+	def get_work_msg_queue(self):
+		chat_task = next((task for task in self.tasks if task and "work" in task.name.lower()), None)
+		if chat_task:
+			return chat_task.queue
+		else:
+			return None
+
+	def get_chat_msg_queue(self):
+		chat_task = next((task for task in self.tasks if task and "chat" in task.name.lower()), None)
+		if chat_task:
+			return chat_task.queue
+		else:
+			return None
 
 	def add_skills(self, skills):
 		self.skill_set += skills  # or: self.skill_set.extend(skills)

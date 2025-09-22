@@ -10,7 +10,7 @@ def create_skill_dev_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     dev_skill = next((sk for sk in agent_skills if sk.name == "test skill under development"), None)
-    run_task = next((task for task in agent_tasks if task.name == "run task for skill under development"), None)
+    run_task = next((task for task in agent_tasks if task.name == "dev:run task for skill under development"), None)
 
     if not run_task:
         task_schedule = TaskSchedule(
@@ -29,7 +29,7 @@ def create_skill_dev_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         run_task = ManagedTask(
             id=task_id,
-            name="run task for skill under development",
+            name="dev:run task for skill under development",
             description="a holder for the skill under development.",
             status=status,  # or whatever default status you need
             sessionId=session_id,
