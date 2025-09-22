@@ -7,7 +7,8 @@ import sys
 import os
 from PySide6.QtWidgets import (QMessageBox, QDialog, QLabel, QCheckBox,
                                QPushButton, QHBoxLayout, QVBoxLayout,
-                               QComboBox, QTextEdit, QApplication)
+                               QComboBox, QTextEdit, QApplication, QGroupBox,
+                               QRadioButton, QLineEdit)
 from PySide6.QtGui import QAction
 from PySide6.QtCore import Qt
 from utils.logger_helper import logger_helper as logger
@@ -451,7 +452,8 @@ class MenuManager:
         """Show update dialog"""
         try:
             # Import and initialize OTA components on demand
-            from ota import OTAUpdater, UpdateDialog
+            from ota.core.updater import OTAUpdater
+            from ota.gui.dialog import UpdateDialog
             
             # Create OTA updater instance (only when needed)
             ota_updater = OTAUpdater()
@@ -461,7 +463,7 @@ class MenuManager:
             dialog.exec()
         except Exception as e:
             logger.error(f"Failed to show update dialog: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to open update dialog")
+            QMessageBox.warning(self.main_window, "Error", f"Failed to open update dialog: {str(e)}")
     
     def show_settings(self):
         """Show settings dialog"""

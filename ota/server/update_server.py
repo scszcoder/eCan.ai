@@ -4,10 +4,22 @@
 用于测试和开发
 """
 
+import logging
 from flask import Flask, jsonify, request, send_file
 from pathlib import Path
 
+# 配置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
+
+# 服务器配置
+SERVER_CONFIG = {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "debug": False
+}
 
 # 更新信息配置
 UPDATE_CONFIG = {
@@ -19,19 +31,19 @@ UPDATE_CONFIG = {
             "description": "Added OTA update functionality and bug fixes",
             "release_date": "2024-01-01",
             "download_urls": {
-                "windows": "http://127.0.0.1:8080/downloads/ECBot-1.1.0.exe",
-                "darwin": "http://127.0.0.1:8080/downloads/ECBot-1.1.0.dmg",
-                "linux": "http://127.0.0.1:8080/downloads/ECBot-1.1.0.tar.gz"
+                "windows": f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-1.1.0-windows-amd64-Setup.exe",
+                "darwin": f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-1.1.0-darwin-amd64.dmg",
+                "linux": f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-1.1.0-linux-amd64.tar.gz"
             },
             "file_sizes": {
-                "windows": 41943040,
-                "darwin": 52428800,
-                "linux": 35651584
+                "windows": 0,  # Will be calculated dynamically
+                "darwin": 0,
+                "linux": 0
             },
             "signatures": {
-                "windows": "DEF456...",
-                "darwin": "ABC123...",
-                "linux": "GHI789..."
+                "windows": "SHA256:...",
+                "darwin": "SHA256:...",
+                "linux": "SHA256:..."
             }
         }
     }
@@ -48,7 +60,7 @@ def check_update():
         platform = request.args.get('platform', 'windows')
         arch = request.args.get('arch', 'x64')
         
-        print(f"Update check: {app_name} v{current_version} on {platform}-{arch}")
+        logger.info(f"Update check: {app_name} v{current_version} on {platform}-{arch}")
         
         # 检查是否有更新
         latest_version = UPDATE_CONFIG['latest_version']
@@ -122,37 +134,90 @@ def appcast():
 
 @app.route('/downloads/<filename>', methods=['GET'])
 def download_file(filename):
-    """模拟文件下载端点"""
+    """提供真实的安装包下载"""
     try:
-        # 为了测试，创建一个模拟文件
-        import tempfile
-        import os
+        # 获取项目根目录
+        project_root = Path(__file__).parent.parent.parent
+        dist_dir = project_root / "dist"
         
-        # 创建临时文件模拟下载
+        # 查找匹配的安装包文件
+        actual_file = None
+        
+        # 定义文件映射规则
+        file_mapping = {
+            "eCan-1.1.0-windows-amd64-Setup.exe": [
+                "eCan-1.0.0-windows-amd64-Setup.exe",
+                "eCan-1.0.0-windows-amd64.exe"
+            ],
+            "eCan-1.1.0-darwin-amd64.dmg": [
+                "eCan-1.0.0-darwin-amd64.dmg"
+            ],
+            "eCan-1.1.0-linux-amd64.tar.gz": [
+                "eCan-1.0.0-linux-amd64.tar.gz"
+            ]
+        }
+        
+        # 查找实际文件
+        if filename in file_mapping:
+            for candidate in file_mapping[filename]:
+                candidate_path = dist_dir / candidate
+                if candidate_path.exists():
+                    actual_file = candidate_path
+                    break
+        
+        # 直接查找文件名
+        if not actual_file:
+            direct_path = dist_dir / filename
+            if direct_path.exists():
+                actual_file = direct_path
+        
+        # 如果找到真实文件，提供下载
+        if actual_file and actual_file.exists():
+            file_size = actual_file.stat().st_size
+            logger.info(f"Serving real file: {actual_file} ({file_size} bytes)")
+            
+            # 更新配置中的文件大小
+            if filename.endswith('.exe'):
+                UPDATE_CONFIG['updates']['1.1.0']['file_sizes']['windows'] = file_size
+            elif filename.endswith('.dmg'):
+                UPDATE_CONFIG['updates']['1.1.0']['file_sizes']['darwin'] = file_size
+            elif filename.endswith('.tar.gz'):
+                UPDATE_CONFIG['updates']['1.1.0']['file_sizes']['linux'] = file_size
+            
+            return send_file(str(actual_file), as_attachment=True, download_name=filename)
+        
+        # 如果没有找到真实文件，创建模拟文件
+        import tempfile
         temp_dir = Path(tempfile.gettempdir()) / "ecbot_ota_test"
         temp_dir.mkdir(exist_ok=True)
         
         file_path = temp_dir / filename
         
-        # 如果文件不存在，创建一个模拟文件
         if not file_path.exists():
             with open(file_path, 'wb') as f:
-                # 写入一些模拟数据
                 if filename.endswith('.exe'):
-                    # Windows executable模拟
-                    f.write(b'MZ' + b'\x00' * (41943040 - 2))  # 模拟exe文件
+                    # 创建一个小的模拟exe文件
+                    f.write(b'MZ' + b'\x00' * (1024 * 1024 - 2))  # 1MB模拟文件
                 elif filename.endswith('.dmg'):
-                    # macOS DMG模拟
-                    f.write(b'\x00' * 52428800)  # 模拟dmg文件
+                    f.write(b'\x00' * (2 * 1024 * 1024))  # 2MB模拟文件
                 else:
-                    # 其他文件
                     f.write(b'ECBot Update Package\n' * 1000)
         
-        print(f"Serving download: {filename} ({file_path.stat().st_size} bytes)")
+        file_size = file_path.stat().st_size
+        logger.info(f"Serving simulated file: {filename} ({file_size} bytes)")
+        
+        # 更新配置中的文件大小
+        if filename.endswith('.exe'):
+            UPDATE_CONFIG['updates']['1.1.0']['file_sizes']['windows'] = file_size
+        elif filename.endswith('.dmg'):
+            UPDATE_CONFIG['updates']['1.1.0']['file_sizes']['darwin'] = file_size
+        elif filename.endswith('.tar.gz'):
+            UPDATE_CONFIG['updates']['1.1.0']['file_sizes']['linux'] = file_size
+        
         return send_file(str(file_path), as_attachment=True, download_name=filename)
         
     except Exception as e:
-        print(f"Download error: {e}")
+        logger.error(f"Download error: {e}")
         return jsonify({"error": f"Download failed: {str(e)}"}), 500
 
 @app.route('/health', methods=['GET'])
@@ -177,10 +242,10 @@ def check_dependencies():
     """检查依赖"""
     try:
         import flask
-        print("✓ Flask已安装")
+        logger.info("✓ Flask已安装")
         return True
     except ImportError:
-        print("✗ Flask未安装，请运行: pip install flask")
+        logger.error("✗ Flask未安装，请运行: pip install flask")
         return False
 
 def main():
@@ -191,16 +256,16 @@ def main():
     
     # 检查依赖
     if not check_dependencies():
-        print("依赖检查失败，无法启动服务器")
+        logger.error("依赖检查失败，无法启动服务器")
         return
     
-    print("Starting ECBot Update Server...")
-    print("Available endpoints:")
+    logger.info("Starting ECBot Update Server...")
+    logger.info("Available endpoints:")
     for rule in app.url_map.iter_rules():
-        print(f"  - {rule.methods} {rule.rule}")
+        logger.info(f"  - {rule.methods} {rule.rule}")
     
     print("\n服务器信息:")
-    print("  - 地址: http://127.0.0.1:8080")
+    print(f"  - 地址: http://127.0.0.1:{SERVER_CONFIG['port']}")
     print("  - 端点:")
     print("    * GET /api/check-update - 检查更新")
     print("    * GET /appcast.xml - Sparkle appcast文件") 
@@ -212,9 +277,13 @@ def main():
     print("-" * 50)
     
     try:
-        app.run(host="0.0.0.0", port=8080, debug=True)
+        app.run(
+            host=SERVER_CONFIG["host"], 
+            port=SERVER_CONFIG["port"], 
+            debug=SERVER_CONFIG["debug"]
+        )
     except KeyboardInterrupt:
-        print("\n服务器已停止")
+        logger.info("服务器已停止")
 
 if __name__ == "__main__":
     main()

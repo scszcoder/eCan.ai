@@ -15,7 +15,7 @@ from typing import Optional, Dict, Any
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QProgressBar, QTextEdit, QMessageBox, QGroupBox, QFrame,
-    QGridLayout, QCheckBox, QSpacerItem, QSizePolicy
+    QGridLayout, QCheckBox, QSpacerItem, QSizePolicy, QApplication
 )
 from PySide6.QtCore import Qt, QTimer, Signal, QThread
 from PySide6.QtGui import QFont
@@ -515,26 +515,61 @@ class UpdateDialog(QDialog):
         
         # 开始安装
         self.install_button.setEnabled(False)
-        self.status_label.setText("正在安装更新...")
+        self.status_label.setText("正在准备安装...")
         
         try:
-            # 这里可以根据安装选项进行相应处理
+            # 导入安装管理器
+            from ota.core.installer import installation_manager
+            from ota.core.package_manager import package_manager
+            
+            # 获取下载的包路径
+            if not package_manager.current_package or not package_manager.current_package.download_path:
+                self.status_label.setText("未找到下载的安装包")
+                QMessageBox.warning(self, "安装失败", "未找到下载的安装包，请重新下载。")
+                return
+            
+            package_path = package_manager.current_package.download_path
+            
+            # 准备安装选项
+            install_opts = {
+                'create_backup': install_options['create_backup'],
+                'silent': True
+            }
+            
             if install_options['create_backup']:
                 self.status_label.setText("正在创建备份...")
-                # TODO: 实现备份逻辑
+                QApplication.processEvents()  # 更新UI
             
-            success = self.ota_updater.install_update()
+            self.status_label.setText("正在安装更新...")
+            QApplication.processEvents()
+            
+            # 执行安装
+            success = installation_manager.install_package(package_path, install_opts)
             
             if success:
                 self.status_label.setText("安装成功！")
                 
                 if install_options['auto_restart']:
-                    QMessageBox.information(
+                    reply = QMessageBox.question(
                         self, 
                         "安装完成", 
-                        "更新安装成功！\n应用程序将自动重启。"
+                        "更新安装成功！\n是否立即重启应用程序？",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.Yes
                     )
-                    # TODO: 实现自动重启逻辑
+                    
+                    if reply == QMessageBox.Yes:
+                        self.status_label.setText("正在重启应用程序...")
+                        QApplication.processEvents()
+                        
+                        # 延迟重启，给用户时间看到消息
+                        QTimer.singleShot(2000, lambda: installation_manager.restart_application(3))
+                    else:
+                        QMessageBox.information(
+                            self, 
+                            "安装完成", 
+                            "更新安装成功！\n请手动重启应用程序以使用新版本。"
+                        )
                 else:
                     QMessageBox.information(
                         self, 
