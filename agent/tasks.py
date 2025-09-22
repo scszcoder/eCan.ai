@@ -10,7 +10,7 @@ import json
 import os
 from fastapi.responses import JSONResponse
 import time
-import queue
+from queue import Queue, Empty
 import threading
 from langgraph.types import Command
 
@@ -96,6 +96,7 @@ class ManagedTask(Task):
     cancellation_event: threading.Event = Field(default_factory=threading.Event)
     schedule: Optional[TaskSchedule] = None
     checkpoint_nodes: Optional[List[str]] = None
+    queue: Optional[Queue] = Queue()
     priority: Optional[Priority_Types] = None
     last_run_datetime: Optional[datetime] = None
     already_run_flag: bool = False
@@ -603,25 +604,57 @@ class TaskRunner(Generic[Context]):
         self.running_tasks = []
         self.save_dir = os.path.join(agent.mainwin.my_ecb_data_homepath, "task_saves")
         os.makedirs(self.save_dir, exist_ok=True)
-        # self.a2a_msg_queue = asyncio.Queue()
-        # self.chat_msg_queue = asyncio.Queue()
-        self.a2a_msg_queue = queue.Queue()
-        self.chat_msg_queue = queue.Queue()
-        self.dev_msg_queue = queue.Queue()
+
         self._stop_event = asyncio.Event()
         TaskRunnerRegistry.register(self)
+        work_queue = agent.get_work_msg_queue()
+        chat_queue = agent.get_chat_msg_queue()
+        # this is pretty much an event handler look up table
+        self.event_queue_map = {"work": work_queue, "a2a": chat_queue, "human_chat": chat_queue}
+
+    def update_event_handler(self, event_type="", event_queue=None):
+        if not self.event_queue_map.get("human_chat", None):
+            chat_queue = self.agent.get_chat_msg_queue()
+            if chat_queue:
+                self.event_queue_map["a2a"] = chat_queue
+
+        if not self.event_queue_map.get("work", None):
+            work_queue = self.agent.get_work_msg_queue()
+
+        if event_type:
+            if event_queue:
+                self.event_queue_map[event_type] = event_queue
+
+
 
     def stop(self):
-        """Signal all while-loops to exit ASAP and drain queues if needed."""
+        """Signal all loops to exit and notify all running tasks' queues to shut down."""
         try:
+            # Signal internal stop event
             self._stop_event.set()
-            # Optionally push sentinels to wake loops polling queues quickly
+
+            # Notify each ManagedTask's queue if the task is running
             try:
-                self.a2a_msg_queue.put_nowait({"__shutdown__": True})
-            except Exception:
-                pass
-            try:
-                self.chat_msg_queue.put_nowait({"__shutdown__": True})
+                for t in getattr(self.agent, "tasks", []) or []:
+                    try:
+                        if not t:
+                            continue
+                        # Check if task status indicates it is running
+                        st = getattr(getattr(t, "status", None), "state", None)
+                        if st in (TaskState.SUBMITTED, TaskState.WORKING):
+                            q = getattr(t, "queue", None)
+                            if q is not None:
+                                try:
+                                    q.put_nowait({"__shutdown__": True})
+                                except Exception:
+                                    # Fallback to blocking put in case of bounded queues
+                                    try:
+                                        q.put({"__shutdown__": True})
+                                    except Exception:
+                                        pass
+                    except Exception:
+                        # Continue best-effort shutdown across tasks
+                        pass
             except Exception:
                 pass
         except Exception:
@@ -903,46 +936,35 @@ class TaskRunner(Generic[Context]):
             return {"human_text": ""}
 
 
-    async def async_task_wait_in_line(self, request):
+    async def async_task_wait_in_line(self, event_type, request):
         try:
             print("task waiting in line.....")
-            await self.a2a_msg_queue.put(request)
-            # self.a2a_msg_queue.put_nowait(request)
-            print("task now in line....")
+            event_queue = self.event_queue_map.get(event_type, None)
+            if event_queue:
+                await event_queue.put(request)
+                # self.a2a_msg_queue.put_nowait(request)
+                print("task now in line....")
+            else:
+                logger.error("event queue NOT FOUND for event type: " + event_type)
         except Exception as e:
             ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
             print(f"{ex_stat}")
 
-    def sync_task_wait_in_line(self, request):
+    def sync_task_wait_in_line(self, event_type, request):
         try:
             logger.debug("task waiting in line.....")
             # await self.a2a_msg_queue.put(request)
-            self.a2a_msg_queue.put_nowait(request)
-
-            logger.debug("task now in line....")
+            event_queue = self.event_queue_map.get(event_type, None)
+            if event_queue:
+                event_queue.put_nowait(request)
+                logger.debug("task now in line....")
+            else:
+                logger.error("event queue NOT FOUND for event type: " + event_type)
         except Exception as e:
             ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
             logger.error(f"{ex_stat}")
 
-    async def async_chat_wait_in_line(self, request):
-        try:
-            logger.debug("chat message waiting in line.....")
-            await self.chat_msg_queue.put(request)
-            # self.chat_msg_queue.put_nowait(request)
-            logger.debug("chat now in line....")
-        except Exception as e:
-            ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
-            logger.error(f"{ex_stat}")
 
-    def sync_chat_wait_in_line(self, request):
-        try:
-            logger.debug("chat message waiting in line.....")
-            # await self.chat_msg_queue.put(request)
-            self.chat_msg_queue.put_nowait(request)
-            logger.debug("chat now in line....")
-        except Exception as e:
-            ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
-            logger.error(f"{ex_stat}")
 
     # this is for chat task
     # async def launch_scheduled_run(self, task=None):
@@ -980,105 +1002,98 @@ class TaskRunner(Generic[Context]):
 
 
     # async def launch_reacted_run(self, task=None):
-    def launch_reacted_run(self, task=None):
+    def launch_reacted_run(self, task2run=None):
         chatNotDone = True
         justStarted = True
         while not self._stop_event.is_set():
             try:
                 logger.trace("checking a2a queue....", self.agent.card.name)
 
-                if not self.a2a_msg_queue.empty():
+                if task2run:
                     try:
-                        msg = self.a2a_msg_queue.get_nowait()
-                        logger.trace("A2A message...."+ str(msg))
-                        # a message could be handled by different task, so first find
-                        # a task that that's suitable to handle this message,
-                        matched_tasks = self.find_suitable_tasks(msg.params)
-                        logger.trace("matched task...." + len(matched_tasks))
-                        # then run this skill's runnable with the msg
-                        if matched_tasks:
-                            task2run = matched_tasks[0]
-                            if task2run:
-                                if justStarted:
-                                    logger.debug("task2run skill name" + task2run.skill.name)
-                                    task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, None)
+                        if not task2run.queue.empty():
+                            msg = task2run.queue.get_nowait()
+                            logger.trace("A2A message...."+ str(msg))
+                            if justStarted:
+                                # a message could be handled by different task, so first find
+                                # a task that that's suitable to handle this message,
 
-                                    logger.trace("task2run init state" + str(task2run.metadata["state"]))
-                                    logger.trace("ready to run the right task" + task2run.name + str(msg))
-                                    # response = await task2run.astream_run()
-                                    response = task2run.stream_run()
+                                logger.debug("task2run skill name" + task2run.skill.name)
+                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, None)
 
-                                    logger.debug("reacted task run response:", response)
-                                    step = response.get('step') or {}
-                                    if isinstance(step, dict) and '__interrupt__' in step:
-                                        logger.trace("sending interrupt prompt1")
-                                        logger.trace("sending interrupt prompt2")
-                                        interrupt_obj = step["__interrupt__"][0]  # [0] because it's a tuple with one item
-                                        prompt = interrupt_obj.value["prompt_to_human"]
-                                        # now return this prompt to GUI to display
-                                        chatId = msg.params.metadata['chatId']
-                                        self.sendChatMessageToGUI(self.agent, chatId, prompt)
-                                        justStarted = False
-                                    else:
-                                        justStarted = True
+                                logger.trace("task2run init state" + str(task2run.metadata["state"]))
+                                logger.trace("ready to run the right task" + task2run.name + str(msg))
+                                # response = await task2run.astream_run()
+                                response = task2run.stream_run()
+
+                                logger.debug("reacted task run response:", response)
+                                step = response.get('step') or {}
+                                if isinstance(step, dict) and '__interrupt__' in step:
+                                    logger.trace("sending interrupt prompt1")
+                                    logger.trace("sending interrupt prompt2")
+                                    interrupt_obj = step["__interrupt__"][0]  # [0] because it's a tuple with one item
+                                    prompt = interrupt_obj.value["prompt_to_human"]
+                                    # now return this prompt to GUI to display
+                                    chatId = msg.params.metadata['chatId']
+                                    self.sendChatMessageToGUI(self.agent, chatId, prompt)
+                                    justStarted = False
                                 else:
-                                    logger.debug("task2run skill name" + task2run.skill.name)
-                                    task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, task2run.metadata["state"])
+                                    justStarted = True
+                            else:
+                                logger.debug("task2run skill name" + task2run.skill.name)
+                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, task2run.metadata["state"])
 
-                                    logger.trace("task2run init state" + str(task2run.metadata["state"]))
-                                    logger.trace("ready to run the right task" + task2run.name + str(msg))
-                                    # response = await task2run.astream_run()
-                                    response = task2run.stream_run()
-                                    logger.debug("NI, resume tick", response)
-                                    # Resume with the user's reply using Command(resume=...)
-                                    resume_payload, cp = self._build_resume_payload(task2run, msg)
-                                    if cp:
-                                        response = task2run.stream_run(Command(resume=resume_payload), checkpoint=cp, stream_mode="updates")
-                                    else:
-                                        response = task2run.stream_run(Command(resume=resume_payload), stream_mode="updates")
+                                logger.trace("task2run init state" + str(task2run.metadata["state"]))
+                                logger.trace("ready to run the right task" + task2run.name + str(msg))
+                                # response = await task2run.astream_run()
+                                response = task2run.stream_run()
+                                logger.debug("NI, resume tick", response)
+                                # Resume with the user's reply using Command(resume=...)
+                                resume_payload, cp = self._build_resume_payload(task2run, msg)
+                                if cp:
+                                    response = task2run.stream_run(Command(resume=resume_payload), checkpoint=cp, stream_mode="updates")
+                                else:
+                                    response = task2run.stream_run(Command(resume=resume_payload), stream_mode="updates")
 
-                                    logger.debug("NI reacted task resume response:", response)
+                                logger.debug("NI reacted task resume response:", response)
 
-                                    step = response.get('step') or {}
-                                    if isinstance(step, dict) and '__interrupt__' in step:
-                                        logger.trace("sending interrupt prompt2")
-                                        interrupt_obj = step["__interrupt__"][0]  # [0] because it's a tuple with one item
-                                        prompt = interrupt_obj.value["prompt_to_human"]
-                                        # now return this prompt to GUI to display
-                                        chatId = msg.params.metadata['chatId']
-                                        task_id = msg.params.metadata['msgId']
-                                        logger.debug("chatId in the message", chatId)
+                                step = response.get('step') or {}
+                                if isinstance(step, dict) and '__interrupt__' in step:
+                                    logger.trace("sending interrupt prompt2")
+                                    interrupt_obj = step["__interrupt__"][0]  # [0] because it's a tuple with one item
+                                    prompt = interrupt_obj.value["prompt_to_human"]
+                                    # now return this prompt to GUI to display
+                                    chatId = msg.params.metadata['chatId']
+                                    task_id = msg.params.metadata['msgId']
+                                    logger.debug("chatId in the message", chatId)
 
-                                        # hilData = sample_search_result0
-                                        # hilData = sample_parameters_0
-                                        # hilData = sample_metrics_0
-                                        # self.sendChatNotificationToGUI(self.agent, chatId, hilData)
-                                        # self.sendChatFormToGUI(self.agent, chatId, hilData)
-                                        # self.sendChatMessageToGUI(self.agent, chatId, hilData)
-                                        # self.agent.mainwin.top_gui.push_message_to_chat(chatId, hilData)
-                                        self.sendChatMessageToGUI(self.agent, chatId, prompt)
+                                    # hilData = sample_search_result0
+                                    # hilData = sample_parameters_0
+                                    # hilData = sample_metrics_0
+                                    # self.sendChatNotificationToGUI(self.agent, chatId, hilData)
+                                    # self.sendChatFormToGUI(self.agent, chatId, hilData)
+                                    # self.sendChatMessageToGUI(self.agent, chatId, hilData)
+                                    # self.agent.mainwin.top_gui.push_message_to_chat(chatId, hilData)
+                                    self.sendChatMessageToGUI(self.agent, chatId, prompt)
 
-                                        if interrupt_obj.value.get("qa_form_to_agent", None):
-                                            self.sendChatFormToGUI(self.agent, chatId, interrupt_obj.value.get["qa_form_to_human"])
-                                        elif interrupt_obj.value.get("notification_to_agent", None):
-                                            self.sendChatNotificationToGUI(self.agent, chatId, interrupt_obj.value.get["notification_to_human"])
+                                    if interrupt_obj.value.get("qa_form_to_agent", None):
+                                        self.sendChatFormToGUI(self.agent, chatId, interrupt_obj.value.get["qa_form_to_human"])
+                                    elif interrupt_obj.value.get("notification_to_agent", None):
+                                        self.sendChatNotificationToGUI(self.agent, chatId, interrupt_obj.value.get["notification_to_human"])
 
 
-                                        justStarted = False
-                                    else:
-                                        justStarted = True
+                                    justStarted = False
+                                else:
+                                    justStarted = True
 
-                                task_id = msg.params.id
-                                self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
-                        self.a2a_msg_queue.task_done()
+                            task_id = msg.params.id
+                            self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
+                            task2run.queue.task_done()
 
                         # process msg here and the msg could be start a task run.
                     except asyncio.QueueEmpty:
                         logger.info("Queue unexpectedly empty when trying to get message.")
                         pass
-                    except Exception as e:
-                        logger.error(f"Error processing Commander message: {e}")
-
 
             except Exception as e:
                 ex_stat = "ErrorLaunchReactedRun:" + traceback.format_exc() + " " + str(e)
@@ -1090,7 +1105,7 @@ class TaskRunner(Generic[Context]):
 
     # this is for chat task
     # async def launch_interacted_run(self, task=None):
-    def launch_interacted_run(self, task=None):
+    def launch_interacted_run(self, task2run=None):
         cached_human_responses = ["hi!", "rag prompt", "1 rag, 2 none, 3 no, 4 no", "red", "q"]
         cached_response_index = 0
         config = {"configurable": {"thread_id": str(uuid.uuid4())}}
@@ -1099,16 +1114,16 @@ class TaskRunner(Generic[Context]):
         while not self._stop_event.is_set():
             try:
                 logger.debug("checking chat queue...." + self.agent.card.name)
-                logger.trace("checking chat queue...." + self.agent.card.name)
                 thread_config = {"configurable": {"thread_id": uuid.uuid4()}}
-                if not self.chat_msg_queue.empty():
-                    try:
-                        msg = self.chat_msg_queue.get_nowait()
-                        logger.debug("chat queue message....", type(msg), msg)
-                        task2run = self.find_chatter_tasks()
-                        task2run_details = str(task2run.to_dict())
-                        logger.debug("matched chatter task.... %s", (task2run_details[:100] + '...') if len(task2run_details) > 100 else task2run_details)
-                        if task2run:
+                if task2run:
+                    if not task2run.queue.empty():
+                        try:
+                            msg = task2run.queue.get_nowait()
+                            logger.debug("chat queue message....", type(msg), msg)
+                            task2run = self.find_chatter_tasks()
+                            task2run_details = str(task2run.to_dict())
+                            logger.debug("matched chatter task.... %s", (task2run_details[:100] + '...') if len(task2run_details) > 100 else task2run_details)
+
                             if justStarted:
                                 logger.debug("chatter task2run skill name", task2run.skill.name)
                                 task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, msg, None)
@@ -1186,32 +1201,31 @@ class TaskRunner(Generic[Context]):
                                         logger.error("ERROR: lost track of task id....", msg)
                                 self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
 
-                        self.chat_msg_queue.task_done()
-                    except asyncio.QueueEmpty:
-                        logger.info("Queue unexpectedly empty when trying to get message.")
-                        pass
-                    except Exception as e:
-                        logger.error(f"Error launch interacted run: {e}" + traceback.format_exc())
-                else:
-                    logger.debug("no chat message")
-                    time.sleep(1)
+                            task2run.queue.task_done()
+                        except asyncio.QueueEmpty:
+                            logger.info("Queue unexpectedly empty when trying to get message.")
+                            pass
+
+                    else:
+                        logger.debug("no chat message")
+                        time.sleep(1)
             except Exception as e:
                 ex_stat = "ErrorLaunchInteractedRun:" + traceback.format_exc() + " " + str(e)
                 logger.error(f"{ex_stat}")
             time.sleep(1)
 
-    def launch_dev_run(self, init_state, task: ManagedTask = None):
+    def launch_dev_run(self, init_state, dev_task: ManagedTask = None):
         """
         Executes a controlled, interactive development run for a given task,
         supporting multiple breakpoints and human/API interrupts.
         """
         web_gui = AppContext.get_web_gui()
         ipc_api = web_gui.get_ipc_api()
-        if not task:
+        if not dev_task:
             logger.error("launch_dev_run called without a task.")
             return
 
-        logger.info(f"Launching interactive dev run for task: {task.name} with run_id: {task.run_id}")
+        logger.info(f"Launching interactive dev run for task: {dev_task.name} with run_id: {dev_task.run_id}")
 
         try:
             context = {
@@ -1231,7 +1245,7 @@ class TaskRunner(Generic[Context]):
             }
 
             # Start the stream with the correct config, and initial state
-            controller = task.skill.runnable.stream(init_state, context=context, config=config)
+            controller = dev_task.skill.runnable.stream(init_state, context=context, config=config)
             stream_iterator = iter(controller)
 
             # Keep track of active checkpoints (tag -> checkpoint)
@@ -1241,7 +1255,7 @@ class TaskRunner(Generic[Context]):
             current_node = "start"
             event = None
 
-            while not task.cancellation_event.is_set():
+            while not dev_task.cancellation_event.is_set():
                 try:
                     if run_status == "running":
                         # Try to advance the graph
@@ -1257,10 +1271,10 @@ class TaskRunner(Generic[Context]):
 
                         # Graph finished
                         if event is None:
-                            logger.info(f"Dev run for {task.name} has completed.")
-                            clean_state = self._get_serializable_state(task, config)
+                            logger.info(f"Dev run for {dev_task.name} has completed.")
+                            clean_state = self._get_serializable_state(dev_task, config)
                             ipc_api.update_run_stat(
-                                agent_task_id=task.run_id,
+                                agent_task_id=dev_task.run_id,
                                 current_node=None,
                                 status="completed",
                                 langgraph_state=clean_state
@@ -1281,19 +1295,19 @@ class TaskRunner(Generic[Context]):
 
                             logger.info(f"Execution paused at node/tag: {tag}")
                             ipc_api.update_run_stat(
-                                agent_task_id=task.run_id,
+                                agent_task_id=dev_task.run_id,
                                 current_node=current_node,
                                 status="paused",
-                                langgraph_state=self._get_serializable_state(task, config)
+                                langgraph_state=self._get_serializable_state(dev_task, config)
                             )
                             continue  # wait for GUI
 
                     # If paused, wait for GUI command
                     if run_status == "paused":
                         try:
-                            command = self.dev_msg_queue.get(timeout=0.3)
-                            logger.debug(f"Dev run ({task.run_id}) received queue command: {command}")
-                        except queue.Empty:
+                            command = dev_task.queue.get(timeout=0.3)
+                            logger.debug(f"Dev run ({dev_task.run_id}) received queue command: {command}")
+                        except Empty:
                             continue
 
                         # Command handling
@@ -1316,7 +1330,7 @@ class TaskRunner(Generic[Context]):
                                 logger.warning(f"No checkpoint found for tag {tag}")
                                 continue
                             logger.info(f"Resuming execution from tag {tag}")
-                            controller = task.skill.runnable.stream(payload, checkpoint=checkpoint, config=config,
+                            controller = dev_task.skill.runnable.stream(payload, checkpoint=checkpoint, config=config,
                                                                     context=context)
                             stream_iterator = iter(controller)
                             run_status = "running"
@@ -1330,7 +1344,7 @@ class TaskRunner(Generic[Context]):
                                 logger.warning(f"No checkpoint found for tag {tag}")
                                 continue
                             logger.info(f"Stepping execution from tag {tag}")
-                            controller = task.skill.runnable.stream(payload, checkpoint=checkpoint, config=config,
+                            controller = dev_task.skill.runnable.stream(payload, checkpoint=checkpoint, config=config,
                                                                     context=context)
                             stream_iterator = iter(controller)
                             run_status = "running"
@@ -1340,22 +1354,22 @@ class TaskRunner(Generic[Context]):
                             run_status = "paused"
 
                         elif cmd_type == "cancel":
-                            task.cancel()
+                            dev_task.cancel()
                             logger.info("Dev run cancelled by user")
                             break
 
                     # Update GUI with latest state
                     ipc_api.update_run_stat(
-                        agent_task_id=task.run_id,
+                        agent_task_id=dev_task.run_id,
                         current_node=current_node,
                         status=run_status,
-                        langgraph_state=self._get_serializable_state(task, config)
+                        langgraph_state=self._get_serializable_state(dev_task, config)
                     )
 
                 except StopIteration:
-                    logger.debug(f"Dev run for {task.name} has completed (StopIteration).")
+                    logger.debug(f"Dev run for {dev_task.name} has completed (StopIteration).")
                     ipc_api.update_run_stat(
-                        agent_task_id=task.run_id,
+                        agent_task_id=dev_task.run_id,
                         current_node=None,
                         status="completed",
                         langgraph_state={}
@@ -1363,9 +1377,9 @@ class TaskRunner(Generic[Context]):
                     break
                 except Exception as e:
                     err_msg = get_traceback(e, "ErrorLaunchDevRun")
-                    logger.error(f"Exception during launch_dev_run for task {task.name}: {err_msg}")
+                    logger.error(f"Exception during launch_dev_run for task {dev_task.name}: {err_msg}")
                     ipc_api.update_run_stat(
-                        agent_task_id=task.run_id,
+                        agent_task_id=dev_task.run_id,
                         current_node=current_node,
                         status="failed",
                         langgraph_state={"error": str(e)}
@@ -1376,11 +1390,11 @@ class TaskRunner(Generic[Context]):
 
         finally:
             # Flush any remaining commands from the queue
-            logger.info(f"Flushing dev message queue for task {task.run_id}.")
-            while not self.dev_msg_queue.empty():
+            logger.info(f"Flushing dev message queue for task {dev_task.run_id}.")
+            while not dev_task.queue.empty():
                 try:
-                    self.dev_msg_queue.get_nowait()
-                except queue.Empty:
+                    dev_task.queue.get_nowait()
+                except Empty:
                     break
             logger.info("Dev message queue flushed.")
 

@@ -168,11 +168,11 @@ class AgentTaskManager(InMemoryTaskManager):
             if msg_js.metadata["mtype"] == "send_task":
                 logger.info("task wait in line")
                 # agent_wait_response = await self._agent.runner.task_wait_in_line(request)
-                agent_wait_response = self._agent.runner.sync_task_wait_in_line(request)
+                agent_wait_response = self._agent.runner.sync_task_wait_in_line("a2a",request)
             elif msg_js.metadata["mtype"] == "send_chat":
                 logger.info("chat wait in line")
                 # agent_wait_response = await self._agent.runner.chat_wait_in_line(request)
-                agent_wait_response = self._agent.runner.sync_chat_wait_in_line(request)
+                agent_wait_response = self._agent.runner.sync_task_wait_in_line("human_chat", request)
             else:
                 agent_wait_response = {}
 

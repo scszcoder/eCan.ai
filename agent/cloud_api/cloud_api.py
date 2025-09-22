@@ -1905,8 +1905,9 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
             result_obj = None
             if isinstance(payload_data, dict):
                 result_obj = payload_data.get("onLongLLMTaskComplete")
-            print("Received subscription result:", json.dumps(result_obj, indent=2, ensure_ascii=False))
-
+                logger.debug(f"Received subscription result:{json.dumps(result_obj, indent=2, ensure_ascii=False)}")
+                # now we can send result_obj to resume the pending workflow.
+                # which msg queue should this be put into? (agent should maintain some kind of cloud_task_id to agent_task_queue LUT)
     def on_error(ws, error):
         print("WebSocket error:", error)
 

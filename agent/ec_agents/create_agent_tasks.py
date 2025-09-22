@@ -14,7 +14,7 @@ def create_my_twin_chat_task(mainwin):
     agent_skills = mainwin.agent_skills
     agent_tasks = mainwin.agent_tasks
     chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for my digital twin"), None)
-    chat_task = next((task for task in agent_tasks if task.name == "Human Chatter Task"), None)
+    chat_task = next((task for task in agent_tasks if task.name == "chat:Human Chatter Task"), None)
 
     if not chat_task:
         task_schedule = TaskSchedule(
@@ -33,7 +33,7 @@ def create_my_twin_chat_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         chat_task = ManagedTask(
             id=task_id,
-            name="Human Chatter Task",
+            name="chat:Human Chatter Task",
             description="Represent human to chat with others",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -52,7 +52,7 @@ def create_ec_helper_chat_task(mainwin):
     agent_skills = mainwin.agent_skills
     agent_tasks = mainwin.agent_tasks
     chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecbot rpa helper"), None)
-    chatter_task = next((task for task in agent_tasks if task.name == "ECBot RPA Helper Chatter Task"), None)
+    chatter_task = next((task for task in agent_tasks if task.name == "chat:ECBot RPA Helper Chatter Task"), None)
 
     if not chatter_task:
         task_schedule = TaskSchedule(
@@ -70,7 +70,7 @@ def create_ec_helper_chat_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         chatter_task = ManagedTask(
             id=task_id,
-            name="ECBot RPA Helper Chatter Task",
+            name="chat:ECBot RPA Helper Chatter Task",
             description="chat with human about anything related to helper work.",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -88,7 +88,7 @@ def create_ec_helper_work_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     worker_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
-    worker_task = next((task for task in agent_tasks if task.name == "ECBot RPA Helper Task"), None)
+    worker_task = next((task for task in agent_tasks if task.name == "work:ECBot RPA Helper Task"), None)
 
     if not worker_task:
         task_schedule = TaskSchedule(
@@ -127,7 +127,7 @@ def create_ec_customer_support_chat_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     chatter_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa customer support internal chatter"), None)
-    chatter_task = next((task for task in agent_tasks if task.name == "ECBot RPA Customer Support Internal Chatter Task"), None)
+    chatter_task = next((task for task in agent_tasks if task.name == "chat:ECBot RPA Customer Support Internal Chatter Task"), None)
 
     if not chatter_task:
         task_schedule = TaskSchedule(
@@ -145,7 +145,7 @@ def create_ec_customer_support_chat_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         chatter_task = ManagedTask(
             id=task_id,
-            name="ECBot RPA Customer Support Internal Chatter Task",
+            name="chat:ECBot RPA Customer Support Internal Chatter Task",
             description="chat with human user about anything related to customer support work.",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -163,7 +163,7 @@ def create_ec_customer_support_work_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     worker_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa customer support"), None)
-    worker_task = next((task for task in agent_tasks if task.name == "MECA After Sales Customer Support Work"), None)
+    worker_task = next((task for task in agent_tasks if task.name == "work:eCan.ai After Sales Customer Support Work"), None)
 
     if not worker_task:
         task_schedule = TaskSchedule(
@@ -182,8 +182,8 @@ def create_ec_customer_support_work_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         worker_task = ManagedTask(
             id=task_id,
-            name="MECA After Sales Customer Support Work",
-            description="MECA After Sales Support Work like shipping prep, customer Q&A, handle return, refund, resend, etc.",
+            name="work:eCan.ai After Sales Customer Support Work",
+            description="eCan.ai After Sales Support Work like shipping prep, customer Q&A, handle return, refund, resend, etc.",
             status=status,  # or whatever default status you need
             sessionId=session_id,
             skill=worker_skill,
@@ -202,7 +202,7 @@ def create_ec_marketing_chat_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     chatter_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa marketing chatter"), None)
-    chatter_task = next((task for task in agent_tasks if task.name == "MECA Marketing Chatter Task"), None)
+    chatter_task = next((task for task in agent_tasks if task.name == "chat:eCan.ai Marketing Chatter Task"), None)
 
     if not chatter_task:
         task_schedule = TaskSchedule(
@@ -221,7 +221,7 @@ def create_ec_marketing_chat_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         chatter_task = ManagedTask(
             id=task_id,
-            name="MECA Marketing Chatter Task",
+            name="chat:eCan.ai Marketing Chatter Task",
             description="chat with human user about anything related to e-commerce marketing work.",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -240,7 +240,7 @@ def create_ec_marketing_work_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     worker_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa marketing"), None)
-    worker_task = next((task for task in agent_tasks if task.name == "E-Commerce Marketing Work"), None)
+    worker_task = next((task for task in agent_tasks if task.name == "work:E-Commerce Marketing Work"), None)
 
     if not worker_task:
         task_schedule = TaskSchedule(
@@ -259,7 +259,7 @@ def create_ec_marketing_work_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         worker_task = ManagedTask(
             id=task_id,
-            name="E-Commerce Marketing Work",
+            name="work:E-Commerce Marketing Work",
             description="Help fix errors/failures during e-commerce RPA run",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -277,7 +277,7 @@ def create_ec_procurement_chat_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecan.ai search parts and components web site"), None)
-    chatter_task = next((task for task in agent_tasks if task.name == "eCan.ai Procurement Chatter Task"), None)
+    chatter_task = next((task for task in agent_tasks if task.name == "chat:eCan.ai Procurement Chatter Task"), None)
     logger.debug("ec_procurement chatter skill name:", chatter_skill.name if chatter_skill else "None")
     logger.debug("ec_procurement chatter skill:", chatter_skill)
     if not chatter_task:
@@ -297,7 +297,7 @@ def create_ec_procurement_chat_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         chatter_task = ManagedTask(
             id=task_id,
-            name="eCan.ai Procurement Chatter Task",
+            name="chat:eCan.ai Procurement Chatter Task",
             description="chat with human user about anything related to e-commerce procurement work.",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -316,7 +316,7 @@ def create_ec_procurement_work_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     worker_skill = next((sk for sk in agent_skills if "search parts" in sk.name and "chatter" not in sk.name), None)
-    worker_task = next((task for task in agent_tasks if task.name == "E-Commerce Part Procurement Task"), None)
+    worker_task = next((task for task in agent_tasks if task.name == "work:E-Commerce Part Procurement Task"), None)
 
     if not worker_task:
         task_schedule = TaskSchedule(
@@ -335,7 +335,7 @@ def create_ec_procurement_work_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         worker_task = ManagedTask(
             id=task_id,
-            name="E-Commerce Part Procurement Task",
+            name="work:E-Commerce Part Procurement Task",
             description="Help sourcing products/parts for product development",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -353,7 +353,7 @@ def create_ec_rpa_operator_chat_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecbot rpa operator run RPA"), None)
-    chatter_task = next((task for task in agent_tasks if task.name == "ECBot RPA Operator Chatter Task"), None)
+    chatter_task = next((task for task in agent_tasks if task.name == "chat:ECBot RPA Operator Chatter Task"), None)
 
     if not chatter_task:
         task_schedule = TaskSchedule(
@@ -372,7 +372,7 @@ def create_ec_rpa_operator_chat_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         chatter_task = ManagedTask(
             id=task_id,
-            name="ECBot RPA Operator Chatter Task",
+            name="chat:ECBot RPA Operator Chatter Task",
             description="chat with human user about anything related to ECBOT RPA work.",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -390,7 +390,7 @@ def create_ec_rpa_operator_work_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     worker_skill = next((sk for sk in agent_skills if "ecbot rpa operator run RPA" in sk.name), None)
-    worker_task = next((task for task in agent_tasks if task.name == "ECBot RPA operates daily routine task"), None)
+    worker_task = next((task for task in agent_tasks if task.name == "work:ECBot RPA operates daily routine task"), None)
 
     if not worker_task:
         task_schedule = TaskSchedule(
@@ -409,7 +409,7 @@ def create_ec_rpa_operator_work_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         worker_task = ManagedTask(
             id=task_id,
-            name="ECBot RPA operates daily routine task",
+            name="work:ECBot RPA operates daily routine task",
             description="Help fix errors/failures during e-commerce RPA run",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -429,7 +429,7 @@ def create_ec_rpa_supervisor_chat_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecbot rpa supervisor task scheduling"), None)
-    chatter_task = next((task for task in agent_tasks if task.name == "ECBot RPA Operator Chatter Task"), None)
+    chatter_task = next((task for task in agent_tasks if task.name == "chat:eCan.ai RPA Operator Chatter Task"), None)
 
     if not chatter_task:
         task_schedule = TaskSchedule(
@@ -448,7 +448,7 @@ def create_ec_rpa_supervisor_chat_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         chatter_task = ManagedTask(
             id=task_id,
-            name="ECBot RPA Operator Chatter Task",
+            name="chat:eCan.ai RPA Operator Chatter Task",
             description="chat with human user about anything related to ECBOT RPA work.",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -466,7 +466,7 @@ def create_ec_rpa_supervisor_daily_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     schedule_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa supervisor task scheduling"), None)
-    daily_task = next((task for task in agent_tasks if task.name == "ECBot RPA Supervise Daily Routine Task"), None)
+    daily_task = next((task for task in agent_tasks if task.name == "work:eCan.ai RPA Supervise Daily Routine Task"), None)
 
     if not daily_task:
         task_schedule = TaskSchedule(
@@ -485,7 +485,7 @@ def create_ec_rpa_supervisor_daily_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         daily_task = ManagedTask(
             id=task_id,
-            name="ECBot RPA Supervise Daily Routine Task",
+            name="work:eCan.ai RPA Supervise Daily Routine Task",
             description="Do any routine like fetch todays work schedule, prepare operators team and dispatch work to the operators to do.",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -504,7 +504,7 @@ def create_ec_rpa_supervisor_on_request_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     serve_request_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa supervisor serve requests"), None)
-    on_request_task = next((task for task in agent_tasks if task.name == "ECBot RPA Supervisor Service Task"), None)
+    on_request_task = next((task for task in agent_tasks if task.name == "work:eCan.ai RPA Supervisor Service Task"), None)
 
     if not on_request_task:
         non_schedule = TaskSchedule(
@@ -522,7 +522,7 @@ def create_ec_rpa_supervisor_on_request_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         on_request_task = ManagedTask(
             id=task_id,
-            name="ECBot RPA Supervisor Service Task",
+            name="work:eCan.ai RPA Supervisor Service Task",
             description="Serve RPA operators in case they request human in loop or work reports",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -542,7 +542,7 @@ def create_ec_sales_chat_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     chatter_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa sales internal chatter"), None)
-    chatter_task = next((task for task in agent_tasks if task.name == "MECA Sales Chatter Task"), None)
+    chatter_task = next((task for task in agent_tasks if task.name == "chat:eCan.ai Sales Chatter Task"), None)
 
     if not chatter_task:
         task_schedule = TaskSchedule(
@@ -561,7 +561,7 @@ def create_ec_sales_chat_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         chatter_task = ManagedTask(
             id=task_id,
-            name="MECA Sales Chatter Task",
+            name="chat:eCan.ai Sales Chatter Task",
             description="chat with human user about anything related to e-commerce sales work.",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -579,7 +579,7 @@ def create_ec_sales_work_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     worker_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa sales"), None)
-    worker_task = next((task for task in agent_tasks if task.name == "ECBot Sales"), None)
+    worker_task = next((task for task in agent_tasks if task.name == "work:ECBot Sales"), None)
 
     if not worker_task:
         task_schedule = TaskSchedule(
@@ -598,7 +598,7 @@ def create_ec_sales_work_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         worker_task = ManagedTask(
             id=task_id,
-            name="ECBot Sales",
+            name="work:ECBot Sales",
             description="Help fix errors/failures during e-commerce RPA run",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -619,7 +619,7 @@ def create_ec_self_tester_chat_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecan.ai self test"), None)
-    chatter_task = next((task for task in agent_tasks if task.name == "eCan.ai Self Test Chatter Task"), None)
+    chatter_task = next((task for task in agent_tasks if task.name == "chat:eCan.ai Self Test Chatter Task"), None)
 
     if not chatter_task:
         task_schedule = TaskSchedule(
@@ -638,7 +638,7 @@ def create_ec_self_tester_chat_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         chatter_task = ManagedTask(
             id=task_id,
-            name="eCan.ai Self Test Chatter Task",
+            name="chat:eCan.ai Self Test Chatter Task",
             description="chat with human user about anything related to eCan.ai self test work.",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -656,7 +656,7 @@ def create_ec_self_tester_work_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     worker_skill = next((sk for sk in agent_skills if sk.name == "eCan.ai self test"), None)
-    worker_task = next((task for task in agent_tasks if task.name == "eCan.ai self test"), None)
+    worker_task = next((task for task in agent_tasks if task.name == "work:eCan.ai self test"), None)
 
     if not worker_task:
         task_schedule = TaskSchedule(
@@ -675,7 +675,7 @@ def create_ec_self_tester_work_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         worker_task = ManagedTask(
             id=task_id,
-            name="eCan.ai Self Test",
+            name="work:eCan.ai Self Test",
             description="eCan.ai app software self test",
             status=status,  # or whatever default status you need
             sessionId=session_id,

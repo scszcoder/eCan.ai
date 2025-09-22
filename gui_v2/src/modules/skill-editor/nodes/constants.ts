@@ -23,4 +23,5 @@ export enum WorkflowNodeType {
   Chat = 'chat_node',
   PendInput = 'pend_input_node',
   Event = 'event',
+  BrowserAutomation = 'browser-automation',
 }

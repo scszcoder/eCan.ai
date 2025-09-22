@@ -879,7 +879,9 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
         logger.debug(f"[search_parts_chatter_skill] about to query rerank search results: {type(state)}, {state}")
 
         i = 0
-        state["tool_input"] = prep_ranking_request(state)
+
+        rerank_req = {"agent_id": agent_id, "setup": state["tool_input"]}
+        state["tool_input"] = rerank_req
 
         async def run_tool_call():
             return await mcp_call_tool("api_ecan_ai_rerank_results", {"input": state["tool_input"]})

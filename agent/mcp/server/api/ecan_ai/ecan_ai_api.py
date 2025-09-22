@@ -138,9 +138,10 @@ def ecan_ai_api_rerank_results(mainwin, rank_query):
             img_endpoint = mainwin.getWanImageEndpoint()
 
         rank_request = {
+            "agent_id": rank_query["agent_id"],
             "acct_site_id": mainwin.getAcctSiteId(),
             "task_type": "rerank_search_results",
-            "task_data": rank_query
+            "task_data": rank_query["setup"]
         }
 
         response = send_start_long_llm_task_to_cloud(session, token, rank_request, img_endpoint)

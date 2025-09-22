@@ -1568,8 +1568,12 @@ def build_agent_mcp_tools_schemas():
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["fom_form", "rows"],
+                    "required": ["agent_id", "setup"],
                     "properties": {
+                        "agent_id": {
+                            "type": "string",
+                            "description": "calling agent id",
+                        },
                         "setup": {
                             "type": "object",
                             "description": "setup contains component preliminary info, parametric filter values, and result figure of merit schemes.",
