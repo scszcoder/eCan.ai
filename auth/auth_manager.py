@@ -381,12 +381,16 @@ class AuthManager:
         return diagnosis
 
     def _store_refresh_token(self, username: str, refresh_token: str) -> bool:
-        """Store refresh token using chunked keyring storage for large tokens."""
+        """Store refresh token using appropriate storage method based on platform and token size."""
         # First, validate the refresh token
         if not refresh_token or len(refresh_token.strip()) == 0:
             logger.error("Cannot store empty refresh token")
             return False
-            
+
+        import platform
+        is_macos = platform.system() == "Darwin"
+        is_windows = platform.system() == "Windows"
+
         try:
             # Check if token is small enough for direct storage with base64 encoding
             encoded_token = base64.b64encode(refresh_token.encode('utf-8')).decode('ascii')
@@ -398,16 +402,40 @@ class AuthManager:
                     return True
                 except Exception as e:
                     error_msg = str(e)
-                    logger.warning(f"Direct keyring storage failed: {error_msg}, trying chunked storage")
+                    logger.warning(f"Direct keyring storage failed: {error_msg}")
 
-                    # Provide specific guidance for macOS keychain errors
+                    # Handle platform-specific keychain access issues
                     if "(-25244" in error_msg or "Can't store password on keychain" in error_msg:
-                        logger.info("macOS Keychain access issue detected - will try alternative storage methods")
-            
-            # Use chunked storage for large tokens or if direct storage failed
-            return self._store_refresh_token_chunked(username, refresh_token)
+                        if is_macos:
+                            logger.info("macOS Keychain access issue detected - skipping chunked storage and using file fallback")
+                            # On macOS, keychain issues affect both direct and chunked storage
+                            # Skip chunked storage and go directly to file storage
+                            file_success = self._store_refresh_token_file(username, refresh_token)
+                            if file_success:
+                                logger.info("Refresh token successfully stored using file fallback")
+                            else:
+                                logger.error("File storage failed for refresh token")
+                            return file_success
+                        else:
+                            logger.info("Keychain access issue detected - will try chunked storage")
+
+            # Use chunked storage for large tokens or if direct storage failed (but not on macOS with keychain issues)
+            if is_windows or not is_macos:
+                # Only use chunked storage on Windows (where it's needed) or non-macOS systems
+                # On macOS, if we reach here and keychain access failed, we should skip to file storage
+                return self._store_refresh_token_chunked(username, refresh_token)
+            else:
+                # On macOS, if direct storage failed due to keychain issues, go straight to file storage
+                logger.info("On macOS with potential keychain issues - using file storage directly")
+                file_success = self._store_refresh_token_file(username, refresh_token)
+                if file_success:
+                    logger.info("Refresh token successfully stored using file fallback")
+                else:
+                    logger.error("File storage failed for refresh token")
+                return file_success
+
         except Exception as e:
-            logger.warning(f"Failed to store refresh token in chunked keyring: {e}")
+            logger.warning(f"Failed to store refresh token in keyring: {e}")
             logger.info("Falling back to file-based storage")
             file_success = self._store_refresh_token_file(username, refresh_token)
             if file_success:
@@ -550,7 +578,12 @@ class AuthManager:
         return "ecan_refresh_chunk_count"
     
     def _store_refresh_token_chunked(self, username: str, refresh_token: str) -> bool:
-        """Store refresh token in chunks to handle Windows Credential Manager length limitations."""
+        """Store refresh token in chunks to handle Windows Credential Manager length limitations.
+
+        Note: This method is primarily designed for Windows systems where Credential Manager
+        has length restrictions. On macOS, keychain access issues affect both direct and
+        chunked storage equally, so file storage should be used as fallback instead.
+        """
         try:
             # Validate inputs
             if not username or not refresh_token:

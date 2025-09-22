@@ -1,6 +1,6 @@
 import os
 
-import pyautogui
+from utils.lazy_import import lazy
 
 from Cloud import req_cloud_read_screen
 
@@ -25,10 +25,10 @@ class ScreenInfo():
 def readScreen(purpose, region, session, bucket="winrpa"):
     # screen capture and save it to a file
     # region=(0, 0, 300, 400)
-    im1 = pyautogui.screenshot(region)
+    im1 = lazy.pyautogui.screenshot(region)
     #im1.save(r"c:\path\to\my\screenshot.png")
     screen_file = ""
-    im = pyautogui.screenshot(screen_file, region)
+    im = lazy.pyautogui.screenshot(screen_file, region)
 
     # send the file to S3
     stat  = send_screen(screen_file, bucket)

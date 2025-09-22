@@ -1,21 +1,11 @@
 # hr skills
-import json
-import random
-from datetime import datetime
+
 
 from bot.Logger import log3
 from bot.basicSkill import DEFAULT_RUN_STATUS, symTab, STEP_GAP, genStepHeader, genStepStub, genStepCreateData, genStepUseSkill, genStepWait, \
     genStepCallExtern, genStepExtractInfo, genStepSearchWordLine, genStepSearchAnchorInfo, genStepCheckCondition, \
     genStepLoop, genStepECBScreenBotCandidates, genStepECBCreateBots, genStepExternalHook, genStepECBDeleteBots
-from bot.adsPowerSkill import genStepsADSPowerExitProfile
-import re
-from difflib import SequenceMatcher
 import traceback
-from bot.scraperAmz import genStepAmzScrapeBuyOrdersHtml, amz_buyer_scrape_product_list, amz_buyer_scrape_product_details, \
-    amz_buyer_scrape_product_reviews
-import time
-import os
-from fuzzywuzzy import fuzz
 
 
 

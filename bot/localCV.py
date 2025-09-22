@@ -8,7 +8,7 @@ import asyncio
 from textUtils import CLICKABLE, BLOCK, PARAGRAPH, LINE, WORD
 from concurrent.futures import ProcessPoolExecutor
 import json
-import numpy as np
+from utils.lazy_import import lazy
 from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
 
@@ -35,11 +35,11 @@ class PythonObjectEncoder(json.JSONEncoder):
 
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, np.integer):
+        if isinstance(obj, lazy.np.integer):
             return int(obj)
-        if isinstance(obj, np.floating):
+        if isinstance(obj, lazy.np.floating):
             return float(obj)
-        if isinstance(obj, np.ndarray):
+        if isinstance(obj, lazy.np.ndarray):
             return obj.tolist()
         return super(NumpyEncoder, self).default(obj)
 
@@ -99,7 +99,7 @@ def remove_duplicates(dicts, threshold=10):
 
 def img_has_match(result, thresh):
     found_match = False
-    (ys, xs) = np.where(result >= thresh)
+    (ys, xs) = lazy.np.where(result >= thresh)
 
     if len(xs) > 0 and len(ys) > 0:
         found_match = True
@@ -179,10 +179,10 @@ def match_template(aname, icon, targetImage, factor, logger):
     # loop over the scales of the image
     if factor.get(aname) == None:
         if factor.get('all') == None:
-            search_space = np.linspace(0.6, 1.5, 12)[::-1]
+            search_space = lazy.np.linspace(0.6, 1.5, 12)[::-1]
         elif len(factor.get('all')) == 1:
             if factor['all'][0] == 0.0:
-                search_space = np.linspace(0.6, 1.5, 12)[::-1]
+                search_space = lazy.np.linspace(0.6, 1.5, 12)[::-1]
             else:
                 search_space = factor['all']
         else:
@@ -279,7 +279,7 @@ def match_template(aname, icon, targetImage, factor, logger):
 
             (bestW, bestH) = matched_result[5]
 
-            (yCoords, xCoords) = np.where(matched_result[4] >= 0.85)
+            (yCoords, xCoords) = lazy.np.where(matched_result[4] >= 0.85)
             # print(len(xCoords))
             # print(len(yCoords))
             clone = cv2.cvtColor(matched_result[6], cv2.COLOR_GRAY2BGR)
@@ -558,7 +558,7 @@ def is_dark_mode(img, logger, threshold=0.75):
     #     raise ValueError("Invalid image path")
 
     # Compute the fraction of dark pixels. A pixel is considered 'dark' if its grayscale value is less than 128.
-    dark_fraction = np.sum(img < 128) / (img.shape[0] * img.shape[1])
+    dark_fraction = lazy.np.sum(img < 128) / (img.shape[0] * img.shape[1])
     logger.debug(f"dark_fraction: {dark_fraction}")
 
     return dark_fraction > threshold
@@ -577,16 +577,16 @@ def enhance(img):
     import cv2
     # print("img:", img)
 
-    im = img.astype(np.float32)
+    im = img.astype(lazy.np.float32)
     im = im / 255  # rescale
     im = 1 - im  # inversion. ink is the signal, white paper isn't
 
     # some "sensor noise" for demo, if you want to look at intermediate results
-    # im += np.random.normal(0.0, 0.02, size=im.shape)
+    # im += lazy.np.random.normal(0.0, 0.02, size=im.shape)
 
     # squares/rectangles
     # morph_kernel = cv.getStructuringElement(shape=cv.MORPH_RECT, ksize=(5,5))
-    morph_kernel = np.ones((5, 5))
+    morph_kernel = lazy.np.ones((5, 5))
 
     # opencv's ellipses are ugly as sin
     # alternative:
@@ -608,7 +608,7 @@ def enhance(img):
     # enhanced = im /
     # print("eroded:", eroded)
     # enhanced = im / eroded
-    enhanced = np.where(eroded > 0, im / eroded, im)
+    enhanced = lazy.np.where(eroded > 0, im / eroded, im)
 
     # copy unmodified background back in
     # (division magnified noise on background)
@@ -616,7 +616,7 @@ def enhance(img):
 
     # invert again for output
     output = 1 - enhanced
-    outimg = Image.fromarray((output * 255.0).astype(np.uint8))
+    outimg = Image.fromarray((output * 255.0).astype(lazy.np.uint8))
 
     return outimg
 
@@ -769,7 +769,7 @@ async def image2text_lines(img):
         logger.debug("extract in DARK mode......")
         img2 = enhance(gray)
         logger.debug("time stamp3AB0: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-        th2 = cv2.threshold(np.array(img2), 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
+        th2 = cv2.threshold(lazy.np.array(img2), 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
         logger.debug("time stamp3AB1: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
         # page_info2 = pytesseract.image_to_data(th2, output_type=Output.DICT, lang="chi_sim")
         page_info2 = pytesseract.image_to_data(th2, output_type=Output.DICT)

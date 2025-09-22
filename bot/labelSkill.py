@@ -4,9 +4,7 @@ import os
 import copy
 from datetime import timedelta, datetime
 
-import pandas as pd
-from openpyxl import Workbook
-from openpyxl.utils.dataframe import dataframe_to_rows
+from utils.lazy_import import lazy
 from PyPDF2 import PdfReader
 
 from bot.basicSkill import genStepHeader, genStepStub, genStepOpenApp, genStepCreateData, genStepCheckCondition, \
@@ -886,15 +884,15 @@ def createLabelOrderFile(seller, weight_unit, orders, ec_platform, book, ofname)
             "tracking": ""
         } for oi, o in enumerate(orders)]
 
-    df = pd.DataFrame(allorders)
+    df = lazy.pd.DataFrame(allorders)
 
     # Save to .xls file
     # Create a new workbook and select the active worksheet
-    wb = Workbook()
+    wb = lazy.openpyxl.Workbook()
     ws = wb.active
 
     # Write data to worksheet
-    for r in dataframe_to_rows(df, index=False, header=True):
+    for r in lazy.openpyxl.utils.dataframe.dataframe_to_rows(df, index=False, header=True):
         ws.append(r)
 
     # Iterate through rows in column 2 (the 'age' column)
