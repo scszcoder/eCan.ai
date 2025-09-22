@@ -22,4 +22,5 @@ export enum WorkflowNodeType {
   RAG = 'rag',
   Chat = 'chat_node',
   PendInput = 'pend_input_node',
+  Event = 'event',
 }

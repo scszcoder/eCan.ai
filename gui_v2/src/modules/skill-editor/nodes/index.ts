@@ -23,6 +23,7 @@ import { HttpApiNodeRegistry } from './http-api';
 import { RAGNodeRegistry } from './rag';
 import { ChatNodeRegistry } from './chat';
 import { PendInputNodeRegistry } from './pend-input';
+import { EventNodeRegistry } from './event';
 export { WorkflowNodeType } from './constants';
 
 export const nodeRegistries: FlowNodeRegistry[] = [
@@ -45,4 +46,5 @@ export const nodeRegistries: FlowNodeRegistry[] = [
   RAGNodeRegistry,
   ChatNodeRegistry,
   PendInputNodeRegistry,
+  EventNodeRegistry,
 ];
