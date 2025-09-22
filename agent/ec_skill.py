@@ -129,35 +129,6 @@ class EC_Skill(AgentSkill):
         }
 
 
-# async def test_post_to_messages():
-#     url = mcp_messages_url()  # server expects trailing slash
-
-#     # Example MCP message format — adjust to match your server expectation
-#     payload = {
-#         "stream_id": "stream-1234",
-#         "message": {
-#             "role": "user",
-#             "content": "Hello from test client"
-#         }
-#     }
-
-#     try:
-#         async with httpx.AsyncClient() as client:
-#             response = await client.post(url, json=payload)
-#             print("Status code:", response.status_code)
-#             print("Response body:", response.text)
-#     except Exception as e:
-#         print("Request failed:", str(e))
-
-
-# def test_msg():
-#     resp = requests.post(mcp_messages_url(), json={
-#         "type": "ping",
-#         "payload": "test message"
-#     })
-
-#     print("Status:", resp.status_code)
-#     print("Response body:", resp.text)
 
 class BaseState(MessagesState):
     messages: Annotated[List[BaseMessage], operator.add]
