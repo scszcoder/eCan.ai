@@ -1864,6 +1864,7 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
                     subscription OnComplete($acctSiteID: String!) {
                       onLongLLMTaskComplete(acctSiteID: $acctSiteID) {
                         id
+                        acctSiteID
                         taskID
                         status
                         results
