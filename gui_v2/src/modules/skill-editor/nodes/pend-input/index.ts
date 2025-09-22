@@ -16,6 +16,11 @@ export const PendInputNodeRegistry: FlowNodeRegistry = {
     description: 'Pause the flow until a message arrives from selected queues/events.',
   },
   meta: {
+    defaultPorts: [
+      { type: 'input', key: 'in_primary' },
+      { type: 'input', key: 'in_event' },
+      { type: 'output', key: 'out' },
+    ],
     size: { width: 380, height: 300 },
   },
   onAdd() {
