@@ -1,50 +1,52 @@
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
     <channel>
-        <title>ECBot Updates</title>
-        <description>Most recent updates to ECBot</description>
+        <title>eCan Updates</title>
+        <description>Most recent updates to eCan</description>
         <language>en</language>
         
         <item>
-            <title>ECBot 1.1.0</title>
+            <title>eCan 1.1.0</title>
             <description>
                 <![CDATA[
-                <h2>What's New in ECBot 1.1.0</h2>
+                <h2>What's New in eCan 1.1.0</h2>
                 <ul>
                     <li>Added OTA update functionality</li>
                     <li>Improved performance and stability</li>
-                    <li>Bug fixes and enhancements</li>
+                    <li>Enhanced user interface</li>
+                    <li>Bug fixes and security improvements</li>
                 </ul>
                 ]]>
             </description>
             <pubDate>Mon, 01 Jan 2024 12:00:00 +0000</pubDate>
-            <enclosure url="http://127.0.0.1:8080/downloads/ECBot-1.1.0.dmg"
+            <enclosure url="http://127.0.0.1:8080/downloads/eCan-1.1.0-darwin-amd64.dmg"
                        sparkle:version="1.1.0"
                        sparkle:os="macos"
                        length="52428800"
                        type="application/octet-stream"
-                       sparkle:edSignature="ABC123..." />
+                       sparkle:edSignature="SHA256:..." />
         </item>
         
         <item>
-            <title>ECBot 1.1.0</title>
+            <title>eCan 1.1.0</title>
             <description>
                 <![CDATA[
-                <h2>What's New in ECBot 1.1.0</h2>
+                <h2>What's New in eCan 1.1.0</h2>
                 <ul>
                     <li>Added OTA update functionality</li>
                     <li>Improved performance and stability</li>
-                    <li>Bug fixes and enhancements</li>
+                    <li>Enhanced user interface</li>
+                    <li>Bug fixes and security improvements</li>
                 </ul>
                 ]]>
             </description>
             <pubDate>Mon, 01 Jan 2024 12:00:00 +0000</pubDate>
-            <enclosure url="http://127.0.0.1:8080/downloads/ECBot-1.1.0.exe"
+            <enclosure url="http://127.0.0.1:8080/downloads/eCan-1.1.0-windows-amd64-Setup.exe"
                        sparkle:version="1.1.0"
                        sparkle:os="windows"
                        length="41943040"
                        type="application/octet-stream"
-                       sparkle:edSignature="DEF456..." />
+                       sparkle:edSignature="SHA256:..." />
         </item>
     </channel>
 </rss> 
