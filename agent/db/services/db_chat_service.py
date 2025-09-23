@@ -1,7 +1,7 @@
 """
-Chat service for managing chat conversations, members, and messages.
+Database chat service for managing chat conversations, members, and messages.
 
-This module provides the ChatService class which handles all chat-related
+This module provides the DBChatService class which handles all chat-related
 database operations including creating chats, managing members, and
 handling messages with various content types.
 """
@@ -22,10 +22,10 @@ from .base_service import BaseService
 from utils.logger_helper import logger_helper as logger
 
 
-class ChatService(BaseService):
+class DBChatService(BaseService):
     """
-    Chat system service class providing all chat-related operations.
-    
+    Database chat system service class providing all chat-related operations.
+
     This service handles chat conversations, members, messages, and notifications
     with support for various content types and database operations.
     """
@@ -65,18 +65,18 @@ class ChatService(BaseService):
             return super().session_scope()
 
     @classmethod
-    def initialize(cls, db_manager) -> 'ChatService':
+    def initialize(cls, db_manager) -> 'DBChatService':
         """
-        Initialize chat service instance with database manager.
+        Initialize database chat service instance with database manager.
 
         Args:
             db_manager: ECanDBManager instance (required)
 
         Returns:
-            ChatService: Chat service instance
+            DBChatService: Database chat service instance
         """
         if db_manager is None:
-            raise ValueError("db_manager is required for ChatService initialization")
+            raise ValueError("db_manager is required for DBChatService initialization")
 
         return cls(db_manager=db_manager)
 
@@ -204,7 +204,7 @@ class ChatService(BaseService):
         Returns:
             dict: Standard response with success status and data
         """
-        logger.debug(f"[chat_service] add_message: {chatId}, {role}, {content}, {senderId}, {createAt}, {id}, {status}, {senderName}, {time}, {ext}, {attachments}")
+        logger.debug(f"[db_chat_service] add_message: {chatId}, {role}, {content}, {senderId}, {createAt}, {id}, {status}, {senderName}, {time}, {ext}, {attachments}")
         
         with self.session_scope() as session:
             chat = session.get(Chat, chatId)
@@ -250,7 +250,7 @@ class ChatService(BaseService):
             chat.lastMsgTime = createAt
             # Increment unread count
             chat.unread = (chat.unread or 0) + 1
-            logger.debug(f"[chat_service] chat.unread: {message}")
+            logger.debug(f"[db_chat_service] chat.unread: {message}")
             chat.messages.append(message)
             session.add(message)
             session.flush()
@@ -326,7 +326,7 @@ class ChatService(BaseService):
     def add_form_message(self, chatId: str, role: str, text: str, form: dict, senderId: str = None, createAt: int = None, **kwargs):
         """Add a form message to the chat."""
         content = ContentSchema.create_form(text, form)
-        logger.debug(f"[chat_service] add_form_message: {chatId}, {role}, {content}, {senderId}, {createAt}, {kwargs}")
+        logger.debug(f"[db_chat_service] add_form_message: {chatId}, {role}, {content}, {senderId}, {createAt}, {kwargs}")
         return self.add_message(
             chatId=chatId, 
             role=role, 
@@ -340,10 +340,10 @@ class ChatService(BaseService):
                                senderId: str = "system", createAt: int = None, **kwargs):
         """Add a notification message to the chat."""
         title = notification.get('title', 'Notification')
-        logger.debug(f"[chat_service] Final notification params - title: '{title}', notification: '{notification}'")
+        logger.debug(f"[db_chat_service] Final notification params - title: '{title}', notification: '{notification}'")
             
         notification_content = ContentSchema.create_notification(title, notification)
-        logger.debug(f"[chat_service] Created notification content: {notification_content}")
+        logger.debug(f"[db_chat_service] Created notification content: {notification_content}")
 
         # Add message to database
         result = self.add_message(
@@ -354,7 +354,7 @@ class ChatService(BaseService):
             createAt=createAt or int(time.time()*1000),
             **kwargs
         )
-        logger.debug(f"[chat_service] add_notification_message result: {result}")
+        logger.debug(f"[db_chat_service] add_notification_message result: {result}")
         return result
 
     def query_messages_by_chat(
@@ -676,7 +676,7 @@ class ChatService(BaseService):
                 session.delete(message)
                 session.commit()
                 
-                logger.info(f"[chat_service] Message {messageId} deleted from chat {chatId}")
+                logger.info(f"[db_chat_service] Message {messageId} deleted from chat {chatId}")
                 
                 return {
                     "success": True,
@@ -685,7 +685,7 @@ class ChatService(BaseService):
                 }
                 
         except Exception as e:
-            logger.error(f"[chat_service] Error deleting message {messageId}: {str(e)}")
+            logger.error(f"[db_chat_service] Error deleting message {messageId}: {str(e)}")
             return {
                 "success": False,
                 "error": str(e),
@@ -775,31 +775,31 @@ class ChatService(BaseService):
 
     def push_message_to_chat(self, chatId, msg: dict):
         """Push message to chat and frontend."""
-        logger.debug("[chat_service] push message to front", msg)
+        logger.debug("[db_chat_service] push message to front", msg)
         content = msg.get('content')
         createAt = msg.get('createAt')
 
         db_result = self.dispatch_add_message(chatId, msg)
-        logger.info(f"[chat_service] push message to db_result: {db_result}")
+        logger.info(f"[db_chat_service] push message to db_result: {db_result}")
 
         # Push to frontend
         web_gui = AppContext.get_web_gui()
         # Push actual data after database write
         if db_result and isinstance(db_result, dict) and 'data' in db_result:
-            logger.debug("[chat_service] push chat message content:", db_result['data'])
+            logger.debug("[db_chat_service] push chat message content:", db_result['data'])
             web_gui.get_ipc_api().push_chat_message(chatId, db_result['data'])
         else:
-            logger.error(f"[chat_service] message insert db failed{chatId}, {msg.get('id')}")
+            logger.error(f"[db_chat_service] message insert db failed{chatId}, {msg.get('id')}")
 
     def push_notification_to_chat(self, chatId, notif: dict):
         """Push notification to chat and frontend."""
-        logger.debug("[chat_service] push notification to front", notif)
+        logger.debug("[db_chat_service] push notification to front", notif)
 
         db_result = self.add_chat_notification(chatId, notif, int(time.time() * 1000))
-        logger.info(f"[chat_service] push notification to db_result: {db_result}")
+        logger.info(f"[db_chat_service] push notification to db_result: {db_result}")
         # Push to frontend
         web_gui = AppContext.get_web_gui()
         # Push actual data after database write
         if db_result and isinstance(db_result, dict) and 'data' in db_result:
-            logger.debug("[chat_service] push chat notification content:", db_result['data'])
+            logger.debug("[db_chat_service] push chat notification content:", db_result['data'])
             web_gui.get_ipc_api().push_chat_notification(chatId, db_result['data'])

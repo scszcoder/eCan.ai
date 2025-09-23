@@ -100,7 +100,7 @@ def parrot(state: NodeState) -> NodeState:
             }
             logger.debug("[my_twin_chatter_skill] parrot supposed chat id:", state["messages"][1][0])
             logger.debug("[my_twin_chatter_skill] parrot pushing frontend message", frontend_message)
-            mainwin.chat_service.push_message_to_chat(state["messages"][1][0], frontend_message)
+            mainwin.db_chat_service.push_message_to_chat(state["messages"][1][0], frontend_message)
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
     except Exception as e:

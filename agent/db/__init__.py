@@ -39,7 +39,7 @@ from .models import (
 from .services import (
     SingletonMeta,
     BaseService,
-    ChatService
+    DBChatService
 )
 
 # Database utilities
@@ -81,7 +81,7 @@ __all__ = [
     # Services
     'SingletonMeta',
     'BaseService',
-    'ChatService',
+    'DBChatService',
     
     # Utils
     'ContentSchema',

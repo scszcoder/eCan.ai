@@ -58,16 +58,16 @@ def extract_and_validate_chat_args(params: dict) -> dict:
 @IPCHandlerRegistry.background_handler('send_chat')
 def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
     """
-    处理发送聊天消息，类型分发调用 chat_service.add_xxx_message，支持多内容类型。
+    处理发送聊天消息，类型分发调用 db_chat_service.add_xxx_message，支持多内容类型。
     """
     try:
         main_window = AppContext.get_main_window()
-        chat_service = main_window.chat_service
+        db_chat_service = main_window.db_chat_service
         # 1. 参数提取与校验
         chat_args = extract_and_validate_chat_args(params)
         # 2. 类型分发并入库
         chatId = chat_args['chatId']
-        result = chat_service.dispatch_add_message(chatId, chat_args)
+        result = db_chat_service.dispatch_add_message(chatId, chat_args)
         logger.info(f"add_message result: {result}")
         # 3. 回显/推送
         if ECHO_REPLY_ENABLED:
@@ -194,9 +194,9 @@ def _do_push_and_echo(chatId, message):
         }
 
     def push_message(main_window, chatId, msg):
-        """类型分发，自动调用 chat_service.add_xxx_message，推送到前端，并记录数据库写入结果"""
+        """类型分发，自动调用 db_chat_service.add_xxx_message，推送到前端，并记录数据库写入结果"""
         logger.info(f"push_message echo_msg: {msg}")
-        main_window.chat_service.push_message_to_chat(chatId, msg)
+        main_window.db_chat_service.push_message_to_chat(chatId, msg)
 
     logger.debug("start do push echo message")
     # 1. 构造并推送 echo 消息
@@ -234,8 +234,8 @@ def _do_push_and_echo(chatId, message):
             content_dict = json.loads(content)
         except Exception:
             content_dict = {"raw": content}
-        chat_service = main_window.chat_service
-        result = chat_service.add_chat_notification(chatId, content_dict, int(time.time() * 1000), isRead=False)
+        db_chat_service = main_window.db_chat_service
+        result = db_chat_service.add_chat_notification(chatId, content_dict, int(time.time() * 1000), isRead=False)
         if result and result.get('success') and result.get('data'):
             notif_data = result['data']
             isRead = notif_data.get('isRead', False)
@@ -261,15 +261,15 @@ def echo_and_push_message_async(chatId, message):
 @IPCHandlerRegistry.handler('get_chats')
 def handle_get_chats(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
     """
-    处理获取聊天列表请求，直接调用 chat_service.query_chats_by_user。
+    处理获取聊天列表请求，直接调用 db_chat_service.query_chats_by_user。
     """
     try:
         logger.debug(f"get chats handler called with request: {request}")
         userId = params.get('userId')
         deep = params.get('deep', False)
         main_window = AppContext.get_main_window()
-        chat_service = main_window.chat_service
-        result = chat_service.query_chats_by_user(userId=userId, deep=deep)
+        db_chat_service = main_window.db_chat_service
+        result = db_chat_service.query_chats_by_user(userId=userId, deep=deep)
         return create_success_response(request, result)
     except Exception as e:
         logger.error(f"Error in get chats handler: {e}")
@@ -278,12 +278,12 @@ def handle_get_chats(request: IPCRequest, params: Optional[dict]) -> IPCResponse
 @IPCHandlerRegistry.handler('create_chat')
 def handle_create_chat(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
     """
-    创建新的聊天会话，直接调用 chat_service.create_chat。
+    创建新的聊天会话，直接调用 db_chat_service.create_chat。
     """
     logger.debug(f"create chat handler called with request: {request}")
     try:
         main_window = AppContext.get_main_window()
-        chat_service = main_window.chat_service
+        db_chat_service = main_window.db_chat_service
         # 拆分参数
         members = params['members']
         name = params['name']
@@ -296,7 +296,7 @@ def handle_create_chat(request: IPCRequest, params: Optional[dict]) -> IPCRespon
         muted = params.get('muted', False)
         ext = params.get('ext')
 
-        result = chat_service.create_chat(
+        result = db_chat_service.create_chat(
             members=members,
             name=name,
             type=chat_type,
@@ -317,7 +317,7 @@ def handle_create_chat(request: IPCRequest, params: Optional[dict]) -> IPCRespon
 @IPCHandlerRegistry.handler('get_chat_messages')
 def handle_get_chat_messages(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
     """
-    处理获取指定会话消息列表请求，调用 chat_service.query_messages_by_chat。
+    处理获取指定会话消息列表请求，调用 db_chat_service.query_messages_by_chat。
     """
     try:
         logger.debug(f"get_chat_messages handler called with request: {request}")
@@ -326,8 +326,8 @@ def handle_get_chat_messages(request: IPCRequest, params: Optional[dict]) -> IPC
         offset = params.get('offset', 0)
         reverse = params.get('reverse', False)
         main_window = AppContext.get_main_window()
-        chat_service = main_window.chat_service
-        result = chat_service.query_messages_by_chat(chatId=chatId, limit=limit, offset=offset, reverse=reverse)
+        db_chat_service = main_window.db_chat_service
+        result = db_chat_service.query_messages_by_chat(chatId=chatId, limit=limit, offset=offset, reverse=reverse)
         return create_success_response(request, result)
     except Exception as e:
         logger.error(f"Error in get_chat_messages handler: {e}")
@@ -336,13 +336,13 @@ def handle_get_chat_messages(request: IPCRequest, params: Optional[dict]) -> IPC
 @IPCHandlerRegistry.handler('delete_chat')
 def handle_delete_chat(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
     """
-    处理删除会话请求，调用 chat_service.delete_chat。
+    处理删除会话请求，调用 db_chat_service.delete_chat。
     """
     try:
         chatId = params.get('chatId')
         main_window = AppContext.get_main_window()
-        chat_service = main_window.chat_service
-        result = chat_service.delete_chat(chatId=chatId)
+        db_chat_service = main_window.db_chat_service
+        result = db_chat_service.delete_chat(chatId=chatId)
         return create_success_response(request, result)
     except Exception as e:
         logger.error(f"Error in delete_chat handler: {e}")
@@ -351,14 +351,14 @@ def handle_delete_chat(request: IPCRequest, params: Optional[dict]) -> IPCRespon
 @IPCHandlerRegistry.handler('mark_message_as_read')
 def handle_mark_message_as_read(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
     """
-    处理批量标记消息为已读请求，调用 chat_service.mark_message_as_read。
+    处理批量标记消息为已读请求，调用 db_chat_service.mark_message_as_read。
     """
     try:
         messageIds = params.get('messageIds')
         userId = params.get('userId')
         main_window = AppContext.get_main_window()
-        chat_service = main_window.chat_service
-        result = chat_service.mark_message_as_read(messageIds=messageIds, userId=userId)
+        db_chat_service = main_window.db_chat_service
+        result = db_chat_service.mark_message_as_read(messageIds=messageIds, userId=userId)
         return create_success_response(request, result)
     except Exception as e:
         logger.error(f"Error in mark_message_as_read handler: {e}")
@@ -553,10 +553,10 @@ def handle_chat_form_submit(request: IPCRequest, params: Optional[dict]) -> IPCR
             logger.error("chat form submit invalid params")
             return create_error_response(request, 'INVALID_PARAMS', 'chatId, messageId, formId, formData 必填')
         main_window = AppContext.get_main_window()
-        chat_service = main_window.chat_service
-        # 假设 chat_service 有 submit_form 方法，否则可自定义处理
-        if hasattr(chat_service, 'submit_form'):
-            result = chat_service.submit_form(chatId=chatId, messageId=messageId, formId=formId, formData=formData)
+        db_chat_service = main_window.db_chat_service
+        # 假设 db_chat_service 有 submit_form 方法，否则可自定义处理
+        if hasattr(db_chat_service, 'submit_form'):
+            result = db_chat_service.submit_form(chatId=chatId, messageId=messageId, formId=formId, formData=formData)
             logger.debug("chat submit form result: %s", result)
             if not result.get('success'):
                 return create_error_response(request, 'CHAT_FORM_SUBMIT_ERROR', result.get('error', 'Unknown error'))
@@ -594,7 +594,7 @@ def handle_chat_form_submit(request: IPCRequest, params: Optional[dict]) -> IPCR
 @IPCHandlerRegistry.handler('delete_message')
 def handle_delete_message(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
     """
-    处理删除消息请求，调用 chat_service.delete_message。
+    处理删除消息请求，调用 db_chat_service.delete_message。
     """
     try:
         chatId = params.get('chatId')
@@ -602,8 +602,8 @@ def handle_delete_message(request: IPCRequest, params: Optional[dict]) -> IPCRes
         if not chatId or not messageId:
             return create_error_response(request, 'INVALID_PARAMS', 'chatId, messageId 必填')
         main_window = AppContext.get_main_window()
-        chat_service = main_window.chat_service
-        result = chat_service.delete_message(chatId=chatId, messageId=messageId)
+        db_chat_service = main_window.db_chat_service
+        result = db_chat_service.delete_message(chatId=chatId, messageId=messageId)
         logger.debug("chat delete message  result: %s", result)
         return create_success_response(request, result)
     except Exception as e:
@@ -613,7 +613,7 @@ def handle_delete_message(request: IPCRequest, params: Optional[dict]) -> IPCRes
 @IPCHandlerRegistry.handler('get_chat_notifications')
 def handle_get_chat_notifications(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
     """
-    处理获取指定会话通知列表请求，调用 chat_service.query_chat_notifications。
+    处理获取指定会话通知列表请求，调用 db_chat_service.query_chat_notifications。
     """
     try:
         logger.debug(f"get_chat_notifications handler called with request: {request}")
@@ -621,13 +621,13 @@ def handle_get_chat_notifications(request: IPCRequest, params: Optional[dict]) -
         limit = params.get('limit', 20)
         offset = params.get('offset', 0)
         reverse = params.get('reverse', False)
-        
+
         if not chatId:
             return create_error_response(request, 'INVALID_PARAMS', 'chatId 必填')
-            
+
         main_window = AppContext.get_main_window()
-        chat_service = main_window.chat_service
-        result = chat_service.query_chat_notifications(
+        db_chat_service = main_window.db_chat_service
+        result = db_chat_service.query_chat_notifications(
             chatId=chatId, 
             limit=limit, 
             offset=offset, 
@@ -648,16 +648,16 @@ def handle_clean_chat_unread(request: IPCRequest, params: Optional[dict]) -> IPC
         if not chatId:
             return create_error_response(request, 'INVALID_PARAMS', 'chatId 必填')
         main_window = AppContext.get_main_window()
-        chat_service = main_window.chat_service
-        # 假设 chat_service 有 set_chat_unread 方法，否则直接更新 chat 的 unread 字段
-        if hasattr(chat_service, 'set_chat_unread'):
-            result = chat_service.set_chat_unread(chatId=chatId, unread=0)
+        db_chat_service = main_window.db_chat_service
+        # 假设 db_chat_service 有 set_chat_unread 方法，否则直接更新 chat 的 unread 字段
+        if hasattr(db_chat_service, 'set_chat_unread'):
+            result = db_chat_service.set_chat_unread(chatId=chatId, unread=0)
         else:
             # 兼容：直接调用 update_chat 或自定义方法
-            if hasattr(chat_service, 'update_chat'):
-                result = chat_service.update_chat(chatId=chatId, unread=0)
+            if hasattr(db_chat_service, 'update_chat'):
+                result = db_chat_service.update_chat(chatId=chatId, unread=0)
             else:
-                return create_error_response(request, 'NOT_IMPLEMENTED', 'chat_service 未实现 set_chat_unread 或 update_chat 方法')
+                return create_error_response(request, 'NOT_IMPLEMENTED', 'db_chat_service 未实现 set_chat_unread 或 update_chat 方法')
         return create_success_response(request, result)
     except Exception as e:
         logger.error(f"Error in clean_chat_unread handler: {e}")

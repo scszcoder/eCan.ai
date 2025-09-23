@@ -7,10 +7,10 @@ database operations for different business domains.
 
 from .singleton import SingletonMeta
 from .base_service import BaseService
-from .chat_service import ChatService
+from .db_chat_service import DBChatService
 
 __all__ = [
     'SingletonMeta',
     'BaseService',
-    'ChatService'
+    'DBChatService'
 ]

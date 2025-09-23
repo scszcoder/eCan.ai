@@ -131,7 +131,7 @@ print(TimeUtil.formatted_now_with_ms() + " load MainGui #5 finished...")
 # ============================================================================
 # 12. Agent Module Imports (Most time-consuming, placed last)
 # ============================================================================
-from agent.db import ChatService, initialize_ecan_database
+from agent.db import DBChatService, initialize_ecan_database
 from agent.ec_skills.llm_utils.llm_utils import pick_llm
 from agent.ec_skills.build_agent_skills import build_agent_skills
 from agent.ec_skills.save_agent_skills import save_agent_skills
@@ -629,11 +629,11 @@ class MainWindow:
         db_init_time = time.time() - start_time
         logger.info(f"[MainWindow] ✅ Database manager initialized in {db_init_time:.3f}s")
         
-        # Initialize chat service using database manager
+        # Initialize database chat service using database manager
         start_time = time.time()
-        self.chat_service = ChatService.initialize(db_manager=self.db_manager)
+        self.db_chat_service = DBChatService.initialize(db_manager=self.db_manager)
         chat_init_time = time.time() - start_time
-        logger.info(f"[MainWindow] ✅ Chat service initialized in {chat_init_time:.3f}s")
+        logger.info(f"[MainWindow] ✅ Database chat service initialized in {chat_init_time:.3f}s")
 
     def _init_service_threaded(self, service_class, service_name):
         """Generic function to initialize any service in a separate thread
