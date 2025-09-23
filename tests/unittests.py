@@ -2181,6 +2181,7 @@ def testLongLLMTask(mwin, setup):
     if not setup:
         setup = {
             "agent_id": "agent-001",
+            "work_type": "rerank_search_results",
             "setup": {
                 "fom_form": {
                     "id": "eval_system_form",

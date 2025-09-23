@@ -146,19 +146,19 @@ def ecan_ai_api_rerank_results(mainwin, rank_query):
         }
 
         response = send_start_long_llm_task_to_cloud(session, token, rank_request, img_endpoint)
-        logger.debug("send_query_fom_request_to_cloud: respnose:", response)
+        logger.debug("send_start_long_llm_task_to_cloud::: respnose:", response)
 
         # Check for errors in the response
         if "errors" in response or "body" not in response:
             logger.error(f"Error from cloud: {response.get('errors')}")
             return []
 
-        body = json.loads(response["body"])
+        body = response["body"]
         if body.get("result") == "error":
             logger.error(f"Error from cloud lambda: {body.get('error')}")
             return []
 
-        cloud_task_id = body["data"]
+        cloud_task_id = body["id"]
         logger.debug("cloud_task_id:", cloud_task_id)
 
     except Exception as e:

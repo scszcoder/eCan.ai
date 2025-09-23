@@ -13,3 +13,4 @@ def get_agent_by_id(agent_id):
         return next((ag for ag in agents if getattr(getattr(ag, 'card', None), 'id', None) == agent_id), None)
     except Exception:
         return None
+

@@ -42,7 +42,7 @@ from agent.a2a.langgraph_agent.utils import send_data_to_agent
 from agent.mcp.server.scrapers.eval_util import get_default_fom_form
 from agent.ec_skills.llm_utils.llm_utils import try_parse_json
 from agent.mcp.server.scrapers.digi_key_scrapers.unit_test import sample_pfs_1
-from agent.mcp.server.scrapers.eval_util import calculate_score, get_default_fom_form
+from agent.mcp.server.scrapers.eval_util import calculate_score, get_default_fom_form, get_default_rerank_req
 
 
 THIS_SKILL_NAME = "chatter for ecan.ai search parts and components web site"
@@ -870,7 +870,9 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
     logger.debug(f"re_rank_search_results_node about to re-rank search results: {state['attributes']['search_results']}")
 
     agent_id = state["messages"][0]
+    task_id = state["messages"][3]
     agent = get_agent_by_id(agent_id)
+    this_task = next((task for task in agent.tasks if task.id == task_id), None)
     mainwin = agent.mainwin
 
     loop = None
@@ -879,8 +881,9 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
 
         i = 0
         setup = prep_ranking_request(state)
-        rerank_req = {"agent_id": agent_id, "setup": setup}
+        rerank_req = {"agent_id": agent_id, "work_type": "rerank_search_results", "setup": setup}
         state["tool_input"] = rerank_req
+        [task_id] = agent.runner.event_handler_queues.update_event_handler("rerank_search_results", this_task.queue)
 
         async def run_tool_call():
             return await mcp_call_tool("api_ecan_ai_rerank_results", {"input": state["tool_input"]})

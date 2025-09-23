@@ -1835,8 +1835,8 @@ def send_start_long_llm_task_to_cloud(session, token, rank_data_inut, endpoint):
 
 
 # related to websocket sub/push to get long running task results
-def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[str] = None) -> Tuple[
-    websocket.WebSocketApp, threading.Thread]:
+def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[str] = None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
+    from agent.agent_service import get_agent_by_id
     """Subscribe to long-running LLM task updates over WebSocket.
 
     Parameters:
@@ -1908,6 +1908,11 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
                 logger.debug(f"Received subscription result:{json.dumps(result_obj, indent=2, ensure_ascii=False)}")
                 # now we can send result_obj to resume the pending workflow.
                 # which msg queue should this be put into? (agent should maintain some kind of cloud_task_id to agent_task_queue LUT)
+                agent_id = result_obj["agentID"]
+                work_type = result_obj["workType"]
+                handler_agent = get_agent_by_id(agent_id)
+                event_response = handler_agent.runner.sync_task_wait_in_line(work_type, result_obj)
+
     def on_error(ws, error):
         print("WebSocket error:", error)
 

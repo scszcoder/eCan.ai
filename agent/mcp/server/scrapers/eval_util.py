@@ -440,3 +440,147 @@ def get_default_fom_form():
             }
         ]
     }
+
+def get_default_rerank_req():
+    return {
+        "agent_id": "agent-001",
+        "work_type": "rerank_search_results",
+        "setup": {
+            "fom_form": {
+                "id": "eval_system_form",
+                "type": "score",
+                "title": "LDO under search",
+                "components": [
+                    {
+                        "name": "Price",
+                        "type": "integer",
+                        "raw_value": 125,
+                        "target_value": 125,
+                        "max_value": 150,
+                        "min_value": 0,
+                        "unit": "cents",
+                        "tooltip": "unit price in cents, 1.25 is the target max price",
+                        "score_formula": "80 + (125-price)",
+                        "score_lut": {},
+                        "weight": 0.3,
+                        "_lutRowIds": {}
+                    },
+                    {
+                        "name": "Quantity Available",
+                        "type": "integer",
+                        "raw_value": 0,
+                        "target_value": 0,
+                        "max_value": 150,
+                        "min_value": 0,
+                        "unit": "days",
+                        "tooltip": "lead time/availablility of the component",
+                        "score_formula": "",
+                        "score_lut": {
+                            "8": 60,
+                            "10": 80,
+                            "20": 100
+                        },
+                        "weight": 0.3,
+                        "_lutRowIds": {
+                            "8": "8g7zjodrk451758232319331",
+                            "10": "mcfhb1odoyk1758232319331",
+                            "20": "03te3shcn4o41758232319331"
+                        }
+                    },
+                    {
+                        "name": "performance",
+                        "type": "integer",
+                        "raw_value": {
+                            "Voltage - Output (Min/Fixed)": {
+                                "name": "Voltage - Output (Min/Fixed)",
+                                "type": "integer",
+                                "raw_value": 0,
+                                "target_value": 0,
+                                "max_value": 100,
+                                "min_value": 0,
+                                "unit": "",
+                                "tooltip": "",
+                                "score_formula": "min(max((Voltage_Output_Min - 2.5) / (3.0 - 2.5) * 100, 0), 100)",
+                                "score_lut": {},
+                                "weight": 0.4,
+                                "_lutRowIds": {}
+                            },
+                            "Voltage - Output (Max)": {
+                                "name": "Voltage - Output (Max)",
+                                "type": "integer",
+                                "raw_value": 0,
+                                "target_value": 0,
+                                "max_value": 100,
+                                "min_value": 0,
+                                "unit": "",
+                                "tooltip": "",
+                                "score_formula": "min(max((Voltage_Output_Max - 3.5) / (3.0 - 3.5) * 100, 0),100)",
+                                "score_lut": {},
+                                "weight": 0.3,
+                                "_lutRowIds": {}
+                            },
+                            "Current - Output": {
+                                "name": "Current - Output",
+                                "type": "integer",
+                                "raw_value": 0,
+                                "target_value": 0,
+                                "max_value": 100,
+                                "min_value": 0,
+                                "unit": "",
+                                "tooltip": "",
+                                "score_formula": "min(max((Current_Output - 500) / (1000 - 500) * 100,0),100)",
+                                "score_lut": {},
+                                "weight": 0.3,
+                                "_lutRowIds": {}
+                            }
+                        },
+                        "weight": 0.4
+                    }
+                ],
+                "text": "Here is a figure of merit (FOM) form to aid searching the parts you're looking for, please try your best to fill it out and send back to me. if you're not sure about certain parameters, just leave them blank. Also feel free to ask any questions about the meaning and implications of any parameters you're not sure about."
+            },
+            "rows": [
+                {
+                    "Price": "Obsolete",
+                    "Quantity Available": "0 In Stock",
+                    "Voltage - Output (Min/Fixed)": "2.5V",
+                    "Voltage - Output (Max)": "12V",
+                    "Current - Output": "50mA"
+                },
+                {
+                    "Price": "1,000 : $1.43750 Tape & Reel (TR)",
+                    "Quantity Available": "0 In Stock",
+                    "Voltage - Output (Min/Fixed)": "1.223V",
+                    "Voltage - Output (Max)": "12V",
+                    "Current - Output": "150mA"
+                },
+                {
+                    "Price": "Obsolete",
+                    "Quantity Available": "0 In Stock",
+                    "Voltage - Output (Min/Fixed)": "1.223V",
+                    "Voltage - Output (Max)": "12V",
+                    "Current - Output": "50mA"
+                },
+                {
+                    "Price": "Obsolete",
+                    "Quantity Available": "0 In Stock",
+                    "Voltage - Output (Min/Fixed)": "0.8V",
+                    "Voltage - Output (Max)": "5V",
+                    "Current - Output": "1A"
+                }
+            ],
+            "component_info": [
+                {
+                    "part name": "LDO",
+                    "oems": [
+                        "NA"
+                    ],
+                    "model_part_numbers": [
+                        "NA"
+                    ],
+                    "applications_usage": "12V to 3V usb hand warmer",
+                    "usage_grade": "NA"
+                }
+            ]
+        }
+    }
