@@ -16,6 +16,7 @@ import traceback
 from app_context import AppContext
 import asyncio
 from agent.ec_skills.dev_utils.skill_dev_utils import *
+from tests.unittests import run_default_tests
 
 # Optional import for TaskRunnerRegistry to discover queues; guarded to avoid import issues
 try:
@@ -637,6 +638,7 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         str: JSON 格式的响应消息
     """
     # from tests.main_test import run_default_tests  # Commented out to prevent UI freeze
+
     try:
         logger.debug(f"Run tests handler called with request: {request}, params: {params}")
         tests = params.get('tests', [])
@@ -654,6 +656,7 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
             if test_id == 'default_test':
                 login: Login = AppContext.login
                 print("oooooooooooooo running default test ooooooooooooooooooooooooooo")
+                # results = []
                 result = run_default_tests(login.main_win)
             # Add other test cases as needed
             else:

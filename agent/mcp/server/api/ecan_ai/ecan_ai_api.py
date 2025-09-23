@@ -126,6 +126,7 @@ def ecan_ai_api_query_fom(mainwin, fom_query):
 # be pushed down from the cloud side when it is ready.
 def ecan_ai_api_rerank_results(mainwin, rank_query):
     filled_components = []
+    cloud_task_id = ""
     try:
         session = mainwin.session
         token = mainwin.get_auth_token()
@@ -139,7 +140,7 @@ def ecan_ai_api_rerank_results(mainwin, rank_query):
 
         rank_request = {
             "agent_id": rank_query["agent_id"],
-            "acct_site_id": mainwin.getAcctSiteId(),
+            "acct_site_id": mainwin.getAcctSiteID(),
             "task_type": "rerank_search_results",
             "task_data": rank_query["setup"]
         }
