@@ -131,8 +131,7 @@ print(TimeUtil.formatted_now_with_ms() + " load MainGui #5 finished...")
 # ============================================================================
 # 12. Agent Module Imports (Most time-consuming, placed last)
 # ============================================================================
-from agent.chats.chat_service import ChatService
-from agent.chats.chats_db import ECBOT_CHAT_DB
+from agent.db import ChatService, initialize_ecan_database
 from agent.ec_skills.llm_utils.llm_utils import pick_llm
 from agent.ec_skills.build_agent_skills import build_agent_skills
 from agent.ec_skills.save_agent_skills import save_agent_skills
@@ -622,12 +621,17 @@ class MainWindow:
 
             logger.info("[MainWindow] ✅ Database services skipped for Platoon role")
 
-        # Initialize chat service in background (non-blocking)
+        # Initialize database manager and chat service
         start_time = time.time()
-        self.chat_service = ChatService.initialize(
-            db_path=os.path.join(self.my_ecb_data_homepath, ECBOT_CHAT_DB),
-            import_demo=False  # Skip demo import for faster initialization
-        )
+        
+        # Initialize eCan database system
+        self.db_manager = initialize_ecan_database(self.my_ecb_data_homepath, auto_migrate=True)
+        db_init_time = time.time() - start_time
+        logger.info(f"[MainWindow] ✅ Database manager initialized in {db_init_time:.3f}s")
+        
+        # Initialize chat service using database manager
+        start_time = time.time()
+        self.chat_service = ChatService.initialize(db_manager=self.db_manager)
         chat_init_time = time.time() - start_time
         logger.info(f"[MainWindow] ✅ Chat service initialized in {chat_init_time:.3f}s")
 

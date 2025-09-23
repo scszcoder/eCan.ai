@@ -44,6 +44,12 @@ const Login: React.FC = () => {
 	const [loginSuccessful, setLoginSuccessful] = useState(false);
 	// 忘记密码操作的loading状态
 	const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+	// 登录进度状态
+	const [loginProgress, setLoginProgress] = useState<'idle' | 'authenticating' | 'success' | 'redirecting'>('idle');
+	// Google登录进度状态
+	const [googleLoginProgress, setGoogleLoginProgress] = useState<'idle' | 'opening' | 'authenticating' | 'success' | 'redirecting'>('idle');
+	// 错误状态
+	const [lastError, setLastError] = useState<string | null>(null);
 
 	// Monitor backend initialization progress during login process
 	const { progress: initProgress } = useInitializationProgress(loading || showInitProgress);
@@ -139,10 +145,16 @@ const Login: React.FC = () => {
 		setLoginSuccessful(false);
 		setForgotPasswordLoading(false);
 		setCodeSent(false);
+		setShowInitProgress(false);
+		setLoginProgress('idle');
+		setGoogleLoginProgress('idle');
+		setLastError(null);
 	}, [form]);
 
 	const handleLogin = async (values: LoginFormValues, api: IPCAPI) => {
 		try {
+			setLoginProgress('authenticating');
+
 			// Add timeout for login request
 			const loginPromise = api.login(values.username, values.password, values.role, i18n.language);
 			const timeoutPromise = new Promise<never>((_, reject) => {
@@ -153,6 +165,8 @@ const Login: React.FC = () => {
 
 			if (response.success && response.data) {
 				console.log('[Login] Login successful', response.data);
+				setLoginProgress('success');
+
 				const { token, user_info } = response.data;
 
 				// 使用统一的用户存储管理器
@@ -171,18 +185,20 @@ const Login: React.FC = () => {
 				pageRefreshManager.enable();
 
 				messageApi.success(t('login.success'));
-				// Continue monitoring initialization progress (already started when login button was clicked)
-				// UI will navigate to main page as soon as ui_ready is true, background init will continue
-				setShowInitProgress(true);
+				setLoginSuccessful(true);
+
+				// 登录成功，设置跳转状态（showInitProgress已在handleSubmit中设置）
+				setLoginProgress('redirecting');
 			} else {
 				console.error('Login failed', response.error);
+				setLoginProgress('idle');
 				messageApi.error(response.error?.message || t('login.failed'));
 				throw new Error(response.error?.message || 'Login failed');
 			}
 		} catch (error) {
 			console.error('Login error:', error);
-			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-			messageApi.error(t('login.error') + ': ' + errorMessage);
+			setLoginProgress('idle');
+			// 不在这里显示错误消息，让handleSubmit统一处理
 			throw error; // Re-throw to be handled by handleSubmit
 		}
 	};
@@ -281,6 +297,7 @@ const Login: React.FC = () => {
 
 		setLoading(true);
 		setLoginSuccessful(false);
+		setLastError(null); // Clear previous errors
 
 		let loginAttempted = false;
 
@@ -291,6 +308,8 @@ const Login: React.FC = () => {
 			switch (mode) {
 				case 'login':
 					loginAttempted = true;
+					// 立即显示登录进度UI
+					setShowInitProgress(true);
 					await handleLogin(values, api);
 					// Don't reset loading here for successful login - let the navigation effect handle it
 					return;
@@ -303,12 +322,21 @@ const Login: React.FC = () => {
 			}
 		} catch (error) {
 			console.error(`${mode} error:`, error);
-			messageApi.error(t(`login.${mode === 'login' ? 'error' : mode + '.error'}`) + ': ' + (error instanceof Error ? error.message : String(error)));
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			setLastError(errorMessage);
+
+			// Show error message with retry hint
+			messageApi.error({
+				content: t(`login.${mode === 'login' ? 'error' : mode + '.error'}`) + ': ' + errorMessage,
+				duration: 5, // Show for 5 seconds
+			});
 
 			// For login failures, always reset loading state
 			if (mode === 'login' && loginAttempted) {
 				setLoading(false);
 				setLoginSuccessful(false);
+				setLoginProgress('idle');
+				setShowInitProgress(false); // 隐藏进度UI
 			}
 		} finally {
 			// Reset loading for non-login modes or if login wasn't attempted
@@ -324,12 +352,18 @@ const Login: React.FC = () => {
 
     setLoading(true);
     setLoginSuccessful(false);
+    setLastError(null); // Clear previous errors
+    setGoogleLoginProgress('opening');
+
+    // 立即显示登录进度UI
+    setShowInitProgress(true);
 
     try {
       const api = get_ipc_api();
       if (!api) throw new Error(t('common.error'));
 
       console.log('Starting Google OAuth login');
+      setGoogleLoginProgress('authenticating');
 
       // Add timeout for Google login
       const loginPromise = api.googleLogin(i18n.language);
@@ -341,6 +375,7 @@ const Login: React.FC = () => {
 
       if (response.success && response.data) {
         console.log('Google login successful', response.data);
+        setGoogleLoginProgress('success');
 
         const { token, user_info, message } = response.data;
 
@@ -364,14 +399,13 @@ const Login: React.FC = () => {
         messageApi.success(message || t('login.googleSuccess') || 'Google login successful');
 
         setLoginSuccessful(true);
-        // Navigate to main page with delay to show success state
-        setTimeout(() => {
-          setLoading(false);
-          navigate('/agents');
-        }, 500);
+
+        // Google登录成功，设置跳转状态（showInitProgress已在handleGoogleLogin开始时设置）
+        setGoogleLoginProgress('redirecting');
 
       } else {
         console.error('Google login failed', response.error);
+        setGoogleLoginProgress('idle');
         const errorMessage = response.error?.message || t('login.googleFailed') || 'Google login failed';
         messageApi.error(errorMessage);
         throw new Error(errorMessage);
@@ -379,8 +413,16 @@ const Login: React.FC = () => {
 
     } catch (error) {
       console.error('Google login error:', error);
-      const errorMessage = t('login.googleError') || 'Google login error';
-      messageApi.error(`${errorMessage}: ${error instanceof Error ? error.message : String(error)}`);
+      setGoogleLoginProgress('idle');
+      setShowInitProgress(false); // 隐藏进度UI
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setLastError(errorMessage);
+
+      // Show error message with retry hint
+      messageApi.error({
+        content: `${t('login.googleError') || 'Google login error'}: ${errorMessage}`,
+        duration: 5, // Show for 5 seconds
+      });
       setLoading(false);
     }
   }, [i18n.language, navigate, messageApi, loading, loginSuccessful, t]);
@@ -421,9 +463,20 @@ const Login: React.FC = () => {
 			<LoadingProgress
 				visible={loading || showInitProgress}
 				progress={initProgress}
+				title={loginProgress === 'redirecting' || googleLoginProgress === 'redirecting'
+					? t('login.redirectingToMain') || 'Redirecting to main page...'
+					: loginProgress === 'success' || googleLoginProgress === 'success'
+						? t('login.loginSuccess') || 'Login successful!'
+						: undefined
+				}
 				onComplete={() => {
 					setLoading(false);
 					setShowInitProgress(false);
+					// 当ui_ready时就跳转到主页面，后台继续初始化
+					if (loginSuccessful) {
+						console.log('[Login] UI ready, navigating to main page');
+						navigate('/agents');
+					}
 				}}
 			/>
 
@@ -606,15 +659,26 @@ const Login: React.FC = () => {
 										disabled={loading || loginSuccessful}
 										className="login-button"
 									>
-										{loading && mode === 'login' && showInitProgress
-											? t('login.redirecting') || 'Redirecting...'
-											: loading
-												? t('login.loggingIn') || 'Logging in...'
-												: loginSuccessful
-													? t('login.loginSuccess') || 'Success!'
-													: mode === 'login'
-														? t('login.loginButton')
-														: t('login.signUp')
+										{mode === 'login' ? (() => {
+											switch (loginProgress) {
+												case 'authenticating':
+													return t('login.loggingIn') || 'Logging in...';
+												case 'success':
+													return t('login.loginSuccess') || 'Success!';
+												case 'redirecting':
+													return t('login.redirecting') || 'Redirecting...';
+												default:
+													return loading && showInitProgress
+														? t('login.redirecting') || 'Redirecting...'
+														: loading
+															? t('login.loggingIn') || 'Logging in...'
+															: loginSuccessful
+																? t('login.loginSuccess') || 'Success!'
+																: t('login.loginButton');
+											}
+										})() : loading
+											? t('login.loggingIn') || 'Logging in...'
+											: t('login.signUp')
 										}
 									</Button>
 								</Form.Item>
@@ -627,14 +691,27 @@ const Login: React.FC = () => {
 										onClick={handleGoogleLogin}
 										loading={loading}
 										disabled={loading || loginSuccessful}
+										className="google-login-button"
 										icon={!loading ? <img src={googleIcon} alt="Google" style={{ width: 18, height: 18 }} /> : undefined}
 									>
-										{loading
-											? t('login.loggingIn') || 'Logging in...'
-											: loginSuccessful
-												? t('login.loginSuccess') || 'Success!'
-												: t('login.loginWithGoogle') || 'Login with Google'
-										}
+										{(() => {
+											switch (googleLoginProgress) {
+												case 'opening':
+													return t('login.openingGoogle') || 'Opening Google...';
+												case 'authenticating':
+													return t('login.authenticating') || 'Authenticating...';
+												case 'success':
+													return t('login.loginSuccess') || 'Success!';
+												case 'redirecting':
+													return t('login.redirecting') || 'Redirecting...';
+												default:
+													return loading
+														? t('login.loggingIn') || 'Logging in...'
+														: loginSuccessful
+															? t('login.loginSuccess') || 'Success!'
+															: t('login.loginWithGoogle') || 'Login with Google';
+											}
+										})()}
 									</Button>
 								</Form.Item>
 							)}
@@ -649,6 +726,25 @@ const Login: React.FC = () => {
 										{t('login.loginWithApple') || 'Login with Apple'}
 									</Button>
 								</Form.Item>
+							)}
+
+							{/* Error display */}
+							{lastError && !loading && (
+								<div style={{
+									marginTop: 16,
+									padding: '12px 16px',
+									background: 'rgba(255, 77, 79, 0.1)',
+									border: '1px solid rgba(255, 77, 79, 0.3)',
+									borderRadius: '8px',
+									color: '#ff4d4f'
+								}}>
+									<div style={{ fontSize: '14px', marginBottom: '8px' }}>
+										{t('login.lastError') || 'Last error:'} {lastError}
+									</div>
+									<div style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.6)' }}>
+										{t('login.retryHint') || 'Please check your credentials and try again.'}
+									</div>
+								</div>
 							)}
 
 							<div style={{

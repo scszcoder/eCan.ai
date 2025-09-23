@@ -1,10 +1,6 @@
 import asyncio
-import time
-import json
-import os
+from agent.ec_agent import EC_Agent
 from utils.logger_helper import logger_helper as logger
-from enum import Enum
-from typing import List, Dict, Any, Union
 
 # supposed data structure
 request= {'params': None}
@@ -90,12 +86,20 @@ request['params'] = {
 # }
 
 def a2a_send_chat(mainwin, req):
-    print("a2a_send_chat:", req)
+    logger.debug("[chat_utils] a2a_send_chat:", req)
     agents = mainwin.agents
-    twin_agent = next((ag for ag in agents if ag.card.name == "My Twin Agent"), None)
+    twin_agent: EC_Agent = next((ag for ag in agents if ag.card.name == "My Twin Agent"), None)
     chat_service = mainwin.chat_service
+    
+    # Get chatId from request parameters
+    chat_id = req.get("params", {}).get("chatId")
+    if not chat_id:
+        logger.error("[chat_utils] No chatId found in request parameters")
+        return {"error": "No chatId provided"}
+    
+    logger.debug(f"[chat_utils] Getting chat data for chatId: {chat_id}")
     # Get chat with members and messages
-    this_chat = chat_service.get_chat_by_id("chat-000001", deep=True)
+    this_chat = chat_service.get_chat_by_id(chat_id, deep=True)
 
     if this_chat["success"]:
         chat_data = this_chat["data"]
@@ -103,7 +107,7 @@ def a2a_send_chat(mainwin, req):
 
         # Use chat data
     else:
-        print(f"Error: {this_chat['error']}")
+        logger.error(f"[chat_utils] Error: {this_chat['error']}")
         member_user_ids = []
 
     if member_user_ids:
@@ -115,17 +119,17 @@ def a2a_send_chat(mainwin, req):
         recipient_ids = []
 
     req["params"]["recipient_ids"] = recipient_ids
-    print("twin:", twin_agent.card.name, "recipients:", recipient_ids)
+    logger.debug("[chat_utils] twin:", twin_agent.card.name, "recipients:", recipient_ids)
 
-    runner_method = twin_agent.runner.sync_chat_wait_in_line
+    runner_method = twin_agent.runner.sync_task_wait_in_line
     if asyncio.iscoroutinefunction(runner_method):
-        logger.debug("Runner method is a coroutine, running with asyncio.run()")
+        logger.debug("[chat_utils] Runner method is a coroutine, running with asyncio.run()")
 
         def run_async():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                return loop.run_until_complete(runner_method(req))
+                return loop.run_until_complete(runner_method("human_chat", req))
             finally:
                 loop.close()
 
@@ -141,96 +145,10 @@ def a2a_send_chat(mainwin, req):
         # # result = await runner_method(params["message"])
         # result = loop.run_until_complete(runner_method(params["message"]))
     else:
-        logger.debug("Runner method is synchronous, calling directly.")
-        result = runner_method(req)
+        logger.debug("[chat_utils] Runner method is synchronous, calling directly.")
+        result = runner_method("human_chat", req)
 
     return result
 
-class ContentType(str, Enum):
-    """消息内容类型枚举"""
-    TEXT = "text"
-    IMAGE = "image_url"
-    FILE = "file_url"
-    CODE = "code"
-    SYSTEM = "system"
-    FORM = "form"
-    NOTIFICATION = "notification"
-    CARD = "card"
-    MARKDOWN = "markdown"
-    TABLE = "table"
-
-class ContentSchema:
-    """定义不同内容类型的数据结构"""
-    @staticmethod
-    def create_text(text: str) -> dict:
-        """创建文本内容"""
-        return {"type": ContentType.TEXT.value, "text": text}
-
-    @staticmethod
-    def create_code(code: str, language: str = "python") -> dict:
-        """创建代码内容，支持语法高亮"""
-        return {"type": ContentType.CODE.value, "code": {"lang": language, "value": code}}
-
-    @staticmethod
-    def create_form(text:str, form: dict) -> dict:
-        """创建表单内容，用于数据收集，fields 字段应原样存储，不做任何解析"""
-        return {
-            "type": ContentType.FORM.value,
-            "text": text,
-            "form": form
-        }
-
-    @staticmethod
-    def create_system(text: str, level: str = "info") -> dict:
-        """创建系统消息内容，用于展示系统信息"""
-        return {
-            "type": ContentType.SYSTEM.value,
-            "system": {
-                "text": text,
-                "level": level  # info, warning, error, success
-            }
-        }
-
-    @staticmethod
-    def create_notification(title: str = None, content: str = None) -> dict:
-        """
-        创建通知消息内容
-        """
-        return {
-            "type": ContentType.NOTIFICATION.value,
-            "notification": {
-                "title": title or "Notification",
-                "content": content or ""
-            }
-        }
-
-    @staticmethod
-    def create_card(title: str, content: str, actions: list = None) -> dict:
-        """创建卡片内容，支持标题、内容和操作按钮"""
-        return {
-            "type": ContentType.CARD.value,
-            "card": {
-                "title": title,
-                "content": content,
-                "actions": actions or []
-            }
-        }
-
-    @staticmethod
-    def create_markdown(content: str) -> dict:
-        """创建Markdown内容，支持富文本展示"""
-        return {
-            "type": ContentType.MARKDOWN.value,
-            "markdown": content
-        }
-
-    @staticmethod
-    def create_table(headers: list, rows: list) -> dict:
-        """创建表格内容，用于结构化数据展示"""
-        return {
-            "type": ContentType.TABLE.value,
-            "table": {
-                "headers": headers,
-                "rows": rows
-            }
-        }
+# Note: ContentType and ContentSchema have been moved to agent.db.utils
+# They are imported at the top of this file for backward compatibility

@@ -78,6 +78,11 @@ const LoadingProgress: React.FC<LoadingProgressProps> = ({
         newSteps[1] = { ...newSteps[1], completed: true, loading: false };
         newProgress = Math.max(newProgress, 40);
         newCurrentStep = Math.max(newCurrentStep, 1);
+
+        // 当ui_ready时就可以跳转到主页面了，后台继续初始化
+        setTimeout(() => {
+          onComplete?.();
+        }, 200); // 减少延迟，提升响应性
       } else {
         newSteps[1] = { ...newSteps[1], completed: false, loading: true };
       }
@@ -105,11 +110,6 @@ const LoadingProgress: React.FC<LoadingProgressProps> = ({
       newSteps[4] = { ...newSteps[4], completed: true, loading: false };
       newProgress = 100;
       newCurrentStep = 4;
-
-      // Call onComplete when fully ready
-      setTimeout(() => {
-        onComplete?.();
-      }, 500);
     } else if (initProgress.async_init_complete) {
       newSteps[4] = { ...newSteps[4], completed: false, loading: true };
     }

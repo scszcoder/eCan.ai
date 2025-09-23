@@ -35,7 +35,6 @@ from utils.logger_helper import get_traceback
 from agent.agent_service import get_agent_by_id
 from utils.logger_helper import logger_helper as logger
 from agent.mcp.local_client import mcp_call_tool
-from agent.chats.tests.test_notifications import sample_metrics_0
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import api_ecan_ai_get_nodes_prompts
 from agent.ec_skills.llm_utils.llm_utils import prep_multi_modal_content, get_standard_prompt, run_async_in_sync
 from agent.ec_skills.llm_hooks.llm_hooks import llm_node_with_raw_files
