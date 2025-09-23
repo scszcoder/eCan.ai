@@ -72,9 +72,9 @@ export class IPCAPI {
      * @returns Promise 对象，解析为 API 响应
      */
     private async executeRequest<T>(method: string, params?: unknown): Promise<APIResponse<T>> {
+        const startTs = Date.now();
+        console.log('[IPCAPI] executeRequest:start', method, { params });
         try {
-            //logger.debug(`Executing ${method}`, params ? `with params: ${JSON.stringify(params)}` : '');
-
             // 对于 get_initialization_progress，使用 invoke 方法以利用队列和并发控制
             let response: IPCResponse;
             if (method === 'get_initialization_progress') {
@@ -83,6 +83,7 @@ export class IPCAPI {
                 response = await this.ipcWCClient.sendRequest(method, params) as IPCResponse;
             }
 
+            console.log('[IPCAPI] executeRequest:response', method, { response, durationMs: Date.now() - startTs });
             if (response.status === 'success') {
                 return {
                     success: true,
@@ -99,6 +100,7 @@ export class IPCAPI {
                 };
             }
         } catch (error) {
+            console.log('[IPCAPI] executeRequest:error', method, { error, durationMs: Date.now() - startTs });
             logger.error(`Failed to execute ${method}:`, error);
             return {
                 success: false,
@@ -210,6 +212,11 @@ export class IPCAPI {
 
     public async runTest<T>(username: string, tests: TestConfig[]): Promise<APIResponse<T>> {
         return this.executeRequest<T>('run_tests', { tests });
+    }
+
+    // Some backends expect a single test payload instead of an array under {tests}
+    public async runSingleTest<T>(test: { test_id: string; args?: Record<string, any> }): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('run_tests', test);
     }
 
     public async stopTest<T>(test_ids: string[]): Promise<APIResponse<T>> {

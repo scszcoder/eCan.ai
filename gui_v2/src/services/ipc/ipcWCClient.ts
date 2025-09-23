@@ -106,6 +106,7 @@ export class IPCWCClient {
      */
     private init(): void {
         logger.info('start ipc wc client init...');
+        console.log('[IPCWCClient] init:start');
         if (this.ipcWebChannel) {
             return;
         }
@@ -113,9 +114,11 @@ export class IPCWCClient {
         this.initPromise = new Promise((resolve) => {
             const handleWebChannelReady = () => {
                 logger.info('WebChannel ready event triggered');
+                console.log('[IPCWCClient] webchannel-ready event received');
                 if (!this.ipcWebChannel && window.ipc) {
                     this.setIPCWebChannel(window.ipc);
                     logger.info('IPC initialized successfully');
+                    console.log('[IPCWCClient] IPC initialized successfully with window.ipc');
                     window.removeEventListener('webchannel-ready', handleWebChannelReady);
                     resolve();
                 }
@@ -123,8 +126,10 @@ export class IPCWCClient {
 
             window.addEventListener('webchannel-ready', handleWebChannelReady);
             logger.info('WebChannel ready event listener set up');
+            console.log('[IPCWCClient] Listening for webchannel-ready event');
 
             if (document.readyState === 'complete' && window.ipc) {
+                console.log('[IPCWCClient] document ready and window.ipc present, initializing immediately');
                 handleWebChannelReady();
             }
         });
@@ -138,7 +143,35 @@ export class IPCWCClient {
             return;
         }
         if (this.initPromise) {
-            await this.initPromise;
+            // Prevent indefinite hang if native WebChannel is never injected
+            const INIT_TIMEOUT_MS = 5000;
+            console.log('[IPCWCClient] waitForInit: awaiting initPromise with timeout', INIT_TIMEOUT_MS);
+            try {
+                await Promise.race([
+                    this.initPromise,
+                    new Promise<void>((_, reject) =>
+                        setTimeout(() => reject(new Error('IPC init timeout')), INIT_TIMEOUT_MS)
+                    ),
+                ]);
+            } catch (e) {
+                // After timeout, if still not initialized, throw INIT_ERROR
+                if (!this.ipcWebChannel) {
+                    console.error('[IPCWCClient] waitForInit: timeout waiting for WebChannel');
+                    throw createErrorResponse(
+                        generateRequestId(),
+                        'INIT_ERROR',
+                        'IPC not initialized: WebChannel bridge not ready. Ensure the Python backend has started and injected window.ipc.'
+                    );
+                }
+            }
+        } else {
+            // No init promise set and no channel: surface clear error
+            console.error('[IPCWCClient] waitForInit: no initPromise and no ipcWebChannel');
+            throw createErrorResponse(
+                generateRequestId(),
+                'INIT_ERROR',
+                'IPC not initialized: missing init promise and WebChannel bridge.'
+            );
         }
     }
 
@@ -183,29 +216,9 @@ export class IPCWCClient {
      * @param options - 请求选项
      * @returns Promise 对象，解析为 IPC 响应结果
      */
-    public async invoke(method: string, params?: unknown, options: IPCRequestOptions = {}): Promise<any> {
-        return new Promise<any>((resolve, reject) => {
-            const queuedRequest: QueuedRequest = {
-                id: generateRequestId(),
-                method,
-                params: this.addAuthToken(method, params),
-                priority: options.priority || RequestPriority.NORMAL,
-                status: RequestStatus.PENDING,
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-                retryCount: 0,
-                maxRetries: options.maxRetries || 10,
-                retryDelay: options.retryDelay || 2000,
-                backoffMultiplier: options.backoffMultiplier || 1.5,
-                timeout: options.timeout,
-                onSuccess: resolve,
-                onError: reject,
-                onProgress: options.onProgress
-            };
-            
-            this.enqueueRequest(queuedRequest);
-            this.processQueue();
-        });
+    public async invoke(method: string, params?: unknown, _options: IPCRequestOptions = {}): Promise<any> {
+        // Simplified: directly send request without queue for stability
+        return this.sendRequest(method, params);
     }
 
     /**
@@ -270,6 +283,7 @@ export class IPCWCClient {
      * @returns Promise 对象，解析为 IPC 响应结果
      */
     private async _sendSingleRequest(method: string, params?: unknown, timeout: number = DEFAULT_REQUEST_TIMEOUT): Promise<any> {
+        console.log('[IPCWCClient] _sendSingleRequest:start', method, { params, timeout });
         await this.waitForInit();
 
         if (!this.ipcWebChannel) {
@@ -280,6 +294,7 @@ export class IPCWCClient {
         const paramsStr = params ? JSON.stringify(params) : '';
         const truncatedParams = paramsStr.length > 500 ? paramsStr.substring(0, 500) + '...' : paramsStr;
         logger.debug(`[IPCWCClient] Sending request: ${method}`, params ? `with params: ${truncatedParams}` : '');
+        console.log('[IPCWCClient] sending web_to_python', { id: request.id, method, truncatedParams });
 
         // 对于登录请求，使用更长的超时时间
         if (method === 'login') {
@@ -307,6 +322,7 @@ export class IPCWCClient {
             
             try {
                 const responseStr = await this.ipcWebChannel!.web_to_python(JSON.stringify(request));
+                console.log('[IPCWCClient] immediate response received', { id: request.id, method });
                 // logger.debug(`Received response: ${responseStr}`);
                 const immediateResponse = JSON.parse(responseStr) as IPCResponse;
                 
@@ -315,13 +331,16 @@ export class IPCWCClient {
                     // 从管理器中移除，因为它已经完成了
                     this.pendingRequests.delete(request.id);
                     resolve(immediateResponse);
+                    console.log('[IPCWCClient] completed synchronously', { id: request.id, method });
                 } else {
                     logger.debug(`Received pending response for request ${request.id}`);
+                    console.log('[IPCWCClient] pending response (await push)', { id: request.id, method });
                 }
                 // 如果是 'pending'，则我们什么都不做，把清理工作留给 handleMessage 或超时
             } catch (error) {
                 this.pendingRequests.delete(request.id); // 发送失败，也要清理
                 logger.error(`Failed to send or process immediate response for ${method}:`, error);
+                console.error('[IPCWCClient] send error', { id: request.id, method, error });
                 reject(error instanceof Error ? createErrorResponse(request.id, 'SEND_ERROR', error.message) : error);
             }
         });
@@ -332,9 +351,9 @@ export class IPCWCClient {
         } finally {
             // 4. 无论结果如何，清除定时器，防止它在请求成功后依然触发
             clearTimeout(timeoutId!);
+            console.log('[IPCWCClient] _sendSingleRequest:end', method);
         }
     }
-
     /**
      * 处理来自 Python 后端的消息 (包括请求和推送的响应)
      * @param message - 消息字符串
@@ -344,11 +363,13 @@ export class IPCWCClient {
             // 优化日志打印：超过500字符时只显示前500个字符
             const truncatedMessage = message.length > 500 ? message.substring(0, 500) + '...' : message;
             logger.debug(`[IPCWCClient] python_to_web: Received message: ${truncatedMessage}`);
+            console.log('[IPCWCClient] python_to_web message', truncatedMessage);
             const message_obj = JSON.parse(message);
 
             // 检查这是否是一个对后台任务的最终响应
             if (isIPCResponse(message_obj) && this.pendingRequests.has(message_obj.id)) {
                 logger.debug(`[IPCWCClient] Received pushed response for request ${message_obj.id}`);
+                console.log('[IPCWCClient] pushed response for pending request', message_obj.id);
                 const response = message_obj as IPCResponse;
 
                 const promiseCallbacks = this.pendingRequests.get(message_obj.id)!;
@@ -362,303 +383,70 @@ export class IPCWCClient {
                 this.handleRequest(message_obj);
             } else {
                 logger.warn('Received unhandled message:', message_obj);
+                console.warn('[IPCWCClient] unhandled message', message_obj);
             }
         } catch (error) {
             logger.error('Failed to parse or handle message:', error);
+            console.error('[IPCWCClient] handleMessage parse error', error);
         }
     }
 
-    /**
-     * 处理请求消息
-     * @param request - 请求对象
-     */
-    private async handleRequest(request: IPCRequest): Promise<void> {
-        const handler = this.requestHandlers[request.method];
-        if (!handler) {
-            logger.warn(`No handler registered for method '${request.method}'`);
-            this.sendErrorResponse(request.id, {
-                code: 'HANDLER_ERROR',
-                message: `No handler registered for method '${request.method}'`,
-                details: ""
-            });
-            return;
-        }
-
-        try {
-            const result = await handler(request);
-            this.sendResponse(request.id, result);
-        } catch (error) {
-            logger.error(`Error handling request '${request.method}':`, error);
-            this.sendErrorResponse(request.id, {
-                code: 'HANDLER_ERROR',
-                message: error instanceof Error ? error.message : 'Handler error occurred',
-                details: error
-            });
-        }
+/**
+ * 处理请求消息
+ * @param request - 请求对象
+ */
+private async handleRequest(request: IPCRequest): Promise<void> {
+    const handler = this.requestHandlers[request.method];
+    if (!handler) {
+        logger.warn(`No handler registered for method '${request.method}'`);
+        this.sendErrorResponse(request.id, {
+            code: 'HANDLER_ERROR',
+            message: `No handler registered for method '${request.method}'`,
+            details: ""
+        });
+        return;
     }
 
-    /**
-     * 发送响应到 Python 后端
-     * @param requestId - 请求 ID
-     * @param result - 响应结果
-     */
-    private sendResponse(requestId: string, result: unknown): void {
-        if (!this.ipcWebChannel) {
-            logger.error('IPC object not set');
-            return;
-        }
-
-        const response: IPCResponse = {
-            id: requestId,
-            type: 'response' as const,
-            status: 'success' as const, // 明确 status
-            result,
-            timestamp: Date.now()
-        };
-
-        try {
-            // 注意：这里我们假设 python 端不需要这个调用的返回值
-            this.ipcWebChannel.web_to_python(JSON.stringify(response));
-            logger.debug('[IPCWCClient] Response sent:' + JSON.stringify(response));
-        } catch (error) {
-            logger.error('Failed to send response:', error);
-            this.handleError({
-                code: 'SEND_ERROR',
-                message: 'Failed to send response',
-                details: error
-            });
-        }
+    try {
+        const result = await handler(request);
+        console.log('[IPCWCClient] Request handled successfully:', request.method);
+        this.sendResponse(request.id, result);
+    } catch (error) {
+        logger.error(`Error handling request '${request.method}':`, error);
+        console.error('[IPCWCClient] Request handling error:', error);
+        this.sendErrorResponse(request.id, {
+            code: 'HANDLER_ERROR',
+            message: error instanceof Error ? error.message : 'Handler error occurred',
+            details: error
+        });
     }
+}
 
-    /**
-     * 发送错误响应到 Python 后端
-     * @param requestId - 请求 ID
-     * @param error - 错误对象
-     */
-    private sendErrorResponse(requestId: string, error: { code: string; message: string; details?: unknown }): void {
-        if (!this.ipcWebChannel) {
-            logger.error('IPC object not set');
-            return;
-        }
-
-        const response: IPCResponse = {
-            id: requestId,
-            type: 'response',
-            status: 'error',
-            error: {
-                code: error.code,
-                message: error.message,
-                details: error.details
-            },
-            timestamp: Date.now()
-        };
-
-        try {
-            this.ipcWebChannel.web_to_python(JSON.stringify(response));
-            logger.debug('Error response sent:' + JSON.stringify(response));
-        } catch (e) {
-            logger.error('Failed to send error response:', e);
-        }
+/**
+ * 设置消息处理器，监听来自 Python 的消息
+ */
+private setupMessageHandler(): void {
+    if (!this.ipcWebChannel) return;
+    
+    // 关键: 监听 python_to_web 信号
+    if (this.ipcWebChannel.python_to_web && typeof this.ipcWebChannel.python_to_web.connect === 'function') {
+        this.ipcWebChannel.python_to_web.connect(this.handleMessage.bind(this));
+        logger.info("[IPCWCClient] Connected to python_to_web signal for pushed messages.");
+        console.log('[IPCWCClient] Connected to python_to_web signal');
+    } else {
+        logger.error("[IPCWCClient] Could not connect to python_to_web signal. Pushed messages will not be received.");
+        console.error('[IPCWCClient] Could not connect to python_to_web signal');
     }
+}
 
-    /**
-     * 处理内部错误
-     * @param error - 错误对象
-     */
-    private handleError(error: { code: string | number; message: string; details?: unknown }): void {
-        if (this.errorHandler) {
-            this.errorHandler(error);
-        } else {
-            logger.error('Unhandled IPC Client error:', error);
-        }
-    }
-
-
-    /**
-     * 设置消息处理器，监听来自 Python 的消息
-     */
-    private setupMessageHandler(): void {
-        if (!this.ipcWebChannel) return;
-        
-        // 关键: 监听 python_to_web 信号
-        if (this.ipcWebChannel.python_to_web && typeof this.ipcWebChannel.python_to_web.connect === 'function') {
-            this.ipcWebChannel.python_to_web.connect(this.handleMessage.bind(this));
-            logger.info("[IPCWCClient] Connected to python_to_web signal for pushed messages.");
-        } else {
-            logger.error("[IPCWCClient] Could not connect to python_to_web signal. Pushed messages will not be received.");
-        }
-    }
-
-    // ===== 队列管理方法 =====
-
-    /**
-     * 清理内存队列
-     */
-    public clearQueue(): void {
-        logger.info('Clearing IPC request queue');
-        this.requestQueue = [];
-        this.requestMap.clear();
-        this.activeRequests.clear();
-        this.processingQueue = false;
-    }
-
-
-    /**
-     * 将请求加入队列
-     */
-    private enqueueRequest(request: QueuedRequest): void {
-        // 检查是否已存在相同请求（去重）
-        const existingIndex = this.requestQueue.findIndex(req => 
-            req.method === request.method && 
-            JSON.stringify(req.params) === JSON.stringify(request.params) &&
-            req.status === RequestStatus.PENDING
-        );
-
-        if (existingIndex !== -1) {
-            logger.debug(`Duplicate request found, updating: ${request.method}`);
-            this.requestQueue[existingIndex] = request;
-        } else {
-            this.requestQueue.push(request);
-        }
-
-        this.requestMap.set(request.id, request);
-        
-        // 按优先级排序
-        this.requestQueue.sort((a, b) => b.priority - a.priority);
-    }
-
-    /**
-     * 处理请求队列
-     */
-    private async processQueue(): Promise<void> {
-        if (this.processingQueue || this.activeRequests.size >= this.maxConcurrentRequests) {
-            return;
-        }
-        
-        this.processingQueue = true;
-        
-        try {
-            while (this.activeRequests.size < this.maxConcurrentRequests) {
-                const request = this.dequeueRequest();
-                if (!request) break;
-                
-                this.executeQueuedRequest(request);
-            }
-        } finally {
-            this.processingQueue = false;
-        }
-    }
-
-    /**
-     * 从队列中取出请求
-     */
-    private dequeueRequest(): QueuedRequest | null {
-        const index = this.requestQueue.findIndex(req => req.status === RequestStatus.PENDING);
-        if (index === -1) return null;
-        
-        const request = this.requestQueue[index];
-        request.status = RequestStatus.EXECUTING;
-        request.updatedAt = Date.now();
-        
-        return request;
-    }
-
-    /**
-     * 执行队列中的请求
-     */
-    private async executeQueuedRequest(request: QueuedRequest): Promise<void> {
-        this.activeRequests.add(request.id);
-        
-        try {
-            const response = await this.sendRequest(request.method, request.params, request.timeout);
-            
-            request.status = RequestStatus.COMPLETED;
-            request.updatedAt = Date.now();
-            request.onSuccess?.(response);
-            
-            // 从队列中移除已完成的请求
-            this.removeFromQueue(request.id);
-        } catch (error) {
-            await this.handleQueuedRequestError(request, error);
-        } finally {
-            this.activeRequests.delete(request.id);
-            // 继续处理队列
-            setTimeout(() => this.processQueue(), 0);
-        }
-    }
-
-    /**
-     * 处理队列请求错误和重试逻辑
-     */
-    private async handleQueuedRequestError(request: QueuedRequest, error: any): Promise<void> {
-        const shouldRetry = this.isRetryableError(error) && request.retryCount < request.maxRetries;
-        
-        if (shouldRetry) {
-            request.retryCount++;
-            request.status = RequestStatus.RETRYING;
-            request.updatedAt = Date.now();
-            
-            const delay = request.retryDelay * Math.pow(request.backoffMultiplier, request.retryCount - 1);
-            
-            // 对于 SYSTEM_NOT_READY 错误，提供更友好的日志信息
-            if (error.code === 'SYSTEM_NOT_READY' || error.message?.includes('SYSTEM_NOT_READY')) {
-                logger.info(`[IPC] System not ready for ${request.method}, retrying in ${delay}ms (attempt ${request.retryCount}/${request.maxRetries})`);
-            } else {
-                logger.info(`[IPC] Retrying ${request.method} in ${delay}ms (attempt ${request.retryCount}/${request.maxRetries}) - Error: ${error.code || error.message}`);
-            }
-            
-            setTimeout(() => {
-                request.status = RequestStatus.PENDING;
-                this.processQueue();
-            }, delay);
-        } else {
-            request.status = RequestStatus.FAILED;
-            request.updatedAt = Date.now();
-            
-            // 对于 SYSTEM_NOT_READY 错误，提供更详细的失败信息
-            if (error.code === 'SYSTEM_NOT_READY' || error.message?.includes('SYSTEM_NOT_READY')) {
-                logger.warn(`[IPC] ${request.method} failed after ${request.maxRetries} retries - System initialization taking longer than expected`);
-            } else {
-                logger.error(`[IPC] ${request.method} failed after ${request.maxRetries} retries - Final error: ${error.code || error.message}`);
-            }
-            
-            request.onError?.(error);
-            
-            // 从队列中移除失败的请求
-            this.removeFromQueue(request.id);
-        }
-    }
-
-    /**
-     * 判断错误是否可重试
-     */
-    private isRetryableError(error: any): boolean {
-        const retryableErrors = [
-            'NETWORK_ERROR',
-            'TIMEOUT_ERROR', 
-            'SYSTEM_INITIALIZING',
-            'CONNECTION_ERROR',
-            'TEMPORARY_ERROR',
-            'SYSTEM_NOT_READY',
-            'SYSTEM_NOT_READY_TIMEOUT',
-            'SYSTEM_CHECK_ERROR'
-        ];
-        
-        return retryableErrors.includes(error.code) || 
-               error.message?.includes('timeout') ||
-               error.message?.includes('network');
-    }
-
-    /**
-     * 从队列中移除请求
-     */
-    private removeFromQueue(requestId: string): void {
-        const index = this.requestQueue.findIndex(req => req.id === requestId);
-        if (index !== -1) {
-            this.requestQueue.splice(index, 1);
-        }
-        this.requestMap.delete(requestId);
-    }
+// ===== Queue stubs (disabled for debugging) =====
+clearQueue(): void {
+    // no-op stub for now
+    this.requestQueue = [];
+    this.requestMap.clear();
+    this.activeRequests.clear();
+    this.processingQueue = false;
+}
 
     /**
      * 为请求添加认证 token

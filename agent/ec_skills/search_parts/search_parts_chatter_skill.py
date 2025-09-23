@@ -879,8 +879,8 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
         logger.debug(f"[search_parts_chatter_skill] about to query rerank search results: {type(state)}, {state}")
 
         i = 0
-
-        rerank_req = {"agent_id": agent_id, "setup": state["tool_input"]}
+        setup = prep_ranking_request(state)
+        rerank_req = {"agent_id": agent_id, "setup": setup}
         state["tool_input"] = rerank_req
 
         async def run_tool_call():
