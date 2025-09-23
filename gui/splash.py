@@ -605,37 +605,22 @@ class PythonInitWorker(QObject):
             # Phase 2: Import core modules
             self.status_update.emit("Loading core modules...")
             self.progress.emit(15)
-
-            # Phase 3: Database migration
-            self.status_update.emit("Checking database...")
-            try:
-                from agent.chats.db_migration import DBMigration
-                migration = DBMigration()
-                ok = migration.upgrade_to_version('2.0.0', 'Auto-upgrade at startup')
-                self.progress.emit(35 if not ok else 45)
-                if ok:
-                    self.status_update.emit("Database updated successfully")
-                else:
-                    self.status_update.emit("Database check completed")
-            except Exception as e:
-                self.status_update.emit("Database initialization failed")
-                self.progress.emit(35)
-
-            # Phase 4: Load configuration
+            
+            # Phase 3: Load configuration
             self.status_update.emit("Loading configuration...")
-            self.progress.emit(55)
+            self.progress.emit(30)
 
-            # Phase 5: Initialize services
+            # Phase 4: Initialize services
             self.status_update.emit("Initializing services...")
-            self.progress.emit(70)
+            self.progress.emit(35)
 
-            # Phase 6: Prepare GUI components
+            # Phase 5 Prepare GUI components
             self.status_update.emit("Preparing interface...")
-            self.progress.emit(85)
+            self.progress.emit(40)
 
-            # Phase 7: Final preparations
+            # Phase 6: Final preparations
             self.status_update.emit("Finalizing startup...")
-            self.progress.emit(95)
+            self.progress.emit(50)
 
         finally:
             self.status_update.emit("Ready to launch!")

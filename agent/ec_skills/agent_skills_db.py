@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, Column, String, Integer, Boolean, ForeignKey, Text, DateTime, JSON
 from sqlalchemy.orm import relationship, sessionmaker, declarative_base
 from sqlalchemy import create_engine, Column, String, Integer, Boolean, ForeignKey, Text, DateTime, JSON, BigInteger
-from agent.chats.chats_db import Base, ECBOT_CHAT_DB, Member, get_engine, get_session_factory
+from agent.db import Base, ECAN_BASE_DB, Member, get_engine, get_session_factory
 from datetime import datetime
 
 # 统一 Base，所有表都继承这个 Base

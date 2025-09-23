@@ -113,7 +113,15 @@
     "redirecting": "Redirecting...",
     "sending": "Sending...",
     "resetting": "Resetting...",
-    "systemInitializing": "System is initializing, please wait..."
+    "systemInitializing": "System is initializing, please wait...",
+    "openingGoogle": "Opening Google login...",
+    "authenticating": "Authenticating...",
+    "googleSuccess": "Google login successful",
+    "googleFailed": "Google login failed",
+    "googleError": "Google login error",
+    "redirectingToMain": "Redirecting to main page...",
+    "lastError": "Last error:",
+    "retryHint": "Please check your credentials and try again."
   },
   "roles": {
     "commander": "Commander",

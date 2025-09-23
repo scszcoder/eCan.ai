@@ -1,11 +1,20 @@
+"""
+Database migration management for eCan.ai.
+
+This module provides database migration functionality to handle
+schema changes and version upgrades safely.
+"""
+
 from typing import List, Dict, Any, Optional
 from sqlalchemy import create_engine, MetaData, Table, Column, String, Integer, DateTime, JSON, Boolean
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
-from agent.chats.chats_db import Base, DBVersion
+from ..models import DBVersion
+from .base import Base, get_engine
 
 from utils.logger_helper import logger_helper as logger
+
 
 class DBMigration:
     """Database Migration Manager"""
@@ -17,14 +26,15 @@ class DBMigration:
         Args:
             db_path (str, optional): Database file path
         """
-        # Lazy import to avoid circular dependency
-        from .chats_db import get_engine
         self.db_path = db_path
         self.engine = get_engine(db_path)
         self.Session = sessionmaker(bind=self.engine)
         
     def get_current_version(self) -> Optional[str]:
         """Get current database version, auto-insert 1.0.0 if none exists"""
+        # Ensure all tables are created first
+        Base.metadata.create_all(self.engine)
+        
         session = self.Session()
         try:
             version = DBVersion.get_current_version(session)

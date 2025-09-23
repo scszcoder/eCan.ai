@@ -1,8 +1,8 @@
 from sqlalchemy.orm import  sessionmaker
-from agent.chats.chats_db import get_engine, get_session_factory, Base
+from agent.db import get_engine, get_session_factory, Base
 from agent.ec_skills.agent_skills_db import DBAgentSkill
 from agent.ec_agents.agent_db import DBAgent, DBAgentTool, DBAgentTask, DBAgentKnowledge
-from agent.chats.chat_service import SingletonMeta
+from agent.db import SingletonMeta
 
 from contextlib import contextmanager
 from sqlalchemy.exc import SQLAlchemyError
@@ -31,7 +31,7 @@ class AgentsDBService(metaclass=SingletonMeta):
             Base.metadata.create_all(engine)
             # 新增：自动插入初始 db_version 记录并执行数据库升级
             try:
-                from agent.chats.db_migration import DBMigration
+                from agent.db.migration import DBMigration
                 migrator = DBMigration(db_path)
                 # 确保有 db_version 表和初始记录
                 migrator.get_current_version()

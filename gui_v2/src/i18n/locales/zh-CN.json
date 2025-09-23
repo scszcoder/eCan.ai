@@ -157,7 +157,12 @@
     "resetting": "重置中...",
     "googleSuccess": "谷歌登录成功",
     "googleFailed": "谷歌登录失败",
-    "googleError": "谷歌登录错误"
+    "googleError": "谷歌登录错误",
+    "openingGoogle": "正在打开谷歌登录...",
+    "authenticating": "正在验证身份...",
+    "redirectingToMain": "正在跳转到主页面...",
+    "lastError": "上次错误：",
+    "retryHint": "请检查您的凭据并重试。"
   },
   "roles": {
     "commander": "指挥官",

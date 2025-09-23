@@ -569,7 +569,7 @@ def handle_chat_form_submit(request: IPCRequest, params: Optional[dict]) -> IPCR
             params["attachments"] = []
             params["content"] = json.dumps(params.get("formData"))
             form_submit_req =IPCRequest(id="", type='request', method="form_submit", params=params, meta={}, timestamp=params["createAt"] )
-            print("a2a_send_chat form submit:", form_submit_req)
+            logger.debug("a2a_send_chat form submit:", form_submit_req)
             # 懒加载重的导入
             from agent.chats.chat_utils import a2a_send_chat
             request['params']['human'] = True

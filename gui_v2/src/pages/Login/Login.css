@@ -145,6 +145,36 @@
   background: linear-gradient(90deg, #1890ff 0%, #096dd9 100%);
   border: none;
   box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3);
+  transition: all 0.3s ease;
+}
+
+.login-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(24, 144, 255, 0.4);
+}
+
+.login-button:disabled {
+  opacity: 0.8;
+}
+
+/* Google登录按钮 */
+.google-login-button {
+  height: 45px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #333;
+  transition: all 0.3s ease;
+}
+
+.google-login-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  background: #f8f9fa;
+}
+
+.google-login-button:disabled {
+  opacity: 0.8;
 }
 
 /* 链接按钮 */

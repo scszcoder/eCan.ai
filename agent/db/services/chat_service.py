@@ -1,0 +1,805 @@
+"""
+Chat service for managing chat conversations, members, and messages.
+
+This module provides the ChatService class which handles all chat-related
+database operations including creating chats, managing members, and
+handling messages with various content types.
+"""
+
+from typing import List, Optional, Dict, Any
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import select
+import os
+import json
+import uuid
+import time
+import copy
+
+from app_context import AppContext
+from ..core import Chat, Member, Message, Attachment, ChatNotification, Base, DBMigration
+from ..utils import ContentSchema
+from .base_service import BaseService
+from utils.logger_helper import logger_helper as logger
+
+
+class ChatService(BaseService):
+    """
+    Chat system service class providing all chat-related operations.
+    
+    This service handles chat conversations, members, messages, and notifications
+    with support for various content types and database operations.
+    """
+
+    def __init__(self, db_manager=None, engine=None, session=None):
+        """
+        Initialize chat service.
+        
+        Args:
+            db_manager: ECanDBManager instance (preferred)
+            engine: SQLAlchemy engine instance (fallback)
+            session: SQLAlchemy session instance (fallback)
+        """
+        if db_manager is not None:
+            # Use database manager (preferred approach)
+            self.db_manager = db_manager
+            # Initialize BaseService with database manager's engine
+            super().__init__(engine=db_manager.get_engine())
+        else:
+            # Fallback to traditional BaseService initialization
+            super().__init__(db_path=None, engine=engine, session=session)
+            self.db_manager = None
+
+    def session_scope(self):
+        """
+        Provide a transactional scope around a series of operations.
+        Override BaseService to support ECanDBManager.
+        
+        Yields:
+            Session: SQLAlchemy session instance
+        """
+        if self.db_manager is not None:
+            # Use database manager's session management
+            return self.db_manager.get_session()
+        else:
+            # Use BaseService's session management
+            return super().session_scope()
+
+    @classmethod
+    def initialize(cls, db_manager) -> 'ChatService':
+        """
+        Initialize chat service instance with database manager.
+
+        Args:
+            db_manager: ECanDBManager instance (required)
+
+        Returns:
+            ChatService: Chat service instance
+        """
+        if db_manager is None:
+            raise ValueError("db_manager is required for ChatService initialization")
+
+        return cls(db_manager=db_manager)
+
+
+    def create_chat(
+        self,
+        members: list,              # 必须，成员列表
+        name: str,                  # 必须，会话名称
+        type: str = "user-agent",  # 可选，会话类型，默认 user-agent
+        avatar: str = None,         # 可选，会话头像
+        lastMsg: str = None,        # 可选，最后一条消息内容
+        lastMsgTime: int = None,    # 可选，最后一条消息时间戳
+        unread: int = 0,            # 可选，未读数，默认0
+        pinned: bool = False,       # 可选，是否置顶，默认False
+        muted: bool = False,        # 可选，是否静音，默认False
+        ext: dict = None,           # 可选，扩展字段，默认空字典
+        id: str = None              # 可选，会话ID，不传则自动生成
+    ) -> Dict[str, Any]:
+        """
+        Create a new chat conversation.
+        
+        Args:
+            members (list): List of chat members
+            name (str): Chat name
+            type (str): Chat type, defaults to "user-agent"
+            avatar (str, optional): Chat avatar URL
+            lastMsg (str, optional): Last message content
+            lastMsgTime (int, optional): Last message timestamp
+            unread (int): Unread message count, defaults to 0
+            pinned (bool): Whether chat is pinned, defaults to False
+            muted (bool): Whether chat is muted, defaults to False
+            ext (dict, optional): Extended attributes
+            id (str, optional): Chat ID, auto-generated if not provided
+            
+        Returns:
+            dict: Standard response with success status and data
+        """
+        ext = {} if ext is None else ext
+        with self.session_scope() as session:
+            try:
+                input_member_ids = set(str(m['userId']) for m in members)
+                candidate_chats = session.query(Chat).filter(Chat.type == type).all()
+                for chat in candidate_chats:
+                    db_member_ids = set(str(m.userId) for m in chat.members)
+                    if db_member_ids == input_member_ids:
+                        return {
+                            "success": False,
+                            "id": chat.id,
+                            "data": chat.to_dict(deep=True),
+                            "error": f"Chat with same members already exists: {chat.id}"
+                        }
+
+                chat_id = id or f"chat-{str(int(time.time() * 1000))[-6:]}"
+                chat = Chat(
+                    id=chat_id,
+                    type=type,
+                    name=name,
+                    avatar=avatar,
+                    lastMsg=lastMsg,
+                    lastMsgTime=lastMsgTime,
+                    unread=unread,
+                    pinned=pinned,
+                    muted=muted,
+                    ext=ext
+                )
+
+                for m in members:
+                    member = Member(
+                        chatId=chat_id,
+                        userId=m["userId"],
+                        role=m["role"],
+                        name=m["name"],
+                        avatar=m.get("avatar"),
+                        status=m.get("status"),
+                        ext=m.get("ext"),
+                        agentName=m.get("agentName")
+                    )
+                    chat.members.append(member)
+                session.add(chat)
+                session.flush()
+                return {
+                    "success": True,
+                    "id": chat.id,
+                    "data": chat.to_dict(deep=True),
+                    "error": None
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "id": None,
+                    "data": None,
+                    "error": str(e)
+                }
+
+    def add_message(
+        self,
+        chatId: str,
+        role: str,
+        content: Any,
+        senderId: str,
+        createAt: int,
+        id: str = None,
+        status: str = "complete",
+        senderName: str = None,
+        time: int = None,
+        ext: dict = None,
+        attachments: list = None
+    ) -> Dict[str, Any]:
+        """
+        Add a message to a chat conversation.
+        
+        Args:
+            chatId (str): Chat ID
+            role (str): Message role (user, assistant, system)
+            content (Any): Message content
+            senderId (str): Sender ID
+            createAt (int): Creation timestamp
+            id (str, optional): Message ID, auto-generated if not provided
+            status (str): Message status, defaults to "complete"
+            senderName (str, optional): Sender name
+            time (int, optional): Message time
+            ext (dict, optional): Extended attributes
+            attachments (list, optional): Message attachments
+            
+        Returns:
+            dict: Standard response with success status and data
+        """
+        logger.debug(f"[chat_service] add_message: {chatId}, {role}, {content}, {senderId}, {createAt}, {id}, {status}, {senderName}, {time}, {ext}, {attachments}")
+        
+        with self.session_scope() as session:
+            chat = session.get(Chat, chatId)
+            if not chat:
+                return {
+                    "success": False,
+                    "id": None,
+                    "data": None,
+                    "error": f"Chat {chatId} not found"
+                }
+
+            message_id = id or str(uuid.uuid4())
+            message = Message(
+                id=message_id,
+                chatId=chatId,
+                role=role,
+                createAt=createAt,
+                content=content,
+                status=status,
+                senderId=senderId,
+                senderName=senderName,
+                time=time,
+                ext=ext,
+                isRead=False
+            )
+
+            if attachments:
+                for att in attachments:
+                    attachment_obj = Attachment(
+                        uid=att.get("uid", str(uuid.uuid4())),
+                        messageId=message_id,
+                        name=att["name"],
+                        status=att["status"],
+                        url=att.get("url"),
+                        size=att.get("size"),
+                        type=att.get("type"),
+                        ext=att.get("ext")
+                    )
+                    message.attachments.append(attachment_obj)
+
+            # Update chat.lastMsg and lastMsgTime
+            chat.lastMsg = json.dumps(content, ensure_ascii=False)
+            chat.lastMsgTime = createAt
+            # Increment unread count
+            chat.unread = (chat.unread or 0) + 1
+            logger.debug(f"[chat_service] chat.unread: {message}")
+            chat.messages.append(message)
+            session.add(message)
+            session.flush()
+            return {
+                "success": True,
+                "id": message.id,
+                "data": message.to_dict(deep=True),
+                "error": None
+            }
+
+    def dispatch_add_message(self, chatId, args: dict) -> dict:
+        """
+        Dispatch message addition based on content type.
+        
+        Args:
+            chatId (str): Chat ID
+            args (dict): Message arguments
+            
+        Returns:
+            dict: Standard response from add_message methods
+        """
+        content = args.get('content')
+        chatId = chatId if chatId is not None else args.get('chatId')
+        role = args.get('role')
+        senderId = args.get('senderId')
+        createAt = args.get('createAt')
+        messageId = args.get('id')
+        status = args.get('status')
+        senderName = args.get('senderName')
+        time_ = args.get('time')
+        ext = args.get('ext')
+        attachments = args.get('attachments')
+
+        # Ensure createAt is an integer, not a list
+        if isinstance(createAt, list) and len(createAt) > 0:
+            createAt = createAt[0]
+        elif createAt is None:
+            createAt = int(time.time() * 1000)
+
+        if isinstance(content, dict) and 'type' in content:
+            content_type = content.get('type')
+            if content_type == 'form':
+                return self.add_form_message(
+                    chatId=chatId, role=role, text=content.get('text', ''), form=content.get('form', {}),
+                    senderId=senderId, createAt=createAt, id=messageId, status=status,
+                    senderName=senderName, time=time_, ext=ext, attachments=attachments)
+            elif content_type == 'notification':
+                return self.add_notification_message(
+                    chatId=chatId, notification=content.get('notification', {}),
+                    senderId=senderId, createAt=createAt, id=messageId, status=status,
+                    senderName=senderName, time=time_, ext=ext, attachments=attachments)
+            else:
+                return self.add_message(
+                    chatId=chatId, role=role, content=content, senderId=senderId, createAt=createAt,
+                    id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
+        else:
+            return self.add_text_message(
+                chatId=chatId, role=role, text=str(content), senderId=senderId, createAt=createAt,
+                id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
+
+    def add_text_message(self, chatId: str, role: str, text: str, senderId: str = None, createAt: int = None, **kwargs):
+        """Add a text message to the chat."""
+        content = ContentSchema.create_text(text)
+        return self.add_message(
+            chatId=chatId, 
+            role=role, 
+            content=content, 
+            senderId=senderId or role, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
+
+    def add_form_message(self, chatId: str, role: str, text: str, form: dict, senderId: str = None, createAt: int = None, **kwargs):
+        """Add a form message to the chat."""
+        content = ContentSchema.create_form(text, form)
+        logger.debug(f"[chat_service] add_form_message: {chatId}, {role}, {content}, {senderId}, {createAt}, {kwargs}")
+        return self.add_message(
+            chatId=chatId, 
+            role=role, 
+            content=content, 
+            senderId=senderId or role, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
+
+    def add_notification_message(self, chatId: str, notification: dict = "",
+                               senderId: str = "system", createAt: int = None, **kwargs):
+        """Add a notification message to the chat."""
+        title = notification.get('title', 'Notification')
+        logger.debug(f"[chat_service] Final notification params - title: '{title}', notification: '{notification}'")
+            
+        notification_content = ContentSchema.create_notification(title, notification)
+        logger.debug(f"[chat_service] Created notification content: {notification_content}")
+
+        # Add message to database
+        result = self.add_message(
+            chatId=chatId,
+            role="system",
+            content=notification_content,
+            senderId=senderId,
+            createAt=createAt or int(time.time()*1000),
+            **kwargs
+        )
+        logger.debug(f"[chat_service] add_notification_message result: {result}")
+        return result
+
+    def query_messages_by_chat(
+        self,
+        chatId: str,
+        limit: int = 20,
+        offset: int = 0,
+        reverse: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Query messages by chat ID with pagination.
+        
+        Args:
+            chatId (str): Chat ID
+            limit (int): Number of messages to return, defaults to 20
+            offset (int): Starting offset, defaults to 0
+            reverse (bool): Whether to reverse order, defaults to False
+            
+        Returns:
+            dict: Standard response with message list
+        """
+        if not chatId:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "chatId is required"
+            }
+        
+        with self.session_scope() as session:
+            chat = session.get(Chat, chatId)
+            if not chat:
+                return {
+                    "success": False,
+                    "id": chatId,
+                    "data": None,
+                    "error": f"Chat {chatId} not found"
+                }
+            query = session.query(Message).filter(Message.chatId == chatId)
+            if reverse:
+                query = query.order_by(Message.createAt.desc())
+            else:
+                query = query.order_by(Message.createAt.asc())
+            messages = query.offset(offset).limit(limit).all()
+            return {
+                "success": True,
+                "id": chatId,
+                "data": [msg.to_dict(deep=True) for msg in messages],
+                "error": None
+            }
+
+    def get_chat_by_id(
+        self, 
+        chat_id: str, 
+        deep: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Get chat by ID.
+        
+        Args:
+            chat_id (str): Chat ID
+            deep (bool): Whether to include members and messages
+            
+        Returns:
+            dict: Standard response with chat data
+        """
+        if not chat_id:
+            return {
+                "success": False,
+                "data": None,
+                "error": "chat_id is required"
+            }
+            
+        with self.session_scope() as session:
+            try:
+                chat = session.query(Chat).filter(Chat.id == chat_id).first()
+                if not chat:
+                    return {
+                        "success": False,
+                        "data": None,
+                        "error": f"Chat with id {chat_id} not found"
+                    }
+                
+                return {
+                    "success": True,
+                    "data": chat.to_dict(deep=deep),
+                    "error": None
+                }
+                
+            except Exception as e:
+                return {
+                    "success": False,
+                    "data": None,
+                    "error": str(e)
+                }
+
+    def query_chats_by_user(self, userId: Optional[str] = None, deep: bool = False) -> Dict[str, Any]:
+        """
+        Query chats by user ID.
+        
+        Args:
+            userId (str, optional): User ID
+            deep (bool): Whether to include messages
+            
+        Returns:
+            dict: Standard response with chat list
+        """
+        if not userId:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "userId is required"
+            }
+        with self.session_scope() as session:
+            stmt = select(Chat).join(Member).where(Member.userId == userId)
+            chats = session.execute(stmt).scalars().all()
+            return {
+                "success": True,
+                "id": None,
+                "data": [chat.to_dict(deep=deep) for chat in chats],
+                "error": None
+            }
+
+    def delete_chat(self, chatId: str) -> Dict[str, Any]:
+        """
+        Delete a chat and all related data.
+        
+        Args:
+            chatId (str): Chat ID
+            
+        Returns:
+            dict: Standard response
+        """
+        if not chatId:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "chatId is required"
+            }
+        with self.session_scope() as session:
+            chat = session.get(Chat, chatId)
+            if not chat:
+                return {
+                    "success": False,
+                    "id": chatId,
+                    "data": None,
+                    "error": f"Chat {chatId} not found"
+                }
+            session.delete(chat)
+            session.flush()
+            return {
+                "success": True,
+                "id": chatId,
+                "data": None,
+                "error": None
+            }
+
+    def mark_message_as_read(self, messageIds: list, userId: str) -> Dict[str, Any]:
+        """
+        Mark messages as read and update chat unread count.
+        
+        Args:
+            messageIds (list): List of message IDs
+            userId (str): User ID
+            
+        Returns:
+            dict: Standard response with processed message IDs
+        """
+        if not messageIds or not userId:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "message_ids and user_id are required"
+            }
+        updated_ids = []
+        with self.session_scope() as session:
+            for message_id in messageIds:
+                message = session.get(Message, message_id)
+                if not message:
+                    continue
+                if not message.isRead:
+                    message.isRead = True
+                    # Update chat unread count
+                    chat = session.get(Chat, message.chatId)
+                    if chat and chat.unread > 0:
+                        chat.unread = max(0, chat.unread - 1)
+                updated_ids.append(message_id)
+            session.flush()
+            return {
+                "success": True,
+                "id": None,
+                "data": updated_ids,
+                "error": None
+            }
+
+    def set_chat_unread(self, chatId: str, unread: int = 0) -> Dict[str, Any]:
+        """
+        Set chat unread count.
+        
+        Args:
+            chatId (str): Chat ID
+            unread (int): Unread count, defaults to 0
+            
+        Returns:
+            dict: Standard response
+        """
+        if not chatId:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "chatId is required"
+            }
+        with self.session_scope() as session:
+            chat = session.get(Chat, chatId)
+            if not chat:
+                return {
+                    "success": False,
+                    "id": chatId,
+                    "data": None,
+                    "error": f"Chat {chatId} not found"
+                }
+            chat.unread = unread
+            session.flush()
+            return {
+                "success": True,
+                "id": chatId,
+                "data": chat.to_dict(),
+                "error": None
+            }
+
+    def submit_form(self, chatId: str, messageId: str, formId: str, formData: dict) -> Dict[str, Any]:
+        """
+        Submit form data and update message content.
+        
+        Args:
+            chatId (str): Chat ID
+            messageId (str): Message ID
+            formId (str): Form ID
+            formData (dict): Form data
+            
+        Returns:
+            dict: Standard response
+        """
+        if not chatId or not messageId or not formId or formData is None:
+            return {
+                "success": False,
+                "error": "chatId, messageId, formId, formData 必填",
+                "data": None
+            }
+        with self.session_scope() as session:
+            message = session.get(Message, messageId)
+            if not message or message.chatId != chatId:
+                return {
+                    "success": False,
+                    "error": "消息不存在或不属于指定会话",
+                    "data": None
+                }
+            content = message.content
+            if not isinstance(content, dict) or content.get('type') != 'form':
+                return {
+                    "success": False,
+                    "error": "消息类型不是表单(form)",
+                    "data": None
+                }
+            # Replace content['form']
+            content['form'] = formData
+            message.content = copy.deepcopy(content)  # Ensure SQLAlchemy detects the change
+            session.flush()
+            return {
+                "success": True,
+                "data": message.to_dict(deep=True),
+                "error": None
+            }
+
+    def delete_message(self, chatId: str, messageId: str) -> Dict[str, Any]:
+        """
+        Delete a message from the chat.
+        
+        Args:
+            chatId (str): Chat ID
+            messageId (str): Message ID to delete
+            
+        Returns:
+            dict: Standard response with deleted message data
+        """
+        if not chatId or not messageId:
+            return {
+                "success": False,
+                "error": "chatId and messageId are required",
+                "data": None
+            }
+        
+        try:
+            with self.session_scope() as session:
+                # Find the message to delete
+                message = session.query(Message).filter(
+                    Message.id == messageId,
+                    Message.chatId == chatId
+                ).first()
+                
+                if not message:
+                    return {
+                        "success": False,
+                        "error": f"Message with id {messageId} not found in chat {chatId}",
+                        "data": None
+                    }
+                
+                # Store message data before deletion for response
+                message_data = message.to_dict(deep=True)
+                
+                # Delete associated attachments first (if any)
+                session.query(Attachment).filter(Attachment.messageId == messageId).delete()
+                
+                # Delete the message
+                session.delete(message)
+                session.commit()
+                
+                logger.info(f"[chat_service] Message {messageId} deleted from chat {chatId}")
+                
+                return {
+                    "success": True,
+                    "data": message_data,
+                    "error": None
+                }
+                
+        except Exception as e:
+            logger.error(f"[chat_service] Error deleting message {messageId}: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "data": None
+            }
+
+    def add_chat_notification(self, chatId: str, content: dict, timestamp: int, isRead: bool = False, uid: str = None) -> dict:
+        """
+        Add a chat notification.
+        
+        Args:
+            chatId (str): Chat ID
+            content (dict): Notification content
+            timestamp (int): Notification timestamp
+            isRead (bool): Whether notification is read
+            uid (str, optional): Notification UID
+            
+        Returns:
+            dict: Standard response
+        """
+        if not chatId or content is None or timestamp is None:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "chatId, content, timestamp are required"
+            }
+        uid = uid or str(uuid.uuid4())
+        with self.session_scope() as session:
+            chat = session.get(Chat, chatId)
+            if not chat:
+                return {
+                    "success": False,
+                    "id": None,
+                    "data": None,
+                    "error": f"Chat {chatId} not found"
+                }
+            notif = ChatNotification(
+                uid=uid,
+                chatId=chatId,
+                content=content,
+                timestamp=timestamp,
+                isRead=isRead
+            )
+            session.add(notif)
+            session.flush()
+            return {
+                "success": True,
+                "id": notif.uid,
+                "data": notif.to_dict(),
+                "error": None
+            }
+
+    def query_chat_notifications(self, chatId: str, limit: int = 20, offset: int = 0, reverse: bool = False) -> dict:
+        """
+        Query chat notifications with pagination.
+        
+        Args:
+            chatId (str): Chat ID
+            limit (int): Number of notifications to return
+            offset (int): Starting offset
+            reverse (bool): Whether to reverse order
+            
+        Returns:
+            dict: Standard response with notification list
+        """
+        if not chatId:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "chatId is required"
+            }
+        with self.session_scope() as session:
+            query = session.query(ChatNotification).filter(ChatNotification.chatId == chatId)
+            if reverse:
+                query = query.order_by(ChatNotification.timestamp.desc())
+            else:
+                query = query.order_by(ChatNotification.timestamp.asc())
+            chat_notifications = query.offset(offset).limit(limit).all()
+            return {
+                "success": True,
+                "id": chatId,
+                "data": [n.to_dict() for n in chat_notifications],
+                "error": None
+            }
+
+    def push_message_to_chat(self, chatId, msg: dict):
+        """Push message to chat and frontend."""
+        logger.debug("[chat_service] push message to front", msg)
+        content = msg.get('content')
+        createAt = msg.get('createAt')
+
+        db_result = self.dispatch_add_message(chatId, msg)
+        logger.info(f"[chat_service] push message to db_result: {db_result}")
+
+        # Push to frontend
+        web_gui = AppContext.get_web_gui()
+        # Push actual data after database write
+        if db_result and isinstance(db_result, dict) and 'data' in db_result:
+            logger.debug("[chat_service] push chat message content:", db_result['data'])
+            web_gui.get_ipc_api().push_chat_message(chatId, db_result['data'])
+        else:
+            logger.error(f"[chat_service] message insert db failed{chatId}, {msg.get('id')}")
+
+    def push_notification_to_chat(self, chatId, notif: dict):
+        """Push notification to chat and frontend."""
+        logger.debug("[chat_service] push notification to front", notif)
+
+        db_result = self.add_chat_notification(chatId, notif, int(time.time() * 1000))
+        logger.info(f"[chat_service] push notification to db_result: {db_result}")
+        # Push to frontend
+        web_gui = AppContext.get_web_gui()
+        # Push actual data after database write
+        if db_result and isinstance(db_result, dict) and 'data' in db_result:
+            logger.debug("[chat_service] push chat notification content:", db_result['data'])
+            web_gui.get_ipc_api().push_chat_notification(chatId, db_result['data'])
