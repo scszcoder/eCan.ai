@@ -6361,7 +6361,7 @@ class MainWindow:
                     new_bot = EBBOT(self)
                     new_bot.loadDBData(row)
                     print("hello????")
-                    new_bot.updateDisplay()
+                    # new_bot.updateDisplay()
                     self.bots.append(new_bot)
 
                     self.addBotToVehicle(new_bot)
