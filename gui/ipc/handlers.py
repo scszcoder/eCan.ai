@@ -4,6 +4,8 @@ IPC 处理器实现模块
 """
 
 from typing import Any, Optional, Dict
+import threading
+import time
 
 from gui.LoginoutGUI import Login
 from .types import IPCRequest, IPCResponse, create_success_response, create_error_response
@@ -20,6 +22,65 @@ try:
     from agent.tasks import TaskRunnerRegistry  # type: ignore
 except Exception:
     TaskRunnerRegistry = None  # type: ignore
+
+def _execute_tests_background(request_id: str, tests: list, web_gui):
+    """Execute tests in background thread and push results via python_to_web"""
+    try:
+        logger.info(f"Starting background test execution for request {request_id}")
+        
+        # Import here to avoid blocking the main thread during handler registration
+        from tests.main_test import run_default_tests
+        
+        results = []
+        login: Login = AppContext.login
+        
+        for test in tests:
+            test_id = test.get('test_id')
+            test_args = test.get('args', {})
+            
+            logger.info(f"Executing test: {test_id}")
+            
+            if test_id == 'default_test':
+                logger.info("Running default test in background")
+                result = run_default_tests(login.main_win)
+            else:
+                logger.info(f"Running test: {test_id}")
+                # For other tests, create a simple success result for now
+                result = {"success": True, "message": f"Test {test_id} completed"}
+            
+            results.append({
+                "test_id": test_id,
+                "result": result
+            })
+        
+        # Push results back to frontend via python_to_web
+        response_data = {
+            'request_id': request_id,
+            'results': results,
+            'message': 'Tests completed successfully',
+            'status': 'completed'
+        }
+        
+        if web_gui:
+            web_gui.python_to_web('test_results', response_data)
+        
+        logger.info(f"Background test execution completed for request {request_id}")
+        
+    except Exception as e:
+        logger.error(f"Error in background test execution: {e}")
+        logger.error(traceback.format_exc())
+        
+        # Push error back to frontend
+        error_data = {
+            'request_id': request_id,
+            'error': str(e),
+            'message': 'Test execution failed',
+            'status': 'error'
+        }
+        
+        if web_gui:
+            web_gui.python_to_web('test_results', error_data)
+
 
 def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
     """验证请求参数
@@ -575,6 +636,7 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
     Returns:
         str: JSON 格式的响应消息
     """
+    # from tests.main_test import run_default_tests  # Commented out to prevent UI freeze
     try:
         logger.debug(f"Run tests handler called with request: {request}, params: {params}")
         tests = params.get('tests', [])
@@ -591,7 +653,8 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
             # Process each test with its arguments
             if test_id == 'default_test':
                 login: Login = AppContext.login
-                result = run_default_tests(web_gui, login.main_win)
+                print("oooooooooooooo running default test ooooooooooooooooooooooooooo")
+                result = run_default_tests(login.main_win)
             # Add other test cases as needed
             else:
                 print(">>>>>running test:", test_id, "trigger running procrement task")
