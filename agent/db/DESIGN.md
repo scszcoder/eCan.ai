@@ -20,7 +20,7 @@ agent/db/
 │   └── version_model.py            # 版本管理模型
 ├── services/                       # 数据库服务层
 │   ├── __init__.py
-│   ├── chat_service.py             # 聊天服务
+│   ├── db_chat_service.py             # 聊天服务
 │   ├── base_service.py             # 服务基类
 │   └── singleton.py                # 单例模式实现
 ├── utils/                          # 数据库工具
@@ -90,7 +90,7 @@ agent/db/
 3. 创建 `core/base.py` 统一数据库配置
 
 ### 阶段2：迁移服务层
-1. `chat_service.py` → `services/chat_service.py`
+1. `db_chat_service.py` → `services/db_chat_service.py`
 2. 提取 `SingletonMeta` → `services/singleton.py`
 3. 创建 `services/base_service.py`
 

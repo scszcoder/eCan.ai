@@ -1,4 +1,5 @@
 import asyncio
+from agent.db.services.db_chat_service import DBChatService
 from agent.ec_agent import EC_Agent
 from utils.logger_helper import logger_helper as logger
 
@@ -89,7 +90,7 @@ def a2a_send_chat(mainwin, req):
     logger.debug("[chat_utils] a2a_send_chat:", req)
     agents = mainwin.agents
     twin_agent: EC_Agent = next((ag for ag in agents if ag.card.name == "My Twin Agent"), None)
-    chat_service = mainwin.chat_service
+    db_chat_service: DBChatService = mainwin.db_chat_service
     
     # Get chatId from request parameters
     chat_id = req.get("params", {}).get("chatId")
@@ -99,7 +100,7 @@ def a2a_send_chat(mainwin, req):
     
     logger.debug(f"[chat_utils] Getting chat data for chatId: {chat_id}")
     # Get chat with members and messages
-    this_chat = chat_service.get_chat_by_id(chat_id, deep=True)
+    this_chat = db_chat_service.get_chat_by_id(chat_id, deep=True)
 
     if this_chat["success"]:
         chat_data = this_chat["data"]
