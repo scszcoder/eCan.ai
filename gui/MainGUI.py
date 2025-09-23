@@ -612,11 +612,11 @@ class MainWindow:
 
         else:
             # Platoon role - no database services needed
-            self.bot_service = None
-            self.mission_service = None
-            self.product_service = None
-            self.skill_service = None
-            self.vehicle_service = None
+            self.bot_service: BotService = None
+            self.mission_service: MissionService = None
+            self.product_service: ProductService = None
+            self.skill_service: SkillService = None
+            self.vehicle_service: VehicleService = None
 
 
             logger.info("[MainWindow] ✅ Database services skipped for Platoon role")

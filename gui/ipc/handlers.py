@@ -15,72 +15,7 @@ import uuid
 import traceback
 from app_context import AppContext
 import asyncio
-from agent.ec_skills.dev_utils.skill_dev_utils import *
 from tests.unittests import run_default_tests
-
-# Optional import for TaskRunnerRegistry to discover queues; guarded to avoid import issues
-try:
-    from agent.tasks import TaskRunnerRegistry  # type: ignore
-except Exception:
-    TaskRunnerRegistry = None  # type: ignore
-
-def _execute_tests_background(request_id: str, tests: list, web_gui):
-    """Execute tests in background thread and push results via python_to_web"""
-    try:
-        logger.info(f"Starting background test execution for request {request_id}")
-        
-        # Import here to avoid blocking the main thread during handler registration
-        from tests.main_test import run_default_tests
-        
-        results = []
-        login: Login = AppContext.login
-        
-        for test in tests:
-            test_id = test.get('test_id')
-            test_args = test.get('args', {})
-            
-            logger.info(f"Executing test: {test_id}")
-            
-            if test_id == 'default_test':
-                logger.info("Running default test in background")
-                result = run_default_tests(login.main_win)
-            else:
-                logger.info(f"Running test: {test_id}")
-                # For other tests, create a simple success result for now
-                result = {"success": True, "message": f"Test {test_id} completed"}
-            
-            results.append({
-                "test_id": test_id,
-                "result": result
-            })
-        
-        # Push results back to frontend via python_to_web
-        response_data = {
-            'request_id': request_id,
-            'results': results,
-            'message': 'Tests completed successfully',
-            'status': 'completed'
-        }
-        
-        if web_gui:
-            web_gui.python_to_web('test_results', response_data)
-        
-        logger.info(f"Background test execution completed for request {request_id}")
-        
-    except Exception as e:
-        logger.error(f"Error in background test execution: {e}")
-        logger.error(traceback.format_exc())
-        
-        # Push error back to frontend
-        error_data = {
-            'request_id': request_id,
-            'error': str(e),
-            'message': 'Test execution failed',
-            'status': 'error'
-        }
-        
-        if web_gui:
-            web_gui.python_to_web('test_results', error_data)
 
 
 def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
@@ -626,7 +561,7 @@ def handle_load_skill_schemas(request: IPCRequest, params: Optional[Any]) -> IPC
         )
 
 
-@IPCHandlerRegistry.handler('run_tests')
+@IPCHandlerRegistry.background_handler('run_tests')
 def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
     """处理跑测试请求
 
