@@ -202,6 +202,13 @@ jobs:
       with:
         platform: windows
 
+    - name: Setup Windows signtool Environment
+      uses: ./.github/actions/setup-signtool-env
+      with:
+        skip-if-available: true
+        sdk-version: '2004'
+        timeout: '600'
+
     - name: Check Windows Architecture Selection
       run: |
         echo "=== Checking Windows Architecture Selection ==="

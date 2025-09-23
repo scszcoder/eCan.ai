@@ -21,7 +21,10 @@
       "copyright_year": "2025",
       "copyright_holder": "eCan.AI Team",
       "language_code": "040904B0",
-      "translation": [1033, 1200]
+      "translation": [
+        1033,
+        1200
+      ]
     }
   },
   "build_profiles": {
@@ -96,6 +99,7 @@
         "settings",
         "skills",
         "telemetry",
+        "tests",
         "gui_v2/dist",
         "ota"
       ],
@@ -293,7 +297,6 @@
         "tensorboard.*",
         "test",
         "testing",
-        "tests",
         "timeit",
         "tkinter.test",
         "torch.testing",
@@ -453,8 +456,10 @@
       "sign": {
         "enabled": false,
         "tool": "signtool",
-        "certificate": "",
-        "password": ""
+        "certificate": "build_system/certificates/test_certificate.pfx",
+        "password": "${CERT_PASSWORD}",
+        "algorithm": "SHA256",
+        "timestamp_url": "http://timestamp.digicert.com"
       }
     },
     "linux": {
@@ -545,7 +550,7 @@
     },
     "macos": {
       "bundle_identifier": "com.ecan.app",
-      "app_name": "eCan", 
+      "app_name": "eCan",
       "app_version": "1.0.0",
       "copyright": "Copyright © 2025 eCan.AI Team",
       "install_location": "/Applications",
@@ -578,7 +583,7 @@
       },
       "dylib_fixes": [
         "cv2",
-        "numpy", 
+        "numpy",
         "scipy",
         "cryptography"
       ],

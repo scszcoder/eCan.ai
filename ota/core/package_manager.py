@@ -307,7 +307,7 @@ class PackageManager:
         try:
             # Check if file size is reasonable
             file_size = file_path.stat().st_size
-            max_size = 500 * 1024 * 1024  # 500MB
+            max_size = 1024 * 1024 * 1024  # 1GB (increased for large installers)
             if file_size > max_size:
                 logger.warning(f"Package size {file_size} exceeds maximum {max_size}")
                 return False
