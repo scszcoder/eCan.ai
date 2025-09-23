@@ -2322,3 +2322,11 @@ def testLongLLMTask(mwin, setup):
         }
     response = ecan_ai_api_rerank_results(mwin, setup)
     print("testLongLLMTask response:", response)
+
+
+def run_default_tests(mwin, test_setup=None):
+    print("run_default_tests with setup:", test_setup)
+    results = None
+    results = testLongLLMTask(mwin, test_setup)
+
+    return results
