@@ -610,20 +610,20 @@ class TaskRunner(Generic[Context]):
         work_queue = agent.get_work_msg_queue()
         chat_queue = agent.get_chat_msg_queue()
         # this is pretty much an event handler look up table
-        self.event_queue_map = {"work": work_queue, "a2a": chat_queue, "human_chat": chat_queue}
+        self.event_handler_queues = {"work": work_queue, "a2a": chat_queue, "human_chat": chat_queue}
 
     def update_event_handler(self, event_type="", event_queue=None):
-        if not self.event_queue_map.get("human_chat", None):
+        if not self.event_handler_queues.get("human_chat", None):
             chat_queue = self.agent.get_chat_msg_queue()
             if chat_queue:
-                self.event_queue_map["a2a"] = chat_queue
+                self.event_handler_queues["a2a"] = chat_queue
 
-        if not self.event_queue_map.get("work", None):
+        if not self.event_handler_queues.get("work", None):
             work_queue = self.agent.get_work_msg_queue()
 
         if event_type:
             if event_queue:
-                self.event_queue_map[event_type] = event_queue
+                self.event_handler_queues[event_type] = event_queue
 
 
 
@@ -939,7 +939,7 @@ class TaskRunner(Generic[Context]):
     async def async_task_wait_in_line(self, event_type, request):
         try:
             print("task waiting in line.....")
-            event_queue = self.event_queue_map.get(event_type, None)
+            event_queue = self.event_handler_queues.get(event_type, None)
             if event_queue:
                 await event_queue.put(request)
                 # self.a2a_msg_queue.put_nowait(request)
@@ -954,7 +954,7 @@ class TaskRunner(Generic[Context]):
         try:
             logger.debug("task waiting in line.....")
             # await self.a2a_msg_queue.put(request)
-            event_queue = self.event_queue_map.get(event_type, None)
+            event_queue = self.event_handler_queues.get(event_type, None)
             if event_queue:
                 event_queue.put_nowait(request)
                 logger.debug("task now in line....")
@@ -979,7 +979,7 @@ class TaskRunner(Generic[Context]):
                 if task2run:
                     logger.debug("setting up scheduled task to run", task2run.name)
                     logger.debug("scheduled task2run skill name" + task2run.skill.name)
-                    task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent)
+                    task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, task2run.id)
 
                     logger.trace("scheduledtask2run init state" + str(task2run.metadata["state"]))
                     logger.trace("ready to run the right task" + task2run.name)
@@ -1019,7 +1019,7 @@ class TaskRunner(Generic[Context]):
                                 # a task that that's suitable to handle this message,
 
                                 logger.debug("task2run skill name" + task2run.skill.name)
-                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, None)
+                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, task2run.id, None)
 
                                 logger.trace("task2run init state" + str(task2run.metadata["state"]))
                                 logger.trace("ready to run the right task" + task2run.name + str(msg))
@@ -1041,7 +1041,7 @@ class TaskRunner(Generic[Context]):
                                     justStarted = True
                             else:
                                 logger.debug("task2run skill name" + task2run.skill.name)
-                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, task2run.metadata["state"])
+                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, task2run.id, task2run.metadata["state"])
 
                                 logger.trace("task2run init state" + str(task2run.metadata["state"]))
                                 logger.trace("ready to run the right task" + task2run.name + str(msg))
@@ -1126,7 +1126,7 @@ class TaskRunner(Generic[Context]):
 
                             if justStarted:
                                 logger.debug("chatter task2run skill name", task2run.skill.name)
-                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, msg, None)
+                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, task2run.id, msg, None)
                                 logger.trace("interacted task2run init state", task2run.metadata["state"])
                                 logger.debug("ready to run the right task", task2run.name, type(msg), msg)
                                 response = task2run.stream_run()
@@ -1155,11 +1155,12 @@ class TaskRunner(Generic[Context]):
                                     elif "id" in msg:
                                         task_id = msg['id']
                                     else:
+                                        task_id = ""
                                         logger.error("ERROR: lost track of task id....", msg)
                                 self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
                             else:
                                 logger.debug(f"interacted {task2run.skill.name} no longer initial run", msg)
-                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, msg, task2run.metadata["state"])
+                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, task2run.id, msg, task2run.metadata["state"])
                                 logger.debug("NI interacted task2run current state", task2run.metadata["state"])
                                 resume_payload, cp = self._build_resume_payload(task2run, msg)
                                 logger.debug("NI resume payload", resume_payload)

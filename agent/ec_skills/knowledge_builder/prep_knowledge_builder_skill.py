@@ -1,5 +1,5 @@
 
-def init_knowledge_builder_skill(agent, msg, file_names=[]):
+def prep_knowledge_builder_skill(agent, task_id, msg, file_names=[]):
     print("init_knowledge_builder_skill", type(msg), msg)  # msg.params.message[0].text
     # msg_txt = "I have three files here, please describe to me the contents of each of these files in detail."
     msg_parts = msg.params.message.parts
@@ -12,7 +12,7 @@ def init_knowledge_builder_skill(agent, msg, file_names=[]):
             attachments.append({"filename": part.file.name, "file_url": part.file.uri, "mime_type": part.file.mimeType, "file_data": part.file.bytes})
 
     init_state = {
-        "messages": [agent.card.id, msg_txt],
+        "messages": [agent.card.id, "", "", task_id, msg_txt],
         "input": msg_txt,
         "attachments": attachments
     }

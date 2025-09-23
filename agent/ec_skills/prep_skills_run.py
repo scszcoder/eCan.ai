@@ -27,11 +27,11 @@ SKILL_PREP_TABLE = {
     "ecan.ai self test": prep_self_test_skill
 }
 
-def prep_skills_run(skillName, agent, msg=None, current_state=None):
+def prep_skills_run(skillName, agent, task_id, msg=None, current_state=None):
     print("skill name:", skillName)
     # Try exact match first
     if skillName in SKILL_PREP_TABLE:
-        return SKILL_PREP_TABLE[skillName](agent, msg, current_state)
+        return SKILL_PREP_TABLE[skillName](agent, task_id, msg, current_state)
     # Fallback to case-insensitive lookup
     lower_map = {k.lower(): v for k, v in SKILL_PREP_TABLE.items()}
     key_lower = skillName.lower() if isinstance(skillName, str) else skillName
