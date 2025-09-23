@@ -216,9 +216,56 @@ export class IPCWCClient {
      * @param options - 请求选项
      * @returns Promise 对象，解析为 IPC 响应结果
      */
-    public async invoke(method: string, params?: unknown, _options: IPCRequestOptions = {}): Promise<any> {
-        // Simplified: directly send request without queue for stability
-        return this.sendRequest(method, params);
+    public async invoke(method: string, params?: unknown, options: IPCRequestOptions = {}): Promise<any> {
+        // 配置选项：是否使用队列（默认关闭以保持稳定性）
+        const useQueue = options.priority !== undefined || options.maxRetries !== undefined || options.onProgress !== undefined;
+
+        if (useQueue) {
+            return this.enqueueRequest(method, params, options);
+        } else {
+            // 直接发送请求（当前行为）
+            return this.sendRequest(method, params, options.timeout);
+        }
+    }
+
+    /**
+     * 将请求加入队列
+     * @param method - 请求方法名
+     * @param params - 请求参数
+     * @param options - 请求选项
+     * @returns Promise 对象，解析为 IPC 响应结果
+     */
+    private async enqueueRequest(method: string, params?: unknown, options: IPCRequestOptions = {}): Promise<any> {
+        return new Promise((resolve, reject) => {
+            const queuedRequest: QueuedRequest = {
+                id: generateRequestId(),
+                method,
+                params,
+                priority: options.priority || RequestPriority.NORMAL,
+                status: RequestStatus.PENDING,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                retryCount: 0,
+                maxRetries: options.maxRetries || 3,
+                retryDelay: options.retryDelay || 1000,
+                backoffMultiplier: options.backoffMultiplier || 1.5,
+                timeout: options.timeout,
+                onSuccess: resolve,
+                onError: reject,
+                onProgress: options.onProgress,
+                metadata: {}
+            };
+
+            // 添加到队列和映射
+            this.requestQueue.push(queuedRequest);
+            this.requestMap.set(queuedRequest.id, queuedRequest);
+
+            // 按优先级排序队列
+            this.requestQueue.sort((a, b) => b.priority - a.priority);
+
+            // 开始处理队列
+            this.processQueue();
+        });
     }
 
     /**
@@ -439,14 +486,148 @@ private setupMessageHandler(): void {
     }
 }
 
-// ===== Queue stubs (disabled for debugging) =====
-clearQueue(): void {
-    // no-op stub for now
-    this.requestQueue = [];
-    this.requestMap.clear();
-    this.activeRequests.clear();
-    this.processingQueue = false;
-}
+    /**
+     * 处理请求队列
+     */
+    private async processQueue(): Promise<void> {
+        if (this.processingQueue || this.activeRequests.size >= this.maxConcurrentRequests) {
+            return;
+        }
+
+        this.processingQueue = true;
+
+        try {
+            while (this.activeRequests.size < this.maxConcurrentRequests) {
+                const request = this.dequeueRequest();
+                if (!request) break;
+
+                this.executeQueuedRequest(request);
+            }
+        } finally {
+            this.processingQueue = false;
+        }
+    }
+
+    /**
+     * 从队列中取出请求
+     */
+    private dequeueRequest(): QueuedRequest | null {
+        const index = this.requestQueue.findIndex(req => req.status === RequestStatus.PENDING);
+        if (index === -1) return null;
+
+        const request = this.requestQueue[index];
+        request.status = RequestStatus.EXECUTING;
+        request.updatedAt = Date.now();
+
+        return request;
+    }
+
+    /**
+     * 执行队列中的请求
+     */
+    private async executeQueuedRequest(request: QueuedRequest): Promise<void> {
+        this.activeRequests.add(request.id);
+
+        try {
+            const response = await this.sendRequest(request.method, request.params, request.timeout);
+
+            request.status = RequestStatus.COMPLETED;
+            request.updatedAt = Date.now();
+            request.onSuccess?.(response);
+
+            // 从队列中移除已完成的请求
+            this.removeFromQueue(request.id);
+        } catch (error) {
+            await this.handleQueuedRequestError(request, error);
+        } finally {
+            this.activeRequests.delete(request.id);
+            // 继续处理队列
+            setTimeout(() => this.processQueue(), 0);
+        }
+    }
+
+    /**
+     * 处理队列请求错误和重试逻辑
+     */
+    private async handleQueuedRequestError(request: QueuedRequest, error: any): Promise<void> {
+        const shouldRetry = this.isRetryableError(error) && request.retryCount < request.maxRetries;
+
+        if (shouldRetry) {
+            request.retryCount++;
+            request.status = RequestStatus.RETRYING;
+            request.updatedAt = Date.now();
+
+            const delay = request.retryDelay * Math.pow(request.backoffMultiplier, request.retryCount - 1);
+
+            // 对于 SYSTEM_NOT_READY 错误，提供更友好的日志信息
+            if (error.code === 'SYSTEM_NOT_READY' || error.message?.includes('SYSTEM_NOT_READY')) {
+                logger.info(`[IPC] System not ready for ${request.method}, retrying in ${delay}ms (attempt ${request.retryCount}/${request.maxRetries})`);
+            } else {
+                logger.info(`[IPC] Retrying ${request.method} in ${delay}ms (attempt ${request.retryCount}/${request.maxRetries}) - Error: ${error.code || error.message}`);
+            }
+
+            setTimeout(() => {
+                request.status = RequestStatus.PENDING;
+                this.processQueue();
+            }, delay);
+        } else {
+            request.status = RequestStatus.FAILED;
+            request.updatedAt = Date.now();
+
+            // 对于 SYSTEM_NOT_READY 错误，提供更详细的失败信息
+            if (error.code === 'SYSTEM_NOT_READY' || error.message?.includes('SYSTEM_NOT_READY')) {
+                logger.warn(`[IPC] ${request.method} failed after ${request.maxRetries} retries - System initialization taking longer than expected`);
+            } else {
+                logger.error(`[IPC] ${request.method} failed after ${request.maxRetries} retries - Final error: ${error.code || error.message}`);
+            }
+
+            request.onError?.(error);
+
+            // 从队列中移除失败的请求
+            this.removeFromQueue(request.id);
+        }
+    }
+
+    /**
+     * 判断错误是否可重试
+     */
+    private isRetryableError(error: any): boolean {
+        const retryableErrors = [
+            'NETWORK_ERROR',
+            'TIMEOUT_ERROR',
+            'SYSTEM_INITIALIZING',
+            'CONNECTION_ERROR',
+            'TEMPORARY_ERROR',
+            'SYSTEM_NOT_READY',
+            'SYSTEM_NOT_READY_TIMEOUT',
+            'SYSTEM_CHECK_ERROR'
+        ];
+
+        return retryableErrors.includes(error.code) ||
+               error.message?.includes('timeout') ||
+               error.message?.includes('network');
+    }
+
+    /**
+     * 从队列中移除请求
+     */
+    private removeFromQueue(requestId: string): void {
+        const index = this.requestQueue.findIndex(req => req.id === requestId);
+        if (index !== -1) {
+            this.requestQueue.splice(index, 1);
+        }
+        this.requestMap.delete(requestId);
+    }
+
+    /**
+     * 清空队列
+     */
+    clearQueue(): void {
+        this.requestQueue = [];
+        this.requestMap.clear();
+        this.activeRequests.clear();
+        this.processingQueue = false;
+    }
 
     /**
      * 为请求添加认证 token
