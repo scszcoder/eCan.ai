@@ -1,0 +1,262 @@
+name: 'Setup Windows signtool Environment'
+description: 'Install and configure Windows SDK signtool for code signing'
+author: 'eCan.ai Team'
+
+inputs:
+  skip-if-available:
+    description: 'Skip installation if signtool is already available'
+    required: false
+    default: 'true'
+  sdk-version:
+    description: 'Windows SDK version to install (e.g., 2004, 2022)'
+    required: false
+    default: '2004'
+  timeout:
+    description: 'Installation timeout in seconds'
+    required: false
+    default: '600'
+
+outputs:
+  signtool-available:
+    description: 'Whether signtool is available after setup'
+    value: ${{ steps.check-final.outputs.available }}
+  signtool-path:
+    description: 'Path to signtool.exe'
+    value: ${{ steps.check-final.outputs.path }}
+  installation-method:
+    description: 'How signtool was made available (existing, chocolatey, manual)'
+    value: ${{ steps.setup.outputs.method }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check existing signtool
+      id: check-existing
+      shell: powershell
+      run: |
+        Write-Host "🔍 Checking for existing signtool..." -ForegroundColor Cyan
+        
+        $existingSigntool = Get-Command signtool -ErrorAction SilentlyContinue
+        if ($existingSigntool) {
+          Write-Host "✅ signtool already available at: $($existingSigntool.Source)" -ForegroundColor Green
+          echo "available=true" >> $env:GITHUB_OUTPUT
+          echo "path=$($existingSigntool.Source)" >> $env:GITHUB_OUTPUT
+          echo "method=existing" >> $env:GITHUB_OUTPUT
+          
+          # Test signtool
+          try {
+            signtool /? | Out-Null
+            Write-Host "✅ signtool is working correctly" -ForegroundColor Green
+          } catch {
+            Write-Host "⚠️ signtool found but not working properly" -ForegroundColor Yellow
+            echo "available=false" >> $env:GITHUB_OUTPUT
+          }
+        } else {
+          Write-Host "❌ signtool not found in PATH" -ForegroundColor Red
+          echo "available=false" >> $env:GITHUB_OUTPUT
+          echo "method=none" >> $env:GITHUB_OUTPUT
+        }
+
+    - name: Search for existing Windows SDK
+      id: search-sdk
+      if: steps.check-existing.outputs.available != 'true'
+      shell: powershell
+      run: |
+        Write-Host "🔍 Searching for existing Windows SDK..." -ForegroundColor Cyan
+        
+        $sdkPaths = @(
+          "${env:ProgramFiles(x86)}\Windows Kits\10\bin",
+          "${env:ProgramFiles}\Windows Kits\10\bin"
+        )
+        
+        $foundSigntool = $false
+        
+        foreach ($sdkPath in $sdkPaths) {
+          if (Test-Path $sdkPath) {
+            Write-Host "📁 Checking: $sdkPath" -ForegroundColor Gray
+            
+            # Find latest SDK version
+            $sdkVersions = Get-ChildItem -Path $sdkPath -Directory -ErrorAction SilentlyContinue | 
+                          Where-Object { $_.Name -match '^\d+\.\d+\.\d+' } |
+                          Sort-Object Name -Descending
+            
+            foreach ($version in $sdkVersions) {
+              $signtoolPath = Join-Path $version.FullName "x64\signtool.exe"
+              if (Test-Path $signtoolPath) {
+                Write-Host "✅ Found signtool at: $signtoolPath" -ForegroundColor Green
+                
+                # Add to PATH
+                $signtoolDir = Split-Path $signtoolPath
+                echo "$signtoolDir" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+                
+                # Test signtool
+                try {
+                  & $signtoolPath /? | Out-Null
+                  Write-Host "✅ signtool is working" -ForegroundColor Green
+                  echo "found=true" >> $env:GITHUB_OUTPUT
+                  echo "path=$signtoolPath" >> $env:GITHUB_OUTPUT
+                  $foundSigntool = $true
+                  break
+                } catch {
+                  Write-Host "⚠️ signtool found but not working: $_" -ForegroundColor Yellow
+                }
+              }
+            }
+            
+            if ($foundSigntool) { break }
+          }
+        }
+        
+        if (-not $foundSigntool) {
+          Write-Host "❌ No working signtool found in existing SDKs" -ForegroundColor Red
+          echo "found=false" >> $env:GITHUB_OUTPUT
+        }
+
+    - name: Install Windows SDK
+      id: install-sdk
+      if: steps.check-existing.outputs.available != 'true' && steps.search-sdk.outputs.found != 'true'
+      shell: powershell
+      run: |
+        Write-Host "📥 Installing Windows SDK..." -ForegroundColor Yellow
+        
+        $sdkVersion = "${{ inputs.sdk-version }}"
+        $timeout = [int]"${{ inputs.timeout }}"
+        
+        try {
+          # Check if Chocolatey is available
+          $chocoAvailable = Get-Command choco -ErrorAction SilentlyContinue
+          if (-not $chocoAvailable) {
+            Write-Host "❌ Chocolatey not available, cannot install Windows SDK" -ForegroundColor Red
+            echo "success=false" >> $env:GITHUB_OUTPUT
+            echo "method=failed" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          
+          Write-Host "🍫 Using Chocolatey to install Windows SDK $sdkVersion..." -ForegroundColor Cyan
+          
+          # Install Windows SDK
+          $packageName = "windows-sdk-10-version-$sdkVersion-all"
+          choco install $packageName -y --timeout $timeout --no-progress
+          
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "✅ Windows SDK installation completed" -ForegroundColor Green
+            echo "success=true" >> $env:GITHUB_OUTPUT
+            echo "method=chocolatey" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "❌ Windows SDK installation failed with exit code: $LASTEXITCODE" -ForegroundColor Red
+            echo "success=false" >> $env:GITHUB_OUTPUT
+            echo "method=failed" >> $env:GITHUB_OUTPUT
+          }
+          
+        } catch {
+          Write-Host "❌ Exception during Windows SDK installation: $_" -ForegroundColor Red
+          echo "success=false" >> $env:GITHUB_OUTPUT
+          echo "method=failed" >> $env:GITHUB_OUTPUT
+        }
+
+    - name: Find signtool after installation
+      id: find-after-install
+      if: steps.install-sdk.outputs.success == 'true'
+      shell: powershell
+      run: |
+        Write-Host "🔍 Searching for signtool after installation..." -ForegroundColor Cyan
+        
+        # Wait a moment for installation to complete
+        Start-Sleep -Seconds 5
+        
+        # Search for newly installed signtool
+        $sdkPath = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+        
+        if (Test-Path $sdkPath) {
+          $latestSdk = Get-ChildItem -Path $sdkPath -Directory -ErrorAction SilentlyContinue | 
+                      Sort-Object Name -Descending | 
+                      Select-Object -First 1
+          
+          if ($latestSdk) {
+            $signtoolPath = Join-Path $latestSdk.FullName "x64\signtool.exe"
+            
+            if (Test-Path $signtoolPath) {
+              Write-Host "✅ Found newly installed signtool: $signtoolPath" -ForegroundColor Green
+              
+              # Add to PATH
+              $signtoolDir = Split-Path $signtoolPath
+              echo "$signtoolDir" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+              
+              # Test signtool
+              try {
+                & $signtoolPath /? | Out-Null
+                Write-Host "✅ Newly installed signtool is working" -ForegroundColor Green
+                echo "found=true" >> $env:GITHUB_OUTPUT
+                echo "path=$signtoolPath" >> $env:GITHUB_OUTPUT
+              } catch {
+                Write-Host "❌ Newly installed signtool not working: $_" -ForegroundColor Red
+                echo "found=false" >> $env:GITHUB_OUTPUT
+              }
+            } else {
+              Write-Host "❌ signtool.exe not found at expected location: $signtoolPath" -ForegroundColor Red
+              echo "found=false" >> $env:GITHUB_OUTPUT
+            }
+          } else {
+            Write-Host "❌ No SDK version directories found in: $sdkPath" -ForegroundColor Red
+            echo "found=false" >> $env:GITHUB_OUTPUT
+          }
+        } else {
+          Write-Host "❌ Windows SDK path not found: $sdkPath" -ForegroundColor Red
+          echo "found=false" >> $env:GITHUB_OUTPUT
+        }
+
+    - name: Final verification
+      id: check-final
+      shell: powershell
+      run: |
+        Write-Host "🔍 Final signtool verification..." -ForegroundColor Cyan
+        
+        try {
+          $signtoolCmd = Get-Command signtool -ErrorAction Stop
+          Write-Host "✅ signtool is available at: $($signtoolCmd.Source)" -ForegroundColor Green
+          
+          # Test signtool functionality
+          signtool /? | Out-Null
+          Write-Host "✅ signtool is working correctly!" -ForegroundColor Green
+          
+          echo "available=true" >> $env:GITHUB_OUTPUT
+          echo "path=$($signtoolCmd.Source)" >> $env:GITHUB_OUTPUT
+          
+          # Determine method
+          $method = "unknown"
+          if ("${{ steps.check-existing.outputs.available }}" -eq "true") {
+            $method = "existing"
+          } elseif ("${{ steps.search-sdk.outputs.found }}" -eq "true") {
+            $method = "found-existing"
+          } elseif ("${{ steps.install-sdk.outputs.success }}" -eq "true") {
+            $method = "chocolatey"
+          }
+          echo "method=$method" >> $env:GITHUB_OUTPUT
+          
+        } catch {
+          Write-Host "❌ signtool final verification failed: $_" -ForegroundColor Red
+          Write-Host "⚠️ Code signing will be skipped in the build process" -ForegroundColor Yellow
+          
+          echo "available=false" >> $env:GITHUB_OUTPUT
+          echo "method=failed" >> $env:GITHUB_OUTPUT
+        }
+
+    - name: Summary
+      shell: powershell
+      run: |
+        Write-Host "`n📋 Setup Summary:" -ForegroundColor Cyan
+        Write-Host "=================" -ForegroundColor Cyan
+        Write-Host "signtool Available: ${{ steps.check-final.outputs.available }}" -ForegroundColor $(if ("${{ steps.check-final.outputs.available }}" -eq "true") { "Green" } else { "Red" })
+        
+        if ("${{ steps.check-final.outputs.available }}" -eq "true") {
+          Write-Host "signtool Path: ${{ steps.check-final.outputs.path }}" -ForegroundColor Gray
+          Write-Host "Installation Method: ${{ steps.check-final.outputs.method }}" -ForegroundColor Gray
+          Write-Host "✅ Windows code signing is ready!" -ForegroundColor Green
+        } else {
+          Write-Host "⚠️ Windows code signing will be skipped" -ForegroundColor Yellow
+          Write-Host "💡 This is not critical - the build will continue" -ForegroundColor Gray
+        }
+
+branding:
+  icon: 'shield'
+  color: 'blue'

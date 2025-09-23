@@ -207,7 +207,7 @@ class OTAConfig:
         # Simplified default path search
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         default_paths = [
-            os.path.join(project_root, "ota-certificates", "keys", "ed25519_public_key.pem"),
+            os.path.join(project_root, "ota", "certificates", "ed25519_public_key.pem"),
             os.path.join(project_root, "keys", "public_key.pem")
         ]
         

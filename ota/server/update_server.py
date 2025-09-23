@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
 """
 简单的OTA更新服务器
-用于测试和开发
+用于测试和开发，支持动态生成 appcast.xml
 """
 
 import logging
-from flask import Flask, jsonify, request, send_file
+import os
+from flask import Flask, jsonify, request, send_file, Response
 from pathlib import Path
+from appcast_generator import AppcastGenerator
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+# 初始化 appcast 生成器
+server_dir = Path(__file__).parent
+appcast_gen = AppcastGenerator(server_dir)
 
 # 服务器配置
 SERVER_CONFIG = {
@@ -122,15 +128,102 @@ def download_latest():
 
 @app.route('/appcast.xml', methods=['GET'])
 def appcast():
-    """Sparkle/winSparkle appcast文件"""
+    """动态生成 Sparkle/winSparkle appcast文件"""
     try:
-        appcast_path = Path(__file__).parent / "appcast.xml"
+        # 获取请求参数
+        version = request.args.get('version')  # 指定版本
+        base_url = request.args.get('base_url', f"http://{request.host}")
+        
+        # 如果指定了版本，使用指定版本；否则使用最新版本
+        if version:
+            success = appcast_gen.generate_appcast(version, base_url, "appcast_temp.xml")
+            appcast_file = "appcast_temp.xml"
+        else:
+            success = appcast_gen.generate_from_latest_signatures(base_url)
+            appcast_file = "appcast.xml"
+        
+        if not success:
+            # 如果动态生成失败，尝试返回静态文件
+            static_appcast = server_dir / "appcast.xml"
+            if static_appcast.exists():
+                logger.warning("动态生成失败，使用静态 appcast.xml")
+                return send_file(str(static_appcast), mimetype='application/rss+xml')
+            else:
+                return "Appcast generation failed and no static file found", 404
+        
+        # 返回生成的文件
+        appcast_path = server_dir / appcast_file
         if appcast_path.exists():
+            logger.info(f"提供动态生成的 appcast: {appcast_file}")
             return send_file(str(appcast_path), mimetype='application/rss+xml')
         else:
-            return "Appcast not found", 404
+            return "Generated appcast not found", 404
+            
     except Exception as e:
+        logger.error(f"Appcast 生成错误: {e}")
         return f"Error serving appcast: {str(e)}", 500
+
+@app.route('/admin/generate-appcast', methods=['POST'])
+def generate_appcast_admin():
+    """管理接口：手动生成 appcast"""
+    try:
+        data = request.get_json() or {}
+        version = data.get('version')
+        base_url = data.get('base_url', 'http://127.0.0.1:8080')
+        
+        if version:
+            success = appcast_gen.generate_appcast(version, base_url)
+            message = f"为版本 {version} 生成 appcast"
+        else:
+            success = appcast_gen.generate_from_latest_signatures(base_url)
+            message = "从最新签名文件生成 appcast"
+        
+        if success:
+            return jsonify({
+                "success": True,
+                "message": f"{message} 成功",
+                "appcast_url": f"{base_url}/appcast.xml"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": f"{message} 失败"
+            }), 500
+            
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/admin/signatures', methods=['GET'])
+def list_signatures():
+    """管理接口：列出所有签名文件"""
+    try:
+        signature_files = list(server_dir.glob("signatures_*.json"))
+        signatures_info = []
+        
+        for sig_file in signature_files:
+            version = sig_file.stem.replace('signatures_', '')
+            stat = sig_file.stat()
+            
+            signatures_info.append({
+                "version": version,
+                "filename": sig_file.name,
+                "size": stat.st_size,
+                "modified": stat.st_mtime
+            })
+        
+        # 按修改时间排序
+        signatures_info.sort(key=lambda x: x['modified'], reverse=True)
+        
+        return jsonify({
+            "signatures": signatures_info,
+            "count": len(signatures_info)
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/downloads/<filename>', methods=['GET'])
 def download_file(filename):

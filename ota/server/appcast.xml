@@ -1,52 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel>
         <title>eCan Updates</title>
-        <description>Most recent updates to eCan</description>
+        <link>http://127.0.0.1:8080/appcast.xml</link>
+        <description>eCan application updates</description>
         <language>en</language>
+        <lastBuildDate>Tue, 23 Sep 2025 09:36:31 +0000</lastBuildDate>
+        
         
         <item>
-            <title>eCan 1.1.0</title>
+            <title>eCan 1.0.0-test</title>
             <description>
                 <![CDATA[
-                <h2>What's New in eCan 1.1.0</h2>
-                <ul>
-                    <li>Added OTA update functionality</li>
-                    <li>Improved performance and stability</li>
-                    <li>Enhanced user interface</li>
-                    <li>Bug fixes and security improvements</li>
-                </ul>
-                ]]>
-            </description>
-            <pubDate>Mon, 01 Jan 2024 12:00:00 +0000</pubDate>
-            <enclosure url="http://127.0.0.1:8080/downloads/eCan-1.1.0-darwin-amd64.dmg"
-                       sparkle:version="1.1.0"
-                       sparkle:os="macos"
-                       length="52428800"
-                       type="application/octet-stream"
-                       sparkle:edSignature="SHA256:..." />
-        </item>
+                
+        <h2>What's New in eCan 1.0.0-test</h2>
+        <ul>
+            <li>Performance improvements and bug fixes</li>
+            <li>Enhanced user interface</li>
+            <li>Security updates</li>
+        </ul>
         
-        <item>
-            <title>eCan 1.1.0</title>
-            <description>
-                <![CDATA[
-                <h2>What's New in eCan 1.1.0</h2>
-                <ul>
-                    <li>Added OTA update functionality</li>
-                    <li>Improved performance and stability</li>
-                    <li>Enhanced user interface</li>
-                    <li>Bug fixes and security improvements</li>
-                </ul>
                 ]]>
             </description>
-            <pubDate>Mon, 01 Jan 2024 12:00:00 +0000</pubDate>
-            <enclosure url="http://127.0.0.1:8080/downloads/eCan-1.1.0-windows-amd64-Setup.exe"
-                       sparkle:version="1.1.0"
+            <pubDate>Tue, 23 Sep 2025 09:36:31 +0000</pubDate>
+            <enclosure url="http://127.0.0.1:8080/downloads/test_app.exe"
+                       sparkle:version="1.0.0-test"
                        sparkle:os="windows"
-                       length="41943040"
+                       length="29"
                        type="application/octet-stream"
-                       sparkle:edSignature="SHA256:..." />
+                       sparkle:edSignature="LTx5zkI5eJ5j7yPYZvitBwIgpXkxQdzTeRWM6lDCvgzmiYrgpoZlE84Yx2lNZD9zrLrjMvajdDiyq6g+IqTICg==" />
         </item>
+        
+        
     </channel>
-</rss> 
+</rss>

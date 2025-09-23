@@ -19,6 +19,7 @@ from build_system.build_utils import standardize_artifact_names, show_build_resu
 from build_system.ecan_build import BuildConfig, BuildEnvironment, FrontendBuilder, InstallerBuilder
 from build_system.minibuild_core import MiniSpecBuilder
 from build_system.build_utils import URLSchemeBuildConfig
+from build_system.signing_manager import create_signing_manager, create_ota_signing_manager
 
 
 class BuildError(Exception):
@@ -252,6 +253,39 @@ class UnifiedBuildSystem:
             print(f"[TEST] Installer testing failed: {e}")
             return False
 
+    def sign_artifacts(self, mode: str = "prod", version: str = None) -> bool:
+        """Sign build artifacts"""
+        print(f"\n[SIGN] 开始签名构建产物...")
+        
+        try:
+            # 创建代码签名管理器
+            signing_manager = create_signing_manager(self.project_root, self.config.config)
+            
+            # 执行代码签名
+            code_sign_success = signing_manager.sign_artifacts(mode)
+            
+            # 验证签名
+            if code_sign_success:
+                signing_manager.verify_signatures()
+            
+            # 执行OTA签名
+            if version:
+                ota_signing_manager = create_ota_signing_manager(self.project_root)
+                ota_sign_success = ota_signing_manager.sign_for_ota(version)
+                
+                if ota_sign_success:
+                    print("[SIGN] ✅ OTA签名完成")
+                else:
+                    print("[SIGN] ⚠️ OTA签名失败，但继续构建")
+            
+            print("[SIGN] 签名流程完成")
+            return True
+            
+        except Exception as e:
+            print(f"[SIGN] ⚠️ 签名过程出错: {e}")
+            # 签名失败不应该阻止构建
+            return True
+    
     def standardize_artifacts(self, version: str) -> None:
         """Standardize artifact names"""
         if not version:
@@ -336,6 +370,12 @@ class UnifiedBuildSystem:
                     raise BuildError("Core application build failed", 1)
                 build_times['core'] = time.perf_counter() - stage_start
             
+            # Code signing
+            if not kwargs.get('skip_signing', False):
+                stage_start = time.perf_counter()
+                self.sign_artifacts(mode, version)
+                build_times['signing'] = time.perf_counter() - stage_start
+            
             # Build installer
             stage_start = time.perf_counter()
             self.build_installer(mode, kwargs.get('skip_installer', False))
@@ -386,6 +426,7 @@ def main():
     parser.add_argument("--installer-only", action="store_true", help="Create installer only")
     parser.add_argument("--skip-precheck", action="store_true", help="Skip pre-build validation")
     parser.add_argument("--skip-cleanup", action="store_true", help="Skip environment cleanup")
+    parser.add_argument("--skip-signing", action="store_true", help="Skip code signing")
     parser.add_argument("--test-installer", action="store_true", help="Test installer after creation")
     # '--force' removed: always rebuild behavior is the default now
     
@@ -400,6 +441,7 @@ def main():
         installer_only=args.installer_only,
         skip_precheck=args.skip_precheck,
         skip_cleanup=args.skip_cleanup,
+        skip_signing=args.skip_signing,
         test_installer=args.test_installer
     )
 
