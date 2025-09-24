@@ -1,8 +1,6 @@
 import traceback
 from typing import Any, Optional, Dict
-import uuid
 from app_context import AppContext
-from gui.LoginoutGUI import Login
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
@@ -46,7 +44,7 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
         lang = data.get('lang', auth_messages.DEFAULT_LANG)
         auth_messages.set_language(lang)
 
-        login: Login = AppContext.login
+        login = AppContext.get_login()
         result = login.handleLogin(username, password, machine_role)
 
         if result.get('success'):
@@ -76,7 +74,7 @@ def handle_get_last_login(request: IPCRequest, params: Optional[Any]) -> IPCResp
             lang = params['lang']
             auth_messages.set_language(lang)
 
-        login: Login = AppContext.login
+        login = AppContext.get_login()
         result = login.handleGetLastLogin()
 
         logger.info("last saved user info:", result)
@@ -99,7 +97,7 @@ def handle_logout(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
             lang = params['lang']
             auth_messages.set_language(lang)
 
-        login: Login = AppContext.login
+        login = AppContext.get_login()
         result = login.handleLogout()
 
         return create_success_response(request, {
@@ -126,7 +124,7 @@ def handle_signup(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCR
         lang = data.get('lang', auth_messages.DEFAULT_LANG)
         auth_messages.set_language(lang)
 
-        login: Login = AppContext.login
+        login = AppContext.get_login()
         success, message = login.handleSignUp(username, password)
 
         if success:
@@ -156,7 +154,7 @@ def handle_forgot_password(request: IPCRequest, params: Optional[Dict[str, Any]]
         lang = data.get('lang', auth_messages.DEFAULT_LANG)
         auth_messages.set_language(lang)
 
-        login: Login = AppContext.login
+        login = AppContext.get_login()
         success = login.handleForgotPassword(username)
 
         if success:
@@ -186,7 +184,7 @@ def handle_confirm_forgot_password(request: IPCRequest, params: Optional[Dict[st
         lang = data.get('lang', auth_messages.DEFAULT_LANG)
         auth_messages.set_language(lang)
 
-        login: Login = AppContext.login
+        login = AppContext.get_login()
         success, message = login.handleConfirmForgotPassword(username, confirm_code, new_password)
 
         if success:
@@ -213,7 +211,7 @@ def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         schedule_mode = params.get('schedule_mode', 'manual') if params else 'manual'
         auth_messages.set_language(lang)
 
-        login: Login = AppContext.login
+        login = AppContext.get_login()
         success, message, _ = login._handle_google_login(machine_role, schedule_mode)
 
         if success:

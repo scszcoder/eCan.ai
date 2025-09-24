@@ -5,6 +5,9 @@ import re
 import subprocess
 import time
 from datetime import datetime, timezone
+from utils.time_util import TimeUtil
+print(TimeUtil.formatted_now_with_ms() + "loading unittests start...")
+
 if sys.platform == "win32":
     import win32print
     import win32api
@@ -2331,3 +2334,5 @@ def run_default_tests(mwin, test_setup=None):
     results = testLongLLMTask(mwin, test_setup)
 
     return results
+
+print(TimeUtil.formatted_now_with_ms() + "loading unittests finished...")

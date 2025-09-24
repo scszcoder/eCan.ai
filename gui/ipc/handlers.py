@@ -4,14 +4,10 @@ IPC 处理器实现模块
 """
 
 from typing import Any, Optional, Dict
-import threading
-import time
 
-from gui.LoginoutGUI import Login
 from .types import IPCRequest, IPCResponse, create_success_response, create_error_response
 from .registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper as logger
-import uuid
 import traceback
 from app_context import AppContext
 import asyncio
@@ -81,8 +77,7 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
         ranks = main_window.ranks
         personalities = main_window.personalities
         settings = main_window.config_manager.general_settings.data
-        # knowledges = login.main_win.knowledges
-        # chats = login.main_win.chats
+
         knowledges = {}
         chats = {}
         logger.info(f"Get all successful for user: {username}")
@@ -109,90 +104,6 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
             'LOGIN_ERROR',
             f"Error during get all: {str(e)}"
         )
-
-
-# @IPCHandlerRegistry.handler('get_vehicles')
-# def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-#     """处理登录请求
-
-#     验证用户凭据并返回访问令牌。
-
-#     Args:
-#         request: IPC 请求对象
-#         params: 请求参数，必须包含 'username' 和 'password' 字段
-
-#     Returns:
-#         str: JSON 格式的响应消息
-#     """
-#     try:
-#         logger.debug(f"Get vehicles handler called with request: {request}")
-
-#         # 验证参数
-#         is_valid, data, error = validate_params(params, ['username'])
-#         if not is_valid:
-#             logger.warning(f"Invalid parameters for get vehicles: {error}")
-#             return create_error_response(
-#                 request,
-#                 'INVALID_PARAMS',
-#                 error
-#             )
-
-#         # 获取用户名和密码
-#         username = data['username']
-
-#         # 简单的密码验证
-#         # 生成随机令牌
-#         token = str(uuid.uuid4()).replace('-', '')
-#         logger.info(f"Get vehicles successful for user: {username}")
-#         login:Login = AppContext.login
-#         vehicles = login.main_win.vehicles
-
-#         resultJS = {
-#             'token': token,
-#             'vehicles': [vehicle.genJson() for vehicle in vehicles],
-#             'message': 'Get all successful'
-#         }
-#         logger.debug('get vehicles resultJS:' + str(resultJS))
-#         return create_success_response(request, resultJS)
-
-#     except Exception as e:
-#         logger.error(f"Error in get vehicles handler: {e} {traceback.format_exc()}")
-#         return create_error_response(
-#             request,
-#             'LOGIN_ERROR',
-#             f"Error during get vehicles: {str(e)}"
-#         )
-
-
-# @IPCHandlerRegistry.handler('get_knowledges')
-# def handle_get_knowledges(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-#     """处理获取知识库请求
-    
-#     从知识库中获取条目。
-    
-#     Args:
-#         request: IPC 请求对象
-#         params: 请求参数，可以包含过滤条件
-        
-#     Returns:
-#         str: JSON 格式的响应消息
-#     """
-#     try:
-#         # 伪造一个知识库条目列表
-#         knowledges = [
-#             {'id': 'k1', 'title': 'How to setup environment', 'content': '...'},
-#             {'id': 'k2', 'title': 'Troubleshooting guide', 'content': '...'}
-#         ]
-        
-#         logger.info("Knowledge base retrieved")
-#         return create_success_response(request, knowledges)
-#     except Exception as e:
-#         logger.error(f"Error getting knowledges: {e} {traceback.format_exc()}")
-#         return create_error_response(
-#             request,
-#             'KNOWLEDGE_ERROR',
-#             f"Error getting knowledges: {str(e)}"
-#         )
 
 
 @IPCHandlerRegistry.handler('save_all')
@@ -459,9 +370,9 @@ def handle_clear_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -
         logger.debug(f"Get clearing skill breakpoints with request: {request}")
 
         owner = params["username"]
-        login: Login = AppContext.login
+        main_win = AppContext.get_main_window()
         bps = [params["node_name"]]
-        login.main_win.clear_skill_breakpoints(owner, bps)
+        main_win.clear_skill_breakpoints(owner, bps)
         return create_success_response(request, {
             "tests": ["test1", "test2", "test3"],
             'message': 'Clear skill breakpoints successful'
@@ -545,8 +456,8 @@ def handle_load_skill_schemas(request: IPCRequest, params: Optional[Any]) -> IPC
     try:
         logger.debug(f"loading skill schemas: {request}")
 
-        login: Login = AppContext.login
-        node_schemas = login.main_win.node_schemas
+        main_win = AppContext.get_main_window()
+        node_schemas = main_win.node_schemas
         return create_success_response(request, {
             "node_schemas": node_schemas,
             'message': 'Load skill schemas successful'
@@ -579,8 +490,8 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         tests = params.get('tests', [])
 
         results = []
-        login: Login = AppContext.login
-        agents = login.main_win.agents
+        main_win = AppContext.get_main_window()
+        agents = main_win.agents
 
         web_gui = AppContext.web_gui
         for test in tests:
@@ -589,10 +500,10 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
 
             # Process each test with its arguments
             if test_id == 'default_test':
-                login: Login = AppContext.login
+                main_win = AppContext.get_main_window()
                 print("oooooooooooooo running default test ooooooooooooooooooooooooooo")
                 # results = []
-                result = run_default_tests(login.main_win)
+                result = run_default_tests(main_win)
             # Add other test cases as needed
             else:
                 print(">>>>>running test:", test_id, "trigger running procrement task")
@@ -729,35 +640,6 @@ def handle_stop_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse
         return create_error_response(
             request,
             'LOGIN_ERROR',
-            f"Error during stop tests: {str(e)}"
-        )
-
-@IPCHandlerRegistry.handler('login_with_google')
-def handle_login_with_google(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理停止测试项请求
-
-    Args:
-        request: IPC 请求对象
-        params: 测试项
-
-    Returns:
-        str: JSON 格式的响应消息
-    """
-    try:
-        logger.debug(f"Login with google handler called with request: {request}")
-        login: Login = AppContext.login
-        result = login.login_google()
-
-        return create_success_response(request, {
-            "tests": ["test1", "test2", "test3"],
-            'message': 'login with google successful'
-        })
-
-    except Exception as e:
-        logger.error(f"Error in login with google handler: {e} {traceback.format_exc()}")
-        return create_error_response(
-            request,
-            'GOOGLE_LOGIN_ERROR',
             f"Error during stop tests: {str(e)}"
         )
 
