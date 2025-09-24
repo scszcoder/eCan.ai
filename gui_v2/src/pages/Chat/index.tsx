@@ -10,6 +10,7 @@ const ChatNotification = lazy(() => import('./components/ChatNotification'));
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
 import { useAppDataStore } from '@/stores/appDataStore';
+import { useAgentStore } from '@/stores/agentStore';
 import { useChatNotifications, NOTIF_PAGE_SIZE } from './hooks/useChatNotifications';
 import { useMessages } from './hooks/useMessages';
 import { notificationManager } from './managers/NotificationManager';
@@ -32,7 +33,7 @@ const ChatPage: React.FC = () => {
     const [searchParams, setSearchParams] = useSearchParams();
     const agentId = searchParams.get('agentId');
     const username = useUserStore(state => state.username) || 'default_user';
-    const myTwinAgent = useAppDataStore(state => state.myTwinAgent());
+    const myTwinAgent = useAgentStore(state => state.getMyTwinAgent());
     const myTwinAgentId = myTwinAgent?.card?.id;
     const initialized = useAppDataStore(state => state.initialized);
 
@@ -171,7 +172,7 @@ const ChatPage: React.FC = () => {
                 logger.debug("myTwinAgentId not available, trying to get it");
                 let retry = 0;
                 while (retry < 10) {
-                    const myTwinAgent = useAppDataStore.getState().myTwinAgent();
+                    const myTwinAgent = useAgentStore.getState().getMyTwinAgent();
                     currentTwinAgentId = myTwinAgent?.card?.id;
                     if (currentTwinAgentId) {
                         logger.debug("Got myTwinAgentId after retry:", currentTwinAgentId);
@@ -335,8 +336,8 @@ const ChatPage: React.FC = () => {
         isCreatingChatRef.current = true;
         
         try {
-            const my_twin_agent = useAppDataStore.getState().getAgentById(myTwinAgentId);
-            const receiver_agent = useAppDataStore.getState().getAgentById(targetAgentId);
+            const my_twin_agent = useAgentStore.getState().getAgentById(myTwinAgentId);
+            const receiver_agent = useAgentStore.getState().getAgentById(targetAgentId);
             
             // 创建聊天数据
             const chatData = {
@@ -568,7 +569,7 @@ const ChatPage: React.FC = () => {
         if (!chat) return;
 
         if (!myTwinAgentId) return;
-        const my_twin_agent = useAppDataStore.getState().getAgentById(myTwinAgentId);
+        const my_twin_agent = useAgentStore.getState().getAgentById(myTwinAgentId);
         const senderId = my_twin_agent?.card.id;
         const senderName = my_twin_agent?.card.name;
         if (!senderId || !senderName) return;

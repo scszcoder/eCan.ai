@@ -9,6 +9,7 @@ import { Vehicle } from '@/pages/Vehicles/types';
 import { Settings } from '@/pages/Settings/types';
 import { Chat } from '@/pages/Chat/types/chat';
 import appData from './app_data.json';
+import { useAgentStore } from './agentStore';
 
 export interface AppData {
   agents: Agent[];
