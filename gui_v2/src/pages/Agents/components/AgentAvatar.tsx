@@ -6,6 +6,7 @@ import type { MenuProps } from 'antd';
 import { MessageOutlined, MoreOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useAppDataStore } from '@/stores/appDataStore';
+import { useAgentStore } from '@/stores/agentStore';
 import { useNavigate } from 'react-router-dom';
 import { useUserStore } from '@/stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
@@ -27,7 +28,7 @@ interface AgentAvatarProps {
 
 function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
   const { t } = useTranslation();
-  const myTwinAgent = useAppDataStore((state: any) => state.myTwinAgent());
+  const myTwinAgent = useAgentStore((state) => state.getMyTwinAgent());
   const myTwinAgentId = myTwinAgent?.card?.id;
   const navigate = useNavigate();
   const username = useUserStore((s: any) => s.username);

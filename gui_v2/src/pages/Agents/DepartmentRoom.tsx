@@ -4,6 +4,7 @@ import { Button, Dropdown, Space } from 'antd';
 import { PlusOutlined, MoreOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import { useAppDataStore } from '../../stores/appDataStore';
+import { useAgentStore } from '../../stores/agentStore';
 import AgentAvatar from './components/AgentAvatar';
 import './DepartmentRoom.css';
 import { Agent } from './types';
@@ -13,7 +14,7 @@ import { useTranslation } from 'react-i18next';
 const DepartmentRoom: React.FC = () => {
   const { departmentId } = useParams<{ departmentId: string }>();
   const navigate = useNavigate();
-  const agents = useAppDataStore((state) => state.agents);
+  const agents = useAgentStore((state) => state.agents);
   const { t } = useTranslation();
 
   // 返回 doors 列表，使用 replace 避免页面闪烁
