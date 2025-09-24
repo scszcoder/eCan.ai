@@ -404,7 +404,7 @@
       "codesign": {
         "enabled": false,
         "identity": "Developer ID Application: eCan AI Developer",
-        "entitlements": "",
+        "entitlements": "resource/entitlements.plist",
         "exclude_patterns": [
           "**/ms-playwright/**/chromium*/chrome-*/Chromium.app/**",
           "**/ms-playwright/**/chrome*"
@@ -574,7 +574,7 @@
       "codesign": {
         "enabled": false,
         "identity": "Developer ID Application: eCan AI Developer",
-        "entitlements": ""
+        "entitlements": "resource/entitlements.plist"
       },
       "notarization": {
         "enabled": false,

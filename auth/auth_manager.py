@@ -381,95 +381,184 @@ class AuthManager:
         return diagnosis
 
     def _store_refresh_token(self, username: str, refresh_token: str) -> bool:
-        """Store refresh token using appropriate storage method based on platform and token size."""
+        """Store refresh token using platform-specific optimal storage method.
+
+        Strategy:
+        - Windows: Use chunked storage (due to Credential Manager length limits)
+        - macOS: Use direct storage (Keychain can handle long content)
+        - Linux: Use direct storage with chunked fallback
+        - File storage: Only as last resort when keyring fails
+        """
         # First, validate the refresh token
         if not refresh_token or len(refresh_token.strip()) == 0:
             logger.error("Cannot store empty refresh token")
             return False
 
         import platform
-        is_macos = platform.system() == "Darwin"
-        is_windows = platform.system() == "Windows"
+        platform_name = platform.system()
+        is_macos = platform_name == "Darwin"
+        is_windows = platform_name == "Windows"
+        is_linux = platform_name == "Linux"
 
         try:
-            # Check if token is small enough for direct storage with base64 encoding
-            encoded_token = base64.b64encode(refresh_token.encode('utf-8')).decode('ascii')
-            if len(encoded_token) <= 1200:  # Conservative limit for direct base64 storage
-                try:
-                    safe_username = self._sanitize_username_for_keyring(username)
-                    keyring.set_password(self._refresh_service(), safe_username, encoded_token)
-                    logger.info("Refresh token stored successfully in keyring (direct base64)")
+            if is_windows:
+                # Windows: Always use chunked storage due to Credential Manager limitations
+                logger.info("Windows detected: Using chunked storage for refresh token")
+                success = self._store_refresh_token_chunked(username, refresh_token)
+                if success:
+                    logger.info("Refresh token stored successfully using Windows chunked storage")
                     return True
-                except Exception as e:
-                    error_msg = str(e)
-                    logger.warning(f"Direct keyring storage failed: {error_msg}")
-
-                    # Handle platform-specific keychain access issues
-                    if "(-25244" in error_msg or "Can't store password on keychain" in error_msg:
-                        if is_macos:
-                            logger.info("macOS Keychain access issue detected - skipping chunked storage and using file fallback")
-                            # On macOS, keychain issues affect both direct and chunked storage
-                            # Skip chunked storage and go directly to file storage
-                            file_success = self._store_refresh_token_file(username, refresh_token)
-                            if file_success:
-                                logger.info("Refresh token successfully stored using file fallback")
-                            else:
-                                logger.error("File storage failed for refresh token")
-                            return file_success
-                        else:
-                            logger.info("Keychain access issue detected - will try chunked storage")
-
-            # Use chunked storage for large tokens or if direct storage failed (but not on macOS with keychain issues)
-            if is_windows or not is_macos:
-                # Only use chunked storage on Windows (where it's needed) or non-macOS systems
-                # On macOS, if we reach here and keychain access failed, we should skip to file storage
-                return self._store_refresh_token_chunked(username, refresh_token)
-            else:
-                # On macOS, if direct storage failed due to keychain issues, go straight to file storage
-                logger.info("On macOS with potential keychain issues - using file storage directly")
-                file_success = self._store_refresh_token_file(username, refresh_token)
-                if file_success:
-                    logger.info("Refresh token successfully stored using file fallback")
                 else:
-                    logger.error("File storage failed for refresh token")
-                return file_success
+                    logger.warning("Windows chunked storage failed, falling back to file storage")
 
-        except Exception as e:
-            logger.warning(f"Failed to store refresh token in keyring: {e}")
-            logger.info("Falling back to file-based storage")
+            elif is_macos:
+                # macOS: Use direct storage (Keychain can handle long content)
+                logger.info("macOS detected: Using direct storage for refresh token")
+                success = self._store_refresh_token_direct(username, refresh_token)
+                if success:
+                    logger.info("Refresh token stored successfully using macOS direct storage")
+                    return True
+                else:
+                    logger.warning("macOS direct storage failed, falling back to file storage")
+
+            else:
+                # Linux and other platforms: Try direct first, then chunked
+                logger.info(f"{platform_name} detected: Trying direct storage first")
+                success = self._store_refresh_token_direct(username, refresh_token)
+                if success:
+                    logger.info("Refresh token stored successfully using direct storage")
+                    return True
+                else:
+                    logger.info("Direct storage failed, trying chunked storage")
+                    success = self._store_refresh_token_chunked(username, refresh_token)
+                    if success:
+                        logger.info("Refresh token stored successfully using chunked storage")
+                        return True
+                    else:
+                        logger.warning("Both direct and chunked storage failed, falling back to file storage")
+
+            # If we reach here, keyring storage failed - use file fallback
+            logger.info("Using file storage as fallback")
             file_success = self._store_refresh_token_file(username, refresh_token)
             if file_success:
                 logger.info("Refresh token successfully stored using file fallback")
             else:
-                logger.error("Both keyring and file storage failed for refresh token")
+                logger.error("File storage also failed for refresh token")
             return file_success
 
-    def _get_refresh_token(self, username: str) -> tuple[bool, str]:
-        """Get refresh token from chunked keyring storage or file fallback."""
+        except Exception as e:
+            logger.error(f"Unexpected error in refresh token storage: {e}")
+            logger.info("Falling back to file-based storage due to exception")
+            try:
+                file_success = self._store_refresh_token_file(username, refresh_token)
+                if file_success:
+                    logger.info("Refresh token successfully stored using file fallback after exception")
+                else:
+                    logger.error("All storage methods failed for refresh token")
+                return file_success
+            except Exception as file_e:
+                logger.error(f"File storage also failed: {file_e}")
+                return False
+
+    def _store_refresh_token_direct(self, username: str, refresh_token: str) -> bool:
+        """Store refresh token directly in keyring with base64 encoding.
+
+        This method is optimized for macOS and Linux where keyring can handle longer content.
+        """
         try:
-            # Try direct keyring first (base64 encoded)
+            # Encode token to base64 for safe storage
+            encoded_token = base64.b64encode(refresh_token.encode('utf-8')).decode('ascii')
+            safe_username = self._sanitize_username_for_keyring(username)
+
+            # Store directly in keyring
+            keyring.set_password(self._refresh_service(), safe_username, encoded_token)
+            logger.debug(f"Stored refresh token directly (base64 length: {len(encoded_token)})")
+            return True
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.warning(f"Direct keyring storage failed: {error_msg}")
+
+            # Provide specific guidance for common keychain errors
+            if "(-25244" in error_msg or "Can't store password on keychain" in error_msg:
+                logger.warning("Keychain access denied. This is usually caused by:")
+                logger.warning("1. Keychain is locked - unlock it in Keychain Access app")
+                logger.warning("2. App lacks keychain permissions - grant access when prompted")
+                logger.warning("3. Development environment restrictions")
+
+            return False
+
+    def _get_refresh_token(self, username: str) -> tuple[bool, str]:
+        """Get refresh token using platform-specific retrieval strategy.
+
+        Strategy matches storage strategy:
+        - Windows: Try chunked first, then file
+        - macOS: Try direct first, then file
+        - Linux: Try direct first, then chunked, then file
+        """
+        import platform
+        platform_name = platform.system()
+        is_macos = platform_name == "Darwin"
+        is_windows = platform_name == "Windows"
+
+        if is_windows:
+            # Windows: Try chunked storage first
+            try:
+                success, token = self._get_refresh_token_chunked(username)
+                if success and token and len(token.strip()) > 0:
+                    return True, token
+            except Exception as e:
+                logger.debug(f"Failed to get refresh token from Windows chunked keyring: {e}")
+
+        elif is_macos:
+            # macOS: Try direct storage first
+            try:
+                success, token = self._get_refresh_token_direct(username)
+                if success and token and len(token.strip()) > 0:
+                    return True, token
+            except Exception as e:
+                logger.debug(f"Failed to get refresh token from macOS direct keyring: {e}")
+
+        else:
+            # Linux and others: Try direct first, then chunked
+            try:
+                success, token = self._get_refresh_token_direct(username)
+                if success and token and len(token.strip()) > 0:
+                    return True, token
+            except Exception as e:
+                logger.debug(f"Failed to get refresh token from direct keyring: {e}")
+
+            try:
+                success, token = self._get_refresh_token_chunked(username)
+                if success and token and len(token.strip()) > 0:
+                    return True, token
+            except Exception as e:
+                logger.debug(f"Failed to get refresh token from chunked keyring: {e}")
+
+        # Try file fallback for all platforms
+        return self._get_refresh_token_file(username)
+
+    def _get_refresh_token_direct(self, username: str) -> tuple[bool, str]:
+        """Get refresh token from direct keyring storage."""
+        try:
             safe_username = self._sanitize_username_for_keyring(username)
             encoded_token = keyring.get_password(self._refresh_service(), safe_username)
+
             if encoded_token is not None and len(encoded_token.strip()) > 0:
                 try:
                     # Decode from base64
                     token = base64.b64decode(encoded_token.encode('ascii')).decode('utf-8')
+                    logger.debug(f"Retrieved refresh token directly (base64 length: {len(encoded_token)})")
                     return True, token
                 except Exception as decode_e:
-                    logger.debug(f"Failed to decode direct keyring token: {decode_e}")
+                    logger.warning(f"Failed to decode direct keyring token: {decode_e}")
+                    return False, "Decode error"
+            else:
+                return False, "No token found"
+
         except Exception as e:
             logger.debug(f"Failed to get refresh token from direct keyring: {e}")
-        
-        try:
-            # Try chunked keyring
-            success, token = self._get_refresh_token_chunked(username)
-            if success and token and len(token.strip()) > 0:
-                return True, token
-        except Exception as e:
-            logger.debug(f"Failed to get refresh token from chunked keyring: {e}")
-            
-        # Try file fallback
-        return self._get_refresh_token_file(username)
+            return False, str(e)
 
     def _delete_refresh_token(self, username: str) -> bool:
         """Delete refresh token from both chunked keyring and file storage."""
