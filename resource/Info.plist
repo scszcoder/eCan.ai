@@ -92,5 +92,27 @@
     <true/>
     <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
+
+    <!-- Keychain Access -->
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)com.ecan.app</string>
+    </array>
+
+    <!-- Application Support Directory Access -->
+    <key>NSApplicationSupportDirectoryUsageDescription</key>
+    <string>eCan needs access to Application Support directory to store user data and settings.</string>
+
+    <!-- Full Disk Access (for comprehensive file operations) -->
+    <key>NSSystemAdministrationUsageDescription</key>
+    <string>eCan needs system administration access for advanced automation features.</string>
+
+    <!-- Temporary Folder Access -->
+    <key>NSTemporaryDirectoryUsageDescription</key>
+    <string>eCan needs access to temporary directory for processing files.</string>
+
+    <!-- User Data Directory Access -->
+    <key>NSUserDataDirectoryUsageDescription</key>
+    <string>eCan needs access to user data directory to store application data.</string>
 </dict>
 </plist>

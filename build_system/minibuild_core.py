@@ -610,6 +610,15 @@ from pathlib import Path
 project_root = Path(r'{str(self.project_root)}')
 print(f'[SPEC] Project root: {{project_root}}')
 
+# Load configuration for plist processing
+import json
+config_path = project_root / 'build_system' / 'build_config.json'
+with open(config_path, 'r', encoding='utf-8') as f:
+    config = json.load(f)
+
+# Import plist template processor
+from build_system.plist_template_processor import process_info_plist_template
+
 
 def _force_remove(path: Path) -> None:
     """删除已有的 app bundle，确保后续 PyInstaller 不会因权限问题失败"""
@@ -784,7 +793,7 @@ print(f"[SPEC] Final counts - Data: {{len(a.datas)}}, Binaries: {{len(a.binaries
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
-{self._generate_exe_config(app_name, app_version, onefile, console, debug, runtime_tmpdir, strip_debug, upx_compression, url_scheme_options)}
+{self._generate_exe_config(app_name, app_version, onefile, console, debug, runtime_tmpdir, strip_debug, upx_compression, url_scheme_options, mode)}
 '''
         return template
     def _generate_data_files_code(self) -> str:
@@ -934,7 +943,7 @@ if sys.platform == 'darwin':
 '''
 
     def _generate_exe_config(self, app_name: str, app_version: str, onefile: bool, console: bool,
-                           debug: bool, runtime_tmpdir: Optional[str], strip_debug: bool = False, upx_compression: bool = False, url_scheme_options: str = "") -> str:
+                           debug: bool, runtime_tmpdir: Optional[str], strip_debug: bool = False, upx_compression: bool = False, url_scheme_options: str = "", mode: str = "prod") -> str:
         """Generate EXE and packaging configuration"""
 
         if onefile:
@@ -990,36 +999,7 @@ if sys.platform == 'darwin':
         name='{app_name}.app',
         icon=icon_path,
         {url_scheme_options}
-        info_plist={{
-            'CFBundleName': '{app_name}',
-            'CFBundleDisplayName': '{app_name}',
-            'CFBundleVersion': '{app_version}',
-            'CFBundleShortVersionString': '{app_version}',
-            'CFBundleExecutable': '{app_name}',
-            'CFBundleIdentifier': 'com.ecan.app',
-            'CFBundlePackageType': 'APPL',
-            'CFBundleSignature': '????',
-            'CFBundleInfoDictionaryVersion': '6.0',
-            'LSApplicationCategoryType': 'public.app-category.productivity',
-            'LSMinimumSystemVersion': '10.14.0',
-            'NSHighResolutionCapable': True,
-            'NSRequiresAquaSystemAppearance': False,
-            'NSSupportsAutomaticGraphicsSwitching': True,
-            'NSAppTransportSecurity': {{'NSAllowsArbitraryLoads': True}},
-            'NSMicrophoneUsageDescription': '{app_name} needs microphone access for voice features',
-            'NSCameraUsageDescription': '{app_name} needs camera access for visual features',
-            'NSNetworkVolumesUsageDescription': '{app_name} needs network access for automation',
-            'NSAppleEventsUsageDescription': '{app_name} needs AppleEvents access for system automation',
-            'NSSystemAdministrationUsageDescription': '{app_name} needs admin access for system automation',
-            'LSUIElement': False,
-            'LSBackgroundOnly': False,
-            # URL Scheme Configuration for ecan://
-            'CFBundleURLTypes': [{{
-                'CFBundleURLName': 'com.ecan.oauth',
-                'CFBundleURLSchemes': ['ecan'],
-                'CFBundleURLIconFile': 'eCan.icns'
-            }}],
-        }},
+        info_plist=process_info_plist_template(project_root, config, '{app_name}', '{app_version}', '{mode}'),
     )
 '''
 

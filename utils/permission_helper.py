@@ -6,7 +6,6 @@ Permission Helper - Handle file permissions and secure write operations
 
 import os
 import sys
-import tempfile
 import platform
 from utils.logger_helper import logger_helper as logger
 from config.constants import APP_NAME
@@ -45,39 +44,14 @@ class PermissionHelper:
         except (OSError, IOError, PermissionError):
             return False
     
-    @staticmethod
-    def get_safe_write_path(preferred_path: str, fallback_path: str) -> str:
-        """
-        Get safe write path
 
-        Args:
-            preferred_path: Preferred path
-            fallback_path: Fallback path
-
-        Returns:
-            Safe writable path
-        """
-        # Check if parent directory of preferred path is writable
-        preferred_dir = os.path.dirname(preferred_path)
-        if PermissionHelper.can_write_to_directory(preferred_dir):
-            return preferred_path
-
-        # If preferred path is not writable, use fallback path
-        fallback_dir = os.path.dirname(fallback_path)
-        if not os.path.exists(fallback_dir):
-            try:
-                os.makedirs(fallback_dir, exist_ok=True)
-            except Exception as e:
-                logger.error(f"Failed to create fallback directory {fallback_dir}: {e}")
-                # Last resort: use temporary directory
-                return os.path.join(tempfile.gettempdir(), os.path.basename(preferred_path))
-
-        return fallback_path
     
+
+
     @staticmethod
     def safe_write_file(file_path: str, content: str, encoding: str = 'utf-8') -> bool:
         """
-        Safely write file, automatically handle permission issues
+        Safely write file with permission error handling
 
         Args:
             file_path: File path
@@ -96,26 +70,50 @@ class PermissionHelper:
             # Try to write file
             with open(file_path, 'w', encoding=encoding) as f:
                 f.write(content)
-
             logger.info(f"Successfully wrote file: {file_path}")
             return True
 
-        except PermissionError:
-            logger.warning(f"Permission denied writing to {file_path}")
-
-            # Try using temporary directory as fallback
-            temp_path = os.path.join(tempfile.gettempdir(), os.path.basename(file_path))
-            try:
-                with open(temp_path, 'w', encoding=encoding) as f:
-                    f.write(content)
-                logger.warning(f"Wrote to temporary location instead: {temp_path}")
-                return True
-            except Exception as e:
-                logger.error(f"Failed to write to temporary location: {e}")
-                return False
+        except PermissionError as e:
+            # Check if this is a permission issue with root-owned directories
+            if PermissionHelper._is_permission_issue(directory):
+                logger.error(f"Permission denied: Cannot write to {file_path}")
+                logger.error("This directory appears to be owned by root. Please fix permissions by running:")
+                logger.error(f"sudo chown -R $(whoami):staff '{directory}'")
+                logger.error("Or delete the directory and let the application recreate it.")
+            else:
+                logger.error(f"Permission denied writing to {file_path}: {e}")
+            return False
 
         except Exception as e:
             logger.error(f"Failed to write file {file_path}: {e}")
+            return False
+
+    @staticmethod
+    def _is_permission_issue(directory: str) -> bool:
+        """
+        Check if directory has permission issues (e.g., owned by root)
+
+        Args:
+            directory: Directory path to check
+
+        Returns:
+            Whether this appears to be a permission issue with root ownership
+        """
+        try:
+            import pwd
+
+            if not os.path.exists(directory):
+                return False
+
+            # Get directory owner
+            dir_stat = os.stat(directory)
+            dir_owner = pwd.getpwuid(dir_stat.st_uid).pw_name
+            current_user = pwd.getpwuid(os.getuid()).pw_name
+
+            # Check if directory is owned by root but we're not root
+            return dir_owner == 'root' and current_user != 'root'
+
+        except Exception:
             return False
     
     @staticmethod
