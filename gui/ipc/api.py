@@ -400,3 +400,68 @@ class IPCAPI:
           { "queues": [{id, name}], "events": [{id, name}] }
         """
         self._send_request('get_editor_pending_sources', {}, callback=callback)
+
+    def update_screens(
+        self,
+        screens_data: Dict[str, Any],
+        callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        Update avatar screens/scenes data for the event-driven avatar system
+        
+        Args:
+            screens_data: Dictionary containing screen/scene data for agents
+                Expected format: {
+                    "agents": {
+                        "agent_id": {
+                            "scenes": [
+                                {
+                                    "id": "scene_id",
+                                    "name": "Scene Name", 
+                                    "clips": [
+                                        {
+                                            "id": "clip_id",
+                                            "mediaUrl": "path/to/media.gif",
+                                            "caption": "Scene caption",
+                                            "duration": 3000,
+                                            "triggers": ["timer", "action"],
+                                            "priority": "medium"
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                }
+            callback: Callback function receiving APIResponse[bool]
+        """
+        self._send_request('update_screens', screens_data, callback=callback)
+
+    def trigger_scene_event(
+        self,
+        agent_id: str,
+        event_type: str,
+        event_data: Optional[Dict[str, Any]] = None,
+        callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        Trigger a scene event for a specific agent in the event-driven avatar system
+        
+        Args:
+            agent_id: ID of the agent to trigger the event for
+            event_type: Type of event to trigger (timer, action, thought-change, error, 
+                       interaction, status-change, emotion, custom)
+            event_data: Optional additional data for the event
+                Expected format: {
+                    "priority": "high|medium|low",
+                    "context": "additional context",
+                    "metadata": {...}
+                }
+            callback: Callback function receiving APIResponse[bool]
+        """
+        params = {
+            'agentId': agent_id,
+            'eventType': event_type,
+            'eventData': event_data or {}
+        }
+        self._send_request('trigger_scene_event', params, callback=callback)

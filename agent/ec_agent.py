@@ -108,7 +108,7 @@ class EC_Agent(Agent):
 		self.personalities = personalities if personalities is not None else []
 		self.vehicle = vehicle if vehicle is not None else ""
 		self.status = "active"
-		self.story_board = [{"image_name":"", "image_source":"","text":"", "mode":"", "trigger_type":"", "trigger":""}]
+		self.images = [{"image_name":"", "image_source":"","text":""}]
 
 		# 在打包环境中安全初始化embeddings
 		try:

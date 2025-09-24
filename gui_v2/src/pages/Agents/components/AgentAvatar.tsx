@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import agentGifs, { logVideoSupport } from '@/assets/gifs'; // 需实现导入所有 gif
 import { Agent, AgentCard } from '../types';
 import { Button, Dropdown, Modal, message } from 'antd';
@@ -10,6 +10,8 @@ import { useAgentStore } from '@/stores/agentStore';
 import { useNavigate } from 'react-router-dom';
 import { useUserStore } from '@/stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
+import { DynamicAgentAnimation } from '../../../components/DynamicAgentAnimation';
+import { useAvatarSceneStore } from '../../../stores/avatarSceneStore';
 
 function getRandomGif(): string {
   // 这里假设 agentGifs 是一个字符串数组
