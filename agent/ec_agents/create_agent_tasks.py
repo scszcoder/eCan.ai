@@ -21,7 +21,7 @@ def create_my_twin_chat_task(mainwin):
         chatter_skill = None
 
     if agent_tasks:
-        print("agent_tasks: ", agent_tasks)
+        logger.trace("agent_tasks: ", agent_tasks)
         chatter_task = next((task for task in agent_tasks if task.name == "chat:Human Chatter Task"), None)
     else:
         chatter_task = None
@@ -68,7 +68,7 @@ def create_ec_helper_chat_task(mainwin):
         chatter_skill = None
 
     if agent_tasks:
-        print("agent_tasks: ", agent_tasks)
+        logger.trace("agent_tasks: ", agent_tasks)
         chatter_task = next((task for task in agent_tasks if task.name == "chat:ECBot RPA Helper Chatter Task"), None)
     else:
         chatter_task = None
