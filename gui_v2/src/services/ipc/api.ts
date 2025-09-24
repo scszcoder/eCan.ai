@@ -143,6 +143,14 @@ export class IPCAPI {
         return this.executeRequest<T>('confirm_forgot_password', { username, confirmCode, newPassword, lang});
     }
 
+    public async googleLogin<T>(lang?: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('google_login', { lang });
+    }
+
+    public async loginWithApple<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('login_with_apple', {});
+    }
+
     public async getAll<T>(username: string): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_all', { username });
     }
@@ -340,28 +348,6 @@ export class IPCAPI {
 
     public async getAvailableTests<T>(): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_available_tests', {});
-    }
-
-    /**
-     * Initiate Google login flow via backend
-     */
-    public async loginWithGoogle<T>(): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('login_with_google', {});
-    }
-
-    /**
-     * Google OAuth login with language support
-     * @param lang - Language code for internationalization
-     */
-    public async googleLogin<T>(lang?: string): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('google_login', { lang });
-    }
-
-    /**
-     * Initiate Apple login flow via backend
-     */
-    public async loginWithApple<T>(): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('login_with_apple', {});
     }
 
     /**

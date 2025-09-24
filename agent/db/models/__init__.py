@@ -47,6 +47,19 @@ from .version_model import (
     MigrationLog
 )
 
+# Import agent-related models
+from .agent_model import (
+    DBAgent,
+    DBAgentTask,
+    DBAgentTool,
+    DBAgentKnowledge
+)
+
+# Import skill-related models
+from .skill_model import (
+    DBAgentSkill
+)
+
 # Export all models and base classes
 __all__ = [
     # Base classes and mixins
@@ -72,7 +85,16 @@ __all__ = [
     
     # Version models
     'DBVersion',
-    'MigrationLog'
+    'MigrationLog',
+
+    # Agent models
+    'DBAgent',
+    'DBAgentTask',
+    'DBAgentTool',
+    'DBAgentKnowledge',
+
+    # Skill models
+    'DBAgentSkill'
 ]
 
 # Model registry for easy access
@@ -86,7 +108,12 @@ MODEL_REGISTRY = {
     'UserProfile': UserProfile,
     'UserSession': UserSession,
     'DBVersion': DBVersion,
-    'MigrationLog': MigrationLog
+    'MigrationLog': MigrationLog,
+    'DBAgent': DBAgent,
+    'DBAgentTask': DBAgentTask,
+    'DBAgentTool': DBAgentTool,
+    'DBAgentKnowledge': DBAgentKnowledge,
+    'DBAgentSkill': DBAgentSkill
 }
 
 def get_model(model_name: str):
