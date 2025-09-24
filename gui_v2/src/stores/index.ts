@@ -2,6 +2,7 @@
 export { useUserStore } from './userStore';
 export { useAppStore } from './appStore';
 export { useAppDataStore } from './appDataStore';
+export { useAgentStore } from './agentStore';
 
 // 导出数据类型
 // export type {

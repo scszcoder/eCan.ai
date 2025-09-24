@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { useUserStore } from '@/stores/userStore';
 import type { Agent } from '../types';
 import { useAppDataStore } from '@/stores/appDataStore';
+import { useAgentStore } from '@/stores/agentStore';
 import { get_ipc_api } from '@/services/ipc_api';
 
 type Gender = 'gender_options.male' | 'gender_options.female';
