@@ -87,7 +87,7 @@ class ManagedTask(Task):
     skill: Any
     state: dict
     name: str
-    id: str
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     run_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     resume_from: Optional[str] = None
     trigger: Optional[str] = None
@@ -96,7 +96,7 @@ class ManagedTask(Task):
     cancellation_event: threading.Event = Field(default_factory=threading.Event)
     schedule: Optional[TaskSchedule] = None
     checkpoint_nodes: Optional[List[str]] = None
-    queue: Optional[Queue] = Queue()
+    queue: Optional[Queue] = Field(default_factory=Queue)
     priority: Optional[Priority_Types] = None
     last_run_datetime: Optional[datetime] = None
     already_run_flag: bool = False
@@ -202,7 +202,7 @@ class ManagedTask(Task):
             print("in_args:", in_args)
             agen = self.skill.runnable.stream(in_args, config=effective_config, context=context, **kwargs)
         try:
-            print("running skill:", self.skill.name, in_msg)
+            print("stream running skill:", self.skill.name, in_msg)
             print("stream_run config:", effective_config)
             print("current langgraph run time state2:", self.skill.runnable.get_state(config=effective_config))
             # Set up default config if not provided
@@ -295,7 +295,7 @@ class ManagedTask(Task):
             print("in_args:", in_args)
             agen = self.skill.runnable.astream(in_args, config=effective_config, **kwargs)
         try:
-            print("running skill:", self.skill.name, in_msg)
+            print("astream running skill:", self.skill.name, in_msg)
             print("astream_run config:", effective_config)
 
 
@@ -938,7 +938,7 @@ class TaskRunner(Generic[Context]):
 
     async def async_task_wait_in_line(self, event_type, request):
         try:
-            print("task waiting in line.....")
+            print("task waiting in line.....", event_type,  self.agent.card.name, self.event_handler_queues, request)
             event_queue = self.event_handler_queues.get(event_type, None)
             if event_queue:
                 await event_queue.put(request)
@@ -952,7 +952,7 @@ class TaskRunner(Generic[Context]):
 
     def sync_task_wait_in_line(self, event_type, request):
         try:
-            logger.debug("task waiting in line.....")
+            logger.debug("task waiting in line.....", event_type, self.agent.card.name, self.event_handler_queues, request)
             # await self.a2a_msg_queue.put(request)
             event_queue = self.event_handler_queues.get(event_type, None)
             if event_queue:

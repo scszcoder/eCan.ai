@@ -1,8 +1,9 @@
 
 
-def prep_ec_customer_support_chat_skill(agent, task_id, msg, file_names=[]):
+def prep_ec_customer_support_chat_skill(agent, task_id, msg, current_state=None):
     msg_txt = msg.params.message.parts[0].text
     print("init task with message text:", msg_txt)
+    file_names = current_state.get("attachments", [])
     if file_names:
         file_names = ["report1.pdf", "report2.pdf", "report3.pdf"]  # Or generated dynamically
 
