@@ -7,6 +7,8 @@ import { useAppDataStore } from '../../stores/appDataStore';
 import { logger } from '../../utils/logger';
 import { eventBus } from '@/utils/eventBus';
 import { useRunningNodeStore } from '@/modules/skill-editor/stores/running-node-store';
+import { useAvatarSceneStore } from '../../stores/avatarSceneStore';
+import { AvatarEventManager } from '../avatarEventManager';
 
 // 处理器类型定义
 type Handler = (request: IPCRequest) => Promise<unknown>;
@@ -50,6 +52,8 @@ export class IPCHandlers {
         this.registerHandler('update_tasks_stat', this.updateTasksStat);
         this.registerHandler('push_chat_notification', this.pushChatNotification);
         this.registerHandler('update_all', this.updateAll);
+        this.registerHandler('update_screens', this.updateScreens);
+        this.registerHandler('trigger_scene_event', this.triggerSceneEvent);
     }
 
     private registerHandler(method: string, handler: Handler): void {
@@ -174,6 +178,56 @@ export class IPCHandlers {
         // logger.info('Received updateTasksStat request:', request.params);
         eventBus.emit('chat:newMessage', request.params);
         return { success: true };
+    }
+
+    async updateScreens(request: IPCRequest): Promise<{ success: boolean }> {
+        logger.info('Received update_screens request:', request.params);
+        
+        try {
+            const screensData = request.params as any;
+            
+            // Update the avatar scene store with the new screens data
+            if (screensData && screensData.agents) {
+                const sceneStore = useAvatarSceneStore.getState();
+                
+                // Process each agent's scenes
+                Object.entries(screensData.agents).forEach(([agentId, agentData]: [string, any]) => {
+                    if (agentData && agentData.scenes) {
+                        sceneStore.setAgentScenes(agentId, agentData.scenes);
+                    }
+                });
+                
+                logger.info(`Updated screens for ${Object.keys(screensData.agents).length} agents`);
+            }
+            
+            return { success: true };
+        } catch (error) {
+            logger.error('Error updating screens:', error);
+            throw new Error(`Failed to update screens: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    async triggerSceneEvent(request: IPCRequest): Promise<{ success: boolean }> {
+        logger.info('Received trigger_scene_event request:', request.params);
+        
+        try {
+            validateParams(request, ['agentId', 'eventType']);
+            const { agentId, eventType, eventData } = request.params as {
+                agentId: string;
+                eventType: string;
+                eventData?: any;
+            };
+            
+            // Get the avatar event manager instance and trigger the event
+            const eventManager = AvatarEventManager.getInstance();
+            eventManager.emitEvent(agentId, eventType, eventData || {});
+            
+            logger.info(`Triggered scene event '${eventType}' for agent '${agentId}'`);
+            return { success: true };
+        } catch (error) {
+            logger.error('Error triggering scene event:', error);
+            throw new Error(`Failed to trigger scene event: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
     }
 
 }
