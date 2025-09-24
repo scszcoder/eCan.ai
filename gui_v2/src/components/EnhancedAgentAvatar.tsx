@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import AgentAvatar from '../pages/Agents/components/AgentAvatar';
 import { DynamicAgentAnimation } from './DynamicAgentAnimation';
-import { useAvatarSceneStore } from '../stores/avatarSceneStore';
+import { useAvatarSceneStore } from '@/stores/avatarSceneStore';
 import { Agent, AgentCard } from '../pages/Agents/types';
 
 interface EnhancedAgentAvatarProps {
@@ -65,6 +65,7 @@ export const EnhancedAgentAvatar: React.FC<EnhancedAgentAvatarProps> = ({
         >
           <DynamicAgentAnimation
             agentId={agentId}
+            fallbackUrl="/assets/default-avatar.gif"
             width={width}
             height={height}
             autoPlay={true}
@@ -75,7 +76,10 @@ export const EnhancedAgentAvatar: React.FC<EnhancedAgentAvatarProps> = ({
               height: '100%', 
               borderRadius: 28 
             }}
-            onError={(error) => console.error('Enhanced avatar animation error:', error)}
+            onError={(error) => {
+              console.error('Enhanced avatar animation error:', error);
+              // Could add additional fallback logic here if needed
+            }}
           />
         </div>
         
