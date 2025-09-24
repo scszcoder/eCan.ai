@@ -61,6 +61,7 @@ class ConfigManager:
             else:
                 logger.info(f"Config file not found, using default: {file_path}")
                 return default_value if default_value is not None else {}
+
         except json.JSONDecodeError as e:
             logger.error(f"JSON decode error in {file_path}: {e}")
             return default_value if default_value is not None else {}
@@ -68,9 +69,11 @@ class ConfigManager:
             logger.error(f"Error loading {file_path}: {e}")
             return default_value if default_value is not None else {}
 
+
+
     def save_json(self, file_path: str, data: Any) -> bool:
         """
-        Save JSON file
+        Save JSON file with permission error handling
 
         Args:
             file_path: File path
@@ -88,9 +91,18 @@ class ConfigManager:
 
             logger.debug(f"Saved config: {file_path}")
             return True
+
+        except PermissionError as e:
+            logger.error(f"Permission denied saving {file_path}: {e}")
+            logger.error("Unable to save settings due to permission issues.")
+            logger.error("Please check directory permissions or run the application with appropriate privileges.")
+            return False
+
         except Exception as e:
             logger.error(f"Error saving {file_path}: {e}")
             return False
+
+
 
     @property
     def general_settings(self):
