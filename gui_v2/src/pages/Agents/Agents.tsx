@@ -1,6 +1,7 @@
 import React, { useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useAppDataStore } from '../../stores/appDataStore';
+import { useAgentStore } from '../../stores/agentStore';
 import { useUserStore } from '../../stores/userStore';
 import { Agent } from './types';
 import { logger } from '@/utils/logger';
@@ -15,11 +16,11 @@ export interface AgentsRef {
 const Agents = forwardRef<AgentsRef>((_props, ref) => {
     const { t } = useTranslation();
     const location = useLocation();
-    const setAgents = useAppDataStore((state) => state.setAgents);
-    const setError = useAppDataStore((state) => state.setError);
-    const shouldFetchAgents = useAppDataStore((state) => state.shouldFetchAgents);
+    const setAgents = useAgentStore((state) => state.setAgents);
+    const setError = useAgentStore((state) => state.setError);
+    const shouldFetchAgents = useAgentStore((state) => state.shouldFetchAgents);
     const username = useUserStore((state) => state.username);
-    const agents = useAppDataStore((state) => state.agents);
+    const agents = useAgentStore((state) => state.agents);
     const hasFetchedRef = useRef(false);
     const isInitializedRef = useRef(false);
     const renderCountRef = useRef(0);
