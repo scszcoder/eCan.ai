@@ -1,33 +1,78 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ECBot构建系统签名管理器
-集成代码签名和OTA签名到构建流程中
+ECBot Build System Signing Manager
+Integrates code signing and OTA signing into the build process
 """
 
 import os
 import json
 import subprocess
 import platform
+import re
 from pathlib import Path
 from typing import Dict, Any, Optional
 
 class SigningManager:
-    """代码签名管理器"""
+    """Code signing manager"""
     
     def __init__(self, project_root: Path = None, config: Dict[str, Any] = None):
         self.project_root = project_root or Path.cwd()
         self.config = config or {}
         self.platform = platform.system().lower()
         self.dist_dir = self.project_root / "dist"
+    
+    def _resolve_password(self, password_config: str, config: Dict[str, Any]) -> str:
+        """
+        Resolve password configuration, supports environment variables and default password fallback
+        
+        Args:
+            password_config: Password field in config, may be environment variable format ${VAR_NAME}
+            config: Signing configuration dictionary
+            
+        Returns:
+            Resolved password string
+        """
+        if not password_config:
+            # If password config is empty, try to use default password
+            default_password = config.get("default_password", "")
+            if default_password:
+                print(f"[SIGN] Using default password from config file")
+                return default_password
+            return ""
+        
+        # Check if it's environment variable format ${VAR_NAME}
+        env_var_pattern = r'\$\{([^}]+)\}'
+        match = re.match(env_var_pattern, password_config)
+        
+        if match:
+            env_var_name = match.group(1)
+            env_password = os.getenv(env_var_name)
+            
+            if env_password:
+                print(f"[SIGN] Using password from environment variable {env_var_name}")
+                return env_password
+            else:
+                print(f"[SIGN] Environment variable {env_var_name} not set or empty, trying default password")
+                # When environment variable is empty, try to use default password
+                default_password = config.get("default_password", "")
+                if default_password:
+                    print(f"[SIGN] Using default password from config file")
+                    return default_password
+                else:
+                    print(f"[SIGN] Warning: Environment variable {env_var_name} and default password not set, using empty password")
+                    return ""
+        else:
+            # Use password directly from config
+            return password_config
         
     def should_sign(self, mode: str = "prod") -> bool:
-        """判断是否应该进行签名"""
-        # 开发模式通常跳过签名以加快构建速度
+        """Determine whether signing should be performed"""
+        # Development mode usually skips signing to speed up build
         if mode == "dev":
             return False
         
-        # 检查平台配置
+        # Check platform configuration
         platform_config = self.config.get("platforms", {})
         
         if self.platform == "windows":
@@ -38,12 +83,12 @@ class SigningManager:
         return False
     
     def sign_artifacts(self, mode: str = "prod") -> bool:
-        """签名构建产物"""
+        """Sign build artifacts"""
         if not self.should_sign(mode):
-            print("[SIGN] 签名已禁用或不支持当前平台")
+            print("[SIGN] Signing disabled or current platform not supported")
             return True
         
-        print(f"[SIGN] 开始签名构建产物 (模式: {mode})")
+        print(f"[SIGN] Starting to sign build artifacts (mode: {mode})")
         
         try:
             if self.platform == "windows":
@@ -51,41 +96,41 @@ class SigningManager:
             elif self.platform == "darwin":
                 return self._sign_macos_artifacts()
             else:
-                print(f"[SIGN] 不支持的平台: {self.platform}")
+                print(f"[SIGN] Unsupported platform: {self.platform}")
                 return True
                 
         except Exception as e:
-            print(f"[SIGN] 签名过程出错: {e}")
-            # 签名失败不应该阻止构建，只是警告
+            print(f"[SIGN] Error during signing process: {e}")
+            # Signing failure should not block build, just warning
             return True
     
     def _sign_windows_artifacts(self) -> bool:
-        """签名Windows构建产物"""
-        print("[SIGN] 执行Windows代码签名...")
+        """Sign Windows build artifacts"""
+        print("[SIGN] Executing Windows code signing...")
         
         config = self.config.get("platforms", {}).get("windows", {}).get("sign", {})
         signtool = config.get("tool", "signtool")
         
         if not self._check_tool_available(signtool):
-            print(f"[SIGN] 警告: {signtool} 不可用，跳过签名")
+            print(f"[SIGN] Warning: {signtool} not available, skipping signing")
             return True
         
-        # 查找需要签名的文件
+        # Find files to sign
         files_to_sign = list(self.dist_dir.rglob("*.exe")) + list(self.dist_dir.rglob("*.dll"))
         
         if not files_to_sign:
-            print("[SIGN] 未找到需要签名的Windows文件")
+            print("[SIGN] No Windows files found to sign")
             return True
         
-        # 签名文件
+        # Sign files
         success_count = sum(1 for f in files_to_sign if self._sign_windows_file(f, config))
-        print(f"[SIGN] Windows签名完成: {success_count}/{len(files_to_sign)} 个文件")
+        print(f"[SIGN] Windows signing completed: {success_count}/{len(files_to_sign)} files")
         return success_count > 0
     
     def _sign_windows_file(self, file_path: Path, config: Dict[str, Any]) -> bool:
-        """签名单个Windows文件"""
+        """Sign single Windows file"""
         try:
-            # 构建签名命令
+            # Build signing command
             cmd = [
                 config.get("tool", "signtool"), "sign",
                 "/f", config.get("certificate", ""),
@@ -95,56 +140,57 @@ class SigningManager:
                 str(file_path)
             ]
             
-            # 添加密码（如果有）
-            password = config.get("password", "")
+            # Parse and add password (if any)
+            password_config = config.get("password", "")
+            password = self._resolve_password(password_config, config)
             if password:
                 cmd.insert(-1, "/p")
                 cmd.insert(-1, password)
             
-            # 过滤空参数
+            # Filter empty arguments
             cmd = [arg for arg in cmd if arg]
             
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             
             if result.returncode == 0:
-                print(f"[SIGN] ✅ 已签名: {file_path.name}")
+                print(f"[SIGN] ✅ Signed: {file_path.name}")
                 return True
             else:
-                print(f"[SIGN] ❌ 签名失败: {file_path.name} - {result.stderr.strip()}")
+                print(f"[SIGN] ❌ Signing failed: {file_path.name} - {result.stderr.strip()}")
                 return False
                 
         except Exception as e:
-            print(f"[SIGN] ❌ 签名异常: {file_path.name} - {e}")
+            print(f"[SIGN] ❌ Signing exception: {file_path.name} - {e}")
             return False
     
     def _sign_macos_artifacts(self) -> bool:
-        """签名macOS构建产物"""
-        print("[SIGN] 执行macOS代码签名...")
+        """Sign macOS build artifacts"""
+        print("[SIGN] Executing macOS code signing...")
         
         config = self.config.get("platforms", {}).get("macos", {}).get("codesign", {})
         
         if not self._check_tool_available("codesign"):
-            print("[SIGN] 警告: codesign 不可用，跳过签名")
+            print("[SIGN] Warning: codesign not available, skipping signing")
             return True
         
-        # 查找需要签名的文件
+        # Find files to sign
         files_to_sign = list(self.dist_dir.rglob("*.app")) + list(self.dist_dir.rglob("*.dylib"))
         
         if not files_to_sign:
-            print("[SIGN] 未找到需要签名的macOS文件")
+            print("[SIGN] No macOS files found to sign")
             return True
         
-        # 签名文件
+        # Sign files
         success_count = sum(1 for f in files_to_sign if self._sign_macos_file(f, config))
-        print(f"[SIGN] macOS签名完成: {success_count}/{len(files_to_sign)} 个文件")
+        print(f"[SIGN] macOS signing completed: {success_count}/{len(files_to_sign)} files")
         return success_count > 0
     
     def _sign_macos_file(self, file_path: Path, config: Dict[str, Any]) -> bool:
-        """签名单个macOS文件"""
+        """Sign single macOS file"""
         try:
             identity = config.get("identity", "")
             if not identity:
-                print(f"[SIGN] 警告: 未配置签名身份")
+                print(f"[SIGN] Warning: Signing identity not configured")
                 return False
             
             cmd = ["codesign", "--sign", identity, "--force", "--timestamp", str(file_path)]
@@ -152,18 +198,18 @@ class SigningManager:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             
             if result.returncode == 0:
-                print(f"[SIGN] ✅ 已签名: {file_path.name}")
+                print(f"[SIGN] ✅ Signed: {file_path.name}")
                 return True
             else:
-                print(f"[SIGN] ❌ 签名失败: {file_path.name} - {result.stderr.strip()}")
+                print(f"[SIGN] ❌ Signing failed: {file_path.name} - {result.stderr.strip()}")
                 return False
                 
         except Exception as e:
-            print(f"[SIGN] ❌ 签名异常: {file_path.name} - {e}")
+            print(f"[SIGN] ❌ Signing exception: {file_path.name} - {e}")
             return False
     
     def _check_tool_available(self, tool: str) -> bool:
-        """检查签名工具是否可用"""
+        """Check if signing tool is available"""
         try:
             result = subprocess.run(
                 [tool], 
@@ -175,13 +221,13 @@ class SigningManager:
         except FileNotFoundError:
             return False
         except subprocess.TimeoutExpired:
-            return True  # 工具存在但可能在等待参数
+            return True  # Tool exists but may be waiting for parameters
         except Exception:
             return False
     
     def verify_signatures(self) -> bool:
-        """验证签名"""
-        print("[VERIFY] 验证构建产物签名...")
+        """Verify signatures"""
+        print("[VERIFY] Verifying build artifact signatures...")
         
         try:
             if self.platform == "windows":
@@ -189,22 +235,22 @@ class SigningManager:
             elif self.platform == "darwin":
                 return self._verify_macos_signatures()
             else:
-                print(f"[VERIFY] 当前平台 {self.platform} 不需要验证")
+                print(f"[VERIFY] Current platform {self.platform} does not require verification")
                 return True
         except Exception as e:
-            print(f"[VERIFY] 验证过程出错: {e}")
+            print(f"[VERIFY] Error during verification process: {e}")
             return True
     
     def _verify_windows_signatures(self) -> bool:
-        """验证Windows签名"""
+        """Verify Windows signatures"""
         if not self._check_tool_available("signtool"):
-            print("[VERIFY] signtool 不可用，跳过验证")
+            print("[VERIFY] signtool not available, skipping verification")
             return True
         
         signed_files = list(self.dist_dir.rglob("*.exe")) + list(self.dist_dir.rglob("*.dll"))
         
         if not signed_files:
-            print("[VERIFY] 未找到需要验证的文件")
+            print("[VERIFY] No files found to verify")
             return True
         
         verified_count = 0
@@ -216,26 +262,26 @@ class SigningManager:
                 )
                 
                 if result.returncode == 0:
-                    print(f"[VERIFY] ✅ 签名有效: {file_path.name}")
+                    print(f"[VERIFY] ✅ Signature valid: {file_path.name}")
                     verified_count += 1
                 else:
-                    print(f"[VERIFY] ❌ 签名无效: {file_path.name}")
+                    print(f"[VERIFY] ❌ Signature invalid: {file_path.name}")
             except Exception as e:
-                print(f"[VERIFY] ❌ 验证失败: {file_path.name} - {e}")
+                print(f"[VERIFY] ❌ Verification failed: {file_path.name} - {e}")
         
-        print(f"[VERIFY] Windows签名验证: {verified_count}/{len(signed_files)} 个文件")
+        print(f"[VERIFY] Windows signature verification: {verified_count}/{len(signed_files)} files")
         return verified_count > 0
     
     def _verify_macos_signatures(self) -> bool:
-        """验证macOS签名"""
+        """Verify macOS signatures"""
         if not self._check_tool_available("codesign"):
-            print("[VERIFY] codesign 不可用，跳过验证")
+            print("[VERIFY] codesign not available, skipping verification")
             return True
         
         signed_files = list(self.dist_dir.rglob("*.app")) + list(self.dist_dir.rglob("*.dylib"))
         
         if not signed_files:
-            print("[VERIFY] 未找到需要验证的文件")
+            print("[VERIFY] No files found to verify")
             return True
         
         verified_count = 0
@@ -247,18 +293,18 @@ class SigningManager:
                 )
                 
                 if result.returncode == 0:
-                    print(f"[VERIFY] ✅ 签名有效: {file_path.name}")
+                    print(f"[VERIFY] ✅ Signature valid: {file_path.name}")
                     verified_count += 1
                 else:
-                    print(f"[VERIFY] ❌ 签名无效: {file_path.name}")
+                    print(f"[VERIFY] ❌ Signature invalid: {file_path.name}")
             except Exception as e:
-                print(f"[VERIFY] ❌ 验证失败: {file_path.name} - {e}")
+                print(f"[VERIFY] ❌ Verification failed: {file_path.name} - {e}")
         
-        print(f"[VERIFY] macOS签名验证: {verified_count}/{len(signed_files)} 个文件")
+        print(f"[VERIFY] macOS signature verification: {verified_count}/{len(signed_files)} files")
         return verified_count > 0
 
 class OTASigningManager:
-    """OTA签名管理器 - 使用Ed25519签名算法"""
+    """OTA signing manager - using Ed25519 signing algorithm"""
     
     def __init__(self, project_root: Path = None):
         self.project_root = project_root or Path.cwd()
@@ -266,45 +312,45 @@ class OTASigningManager:
         self.dist_dir = self.project_root / "dist"
     
     def sign_for_ota(self, version: str) -> bool:
-        """为OTA分发签名构建产物"""
-        print(f"[OTA-SIGN] 为OTA分发签名构建产物 (版本: {version})")
+        """Sign build artifacts for OTA distribution"""
+        print(f"[OTA-SIGN] Sign build artifacts for OTA distribution (version: {version})")
         
         try:
             from cryptography.hazmat.primitives import serialization
             from cryptography.hazmat.primitives.asymmetric import ed25519
             import base64
             
-            # 加载私钥
+            # Load private key
             if not self.private_key_path.exists():
-                print(f"[OTA-SIGN] ❌ Ed25519私钥文件不存在: {self.private_key_path}")
+                print(f"[OTA-SIGN] ❌ Ed25519 private key file does not exist: {self.private_key_path}")
                 return False
             
             with open(self.private_key_path, 'rb') as f:
                 private_key = serialization.load_pem_private_key(f.read(), password=None)
             
             if not isinstance(private_key, ed25519.Ed25519PrivateKey):
-                print("[OTA-SIGN] ❌ 私钥格式不正确")
+                print("[OTA-SIGN] ❌ Private key format is incorrect")
                 return False
             
-            # 查找需要签名的分发文件
+            # Find distribution files to sign
             artifacts = list(self.dist_dir.glob("*.exe")) + list(self.dist_dir.glob("*.dmg")) + list(self.dist_dir.glob("*.pkg"))
             
             if not artifacts:
-                print("[OTA-SIGN] ❌ 未找到需要签名的分发文件")
+                print("[OTA-SIGN] ❌ No distribution files found to sign")
                 return False
             
             signatures = {}
             
-            # 签名每个文件
+            # Sign each file
             for artifact in artifacts:
-                print(f"[OTA-SIGN] 正在签名: {artifact.name}")
+                print(f"[OTA-SIGN] Signing: {artifact.name}")
                 
                 try:
-                    # 读取文件内容
+                    # Read file content
                     with open(artifact, 'rb') as f:
                         file_data = f.read()
                     
-                    # 生成Ed25519签名
+                    # Generate Ed25519 signature
                     signature = private_key.sign(file_data)
                     signature_b64 = base64.b64encode(signature).decode('ascii')
                     
@@ -314,28 +360,28 @@ class OTASigningManager:
                         "file_size": len(file_data)
                     }
                     
-                    print(f"[OTA-SIGN] ✅ 已签名: {artifact.name}")
+                    print(f"[OTA-SIGN] ✅ Signed: {artifact.name}")
                 except Exception as e:
-                    print(f"[OTA-SIGN] ❌ 签名失败: {artifact.name} - {e}")
+                    print(f"[OTA-SIGN] ❌ Signing failed: {artifact.name} - {e}")
             
             if signatures:
-                # 保存签名信息
+                # Save signature information
                 self._save_signatures(version, signatures)
-                print(f"[OTA-SIGN] ✅ OTA签名完成: {len(signatures)} 个文件")
+                print(f"[OTA-SIGN] ✅ OTA signing completed: {len(signatures)} files")
                 return True
             else:
-                print("[OTA-SIGN] ❌ 所有文件签名失败")
+                print("[OTA-SIGN] ❌ All files signing failed")
                 return False
             
         except ImportError:
-            print("[OTA-SIGN] ❌ 缺少cryptography库")
+            print("[OTA-SIGN] ❌ Missing cryptography library")
             return False
         except Exception as e:
-            print(f"[OTA-SIGN] ❌ OTA签名失败: {e}")
+            print(f"[OTA-SIGN] ❌ OTA signing failed: {e}")
             return False
     
     def _save_signatures(self, version: str, signatures: Dict[str, Any]):
-        """保存签名信息到JSON文件"""
+        """Save signature information to JSON file"""
         try:
             ota_server_dir = self.project_root / "ota" / "server"
             ota_server_dir.mkdir(parents=True, exist_ok=True)
@@ -345,15 +391,15 @@ class OTASigningManager:
             with open(signatures_file, 'w', encoding='utf-8') as f:
                 json.dump(signatures, f, indent=2, ensure_ascii=False)
             
-            print(f"[OTA-SIGN] ✅ 签名信息已保存: {signatures_file}")
+            print(f"[OTA-SIGN] ✅ Signature information saved: {signatures_file}")
             
         except Exception as e:
-            print(f"[OTA-SIGN] ⚠️ 保存签名信息失败: {e}")
+            print(f"[OTA-SIGN] ⚠️ Failed to save signature information: {e}")
 
 def create_signing_manager(project_root: Path = None, config: Dict[str, Any] = None) -> SigningManager:
-    """创建签名管理器实例"""
+    """Create signing manager instance"""
     return SigningManager(project_root, config)
 
 def create_ota_signing_manager(project_root: Path = None) -> OTASigningManager:
-    """创建OTA签名管理器实例"""
+    """Create OTA signing manager instance"""
     return OTASigningManager(project_root)
