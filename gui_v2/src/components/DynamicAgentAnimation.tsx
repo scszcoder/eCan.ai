@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { useAvatarSceneStore } from '../stores/avatarSceneStore';
+import { useAvatarSceneStore } from '@/stores/avatarSceneStore';
 import { AvatarSceneOrchestrator } from '../services/avatarSceneOrchestrator';
 import { AvatarEventManager } from '../services/avatarEventManager';
 import { SceneClip, AgentSceneState } from '../types/avatarScene';
@@ -38,6 +38,8 @@ export const DynamicAgentAnimation: React.FC<DynamicAgentAnimationProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mediaType, setMediaType] = useState<'gif' | 'video' | null>(null);
+  const [currentMediaUrl, setCurrentMediaUrl] = useState<string>(fallbackUrl);
+  const [fallbackLevel, setFallbackLevel] = useState<number>(0);
   
   const mediaRef = useRef<HTMLImageElement | HTMLVideoElement>(null);
   const orchestratorRef = useRef<AvatarSceneOrchestrator | null>(null);
@@ -76,6 +78,10 @@ export const DynamicAgentAnimation: React.FC<DynamicAgentAnimationProps> = ({
       setIsPlaying(isPlaying);
       
       if (currentClip) {
+        // Reset fallback level when clip changes
+        setFallbackLevel(0);
+        setError(null);
+        
         // Determine media type from URL
         const url = currentClip.mediaUrl.toLowerCase();
         if (url.endsWith('.gif') || url.endsWith('.png') || url.endsWith('.jpg') || url.endsWith('.jpeg')) {
@@ -102,11 +108,23 @@ export const DynamicAgentAnimation: React.FC<DynamicAgentAnimationProps> = ({
   }, [currentClip, autoPlay]);
 
   const handleMediaError = useCallback((e: Event) => {
-    const errorMsg = `Failed to load media for agent ${agentId}`;
-    logger.error(errorMsg, e);
-    setError(errorMsg);
-    onError?.(new Error(errorMsg));
-  }, [agentId, onError]);
+    const currentUrl = getMediaUrl();
+    logger.warn(`Failed to load media: ${currentUrl} for agent ${agentId}`);
+    
+    // Try next fallback if available
+    if (fallbackLevel < fallbackUrls.length - 1) {
+      const nextLevel = fallbackLevel + 1;
+      setFallbackLevel(nextLevel);
+      setError(null); // Clear error since we're trying a fallback
+      logger.info(`Trying fallback ${nextLevel}: ${fallbackUrls[nextLevel]}`);
+    } else {
+      // All fallbacks exhausted
+      const errorMsg = `All media fallbacks failed for agent ${agentId}`;
+      logger.error(errorMsg, e);
+      setError(errorMsg);
+      onError?.(new Error(errorMsg));
+    }
+  }, [agentId, onError, fallbackLevel, fallbackUrls, getMediaUrl]);
 
   const handleMediaEnd = useCallback(() => {
     if (currentClip) {
@@ -117,13 +135,20 @@ export const DynamicAgentAnimation: React.FC<DynamicAgentAnimationProps> = ({
     }
   }, [agentId, currentClip, onSceneEnd]);
 
-  // Get current media URL
+  // Define fallback hierarchy
+  const fallbackUrls = useMemo(() => [
+    currentClip?.mediaUrl,
+    fallbackUrl,
+    '/assets/default-avatar.gif',
+    '/assets/avatars/default.gif',
+    '/assets/default.png',
+    'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkF2YXRhcjwvdGV4dD48L3N2Zz4=' // SVG fallback
+  ].filter(Boolean), [currentClip?.mediaUrl, fallbackUrl]);
+
+  // Get current media URL with progressive fallback
   const getMediaUrl = useCallback(() => {
-    if (currentClip?.mediaUrl) {
-      return currentClip.mediaUrl;
-    }
-    return fallbackUrl;
-  }, [currentClip, fallbackUrl]);
+    return fallbackUrls[fallbackLevel] || fallbackUrls[fallbackUrls.length - 1];
+  }, [fallbackUrls, fallbackLevel]);
 
   // Get current caption
   const getCaption = useCallback(() => {

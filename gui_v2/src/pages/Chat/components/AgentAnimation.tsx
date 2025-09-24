@@ -1,8 +1,8 @@
-import React, { useMemo, useEffect, useState } from 'react';
+import React, { useMemo, useEffect, useState, useCallback } from 'react';
 import agentGifs, { logVideoSupport } from '@/assets/gifs';
 import styled from '@emotion/styled';
 import { DynamicAgentAnimation } from '../../../components/DynamicAgentAnimation';
-import { useAvatarSceneStore } from '../../../stores/avatarSceneStore';
+import { useAvatarSceneStore } from '@/stores/avatarSceneStore';
 
 const AnimationContainer = styled.div`
   width: 100%;
@@ -45,14 +45,22 @@ interface AgentAnimationProps {
 const AgentAnimation: React.FC<AgentAnimationProps> = ({ 
   agentId, 
   className, 
-  useDynamicSystem = true 
+  useDynamicSystem = false // Temporarily disabled until store is properly initialized
 }) => {
   const [hasDynamicScenes, setHasDynamicScenes] = useState(false);
   
-  // Check if agent has dynamic scenes available
-  const agentScenes = useAvatarSceneStore(state => 
-    agentId ? state.getAgentScenes(agentId) : []
-  );
+  // Check if agent has dynamic scenes available (with error handling)
+  const agentScenes = useMemo(() => {
+    if (!agentId || !useDynamicSystem) return [];
+    
+    try {
+      const store = useAvatarSceneStore.getState();
+      return store.getAgentScenes ? store.getAgentScenes(agentId) : [];
+    } catch (error) {
+      console.warn('Avatar scene store not available, falling back to static mode:', error);
+      return [];
+    }
+  }, [agentId, useDynamicSystem]);
   
   useEffect(() => {
     setHasDynamicScenes(agentScenes.length > 0);
@@ -64,8 +72,22 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
     if (!agentId) return getRandomGif();
     const seed = agentId.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
     const index = seed % (agentGifs?.length || 1);
-    return Array.isArray(agentGifs) && agentGifs.length > 0 ? agentGifs[index] as string : '';
+    const selectedGif = Array.isArray(agentGifs) && agentGifs.length > 0 ? agentGifs[index] as string : '';
+    
+    // Return selected GIF or ultimate fallback
+    return selectedGif || '/assets/default-avatar.gif';
   }, [agentId]);
+
+  // Define multiple fallback levels for static mode
+  const staticFallbackUrls = useMemo(() => [
+    fallbackMediaUrl,
+    '/assets/default-avatar.gif',
+    '/assets/avatars/default.gif',
+    '/assets/default.png',
+    'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkF2YXRhcjwvdGV4dD48L3N2Zz4='
+  ].filter(Boolean), [fallbackMediaUrl]);
+
+  const [staticFallbackLevel, setStaticFallbackLevel] = useState(0);
 
   // Use video if mediaUrl exists and ends with .webm or .mp4
   const isVideo = Boolean(fallbackMediaUrl && typeof fallbackMediaUrl === 'string' && 
@@ -81,40 +103,84 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
 
   // If dynamic system is enabled and agent has scenes, use DynamicAgentAnimation
   if (useDynamicSystem && agentId && hasDynamicScenes) {
+    try {
+      return (
+        <AnimationContainer className={className}>
+          <AnimationWrapper>
+            <DynamicAgentAnimation
+              agentId={agentId}
+              fallbackUrl={fallbackMediaUrl}
+              width={200}
+              height={112} // 16:9 aspect ratio
+              autoPlay={true}
+              loop={true}
+              muted={true}
+              style={{ 
+                width: '100%', 
+                height: '100%', 
+                borderRadius: '12px' 
+              }}
+              onError={(error) => {
+                console.error('Dynamic animation error:', error);
+                // Fall back to static mode on error
+                setHasDynamicScenes(false);
+              }}
+            />
+          </AnimationWrapper>
+        </AnimationContainer>
+      );
+    } catch (error) {
+      console.error('Failed to render dynamic animation, falling back to static:', error);
+      // Continue to fallback static rendering below
+    }
+  }
+
+  // Progressive fallback error handler for static mode
+  const handleStaticMediaError = useCallback(() => {
+    if (staticFallbackLevel < staticFallbackUrls.length - 1) {
+      const nextLevel = staticFallbackLevel + 1;
+      setStaticFallbackLevel(nextLevel);
+      console.warn(`Static media failed, trying fallback ${nextLevel}: ${staticFallbackUrls[nextLevel]}`);
+    } else {
+      console.error('All static media fallbacks failed for agent:', agentId);
+    }
+  }, [staticFallbackLevel, staticFallbackUrls, agentId]);
+
+  // Get current static media URL
+  const currentStaticUrl = staticFallbackUrls[staticFallbackLevel] || staticFallbackUrls[staticFallbackUrls.length - 1];
+
+  // Fallback to original static behavior
+  if (!currentStaticUrl) {
     return (
       <AnimationContainer className={className}>
         <AnimationWrapper>
-          <DynamicAgentAnimation
-            agentId={agentId}
-            fallbackUrl={fallbackMediaUrl}
-            width={200}
-            height={112} // 16:9 aspect ratio
-            autoPlay={true}
-            loop={true}
-            muted={true}
-            style={{ 
-              width: '100%', 
-              height: '100%', 
-              borderRadius: '12px' 
-            }}
-            onError={(error) => console.error('Dynamic animation error:', error)}
-          />
+          <div style={{ 
+            width: '100%', 
+            height: '100%', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            background: '#f0f0f0',
+            borderRadius: '12px',
+            color: '#999',
+            fontSize: '14px'
+          }}>
+            Avatar
+          </div>
         </AnimationWrapper>
       </AnimationContainer>
     );
   }
 
-  // Fallback to original static behavior
-  if (!fallbackMediaUrl) {
-    return null;
-  }
+  const currentIsVideo = Boolean(currentStaticUrl && typeof currentStaticUrl === 'string' && 
+    (currentStaticUrl.trim().toLowerCase().endsWith('.webm') || currentStaticUrl.trim().toLowerCase().endsWith('.mp4')));
 
   return (
     <AnimationContainer className={className}>
       <AnimationWrapper>
-        {isVideo ? (
+        {currentIsVideo ? (
           <video
-            src={fallbackMediaUrl}
+            src={currentStaticUrl}
             autoPlay
             loop
             muted
@@ -127,11 +193,11 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
               background: 'transparent' 
             }}
             poster="./assets/default-agent-poster.png"
-            onError={(e) => console.error('Video load error:', fallbackMediaUrl, e)}
+            onError={handleStaticMediaError}
           />
         ) : (
           <img 
-            src={fallbackMediaUrl} 
+            src={currentStaticUrl} 
             alt="Agent animation"
             style={{ 
               width: '100%', 
@@ -139,7 +205,7 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
               objectFit: 'contain', 
               borderRadius: '12px' 
             }}
-            onError={(e) => console.error('Image load error:', fallbackMediaUrl, e)}
+            onError={handleStaticMediaError}
           />
         )}
       </AnimationWrapper>

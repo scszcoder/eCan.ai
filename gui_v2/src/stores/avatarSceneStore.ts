@@ -446,3 +446,5 @@ export const useAvatarSceneStore = create<AvatarSceneStoreState>()(
     }
   )
 );
+
+export default useAvatarSceneStore;
