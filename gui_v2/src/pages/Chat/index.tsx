@@ -675,6 +675,7 @@ const ChatPage: React.FC = () => {
                 onChatPin={handleChatPin}
                 onChatMute={handleChatMute}
                 onFilterChange={handleFilterChange}
+                currentAgentId={agentId || undefined}
             />
         );
     };
