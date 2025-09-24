@@ -454,10 +454,11 @@
     },
     "windows": {
       "sign": {
-        "enabled": false,
+        "enabled": true,
         "tool": "signtool",
         "certificate": "build_system/certificates/test_certificate.pfx",
         "password": "${CERT_PASSWORD}",
+        "default_password": "test123",
         "algorithm": "SHA256",
         "timestamp_url": "http://timestamp.digicert.com"
       }
