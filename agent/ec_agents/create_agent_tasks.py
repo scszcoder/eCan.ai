@@ -1,6 +1,7 @@
 import traceback
 import uuid
 from agent.ec_agents.agent_utils import load_agent_tasks_from_cloud
+from agent.ec_skills.search_parts.search_parts_chatter_skill import chat_or_work
 from agent.tasks import TaskStatus, TaskState
 
 from agent.tasks import ManagedTask, TaskSchedule
@@ -13,10 +14,19 @@ from agent.ec_agents.create_dev_task import create_skill_dev_task
 def create_my_twin_chat_task(mainwin):
     agent_skills = mainwin.agent_skills
     agent_tasks = mainwin.agent_tasks
-    chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for my digital twin"), None)
-    chat_task = next((task for task in agent_tasks if task.name == "chat:Human Chatter Task"), None)
 
-    if not chat_task:
+    if agent_skills:
+        chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for my digital twin"), None)
+    else:
+        chatter_skill = None
+
+    if agent_tasks:
+        print("agent_tasks: ", agent_tasks)
+        chatter_task = next((task for task in agent_tasks if task.name == "chat:Human Chatter Task"), None)
+    else:
+        chatter_task = None
+
+    if not chatter_task:
         task_schedule = TaskSchedule(
             repeat_type=Repeat_Types.NONE,
             repeat_number=1,
@@ -31,7 +41,7 @@ def create_my_twin_chat_task(mainwin):
         resume_from = ""
         state = {"top": "ready"}
         status = TaskStatus(state=TaskState.SUBMITTED)
-        chat_task = ManagedTask(
+        chatter_task = ManagedTask(
             id=task_id,
             name="chat:Human Chatter Task",
             description="Represent human to chat with others",
@@ -44,15 +54,24 @@ def create_my_twin_chat_task(mainwin):
             trigger="interaction",
             schedule=task_schedule
         )
+        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
 
-    return chat_task
+    return chatter_task
 
 
 def create_ec_helper_chat_task(mainwin):
     agent_skills = mainwin.agent_skills
     agent_tasks = mainwin.agent_tasks
-    chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecbot rpa helper"), None)
-    chatter_task = next((task for task in agent_tasks if task.name == "chat:ECBot RPA Helper Chatter Task"), None)
+    if agent_skills:
+        chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecbot rpa helper"), None)
+    else:
+        chatter_skill = None
+
+    if agent_tasks:
+        print("agent_tasks: ", agent_tasks)
+        chatter_task = next((task for task in agent_tasks if task.name == "chat:ECBot RPA Helper Chatter Task"), None)
+    else:
+        chatter_task = None
 
     if not chatter_task:
         task_schedule = TaskSchedule(
@@ -81,6 +100,7 @@ def create_ec_helper_chat_task(mainwin):
             trigger="message",
             schedule=task_schedule
         )
+        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
     return chatter_task
 
 def create_ec_helper_work_task(mainwin):
@@ -118,7 +138,7 @@ def create_ec_helper_work_task(mainwin):
             trigger="schedule",
             schedule=task_schedule
         )
-
+        logger.info("Created worker task: ", worker_task.name, worker_task.id, worker_task.queue)
     return worker_task
 
 
@@ -156,6 +176,7 @@ def create_ec_customer_support_chat_task(mainwin):
             trigger="message",
             schedule=task_schedule
         )
+        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
     return chatter_task
 
 def create_ec_customer_support_work_task(mainwin):
@@ -193,7 +214,7 @@ def create_ec_customer_support_work_task(mainwin):
             trigger="schedule",
             schedule=task_schedule
         )
-
+        logger.info("Created worker task: ", worker_task.name, worker_task.id, worker_task.queue)
     return worker_task
 
 
@@ -232,7 +253,7 @@ def create_ec_marketing_chat_task(mainwin):
             trigger="message",
             schedule=task_schedule
         )
-
+        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
     return chatter_task
 
 def create_ec_marketing_work_task(mainwin):
@@ -270,6 +291,7 @@ def create_ec_marketing_work_task(mainwin):
             trigger="schedule",
             schedule=task_schedule
         )
+        logger.info("Created worker task: ", worker_task.name, worker_task.id, worker_task.queue)
     return worker_task
 
 def create_ec_procurement_chat_task(mainwin):
@@ -308,7 +330,7 @@ def create_ec_procurement_chat_task(mainwin):
             trigger="interaction",
             schedule=task_schedule
         )
-
+        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
     return chatter_task
 
 def create_ec_procurement_work_task(mainwin):
@@ -346,6 +368,7 @@ def create_ec_procurement_work_task(mainwin):
             trigger="message",
             schedule=task_schedule
         )
+        logger.info("Created worker task: ", worker_task.name, worker_task.id, worker_task.queue)
     return worker_task
 
 def create_ec_rpa_operator_chat_task(mainwin):
@@ -383,6 +406,7 @@ def create_ec_rpa_operator_chat_task(mainwin):
             trigger="message",
             schedule=task_schedule
         )
+        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
     return chatter_task
 
 def create_ec_rpa_operator_work_task(mainwin):
@@ -420,7 +444,7 @@ def create_ec_rpa_operator_work_task(mainwin):
             trigger="schedule",
             schedule=task_schedule
         )
-
+        logger.info("Created worker task: ", worker_task.name, worker_task.id, worker_task.queue)
     return worker_task
 
 
@@ -459,6 +483,7 @@ def create_ec_rpa_supervisor_chat_task(mainwin):
             trigger="message",
             schedule=task_schedule
         )
+        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
     return chatter_task
 
 def create_ec_rpa_supervisor_daily_task(mainwin):
@@ -496,7 +521,7 @@ def create_ec_rpa_supervisor_daily_task(mainwin):
             trigger="schedule",
             schedule=task_schedule
         )
-
+        logger.info("Created daily_task task: ", daily_task.name, daily_task.id, daily_task.queue)
     return daily_task
 
 def create_ec_rpa_supervisor_on_request_task(mainwin):
@@ -533,7 +558,7 @@ def create_ec_rpa_supervisor_on_request_task(mainwin):
             trigger="schedule",
             schedule=non_schedule
         )
-
+        logger.info("Created on_request_task task: ", on_request_task.name, on_request_task.id, on_request_task.queue)
     return on_request_task
 
 
@@ -572,6 +597,7 @@ def create_ec_sales_chat_task(mainwin):
             trigger="message",
             schedule=task_schedule
         )
+        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
     return chatter_task
 
 def create_ec_sales_work_task(mainwin):
@@ -609,6 +635,7 @@ def create_ec_sales_work_task(mainwin):
             trigger="schedule",
             schedule=task_schedule
         )
+        logger.info("Created worker task: ", worker_task.name, worker_task.id, worker_task.queue)
     return worker_task
 
 
@@ -649,6 +676,7 @@ def create_ec_self_tester_chat_task(mainwin):
             trigger="message",
             schedule=task_schedule
         )
+        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
     return chatter_task
 
 def create_ec_self_tester_work_task(mainwin):
@@ -686,6 +714,7 @@ def create_ec_self_tester_work_task(mainwin):
             trigger="message",
             schedule=task_schedule
         )
+        logger.info("Created worker task: ", worker_task.name, worker_task.id, worker_task.queue)
     return worker_task
 
 

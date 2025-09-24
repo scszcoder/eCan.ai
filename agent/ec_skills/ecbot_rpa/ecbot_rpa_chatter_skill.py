@@ -77,6 +77,7 @@ async def create_rpa_helper_chatter_skill(mainwin):
 
         # Verify node (simple check)
         def verify_resolved(state: NodeState) -> NodeState:
+            print("verify_resolved current state", state)
             last_msg = state["messages"][-1].content.lower()
             if "resolved" in last_msg:
                 state["resolved"] = True
