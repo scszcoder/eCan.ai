@@ -32,14 +32,24 @@ from .models import (
     User,
     UserProfile,
     UserSession,
-    MigrationLog
+    MigrationLog,
+    DBAgent,
+    DBAgentTask,
+    DBAgentTool,
+    DBAgentKnowledge,
+    DBAgentSkill
 )
 
 # Database services
 from .services import (
     SingletonMeta,
     BaseService,
-    DBChatService
+    DBChatService,
+    DBAgentService,
+    AgentService,
+    AgentsDBService,
+    DBSkillService,
+    SkillService
 )
 
 # Database utilities
@@ -54,6 +64,8 @@ from .ecan_db_manager import (
     get_db_manager,
     initialize_ecan_database
 )
+
+# Note: Agent and skill models are now imported from .models above
 
 __all__ = [
     # Core database utilities
@@ -82,6 +94,11 @@ __all__ = [
     'SingletonMeta',
     'BaseService',
     'DBChatService',
+    'DBAgentService',
+    'AgentService',
+    'AgentsDBService',
+    'DBSkillService',
+    'SkillService',
     
     # Utils
     'ContentSchema',
@@ -90,5 +107,14 @@ __all__ = [
     # Database manager
     'ECanDBManager',
     'get_db_manager',
-    'initialize_ecan_database'
+    'initialize_ecan_database',
+
+    # Agent models
+    'DBAgent',
+    'DBAgentTask',
+    'DBAgentTool',
+    'DBAgentKnowledge',
+
+    # Skills models
+    'DBAgentSkill'
 ]

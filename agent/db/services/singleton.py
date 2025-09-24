@@ -12,17 +12,21 @@ import weakref
 class SingletonMeta(type):
     """
     Thread-safe singleton metaclass.
-    
+
     Provides singleton implementation with weak references to allow
     garbage collection when instances are no longer needed.
     """
-    _instances = weakref.WeakValueDictionary()
-    _lock = threading.Lock()
+
+    def __init__(cls, name, bases, attrs):
+        super().__init__(name, bases, attrs)
+        # 每个类都有自己的实例字典和锁
+        cls._instances = weakref.WeakValueDictionary()
+        cls._lock = threading.Lock()
 
     def __call__(cls, *args, **kwargs):
         """
         Create or return existing singleton instance.
-        
+
         Uses database path, engine, or session as unique identifier
         to support multiple database connections.
         """
@@ -31,19 +35,20 @@ class SingletonMeta(type):
         db_path = kwargs.get('db_path')
         engine = kwargs.get('engine')
         session = kwargs.get('session')
-        
-        # 生成唯一键
+
+        # 生成唯一键，包含类名以确保不同类的实例不会冲突
+        class_name = cls.__name__
         if db_manager:
-            key = f"db_manager_{id(db_manager)}"
+            key = f"{class_name}_db_manager_{id(db_manager)}"
         elif db_path:
-            key = f"db_path_{db_path}"
+            key = f"{class_name}_db_path_{db_path}"
         elif engine:
-            key = f"engine_{id(engine)}"
+            key = f"{class_name}_engine_{id(engine)}"
         elif session:
-            key = f"session_{id(session)}"
+            key = f"{class_name}_session_{id(session)}"
         else:
-            key = "default"
-            
+            key = f"{class_name}_default"
+
         if key not in cls._instances:
             with cls._lock:
                 if key not in cls._instances:
