@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Chat } from '../types/chat';
 import SearchFilter from '../../../components/Common/SearchFilter';
 import ActionButtons from '../../../components/Common/ActionButtons';
+import AgentAnimation from './AgentAnimation';
 
 const { Text } = Typography;
 
@@ -157,6 +158,7 @@ interface ChatListProps {
     onExport?: () => void;
     onImport?: () => void;
     onSettings?: () => void;
+    currentAgentId?: string;
 }
 
 const ChatList: React.FC<ChatListProps> = ({
@@ -174,7 +176,8 @@ const ChatList: React.FC<ChatListProps> = ({
     onRefresh = () => {},
     onExport = () => {},
     onImport = () => {},
-    onSettings = () => {}
+    onSettings = () => {},
+    currentAgentId
 }) => {
     const { t } = useTranslation();
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -253,6 +256,7 @@ const ChatList: React.FC<ChatListProps> = ({
 
     return (
         <ChatListContainer>
+            <AgentAnimation agentId={currentAgentId} />
             <SearchFilter
                 onSearch={onSearch}
                 placeholder={t('pages.chat.searchPlaceholder')}
@@ -354,4 +358,4 @@ const ChatList: React.FC<ChatListProps> = ({
     );
 };
 
-export default React.memo(ChatList); 
+export default React.memo(ChatList);

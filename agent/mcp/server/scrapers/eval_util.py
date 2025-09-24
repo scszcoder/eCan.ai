@@ -443,9 +443,9 @@ def get_default_fom_form():
 
 def get_default_rerank_req():
     return {
-        "agent_id": "agent-001",
-        "work_type": "rerank_search_results",
-        "setup": {
+        # "agent_id": "agent-001",
+        # "work_type": "rerank_search_results",
+        # "setup": {
             "fom_form": {
                 "id": "eval_system_form",
                 "type": "score",
@@ -582,5 +582,5 @@ def get_default_rerank_req():
                     "usage_grade": "NA"
                 }
             ]
-        }
+        # }
     }
