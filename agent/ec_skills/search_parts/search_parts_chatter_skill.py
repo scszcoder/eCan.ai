@@ -880,7 +880,8 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
         logger.debug(f"[search_parts_chatter_skill] about to query rerank search results: {type(state)}, {state}")
 
         i = 0
-        setup = prep_ranking_request(state)
+        # setup = prep_ranking_request(state)
+        setup = get_default_rerank_req()
         rerank_req = {"agent_id": agent_id, "work_type": "rerank_search_results", "setup": setup}
         state["tool_input"] = rerank_req
         [task_id] = agent.runner.event_handler_queues.update_event_handler("rerank_search_results", this_task.queue)
@@ -1153,7 +1154,7 @@ async def create_search_parts_chatter_skill(mainwin):
 
         workflow.add_node("pend_for_next_human_msg0", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg0", THIS_SKILL_NAME, OWNER))
 
-        workflow.set_entry_point("query_component_specs")
+        # workflow.set_entry_point("query_component_specs")
         workflow.add_node("query_component_specs", query_component_specs_node)
 
         workflow.add_conditional_edges("more_analysis_app", is_preliminary_component_info_ready, ["query_component_specs", "pend_for_next_human_msg0"])
@@ -1200,6 +1201,7 @@ async def create_search_parts_chatter_skill(mainwin):
         workflow.add_node("local_sort_search_results", local_sort_search_results_node)
 
         workflow.add_node("re_rank_search_results", re_rank_search_results_node)
+        workflow.set_entry_point("re_rank_search_results")
 
         workflow.add_conditional_edges("confirm_FOM", is_FOM_filled, ["local_sort_search_results", "pend_for_human_input_fill_FOM"])
         # workflow.add_edge("pend_for_next_human_msg2", "confirm_FOM")

@@ -1,9 +1,9 @@
 
-def prep_knowledge_builder_skill(agent, task_id, msg, file_names=[]):
+def prep_knowledge_builder_skill(agent, task_id, msg, current_state=None):
     print("init_knowledge_builder_skill", type(msg), msg)  # msg.params.message[0].text
     # msg_txt = "I have three files here, please describe to me the contents of each of these files in detail."
     msg_parts = msg.params.message.parts
-    attachments = []
+    attachments = current_state.get("attachments", [])
     msg_txt = ""
     for part in msg_parts:
         if part.type == "text":
