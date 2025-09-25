@@ -6,18 +6,24 @@ from agent.ec_skills.llm_utils.llm_utils import try_parse_json
 def prep_search_parts_chatter_skill(agent, task_id, msg, current_state=None):
     print("prep_search_parts_chatter_skill", type(msg), msg)  # msg.params.message[0].text
     # msg_txt = "I have three files here, please describe to me the contents of each of these files in detail."
-    msg_parts = msg.params.message.parts
-    attachments = []
-    msg_txt = ""
-    for part in msg_parts:
-        if part.type == "text":
-            msg_txt = part.text
-        elif part.type == "file":
-            attachments.append({"filename": part.file.name, "file_url": part.file.uri, "mime_type": part.file.mimeType,
-                                "file_data": part.file.bytes})
+    if not isinstance(msg, dict):
+        msg_parts = msg.params.message.parts
+        attachments = []
+        msg_txt = ""
+        for part in msg_parts:
+            if part.type == "text":
+                msg_txt = part.text
+            elif part.type == "file":
+                attachments.append({"filename": part.file.name, "file_url": part.file.uri, "mime_type": part.file.mimeType,
+                                    "file_data": part.file.bytes})
 
-    chat_id = msg.params.metadata["chatId"]
-    msg_id = msg.id
+        chat_id = msg.params.metadata["chatId"]
+        msg_id = msg.id
+    else:
+        chat_id = ""
+        msg_id = ""
+        msg_txt = ""
+
     init_state = NodeState(
         messages=[agent.card.id, chat_id, msg_id, task_id, msg_txt],
         input=msg_txt,
@@ -48,8 +54,10 @@ def prep_search_parts_chatter_skill(agent, task_id, msg, current_state=None):
         goals=[]
     )
     if not current_state:
+        print("prep_search_parts_chatter_skill: set init state")
         return init_state
     else:
+        print("prep_search_parts_chatter_skill: set to resume")
         data = try_parse_json(msg_txt)
         if isinstance(data, dict):
             if data.get("type", "") == "normal":
@@ -61,4 +69,9 @@ def prep_search_parts_chatter_skill(agent, task_id, msg, current_state=None):
         current_state["attachments"] = attachments
         current_state["messages"].append(msg_txt)
 
+        if msg.get("workType", "") == "rerank_search_results":
+            ranked_results = data.get("results", {}).get("'ranked_results", {})
+            current_state["tool_result"] = ranked_results
+            current_state["attributes"]["rank_results"] = ranked_results
+            current_state["attributes"]["i_tag"] = data.get("taskID", "")
         return current_state

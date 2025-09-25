@@ -1044,7 +1044,9 @@ def gen_start_long_llm_task_string(task_input):
       where task_input internally looks like:
       {
         "acct_site_id": "",
-        "task_type": "",
+        "agent_id": "",
+        "work_type": "",
+        "task_id": "",
         "task_data": { "fom_form": {...}, "rows": [{...}], "component_info": {...} }
       }
 
@@ -1059,7 +1061,9 @@ def gen_start_long_llm_task_string(task_input):
 
         payload = {
             "acct_site_id": task_input.get("acct_site_id", ""),
-            "task_type": task_input.get("task_type", ""),
+            "agent_id": task_input.get("agent_id", ""),
+            "work_type": task_input.get("work_type", ""),
+            "task_id": task_input.get("task_id", ""),
             "task_data": task_input.get("task_data", {}) or {}
         }
 
@@ -1865,6 +1869,8 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
                       onLongLLMTaskComplete(acctSiteID: $acctSiteID) {
                         id
                         acctSiteID
+                        agentID
+                        workType
                         taskID
                         status
                         results

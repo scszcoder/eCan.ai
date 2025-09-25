@@ -867,7 +867,7 @@ async def browser_search_with_parametric_filters(mainwin, url, parametric_filter
     return result
 
 def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
-    logger.debug(f"re_rank_search_results_node about to re-rank search results: {state['attributes']['search_results']}")
+    logger.debug(f"re_rank_search_results_node about to re-rank search results: {state['attributes'].get('search_results', None)}")
 
     agent_id = state["messages"][0]
     task_id = state["messages"][3]
@@ -884,8 +884,8 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
         setup = get_default_rerank_req()
         rerank_req = {"agent_id": agent_id, "work_type": "rerank_search_results", "setup": setup}
         state["tool_input"] = rerank_req
-        [task_id] = agent.runner.event_handler_queues.update_event_handler("rerank_search_results", this_task.queue)
-
+        agent.runner.update_event_handler("rerank_search_results", this_task.queue)
+        print("updated event handler", agent.runner.event_handler_queues)
         async def run_tool_call():
             return await mcp_call_tool("api_ecan_ai_rerank_results", {"input": state["tool_input"]})
 
