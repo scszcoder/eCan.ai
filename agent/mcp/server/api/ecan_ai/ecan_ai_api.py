@@ -139,9 +139,9 @@ def ecan_ai_api_rerank_results(mainwin, rank_query):
             img_endpoint = mainwin.getWanImageEndpoint()
 
         rank_request = {
-            "agent_id": rank_query["agent_id"],
             "acct_site_id": mainwin.getAcctSiteID(),
-            "task_type": "rerank_search_results",
+            "agent_id": rank_query["agent_id"],
+            "work_type": "rerank_search_results",
             "task_data": rank_query["setup"]
         }
 
