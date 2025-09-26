@@ -72,10 +72,6 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
 
         skills = main_window.agent_skills
         vehicles = main_window.vehicles
-        organizations = main_window.organizations
-        titles = main_window.titles
-        ranks = main_window.ranks
-        personalities = main_window.personalities
         settings = main_window.config_manager.general_settings.data
 
         knowledges = {}

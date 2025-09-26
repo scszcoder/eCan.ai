@@ -543,16 +543,6 @@ class MainWindow:
         if not self.config_manager.general_settings.default_webdriver_path:
             self.config_manager.general_settings.default_webdriver_path = f"{self.homepath}/chromedriver-win64/chromedriver.exe"
 
-        # Organization and role definitions
-        self.organizations = [
-            {"name":"agent resource"},
-            {"name": "accounting"},
-            {"name": "finance"},
-            {"name": "legal"},
-            {"name": "marketing"},
-            {"name": "sales"},
-            {"name": "reasearch and development"}
-        ]
         self.titles = ["Director", "Product Manager", "Engineer Manager", "Team Leader", "Engineer", "Sales", "Analyst", "Senior Analyst"]
         self.ranks = ["E6", "E7", "E8", "E9", "E10", "E11", "E12", "E13", "E14", "E15", "E16", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8"]
         self.personalities = ["Introvert", "Extrovert"]
@@ -625,13 +615,13 @@ class MainWindow:
         start_time = time.time()
         
         # Initialize eCan database system
-        self.db_manager = initialize_ecan_database(self.my_ecb_data_homepath, auto_migrate=True)
+        self.ec_db_mgr = initialize_ecan_database(self.my_ecb_data_homepath, auto_migrate=True)
         db_init_time = time.time() - start_time
         logger.info(f"[MainWindow] ✅ Database manager initialized in {db_init_time:.3f}s")
         
         # Initialize database chat service using database manager
         start_time = time.time()
-        self.db_chat_service = DBChatService.initialize(db_manager=self.db_manager)
+        self.db_chat_service = self.ec_db_mgr.get_chat_service()
         chat_init_time = time.time() - start_time
         logger.info(f"[MainWindow] ✅ Database chat service initialized in {chat_init_time:.3f}s")
 
@@ -4319,6 +4309,14 @@ class MainWindow:
             logger.debug("Cleared IPC registry system ready cache on logout")
         except Exception as e:
             logger.debug(f"Error clearing IPC registry cache: {e}")
+
+        # Close database manager and clean up database connections
+        try:
+            if self.ec_db_mgr:
+                self.ec_db_mgr.close()
+                logger.info("Database manager closed successfully on logout")
+        except Exception as e:
+            logger.warning(f"Error closing database manager: {e}")
 
         # Finally, call auth logout and close window
         try:

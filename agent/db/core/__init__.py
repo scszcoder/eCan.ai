@@ -23,7 +23,7 @@ from ..models import (
     ChatNotification
 )
 
-from .migration import DBMigration
+from ..migrations import MigrationManager
 
 __all__ = [
     # Base configuration
@@ -43,5 +43,5 @@ __all__ = [
     'ChatNotification',
     
     # Migration
-    'DBMigration'
+    'MigrationManager'
 ]

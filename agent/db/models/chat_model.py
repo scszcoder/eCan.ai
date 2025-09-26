@@ -24,6 +24,9 @@ class Chat(BaseModel, ExtensibleMixin):
     name = Column(String(100), nullable=False, comment="Chat display name")
     avatar = Column(String(255), nullable=True, comment="Chat avatar URL")
     
+    # Agent association
+    agent_id = Column(String(64), ForeignKey('agents.id'), nullable=True, comment="Associated agent ID")
+    
     # Chat status and metadata
     lastMsg = Column(Text, nullable=True, comment="Last message content")
     lastMsgTime = Column(Integer, nullable=True, comment="Last message timestamp (milliseconds)")
@@ -32,6 +35,7 @@ class Chat(BaseModel, ExtensibleMixin):
     muted = Column(Boolean, default=False, nullable=False, comment="Whether chat is muted")
     
     # Relationships
+    agent = relationship("DBAgent", backref="chats")
     members = relationship("Member", back_populates="chat", cascade="all, delete-orphan")
     messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan")
     notifications = relationship("ChatNotification", back_populates="chat", cascade="all, delete-orphan", foreign_keys="ChatNotification.chatId")
@@ -63,6 +67,10 @@ class Chat(BaseModel, ExtensibleMixin):
             
         if include_messages:
             data['messages'] = [message.to_dict() for message in self.messages]
+        
+        # Include agent information if available
+        if deep and self.agent:
+            data['agent'] = self.agent.to_dict(deep=False)
             
         return data
     

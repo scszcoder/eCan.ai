@@ -7,6 +7,14 @@ This package contains all database models organized by functionality:
 - message_model: Message, Attachment models  
 - user_model: User, UserProfile, UserSession models
 - version_model: DBVersion, MigrationLog models
+- agent_model: DBAgent model
+- task_model: DBAgentTask model
+- tool_model: DBAgentTool model
+- knowledge_model: DBAgentKnowledge model
+- org_model: DBOrg model
+- skill_model: DBAgentSkill model
+- vehicle_model: DBAgentVehicle model
+- association_models: Association tables for many-to-many relationships
 
 All models inherit from BaseModel which provides common functionality
 like timestamps, UUID primary keys, and utility methods.
@@ -49,15 +57,47 @@ from .version_model import (
 
 # Import agent-related models
 from .agent_model import (
-    DBAgent,
-    DBAgentTask,
-    DBAgentTool,
+    DBAgent
+)
+
+# Import task-related models
+from .task_model import (
+    DBAgentTask
+)
+
+# Import tool-related models
+from .tool_model import (
+    DBAgentTool
+)
+
+# Import knowledge-related models
+from .knowledge_model import (
     DBAgentKnowledge
+)
+
+# Import organization-related models
+from .org_model import (
+    DBAgentOrg
 )
 
 # Import skill-related models
 from .skill_model import (
     DBAgentSkill
+)
+
+# Import vehicle-related models
+from .vehicle_model import (
+    DBAgentVehicle
+)
+
+# Import association models
+from .association_models import (
+    DBAgentOrgRel,
+    DBAgentSkillRel,
+    DBAgentTaskRel,
+    DBSkillToolRel,
+    DBAgentSkillKnowledgeRel,
+    DBAgentTaskSkillRel
 )
 
 # Export all models and base classes
@@ -93,8 +133,22 @@ __all__ = [
     'DBAgentTool',
     'DBAgentKnowledge',
 
+    # Organization models
+    'DBAgentOrg',
+
     # Skill models
-    'DBAgentSkill'
+    'DBAgentSkill',
+    
+    # Vehicle models
+    'DBAgentVehicle',
+    
+    # Association models
+    'DBAgentOrgRel',
+    'DBAgentSkillRel',
+    'DBAgentTaskRel',
+    'DBSkillToolRel',
+    'DBAgentSkillKnowledgeRel',
+    'DBAgentTaskSkillRel'
 ]
 
 # Model registry for easy access
@@ -113,7 +167,15 @@ MODEL_REGISTRY = {
     'DBAgentTask': DBAgentTask,
     'DBAgentTool': DBAgentTool,
     'DBAgentKnowledge': DBAgentKnowledge,
-    'DBAgentSkill': DBAgentSkill
+    'DBAgentOrg': DBAgentOrg,
+    'DBAgentSkill': DBAgentSkill,
+    'DBAgentVehicle': DBAgentVehicle,
+    'DBAgentOrgRel': DBAgentOrgRel,
+    'DBAgentSkillRel': DBAgentSkillRel,
+    'DBAgentTaskRel': DBAgentTaskRel,
+    'DBSkillToolRel': DBSkillToolRel,
+    'DBAgentSkillKnowledgeRel': DBAgentSkillKnowledgeRel,
+    'DBAgentTaskSkillRel': DBAgentTaskSkillRel
 }
 
 def get_model(model_name: str):

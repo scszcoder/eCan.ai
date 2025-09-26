@@ -398,6 +398,39 @@ export class IPCAPI {
     }>> {
         return this.executeRequest('get_initialization_progress');
     }
+
+    // Organization Management APIs
+    public async getOrganizations<T>(username: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_orgs', { username });
+    }
+
+    public async createOrganization<T>(username: string, name: string, description?: string, parent_id?: string, organization_type?: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('create_org', { username, name, description, parent_id, organization_type });
+    }
+
+    public async updateOrganization<T>(username: string, organization_id: string, name?: string, description?: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('update_org', { username, organization_id, name, description });
+    }
+
+    public async deleteOrganization<T>(username: string, organization_id: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('delete_org', { username, organization_id });
+    }
+
+    public async getOrganizationAgents<T>(username: string, organization_id: string, include_descendants?: boolean): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_org_agents', { username, organization_id, include_descendants });
+    }
+
+    public async bindAgentToOrganization<T>(username: string, agent_id: string, organization_id: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('bind_agent_to_org', { username, agent_id, organization_id });
+    }
+
+    public async unbindAgentFromOrganization<T>(username: string, agent_id: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('unbind_agent_from_org', { username, agent_id });
+    }
+
+    public async getAvailableAgentsForBinding<T>(username: string, organization_id: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_available_agents_for_binding', { username, organization_id });
+    }
 }
 
 /**

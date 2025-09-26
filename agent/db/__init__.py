@@ -11,12 +11,13 @@ This package contains all database-related functionality including:
 
 # Core database components
 from .core import (
+    Base,
     get_engine,
     get_session_factory,
     create_all_tables,
     drop_all_tables,
     ECAN_BASE_DB,
-    DBMigration
+    MigrationManager
 )
 
 # Database models (new structure)
@@ -37,6 +38,7 @@ from .models import (
     DBAgentTask,
     DBAgentTool,
     DBAgentKnowledge,
+    DBAgentOrg,
     DBAgentSkill
 )
 
@@ -46,10 +48,8 @@ from .services import (
     BaseService,
     DBChatService,
     DBAgentService,
-    AgentService,
-    AgentsDBService,
     DBSkillService,
-    SkillService
+    DBOrgService
 )
 
 # Database utilities
@@ -59,10 +59,11 @@ from .utils import (
 )
 
 # Database manager
-from .ecan_db_manager import (
-    ECanDBManager,
-    get_db_manager,
-    initialize_ecan_database
+from .ec_db_mgr import (
+    ECDBMgr,
+    create_db_manager,
+    initialize_ecan_database,
+    get_db_manager  # Deprecated, for backward compatibility
 )
 
 # Note: Agent and skill models are now imported from .models above
@@ -74,7 +75,7 @@ __all__ = [
     'create_all_tables',
     'drop_all_tables',
     'ECAN_BASE_DB',
-    'DBMigration',
+    'MigrationManager',
     
     # Database models
     'Base',
@@ -95,25 +96,25 @@ __all__ = [
     'BaseService',
     'DBChatService',
     'DBAgentService',
-    'AgentService',
-    'AgentsDBService',
     'DBSkillService',
-    'SkillService',
+    'DBOrgService',
     
     # Utils
     'ContentSchema',
     'ContentType',
     
     # Database manager
-    'ECanDBManager',
-    'get_db_manager',
+    'ECDBMgr',
+    'create_db_manager',
     'initialize_ecan_database',
+    'get_db_manager',  # Deprecated
 
     # Agent models
     'DBAgent',
     'DBAgentTask',
     'DBAgentTool',
     'DBAgentKnowledge',
+    'DBAgentOrg',
 
     # Skills models
     'DBAgentSkill'

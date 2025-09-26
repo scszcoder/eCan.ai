@@ -110,6 +110,7 @@
     "skills": "技能",
     "skill_editor": "技能编辑器",
     "agents": "代理",
+    "organizations": "组织架构",
     "apps": "应用",
     "tasks": "任务",
     "tools": "工具",
@@ -642,22 +643,104 @@
       "agent_id": "代理ID",
       "personality": "性格",
       "title": "职位",
-      "organizations": "组织",
-      "organization": "组织",
-      "supervisors": "上级",
-      "supervisor": "上级",
-      "subordinates": "下级",
-      "subordinate": "下级",
-      "tasks": "任务",
-      "task": "任务",
-      "skills": "技能",
-      "skill": "技能",
-      "vehicle": "车辆",
+      "organizations": "组织"
+    },
       "metadata": "元数据",
       "fetch_failed": "获取代理列表失败",
       "error_fetching": "获取代理列表时出错",
       "updated_data_from_api": "已从API更新代理数据",
       "fetched_agents": "已获取代理列表"
+    },
+    "org": {
+      "title": "组织管理",
+      "tree": {
+        "title": "组织架构"
+      },
+      "details": {
+        "title": "组织详情"
+      },
+      "info": {
+        "title": "组织信息"
+      },
+      "agents": {
+        "title": "绑定的Agent",
+        "allLeafAgents": "所有子部门的Agent"
+      },
+      "actions": {
+        "add": "添加组织",
+        "edit": "编辑",
+        "delete": "删除",
+        "bind": "绑定Agent",
+        "unbind": "解绑",
+        "chat": "聊天"
+      },
+      "form": {
+        "name": "名称",
+        "description": "描述",
+        "type": "类型",
+        "status": "状态",
+        "level": "层级",
+        "childDepartments": "子部门",
+        "created": "创建时间",
+        "validation": {
+          "nameRequired": "组织名称不能为空",
+          "nameLength": "名称长度必须在2-50个字符之间",
+          "descriptionLength": "描述不能超过200个字符",
+          "typeRequired": "组织类型不能为空"
+        }
+      },
+      "types": {
+        "company": "公司",
+        "department": "部门",
+        "team": "团队",
+        "group": "小组"
+      },
+      "status": {
+        "active": "活跃",
+        "inactive": "非活跃",
+        "archived": "已归档"
+      },
+      "modal": {
+        "create": {
+          "title": "创建组织"
+        },
+        "edit": {
+          "title": "编辑组织"
+        },
+        "bind": {
+          "title": "绑定Agent",
+          "selectAgents": "选择要绑定的Agent"
+        }
+      },
+      "messages": {
+        "createSuccess": "组织创建成功",
+        "updateSuccess": "组织更新成功",
+        "deleteSuccess": "组织删除成功",
+        "bindSuccess": "Agent绑定成功",
+        "unbindSuccess": "Agent解绑成功",
+        "moveSuccess": "组织移动成功",
+        "createFailed": "创建组织失败",
+        "updateFailed": "更新组织失败",
+        "deleteFailed": "删除组织失败",
+        "bindFailed": "绑定Agent失败",
+        "unbindFailed": "解绑Agent失败",
+        "moveFailed": "移动组织失败",
+        "loadFailed": "加载组织失败",
+        "chatFailed": "打开聊天失败"
+      },
+      "confirm": {
+        "delete": "确定要删除这个组织吗？",
+        "unbind": "确定要解绑这个Agent吗？"
+      },
+      "placeholder": {
+        "selectOrganization": "选择一个组织",
+        "noAgents": "该组织没有绑定任何Agent",
+        "noAvailableAgents": "没有可绑定的Agent"
+      },
+      "tooltip": {
+        "chat": "与Agent聊天",
+        "unbind": "从组织解绑Agent"
+      }
     },
     "console": {
       "status": "状态",
@@ -848,9 +931,8 @@
       "api_key_update": "API 密钥更新",
       "api_key_deletion": "API 密钥删除",
       "default_llm_change": "默认 LLM 更改"
-    }
-  },
-  "search": {
+    },
+    "search": {
     "placeholder": "搜索...",
     "history": "历史",
     "filters": "筛选",
