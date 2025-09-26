@@ -78,7 +78,7 @@ export function useEditorProps(
         return {
           type,
           meta: {
-            defaultExpanded: true,
+            defaultExpanded: false,
           },
           formMeta: defaultFormMeta,
         };
