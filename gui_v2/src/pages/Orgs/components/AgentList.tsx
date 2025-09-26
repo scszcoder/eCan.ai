@@ -36,9 +36,9 @@ const AgentList: React.FC<AgentListProps> = ({
         marginBottom: 16
       }}>
         <Title level={4}>
-          <TeamOutlined /> {title || t('org.agents.title')} ({agents.length})
+          <TeamOutlined /> {title || t('pages.org.agents.title')} ({agents.length})
         </Title>
-        <Tooltip title={t('org.actions.bind')}>
+        <Tooltip title={t('pages.org.actions.bind')}>
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -51,7 +51,7 @@ const AgentList: React.FC<AgentListProps> = ({
       {agents.length === 0 ? (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={t('org.placeholder.noAgents')}
+          description={t('pages.org.placeholder.noAgents')}
         />
       ) : (
         <List
@@ -59,16 +59,16 @@ const AgentList: React.FC<AgentListProps> = ({
           renderItem={(agent) => (
             <List.Item
               actions={[
-                <Tooltip title={t('org.tooltip.chat')} key="chat">
+                <Tooltip title={t('pages.org.tooltip.chat')} key="chat">
                   <Button
                     type="text"
                     icon={<MessageOutlined />}
                     onClick={() => onChatWithAgent(agent)}
                   />
                 </Tooltip>,
-                <Tooltip title={t('org.tooltip.unbind')} key="unbind">
+                <Tooltip title={t('pages.org.tooltip.unbind')} key="unbind">
                   <Popconfirm
-                    title={t('org.confirm.unbind')}
+                    title={t('pages.org.confirm.unbind')}
                     onConfirm={() => onUnbindAgent(agent.id)}
                     okText={t('common.confirm')}
                     cancelText={t('common.cancel')}

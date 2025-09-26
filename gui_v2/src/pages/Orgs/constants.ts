@@ -4,17 +4,17 @@
 
 import type { OrgType, OrgStatus } from './types';
 
-export const ORG_TYPES: { value: OrgType; label: string; key: string }[] = [
-  { value: 'company', label: 'Company', key: 'org.types.company' },
-  { value: 'department', label: 'Department', key: 'org.types.department' },
-  { value: 'team', label: 'Team', key: 'org.types.team' },
-  { value: 'group', label: 'Group', key: 'org.types.group' },
+export const ORG_TYPES: { value: OrgType; key: string }[] = [
+  { value: 'company', key: 'pages.org.types.company' },
+  { value: 'department', key: 'pages.org.types.department' },
+  { value: 'team', key: 'pages.org.types.team' },
+  { value: 'group', key: 'pages.org.types.group' },
 ];
 
-export const ORG_STATUSES: { value: OrgStatus; label: string; key: string; color: string }[] = [
-  { value: 'active', label: 'Active', key: 'org.status.active', color: 'green' },
-  { value: 'inactive', label: 'Inactive', key: 'org.status.inactive', color: 'orange' },
-  { value: 'archived', label: 'Archived', key: 'org.status.archived', color: 'red' },
+export const ORG_STATUSES: { value: OrgStatus; key: string; color: string }[] = [
+  { value: 'active', key: 'pages.org.status.active', color: 'green' },
+  { value: 'inactive', key: 'pages.org.status.inactive', color: 'orange' },
+  { value: 'archived', key: 'pages.org.status.archived', color: 'red' },
 ];
 
 export const DEFAULT_ORG_TYPE: OrgType = 'department';
@@ -57,14 +57,14 @@ export const FORM_LAYOUT = {
 
 export const FORM_RULES = {
   name: [
-    { required: true, message: 'org.form.validation.nameRequired' },
-    { min: 2, max: 50, message: 'org.form.validation.nameLength' },
+    { required: true, message: 'pages.org.form.validation.nameRequired' },
+    { min: 2, max: 50, message: 'pages.org.form.validation.nameLength' },
   ],
   description: [
-    { max: 200, message: 'org.form.validation.descriptionLength' },
+    { max: 200, message: 'pages.org.form.validation.descriptionLength' },
   ],
   org_type: [
-    { required: true, message: 'org.form.validation.typeRequired' },
+    { required: true, message: 'pages.org.form.validation.typeRequired' },
   ],
 
 };

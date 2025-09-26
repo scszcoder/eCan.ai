@@ -20,6 +20,8 @@ const Orgs: React.FC = () => {
   const { t } = useTranslation();
   const { state, actions } = useOrgs();
 
+
+
   // Tree selection handler
   const handleTreeSelect = (selectedKeys: React.Key[]) => {
     if (selectedKeys.length > 0) {
@@ -114,7 +116,7 @@ const Orgs: React.FC = () => {
       }}>
         <Title level={2} style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
           <ApartmentOutlined />
-          {t('org.title', '组织管理')}
+          {t('pages.org.title', '组织管理')}
         </Title>
       </div>
 

@@ -61,7 +61,7 @@ const OrgModal: React.FC<OrgModalProps> = ({
 
   return (
     <Modal
-      title={isEditing ? t('org.modal.edit.title') : t('org.modal.create.title')}
+      title={isEditing ? t('pages.org.modal.edit.title') : t('pages.org.modal.create.title')}
       open={visible}
       onOk={handleOk}
       onCancel={handleCancel}
@@ -75,18 +75,18 @@ const OrgModal: React.FC<OrgModalProps> = ({
         }}
       >
         <Form.Item
-          label={t('org.form.name')}
+          label={t('pages.org.form.name')}
           name="name"
           rules={FORM_RULES.name.map(rule => ({
             ...rule,
             message: t(rule.message)
           }))}
         >
-          <Input placeholder={t('org.form.name')} />
+          <Input placeholder={t('pages.org.form.name')} />
         </Form.Item>
 
         <Form.Item
-          label={t('org.form.description')}
+          label={t('pages.org.form.description')}
           name="description"
           rules={FORM_RULES.description.map(rule => ({
             ...rule,
@@ -95,19 +95,19 @@ const OrgModal: React.FC<OrgModalProps> = ({
         >
           <TextArea
             rows={3}
-            placeholder={t('org.form.description')}
+            placeholder={t('pages.org.form.description')}
           />
         </Form.Item>
 
         <Form.Item
-          label={t('org.form.type')}
+          label={t('pages.org.form.type')}
           name="org_type"
           rules={FORM_RULES.org_type.map(rule => ({
             ...rule,
             message: t(rule.message)
           }))}
         >
-          <Select placeholder={t('org.form.type')}>
+          <Select placeholder={t('pages.org.form.type')}>
             {ORG_TYPES.map(type => (
               <Select.Option key={type.value} value={type.value}>
                 {t(type.key)}

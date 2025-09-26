@@ -325,8 +325,11 @@ class DBOrgService(BaseService):
                         "error": f"Organization with id {org_id} not found"
                     }
                 
+                # Convert timestamps in the data before updating
+                converted_data = self._convert_timestamps(data)
+                
                 # Update organization fields
-                for key, value in data.items():
+                for key, value in converted_data.items():
                     if hasattr(organization, key):
                         setattr(organization, key, value)
                 

@@ -537,7 +537,10 @@
         "status": "状态",
         "type": "类型",
         "validation": {
-          "nameRequired": "名称必填"
+          "nameRequired": "名称必填",
+          "nameLength": "名称长度必须在2-50个字符之间",
+          "descriptionLength": "描述长度不能超过200个字符",
+          "typeRequired": "组织类型必填"
         }
       },
       "info": {
@@ -588,6 +591,12 @@
       },
       "tree": {
         "title": "组织架构"
+      },
+      "types": {
+        "company": "公司",
+        "department": "部门",
+        "team": "团队",
+        "group": "小组"
       }
     },
     "search": {

@@ -7,7 +7,7 @@ import { Card, Button, Space, Typography, Tag, Popconfirm, Tooltip } from 'antd'
 import { EditOutlined, DeleteOutlined, TeamOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { Org, Agent } from '../types';
-import { ORG_STATUSES } from '../constants';
+import { ORG_STATUSES, ORG_TYPES } from '../constants';
 import AgentList from './AgentList';
 
 const { Title, Text } = Typography;
@@ -36,7 +36,7 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
   if (!org) {
     return (
       <Card style={{ flex: 1, textAlign: 'center', padding: '60px 20px' }}>
-        <Text type="secondary">{t('org.placeholder.selectOrg')}</Text>
+        <Text type="secondary">{t('pages.org.placeholder.selectOrg')}</Text>
       </Card>
     );
   }
@@ -45,7 +45,12 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
     return ORG_STATUSES.find(s => s.value === status) || ORG_STATUSES[0];
   };
 
+  const getTypeConfig = (type: string) => {
+    return ORG_TYPES.find(t => t.value === type) || ORG_TYPES[0];
+  };
+
   const statusConfig = getStatusConfig(org.status);
+  const typeConfig = getTypeConfig(org.org_type);
 
   return (
     <Card
@@ -53,10 +58,10 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
           <Space>
             <TeamOutlined />
-            {t('org.details.title')}
+            {t('pages.org.details.title')}
           </Space>
           <Space>
-            <Tooltip title={t('org.actions.edit')}>
+            <Tooltip title={t('pages.org.actions.edit')}>
               <Button
                 size="small"
                 icon={<EditOutlined />}
@@ -65,12 +70,12 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
               />
             </Tooltip>
             <Popconfirm
-              title={t('org.confirm.delete')}
+              title={t('pages.org.confirm.delete')}
               onConfirm={() => onDelete(org.id)}
               okText={t('common.confirm')}
               cancelText={t('common.cancel')}
             >
-              <Tooltip title={t('org.actions.delete')}>
+              <Tooltip title={t('pages.org.actions.delete')}>
                 <Button
                   size="small"
                   danger
@@ -87,22 +92,22 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
       <div>
         {/* Org Info */}
         <div style={{ marginBottom: 24 }}>
-          <Title level={4}>{t('org.info.title')}</Title>
+          <Title level={4}>{t('pages.org.info.title')}</Title>
           <Space direction="vertical" style={{ width: '100%' }}>
             <div>
-              <Text strong>{t('org.form.name')}:</Text> {org.name}
+              <Text strong>{t('pages.org.form.name')}:</Text> {org.name}
             </div>
             <div>
-              <Text strong>{t('org.form.description')}:</Text> {org.description || '-'}
+              <Text strong>{t('pages.org.form.description')}:</Text> {org.description || '-'}
             </div>
             <div>
-              <Text strong>{t('org.form.type')}:</Text> {org.org_type}
+              <Text strong>{t('pages.org.form.type')}:</Text> {t(typeConfig.key)}
             </div>
             <div>
-              <Text strong>{t('org.form.level')}:</Text> {org.level}
+              <Text strong>{t('pages.org.form.level')}:</Text> {org.level}
             </div>
             <div>
-              <Text strong>{t('org.form.status')}:</Text>
+              <Text strong>{t('pages.org.form.status')}:</Text>
               <Tag color={statusConfig.color} style={{ marginLeft: 8 }}>
                 {t(statusConfig.key)}
               </Tag>
@@ -110,11 +115,11 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
             {/* Show child nodes count for non-leaf nodes */}
             {org.children && org.children.length > 0 && (
               <div>
-                <Text strong>{t('org.form.childDepartments')}:</Text> {org.children.length}
+                <Text strong>{t('pages.org.form.childDepartments')}:</Text> {org.children.length}
               </div>
             )}
             <div>
-              <Text strong>{t('org.form.created')}:</Text> {
+              <Text strong>{t('pages.org.form.created')}:</Text> {
                 org.created_at
                   ? new Date(org.created_at).toLocaleDateString()
                   : '-'

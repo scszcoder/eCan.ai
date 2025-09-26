@@ -39,6 +39,7 @@ const OrgTree: React.FC<OrgTreeProps> = ({
   };
 
   const convertToTreeData = (orgs: Org[]): DataNode[] => {
+
     return orgs.map(org => ({
       key: org.id,
       title: (
@@ -63,9 +64,9 @@ const OrgTree: React.FC<OrgTreeProps> = ({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
           <Space>
             <ApartmentOutlined />
-            {t('org.tree.title')}
+            {t('pages.org.tree.title')}
           </Space>
-          <Tooltip title={t('org.actions.add')}>
+          <Tooltip title={t('pages.org.actions.add')}>
             <Button
               type="primary"
               size="small"

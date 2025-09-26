@@ -745,3 +745,42 @@ class DBAgentService(BaseService):
                 "data": None,
                 "error": str(e)
             }
+
+    def get_agents_by_orgs(self, org_ids: List[str]) -> Dict[str, Any]:
+        """
+        Get all agents in multiple organizations
+        
+        Args:
+            org_ids (List[str]): List of organization IDs
+            
+        Returns:
+            dict: Standard response with agents data
+        """
+        try:
+            if not org_ids:
+                return {
+                    "success": True,
+                    "data": [],
+                    "error": None
+                }
+                
+            with self.session_scope() as session:
+                # Query agents through the association table for multiple orgs
+                agents = session.query(DBAgent).join(
+                    DBAgentOrgRel, DBAgent.id == DBAgentOrgRel.agent_id
+                ).filter(
+                    DBAgentOrgRel.org_id.in_(org_ids),
+                    DBAgentOrgRel.status == 'active'
+                ).distinct().all()  # Use distinct to avoid duplicates if agent is in multiple orgs
+                
+                return {
+                    "success": True,
+                    "data": [agent.to_dict() for agent in agents],
+                    "error": None
+                }
+        except SQLAlchemyError as e:
+            return {
+                "success": False,
+                "data": [],
+                "error": str(e)
+            }
