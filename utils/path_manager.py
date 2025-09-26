@@ -216,3 +216,18 @@ def get_skill_path(skill_path: str, skill_name: str, is_public: bool = True) -> 
 def ensure_directory_exists(file_path: str) -> bool:
     """Convenience function: Ensure directory exists"""
     return path_manager.ensure_directory_exists(file_path)
+
+
+def get_user_data_path(user: str = None) -> str:
+    """
+    Get user data path, optionally for a specific user
+
+    Args:
+        user (str, optional): User identifier for user-specific data path
+
+    Returns:
+        str: User data path
+    """
+    if user:
+        return os.path.join(path_manager.user_data_path, user)
+    return path_manager.user_data_path

@@ -16,7 +16,7 @@ import time
 import copy
 
 from app_context import AppContext
-from ..core import Chat, Member, Message, Attachment, ChatNotification, Base, DBMigration
+from ..core import Chat, Member, Message, Attachment, ChatNotification, Base
 from ..utils import ContentSchema
 from .base_service import BaseService
 from utils.logger_helper import logger_helper as logger
@@ -30,55 +30,26 @@ class DBChatService(BaseService):
     with support for various content types and database operations.
     """
 
-    def __init__(self, db_manager=None, engine=None, session=None):
+    def __init__(self, engine=None, session=None):
         """
         Initialize chat service.
-        
+
         Args:
-            db_manager: ECanDBManager instance (preferred)
-            engine: SQLAlchemy engine instance (fallback)
-            session: SQLAlchemy session instance (fallback)
+            engine: SQLAlchemy engine instance (required)
+            session: SQLAlchemy session instance (optional)
         """
-        if db_manager is not None:
-            # Use database manager (preferred approach)
-            self.db_manager = db_manager
-            # Initialize BaseService with database manager's engine
-            super().__init__(engine=db_manager.get_engine())
-        else:
-            # Fallback to traditional BaseService initialization
-            super().__init__(db_path=None, engine=engine, session=session)
-            self.db_manager = None
+        super().__init__(engine, session)
 
     def session_scope(self):
         """
         Provide a transactional scope around a series of operations.
-        Override BaseService to support ECanDBManager.
-        
+
         Yields:
             Session: SQLAlchemy session instance
         """
-        if self.db_manager is not None:
-            # Use database manager's session management
-            return self.db_manager.get_session()
-        else:
-            # Use BaseService's session management
-            return super().session_scope()
+        # Use BaseService's session management
+        return super().session_scope()
 
-    @classmethod
-    def initialize(cls, db_manager) -> 'DBChatService':
-        """
-        Initialize database chat service instance with database manager.
-
-        Args:
-            db_manager: ECanDBManager instance (required)
-
-        Returns:
-            DBChatService: Database chat service instance
-        """
-        if db_manager is None:
-            raise ValueError("db_manager is required for DBChatService initialization")
-
-        return cls(db_manager=db_manager)
 
 
     def create_chat(

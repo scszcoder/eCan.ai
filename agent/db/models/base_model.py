@@ -5,13 +5,12 @@ This module provides the base model class with common functionality
 for all database models in the eCan.ai system.
 """
 
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, Integer, String, DateTime, Text, JSON
 from datetime import datetime
 import uuid
 
-# Create the base class for all models
-Base = declarative_base()
+# Import the unified Base from core
+from ..core.base import Base
 
 
 class BaseModel(Base):

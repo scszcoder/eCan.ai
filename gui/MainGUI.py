@@ -543,16 +543,6 @@ class MainWindow:
         if not self.config_manager.general_settings.default_webdriver_path:
             self.config_manager.general_settings.default_webdriver_path = f"{self.homepath}/chromedriver-win64/chromedriver.exe"
 
-        # Organization and role definitions
-        self.organizations = [
-            {"name":"agent resource"},
-            {"name": "accounting"},
-            {"name": "finance"},
-            {"name": "legal"},
-            {"name": "marketing"},
-            {"name": "sales"},
-            {"name": "reasearch and development"}
-        ]
         self.titles = ["Director", "Product Manager", "Engineer Manager", "Team Leader", "Engineer", "Sales", "Analyst", "Senior Analyst"]
         self.ranks = ["E6", "E7", "E8", "E9", "E10", "E11", "E12", "E13", "E14", "E15", "E16", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8"]
         self.personalities = ["Introvert", "Extrovert"]
@@ -625,15 +615,17 @@ class MainWindow:
         start_time = time.time()
         
         # Initialize eCan database system
-        self.db_manager = initialize_ecan_database(self.my_ecb_data_homepath, auto_migrate=True)
+        self.ec_db_mgr = initialize_ecan_database(self.my_ecb_data_homepath, auto_migrate=True)
         db_init_time = time.time() - start_time
         logger.info(f"[MainWindow] ✅ Database manager initialized in {db_init_time:.3f}s")
         
-        # Initialize database chat service using database manager
+        self.db_chat_service = self.ec_db_mgr.get_chat_service()
+        
+        # Load default template data for new users
         start_time = time.time()
-        self.db_chat_service = DBChatService.initialize(db_manager=self.db_manager)
-        chat_init_time = time.time() - start_time
-        logger.info(f"[MainWindow] ✅ Database chat service initialized in {chat_init_time:.3f}s")
+        self._load_default_template_data()
+        template_init_time = time.time() - start_time
+        logger.info(f"[MainWindow] ✅ Default template data loaded in {template_init_time:.3f}s")
 
     def _init_service_threaded(self, service_class, service_name):
         """Generic function to initialize any service in a separate thread
@@ -666,6 +658,49 @@ class MainWindow:
 
         # All vehicles created during checkVehicles() will be automatically saved
         # because vehicle_service is now guaranteed to be available
+
+    def _load_default_template_data(self):
+        """Load default template data for new users"""
+        try:
+            logger.info("[MainWindow] 📋 Loading default template data...")
+            
+            # Load organization template data
+            self._load_organization_template()
+            
+            # TODO: Add other template data loading here (agents, skills, tasks, etc.)
+            # self._load_agent_template()
+            # self._load_skill_template()
+            # self._load_task_template()
+            
+            logger.info("[MainWindow] ✅ Default template data loading completed")
+            
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Failed to load default template data: {e}")
+            logger.error(traceback.format_exc())
+
+    def _load_organization_template(self):
+        """Load default organization structure from template"""
+        try:
+            from agent.ec_org_ctrl import get_org_manager
+            
+            # Get org manager (use existing database manager to avoid conflicts)
+            org_manager = get_org_manager(self.log_user, self.ec_db_mgr)
+            
+            # Load org template using the controller
+            result = org_manager.load_org_template()
+            
+            if result.get("success"):
+                created_count = result.get("created_count", 0)
+                if created_count > 0:
+                    logger.info(f"[MainWindow] ✅ Successfully loaded organization template: {result.get('message')}")
+                else:
+                    logger.info(f"[MainWindow] ℹ️ {result.get('message')}")
+            else:
+                logger.error(f"[MainWindow] ❌ Failed to load organization template: {result.get('error')}")
+            
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Failed to load organization template: {e}")
+            logger.error(traceback.format_exc())
 
     def _init_business_objects(self):
         """Initialize business objects and data structures"""
@@ -4319,6 +4354,14 @@ class MainWindow:
             logger.debug("Cleared IPC registry system ready cache on logout")
         except Exception as e:
             logger.debug(f"Error clearing IPC registry cache: {e}")
+
+        # Close database manager and clean up database connections
+        try:
+            if self.ec_db_mgr:
+                self.ec_db_mgr.close()
+                logger.info("Database manager closed successfully on logout")
+        except Exception as e:
+            logger.warning(f"Error closing database manager: {e}")
 
         # Finally, call auth logout and close window
         try:

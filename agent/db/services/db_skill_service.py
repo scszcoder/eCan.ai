@@ -4,94 +4,46 @@ Skill database service.
 This module provides database service for skill management operations.
 """
 
-from sqlalchemy.orm import sessionmaker
-from ..core import get_engine, get_session_factory, Base
 from ..models.skill_model import DBAgentSkill
-from .singleton import SingletonMeta
+from ..models.tool_model import DBAgentTool
+from ..models.knowledge_model import DBAgentKnowledge
+from ..models.association_models import (
+    DBSkillToolRel, DBAgentSkillKnowledgeRel,
+    DBAgentSkillRel, DBAgentTaskSkillRel
+)
 from .base_service import BaseService
 
 from contextlib import contextmanager
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import and_, or_, func
+from typing import List, Optional, Dict, Any
+from datetime import datetime
 import re
 
 
-class DBSkillService(BaseService, metaclass=SingletonMeta):
+class DBSkillService(BaseService):
     """Skill database service class providing all skill-related operations"""
 
-    def __init__(self, db_path: str = None, engine=None, session=None):
+    def __init__(self, engine=None, session=None):
         """
         Initialize skill service
 
         Args:
-            db_path (str, optional): Database file path
-            engine: SQLAlchemy engine instance
-            session: SQLAlchemy session instance
+            engine: SQLAlchemy engine instance (required)
+            session: SQLAlchemy session instance (optional)
         """
-        if session is not None:
-            self.SessionFactory = lambda: session
-        elif engine is not None:
-            self.SessionFactory = sessionmaker(bind=engine)
-        elif db_path is not None:
-            engine = get_engine(db_path)
-            self.SessionFactory = get_session_factory(db_path)
-            Base.metadata.create_all(engine)
-            # Auto-insert initial db_version record and execute database upgrade
-            try:
-                from ..core.migration import DBMigration
-                migrator = DBMigration(db_path)
-                # Ensure db_version table and initial record exist
-                migrator.get_current_version()
-                migrator.upgrade_to_version('2.0.0', description='Auto upgrade to 2.0.0, add chat_notification table')
-            except Exception as e:
-                print(f"[DBMigration] Database upgrade failed: {e}")
-        else:
-            raise ValueError("Must provide db_path, engine or session")
+        super().__init__(engine, session)
 
-    @classmethod
-    def initialize(cls, db_manager) -> 'DBSkillService':
-        """
-        Initialize skill database service instance with database manager.
 
-        Args:
-            db_manager: ECanDBManager instance (required)
-
-        Returns:
-            DBSkillService: Initialized service instance
-
-        Raises:
-            ValueError: If db_manager is None or not properly initialized
-        """
-        if db_manager is None:
-            raise ValueError("db_manager cannot be None")
-        
-        if not hasattr(db_manager, 'get_engine') or not hasattr(db_manager, 'get_session_factory'):
-            raise ValueError("db_manager must have get_engine and get_session_factory methods")
-        
-        try:
-            engine = db_manager.get_engine()
-            session_factory = db_manager.get_session_factory()
-            
-            # Create service instance with engine
-            service = cls(engine=engine)
-            service.db_manager = db_manager
-            
-            return service
-            
-        except Exception as e:
-            raise ValueError(f"Failed to initialize DBSkillService: {e}")
-
-    @contextmanager
     def session_scope(self):
-        """Transaction manager ensuring thread safety"""
-        session = self.SessionFactory()
-        try:
-            yield session
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+        """
+        Provide a transactional scope around a series of operations.
+
+        Yields:
+            Session: SQLAlchemy session instance
+        """
+        # Use BaseService's session management
+        return super().session_scope()
 
     # ========== Generic CRUD operations =================================
     
@@ -218,6 +170,320 @@ class DBSkillService(BaseService, metaclass=SingletonMeta):
         except SQLAlchemyError as e:
             return {"success": False, "data": [], "error": str(e)}
 
+    # ========== Skill-Tool Association Management =================
 
-# Backward compatibility alias
-SkillService = DBSkillService
+    def add_tool_to_skill(self, skill_id: str, tool_id: str,
+                         dependency_type: str = 'required',
+                         usage_frequency: str = 'medium',
+                         importance: int = 1,
+                         tool_config: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Add a tool dependency to a skill"""
+        try:
+            with self.session_scope() as s:
+                # Check if association already exists
+                existing = s.query(DBSkillToolRel).filter(
+                    and_(DBSkillToolRel.skill_id == skill_id,
+                         DBSkillToolRel.tool_id == tool_id)
+                ).first()
+                
+                if existing:
+                    # Update existing association
+                    existing.dependency_type = dependency_type
+                    existing.usage_frequency = usage_frequency
+                    existing.importance = importance
+                    existing.tool_config = tool_config or {}
+                    s.flush()
+                    return {"success": True, "data": existing.to_dict(), "error": None}
+                
+                # Create new association
+                association = DBSkillToolRel(
+                    skill_id=skill_id,
+                    tool_id=tool_id,
+                    dependency_type=dependency_type,
+                    usage_frequency=usage_frequency,
+                    importance=importance,
+                    tool_config=tool_config or {}
+                )
+                s.add(association)
+                s.flush()
+                return {"success": True, "data": association.to_dict(), "error": None}
+        except Exception as e:
+            return {"success": False, "data": None, "error": str(e)}
+
+    def remove_tool_from_skill(self, skill_id: str, tool_id: str) -> Dict[str, Any]:
+        """Remove a tool dependency from a skill"""
+        try:
+            with self.session_scope() as s:
+                association = s.query(DBSkillToolRel).filter(
+                    and_(DBSkillToolRel.skill_id == skill_id,
+                         DBSkillToolRel.tool_id == tool_id)
+                ).first()
+                
+                if association:
+                    s.delete(association)
+                    s.flush()
+                    return {"success": True, "data": None, "error": None}
+                else:
+                    return {"success": False, "data": None, "error": "Association not found"}
+        except Exception as e:
+            return {"success": False, "data": None, "error": str(e)}
+
+    def get_skill_tools(self, skill_id: str, dependency_type: str = None) -> Dict[str, Any]:
+        """Get all tools required by a skill"""
+        try:
+            with self.session_scope() as s:
+                query = s.query(DBSkillToolRel).filter(
+                    DBSkillToolRel.skill_id == skill_id
+                )
+                if dependency_type:
+                    query = query.filter(DBSkillToolRel.dependency_type == dependency_type)
+                associations = query.order_by(DBSkillToolRel.importance.desc()).all()
+                return {"success": True, "data": [assoc.to_dict() for assoc in associations], "error": None}
+        except Exception as e:
+            return {"success": False, "data": [], "error": str(e)}
+
+    def get_required_tools(self, skill_id: str) -> Dict[str, Any]:
+        """Get only required tools for a skill"""
+        return self.get_skill_tools(skill_id, dependency_type='required')
+
+    # ========== Skill-Knowledge Association Management =================
+
+    def add_knowledge_to_skill(self, skill_id: str, knowledge_id: str,
+                              dependency_type: str = 'required',
+                              access_pattern: str = 'read',
+                              knowledge_scope: List[str] = None) -> Dict[str, Any]:
+        """Add a knowledge dependency to a skill"""
+        try:
+            with self.session_scope() as s:
+                # Check if association already exists
+                existing = s.query(DBAgentSkillKnowledgeRel).filter(
+                    and_(DBAgentSkillKnowledgeRel.skill_id == skill_id,
+                         DBAgentSkillKnowledgeRel.knowledge_id == knowledge_id)
+                ).first()
+                
+                if existing:
+                    # Update existing association
+                    existing.dependency_type = dependency_type
+                    existing.access_pattern = access_pattern
+                    existing.knowledge_scope = knowledge_scope or []
+                    s.flush()
+                    return {"success": True, "data": existing.to_dict(), "error": None}
+                
+                # Create new association
+                association = DBAgentSkillKnowledgeRel(
+                    skill_id=skill_id,
+                    knowledge_id=knowledge_id,
+                    dependency_type=dependency_type,
+                    access_pattern=access_pattern,
+                    knowledge_scope=knowledge_scope or []
+                )
+                s.add(association)
+                s.flush()
+                return {"success": True, "data": association.to_dict(), "error": None}
+        except Exception as e:
+            return {"success": False, "data": None, "error": str(e)}
+
+    def remove_knowledge_from_skill(self, skill_id: str, knowledge_id: str) -> Dict[str, Any]:
+        """Remove a knowledge dependency from a skill"""
+        try:
+            with self.session_scope() as s:
+                association = s.query(DBAgentSkillKnowledgeRel).filter(
+                    and_(DBAgentSkillKnowledgeRel.skill_id == skill_id,
+                         DBAgentSkillKnowledgeRel.knowledge_id == knowledge_id)
+                ).first()
+                
+                if association:
+                    s.delete(association)
+                    s.flush()
+                    return {"success": True, "data": None, "error": None}
+                else:
+                    return {"success": False, "data": None, "error": "Association not found"}
+        except Exception as e:
+            return {"success": False, "data": None, "error": str(e)}
+
+    def get_skill_knowledges(self, skill_id: str, dependency_type: str = None) -> Dict[str, Any]:
+        """Get all knowledge bases required by a skill"""
+        try:
+            with self.session_scope() as s:
+                query = s.query(DBAgentSkillKnowledgeRel).filter(
+                    DBAgentSkillKnowledgeRel.skill_id == skill_id
+                )
+                if dependency_type:
+                    query = query.filter(DBAgentSkillKnowledgeRel.dependency_type == dependency_type)
+                associations = query.order_by(DBAgentSkillKnowledgeRel.importance.desc()).all()
+                return {"success": True, "data": [assoc.to_dict() for assoc in associations], "error": None}
+        except Exception as e:
+            return {"success": False, "data": [], "error": str(e)}
+
+    def get_required_knowledges(self, skill_id: str) -> Dict[str, Any]:
+        """Get only required knowledge bases for a skill"""
+        return self.get_skill_knowledges(skill_id, dependency_type='required')
+
+    # ========== Skill Dependencies Validation =================
+
+    def check_skill_dependencies(self, skill_id: str) -> Dict[str, Any]:
+        """Check if all skill dependencies are available and valid"""
+        try:
+            with self.session_scope() as s:
+                skill = s.get(DBAgentSkill, skill_id)
+                if not skill:
+                    return {"success": False, "data": {}, "error": "Skill not found"}
+                
+                # Check tool dependencies
+                tool_deps_result = self.get_skill_tools(skill_id)
+                tool_dependencies = tool_deps_result["data"] if tool_deps_result["success"] else []
+                
+                missing_tools = []
+                invalid_tools = []
+                
+                for tool_dep in tool_dependencies:
+                    tool = s.get(DBAgentTool, tool_dep['tool_id'])
+                    if not tool:
+                        missing_tools.append(tool_dep['tool_id'])
+                    elif tool.status != 'active':
+                        invalid_tools.append(tool_dep['tool_id'])
+                
+                # Check knowledge dependencies
+                knowledge_deps_result = self.get_skill_knowledges(skill_id)
+                knowledge_dependencies = knowledge_deps_result["data"] if knowledge_deps_result["success"] else []
+                
+                missing_knowledges = []
+                invalid_knowledges = []
+                
+                for knowledge_dep in knowledge_dependencies:
+                    knowledge = s.get(DBAgentKnowledge, knowledge_dep['knowledge_id'])
+                    if not knowledge:
+                        missing_knowledges.append(knowledge_dep['knowledge_id'])
+                    elif knowledge.status != 'active':
+                        invalid_knowledges.append(knowledge_dep['knowledge_id'])
+                
+                # Determine overall status
+                is_valid = (len(missing_tools) == 0 and len(invalid_tools) == 0 and
+                           len(missing_knowledges) == 0 and len(invalid_knowledges) == 0)
+                
+                dependency_check = {
+                    'skill_id': skill_id,
+                    'skill_name': skill.name,
+                    'is_valid': is_valid,
+                    'tools': {
+                        'total': len(tool_dependencies),
+                        'missing': missing_tools,
+                        'invalid': invalid_tools
+                    },
+                    'knowledges': {
+                        'total': len(knowledge_dependencies),
+                        'missing': missing_knowledges,
+                        'invalid': invalid_knowledges
+                    }
+                }
+                
+                return {"success": True, "data": dependency_check, "error": None}
+        except Exception as e:
+            return {"success": False, "data": {}, "error": str(e)}
+
+    # ========== Skill Statistics =================
+
+    def get_skill_statistics(self, skill_id: str) -> Dict[str, Any]:
+        """Get comprehensive statistics for a skill"""
+        try:
+            with self.session_scope() as s:
+                skill = s.get(DBAgentSkill, skill_id)
+                if not skill:
+                    return {"success": False, "data": {}, "error": "Skill not found"}
+                
+                # Count dependencies
+                tool_count = s.query(DBSkillToolRel).filter(
+                    DBSkillToolRel.skill_id == skill_id
+                ).count()
+                
+                knowledge_count = s.query(DBAgentSkillKnowledgeRel).filter(
+                    DBAgentSkillKnowledgeRel.skill_id == skill_id
+                ).count()
+                
+                # Count agents using this skill
+                agent_count = s.query(DBAgentSkillRel).filter(
+                    and_(DBAgentSkillRel.skill_id == skill_id,
+                         DBAgentSkillRel.status == 'active')
+                ).count()
+                
+                # Count tasks requiring this skill
+                task_count = s.query(DBAgentTaskSkillRel).filter(
+                    DBAgentTaskSkillRel.skill_id == skill_id
+                ).count()
+                
+                # Calculate average proficiency of agents
+                proficiency_levels = {
+                    'beginner': 1, 'intermediate': 2, 'advanced': 3, 'expert': 4
+                }
+                
+                agent_skills = s.query(DBAgentSkillRel).filter(
+                    and_(DBAgentSkillRel.skill_id == skill_id,
+                         DBAgentSkillRel.status == 'active')
+                ).all()
+                
+                avg_proficiency = 0.0
+                if agent_skills:
+                    total_proficiency = sum(
+                        proficiency_levels.get(assoc.proficiency_level, 1) 
+                        for assoc in agent_skills
+                    )
+                    avg_proficiency = total_proficiency / len(agent_skills)
+                
+                # Calculate average success rate
+                avg_success_rate = 0.0
+                if agent_skills:
+                    success_rates = [assoc.success_rate for assoc in agent_skills if assoc.success_rate is not None]
+                    if success_rates:
+                        avg_success_rate = sum(success_rates) / len(success_rates)
+                
+                stats = {
+                    'skill_id': skill_id,
+                    'skill_name': skill.name,
+                    'skill_level': skill.level,
+                    'version': skill.version,
+                    'public': skill.public,
+                    'rentable': skill.rentable,
+                    'dependencies': {
+                        'tools': tool_count,
+                        'knowledges': knowledge_count
+                    },
+                    'usage': {
+                        'agents': agent_count,
+                        'tasks': task_count,
+                        'avg_proficiency': avg_proficiency,
+                        'avg_success_rate': avg_success_rate
+                    }
+                }
+                
+                return {"success": True, "data": stats, "error": None}
+        except Exception as e:
+            return {"success": False, "data": {}, "error": str(e)}
+
+    def get_skills_by_tool(self, tool_id: str, dependency_type: str = None) -> Dict[str, Any]:
+        """Get all skills that depend on a specific tool"""
+        try:
+            with self.session_scope() as s:
+                query = s.query(DBSkillToolRel).filter(
+                    DBSkillToolRel.tool_id == tool_id
+                )
+                if dependency_type:
+                    query = query.filter(DBSkillToolRel.dependency_type == dependency_type)
+                associations = query.all()
+                return {"success": True, "data": [assoc.to_dict() for assoc in associations], "error": None}
+        except Exception as e:
+            return {"success": False, "data": [], "error": str(e)}
+
+    def get_skills_by_knowledge(self, knowledge_id: str, dependency_type: str = None) -> Dict[str, Any]:
+        """Get all skills that depend on a specific knowledge base"""
+        try:
+            with self.session_scope() as s:
+                query = s.query(DBAgentSkillKnowledgeRel).filter(
+                    DBAgentSkillKnowledgeRel.knowledge_id == knowledge_id
+                )
+                if dependency_type:
+                    query = query.filter(DBAgentSkillKnowledgeRel.dependency_type == dependency_type)
+                associations = query.all()
+                return {"success": True, "data": [assoc.to_dict() for assoc in associations], "error": None}
+        except Exception as e:
+            return {"success": False, "data": [], "error": str(e)}
+
