@@ -1,10 +1,12 @@
 from typing import TypedDict
 import uuid
+import ast
 
 from langgraph.constants import START, END
 from langgraph.graph import StateGraph
 from langgraph.runtime import Runtime
 from langgraph.types import interrupt, Command
+from langgraph.errors import GraphInterrupt
 from langgraph.func import entrypoint, task
 from langgraph.graph import add_messages
 from langgraph.checkpoint.memory import MemorySaver
@@ -102,7 +104,7 @@ def pend_for_human_input_node(state: NodeState, *, runtime: Runtime, store: Base
 
     interrupted = interrupt( # (1)!
         {
-            "i_tag": "chat_message",
+            "i_tag": current_node_name,
             "prompt_to_human": state["result"], # (2)!
             "qa_form_to_human": qa_form,
             "notification_to_human": notification
@@ -146,7 +148,7 @@ def pend_for_human_fill_FOM_node(state: NodeState, *, runtime: Runtime, store: B
 
     interrupted = interrupt(  # (1)!
         {
-            "i_tag": "chat_message",
+            "i_tag": current_node_name,
             "prompt_to_human": state["result"],  # (2)!
             "qa_form_to_human": qa_form,
             "notification_to_human": notification
@@ -187,7 +189,7 @@ def pend_for_human_fill_specs_node(state: NodeState, *, runtime: Runtime, store:
 
     interrupted = interrupt(  # (1)!
         {
-            "i_tag": "chat_message",
+            "i_tag": current_node_name,
             "prompt_to_human": state["result"],  # (2)!
             "qa_form_to_human": qa_form,
             "notification_to_human": notification
@@ -294,7 +296,7 @@ def pend_for_result_message_node(state: NodeState, *, runtime: Runtime, store: B
 
     interrupted = interrupt( # (1)!
         {
-            "i_tag": "result_message",
+            "i_tag": current_node_name,
             "prompt_to_human": state["result"], # (2)!
             "qa_form_to_human": qa_form,
             "notification_to_human": notification
@@ -869,16 +871,82 @@ async def browser_search_with_parametric_filters(mainwin, url, parametric_filter
 def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
     logger.debug(f"re_rank_search_results_node about to re-rank search results: {state['attributes'].get('search_results', None)}")
 
-    agent_id = state["messages"][0]
-    task_id = state["messages"][3]
-    agent = get_agent_by_id(agent_id)
-    this_task = next((task for task in agent.tasks if task.id == task_id), None)
-    mainwin = agent.mainwin
-
-    loop = None
     try:
-        logger.debug(f"[search_parts_chatter_skill] about to query rerank search results: {type(state)}, {state}")
+        logger.debug(f"[search_parts_chatter_skill] Node function started - state keys: {list(state.keys())}")
+        logger.debug(f"[search_parts_chatter_skill] State messages: {state.get('messages', 'NOT_FOUND')}")
+        
+        agent_id = state["messages"][0]
+        task_id = state["messages"][3]
+        logger.debug(f"[search_parts_chatter_skill] Extracted agent_id: {agent_id}, task_id: {task_id}")
+        
+        agent = get_agent_by_id(agent_id)
+        logger.debug(f"[search_parts_chatter_skill] Got agent: {agent is not None}")
+        
+        this_task = next((task for task in agent.tasks if task.id == task_id), None)
+        logger.debug(f"[search_parts_chatter_skill] Got task: {this_task is not None}")
+        
+        mainwin = agent.mainwin
+        logger.debug(f"[search_parts_chatter_skill] Got mainwin: {mainwin is not None}")
+        
+    except Exception as e:
+        logger.error(f"[search_parts_chatter_skill] CRITICAL ERROR in node setup: {e}")
+        logger.error(f"[search_parts_chatter_skill] State structure: {state}")
+        raise e
 
+    # Check if we already have a cloud_task_id (resume case)
+    # First check the node state, then check the task metadata
+    existing_cloud_task_id = state["attributes"].get("cloud_task_id")
+    
+    # Also check the current task metadata state which might have the cloud_task_id
+    logger.debug(f"[search_parts_chatter_skill] Checking task metadata - existing_cloud_task_id: {existing_cloud_task_id}")
+    
+    try:
+        logger.debug(f"[search_parts_chatter_skill] Task object: {this_task is not None}")
+        if this_task:
+            logger.debug(f"[search_parts_chatter_skill] Task has metadata: {hasattr(this_task, 'metadata')}")
+            if hasattr(this_task, 'metadata'):
+                logger.debug(f"[search_parts_chatter_skill] Metadata has state: {'state' in this_task.metadata}")
+        
+        if not existing_cloud_task_id and this_task and hasattr(this_task, 'metadata') and 'state' in this_task.metadata:
+            task_state = this_task.metadata['state']
+            logger.debug(f"[search_parts_chatter_skill] Task state type: {type(task_state)}")
+            if isinstance(task_state, dict) and 'attributes' in task_state:
+                try:
+                    attributes_keys = list(task_state.get('attributes', {}).keys())
+                    logger.debug(f"[search_parts_chatter_skill] Task state attributes: {attributes_keys}")
+                except Exception as e:
+                    logger.debug(f"[search_parts_chatter_skill] Error getting attributes keys: {e}")
+                
+                task_cloud_task_id = task_state['attributes'].get('cloud_task_id')
+                logger.debug(f"[search_parts_chatter_skill] Task cloud_task_id: {task_cloud_task_id}")
+                if task_cloud_task_id:
+                    logger.debug(f"[search_parts_chatter_skill] Found cloud_task_id in task metadata: {task_cloud_task_id}")
+                    # Update the node state with the cloud_task_id from task metadata
+                    state["attributes"]["cloud_task_id"] = task_cloud_task_id
+                    existing_cloud_task_id = task_cloud_task_id
+                    logger.debug(f"[search_parts_chatter_skill] Updated existing_cloud_task_id: {existing_cloud_task_id}")
+        
+        logger.debug(f"[search_parts_chatter_skill] Final existing_cloud_task_id: {existing_cloud_task_id}")
+        logger.debug(f"[search_parts_chatter_skill] About to check if existing_cloud_task_id is truthy")
+        
+        if existing_cloud_task_id:
+            logger.debug(f"[search_parts_chatter_skill] Resuming with cloud_task_id: {existing_cloud_task_id}")
+            cloud_task_id = existing_cloud_task_id
+        else:
+            logger.debug(f"[search_parts_chatter_skill] Initial execution - setting up cloud task")
+            existing_cloud_task_id = None
+    except Exception as e:
+        logger.error(f"[search_parts_chatter_skill] Exception in cloud_task_id detection: {e}")
+        logger.debug(f"[search_parts_chatter_skill] Falling back to initial execution")
+        existing_cloud_task_id = None
+    
+    # Handle the two cases: resume vs initial execution
+    if existing_cloud_task_id:
+        cloud_task_id = existing_cloud_task_id
+        logger.debug(f"[search_parts_chatter_skill] RESUME CASE: Using cloud_task_id: {cloud_task_id}")
+    else:
+        logger.debug(f"[search_parts_chatter_skill] INITIAL CASE: Setting up cloud task")
+        # This is initial execution - do the setup
         i = 0
         # setup = prep_ranking_request(state)
         setup = get_default_rerank_req()
@@ -886,6 +954,7 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
         state["tool_input"] = rerank_req
         agent.runner.update_event_handler("rerank_search_results", this_task.queue)
         print("updated event handler", agent.runner.event_handler_queues)
+        
         async def run_tool_call():
             return await mcp_call_tool("api_ecan_ai_rerank_results", {"input": state["tool_input"]})
 
@@ -893,12 +962,9 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
         # Run the async call safely from sync
         tool_result = run_async_in_sync(run_tool_call())
 
-        # what we should get here is a dict of parametric search filters based on the preliminary
-        # component info, this should be passed to human for filling out and confirmation
-        logger.debug("[search_parts_chatter_skill]  query rank results tool call completed:", type(tool_result), tool_result)
-
         # Check if the tool call was successful
         if hasattr(tool_result, 'content') and tool_result.content and "completed" in tool_result.content[0].text:
+            print("re_rank_search_results_node: analysing tool result:", tool_result)
             state["result"] = tool_result.content[0].text
             # Prefer 'meta' attribute; fall back to '_meta' (wire format) if needed
             content0 = tool_result.content[0]
@@ -910,41 +976,71 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
                 cloud_task_id = meta["cloud_task_id"]
                 state["tool_result"] = meta["cloud_task_id"]
                 state["attributes"]["cloud_task_id"] = cloud_task_id
+                logger.debug(f"[search_parts_chatter_skill] Set cloud_task_id in state: {cloud_task_id}")
             else:
                 print("ERROR: no meta in tool result!!!!!!!!!!!!")
-                cloud_task_id = {}
+                cloud_task_id = "unknown"
                 state["tool_result"] = {}
-
-
-            # interupt to wait for cloud side work results to arrive. and
-            interrupted = interrupt(  # (1)!
-                {
-                    "i_tag": cloud_task_id,
-                    "rank_results": {}
-                }
-            )
-
-            # now results comes back from cloud side, which trigger a resume action, and
-            # now we are back to this node, and start to put final results
-            print("state tool result:", state["tool_result"])
-            # if parametric_search_filters are returned, pass them to human twin
-            if state["attributes"]["rank_results"]:
-                i = 0
-                component = state["attributes"]["preliminary_info"][i]["part name"]
-                logger.debug("[search_parts_chatter_skill] tool result:", state["tool_result"])
-                # fom_form = sample_metrics_0
-
-                # now all done, prepare notification to human
-                notification = {}
-                state["result"] = {
-                    "llm_result": "Here is a figure of merit (FOM) form to aid searching the parts you're looking for, please try your best to fill it out and send back to me. if you're not sure about certain parameters, just leave them blank. Also feel free to ask any questions about the meaning and implications of any parameters you're not sure about."}
-                # needs to make sure this is the response prompt......state["result"]["llm_result"]
-                send_data_back2human("send_chat", "notification", notification, state)
         elif hasattr(tool_result, 'isError') and tool_result.isError:
             state["error"] = tool_result.content[0].text if tool_result.content else "Unknown error occurred"
+            return state
         else:
             state["error"] = "Unexpected tool result format"
+            return state
 
+    # Now handle the interrupt - this happens in both initial and resume cases
+    try:
+        print(f"re_rank_search_results_node: interruptting.................{cloud_task_id}")
+        # interupt to wait for cloud side work results to arrive. and
+        interrupted = interrupt(  # (1)!
+            {
+                "i_tag": cloud_task_id,
+                "rank_results": {}
+            }
+        )
+
+        # now results comes back from cloud side, which trigger a resume action, and
+        # now we are back to this node, and start to put final results
+        print("resuming re-rank after getting long waited results....interrupted data:", interrupted)
+        print("current state:", state)
+        
+        # Extract cloud results from the resume_payload via interrupted variable
+        cloud_results_raw = interrupted.get("notification_to_agent", {})
+        if cloud_results_raw:
+            logger.debug("[search_parts_chatter_skill] received cloud ranking results (raw):", cloud_results_raw)
+            
+            # Parse the string representation of the dictionary
+            try:
+                if isinstance(cloud_results_raw, str):
+                    import ast
+                    cloud_results = ast.literal_eval(cloud_results_raw)
+                else:
+                    cloud_results = cloud_results_raw
+                
+                logger.debug("[search_parts_chatter_skill] parsed cloud ranking results:", cloud_results)
+                # Store cloud results in state for processing
+                state["attributes"]["rank_results"] = cloud_results
+            except (ValueError, SyntaxError) as e:
+                logger.error(f"[search_parts_chatter_skill] Failed to parse cloud results: {e}")
+                state["attributes"]["rank_results"] = {}
+        
+        # if parametric_search_filters are returned, pass them to human twin
+        if state["attributes"].get("rank_results", []):
+            i = 0
+            component = state["attributes"]["preliminary_info"][i]["part name"]
+            logger.debug("[search_parts_chatter_skill] tool result:", state["tool_result"])
+            # fom_form = sample_metrics_0
+
+            # now all done, prepare notification to human
+            notification = convert_rank_results_to_search_results(state)
+            state["result"] = {
+                "llm_result": "Here is a figure of merit (FOM) form to aid searching the parts you're looking for, please try your best to fill it out and send back to me. if you're not sure about certain parameters, just leave them blank. Also feel free to ask any questions about the meaning and implications of any parameters you're not sure about."}
+            # needs to make sure this is the response prompt......state["result"]["llm_result"]
+            send_data_back2human("send_chat", "notification", notification, state)
+
+    except GraphInterrupt:
+        # GraphInterrupt is expected behavior for workflow interruption - let it propagate
+        raise
     except Exception as e:
         state['error'] = get_traceback(e, "ErrorQueryComponentSpecsNode")
         logger.error(state['error'])
@@ -955,6 +1051,122 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
     logger.debug("[search_parts_chatter_skill] re_rank_search_results_node all done, current state is:", state)
     return state
 
+
+def convert_rank_results_to_search_results(state) -> dict:
+    """
+    Convert state["attributes"]["rank_results"] plus full rows from
+    state["attributes"]["sorted_search_results"] (fallback to get_default_rerank_req()["rows"]) to
+    a JSON object compatible with agent/chats/templates/search_results.json
+    """
+    try:
+        attrs = state.get("attributes", {})
+        rank_results = attrs.get("rank_results", {}) or {}
+        ranked_list = rank_results.get("ranked_results", []) or []
+
+        # Full rows: prefer previously-saved sorted_search_results; fall back to default rows
+        full_rows = attrs.get("sorted_search_results")
+        if not isinstance(full_rows, list) or not full_rows:
+            try:
+                full_rows = get_default_rerank_req().get("rows", [])
+            except Exception:
+                full_rows = []
+
+        # Get component/app info to enrich the title and app_specific fields
+        prelim = (attrs.get("preliminary_info") or [{}])
+        prelim0 = prelim[0] if prelim and isinstance(prelim, list) else {}
+        component_name = prelim0.get("part name", "Component")
+
+        items = []
+        # Re-order rows using row_index to reference the original full rows
+        for pos, entry in enumerate(ranked_list, start=1):
+            row_index = entry.get("row_index")
+            total_score = entry.get("total_score", 0)
+            row_data_short = entry.get("row_data", {}) or {}
+            # fetch full row if available
+            full_row = {}
+            if isinstance(row_index, int) and 0 <= row_index < len(full_rows):
+                full_row = full_rows[row_index] or {}
+
+            # Prefer highlights from 'highligths' field if provided; otherwise derive from row_data
+            highlights = []
+            hl_list = entry.get("highligths")
+            if isinstance(hl_list, list) and hl_list:
+                for h in hl_list:
+                    try:
+                        if isinstance(h, dict):
+                            highlights.append({
+                                "label": str(h.get("label", "")),
+                                "value": str(h.get("value", "")),
+                                "unit": str(h.get("unit", ""))
+                            })
+                    except Exception:
+                        continue
+            else:
+                for k, v in (row_data_short.items() if isinstance(row_data_short, dict) else []):
+                    try:
+                        highlights.append({"label": str(k), "value": str(v), "unit": ""})
+                    except Exception:
+                        continue
+
+            # Attempt to map some conventional fields
+            product_name = full_row.get("product_name") or full_row.get("name") or full_row.get("Model") or f"item{pos}"
+            brand = full_row.get("brand") or full_row.get("Brand") or ""
+            model = full_row.get("model") or full_row.get("Model") or ""
+            main_image = full_row.get("main_image") or full_row.get("image") or full_row.get("Image") or ""
+            url = full_row.get("url") or full_row.get("URL") or full_row.get("link") or ""
+
+            items.append({
+                "product_id": component_name.lower().replace(" ", "_") if isinstance(component_name, str) else "component",
+                "product_name": product_name,
+                "brand": brand,
+                "model": model,
+                "main_image": main_image,
+                "url": url,
+                "rank": pos,
+                "score": total_score,
+                "highlights": highlights,
+                "app_specific": []
+            })
+
+        notification = {
+            "id": "search_results_form",
+            "title": f"{component_name} Search Results",
+            "Items": items,
+            "summary": {},
+            "comments": [],
+            "statistics": {
+                "sites_visited": 1,
+                "searches": 1,
+                "pages_visited": 1,
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "products_compared": len(items)
+            },
+            "behind_the_scene": "",
+            "show_feedback_options": True
+        }
+
+        return notification
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorConvertRankResultsToSearchResults")
+        logger.error(err_trace)
+        return {
+            "id": "search_results_form",
+            "title": "Search Results",
+            "Items": [],
+            "summary": {},
+            "comments": [],
+            "statistics": {
+                "sites_visited": 0,
+                "searches": 0,
+                "pages_visited": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "products_compared": 0
+            },
+            "behind_the_scene": "",
+            "show_feedback_options": True
+        }
 
 def package_search_results_notification(search_results):
     try:

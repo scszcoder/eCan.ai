@@ -1,5 +1,7 @@
 from agent.ec_skill import NodeState
 from agent.ec_skills.llm_utils.llm_utils import try_parse_json
+import json
+import ast
 
 # whatever attachments should have been saved, read, packaged into the right form by the human twin agent
 # and sent over via A2A, by the time we get them here, they'are already in the msg object
@@ -23,6 +25,7 @@ def prep_search_parts_chatter_skill(agent, task_id, msg, current_state=None):
         chat_id = ""
         msg_id = ""
         msg_txt = ""
+        attachments = []
 
     init_state = NodeState(
         messages=[agent.card.id, chat_id, msg_id, task_id, msg_txt],
@@ -70,8 +73,17 @@ def prep_search_parts_chatter_skill(agent, task_id, msg, current_state=None):
         current_state["messages"].append(msg_txt)
 
         if msg.get("workType", "") == "rerank_search_results":
-            ranked_results = data.get("results", {}).get("'ranked_results", {})
-            current_state["tool_result"] = ranked_results
-            current_state["attributes"]["rank_results"] = ranked_results
-            current_state["attributes"]["i_tag"] = data.get("taskID", "")
+            try:
+                # Parse Python dictionary string (not JSON) using ast.literal_eval
+                results_str = msg.get("results", "{}")
+                results_dict = ast.literal_eval(results_str)
+                ranked_results = results_dict.get("ranked_results", [])
+                current_state["tool_result"] = ranked_results
+                current_state["attributes"]["rank_results"] = ranked_results
+                current_state["attributes"]["i_tag"] = msg.get("taskID", "")
+            except (ValueError, SyntaxError) as e:
+                print(f"Error parsing results: {e}")
+                current_state["tool_result"] = []
+                current_state["attributes"]["rank_results"] = []
+                current_state["attributes"]["i_tag"] = msg.get("taskID", "")
         return current_state

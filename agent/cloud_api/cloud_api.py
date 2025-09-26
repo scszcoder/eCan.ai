@@ -13,6 +13,7 @@ import threading
 from urllib.parse import urlparse, urlencode, urlunparse, parse_qsl
 from typing import Optional, Tuple
 from utils.logger_helper import logger_helper
+from agent.a2a.common.types import TaskSendParams, Message, TextPart
 
 
 limiter = AsyncLimiter(1, 1)  # Max 5 requests per second
@@ -1837,6 +1838,74 @@ def send_start_long_llm_task_to_cloud(session, token, rank_data_inut, endpoint):
     return jresponse
 
 
+def convert_cloud_result_to_task_send_params(result_obj: dict, work_type: str) -> dict:
+    """
+    Convert cloud API result object to TaskSendParams-compatible format for _build_resume_payload().
+    
+    Args:
+        result_obj: The result object from cloud API containing taskID, results, etc.
+        work_type: The type of work being performed (e.g., "rerank_search_results")
+        
+    Returns:
+        dict: A dictionary in TaskSendParams format that can be consumed by _build_resume_payload()
+    """
+    try:
+        # Extract key fields from result_obj
+        task_id = result_obj.get("taskID", "")
+        results = result_obj.get("results", {})
+        
+        # Create the message structure compatible with TaskSendParams
+        # For now, message is None as requested
+        message = None
+        
+        # Create metadata with required fields
+        metadata = {
+            "i_tag": task_id,  # Use taskID as the interrupt tag
+            "notification_to_agent": results  # Use results as notification data
+        }
+        
+        # Handle different work types
+        if work_type == "rerank_search_results":
+            # For rerank_search_results, we may need additional processing
+            # but for now we'll use the basic structure
+            pass
+        # Add more work_type handling here as needed
+        
+        # Create the TaskSendParams-like structure with params wrapper
+        # The _build_resume_payload expects msg to have either direct fields or params.field structure
+        task_send_params = {
+            "id": task_id,
+            "params": {
+                "id": task_id,
+                "message": message,
+                "metadata": metadata
+            },
+            "message": message,
+            "metadata": metadata
+        }
+        
+        logger.debug(f"Converted cloud result to TaskSendParams format: {json.dumps(task_send_params, indent=2)}")
+        return task_send_params
+        
+    except Exception as e:
+        logger.error(f"Error converting cloud result to TaskSendParams: {e}")
+        # Return minimal structure on error with params wrapper
+        task_id = result_obj.get("taskID", "")
+        metadata = {
+            "i_tag": task_id,
+            "notification_to_agent": {}
+        }
+        return {
+            "id": task_id,
+            "params": {
+                "id": task_id,
+                "message": None,
+                "metadata": metadata
+            },
+            "message": None,
+            "metadata": metadata
+        }
+
 
 # related to websocket sub/push to get long running task results
 def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[str] = None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
@@ -1917,7 +1986,9 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
                 agent_id = result_obj["agentID"]
                 work_type = result_obj["workType"]
                 handler_agent = get_agent_by_id(agent_id)
-                event_response = handler_agent.runner.sync_task_wait_in_line(work_type, result_obj)
+                # Convert cloud result to TaskSendParams format for _build_resume_payload()
+                converted_result = convert_cloud_result_to_task_send_params(result_obj, work_type)
+                event_response = handler_agent.runner.sync_task_wait_in_line(work_type, converted_result)
 
     def on_error(ws, error):
         print("WebSocket error:", error)
