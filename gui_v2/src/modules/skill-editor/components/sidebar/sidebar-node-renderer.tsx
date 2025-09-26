@@ -8,11 +8,14 @@ import { useNodeRender, FlowNodeEntity } from '@flowgram.ai/free-layout-editor';
 import { NodeRenderContext } from '../../context';
 import { useNodeStateSchema } from '../../../../stores/nodeStateSchemaStore';
 import NodeStatePanel from '../node-state/NodeStatePanel';
+import { IPCAPI } from '../../../../services/ipc/api';
+import { useSkillInfoStore } from '../../stores/skill-info-store';
 
 export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
   const { node } = props;
   const nodeRender = useNodeRender(node);
   const { schema, loading } = useNodeStateSchema();
+  const { skillInfo } = useSkillInfoStore();
 
   // Bind 'state' field helpers
   const form = nodeRender.form as any;
@@ -35,7 +38,8 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
         style={{
           background: 'rgb(251, 251, 251)',
           height: '100%',
-          margin: '8px 8px 8px 0',
+          margin: '8px 0 8px 0',
+          width: '100%',
           borderRadius: 8,
           border: '1px solid rgba(82,100,154, 0.13)',
           overflowY: 'auto',
@@ -47,6 +51,50 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
         </div>
         <div style={{ marginTop: 8, borderTop: '1px solid #eee', padding: '8px 12px', background: '#fff' }}>
           <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>Node State</div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <button
+              type="button"
+              style={{ fontSize: 12, padding: '2px 8px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5', color: '#333', cursor: 'pointer' }}
+              onClick={async () => {
+                try {
+                  const api = IPCAPI.getInstance();
+                  const last = await api.getLastLoginInfo<any>();
+                  const username = (last.success && (last.data as any)?.username) || '';
+                  if (!username || !skillInfo) {
+                    console.warn('[NodeState] Refresh skipped: missing username or skillInfo');
+                    return;
+                  }
+                  console.debug('[NodeState] requestSkillState', { username, skillId: skillInfo.skillId, nodeId: node.id });
+                  await api.requestSkillState(username, { ...skillInfo, nodeId: node.id } as any);
+                } catch (e) {
+                  console.error('requestSkillState failed', e);
+                }
+              }}
+            >Refresh State</button>
+            <button
+              type="button"
+              style={{ fontSize: 12, padding: '2px 8px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5', color: '#333', cursor: 'pointer' }}
+              onClick={async () => {
+                try {
+                  const api = IPCAPI.getInstance();
+                  const last = await api.getLastLoginInfo<any>();
+                  const username = (last.success && (last.data as any)?.username) || '';
+                  if (!username || !skillInfo) {
+                    console.warn('[NodeState] Inject skipped: missing username or skillInfo');
+                    return;
+                  }
+                  const currentState = getStateValue() ?? {};
+                  const payload: any = { ...skillInfo, runtimeStatePatch: { nodeId: node.id, state: currentState } };
+                  console.debug('[NodeState] injectSkillState', { username, skillId: skillInfo.skillId, nodeId: node.id });
+                  await api.injectSkillState(username, payload);
+                  // Optional: attempt resume
+                  await api.resumeRunSkill(username, skillInfo as any);
+                } catch (e) {
+                  console.error('injectSkillState/resume failed', e);
+                }
+              }}
+            >Inject & Resume</button>
+          </div>
           {loading || !schema ? (
             <div style={{ color: '#999' }}>Loading node state schema...</div>
           ) : (
