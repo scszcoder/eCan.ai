@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { loadNodeStateSchema } from '../stores/nodeStateSchemaStore';
 import { get_ipc_api } from '../services/ipc_api';
 import { logger } from '../utils/logger';
 
@@ -187,6 +188,8 @@ export function useInitializationProgress(
       // Stop loading if fully ready
       if (newProgress?.fully_ready) {
         setIsLoading(false);
+        // Prefetch NodeState schema so node editors don't wait later
+        loadNodeStateSchema().catch(() => {/* ignore errors; panel will fallback */});
       }
     });
 

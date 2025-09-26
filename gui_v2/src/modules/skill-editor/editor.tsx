@@ -4,7 +4,7 @@
  */
 
 import { EditorRenderer, FreeLayoutEditorProvider } from '@flowgram.ai/free-layout-editor';
-import { useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import React from 'react';
 
 import '@flowgram.ai/free-layout-editor/index.css';
@@ -45,18 +45,27 @@ export const Editor = () => {
 
   // 生产环境不加载初始数据，开发环境根据配置决定
   const shouldLoadInitialData = process.env.NODE_ENV === 'development' ? true : false;
-  const editorProps = useEditorProps(shouldLoadInitialData ? initialData : emptyData, nodeRegistries);
-
-  // 初始化时生成 SkillInfo
-  const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
-  const data = shouldLoadInitialData ? initialData : emptyData;
-  // 只在首次挂载时生成一次
-  useState(() => {
-    setSkillInfo(createSkillInfo(data));
-    return undefined;
-  });
-
   const { skillInfo } = useSkillInfoStore();
+  const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
+
+  // Determine the initial document: prefer current skill's workflow if available
+  const preferredDoc: FlowDocumentJSON = useMemo(
+    () => (skillInfo?.workFlow as FlowDocumentJSON) || (shouldLoadInitialData ? initialData : emptyData),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [skillInfo?.workFlow]
+  );
+
+  // Seed the store only once if it's empty
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (!skillInfo && !seededRef.current) {
+      setSkillInfo(createSkillInfo(preferredDoc));
+      seededRef.current = true;
+    }
+  }, [skillInfo, preferredDoc, setSkillInfo]);
+
+  // Build editor props from the chosen initial document
+  const editorProps = useEditorProps(preferredDoc, nodeRegistries);
 
   return (
     <EditorContainer>

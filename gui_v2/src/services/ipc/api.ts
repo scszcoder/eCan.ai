@@ -385,6 +385,13 @@ export class IPCAPI {
     }
 
     /**
+     * Editor support: fetch NodeState JSON Schema for NodeStatePanel and forms
+     */
+    public async getNodeStateSchema<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('skill_editor.get_node_state_schema', {});
+    }
+
+    /**
      * 获取初始化进度
      * @returns Promise 对象，解析为初始化进度信息
      */
