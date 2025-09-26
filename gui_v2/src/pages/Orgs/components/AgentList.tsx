@@ -29,22 +29,23 @@ const AgentList: React.FC<AgentListProps> = ({
 
   return (
     <div>
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        marginBottom: 16 
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 16
       }}>
         <Title level={4}>
           <TeamOutlined /> {title || t('org.agents.title')} ({agents.length})
         </Title>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={onBindAgents}
-        >
-          {t('org.actions.bind')}
-        </Button>
+        <Tooltip title={t('org.actions.bind')}>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={onBindAgents}
+            shape="circle"
+          />
+        </Tooltip>
       </div>
 
       {agents.length === 0 ? (

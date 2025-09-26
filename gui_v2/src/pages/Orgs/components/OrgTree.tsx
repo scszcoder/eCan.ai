@@ -1,25 +1,25 @@
 /**
- * Organization Tree Component
+ * Org Tree Component
  */
 
 import React from 'react';
-import { Tree, Card, Button, Space, Spin } from 'antd';
+import { Tree, Card, Button, Space, Spin, Tooltip } from 'antd';
 import { PlusOutlined, ApartmentOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { DataNode } from 'antd/es/tree';
-import type { Organization } from '../types';
+import type { Org } from '../types';
 import { TREE_CONFIG } from '../constants';
 
-interface OrganizationTreeProps {
-  organizations: Organization[];
+interface OrgTreeProps {
+  orgs: Org[];
   loading: boolean;
   onSelect: (selectedKeys: React.Key[]) => void;
   onDrop: (info: any) => void;
   onAdd: () => void;
 }
 
-const OrganizationTree: React.FC<OrganizationTreeProps> = ({
-  organizations,
+const OrgTree: React.FC<OrgTreeProps> = ({
+  orgs,
   loading,
   onSelect,
   onDrop,
@@ -27,18 +27,18 @@ const OrganizationTree: React.FC<OrganizationTreeProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  const findOrganizationById = (orgs: Organization[], id: string): Organization | null => {
+  const findOrgById = (orgs: Org[], id: string): Org | null => {
     for (const org of orgs) {
       if (org.id === id) return org;
       if (org.children) {
-        const found = findOrganizationById(org.children, id);
+        const found = findOrgById(org.children, id);
         if (found) return found;
       }
     }
     return null;
   };
 
-  const convertToTreeData = (orgs: Organization[]): DataNode[] => {
+  const convertToTreeData = (orgs: Org[]): DataNode[] => {
     return orgs.map(org => ({
       key: org.id,
       title: (
@@ -58,27 +58,30 @@ const OrganizationTree: React.FC<OrganizationTreeProps> = ({
   };
 
   return (
-    <Card 
+    <Card
       title={
-        <Space>
-          <ApartmentOutlined />
-          {t('org.tree.title')}
-          <Button
-            type="primary"
-            size="small"
-            icon={<PlusOutlined />}
-            onClick={onAdd}
-          >
-            {t('org.actions.add')}
-          </Button>
-        </Space>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <Space>
+            <ApartmentOutlined />
+            {t('org.tree.title')}
+          </Space>
+          <Tooltip title={t('org.actions.add')}>
+            <Button
+              type="primary"
+              size="small"
+              icon={<PlusOutlined />}
+              onClick={onAdd}
+              shape="circle"
+            />
+          </Tooltip>
+        </div>
       }
       style={{ height: '100%' }}
     >
       <Spin spinning={loading}>
         <Tree
           {...TREE_CONFIG}
-          treeData={convertToTreeData(organizations)}
+          treeData={convertToTreeData(orgs)}
           onSelect={onSelect}
           onDrop={onDrop}
         />
@@ -87,4 +90,4 @@ const OrganizationTree: React.FC<OrganizationTreeProps> = ({
   );
 };
 
-export default OrganizationTree;
+export default OrgTree;

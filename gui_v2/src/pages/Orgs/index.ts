@@ -1,5 +1,5 @@
 /**
- * Organizations Module Exports
+ * Orgs Module Exports
  */
 
 export { default } from './Orgs';
@@ -14,8 +14,4 @@ export { default as OrgModal } from './components/OrgModal';
 export { default as AgentBindingModal } from './components/AgentBindingModal';
 export { default as AgentList } from './components/AgentList';
 
-// Backward compatibility aliases
-export { useOrgs as useOrganizations } from './hooks/useOrgs';
-export { default as OrganizationTree } from './components/OrgTree';
-export { default as OrganizationDetails } from './components/OrgDetails';
-export { default as OrganizationModal } from './components/OrgModal';
+

@@ -6,16 +6,16 @@ loads, and executes database migration scripts in the correct order.
 """
 
 import os
+import time
 import importlib
 import inspect
-from typing import List, Dict, Any, Optional, Type
-from sqlalchemy.orm import sessionmaker, Session
+from typing import Dict, List, Type, Any, Optional
 from sqlalchemy import Engine
-
+from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.exc import OperationalError
 from ..models import DBVersion
 from .base_migration import BaseMigration
 from utils.logger_helper import logger_helper as logger
-
 
 class MigrationManager:
     """
@@ -100,13 +100,16 @@ class MigrationManager:
             except Exception as e:
                 logger.error(f"Failed to build migration graph for {version}: {e}")
     
-    def _is_fresh_database(self) -> bool:
+    def _is_fresh_database(self, session=None) -> bool:
         """
         Check if this is a fresh database installation.
         
         A database is considered fresh if:
         1. No tables exist at all, OR
         2. Core tables exist but have no data
+        
+        Args:
+            session: Optional SQLAlchemy session to use
         
         Returns:
             bool: True if this is a fresh database, False otherwise
@@ -131,7 +134,11 @@ class MigrationManager:
                 return True
             
             # Check if tables are mostly empty (indicating fresh installation)
-            session = self.Session()
+            # Use provided session or create a temporary one
+            should_close_session = session is None
+            if session is None:
+                session = self.Session()
+            
             try:
                 # Check if chats table has any data
                 if 'chats' in table_names:
@@ -160,7 +167,8 @@ class MigrationManager:
                 return True
                 
             finally:
-                session.close()
+                if should_close_session:
+                    session.close()
                 
         except Exception as e:
             logger.debug(f"Error checking database freshness: {e}")
@@ -189,34 +197,44 @@ class MigrationManager:
         Returns:
             str: Current database version
         """
-        session = self.Session()
+        session = None
         try:
-            # First, check if this is a completely fresh database (before creating tables)
-            is_fresh = self._is_fresh_database()
+            # Create session with simple retry
+            for attempt in range(3):
+                try:
+                    session = self.Session()
+                    break
+                except OperationalError as e:
+                    if attempt < 2:  # Retry up to 2 times
+                        logger.warning(f"[MigrationManager] Session creation failed, retrying... ({e})")
+                        time.sleep(0.3)
+                    else:
+                        raise e
             
-            # Ensure all tables are created
-            from ..core import create_all_tables
-            create_all_tables(self.engine)
-            
-            # Check for existing version record
+            # Try to get the version record
             version = DBVersion.get_current_version(session)
-            if not version:
-                # No version record exists
-                if is_fresh:
-                    # Fresh database: initialize directly to latest version
-                    latest_version = self._get_latest_version()
-                    DBVersion.upgrade_version(session, latest_version, description='Fresh database initialization')
-                    session.commit()
-                    logger.info(f"Initialized fresh database to latest version {latest_version}")
-                    return latest_version
-                else:
-                    # Existing database without version record: start from 1.0.0
-                    DBVersion.upgrade_version(session, '1.0.0', description='Initial version for existing database')
-                    session.commit()
-                    return '1.0.0'
-            return version.version
+            if version:
+                return version.version
+            
+            # If no version record, check if this is a completely fresh database
+            is_fresh = self._is_fresh_database(session)
+            
+            if is_fresh:
+                # Fresh database: don't initialize here, let migrate_to_latest handle it
+                raise Exception("Fresh database detected - needs initialization")
+            else:
+                # Existing database without version record: start from 1.0.0
+                DBVersion.upgrade_version(session, '1.0.0', description='Initial version for existing database')
+                session.commit()
+                return '1.0.0'
+                
+        except Exception as e:
+            logger.error(f"Failed to get current database version: {e}")
+            # Re-raise the exception so migrate_to_latest can handle it properly
+            raise
         finally:
-            session.close()
+            if session:
+                session.close()
     
     def get_available_migrations(self) -> List[Dict[str, Any]]:
         """
@@ -278,13 +296,49 @@ class MigrationManager:
         Returns:
             bool: True if migration successful, False otherwise
         """
-        current_version = self.get_current_version()
-        
-        if current_version == target_version:
-            logger.info(f"Database is already at version {target_version}")
-            return True
-        
+        # Use a single session for the entire migration process
+        session = None
         try:
+            # Ensure all tables are created first
+            from ..core import create_all_tables
+            create_all_tables(self.engine)
+            
+            # Create session with simple retry
+            session = None
+            for attempt in range(3):
+                try:
+                    session = self.Session()
+                    break
+                except OperationalError as e:
+                    if attempt < 2:  # Retry up to 2 times
+                        logger.warning(f"[MigrationManager] Session creation failed, retrying... ({e})")
+                        time.sleep(0.5)
+                    else:
+                        raise e
+            
+            # Check current version using the same session
+            is_fresh = self._is_fresh_database(session)
+            version_record = DBVersion.get_current_version(session)
+            
+            if not version_record:
+                if is_fresh:
+                    # Fresh database: initialize directly to target version
+                    DBVersion.upgrade_version(session, target_version, description or 'Fresh database initialization')
+                    session.commit()
+                    logger.info(f"Initialized fresh database to version {target_version}")
+                    return True
+                else:
+                    # Existing database without version record: start from 1.0.0
+                    current_version = '1.0.0'
+                    DBVersion.upgrade_version(session, current_version, description='Initial version for existing database')
+                    session.commit()
+            else:
+                current_version = version_record.version
+            
+            if current_version == target_version:
+                logger.info(f"Database is already at version {target_version}")
+                return True
+            
             # Get migration path
             migration_path = self.get_migration_path(current_version, target_version)
             
@@ -294,35 +348,31 @@ class MigrationManager:
             
             logger.info(f"Migration path: {current_version} -> {' -> '.join(migration_path)}")
             
-            # Execute migrations in order
-            session = self.Session()
-            try:
-                for version in migration_path:
-                    if not self._execute_migration(session, version):
-                        session.rollback()
-                        return False
-                
-                # Update final version
-                DBVersion.upgrade_version(
-                    session, 
-                    target_version, 
-                    description or f"Migrated to version {target_version}"
-                )
-                session.commit()
-                
-                logger.info(f"Successfully migrated from {current_version} to {target_version}")
-                return True
-                
-            except Exception as e:
-                session.rollback()
-                logger.error(f"Migration failed: {e}")
-                return False
-            finally:
-                session.close()
-                
+            # Execute migrations in order using the same session
+            for version in migration_path:
+                if not self._execute_migration(session, version):
+                    session.rollback()
+                    return False
+            
+            # Update final version
+            DBVersion.upgrade_version(
+                session, 
+                target_version, 
+                description or f"Migrated to version {target_version}"
+            )
+            session.commit()
+            
+            logger.info(f"Successfully migrated from {current_version} to {target_version}")
+            return True
+            
         except Exception as e:
-            logger.error(f"Failed to plan migration: {e}")
+            if session:
+                session.rollback()
+            logger.error(f"Migration failed: {e}")
             return False
+        finally:
+            if session:
+                session.close()
     
     def migrate_to_latest(self) -> bool:
         """
@@ -341,7 +391,63 @@ class MigrationManager:
             key=self._version_to_tuple
         )
         
-        return self.migrate_to_version(latest_version, "Auto-migrate to latest version")
+        # Check current version first to avoid unnecessary migration attempts
+        try:
+            current_version = self.get_current_version()
+            if current_version == latest_version:
+                logger.info(f"Database is already at the latest version {latest_version}")
+                return True
+            
+            logger.info(f"Migrating from {current_version} to {latest_version}")
+            return self.migrate_to_version(latest_version, "Auto-migrate to latest version")
+            
+        except Exception as e:
+            # Check if this is a fresh database (no tables at all)
+            try:
+                from sqlalchemy import inspect
+                inspector = inspect(self.engine)
+                table_names = inspector.get_table_names()
+                
+                if not table_names:
+                    # Fresh database: create all tables directly without migration
+                    logger.info("Detected fresh database with no tables. Creating latest schema directly.")
+                    
+                    # Use transaction to ensure atomicity
+                    session = self.Session()
+                    try:
+                        # Create all tables first
+                        from ..core import create_all_tables
+                        create_all_tables(self.engine)
+                        
+                        # Verify tables were created
+                        inspector = inspect(self.engine)
+                        created_tables = inspector.get_table_names()
+                        if not created_tables:
+                            raise Exception("Failed to create database tables")
+                        
+                        # Create version record
+                        from ..models import DBVersion
+                        DBVersion.upgrade_version(session, latest_version, description='Fresh database initialization')
+                        session.commit()
+                        logger.info(f"Successfully initialized fresh database to latest version {latest_version} with {len(created_tables)} tables")
+                        
+                    except Exception as create_e:
+                        session.rollback()
+                        logger.error(f"Failed to initialize fresh database: {create_e}")
+                        raise create_e
+                    finally:
+                        session.close()
+                    
+                    return True
+                else:
+                    # Database has tables but version check failed - skip migration
+                    logger.warning("Database has tables but version check failed. Skipping migration.")
+                    return True
+                    
+            except Exception as inspect_e:
+                logger.error(f"Failed to inspect database: {inspect_e}")
+                logger.warning("Skipping migration due to database access issues.")
+                return True
     
     def _execute_migration(self, session: Session, version: str) -> bool:
         """
@@ -398,17 +504,23 @@ class MigrationManager:
         """
         try:
             return tuple(int(x) for x in version.split('.'))
-        except ValueError:
-            return (0, 0, 0)
+        except (ValueError, AttributeError):
+            # Default to 1.0.0 if version parsing fails
+            return (1, 0, 0)
     
     def get_migration_status(self) -> Dict[str, Any]:
         """
-        Get comprehensive migration status information.
+        Get current migration status and information.
         
         Returns:
             dict: Migration status information
         """
-        current_version = self.get_current_version()
+        try:
+            current_version = self.get_current_version()
+        except Exception as e:
+            logger.error(f"Failed to get current version: {e}")
+            current_version = '1.0.0'
+        
         available_migrations = self.get_available_migrations()
         
         latest_version = max(
@@ -419,7 +531,7 @@ class MigrationManager:
         return {
             'current_version': current_version,
             'latest_version': latest_version,
-            'is_up_to_date': current_version == latest_version,
             'available_migrations': available_migrations,
-            'total_migrations': len(self._migration_classes)
+            'needs_migration': current_version != latest_version,
+            'migration_path': self.get_migration_path(current_version, latest_version) if current_version != latest_version else []
         }

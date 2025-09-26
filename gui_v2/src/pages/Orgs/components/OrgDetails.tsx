@@ -1,29 +1,29 @@
 /**
- * Organization Details Component
+ * Org Details Component
  */
 
 import React from 'react';
-import { Card, Button, Space, Typography, Tag, Popconfirm } from 'antd';
+import { Card, Button, Space, Typography, Tag, Popconfirm, Tooltip } from 'antd';
 import { EditOutlined, DeleteOutlined, TeamOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import type { Organization, Agent } from '../types';
-import { ORGANIZATION_STATUSES } from '../constants';
+import type { Org, Agent } from '../types';
+import { ORG_STATUSES } from '../constants';
 import AgentList from './AgentList';
 
 const { Title, Text } = Typography;
 
-interface OrganizationDetailsProps {
-  organization: Organization | null;
+interface OrgDetailsProps {
+  org: Org | null;
   agents: Agent[];
-  onEdit: (org: Organization) => void;
+  onEdit: (org: Org) => void;
   onDelete: (orgId: string) => void;
   onBindAgents: () => void;
   onUnbindAgent: (agentId: string) => void;
   onChatWithAgent: (agent: Agent) => void;
 }
 
-const OrganizationDetails: React.FC<OrganizationDetailsProps> = ({
-  organization,
+const OrgDetails: React.FC<OrgDetailsProps> = ({
+  org,
   agents,
   onEdit,
   onDelete,
@@ -33,67 +33,73 @@ const OrganizationDetails: React.FC<OrganizationDetailsProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  if (!organization) {
+  if (!org) {
     return (
       <Card style={{ flex: 1, textAlign: 'center', padding: '60px 20px' }}>
-        <Text type="secondary">{t('org.placeholder.selectOrganization')}</Text>
+        <Text type="secondary">{t('org.placeholder.selectOrg')}</Text>
       </Card>
     );
   }
 
   const getStatusConfig = (status: string) => {
-    return ORGANIZATION_STATUSES.find(s => s.value === status) || ORGANIZATION_STATUSES[0];
+    return ORG_STATUSES.find(s => s.value === status) || ORG_STATUSES[0];
   };
 
-  const statusConfig = getStatusConfig(organization.status);
+  const statusConfig = getStatusConfig(org.status);
 
   return (
-    <Card 
+    <Card
       title={
-        <Space>
-          <TeamOutlined />
-          {t('org.details.title')}
-          <Button
-            size="small"
-            icon={<EditOutlined />}
-            onClick={() => onEdit(organization)}
-          >
-            {t('org.actions.edit')}
-          </Button>
-          <Popconfirm
-            title={t('org.confirm.delete')}
-            onConfirm={() => onDelete(organization.id)}
-            okText={t('common.confirm')}
-            cancelText={t('common.cancel')}
-          >
-            <Button
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <Space>
+            <TeamOutlined />
+            {t('org.details.title')}
+          </Space>
+          <Space>
+            <Tooltip title={t('org.actions.edit')}>
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => onEdit(org)}
+                shape="circle"
+              />
+            </Tooltip>
+            <Popconfirm
+              title={t('org.confirm.delete')}
+              onConfirm={() => onDelete(org.id)}
+              okText={t('common.confirm')}
+              cancelText={t('common.cancel')}
             >
-              {t('org.actions.delete')}
-            </Button>
-          </Popconfirm>
-        </Space>
+              <Tooltip title={t('org.actions.delete')}>
+                <Button
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                  shape="circle"
+                />
+              </Tooltip>
+            </Popconfirm>
+          </Space>
+        </div>
       }
       style={{ flex: 1 }}
     >
       <div>
-        {/* Organization Info */}
+        {/* Org Info */}
         <div style={{ marginBottom: 24 }}>
           <Title level={4}>{t('org.info.title')}</Title>
           <Space direction="vertical" style={{ width: '100%' }}>
             <div>
-              <Text strong>{t('org.form.name')}:</Text> {organization.name}
+              <Text strong>{t('org.form.name')}:</Text> {org.name}
             </div>
             <div>
-              <Text strong>{t('org.form.description')}:</Text> {organization.description || '-'}
+              <Text strong>{t('org.form.description')}:</Text> {org.description || '-'}
             </div>
             <div>
-              <Text strong>{t('org.form.type')}:</Text> {organization.organization_type}
+              <Text strong>{t('org.form.type')}:</Text> {org.org_type}
             </div>
             <div>
-              <Text strong>{t('org.form.level')}:</Text> {organization.level}
+              <Text strong>{t('org.form.level')}:</Text> {org.level}
             </div>
             <div>
               <Text strong>{t('org.form.status')}:</Text>
@@ -102,15 +108,15 @@ const OrganizationDetails: React.FC<OrganizationDetailsProps> = ({
               </Tag>
             </div>
             {/* Show child nodes count for non-leaf nodes */}
-            {organization.children && organization.children.length > 0 && (
+            {org.children && org.children.length > 0 && (
               <div>
-                <Text strong>{t('org.form.childDepartments')}:</Text> {organization.children.length}
+                <Text strong>{t('org.form.childDepartments')}:</Text> {org.children.length}
               </div>
             )}
             <div>
               <Text strong>{t('org.form.created')}:</Text> {
-                organization.created_at
-                  ? new Date(organization.created_at).toLocaleDateString()
+                org.created_at
+                  ? new Date(org.created_at).toLocaleDateString()
                   : '-'
               }
             </div>
@@ -120,7 +126,7 @@ const OrganizationDetails: React.FC<OrganizationDetailsProps> = ({
         {/* Agents Section */}
         <div>
           {/* 非叶子节点显示子节点数量和所有叶子节点的Agent */}
-          {organization.children && organization.children.length > 0 ? (
+          {org.children && org.children.length > 0 ? (
             <div>
               <AgentList
                 agents={agents}
@@ -145,4 +151,4 @@ const OrganizationDetails: React.FC<OrganizationDetailsProps> = ({
   );
 };
 
-export default OrganizationDetails;
+export default OrgDetails;

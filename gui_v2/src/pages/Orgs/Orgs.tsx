@@ -1,90 +1,84 @@
 /**
- * Organizations Management Page
+ * Orgs Management Page
  * 组织管理页面 - 完整实现UI需求和国际化
  */
 
 import React from 'react';
-import { Row, Col, Button, Space, Typography } from 'antd';
+import { Row, Col, Typography } from 'antd';
 import { useTranslation } from 'react-i18next';
-import { GlobalOutlined } from '@ant-design/icons';
+import { ApartmentOutlined } from '@ant-design/icons';
 import { useOrgs } from './hooks/useOrgs';
 import OrgTree from './components/OrgTree';
 import OrgDetails from './components/OrgDetails';
 import OrgModal from './components/OrgModal';
 import AgentBindingModal from './components/AgentBindingModal';
-import type { Organization, Agent, OrganizationFormData, AgentBindingFormData } from './types';
+import type { Org, Agent, OrgFormData, AgentBindingFormData } from './types';
 
 const { Title } = Typography;
 
 const Orgs: React.FC = () => {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { state, actions } = useOrgs();
-
-  // 语言切换
-  const toggleLanguage = () => {
-    const newLang = i18n.language === 'zh-CN' ? 'en-US' : 'zh-CN';
-    i18n.changeLanguage(newLang);
-  };
 
   // Tree selection handler
   const handleTreeSelect = (selectedKeys: React.Key[]) => {
     if (selectedKeys.length > 0) {
       const selectedId = selectedKeys[0] as string;
-      const findOrganizationById = (orgs: Organization[], id: string): Organization | null => {
+      const findOrgById = (orgs: Org[], id: string): Org | null => {
         for (const org of orgs) {
           if (org.id === id) return org;
           if (org.children) {
-            const found = findOrganizationById(org.children, id);
+            const found = findOrgById(org.children, id);
             if (found) return found;
           }
         }
         return null;
       };
-      
-      const selectedOrg = findOrganizationById(state.organizations, selectedId);
-      actions.selectOrganization(selectedOrg);
+
+      const selectedOrg = findOrgById(state.orgs, selectedId);
+      actions.selectOrg(selectedOrg);
     } else {
-      actions.selectOrganization(null);
+      actions.selectOrg(null);
     }
   };
 
   // Tree drag & drop handler
   const handleTreeDrop = (info: any) => {
     const { dragNode, node, dropToGap } = info;
-    actions.moveOrganization(dragNode.key, node.key, dropToGap);
+    actions.moveOrg(dragNode.key, node.key, dropToGap);
   };
 
   // Modal handlers
-  const handleAddOrganization = () => {
-    actions.updateState({ 
-      modalVisible: true, 
-      editingOrganization: null 
+  const handleAddOrg = () => {
+    actions.updateState({
+      modalVisible: true,
+      editingOrg: null
     });
   };
 
-  const handleEditOrganization = (org: Organization) => {
-    actions.updateState({ 
-      modalVisible: true, 
-      editingOrganization: org 
+  const handleEditOrg = (org: Org) => {
+    actions.updateState({
+      modalVisible: true,
+      editingOrg: org
     });
   };
 
-  const handleDeleteOrganization = (orgId: string) => {
-    actions.deleteOrganization(orgId);
+  const handleDeleteOrg = (orgId: string) => {
+    actions.deleteOrg(orgId);
   };
 
-  const handleOrganizationModalOk = async (values: OrganizationFormData) => {
-    if (state.editingOrganization) {
-      await actions.updateOrganization(state.editingOrganization.id, values);
+  const handleOrgModalOk = async (values: OrgFormData) => {
+    if (state.editingOrg) {
+      await actions.updateOrg(state.editingOrg.id, values);
     } else {
-      await actions.createOrganization(values);
+      await actions.createOrg(values);
     }
   };
 
-  const handleOrganizationModalCancel = () => {
-    actions.updateState({ 
-      modalVisible: false, 
-      editingOrganization: null 
+  const handleOrgModalCancel = () => {
+    actions.updateState({
+      modalVisible: false,
+      editingOrg: null
     });
   };
 
@@ -111,46 +105,38 @@ const Orgs: React.FC = () => {
 
   return (
     <div style={{ padding: '24px', height: '100vh' }}>
-      {/* 页面标题和语言切换 */}
+      {/* 页面标题 */}
       <div style={{
         display: 'flex',
-        justifyContent: 'space-between',
+        justifyContent: 'flex-start',
         alignItems: 'center',
         marginBottom: '16px'
       }}>
-        <Title level={2} style={{ margin: 0 }}>
+        <Title level={2} style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <ApartmentOutlined />
           {t('org.title', '组织管理')}
         </Title>
-        <Space>
-          <Button
-            icon={<GlobalOutlined />}
-            onClick={toggleLanguage}
-            type="default"
-          >
-            {i18n.language === 'zh-CN' ? 'English' : '中文'}
-          </Button>
-        </Space>
       </div>
 
-      <Row gutter={[16, 16]} style={{ height: 'calc(100% - 60px)' }}>
-        {/* Organization Tree */}
+      <Row gutter={[16, 16]} style={{ height: 'calc(100% - 80px)' }}>
+        {/* Org Tree */}
         <Col span={8} style={{ height: '100%' }}>
           <OrgTree
-            organizations={state.organizations}
+            orgs={state.orgs}
             loading={state.loading}
             onSelect={handleTreeSelect}
             onDrop={handleTreeDrop}
-            onAdd={handleAddOrganization}
+            onAdd={handleAddOrg}
           />
         </Col>
 
-        {/* Organization Details */}
+        {/* Org Details */}
         <Col span={16} style={{ height: '100%' }}>
           <OrgDetails
-            organization={state.selectedOrganization}
-            agents={state.organizationAgents}
-            onEdit={handleEditOrganization}
-            onDelete={handleDeleteOrganization}
+            org={state.selectedOrg}
+            agents={state.orgAgents}
+            onEdit={handleEditOrg}
+            onDelete={handleDeleteOrg}
             onBindAgents={handleBindAgents}
             onUnbindAgent={handleUnbindAgent}
             onChatWithAgent={handleChatWithAgent}
@@ -158,12 +144,12 @@ const Orgs: React.FC = () => {
         </Col>
       </Row>
 
-      {/* Organization Form Modal */}
+      {/* Org Form Modal */}
       <OrgModal
         visible={state.modalVisible}
-        editingOrganization={state.editingOrganization}
-        onOk={handleOrganizationModalOk}
-        onCancel={handleOrganizationModalCancel}
+        editingOrg={state.editingOrg}
+        onOk={handleOrgModalOk}
+        onCancel={handleOrgModalCancel}
       />
 
       {/* Agent Binding Modal */}

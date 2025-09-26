@@ -673,3 +673,75 @@ class DBAgentService(BaseService):
                 return {"success": True, "data": stats, "error": None}
         except Exception as e:
             return {"success": False, "data": {}, "error": str(e)}
+
+    def get_agents_by_org(self, org_id: str) -> Dict[str, Any]:
+        """
+        Get all agents in a specific organization
+        
+        Args:
+            org_id (str): Organization ID
+            
+        Returns:
+            dict: Standard response with agents data
+        """
+        try:
+            with self.session_scope() as session:
+                # Query agents through the association table
+                agents = session.query(DBAgent).join(
+                    DBAgentOrgRel, DBAgent.id == DBAgentOrgRel.agent_id
+                ).filter(
+                    DBAgentOrgRel.org_id == org_id,
+                    DBAgentOrgRel.status == 'active'
+                ).all()
+                
+                return {
+                    "success": True,
+                    "data": [agent.to_dict() for agent in agents],
+                    "error": None
+                }
+        except SQLAlchemyError as e:
+            return {
+                "success": False,
+                "data": [],
+                "error": str(e)
+            }
+
+    def update_agent(self, agent_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update an agent
+        
+        Args:
+            agent_id (str): Agent ID
+            data (dict): Updated agent data
+            
+        Returns:
+            dict: Standard response with success status and data
+        """
+        try:
+            with self.session_scope() as session:
+                agent = session.get(DBAgent, agent_id)
+                if not agent:
+                    return {
+                        "success": False,
+                        "data": None,
+                        "error": f"Agent with id {agent_id} not found"
+                    }
+                
+                # Update agent fields
+                for key, value in data.items():
+                    if hasattr(agent, key):
+                        setattr(agent, key, value)
+                
+                session.flush()
+                
+                return {
+                    "success": True,
+                    "data": agent.to_dict(),
+                    "error": None
+                }
+        except SQLAlchemyError as e:
+            return {
+                "success": False,
+                "data": None,
+                "error": str(e)
+            }
