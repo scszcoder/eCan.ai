@@ -352,7 +352,7 @@ const AgentDetails: React.FC = () => {
                         setItems={(arr) => form.setFieldsValue({ organizations: arr })}
                         options={knownOrganizations}
                         editable={editMode}
-                        onEdit={(id) => navigate(`/organizations/details/${id}`)}
+                        onEdit={(id) => navigate(`/orgs/details/${id}`)}
                       />
                     )}
                 </Form.Item>

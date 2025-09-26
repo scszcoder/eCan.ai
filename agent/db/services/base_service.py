@@ -8,26 +8,24 @@ operations and session management functionality.
 from contextlib import contextmanager
 from sqlalchemy.orm import sessionmaker
 from typing import Optional, Any
-from ..core import get_engine, get_session_factory, Base
-from .singleton import SingletonMeta
+from ..core import Base
 
 
-class BaseService(metaclass=SingletonMeta):
+class BaseService:
     """
     Base service class for database operations.
-    
+
     Provides common functionality for database services including
     session management and basic CRUD operations.
     """
-    
-    def __init__(self, db_path: str = None, engine=None, session=None):
+
+    def __init__(self, engine=None, session=None):
         """
         Initialize base service.
-        
+
         Args:
-            db_path (str, optional): Database file path
-            engine: SQLAlchemy engine instance
-            session: SQLAlchemy session instance
+            engine: SQLAlchemy engine instance (required)
+            session: SQLAlchemy session instance (optional)
         """
         if session is not None:
             self.SessionFactory = lambda: session
@@ -35,12 +33,8 @@ class BaseService(metaclass=SingletonMeta):
             self.engine = engine
             self.SessionFactory = sessionmaker(bind=engine)
             Base.metadata.create_all(engine)
-        elif db_path is not None:
-            self.engine = get_engine(db_path)
-            self.SessionFactory = get_session_factory(db_path)
-            Base.metadata.create_all(self.engine)
         else:
-            raise ValueError("Must provide db_path, engine or session")
+            raise ValueError("Must provide engine or session")
 
     @contextmanager
     def session_scope(self):
@@ -195,3 +189,27 @@ class BaseService(metaclass=SingletonMeta):
                     "data": None,
                     "error": str(e)
                 }
+    
+    def _convert_timestamps(self, data: dict) -> dict:
+        """
+        Convert timestamp values to datetime objects for datetime fields.
+        
+        Args:
+            data (dict): Data dictionary that may contain timestamp values
+            
+        Returns:
+            dict: Data dictionary with converted datetime objects
+        """
+        converted_data = data.copy()
+        datetime_fields = ['created_at', 'updated_at', 'deleted_at', 'upgraded_at']
+        
+        for key, value in converted_data.items():
+            if key in datetime_fields and isinstance(value, (int, float)):
+                from datetime import datetime
+                # Handle both seconds and milliseconds timestamps
+                if value > 1e10:  # Likely milliseconds
+                    converted_data[key] = datetime.fromtimestamp(value / 1000)
+                else:  # Likely seconds
+                    converted_data[key] = datetime.fromtimestamp(value)
+        
+        return converted_data

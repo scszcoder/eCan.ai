@@ -23,6 +23,7 @@ const Tests = React.lazy(() => import('../pages/Tests/Tests'));
 const VirtualPlatform = React.lazy(() => import('../pages/Agents/VirtualPlatform'));
 const DepartmentRoom = React.lazy(() => import('../pages/Agents/DepartmentRoom'));
 const AgentDetails = React.lazy(() => import('../pages/Agents/components/AgentDetails'));
+const Organizations = React.lazy(() => import('../pages/Orgs/Orgs'));
 
 // Agents 路由包装器，用于防止不必要的重新渲染
 const AgentsRouteWrapper: React.FC = () => {
@@ -154,6 +155,10 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'tests',
                 element: <LazyWrapper><Tests /></LazyWrapper>,
+            },
+            {
+                path: 'orgs',
+                element: <LazyWrapper><Organizations /></LazyWrapper>,
             },
         ],
     },
