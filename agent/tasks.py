@@ -1377,7 +1377,19 @@ class TaskRunner(Generic[Context]):
                                 logger.warning(f"No checkpoint found for tag {tag}")
                                 continue
                             logger.info(f"Resuming execution from tag {tag}")
-                            controller = dev_task.skill.runnable.stream(payload, checkpoint=checkpoint, config=config,
+                            # Inject cloud_task_id into checkpoint values for node resume detection
+                            try:
+                                vals = getattr(checkpoint, "values", None)
+                                if isinstance(vals, dict):
+                                    attrs = vals.get("attributes")
+                                    if not isinstance(attrs, dict):
+                                        attrs = {}
+                                        vals["attributes"] = attrs
+                                    attrs["cloud_task_id"] = tag
+                            except Exception as e:
+                                logger.debug(f"launch_dev_run resume: could not inject cloud_task_id: {e}")
+                            # Use Command(resume=...) so interrupt() receives payload immediately
+                            controller = dev_task.skill.runnable.stream(Command(resume=payload), checkpoint=checkpoint, config=config,
                                                                     context=context)
                             stream_iterator = iter(controller)
                             run_status = "running"
@@ -1391,7 +1403,18 @@ class TaskRunner(Generic[Context]):
                                 logger.warning(f"No checkpoint found for tag {tag}")
                                 continue
                             logger.info(f"Stepping execution from tag {tag}")
-                            controller = dev_task.skill.runnable.stream(payload, checkpoint=checkpoint, config=config,
+                            # Inject cloud_task_id to ensure node detects resume
+                            try:
+                                vals = getattr(checkpoint, "values", None)
+                                if isinstance(vals, dict):
+                                    attrs = vals.get("attributes")
+                                    if not isinstance(attrs, dict):
+                                        attrs = {}
+                                        vals["attributes"] = attrs
+                                    attrs["cloud_task_id"] = tag
+                            except Exception as e:
+                                logger.debug(f"launch_dev_run step: could not inject cloud_task_id: {e}")
+                            controller = dev_task.skill.runnable.stream(Command(resume=payload), checkpoint=checkpoint, config=config,
                                                                     context=context)
                             stream_iterator = iter(controller)
                             run_status = "running"
