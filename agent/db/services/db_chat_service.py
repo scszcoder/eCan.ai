@@ -261,6 +261,14 @@ class DBChatService(BaseService):
         elif createAt is None:
             createAt = int(time.time() * 1000)
 
+        # Normalize fields that must be scalars for DB binding
+        if isinstance(senderId, list):
+            senderId = senderId[0] if senderId else None
+        if isinstance(senderName, list):
+            senderName = senderName[0] if senderName else None
+        if isinstance(status, list):
+            status = status[0] if status else None
+
         if isinstance(content, dict) and 'type' in content:
             content_type = content.get('type')
             if content_type == 'form':

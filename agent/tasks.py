@@ -13,6 +13,7 @@ import time
 from queue import Queue, Empty
 import threading
 from langgraph.types import Command
+from langgraph.errors import GraphInterrupt
 
 from datetime import datetime, timedelta
 import inspect
@@ -146,10 +147,16 @@ class ManagedTask(Task):
         self.priority = p
 
     def add_checkpoint_node(self, check_point):
+        # Ensure checkpoint_nodes is initialized
+        if self.checkpoint_nodes is None:
+            self.checkpoint_nodes = []
         if check_point not in self.checkpoint_nodes:
             self.checkpoint_nodes.append(check_point)
 
     def remove_checkpoint_node(self, check_point):
+        # Ensure checkpoint_nodes is initialized
+        if self.checkpoint_nodes is None:
+            self.checkpoint_nodes = []
         if check_point in self.checkpoint_nodes:
             self.checkpoint_nodes.remove(check_point)
 
@@ -239,7 +246,11 @@ class ManagedTask(Task):
                     if step.get("__interrupt__"):
                         interrupt_obj = step["__interrupt__"][0]
                         i_tag = interrupt_obj.value["i_tag"]
-                        self.add_checkpoint_node({"tag": i_tag, "checkpoint": interrupt_obj.checkpoint})
+
+                        # Get checkpoint from LangGraph state since raw Interrupt object doesn't have it
+                        current_checkpoint = self.skill.runnable.get_state(config=effective_config)
+                        print("current checkpoint:", current_checkpoint)
+                        self.add_checkpoint_node({"tag": i_tag, "checkpoint": current_checkpoint})
 
                     break
 
@@ -327,7 +338,9 @@ class ManagedTask(Task):
                     if step.get("__interrupt__"):
                         interrupt_obj = step["__interrupt__"][0]
                         i_tag = interrupt_obj.value["i_tag"]
-                        self.add_checkpoint_node({"tag": i_tag, "checkpoint": interrupt_obj.checkpoint})
+                        # Get checkpoint from LangGraph state since raw Interrupt object doesn't have it
+                        current_checkpoint = self.skill.runnable.get_state(config=effective_config)
+                        self.add_checkpoint_node({"tag": i_tag, "checkpoint": current_checkpoint})
                     break
 
             if self.status.state == TaskState.INPUT_REQUIRED:
@@ -921,7 +934,7 @@ class TaskRunner(Generic[Context]):
                 "notification_to_agent": notification,
             }
 
-            pending_tag = msg["cloud_task_id"]
+            pending_tag = metadata.get("i_tag")
 
             # get all the checkpoint so that we can resume from.
             found_cp = next((cpn for cpn in task.checkpoint_nodes if cpn["tag"] == pending_tag), None)
@@ -929,16 +942,39 @@ class TaskRunner(Generic[Context]):
                 idx = task.checkpoint_nodes.index(found_cp)
                 be_to_resumed = task.checkpoint_nodes.pop(idx)
                 resume_cp = be_to_resumed["checkpoint"]
+                print("resume checkpoint is: ", resume_cp)
+                # Ensure the node can detect resume by injecting cloud_task_id into checkpoint state
+                try:
+                    # StateSnapshot typically has a .values dict-like payload
+                    vals = getattr(resume_cp, "values", None)
+                    if isinstance(vals, dict):
+                        attrs = vals.get("attributes")
+                        if not isinstance(attrs, dict):
+                            attrs = {}
+                            vals["attributes"] = attrs
+                        if pending_tag:
+                            attrs["cloud_task_id"] = pending_tag
+                            # Also reflect this in our cached metadata state if present
+                            st = self.metadata.get("state") if hasattr(self, "metadata") else None
+                            if isinstance(st, dict):
+                                st_attrs = st.get("attributes")
+                                if isinstance(st_attrs, dict):
+                                    st_attrs["cloud_task_id"] = pending_tag
+                    else:
+                        # If values isn't a dict, log but continue
+                        logger.debug("_build_resume_payload: unexpected checkpoint values type; skip cloud_task_id injection")
+                except Exception as e:
+                    logger.debug(f"_build_resume_payload: could not inject cloud_task_id into checkpoint: {e}")
             else:
                 resume_cp = None
             return payload, resume_cp
         except Exception:
-            return {"human_text": ""}
+            return {"human_text": ""}, None
 
 
     async def async_task_wait_in_line(self, event_type, request):
         try:
-            print("task waiting in line.....", event_type,  self.agent.card.name, self.event_handler_queues, request)
+            print("async task waiting in line.....", event_type,  self.agent.card.name, self.event_handler_queues, request)
             event_queue = self.event_handler_queues.get(event_type, None)
             if event_queue:
                 await event_queue.put(request)
@@ -952,7 +988,7 @@ class TaskRunner(Generic[Context]):
 
     def sync_task_wait_in_line(self, event_type, request):
         try:
-            logger.debug("task waiting in line.....", event_type, self.agent.card.name, self.event_handler_queues, request)
+            logger.debug("sync task waiting in line.....", event_type, self.agent.card.name, self.event_handler_queues, request)
             # await self.a2a_msg_queue.put(request)
             event_queue = self.event_handler_queues.get(event_type, None)
             if event_queue:
@@ -1137,13 +1173,14 @@ class TaskRunner(Generic[Context]):
                                     logger.debug("sending interrupt prompt2")
                                     interrupt_obj = step["__interrupt__"][0]
 
-                                    prompt = interrupt_obj.value["prompt_to_human"]
-                                    logger.debug("prompt to human:", prompt)
-                                    chatId = msg.params.metadata['chatId']
-                                    task_id = msg.params.metadata['msgId']
-                                    logger.debug("chatId in the message", chatId)
-                                    self.sendChatMessageToGUI(self.agent, chatId, prompt)
-                                    logger.debug("prompt sent to GUI<<<<<<<<<<<")
+                                    if "prompt_to_human" in interrupt_obj.value:
+                                        prompt = interrupt_obj.value["prompt_to_human"]
+                                        logger.debug("prompt to human:", prompt)
+                                        chatId = msg.params.metadata['chatId']
+                                        task_id = msg.params.metadata['msgId']
+                                        logger.debug("chatId in the message", chatId)
+                                        self.sendChatMessageToGUI(self.agent, chatId, prompt)
+                                        logger.debug("prompt sent to GUI<<<<<<<<<<<")
                                     justStarted = False
                                 else:
                                     justStarted = True
@@ -1191,13 +1228,15 @@ class TaskRunner(Generic[Context]):
                                     logger.debug("NI prompt sent to GUI<<<<<<<<<<<")
                                 else:
                                     justStarted = True
+
+                                print("msg is:", type(msg), msg)
                                 if not isinstance(msg, dict):
                                     task_id = msg.params.id
                                 else:
-                                    if "id" in msg['params']:
-                                        task_id = msg['params']['id']
-                                    elif "id" in msg:
+                                    if "id" in msg:
                                         task_id = msg['id']
+                                    elif "id" in msg['params']:
+                                        task_id = msg['params']['id']
                                     else:
                                         logger.error("ERROR: lost track of task id....", msg)
                                 self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
@@ -1262,13 +1301,21 @@ class TaskRunner(Generic[Context]):
                         # Try to advance the graph
                         try:
                             event = next(stream_iterator, None)
+                        except GraphInterrupt as gi:
+                            # GraphInterrupt should have checkpoint information
+                            # Get the current state/checkpoint from LangGraph
+                            current_state = controller.get_state(config)
+                            
+                            # Create proper interrupt object with checkpoint
+                            interrupt_with_checkpoint = type('InterruptWithCheckpoint', (), {
+                                'value': gi.value,
+                                'id': getattr(gi, 'id', str(gi)),
+                                'checkpoint': current_state
+                            })()
+                            event = {"__interrupt__": [interrupt_with_checkpoint]}
                         except Exception as e:
-                            if hasattr(e, "value"):
-                                # Wrap interrupt into dict
-                                event = {"__interrupt__": [e]}
-                            else:
-                                logger.info(f"Non-interrupt exception: {e}")
-                                raise
+                            logger.info(f"Non-interrupt exception: {e}")
+                            raise
 
                         # Graph finished
                         if event is None:
@@ -1287,8 +1334,7 @@ class TaskRunner(Generic[Context]):
                             interrupt_obj = event["__interrupt__"][0]
 
                             # Tag = business ID or fallback to node name
-                            tag = interrupt_obj.value.get(
-                                "i_tag") or f"{thread_id}:{interrupt_obj.checkpoint['config']['next_nodes'][0]}"
+                            tag = interrupt_obj.value.get("i_tag") or f"{thread_id}:interrupt_{getattr(interrupt_obj, 'id', 'unknown')}"
 
                             self.active_checkpoints[tag] = interrupt_obj.checkpoint
                             current_node = interrupt_obj.value.get("paused_at", tag)
@@ -1331,7 +1377,19 @@ class TaskRunner(Generic[Context]):
                                 logger.warning(f"No checkpoint found for tag {tag}")
                                 continue
                             logger.info(f"Resuming execution from tag {tag}")
-                            controller = dev_task.skill.runnable.stream(payload, checkpoint=checkpoint, config=config,
+                            # Inject cloud_task_id into checkpoint values for node resume detection
+                            try:
+                                vals = getattr(checkpoint, "values", None)
+                                if isinstance(vals, dict):
+                                    attrs = vals.get("attributes")
+                                    if not isinstance(attrs, dict):
+                                        attrs = {}
+                                        vals["attributes"] = attrs
+                                    attrs["cloud_task_id"] = tag
+                            except Exception as e:
+                                logger.debug(f"launch_dev_run resume: could not inject cloud_task_id: {e}")
+                            # Use Command(resume=...) so interrupt() receives payload immediately
+                            controller = dev_task.skill.runnable.stream(Command(resume=payload), checkpoint=checkpoint, config=config,
                                                                     context=context)
                             stream_iterator = iter(controller)
                             run_status = "running"
@@ -1345,7 +1403,18 @@ class TaskRunner(Generic[Context]):
                                 logger.warning(f"No checkpoint found for tag {tag}")
                                 continue
                             logger.info(f"Stepping execution from tag {tag}")
-                            controller = dev_task.skill.runnable.stream(payload, checkpoint=checkpoint, config=config,
+                            # Inject cloud_task_id to ensure node detects resume
+                            try:
+                                vals = getattr(checkpoint, "values", None)
+                                if isinstance(vals, dict):
+                                    attrs = vals.get("attributes")
+                                    if not isinstance(attrs, dict):
+                                        attrs = {}
+                                        vals["attributes"] = attrs
+                                    attrs["cloud_task_id"] = tag
+                            except Exception as e:
+                                logger.debug(f"launch_dev_run step: could not inject cloud_task_id: {e}")
+                            controller = dev_task.skill.runnable.stream(Command(resume=payload), checkpoint=checkpoint, config=config,
                                                                     context=context)
                             stream_iterator = iter(controller)
                             run_status = "running"
