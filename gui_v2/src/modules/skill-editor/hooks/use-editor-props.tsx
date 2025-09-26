@@ -242,12 +242,39 @@ export function useEditorProps(
        */
       onContentChange: debounce((ctx, event) => {
         if (ctx.document.disposed) return;
-        console.log('Auto Save: ', event, ctx.document.toJSON());
-        // 自动同步 skillInfo 的 workFlow 字段
+        const raw = ctx.document.toJSON();
+
+        // Strip runtime-only node state before persisting
+        const sanitize = (doc: any) => {
+          const clone = { ...doc };
+          if (Array.isArray(clone.nodes)) {
+            clone.nodes = clone.nodes.map((n: any) => {
+              const nn = { ...n };
+              if (nn.data && typeof nn.data === 'object') {
+                const nd = { ...nn.data };
+                if ('state' in nd) {
+                  delete nd.state;
+                }
+                nn.data = nd;
+              }
+              // handle nested blocks (loop/group/containers)
+              if (Array.isArray(nn.blocks)) {
+                nn.blocks = nn.blocks.map((bn: any) => sanitize({ nodes: [bn] }).nodes?.[0] || bn);
+              }
+              return nn;
+            });
+          }
+          return clone;
+        };
+
+        const cleaned = sanitize(raw);
+        console.log('Auto Save: ', event, cleaned);
+
+        // 自动同步 skillInfo 的 workFlow 字段 (without runtime state)
         const setSkillInfo = useSkillInfoStore.getState().setSkillInfo;
         const skillInfo = useSkillInfoStore.getState().skillInfo;
         if (skillInfo) {
-          setSkillInfo({ ...skillInfo, workFlow: ctx.document.toJSON(), lastModified: new Date().toISOString() });
+          setSkillInfo({ ...skillInfo, workFlow: cleaned, lastModified: new Date().toISOString() });
         }
       }, 1000),
       /**
