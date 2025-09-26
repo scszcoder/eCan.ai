@@ -42,7 +42,13 @@ class DBAgentSkill(BaseModel, TimestampMixin, ExtensibleMixin):
         """Convert model instance to dictionary"""
         d = super().to_dict()
         if deep:
-            # 可以在这里添加深度转换逻辑
-            # d['members'] = [m.to_dict() for m in self.members]
-            pass
+            # Include association details through backref relationships
+            if hasattr(self, 'agent_skills_rel') and self.agent_skills_rel:
+                d['agents'] = [assoc.to_dict(deep=False) for assoc in self.agent_skills_rel]
+            if hasattr(self, 'skill_tools') and self.skill_tools:
+                d['tools'] = [assoc.to_dict(deep=False) for assoc in self.skill_tools]
+            if hasattr(self, 'skill_knowledges') and self.skill_knowledges:
+                d['knowledges'] = [assoc.to_dict(deep=False) for assoc in self.skill_knowledges]
+            if hasattr(self, 'task_skills') and self.task_skills:
+                d['tasks'] = [assoc.to_dict(deep=False) for assoc in self.task_skills]
         return d

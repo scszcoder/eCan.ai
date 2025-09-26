@@ -42,7 +42,7 @@ class DBVersion(BaseModel):
         Returns:
             DBVersion: Current version record or None
         """
-        return session.query(cls).order_by(cls.id.desc()).first()
+        return session.query(cls).order_by(cls.created_at.desc()).first()
     
     @classmethod
     def set_current_version(cls, session, version: str, description: str = None):
