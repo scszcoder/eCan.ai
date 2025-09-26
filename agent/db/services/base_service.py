@@ -189,3 +189,27 @@ class BaseService:
                     "data": None,
                     "error": str(e)
                 }
+    
+    def _convert_timestamps(self, data: dict) -> dict:
+        """
+        Convert timestamp values to datetime objects for datetime fields.
+        
+        Args:
+            data (dict): Data dictionary that may contain timestamp values
+            
+        Returns:
+            dict: Data dictionary with converted datetime objects
+        """
+        converted_data = data.copy()
+        datetime_fields = ['created_at', 'updated_at', 'deleted_at', 'upgraded_at']
+        
+        for key, value in converted_data.items():
+            if key in datetime_fields and isinstance(value, (int, float)):
+                from datetime import datetime
+                # Handle both seconds and milliseconds timestamps
+                if value > 1e10:  # Likely milliseconds
+                    converted_data[key] = datetime.fromtimestamp(value / 1000)
+                else:  # Likely seconds
+                    converted_data[key] = datetime.fromtimestamp(value)
+        
+        return converted_data

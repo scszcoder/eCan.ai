@@ -537,7 +537,10 @@
         "status": "Status",
         "type": "Type",
         "validation": {
-          "nameRequired": "Name is required"
+          "nameRequired": "Name is required",
+          "nameLength": "Name length must be between 2-50 characters",
+          "descriptionLength": "Description length cannot exceed 200 characters",
+          "typeRequired": "Organization type is required"
         }
       },
       "info": {
@@ -588,6 +591,12 @@
       },
       "tree": {
         "title": "Organization Tree"
+      },
+      "types": {
+        "company": "Company",
+        "department": "Department",
+        "team": "Team",
+        "group": "Group"
       }
     },
     "search": {

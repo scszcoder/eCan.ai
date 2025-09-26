@@ -50,7 +50,7 @@ const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
 
   return (
     <Modal
-      title={t('org.modal.bind.title')}
+      title={t('pages.org.modal.bind.title')}
       open={visible}
       onOk={handleOk}
       onCancel={handleCancel}
@@ -58,22 +58,22 @@ const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
     >
       <Form form={form} layout="vertical">
         <Form.Item
-          label={t('org.modal.bind.selectAgents')}
+          label={t('pages.org.modal.bind.selectAgents')}
           name="agent_ids"
           rules={[
-            { required: true, message: t('org.form.validation.nameRequired') }
+            { required: true, message: t('pages.org.form.validation.nameRequired') }
           ]}
         >
           <Select
             mode="multiple"
-            placeholder={t('org.modal.bind.selectAgents')}
+            placeholder={t('pages.org.modal.bind.selectAgents')}
             optionLabelProp="label"
             style={{ width: '100%' }}
             notFoundContent={
               availableAgents.length === 0 ? (
                 <Empty 
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={t('org.placeholder.noAvailableAgents')}
+                  description={t('pages.org.placeholder.noAvailableAgents')}
                 />
               ) : null
             }

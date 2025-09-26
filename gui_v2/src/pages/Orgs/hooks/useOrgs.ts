@@ -42,19 +42,20 @@ export const useOrgs = () => {
         // Handle both array and object formats
         const orgs = Array.isArray(response.data)
           ? response.data
-          : (response.data as any).orgs || [];
+          : (response.data as any).organizations || [];
+
 
         updateState({
           orgs,
           loading: false
         });
       } else {
-        message.error(t('org.messages.loadFailed'));
+        message.error(t('pages.org.messages.loadFailed'));
         updateState({ loading: false });
       }
     } catch (error) {
       console.error('Error loading orgs:', error);
-      message.error(t('org.messages.loadFailed'));
+      message.error(t('pages.org.messages.loadFailed'));
       updateState({ loading: false });
     }
   }, [username, t, updateState]);
@@ -93,16 +94,16 @@ export const useOrgs = () => {
             loading: false
           });
         } else {
-          message.error(t('org.messages.loadFailed'));
+          message.error(t('pages.org.messages.loadFailed'));
           updateState({ loading: false });
         }
       } else {
-        message.error(t('org.messages.orgNotFound'));
+        message.error(t('pages.org.messages.orgNotFound'));
         updateState({ loading: false });
       }
     } catch (error) {
       console.error('Error loading org agents:', error);
-      message.error(t('org.messages.loadFailed'));
+      message.error(t('pages.org.messages.loadFailed'));
       updateState({ loading: false });
     }
   }, [username, t, updateState, state.orgs]);
@@ -118,11 +119,11 @@ export const useOrgs = () => {
       if (response.success && response.data) {
         updateState({ availableAgents: (response.data as any).agents || [] });
       } else {
-        message.error(t('org.messages.loadFailed'));
+        message.error(t('pages.org.messages.loadFailed'));
       }
     } catch (error) {
       console.error('Error loading available agents:', error);
-      message.error(t('org.messages.loadFailed'));
+      message.error(t('pages.org.messages.loadFailed'));
     }
   }, [username, state.selectedOrg?.id, t, updateState]);
 
@@ -152,15 +153,15 @@ export const useOrgs = () => {
       );
 
       if (response.success) {
-        message.success(t('org.messages.createSuccess'));
+        message.success(t('pages.org.messages.createSuccess'));
         loadOrgs();
         updateState({ modalVisible: false });
       } else {
-        message.error(response.error?.message || t('org.messages.createFailed'));
+        message.error(response.error?.message || t('pages.org.messages.createFailed'));
       }
     } catch (error) {
       console.error('Error creating org:', error);
-      message.error(t('org.messages.createFailed'));
+      message.error(t('pages.org.messages.createFailed'));
     }
   }, [username, state.selectedOrg?.id, t, loadOrgs, updateState]);
 
@@ -178,15 +179,15 @@ export const useOrgs = () => {
       );
 
       if (response.success) {
-        message.success(t('org.messages.updateSuccess'));
+        message.success(t('pages.org.messages.updateSuccess'));
         loadOrgs();
         updateState({ modalVisible: false });
       } else {
-        message.error(response.error?.message || t('org.messages.updateFailed'));
+        message.error(response.error?.message || t('pages.org.messages.updateFailed'));
       }
     } catch (error) {
       console.error('Error updating org:', error);
-      message.error(t('org.messages.updateFailed'));
+      message.error(t('pages.org.messages.updateFailed'));
     }
   }, [username, t, loadOrgs, updateState]);
 
@@ -199,7 +200,7 @@ export const useOrgs = () => {
       const response = await api.deleteOrg(username, id);
 
       if (response.success) {
-        message.success(t('org.messages.deleteSuccess'));
+        message.success(t('pages.org.messages.deleteSuccess'));
         loadOrgs();
         if (state.selectedOrg?.id === id) {
           updateState({
@@ -208,11 +209,11 @@ export const useOrgs = () => {
           });
         }
       } else {
-        message.error(response.error?.message || t('org.messages.deleteFailed'));
+        message.error(response.error?.message || t('pages.org.messages.deleteFailed'));
       }
     } catch (error) {
       console.error('Error deleting org:', error);
-      message.error(t('org.messages.deleteFailed'));
+      message.error(t('pages.org.messages.deleteFailed'));
     }
   }, [username, state.selectedOrg?.id, t, loadOrgs, updateState]);
 
@@ -230,15 +231,15 @@ export const useOrgs = () => {
       const failures = results.filter(r => !r.success);
 
       if (failures.length === 0) {
-        message.success(t('org.messages.bindSuccess'));
+        message.success(t('pages.org.messages.bindSuccess'));
         loadOrgAgents(state.selectedOrg.id);
         updateState({ bindModalVisible: false });
       } else {
-        message.error(t('org.messages.bindFailed'));
+        message.error(t('pages.org.messages.bindFailed'));
       }
     } catch (error) {
       console.error('Error binding agents:', error);
-      message.error(t('org.messages.bindFailed'));
+      message.error(t('pages.org.messages.bindFailed'));
     }
   }, [username, state.selectedOrg?.id, t, loadOrgAgents, updateState]);
 
@@ -251,16 +252,16 @@ export const useOrgs = () => {
       const response = await api.unbindAgentFromOrg(username, agentId);
 
       if (response.success) {
-        message.success(t('org.messages.unbindSuccess'));
+        message.success(t('pages.org.messages.unbindSuccess'));
         if (state.selectedOrg) {
           loadOrgAgents(state.selectedOrg.id);
         }
       } else {
-        message.error(response.error?.message || t('org.messages.unbindFailed'));
+        message.error(response.error?.message || t('pages.org.messages.unbindFailed'));
       }
     } catch (error) {
       console.error('Error unbinding agent:', error);
-      message.error(t('org.messages.unbindFailed'));
+      message.error(t('pages.org.messages.unbindFailed'));
     }
   }, [username, state.selectedOrg, t, loadOrgAgents]);
 
@@ -299,14 +300,14 @@ export const useOrgs = () => {
       );
 
       if (updateResponse.success) {
-        message.success(t('org.messages.moveSuccess'));
+        message.success(t('pages.org.messages.moveSuccess'));
         loadOrgs();
       } else {
-        message.error(updateResponse.error?.message || t('org.messages.moveFailed'));
+        message.error(updateResponse.error?.message || t('pages.org.messages.moveFailed'));
       }
     } catch (error) {
       console.error('Error moving org:', error);
-      message.error(t('org.messages.moveFailed'));
+      message.error(t('pages.org.messages.moveFailed'));
     }
   }, [username, state.orgs, t, loadOrgs]);
 
@@ -317,7 +318,7 @@ export const useOrgs = () => {
       window.location.href = chatUrl;
     } catch (error) {
       console.error('Error navigating to chat:', error);
-      message.error(t('org.messages.chatFailed'));
+      message.error(t('pages.org.messages.chatFailed'));
     }
   }, [t]);
 
