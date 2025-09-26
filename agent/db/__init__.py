@@ -61,9 +61,7 @@ from .utils import (
 # Database manager
 from .ec_db_mgr import (
     ECDBMgr,
-    create_db_manager,
-    initialize_ecan_database,
-    get_db_manager  # Deprecated, for backward compatibility
+    initialize_ecan_database
 )
 
 # Note: Agent and skill models are now imported from .models above
@@ -105,9 +103,7 @@ __all__ = [
     
     # Database manager
     'ECDBMgr',
-    'create_db_manager',
     'initialize_ecan_database',
-    'get_db_manager',  # Deprecated
 
     # Agent models
     'DBAgent',

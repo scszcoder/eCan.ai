@@ -43,10 +43,13 @@ class ECDBMgr:
         Initialize eCan database manager.
 
         Args:
-            db_path (str, optional): Database file path, defaults to ECAN_BASE_DB
+            db_path (str, optional): Database directory path, defaults to current directory
             auto_migrate (bool): Whether to automatically run migrations, defaults to True
         """
-        self.db_path = db_path or ECAN_BASE_DB
+        if db_path:
+            self.db_path = os.path.join(db_path, ECAN_BASE_DB)
+        else:
+            self.db_path = ECAN_BASE_DB
         self.auto_migrate = auto_migrate
         self.engine = None
         self.SessionFactory = None
@@ -89,10 +92,21 @@ class ECDBMgr:
                     # Fallback: create tables if migration fails
                     logger.info("[ECDBMgr] Creating database tables as fallback...")
                     create_all_tables(self.db_path)
+                
+                # Always ensure tables exist and version record is created
+                # Check if tables actually exist (migration might have been skipped)
+                if not self._tables_exist():
+                    logger.info("[ECDBMgr] Tables not found, creating them now...")
+                    create_all_tables(self.db_path)
+                
+                # Now ensure version record exists (after tables are confirmed to exist)
+                self._ensure_version_record()
             else:
                 # If auto_migrate is disabled, just create tables
                 logger.info("[ECDBMgr] Auto-migrate disabled, creating database tables...")
                 create_all_tables(self.db_path)
+                # Ensure version record exists
+                self._ensure_version_record()
             
             self._initialized = True
             logger.info("[ECDBMgr] Database initialization completed successfully")
@@ -102,6 +116,82 @@ class ECDBMgr:
             logger.error(f"[ECDBMgr] Database initialization failed: {e}")
             return False
     
+    def _tables_exist(self) -> bool:
+        """
+        Check if database tables exist.
+        
+        Returns:
+            bool: True if tables exist, False otherwise
+        """
+        try:
+            from sqlalchemy import inspect
+            inspector = inspect(self.engine)
+            table_names = inspector.get_table_names()
+            
+            # Check for essential tables
+            essential_tables = ['db_version', 'chats', 'users']
+            for table in essential_tables:
+                if table not in table_names:
+                    return False
+            
+            logger.info(f"[ECDBMgr] Found {len(table_names)} tables in database")
+            return True
+            
+        except Exception as e:
+            logger.error(f"[ECDBMgr] Failed to check table existence: {e}")
+            return False
+
+    def _ensure_version_record(self) -> bool:
+        """
+        Ensure that a version record exists in the database.
+        This is called after table creation.
+        
+        Returns:
+            bool: True if version record exists or was created successfully
+        """
+        try:
+            session = self.SessionFactory()
+            try:
+                # Use direct SQL to check and create version record
+                from sqlalchemy import text
+                
+                # Check if version record already exists
+                result = session.execute(text("SELECT COUNT(*) FROM db_version")).fetchone()
+                if result and result[0] > 0:
+                    logger.info("[ECDBMgr] Version record already exists")
+                    return True
+                
+                # Create version record for latest version using direct SQL
+                latest_version = "3.0.0"
+                import uuid
+                from datetime import datetime
+                
+                version_id = str(uuid.uuid4())
+                now = datetime.utcnow()
+                
+                session.execute(text("""
+                    INSERT INTO db_version (id, version, description, upgraded_at, created_at, updated_at)
+                    VALUES (:id, :version, :description, :upgraded_at, :created_at, :updated_at)
+                """), {
+                    'id': version_id,
+                    'version': latest_version,
+                    'description': 'Fresh database initialization',
+                    'upgraded_at': now,
+                    'created_at': now,
+                    'updated_at': now
+                })
+                
+                session.commit()
+                logger.info(f"[ECDBMgr] Created version record: {latest_version}")
+                return True
+                
+            finally:
+                session.close()
+                
+        except Exception as e:
+            logger.error(f"[ECDBMgr] Failed to ensure version record: {e}")
+            return False
+
     def _run_migrations(self) -> bool:
         """
         Run database migrations to latest version.
@@ -112,10 +202,8 @@ class ECDBMgr:
         try:
             # Use new MigrationManager for automatic migration management
             migrator = MigrationManager(self.engine)
-            current_version = migrator.get_current_version()
-            logger.info(f"[ECDBMgr] Current database version: {current_version}")
             
-            # Migrate to latest available version
+            # 直接迁移到最新版本，内部会处理版本检查
             success = migrator.migrate_to_latest()
             if success:
                 logger.info("[ECDBMgr] Database migrations completed successfully")
@@ -433,12 +521,18 @@ class ECDBMgr:
             health = self.health_check()
             info.update(health)
             
-            # Migration information
+            # Migration information - avoid creating new MigrationManager during initialization
             if self._initialized:
                 try:
-                    migrator = MigrationManager(self.engine)
-                    current_version = migrator.get_current_version()
-                    info["database_version"] = current_version
+                    # Check if we can safely access the database
+                    with self.get_session() as session:
+                        # Simple version check without creating new MigrationManager
+                        from .models import DBVersion
+                        version_record = DBVersion.get_current_version(session)
+                        if version_record:
+                            info["database_version"] = version_record.version
+                        else:
+                            info["database_version"] = "No version record found"
                 except Exception as e:
                     info["database_version"] = f"Error: {e}"
             
@@ -446,25 +540,6 @@ class ECDBMgr:
             info["error"] = str(e)
         
         return info
-
-
-def create_db_manager(db_dir: str = None, auto_migrate: bool = True) -> ECDBMgr:
-    """
-    Create a new database manager instance.
-    
-    Args:
-        db_dir (str, optional): Database file directory
-        auto_migrate (bool): Whether to automatically run migrations
-    
-    Returns:
-        ECDBMgr: New database manager instance
-    """
-    if db_dir is None:
-        db_path = ECAN_BASE_DB  # Use default database name in current directory
-    else:
-        db_path = os.path.join(db_dir, ECAN_BASE_DB)
-    
-    return ECDBMgr(db_path, auto_migrate)
 
 
 def initialize_ecan_database(db_dir: str = None, auto_migrate: bool = True) -> ECDBMgr:
@@ -475,14 +550,14 @@ def initialize_ecan_database(db_dir: str = None, auto_migrate: bool = True) -> E
     Creates a new database manager instance (not singleton).
 
     Args:
-        db_dir (str, optional): Database file dir
+        db_dir (str, optional): Database directory path
         auto_migrate (bool): Whether to automatically run migrations
 
     Returns:
         ECDBMgr: initialized database manager
     """
     logger.info("[ECDBMgr] Initializing eCan database system...")
-    db_manager = create_db_manager(db_dir, auto_migrate)
+    db_manager = ECDBMgr(db_dir, auto_migrate)
 
     # Log database information
     info = db_manager.get_database_info()
@@ -490,13 +565,3 @@ def initialize_ecan_database(db_dir: str = None, auto_migrate: bool = True) -> E
 
     return db_manager
 
-
-# Backward compatibility - deprecated
-def get_db_manager(db_dir: str = None, auto_migrate: bool = True) -> ECDBMgr:
-    """
-    Deprecated: Use create_db_manager() instead.
-    
-    This function is kept for backward compatibility but will be removed in future versions.
-    """
-    logger.warning("[ECDBMgr] get_db_manager() is deprecated, use create_db_manager() instead")
-    return create_db_manager(db_dir, auto_migrate)

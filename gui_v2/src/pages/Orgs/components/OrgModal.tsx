@@ -1,49 +1,49 @@
 /**
- * Organization Form Modal Component
+ * Org Form Modal Component
  */
 
 import React, { useEffect } from 'react';
 import { Modal, Form, Input, Select } from 'antd';
 import { useTranslation } from 'react-i18next';
-import type { Organization, OrganizationFormData } from '../types';
-import { ORGANIZATION_TYPES, FORM_RULES, MODAL_CONFIG, DEFAULT_ORGANIZATION_TYPE } from '../constants';
+import type { Org, OrgFormData } from '../types';
+import { ORG_TYPES, FORM_RULES, MODAL_CONFIG, DEFAULT_ORG_TYPE } from '../constants';
 
 const { TextArea } = Input;
 
-interface OrganizationModalProps {
+interface OrgModalProps {
   visible: boolean;
-  editingOrganization: Organization | null;
-  onOk: (values: OrganizationFormData) => Promise<void>;
+  editingOrg: Org | null;
+  onOk: (values: OrgFormData) => Promise<void>;
   onCancel: () => void;
 }
 
-const OrganizationModal: React.FC<OrganizationModalProps> = ({
+const OrgModal: React.FC<OrgModalProps> = ({
   visible,
-  editingOrganization,
+  editingOrg,
   onOk,
   onCancel,
 }) => {
   const { t } = useTranslation();
   const [form] = Form.useForm();
 
-  const isEditing = !!editingOrganization;
+  const isEditing = !!editingOrg;
 
   useEffect(() => {
     if (visible) {
-      if (editingOrganization) {
+      if (editingOrg) {
         form.setFieldsValue({
-          name: editingOrganization.name,
-          description: editingOrganization.description,
-          organization_type: editingOrganization.organization_type,
+          name: editingOrg.name,
+          description: editingOrg.description,
+          org_type: editingOrg.org_type,
         });
       } else {
         form.resetFields();
         form.setFieldsValue({
-          organization_type: DEFAULT_ORGANIZATION_TYPE,
+          org_type: DEFAULT_ORG_TYPE,
         });
       }
     }
-  }, [visible, editingOrganization, form]);
+  }, [visible, editingOrg, form]);
 
   const handleOk = async () => {
     try {
@@ -65,13 +65,13 @@ const OrganizationModal: React.FC<OrganizationModalProps> = ({
       open={visible}
       onOk={handleOk}
       onCancel={handleCancel}
-      {...MODAL_CONFIG.CREATE_ORGANIZATION}
+      {...MODAL_CONFIG.CREATE_ORG}
     >
-      <Form 
-        form={form} 
+      <Form
+        form={form}
         layout="vertical"
         initialValues={{
-          organization_type: DEFAULT_ORGANIZATION_TYPE,
+          org_type: DEFAULT_ORG_TYPE,
         }}
       >
         <Form.Item
@@ -93,22 +93,22 @@ const OrganizationModal: React.FC<OrganizationModalProps> = ({
             message: t(rule.message)
           }))}
         >
-          <TextArea 
-            rows={3} 
+          <TextArea
+            rows={3}
             placeholder={t('org.form.description')}
           />
         </Form.Item>
 
         <Form.Item
           label={t('org.form.type')}
-          name="organization_type"
-          rules={FORM_RULES.organization_type.map(rule => ({
+          name="org_type"
+          rules={FORM_RULES.org_type.map(rule => ({
             ...rule,
             message: t(rule.message)
           }))}
         >
           <Select placeholder={t('org.form.type')}>
-            {ORGANIZATION_TYPES.map(type => (
+            {ORG_TYPES.map(type => (
               <Select.Option key={type.value} value={type.value}>
                 {t(type.key)}
               </Select.Option>
@@ -120,4 +120,4 @@ const OrganizationModal: React.FC<OrganizationModalProps> = ({
   );
 };
 
-export default OrganizationModal;
+export default OrgModal;

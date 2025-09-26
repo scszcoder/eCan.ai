@@ -15,8 +15,8 @@ class DBAgentOrg(BaseModel, TimestampMixin, ExtensibleMixin):
     """Database model for organizations with hierarchical structure"""
     __tablename__ = 'agent_orgs'
 
-    # Primary key
-    id = Column(String(64), primary_key=True)
+    # Override the BaseModel id field with our specific requirements
+    id = Column(String(64), primary_key=True, default=None)
 
     # Basic organization information
     name = Column(String(128), nullable=False)

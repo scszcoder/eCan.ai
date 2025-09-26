@@ -33,9 +33,9 @@ class DBOrgService(BaseService):
         """Generate a unique ID for organization"""
         return str(uuid.uuid4()).replace('-', '')
 
-    def add_organization(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def add_org(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Add a new organization
+        Add a new org
         
         Args:
             data (dict): Organization data
@@ -64,7 +64,18 @@ class DBOrgService(BaseService):
                 else:
                     data['level'] = 0
                 
-                organization = DBAgentOrg(**data)
+                # Filter out invalid fields that are not part of the model
+                valid_fields = {
+                    # DBAgentOrg specific fields
+                    'id', 'name', 'description', 'parent_id', 'org_type', 
+                    'level', 'sort_order', 'status', 'settings',
+                    # BaseModel fields
+                    'created_at', 'updated_at',
+                    # ExtensibleMixin fields
+                    'ext'
+                }
+                filtered_data = {k: v for k, v in data.items() if k in valid_fields}
+                organization = DBAgentOrg(**filtered_data)
                 session.add(organization)
                 session.flush()
                 
@@ -82,9 +93,9 @@ class DBOrgService(BaseService):
                 "error": str(e)
             }
 
-    def get_organization_tree(self, root_id: str = None) -> Dict[str, Any]:
+    def get_org_tree(self, root_id: str = None) -> Dict[str, Any]:
         """
-        Get organization tree structure
+        Get org tree structure
         
         Args:
             root_id (str, optional): Root organization ID. If None, gets all root organizations
@@ -120,41 +131,37 @@ class DBOrgService(BaseService):
                 "error": str(e)
             }
 
-    def delete_organization(self, organization_id: str) -> Dict[str, Any]:
+    def delete_org(self, org_id: str) -> Dict[str, Any]:
         """
-        Delete an organization
+        Delete an org
         
         Args:
-            organization_id (str): Organization ID
+            org_id (str): Org ID
             
         Returns:
             dict: Standard response with success status
         """
         try:
             with self.session_scope() as session:
-                organization = session.get(DBAgentOrg, organization_id)
-                if not organization:
+                org = session.get(DBAgentOrg, org_id)
+                if not org:
                     return {
                         "success": False,
-                        "error": f"Organization with id {organization_id} not found"
+                        "error": f"Org with id {org_id} not found"
                     }
                 
-                # Check if organization has children
-                if organization.children:
+                # Check if org has children
+                if org.children:
                     return {
                         "success": False,
-                        "error": "Cannot delete organization with children. Delete children first."
+                        "error": "Cannot delete org with children. Delete children first."
                     }
                 
-                # Check if organization has agents
-                agents = session.query(DBAgent).filter(DBAgent.organization_id == organization_id).all()
-                if agents:
-                    return {
-                        "success": False,
-                        "error": f"Cannot delete organization with {len(agents)} agents. Move agents first."
-                    }
+                # Check if org has associated agents
+                # TODO: Add agent association check when agent model is available
                 
-                session.delete(organization)
+                # Delete the org
+                session.delete(org)
                 return {
                     "success": True,
                     "error": None
@@ -165,13 +172,13 @@ class DBOrgService(BaseService):
                 "error": str(e)
             }
 
-    def search_organizations(self, name: str = None, organization_type: str = None, status: str = None) -> Dict[str, Any]:
+    def search_orgs(self, name: str = None, org_type: str = None, status: str = None) -> Dict[str, Any]:
         """
-        Search organizations by criteria
+        Search orgs by criteria
         
         Args:
-            name (str, optional): Organization name to search
-            organization_type (str, optional): Organization type filter
+            name (str, optional): Org name to search
+            org_type (str, optional): Org type filter
             status (str, optional): Status filter
             
         Returns:
@@ -183,12 +190,35 @@ class DBOrgService(BaseService):
                 
                 if name:
                     query = query.filter(DBAgentOrg.name.ilike(f"%{name}%"))
-                if organization_type:
-                    query = query.filter(DBAgentOrg.org_type == organization_type)
+                if org_type:
+                    query = query.filter(DBAgentOrg.org_type == org_type)
                 if status:
                     query = query.filter(DBAgentOrg.status == status)
                 
-                organizations = query.order_by(DBAgentOrg.level, DBAgentOrg.sort_order, DBAgentOrg.name).all()
+                orgs = query.order_by(DBAgentOrg.level, DBAgentOrg.sort_order, DBAgentOrg.name).all()
+                
+                return {
+                    "success": True,
+                    "data": [org.to_dict() for org in orgs],
+                    "error": None
+                }
+        except SQLAlchemyError as e:
+            return {
+                "success": False,
+                "data": None,
+                "error": str(e)
+            }
+
+    def get_all_orgs(self) -> Dict[str, Any]:
+        """
+        Get all organizations
+        
+        Returns:
+            dict: Standard response with all organizations data
+        """
+        try:
+            with self.session_scope() as session:
+                organizations = session.query(DBAgentOrg).order_by(DBAgentOrg.level, DBAgentOrg.sort_order, DBAgentOrg.name).all()
                 
                 return {
                     "success": True,
@@ -201,3 +231,141 @@ class DBOrgService(BaseService):
                 "data": None,
                 "error": str(e)
             }
+
+    def create_org(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a new organization (alias for add_organization)
+        
+        Args:
+            data (dict): Organization data
+            
+        Returns:
+            dict: Standard response with success status and data
+        """
+        return self.add_organization(data)
+
+    def get_org_by_id(self, org_id: str) -> Dict[str, Any]:
+        """
+        Get organization by ID
+        
+        Args:
+            org_id (str): Organization ID
+            
+        Returns:
+            dict: Standard response with organization data
+        """
+        try:
+            with self.session_scope() as session:
+                organization = session.get(DBAgentOrg, org_id)
+                if not organization:
+                    return {
+                        "success": False,
+                        "data": None,
+                        "error": f"Organization with id {org_id} not found"
+                    }
+                
+                return {
+                    "success": True,
+                    "data": organization.to_dict(),
+                    "error": None
+                }
+        except SQLAlchemyError as e:
+            return {
+                "success": False,
+                "data": None,
+                "error": str(e)
+            }
+
+    def get_orgs_by_parent(self, parent_id: str) -> Dict[str, Any]:
+        """
+        Get organizations by parent ID
+        
+        Args:
+            parent_id (str): Parent organization ID
+            
+        Returns:
+            dict: Standard response with organizations data
+        """
+        try:
+            with self.session_scope() as session:
+                organizations = session.query(DBAgentOrg).filter(
+                    DBAgentOrg.parent_id == parent_id
+                ).order_by(DBAgentOrg.sort_order, DBAgentOrg.name).all()
+                
+                return {
+                    "success": True,
+                    "data": [org.to_dict() for org in organizations],
+                    "error": None
+                }
+        except SQLAlchemyError as e:
+            return {
+                "success": False,
+                "data": None,
+                "error": str(e)
+            }
+
+    def update_org(self, org_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update an organization
+        
+        Args:
+            org_id (str): Organization ID
+            data (dict): Updated organization data
+            
+        Returns:
+            dict: Standard response with success status and data
+        """
+        try:
+            with self.session_scope() as session:
+                organization = session.get(DBAgentOrg, org_id)
+                if not organization:
+                    return {
+                        "success": False,
+                        "data": None,
+                        "error": f"Organization with id {org_id} not found"
+                    }
+                
+                # Update organization fields
+                for key, value in data.items():
+                    if hasattr(organization, key):
+                        setattr(organization, key, value)
+                
+                session.flush()
+                
+                return {
+                    "success": True,
+                    "data": organization.to_dict(),
+                    "error": None
+                }
+        except SQLAlchemyError as e:
+            return {
+                "success": False,
+                "data": None,
+                "error": str(e)
+            }
+
+    def delete_org(self, org_id: str) -> Dict[str, Any]:
+        """
+        Delete an organization (alias for delete_organization)
+        
+        Args:
+            org_id (str): Organization ID
+            
+        Returns:
+            dict: Standard response with success status
+        """
+        return self.delete_organization(org_id)
+
+    def _build_tree_node(self, org: DBAgentOrg) -> Dict[str, Any]:
+        """
+        Build a tree node from organization model
+        
+        Args:
+            org (DBAgentOrg): Organization model instance
+            
+        Returns:
+            dict: Tree node data
+        """
+        node = org.to_dict()
+        node['children'] = [self._build_tree_node(child) for child in org.children]
+        return node

@@ -619,11 +619,13 @@ class MainWindow:
         db_init_time = time.time() - start_time
         logger.info(f"[MainWindow] ✅ Database manager initialized in {db_init_time:.3f}s")
         
-        # Initialize database chat service using database manager
-        start_time = time.time()
         self.db_chat_service = self.ec_db_mgr.get_chat_service()
-        chat_init_time = time.time() - start_time
-        logger.info(f"[MainWindow] ✅ Database chat service initialized in {chat_init_time:.3f}s")
+        
+        # Load default template data for new users
+        start_time = time.time()
+        self._load_default_template_data()
+        template_init_time = time.time() - start_time
+        logger.info(f"[MainWindow] ✅ Default template data loaded in {template_init_time:.3f}s")
 
     def _init_service_threaded(self, service_class, service_name):
         """Generic function to initialize any service in a separate thread
@@ -656,6 +658,49 @@ class MainWindow:
 
         # All vehicles created during checkVehicles() will be automatically saved
         # because vehicle_service is now guaranteed to be available
+
+    def _load_default_template_data(self):
+        """Load default template data for new users"""
+        try:
+            logger.info("[MainWindow] 📋 Loading default template data...")
+            
+            # Load organization template data
+            self._load_organization_template()
+            
+            # TODO: Add other template data loading here (agents, skills, tasks, etc.)
+            # self._load_agent_template()
+            # self._load_skill_template()
+            # self._load_task_template()
+            
+            logger.info("[MainWindow] ✅ Default template data loading completed")
+            
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Failed to load default template data: {e}")
+            logger.error(traceback.format_exc())
+
+    def _load_organization_template(self):
+        """Load default organization structure from template"""
+        try:
+            from agent.ec_org_ctrl import get_org_manager
+            
+            # Get org manager (use existing database manager to avoid conflicts)
+            org_manager = get_org_manager(self.log_user, self.ec_db_mgr)
+            
+            # Load org template using the controller
+            result = org_manager.load_org_template()
+            
+            if result.get("success"):
+                created_count = result.get("created_count", 0)
+                if created_count > 0:
+                    logger.info(f"[MainWindow] ✅ Successfully loaded organization template: {result.get('message')}")
+                else:
+                    logger.info(f"[MainWindow] ℹ️ {result.get('message')}")
+            else:
+                logger.error(f"[MainWindow] ❌ Failed to load organization template: {result.get('error')}")
+            
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Failed to load organization template: {e}")
+            logger.error(traceback.format_exc())
 
     def _init_business_objects(self):
         """Initialize business objects and data structures"""
