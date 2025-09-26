@@ -18,6 +18,7 @@ function pathJoin(base: string, key: string | number) {
 
 export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, onChange, title = 'Node State' }) => {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ root: true });
+  const [panelCollapsed, setPanelCollapsed] = useState<boolean>(true);
   const [pendingAdd, setPendingAdd] = useState<Record<string, { key: string; type: 'int' | 'float' | 'boolean' | 'string' | 'list' | 'dict'; tempValue?: any; error?: string } | undefined>>({});
   const [pendingArrayType, setPendingArrayType] = useState<Record<string, 'int' | 'float' | 'boolean' | 'string' | 'list' | 'dict'>>({});
   const textColor = '#333';
@@ -374,9 +375,22 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
   }
 
   return (
-    <div className="node-state-panel" style={{ maxHeight: 420, overflowY: 'auto', borderTop: '1px solid #eee', paddingTop: 8 }}>
-      <div className="ns-title" style={{ fontWeight: 600, marginBottom: 8 }}>{title}</div>
-      {renderNode(topSchema, topValue, 'root', onChange)}
+    <div className="node-state-panel" style={{ borderTop: '1px solid #eee', paddingTop: 8 }}>
+      <div className="ns-title" style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, marginBottom: panelCollapsed ? 0 : 8, color: '#333' }}>
+        <button
+          type="button"
+          onClick={() => setPanelCollapsed((c) => !c)}
+          style={{
+            color: '#333', background: '#f5f5f5', border: '1px solid #d9d9d9', borderRadius: 4, padding: '2px 8px', cursor: 'pointer'
+          }}
+        >{panelCollapsed ? '▸' : '▾'}</button>
+        <span>{title}</span>
+      </div>
+      {!panelCollapsed && (
+        <div style={{ maxHeight: 260, overflowY: 'auto', marginTop: 8 }}>
+          {renderNode(topSchema, topValue, 'root', onChange)}
+        </div>
+      )}
     </div>
   );
 };
