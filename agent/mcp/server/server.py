@@ -1434,7 +1434,7 @@ async def api_ecan_ai_rerank_results(mainwin, args):
     try:
         print("api_ecan_ai_query_fom args: ", args['input'])
         cloud_task_id = ecan_ai_api_rerank_results(mainwin, args['input'])
-        msg = f"kicked of cloud side re-rank result task - with task id of {cloud_task_id}"
+        msg = f"Starting cloud side re-rank result task completed- with task id of {cloud_task_id}"
 
         result = TextContent(type="text", text=msg)
         # meta must be a dict – wrap components list under a key to satisfy pydantic

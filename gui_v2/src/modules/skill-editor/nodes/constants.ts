@@ -18,7 +18,7 @@ export enum WorkflowNodeType {
   Comment = 'comment',
   Continue = 'continue',
   Break = 'break',
-  Basic = 'basic',
+  MCP = 'mcp',
   RAG = 'rag',
   Chat = 'chat_node',
   PendInput = 'pend_input_node',

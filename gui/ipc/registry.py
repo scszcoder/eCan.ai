@@ -37,7 +37,8 @@ class IPCHandlerRegistry:
         'login', 'signup', 'refresh_token', 'get_system_status',
         'ping', 'health_check', 'get_version', 'forgot_password',
         'confirm_forgot_password', 'google_login', 'get_last_login',
-        'get_initialization_progress'  # 允许在系统未就绪时检查初始化进度
+        'get_initialization_progress',  # 允许在系统未就绪时检查初始化进度
+        'skill_editor.get_node_state_schema',  # Allow schema retrieval pre-auth/init for editor boot
     }
     
     @classmethod
