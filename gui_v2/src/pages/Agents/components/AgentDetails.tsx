@@ -210,6 +210,8 @@ const AgentDetails: React.FC = () => {
               disabled={!editable}
               options={options.map(o => ({ value: o, label: t(o) || o }))}
               placeholder={t('common.select_item', { item: label }) || `Select ${label}`}
+              getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
+
             />
           </Space>
         </div>
@@ -301,7 +303,12 @@ const AgentDetails: React.FC = () => {
               </Col>
               <Col span={12}>
                 <Form.Item name="birthday" label={t('common.birthday') || 'Birthday'}>
-                  <DatePicker style={{ width: '100%' }} disabled={!editMode} />
+                  <DatePicker
+                    style={{ width: '100%' }}
+                    disabled={!editMode}
+                    getPopupContainer={() => document.body}
+                    placement="bottomLeft"
+                  />
                 </Form.Item>
               </Col>
 
@@ -433,7 +440,14 @@ const AgentDetails: React.FC = () => {
 
               <Col span={24}>
                 <Form.Item name="vehicle" label={t('pages.agents.vehicle') || 'Vehicle'}>
-                  <Select disabled={!editMode} allowClear placeholder={t('common.select_vehicle') || 'Select vehicle'} options={knownVehicles.map(v => ({ value: v, label: v }))} />
+                  <Select
+                    disabled={!editMode}
+                    allowClear
+                    placeholder={t('common.select_vehicle') || 'Select vehicle'}
+                    options={knownVehicles.map(v => ({ value: v, label: v }))}
+                    getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
+
+                  />
                 </Form.Item>
               </Col>
 

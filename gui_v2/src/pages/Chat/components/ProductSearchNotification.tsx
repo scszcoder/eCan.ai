@@ -14,6 +14,13 @@ const useLinkClickHandler = () => {
     // 注入 JavaScript 来确保链接点击能够被正确捕获
     const script = `
       document.addEventListener('click', function(e) {
+        // 忽略下拉菜单相关的点击事件
+        if (e.target.closest('.ant-dropdown') ||
+            e.target.closest('.user-profile-dropdown') ||
+            e.target.closest('.ant-dropdown-menu')) {
+          return;
+        }
+
         if (e.target.tagName === 'A' && e.target.href) {
           var url = e.target.href;
           if (url.startsWith('http://') || url.startsWith('https://')) {

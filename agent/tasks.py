@@ -120,28 +120,97 @@ class ManagedTask(Task):
         last_run_datetime_str = None
         if self.last_run_datetime:
             last_run_datetime_str = self.last_run_datetime.isoformat()
-        
+
         # Convert schedule to dict with proper enum handling
         schedule_dict = None
         if self.schedule:
             schedule_dict = self.schedule.model_dump(mode='json')
-        
+
+        # Safely serialize state - filter out non-serializable objects like Interrupt
+        safe_state = self._make_serializable(self.state) if self.state else None
+
+        # Safely serialize checkpoint_nodes - filter out non-serializable objects
+        safe_checkpoint_nodes = self._make_serializable(self.checkpoint_nodes) if self.checkpoint_nodes else None
+
         taskJS = {
             "id": self.id,
             "runId": self.run_id,
             "skill": self.skill.name,
             "metadata": self.metadata,
-            "state": self.state,
+            "state": safe_state,
             "resume_from": self.resume_from,
             "trigger": self.trigger,
             # "pause_event": self.pause_event,
             "schedule": schedule_dict,
-            "checkpoint_nodes": self.checkpoint_nodes,
+            "checkpoint_nodes": safe_checkpoint_nodes,
             "priority": self.priority.value if self.priority else None,
             "last_run_datetime": last_run_datetime_str,
             "already_run_flag": self.already_run_flag,
         }
         return taskJS
+
+    def _make_serializable(self, obj):
+        """
+        Recursively convert objects to JSON-serializable format.
+        Filters out non-serializable objects like Interrupt instances.
+        """
+        import json
+        from langgraph.types import Interrupt
+
+        if obj is None:
+            return None
+
+        # Handle Interrupt objects - convert to a safe representation
+        if isinstance(obj, Interrupt):
+            return {
+                "type": "interrupt",
+                "value": self._make_serializable(getattr(obj, 'value', None)),
+                "id": str(getattr(obj, 'id', 'unknown'))
+            }
+
+        # Handle custom interrupt objects with checkpoint
+        if hasattr(obj, '__class__') and obj.__class__.__name__ == 'InterruptWithCheckpoint':
+            return {
+                "type": "interrupt_with_checkpoint",
+                "value": self._make_serializable(getattr(obj, 'value', None)),
+                "id": str(getattr(obj, 'id', 'unknown')),
+                "checkpoint_available": True  # Don't serialize the actual checkpoint
+            }
+
+        # Handle dictionaries
+        if isinstance(obj, dict):
+            result = {}
+            for key, value in obj.items():
+                try:
+                    # Skip keys that contain interrupt objects
+                    if key == "__interrupt__":
+                        # Convert interrupt list to safe format
+                        if isinstance(value, list):
+                            result[key] = [self._make_serializable(item) for item in value]
+                        else:
+                            result[key] = self._make_serializable(value)
+                    else:
+                        result[key] = self._make_serializable(value)
+                except Exception as e:
+                    logger.warning(f"Skipping non-serializable key '{key}': {e}")
+                    result[key] = f"<non-serializable: {type(value).__name__}>"
+            return result
+
+        # Handle lists
+        if isinstance(obj, (list, tuple)):
+            return [self._make_serializable(item) for item in obj]
+
+        # Handle basic types that are JSON serializable
+        if isinstance(obj, (str, int, float, bool)):
+            return obj
+
+        # Try to serialize the object to test if it's JSON serializable
+        try:
+            json.dumps(obj)
+            return obj
+        except (TypeError, ValueError):
+            # If not serializable, convert to string representation
+            return f"<non-serializable: {type(obj).__name__}>"
 
     def set_priority(self, p):
         self.priority = p

@@ -126,7 +126,13 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({
         }}>
             <Space size="small">
                 {displayButtons.map(button => (
-                    <Tooltip key={button.key} title={button.tooltip}>
+                    <Tooltip
+                        key={button.key}
+                        title={button.tooltip}
+                        mouseEnterDelay={0.5}
+                        mouseLeaveDelay={0.1}
+                        placement="top"
+                    >
                         <Button
                             type="text"
                             icon={button.icon}
