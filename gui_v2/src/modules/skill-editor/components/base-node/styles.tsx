@@ -22,11 +22,14 @@ export const RunningIcon = styled.div`
 
 export const NodeWrapperStyle = styled.div`
   position: relative;
-  width: 200px;
+  /* Let node width come from node meta or content instead of fixed 200px */
+  width: auto;
+  min-width: 200px;
   border-radius: 4px;
   background-color: var(--flow-node-bg-color);
   border: 1px solid var(--flow-node-border-color);
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  overflow: visible; /* ensure absolutely-positioned children/ports can be visible */
 
   &.is-running {
     ${RunningIcon} {

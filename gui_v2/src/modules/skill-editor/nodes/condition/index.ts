@@ -19,13 +19,14 @@ export const ConditionNodeRegistry: FlowNodeRegistry = {
       'Connect multiple downstream branches. Only the corresponding branch will be executed if the set conditions are met.',
   },
   meta: {
-    defaultPorts: [{ type: 'input' }],
-    // Condition Outputs use dynamic port
-    useDynamicPort: true,
-    expandable: false, // disable expanded
+    defaultPorts: [
+      { type: 'input', key: 'in' },
+    ],
+    useDynamicPort: true, // Enable dynamic ports for condition outputs
+    expandable: true, // allow expand/collapse like other nodes
     size: {
       width: 360,
-      height: 210,
+      height: 240,
     },
   },
   formMeta,
