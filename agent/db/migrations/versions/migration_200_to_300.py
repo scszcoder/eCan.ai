@@ -73,17 +73,38 @@ class Migration200To300(BaseMigration):
             
             # Use simpler ALTER TABLE without foreign key constraint to avoid locking issues
             sql = "ALTER TABLE chats ADD COLUMN agent_id VARCHAR(64)"
-            if not self.execute_sql(session, sql):
-                return False
             
-            # Commit the change immediately to release locks
-            session.commit()
+            # Execute with retry logic for better reliability
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    if not self.execute_sql(session, sql):
+                        if attempt < max_retries - 1:
+                            logger.warning(f"Failed to add agent_id column, retrying... (attempt {attempt + 1})")
+                            session.rollback()
+                            import time
+                            time.sleep(1)  # Wait 1 second before retry
+                            continue
+                        return False
+                    break
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Exception adding agent_id column, retrying... (attempt {attempt + 1}): {e}")
+                        session.rollback()
+                        import time
+                        time.sleep(1)
+                        continue
+                    raise e
+            
+            # Flush the change but don't commit yet (let the migration manager handle commits)
+            session.flush()
             
             logger.info("Added agent_id column to chats table")
             return True
             
         except Exception as e:
             logger.error(f"Failed to add agent_id column to chats table: {e}")
+            session.rollback()
             return False
     
     def _create_agent_vehicles_table(self, session: Session) -> bool:
