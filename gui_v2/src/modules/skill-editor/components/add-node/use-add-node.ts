@@ -151,7 +151,7 @@ export const useAddNode = () => {
     el.style.top = '0px';
     el.style.transform = 'translate(-50%, -50%)';
     el.style.pointerEvents = 'none';
-    el.style.zIndex = '200000';
+    el.style.zIndex = '1500'; // 拖拽预览层级
     el.style.width = '280px';
     el.style.height = '120px';
     el.style.border = '1px dashed rgba(82,100,154,0.5)';

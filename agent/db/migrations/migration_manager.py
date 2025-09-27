@@ -299,10 +299,6 @@ class MigrationManager:
         # Use a single session for the entire migration process
         session = None
         try:
-            # Ensure all tables are created first
-            from ..core import create_all_tables
-            create_all_tables(self.engine)
-            
             # Create session with simple retry
             session = None
             for attempt in range(3):
@@ -316,27 +312,38 @@ class MigrationManager:
                     else:
                         raise e
             
-            # Check current version using the same session
-            is_fresh = self._is_fresh_database(session)
+            # First, check if this is a completely fresh database (no tables at all)
+            from sqlalchemy import inspect
+            inspector = inspect(self.engine)
+            existing_tables = inspector.get_table_names()
+            
+            if not existing_tables:
+                # Completely fresh database: create all tables with latest schema and set version
+                logger.info("Detected completely fresh database with no tables")
+                from ..core import create_all_tables
+                create_all_tables(self.engine)
+                DBVersion.upgrade_version(session, target_version, description or 'Fresh database initialization')
+                session.commit()
+                logger.info(f"Initialized fresh database to version {target_version}")
+                return True
+            
+            # Database has tables, check current version
             version_record = DBVersion.get_current_version(session)
             
             if not version_record:
-                if is_fresh:
-                    # Fresh database: initialize directly to target version
-                    DBVersion.upgrade_version(session, target_version, description or 'Fresh database initialization')
-                    session.commit()
-                    logger.info(f"Initialized fresh database to version {target_version}")
-                    return True
-                else:
-                    # Existing database without version record: start from 1.0.0
-                    current_version = '1.0.0'
-                    DBVersion.upgrade_version(session, current_version, description='Initial version for existing database')
-                    session.commit()
+                # Existing database without version record: assume it's at 1.0.0
+                logger.info("Existing database without version record, assuming version 1.0.0")
+                current_version = '1.0.0'
+                DBVersion.upgrade_version(session, current_version, description='Initial version for existing database')
+                session.commit()
             else:
                 current_version = version_record.version
             
             if current_version == target_version:
                 logger.info(f"Database is already at version {target_version}")
+                # Still ensure all tables exist (for any missing tables)
+                from ..core import create_all_tables
+                create_all_tables(self.engine)
                 return True
             
             # Get migration path
@@ -344,6 +351,9 @@ class MigrationManager:
             
             if not migration_path:
                 logger.info(f"No migrations needed from {current_version} to {target_version}")
+                # Still ensure all tables exist
+                from ..core import create_all_tables
+                create_all_tables(self.engine)
                 return True
             
             logger.info(f"Migration path: {current_version} -> {' -> '.join(migration_path)}")
@@ -353,6 +363,14 @@ class MigrationManager:
                 if not self._execute_migration(session, version):
                     session.rollback()
                     return False
+            
+            # After all migrations, ensure any missing tables are created
+            try:
+                from ..core import create_all_tables
+                create_all_tables(self.engine)
+            except Exception as e:
+                logger.warning(f"Failed to create additional tables after migration: {e}")
+                # Don't fail the migration for this
             
             # Update final version
             DBVersion.upgrade_version(
@@ -469,27 +487,58 @@ class MigrationManager:
         
         logger.info(f"Executing migration to {version}: {migration.description}")
         
+        # Create migration log entry
+        migration_log = None
+        try:
+            from ..models import MigrationLog
+            import time
+            
+            migration_log = MigrationLog(
+                migration_name=f"migration_to_{version}",
+                from_version=migration.previous_version,
+                to_version=version,
+                started_at=int(time.time() * 1000),
+                status='running'
+            )
+            session.add(migration_log)
+            session.flush()  # Get the ID but don't commit yet
+            
+        except Exception as e:
+            logger.warning(f"Failed to create migration log: {e}")
+        
         try:
             # Validate preconditions
             if not migration.validate_preconditions(session):
                 logger.error(f"Preconditions failed for migration {version}")
+                if migration_log:
+                    migration_log.fail_migration("Preconditions validation failed")
                 return False
             
             # Execute the migration
             if not migration.upgrade(session):
                 logger.error(f"Migration upgrade failed for version {version}")
+                if migration_log:
+                    migration_log.fail_migration("Migration upgrade failed")
                 return False
             
             # Validate postconditions
             if not migration.validate_postconditions(session):
                 logger.error(f"Postconditions failed for migration {version}")
+                if migration_log:
+                    migration_log.fail_migration("Postconditions validation failed")
                 return False
+            
+            # Mark migration as completed
+            if migration_log:
+                migration_log.complete_migration()
             
             logger.info(f"Successfully executed migration to {version}")
             return True
             
         except Exception as e:
             logger.error(f"Exception during migration {version}: {e}")
+            if migration_log:
+                migration_log.fail_migration(str(e))
             return False
     
     def _version_to_tuple(self, version: str) -> tuple:

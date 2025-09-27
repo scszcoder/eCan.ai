@@ -107,7 +107,7 @@ const Tests: React.FC = () => {
                     test_id: "workflow0",
                     args: parsedArgs
                 };
-            const response = await get_ipc_api().runTest(username, [testConfig]);
+            const response = await get_ipc_api().runTest([testConfig]);
             if (!response.success) {
                 message.error(response.error?.message || t('pages.tests.testError'));
                 return;
@@ -155,7 +155,7 @@ const Tests: React.FC = () => {
             console.log('[Tests] STEP7: about to call run_tests (array) with 5s timeout', testConfig);
 
             Promise.race([
-                get_ipc_api().runTest(username, [testConfig]),
+                get_ipc_api().runTest([testConfig]),
                 new Promise((_, reject) => setTimeout(() => reject(new Error('RUN_ARRAY_TIMEOUT')), 5000))
             ])
             .then((resp: any) => {
@@ -246,7 +246,7 @@ const Tests: React.FC = () => {
                                 const testConfig = { test_id: selectedTest || 'default_test', args: parsedArgs };
                                 try {
                                     const resp: any = await Promise.race([
-                                        get_ipc_api().runTest(username, [testConfig]),
+                                        get_ipc_api().runTest([testConfig]),
                                         new Promise((_, reject) => setTimeout(() => reject(new Error('RUN_ARRAY_TIMEOUT')), 5000))
                                     ]);
                                     console.log('[Tests] Direct API: array result', resp);

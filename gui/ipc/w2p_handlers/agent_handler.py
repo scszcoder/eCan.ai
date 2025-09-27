@@ -37,8 +37,8 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         
         main_window = AppContext.get_main_window()
         if main_window is None:
-            logger.warning(f"[agent_handler] MainWindow not available for user: {username}, returning empty list")
-            agents = []
+            logger.warning(f"[agent_handler] MainWindow not available for user: {username} - user may have logged out")
+            return create_error_response(request, 'MAIN_WINDOW_ERROR', 'User session not available - please login again')
         else:
             agents = getattr(main_window, 'agents', []) or []
             logger.info(f"[agent_handler] Successfully retrieved {len(agents)} agents for user: {username}")

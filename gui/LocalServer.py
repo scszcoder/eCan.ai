@@ -2,15 +2,16 @@ import threading
 import asyncio
 import sys
 import os
-import time
+import traceback
 import uuid
 import json
-import traceback
+import socket
+import time
+from starlette.applications import Starlette
 import typing
 
 from utils.logger_helper import logger_helper as logger
 from utils.gui_dispatch import run_on_main_thread
-
 
 if typing.TYPE_CHECKING:
     from gui.MainGUI import MainWindow
@@ -185,14 +186,38 @@ async def health_check(request):
 #
 # sse_router = Router([
 #     Route("/", endpoint=handle_sse, methods=["GET"])
-# ])
 # ==================== MCP Route Handling ====================
 class MCPHandler:
     """MCP request handler."""
 
     _session_manager_initialized = False
-    _session_manager_context = None
     _session_manager_instance = None
+    _session_manager_context = None
+
+    @staticmethod
+    async def cleanup():
+        """Clean up MCP session manager resources."""
+        try:
+            if MCPHandler._session_manager_context:
+                logger.info("🧹 [MCP] Cleaning up session manager context...")
+                await MCPHandler._session_manager_context.__aexit__(None, None, None)
+                MCPHandler._session_manager_context = None
+                logger.info("✅ [MCP] Session manager context cleaned up")
+        except Exception as e:
+            logger.warning(f"⚠️  [MCP] Error cleaning up session manager context: {e}")
+        
+        try:
+            if MCPHandler._session_manager_instance:
+                logger.info("🧹 [MCP] Cleaning up session manager instance...")
+                # Reset the instance
+                MCPHandler._session_manager_instance = None
+                logger.info("✅ [MCP] Session manager instance cleaned up")
+        except Exception as e:
+            logger.warning(f"⚠️  [MCP] Error cleaning up session manager instance: {e}")
+        
+        # Reset initialization flag
+        MCPHandler._session_manager_initialized = False
+        logger.info("✅ [MCP] Handler cleanup completed")
 
     @staticmethod
     async def ensure_session_manager_initialized():
@@ -403,7 +428,7 @@ class ServerManager:
 
         # 优化：设置更高的线程优先级，加快启动
         self.server_thread = threading.Thread(target=self._run_starlette, args=(port,))
-        self.server_thread.daemon = True
+        self.server_thread.daemon = False  # Allow proper cleanup instead of forced termination
         self.server_thread.start()
         logger.info(f"🚀 Optimized local server starting on port {port} in separate thread")
 
@@ -411,10 +436,57 @@ class ServerManager:
         """请求 Uvicorn 服务器优雅地关闭"""
         if self.uvicorn_server:
             logger.info("Stopping local Starlette server...")
-            self.uvicorn_server.should_exit = True
+            
+            # IMPORTANT: First signal the server to stop, then wait for thread completion
+            # This is simpler and more reliable than complex async shutdown
+            try:
+                # Signal the server to stop gracefully
+                self.uvicorn_server.should_exit = True
+                logger.info("Server shutdown signal sent")
+                
+                # Wait for the server thread to complete
+                self._sync_shutdown()
+                    
+            except Exception as e:
+                logger.error(f"Error during server shutdown: {e}")
+                # Force shutdown as last resort
+                self._force_shutdown()
+            
+            # Reset references
+            self.uvicorn_server = None
+            self.server_thread = None
+            
             return True
         logger.warning("No active Uvicorn server to stop.")
         return False
+
+    def _sync_shutdown(self):
+        """Synchronous shutdown with optimized thread handling"""
+        if self.server_thread and self.server_thread.is_alive():
+            logger.info("Waiting for server thread to finish...")
+            
+            # Use a shorter timeout and more aggressive approach
+            self.server_thread.join(timeout=5.0)  # Reduced from 10s to 5s
+            
+            if self.server_thread.is_alive():
+                logger.warning("Server thread did not finish within 5s, checking port release...")
+                # Check if port is actually released even if thread is still alive
+                port = int(self.main_win.get_local_server_port())
+                if is_port_available("127.0.0.1", port):
+                    logger.info("✅ Port released successfully despite thread still running")
+                else:
+                    logger.warning("⚠️  Port still occupied, may need force shutdown")
+            else:
+                logger.info("✅ Server thread finished successfully")
+
+    def _force_shutdown(self):
+        """Force shutdown as last resort"""
+        logger.warning("Attempting force shutdown...")
+        if self.server_thread and self.server_thread.is_alive():
+            # This is not ideal, but sometimes necessary
+            logger.warning("Force terminating server thread...")
+            # Note: Python doesn't have thread.terminate(), so we rely on daemon behavior
+            self.server_thread.daemon = True  # Convert to daemon for force termination
 
     def _run_starlette(self, port=4668):
         """优化的 Starlette 服务器启动方法"""
@@ -452,10 +524,6 @@ class ServerManager:
                     use_colors=False,     # 禁用颜色输出
                 )
                 server = uvicorn.Server(config)
-                
-                # 禁用信号处理器以加快启动
-                if hasattr(server, "install_signal_handlers"):
-                    server.install_signal_handlers = lambda: None
 
                 self.uvicorn_server = server
                 logger.info(f"✅ Server configured, starting on {host_bind}:{port}")
@@ -484,9 +552,41 @@ def start_local_server_in_thread(mwin: 'MainWindow'):
         server_manager_instance = ServerManager(mwin)
         server_manager_instance.start_in_thread()
 
+def is_port_available(host: str, port: int) -> bool:
+    """检查端口是否可用"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1)
+            result = sock.connect_ex((host, port))
+            return result != 0  # 0 means connection successful (port occupied)
+    except Exception:
+        return False
+
+def wait_for_port_release(host: str, port: int, timeout: float = 10.0) -> bool:
+    """等待端口释放"""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if is_port_available(host, port):
+            logger.info(f"✅ Port {port} on {host} is now available")
+            return True
+        time.sleep(0.5)
+    logger.warning(f"⚠️  Port {port} on {host} is still occupied after {timeout}s")
+    return False
+
 def stop_local_server():
     """停止本地服务器"""
     global server_manager_instance
     if server_manager_instance:
-        return server_manager_instance.stop()
+        result = server_manager_instance.stop()
+        
+        # Wait for port to be released
+        if result:
+            port = int(server_manager_instance.main_win.get_local_server_port())
+            logger.info(f"Waiting for port {port} to be released...")
+            wait_for_port_release("127.0.0.1", port, timeout=10.0)
+        
+        # Clear the global instance to allow clean restart
+        server_manager_instance = None
+        logger.info("✅ Global server manager instance cleared")
+        return result
     return False

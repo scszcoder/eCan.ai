@@ -24,7 +24,7 @@ const VehicleList: React.FC<VehicleListProps> = ({ vehicles, onSelect, filters, 
             filterOptions={[
                 {
                     key: 'status',
-                    label: t('pages.vehicles.status'),
+                    label: t('pages.vehicles.statusLabel'),
                     options: [
                         { label: t('pages.vehicles.status.active'), value: 'active' },
                         { label: t('pages.vehicles.status.maintenance'), value: 'maintenance' },

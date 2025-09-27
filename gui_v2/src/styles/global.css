@@ -209,6 +209,7 @@
     --bg-primary: #0f172a;
     --bg-secondary: #1e293b;
     --bg-tertiary: #334155;
+    --bg-hover: #475569;
     
     /* 文字颜色 */
     --text-primary: #f8fafc;
@@ -454,9 +455,11 @@ html, body {
     padding: 24px !important;
 }
 
-/* 全局过渡动画 */
-* {
-    transition: background-color 0.3s, color 0.3s, border-color 0.3s, transform 0.3s, box-shadow 0.3s !important;
+/* 最小化修复：只针对闪烁问题的精确解决方案 */
+.ant-select-dropdown,
+.ant-picker-dropdown {
+    animation-duration: 0s !important;
+    transition-duration: 0s !important;
 }
 
 /* 自定义滚动条 */
@@ -509,22 +512,29 @@ html, body {
     border: 1px solid var(--border-color) !important;
     border-radius: 8px !important;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
-    z-index: 9999 !important;
 }
 
 .ant-select-item {
     color: var(--text-primary) !important;
     padding: 8px 12px !important;
-    transition: none !important;
+    transition: background-color var(--transition-fast) !important;
+    cursor: pointer !important;
 }
 
 .ant-select-item:hover {
     background-color: var(--bg-hover) !important;
+    color: var(--text-primary) !important;
 }
 
 .ant-select-item-option-selected {
+    background-color: var(--primary-color) !important;
+    color: white !important;
+    font-weight: 500 !important;
+}
+
+.ant-select-item-option-active {
     background-color: var(--bg-hover) !important;
-    color: var(--primary-color) !important;
+    color: var(--text-primary) !important;
 }
 
 /* 设置页面下拉菜单样式 */
@@ -546,60 +556,15 @@ html, body {
     color: var(--text-secondary) !important;
 }
 
-/* 设置页面下拉菜单容器样式 */
-.settings-select .ant-select-dropdown {
-    background-color: var(--bg-secondary) !important;
-    border: 1px solid var(--border-color) !important;
-    border-radius: 8px !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
-    z-index: 99999 !important;
-    position: fixed !important;
-}
-
-/* 设置页面下拉菜单项样式 */
-.settings-select .ant-select-item {
-    color: var(--text-primary) !important;
-    padding: 8px 12px !important;
+/* 保持用户菜单的特殊处理 */
+.user-profile-dropdown {
     transition: none !important;
-    cursor: pointer !important;
-    background-color: var(--bg-secondary) !important;
-}
-
-.settings-select .ant-select-item:hover {
-    background-color: var(--bg-tertiary) !important;
-}
-
-.settings-select .ant-select-item-option-selected {
-    background-color: var(--bg-tertiary) !important;
-    color: var(--primary-color) !important;
-}
-
-.settings-select .ant-select-item-option-active {
-    background-color: var(--bg-tertiary) !important;
-}
-
-/* 确保下拉菜单在模态框之上 */
-.ant-modal-root .ant-select-dropdown {
-    z-index: 11000 !important;
-}
-
-/* 移除全局过渡动画对下拉菜单的影响 */
-.ant-select-dropdown,
-.ant-select-item,
-.ant-select-item-option {
-    transition: none !important;
-}
-
-/* 确保下拉菜单在页面最上层 */
-.ant-select-dropdown {
-    position: fixed !important;
-    z-index: 99999 !important;
 }
 
 /* 用户菜单样式 */
 .user-dropdown {
     cursor: pointer !important;
-{{ ... }
+}
 
 /* MCP 表单输入区域样式 */
 .mcp-form-inputs {
@@ -665,113 +630,181 @@ html, body {
 /* 工具提示 */
 .tooltip {
     background: var(--bg-tertiary);
+}
 
-.login-card {
-    width: 400px !important;
-    background: var(--bg-secondary) !important;
+
+
+
+
+/* 用户资料下拉菜单专用样式 */
+
+.user-profile-dropdown .ant-dropdown-menu {
+    background-color: var(--bg-secondary) !important;
     border: 1px solid var(--border-color) !important;
     border-radius: 8px !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    padding: 24px !important;
-    position: relative;
-    z-index: 1;
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    min-width: 200px !important;
+    padding: 8px 0 !important;
+    transition: none !important;
 }
 
-.login-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15) !important;
+.user-profile-dropdown .ant-dropdown-menu-item {
+    color: var(--text-primary) !important;
+    padding: 8px 16px !important;
+    margin: 0 !important;
+    transition: none !important;
+    background-color: transparent !important;
 }
 
-.login-title {
-    text-align: center;
-    margin-bottom: 32px;
-}
-
-.login-title h2 {
-    margin-bottom: 8px !important;
-    background: linear-gradient(45deg, var(--primary-color), #40a9ff);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    font-weight: 600 !important;
-}
-
-.login-form {
-    width: 100%;
-}
-
-.login-form .ant-form-item {
-    margin-bottom: 24px;
-}
-
-.login-form .ant-input-affix-wrapper {
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    transition: all 0.3s ease;
-}
-
-.login-form .ant-input-affix-wrapper:hover,
-.login-form .ant-input-affix-wrapper:focus {
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
-}
-
-.login-form .ant-btn-primary {
-    height: 40px;
-    font-size: 16px;
-    background: linear-gradient(45deg, var(--primary-color), #40a9ff);
-    border: none;
-    border-radius: 6px;
-    transition: all 0.3s ease;
-}
-
-.login-form .ant-btn-primary:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3);
-}
-
-@keyframes backgroundShift {
-    0% {
-        background-position: 0% 0%;
-    }
-    100% {
-        background-position: 100% 100%;
-    }
-}
-
-/* 确保下拉菜单在登录页面正确显示 */
-.login-container .ant-select-dropdown {
-    z-index: 9999999 !important;
-}
-
-.login-container .ant-select-dropdown .ant-select-item {
-    background: var(--bg-secondary) !important;
+.user-profile-dropdown .ant-dropdown-menu-item:hover {
+    background-color: var(--bg-tertiary) !important;
     color: var(--text-primary) !important;
 }
 
-.login-container .ant-select-dropdown .ant-select-item-option-selected {
-    background: var(--primary-color) !important;
-    color: white !important;
+.user-profile-dropdown .ant-dropdown-menu-item-icon {
+    color: inherit !important;
+    margin-right: 8px !important;
 }
 
-.login-container .ant-select-dropdown .ant-select-item-option-active {
-    background: var(--hover-color) !important;
+.user-profile-dropdown .ant-dropdown-menu-submenu-title {
+    color: var(--text-primary) !important;
+    padding: 8px 16px !important;
+    transition: none !important;
 }
 
-/* 确保语言和角色选择器样式正确 */
-.login-container .ant-select {
-    background: var(--bg-secondary) !important;
+.user-profile-dropdown .ant-dropdown-menu-submenu-title:hover {
+    background-color: var(--bg-tertiary) !important;
 }
 
-.login-container .ant-select-selector {
-    background: var(--bg-secondary) !important;
+.user-profile-dropdown .ant-dropdown-menu-divider {
+    background-color: var(--border-color) !important;
+    margin: 4px 0 !important;
+}
+
+/* 确保子菜单也有正确的样式 */
+.user-profile-dropdown .ant-dropdown-menu-submenu .ant-dropdown-menu {
+    background-color: var(--bg-secondary) !important;
     border: 1px solid var(--border-color) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+.user-profile-dropdown .ant-dropdown-menu-submenu .ant-dropdown-menu-item {
+    color: var(--text-primary) !important;
+    transition: none !important;
+}
+
+.user-profile-dropdown .ant-dropdown-menu-submenu .ant-dropdown-menu-item:hover {
+    background-color: var(--bg-tertiary) !important;
+}
+
+/* Tooltip 样式 - 移除过高z-index */
+
+.ant-tooltip-inner {
+    background-color: rgba(0, 0, 0, 0.85) !important;
+    color: #fff !important;
+    border-radius: 6px !important;
+    padding: 6px 8px !important;
+    font-size: 12px !important;
+    line-height: 1.5 !important;
+    min-height: auto !important;
+    word-wrap: break-word !important;
+    transition: none !important;
+}
+
+.ant-tooltip-arrow {
+    transition: none !important;
+}
+
+/* Popover 专用样式 - 防止闪烁 */
+.ant-popover {
+    z-index: 10001 !important;
+    position: fixed !important;
+}
+
+.ant-popover-inner {
+    background-color: var(--bg-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    transition: none !important;
+}
+
+/* Popconfirm 专用样式 - 防止闪烁 */
+.ant-popconfirm {
+    z-index: 10001 !important;
+    position: fixed !important;
+}
+
+.ant-popconfirm-inner {
+    background-color: var(--bg-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    transition: none !important;
+}
+
+/* DatePicker 专用样式 - 防止闪烁 */
+.ant-picker-dropdown,
+.agent-datepicker-dropdown {
+    z-index: 10003 !important;
+    position: fixed !important;
+}
+
+.ant-picker-dropdown .ant-picker-panel-container,
+.agent-datepicker-dropdown .ant-picker-panel-container {
+    background-color: var(--bg-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    transition: none !important;
+}
+
+.ant-picker-dropdown .ant-picker-panel,
+.agent-datepicker-dropdown .ant-picker-panel {
+    background-color: var(--bg-secondary) !important;
+    border: none !important;
+    transition: none !important;
+}
+
+.ant-picker-dropdown .ant-picker-header,
+.agent-datepicker-dropdown .ant-picker-header {
+    background-color: var(--bg-secondary) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    transition: none !important;
+}
+
+.ant-picker-dropdown .ant-picker-cell,
+.agent-datepicker-dropdown .ant-picker-cell {
+    color: var(--text-primary) !important;
+    transition: background-color var(--transition-fast) !important;
+    cursor: pointer !important;
+    border-radius: 4px !important;
+}
+
+.ant-picker-dropdown .ant-picker-cell:hover,
+.agent-datepicker-dropdown .ant-picker-cell:hover {
+    background-color: var(--bg-hover) !important;
     color: var(--text-primary) !important;
 }
 
-.login-container .ant-select-arrow {
-    color: var(--text-secondary) !important;
-} 
+.ant-picker-dropdown .ant-picker-cell-selected,
+.agent-datepicker-dropdown .ant-picker-cell-selected {
+    background-color: var(--primary-color) !important;
+    color: white !important;
+    font-weight: 500 !important;
+}
+
+.ant-picker-dropdown .ant-picker-cell-today,
+.agent-datepicker-dropdown .ant-picker-cell-today {
+    border: 1px solid var(--primary-color) !important;
+    color: var(--primary-color) !important;
+}
+
+.ant-picker-dropdown .ant-picker-cell-in-range,
+.agent-datepicker-dropdown .ant-picker-cell-in-range {
+    background-color: rgba(var(--primary-color-rgb), 0.1) !important;
+}
+
+
+

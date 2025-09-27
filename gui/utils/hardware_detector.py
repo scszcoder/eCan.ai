@@ -9,7 +9,6 @@ import sys
 import subprocess
 import platform
 import time
-import re
 import traceback
 from typing import List, Dict, Any, Optional
 from utils.logger_helper import logger_helper as logger
@@ -94,42 +93,7 @@ class HardwareDetector:
             except Exception as e:
                 logger.error(f"Unexpected error with pywin32: {e}")
 
-        # Method 2: Fallback to wmic command
-        logger.debug("Trying wmic as fallback for printer detection")
-        try:
-            result = subprocess.run(['wmic', 'printer', 'get', 'name,status'],
-                                  capture_output=True, text=True, encoding='utf-8', errors='ignore', timeout=15)
-            if result.returncode == 0:
-                lines = result.stdout.strip().split('\n')
-                printers = []
-                for line in lines[1:]:  # Skip header
-                    line = line.strip()
-                    if line and line != 'Name':
-                        # Parse wmic output format
-                        parts = line.split()
-                        if parts:
-                            printer_name = ' '.join(parts[:-1]) if len(parts) > 1 else parts[0]
-                            if printer_name and printer_name != 'Status':
-                                printers.append(printer_name)
-                logger.debug(f"Found {len(printers)} printers via wmic")
-                return printers
-        except Exception as e:
-            logger.debug(f"wmic printer detection failed: {e}")
-
-        # Method 3: Fallback to PowerShell
-        logger.debug("Trying PowerShell as fallback for printer detection")
-        try:
-            ps_cmd = 'Get-Printer | Select-Object -ExpandProperty Name'
-            result = subprocess.run(['powershell', '-Command', ps_cmd],
-                                  capture_output=True, text=True, encoding='utf-8', errors='ignore', timeout=20)
-            if result.returncode == 0:
-                printers = [line.strip() for line in result.stdout.split('\n') if line.strip()]
-                logger.debug(f"Found {len(printers)} printers via PowerShell")
-                return printers
-        except Exception as e:
-            logger.debug(f"PowerShell printer detection failed: {e}")
-
-        logger.warning("All Windows printer detection methods failed")
+        logger.debug("win32print unavailable or failed; skipping command-line fallbacks to avoid console flashing")
         return []
     
     def _mac_list_printers(self):
@@ -263,43 +227,45 @@ class HardwareDetector:
         """
         logger.debug("Executing _run_wifi_command")
         system = platform.system()
-        if system != 'Windows':
+        if system == 'Windows':
+            logger.debug("Skipping command-line WiFi invocation on Windows to avoid console popups")
+        else:
             logger.debug(f"No command-line implementation for WiFi operation on platform: {system}")
-            return None
-
-        command = []
-        try:
-            if command_type == 'status':
-                command = ["netsh", "wlan", "show", "interfaces"]
-            elif command_type == 'scan':
-                command = ["netsh", "wlan", "show", "networks"]
-
-            if not command:
-                logger.warning(f"Unsupported command type for WiFi operation on Windows: {command_type}")
-                return None
-
-            result = subprocess.run(
-                command, capture_output=True, text=True, encoding='utf-8', errors='ignore', timeout=15
-            )
-
-            logger.debug(f"WiFi command '{' '.join(command)}' finished with return code: {result.returncode}")
-            if result.stderr:
-                logger.debug(f"WiFi command stderr: {result.stderr}")
-
-            if result.returncode != 0:
-                logger.warning(f"WiFi command '{' '.join(command)}' exited with a non-zero status code.")
-                return None
-
-            return result.stdout
-
-        except FileNotFoundError as e:
-            logger.warning(f"Could not execute WiFi command '{' '.join(command)}': {e}")
-        except subprocess.TimeoutExpired:
-            logger.warning(f"WiFi command '{' '.join(command)}' timed out after 15 seconds.")
-        except Exception as e:
-            logger.error(f"An unexpected error occurred while running WiFi command: {e}")
-
         return None
+
+    def _scan_windows_wifi_networks(self) -> List[str]:
+        """Use pywifi to scan available WiFi networks on Windows."""
+        try:
+            from pywifi import PyWiFi  # type: ignore
+        except ImportError:
+            logger.warning("pywifi not installed; skipping Windows WiFi scan")
+            return []
+
+        try:
+            wifi = PyWiFi()
+            interfaces = wifi.interfaces()
+            if not interfaces:
+                logger.warning("No WiFi interfaces found by pywifi")
+                return []
+
+            iface = interfaces[0]
+            iface.scan()
+            # Allow background scan to complete
+            time.sleep(1.5)
+
+            networks = iface.scan_results()
+            ssids: List[str] = []
+            for network in networks:
+                ssid = getattr(network, 'ssid', None)
+                if ssid and ssid not in ssids:
+                    ssids.append(ssid)
+
+            logger.debug(f"pywifi discovered {len(ssids)} WiFi networks")
+            return ssids
+
+        except Exception as e:
+            logger.error(f"pywifi WiFi scan failed: {e}")
+            return []
     
     def _get_current_wifi_ssid(self) -> Optional[str]:
         """
@@ -385,62 +351,24 @@ class HardwareDetector:
             return None
         elif platform.system() == 'Windows':
             # Windows-specific WiFi detection
-            logger.debug("Getting default WiFi SSID using Windows methods.")
+            logger.debug("Getting default WiFi SSID using Windows APIs.")
 
-            # Method 1: netsh wlan show interfaces
+            # Method 1: Query MSFT_NetConnectionProfile via WMI (no console window)
             try:
-                output = self._run_wifi_command('status')
-                if output:
-                    logger.debug("Processing netsh interfaces output")
-                    for line in output.split('\n'):
-                        line = line.strip()
-                        if "SSID" in line and ":" in line:
-                            # Handle different SSID line formats
-                            if line.startswith("SSID"):
-                                ssid = line.split(":", 1)[1].strip()
-                                if ssid and ssid != "":
-                                    logger.debug(f"Found WiFi SSID via netsh interfaces: {ssid}")
-                                    return ssid
-            except Exception as e:
-                logger.debug(f"netsh interfaces method failed: {e}")
+                import win32com.client  # type: ignore
 
-            # Method 2: netsh wlan show profiles (get connected profile)
-            try:
-                result = subprocess.run(['netsh', 'wlan', 'show', 'profiles'],
-                                      capture_output=True, text=True, encoding='utf-8', errors='ignore', timeout=15)
-                if result.returncode == 0:
-                    # Look for profiles and check which one is connected
-                    profiles = re.findall(r"All User Profile\s*:\s*(.+)", result.stdout)
-                    logger.debug(f"Found {len(profiles)} WiFi profiles")
-
-                    # Check each profile to see if it's connected
-                    for profile in profiles:
-                        profile = profile.strip()
-                        try:
-                            detail_result = subprocess.run(['netsh', 'wlan', 'show', 'profile', f'name="{profile}"', 'key=clear'],
-                                                         capture_output=True, text=True, encoding='utf-8', errors='ignore', timeout=10)
-                            if detail_result.returncode == 0 and "Connection mode" in detail_result.stdout:
-                                # This might be the connected profile, but we need to verify
-                                # For now, we'll use the first profile as a fallback
-                                pass
-                        except Exception:
-                            continue
-            except Exception as e:
-                logger.debug(f"netsh profiles method failed: {e}")
-
-            # Method 3: PowerShell method
-            try:
-                ps_cmd = 'Get-NetConnectionProfile | Where-Object {$_.InterfaceAlias -like "*Wi-Fi*"} | Select-Object -ExpandProperty Name'
-                result = subprocess.run(['powershell', '-Command', ps_cmd],
-                                      capture_output=True, text=True, encoding='utf-8', errors='ignore', timeout=20)
-                if result.returncode == 0:
-                    ssid = result.stdout.strip()
-                    if ssid and ssid != "":
-                        logger.debug(f"Found WiFi SSID via PowerShell: {ssid}")
+                locator = win32com.client.Dispatch("WbemScripting.SWbemLocator")
+                service = locator.ConnectServer('.', 'root\\StandardCimv2')
+                query = "SELECT Name FROM MSFT_NetConnectionProfile WHERE ConnectionStatus = 2"
+                for profile in service.ExecQuery(query):
+                    ssid = getattr(profile, 'Name', None)
+                    if ssid:
+                        logger.debug(f"Found WiFi SSID via MSFT_NetConnectionProfile: {ssid}")
                         return ssid
             except Exception as e:
-                logger.debug(f"PowerShell method failed: {e}")
+                logger.debug(f"WMI method for WiFi SSID failed: {e}")
 
+            logger.debug("No WiFi SSID detected using Windows APIs")
             return None
         else:
             # Other platforms fallback
@@ -569,51 +497,8 @@ class HardwareDetector:
             else:
                 # Windows/Linux fallback - enhanced with multiple methods
                 if system == 'Windows':
-                    logger.debug("Scanning for WiFi networks using Windows methods.")
-
-                    # Method 1: netsh wlan show networks
-                    for i in range(3):
-                        networks_output = self._run_wifi_command('scan')
-                        if networks_output:
-                            # Use correct regex pattern to match SSID
-                            ssid_matches = re.findall(r"SSID \d+ : (.+)", networks_output)
-                            new_ssids = [ssid.strip() for ssid in ssid_matches if ssid.strip() and ssid.strip() not in ssid_list]
-                            ssid_list.extend(new_ssids)
-                            logger.debug(f"Found {len(new_ssids)} new SSIDs via netsh scan")
-                            if ssid_list:
-                                break  # Found networks
-                        else:
-                            logger.warning(f"WiFi scan command returned no output (Scan {i + 1}).")
-                        time.sleep(1)
-
-                    # Method 2: netsh wlan show profiles (as fallback)
-                    if not ssid_list:
-                        logger.debug("Trying netsh profiles as fallback for Windows.")
-                        try:
-                            result = subprocess.run(['netsh', 'wlan', 'show', 'profiles'],
-                                                  capture_output=True, text=True, encoding='utf-8', errors='ignore', timeout=15)
-                            if result.returncode == 0:
-                                profile_matches = re.findall(r"All User Profile\s*:\s*(.+)", result.stdout)
-                                new_profiles = [profile.strip() for profile in profile_matches if profile.strip() and profile.strip() not in ssid_list]
-                                ssid_list.extend(new_profiles)
-                                logger.info(f"Found {len(new_profiles)} WiFi profiles as fallback")
-                        except Exception as e:
-                            logger.debug(f"netsh profiles fallback failed: {e}")
-
-                    # Method 3: PowerShell as additional fallback
-                    if not ssid_list:
-                        logger.debug("Trying PowerShell as additional fallback for Windows.")
-                        try:
-                            ps_cmd = 'netsh wlan show profiles | Select-String "All User Profile" | ForEach-Object {($_ -split ":")[1].Trim()}'
-                            result = subprocess.run(['powershell', '-Command', ps_cmd],
-                                                  capture_output=True, text=True, encoding='utf-8', errors='ignore', timeout=20)
-                            if result.returncode == 0:
-                                ps_profiles = [line.strip() for line in result.stdout.split('\n') if line.strip()]
-                                new_ps_profiles = [profile for profile in ps_profiles if profile and profile not in ssid_list]
-                                ssid_list.extend(new_ps_profiles)
-                                logger.info(f"Found {len(new_ps_profiles)} WiFi profiles via PowerShell")
-                        except Exception as e:
-                            logger.debug(f"PowerShell fallback failed: {e}")
+                    logger.debug("Scanning for WiFi networks using pywifi on Windows.")
+                    ssid_list = self._scan_windows_wifi_networks()
                 else:
                     # Linux/other platforms
                     logger.debug("Scanning for WiFi networks using generic command-line method.")

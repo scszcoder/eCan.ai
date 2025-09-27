@@ -6,6 +6,7 @@
 
 import { logger } from '../../utils/logger';
 import { useUserStore } from '../../stores/userStore';
+import { logoutManager } from '../LogoutManager';
 
 // User data interfaces
 export interface UserInfo {
@@ -56,6 +57,8 @@ export class UserStorageManager {
   public static getInstance(): UserStorageManager {
     if (!UserStorageManager.instance) {
       UserStorageManager.instance = new UserStorageManager();
+      // 注册logout清理函数
+      UserStorageManager.instance.registerLogoutCleanup();
     }
     return UserStorageManager.instance;
   }
@@ -457,6 +460,21 @@ export class UserStorageManager {
       logger.error('Storage integrity validation failed:', error);
       return false;
     }
+  }
+
+  /**
+   * 注册logout清理函数
+   */
+  private registerLogoutCleanup(): void {
+    logoutManager.registerCleanup({
+      name: 'UserStorageManager',
+      cleanup: () => {
+        logger.info('[UserStorageManager] Cleaning up for logout...');
+        this.logout(); // 使用现有的logout方法
+        logger.info('[UserStorageManager] Cleanup completed');
+      },
+      priority: 25 // 中等优先级
+    });
   }
 }
 
