@@ -89,8 +89,10 @@ export const useOrgs = () => {
         const response = await api.getOrgAgents(username, orgId, includeDescendants);
 
         if (response.success && response.data) {
+          const agents = (response.data as any).agents || [];
+          const validAgents = agents.filter((agent: any) => agent && agent.id && agent.name);
           updateState({
-            orgAgents: (response.data as any).agents || [],
+            orgAgents: validAgents,
             loading: false
           });
         } else {
@@ -108,21 +110,44 @@ export const useOrgs = () => {
     }
   }, [username, t, updateState, state.orgs]);
 
-  // Load available agents for binding
+  // Load all agents with binding status for binding modal
   const loadAvailableAgents = useCallback(async () => {
-    if (!username || !state.selectedOrg?.id) return;
+    if (!username) return;
 
     try {
       const api = get_ipc_api();
-      const response = await api.getAvailableAgentsForBinding(username, state.selectedOrg.id);
 
-      if (response.success && response.data) {
-        updateState({ availableAgents: (response.data as any).agents || [] });
-      } else {
+      // Get all agents
+      const allAgentsResponse = await api.getAgents(username, []);
+
+      if (!allAgentsResponse.success || !allAgentsResponse.data) {
         message.error(t('pages.org.messages.loadFailed'));
+        return;
       }
+
+      const allAgents = (allAgentsResponse.data as any).agents || [];
+
+      // Get bound agents for current org if selected
+      let boundAgentIds: string[] = [];
+      if (state.selectedOrg?.id) {
+        const boundAgentsResponse = await api.getOrgAgents(username, state.selectedOrg.id, false);
+        if (boundAgentsResponse.success && boundAgentsResponse.data) {
+          const boundAgents = (boundAgentsResponse.data as any).agents || [];
+          boundAgentIds = boundAgents.map((agent: any) => agent.id);
+        }
+      }
+
+      // Mark agents with binding status and filter out invalid agents
+      const agentsWithStatus = allAgents
+        .filter((agent: any) => agent && agent.id && agent.name) // Filter out invalid agents
+        .map((agent: any) => ({
+          ...agent,
+          isBound: boundAgentIds.includes(agent.id)
+        }));
+
+      updateState({ availableAgents: agentsWithStatus });
     } catch (error) {
-      console.error('Error loading available agents:', error);
+      console.error('Error loading agents:', error);
       message.error(t('pages.org.messages.loadFailed'));
     }
   }, [username, state.selectedOrg?.id, t, updateState]);
@@ -222,8 +247,19 @@ export const useOrgs = () => {
     if (!username || !state.selectedOrg?.id) return;
 
     try {
+      // Filter out already bound agents
+      const unboundAgentIds = agentIds.filter(agentId => {
+        const agent = state.availableAgents.find(a => a.id === agentId);
+        return agent && !agent.isBound;
+      });
+
+      if (unboundAgentIds.length === 0) {
+        message.warning(t('pages.org.messages.allAgentsAlreadyBound'));
+        return;
+      }
+
       const api = get_ipc_api();
-      const promises = agentIds.map((agentId: string) =>
+      const promises = unboundAgentIds.map((agentId: string) =>
         api.bindAgentToOrg(username, agentId, state.selectedOrg!.id)
       );
 
@@ -233,6 +269,7 @@ export const useOrgs = () => {
       if (failures.length === 0) {
         message.success(t('pages.org.messages.bindSuccess'));
         loadOrgAgents(state.selectedOrg.id);
+        loadAvailableAgents(); // Refresh agent list to update binding status
         updateState({ bindModalVisible: false });
       } else {
         message.error(t('pages.org.messages.bindFailed'));
@@ -241,7 +278,7 @@ export const useOrgs = () => {
       console.error('Error binding agents:', error);
       message.error(t('pages.org.messages.bindFailed'));
     }
-  }, [username, state.selectedOrg?.id, t, loadOrgAgents, updateState]);
+  }, [username, state.selectedOrg?.id, state.availableAgents, t, loadOrgAgents, loadAvailableAgents, updateState]);
 
   // Unbind agent
   const unbindAgent = useCallback(async (agentId: string) => {
