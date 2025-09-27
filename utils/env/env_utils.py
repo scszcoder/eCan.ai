@@ -184,50 +184,73 @@ class EnvironmentLoader:
         return loaded_count
     
     def _load_windows_env_vars(self) -> int:
-        """Load environment variables on Windows"""
+        """Load environment variables on Windows without spawning console windows."""
         loaded_count = 0
+
         try:
-            # Method 1: Try to get user environment variables from registry
-            cmd = 'reg query "HKEY_CURRENT_USER\\Environment" /s'
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=EnvLoadingConstants.SHELL_COMMAND_TIMEOUT)
-            
-            if result.returncode == 0:
-                for line in result.stdout.split('\n'):
-                    if 'REG_SZ' in line or 'REG_EXPAND_SZ' in line:
-                        parts = line.strip().split()
-                        if len(parts) >= 3:
-                            key = parts[0]
-                            value = ' '.join(parts[2:])  # Handle values with spaces
-                            # Load all environment variables that don't exist yet
-                            if value.strip() and not os.environ.get(key):
-                                os.environ[key] = value.strip()
-                                loaded_count += 1
-                                masked_value = self._mask_sensitive_value(key, value.strip())
-                                logger.info(f"Loaded from Windows registry: {key}={masked_value}")
-            
-            # Method 2: Try PowerShell environment variables (if registry method didn't work)
-            if loaded_count == 0:
-                cmd = 'powershell -Command "Get-ChildItem Env: | ForEach-Object {Write-Output ($_.Name + \'=\' + $_.Value)}"'
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=EnvLoadingConstants.SHELL_COMMAND_TIMEOUT)
-                
-                if result.returncode == 0:
-                    for line in result.stdout.split('\n'):
-                        if '=' in line and line.strip():
-                            try:
-                                key, value = line.strip().split('=', 1)
-                                # Load all environment variables that don't exist yet
-                                if value.strip() and not os.environ.get(key):
-                                    os.environ[key] = value.strip()
-                                    loaded_count += 1
-                                    masked_value = self._mask_sensitive_value(key, value.strip())
-                                    logger.info(f"Loaded from PowerShell: {key}={masked_value}")
-                            except ValueError:
-                                continue
-                                
-        except Exception as e:
-            logger.debug(f"Failed to load Windows environment variables: {e}")
-        
+            import winreg  # type: ignore
+        except ImportError as exc:
+            logger.warning(f"winreg unavailable, skipping registry environment load: {exc}")
+            return 0
+
+        def _read_registry_values(root, subkey):
+            nonlocal loaded_count
+            try:
+                with winreg.OpenKey(root, subkey) as key:
+                    index = 0
+                    while True:
+                        try:
+                            name, value, value_type = winreg.EnumValue(key, index)
+                        except OSError:
+                            break
+                        index += 1
+
+                        if not name or os.environ.get(name):
+                            continue
+
+                        expanded_value = self._expand_windows_registry_value(value, value_type, winreg)
+                        if not expanded_value:
+                            continue
+
+                        os.environ[name] = expanded_value
+                        loaded_count += 1
+                        masked_value = self._mask_sensitive_value(name, expanded_value)
+                        logger.info(f"Loaded from Windows registry ({subkey}): {name}={masked_value}")
+            except FileNotFoundError:
+                logger.debug(f"Registry path not found: {subkey}")
+            except OSError as e:
+                logger.debug(f"Failed to read registry path {subkey}: {e}")
+
+        # User-specific environment variables
+        _read_registry_values(winreg.HKEY_CURRENT_USER, r"Environment")
+        # Machine-wide environment variables
+        _read_registry_values(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment")
+
         return loaded_count
+
+    @staticmethod
+    def _expand_windows_registry_value(value: object, value_type: int, winreg_module) -> Optional[str]:
+        """Convert registry value into a usable string."""
+        if value is None:
+            return None
+
+        if value_type in (winreg_module.REG_SZ, winreg_module.REG_EXPAND_SZ):
+            string_value = str(value)
+            if value_type == winreg_module.REG_EXPAND_SZ:
+                try:
+                    string_value = winreg_module.ExpandEnvironmentStrings(string_value)
+                except Exception:
+                    string_value = os.path.expandvars(string_value)
+            return string_value.strip() or None
+
+        if value_type == winreg_module.REG_MULTI_SZ:
+            try:
+                string_value = os.pathsep.join(part for part in value if part)
+            except TypeError:
+                string_value = str(value)
+            return string_value.strip() or None
+
+        return None
     
     def _load_linux_env_vars(self) -> int:
         """Load environment variables on Linux"""
@@ -539,26 +562,44 @@ class EnvironmentLoader:
         """Clean up deleted API keys on Windows"""
         # Windows environment variables are handled by registry
         logger.info("Cleaning up Windows session API key variables")
-        
+
+        try:
+            import winreg  # type: ignore
+        except ImportError as exc:
+            logger.warning(f"winreg unavailable, skipping Windows API key cleanup: {exc}")
+            return 0
+
         api_key_patterns = ['_API_KEY', '_KEY', '_TOKEN', '_SECRET', '_PASSWORD', 'ENDPOINT']
-        removed_vars = []
-        
-        current_env_keys = list(os.environ.keys())
-        for key in current_env_keys:
-            if any(pattern in key.upper() for pattern in api_key_patterns):
-                # Check if variable exists in registry
+        removed_vars: List[str] = []
+
+        def _exists_in_registry(variable: str) -> bool:
+            registry_locations = [
+                (winreg.HKEY_CURRENT_USER, r"Environment"),
+                (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+            ]
+            for root, subkey in registry_locations:
                 try:
-                    result = subprocess.run(['reg', 'query', 'HKEY_CURRENT_USER\\Environment', '/v', key], 
-                                          capture_output=True, text=True)
-                    if result.returncode != 0:
-                        # Variable doesn't exist in registry, remove from session
-                        if key in os.environ:
-                            del os.environ[key]
-                            removed_vars.append(key)
-                            logger.info(f"Removed {key} from Windows session (not in registry)")
-                except:
+                    with winreg.OpenKey(root, subkey) as key:
+                        winreg.QueryValueEx(key, variable)
+                        return True
+                except FileNotFoundError:
                     continue
-        
+                except OSError:
+                    continue
+            return False
+
+        keys_to_check = [specific_key] if specific_key else list(os.environ.keys())
+
+        for key in keys_to_check:
+            if key is None:
+                continue
+
+            if any(pattern in key.upper() for pattern in api_key_patterns):
+                if not _exists_in_registry(key) and key in os.environ:
+                    del os.environ[key]
+                    removed_vars.append(key)
+                    logger.info(f"Removed {key} from Windows session (not found in registry)")
+
         return len(removed_vars)
     
     def _cleanup_linux_deleted_api_keys(self, specific_key: str = None) -> int:

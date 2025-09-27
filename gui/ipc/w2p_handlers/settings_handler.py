@@ -95,12 +95,8 @@ def handle_save_settings(request: IPCRequest, params: Optional[list[Any]]) -> IP
         # 获取主窗口实例
         main_window = AppContext.get_main_window()
         if not main_window:
-            logger.error("Main window not available")
-            return create_error_response(
-                request,
-                'SYSTEM_ERROR',
-                'Main window not available'
-            )
+            logger.error("Main window not available - user may have logged out")
+            return create_error_response(request, 'MAIN_WINDOW_ERROR', 'User session not available - please login again')
 
         # 获取配置管理器
         if not main_window.config_manager:

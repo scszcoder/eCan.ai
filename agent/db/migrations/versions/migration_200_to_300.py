@@ -71,15 +71,40 @@ class Migration200To300(BaseMigration):
                 logger.info("Column agent_id already exists in chats table")
                 return True
             
-            sql = "ALTER TABLE chats ADD COLUMN agent_id VARCHAR(64) REFERENCES agents(id)"
-            if not self.execute_sql(session, sql):
-                return False
+            # Use simpler ALTER TABLE without foreign key constraint to avoid locking issues
+            sql = "ALTER TABLE chats ADD COLUMN agent_id VARCHAR(64)"
+            
+            # Execute with retry logic for better reliability
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    if not self.execute_sql(session, sql):
+                        if attempt < max_retries - 1:
+                            logger.warning(f"Failed to add agent_id column, retrying... (attempt {attempt + 1})")
+                            session.rollback()
+                            import time
+                            time.sleep(1)  # Wait 1 second before retry
+                            continue
+                        return False
+                    break
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Exception adding agent_id column, retrying... (attempt {attempt + 1}): {e}")
+                        session.rollback()
+                        import time
+                        time.sleep(1)
+                        continue
+                    raise e
+            
+            # Flush the change but don't commit yet (let the migration manager handle commits)
+            session.flush()
             
             logger.info("Added agent_id column to chats table")
             return True
             
         except Exception as e:
             logger.error(f"Failed to add agent_id column to chats table: {e}")
+            session.rollback()
             return False
     
     def _create_agent_vehicles_table(self, session: Session) -> bool:
@@ -305,9 +330,22 @@ class Migration200To300(BaseMigration):
         Returns:
             bool: True if validation passes, False otherwise
         """
-        # Check agent_id column in chats
-        if not self.column_exists('chats', 'agent_id'):
-            logger.error("agent_id column missing from chats table")
+        # Flush session to ensure all changes are committed
+        session.flush()
+        
+        # Check agent_id column in chats using direct SQL to avoid caching issues
+        try:
+            from sqlalchemy import text
+            result = session.execute(text("PRAGMA table_info(chats)"))
+            columns = [row[1] for row in result.fetchall()]
+            agent_id_exists = 'agent_id' in columns
+            
+            if not agent_id_exists:
+                logger.error("agent_id column missing from chats table")
+                logger.debug(f"Available columns: {columns}")
+                return False
+        except Exception as e:
+            logger.error(f"Failed to check agent_id column: {e}")
             return False
         
         # Check required tables

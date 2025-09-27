@@ -17,6 +17,7 @@ interface ToolStoreState {
   loading: boolean;
   error: string | null;
   fetchTools: (username: string) => Promise<void>;
+  clearTools: () => void;
 }
 
 export const useToolStore = create<ToolStoreState>((set, get) => ({
@@ -57,5 +58,8 @@ export const useToolStore = create<ToolStoreState>((set, get) => ({
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
       set({ error: errorMessage, loading: false });
     }
+  },
+  clearTools: () => {
+    set({ tools: [], loading: false, error: null });
   },
 }));

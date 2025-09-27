@@ -26,6 +26,7 @@ export interface Agent {
   status: string;
   avatar?: string;
   capabilities?: string[];
+  isBound?: boolean; // 是否已绑定到当前组织
 }
 
 export interface OrgFormData {

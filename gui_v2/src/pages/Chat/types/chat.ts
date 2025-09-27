@@ -87,7 +87,7 @@ export interface Member {
  */
 export interface FormField {
     id: string;
-    type: 'text' | 'number' | 'select' | 'checkbox' | 'radio' | 'textarea' | 'date' | 'password' | 'switch' | 'slider';
+    type: 'text' | 'number' | 'select' | 'checkbox' | 'checkboxes' | 'radio' | 'textarea' | 'date' | 'password' | 'switch' | 'slider';
     label: string;
     placeholder?: string;
     required?: boolean;

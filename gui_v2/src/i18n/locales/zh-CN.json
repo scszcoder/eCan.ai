@@ -51,6 +51,7 @@
     "save_failed": "保存失败",
     "saved_successfully": "保存成功",
     "select_vehicle": "选择电脑",
+    "select_item": "选择{{item}}",
     "stop": "停止",
     "unknown_error": "未知错误",
     "validation_failed": "验证失败",
@@ -409,11 +410,25 @@
       "levelUp": "升级",
       "loadingEditor": "加载编辑器",
       "mastered": "已掌握",
+      "newSkill": "新技能",
       "refresh": "刷新",
       "refreshSkills": "刷新技能",
       "selectSkill": "选择技能",
       "skillLevel": "技能等级",
       "skillSettings": "技能设置",
+      "statusLabel": "状态",
+      "status": {
+        "active": "活跃",
+        "inactive": "非活跃",
+        "draft": "草稿",
+        "unknown": "未知"
+      },
+      "categories": {
+        "automation": "自动化",
+        "analysis": "分析",
+        "communication": "通信",
+        "unknown": "未知"
+      },
       "time": {
         "justNow": "刚刚"
       },
@@ -496,6 +511,7 @@
       "searchPlaceholder": "搜索占位符",
       "selectVehicle": "选择电脑",
       "setOffline": "设为离线",
+      "statusLabel": "状态",
       "status": {
         "active": "活跃",
         "maintenance": "维护中",
@@ -561,7 +577,8 @@
         "unbindFailed": "解绑失败",
         "unbindSuccess": "解绑成功",
         "updateFailed": "更新失败",
-        "updateSuccess": "更新成功"
+        "updateSuccess": "更新成功",
+        "allAgentsAlreadyBound": "所选代理都已绑定到当前组织"
       },
       "modal": {
         "bind": {
@@ -579,6 +596,11 @@
         "noAgents": "暂无代理",
         "noAvailableAgents": "暂无可用代理",
         "selectOrg": "请选择组织"
+      },
+      "binding": {
+        "bound": "已绑定",
+        "unbound": "未绑定",
+        "noDescription": "暂无描述"
       },
       "status": {
         "active": "活跃",
@@ -719,5 +741,26 @@
     "commander": "指挥官",
     "platoon": "排",
     "staff_office": "参谋办公室"
+  },
+  "personality": {
+    "friendly": "友好的",
+    "analytical": "分析型",
+    "creative": "创造性",
+    "efficient": "高效的",
+    "empathetic": "有同理心的"
+  },
+  "title": {
+    "engineer": "工程师",
+    "manager": "经理",
+    "analyst": "分析师",
+    "designer": "设计师",
+    "operator": "操作员"
+  },
+  "organization": {
+    "rd": "研发部",
+    "sales": "销售部",
+    "marketing": "市场部",
+    "hr": "人力资源部",
+    "ops": "运营部"
   }
 }

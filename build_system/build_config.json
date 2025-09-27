@@ -239,6 +239,7 @@
         "pyscreenshot",
         "pynput",
         "pyperclip",
+        "pywifi",
         "win32api",
         "win32gui",
         "win32con",

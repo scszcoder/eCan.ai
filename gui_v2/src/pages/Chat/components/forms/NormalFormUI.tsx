@@ -1,8 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { Form, Button, Card, Slider, Input, Select, Tooltip, Typography } from '@douyinfe/semi-ui';
+import { Form, Button, Card, Input, Select, Tooltip, Typography } from '@douyinfe/semi-ui';
 import { IconInfoCircle } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
-import { getValidators, validateField } from '../../hooks/useChatForm';
+import { validateField } from '../../hooks/useChatForm';
 import { logger } from '@/utils/logger';
 import { DynamicNormalFormProps } from './types';
 
@@ -655,7 +655,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
               fontSize: '12px',
               fontWeight: 500,
               whiteSpace: 'nowrap',
-              zIndex: 10,
+              zIndex: 100, // 内容层级
               boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
             }}>
               {currentValue}{unit}

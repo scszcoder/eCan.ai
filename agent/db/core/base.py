@@ -41,11 +41,12 @@ def get_engine(db_path: str = ECAN_BASE_DB):
         f'sqlite:///{db_path}',
         pool_pre_ping=True,
         pool_recycle=3600,  # Recycle connections every hour
-        pool_size=1,        # SQLite works best with single connection
-        max_overflow=0,     # No overflow connections for SQLite
+        pool_size=5,        # Allow more connections for migration operations
+        max_overflow=10,    # Allow overflow connections for concurrent operations
+        pool_timeout=60,    # Wait up to 60 seconds for a connection
         connect_args={
             'check_same_thread': False,
-            'timeout': 60,  # Increase timeout to 60 seconds for better reliability
+            'timeout': 120,  # Increase timeout to 120 seconds for long-running operations
             'isolation_level': None,  # Use autocommit mode to reduce lock contention
         }
     )
@@ -56,7 +57,13 @@ def get_engine(db_path: str = ECAN_BASE_DB):
         try:
             cursor = dbapi_connection.cursor()
             # Set busy timeout to handle concurrent access
-            cursor.execute("PRAGMA busy_timeout=30000")  # 30 seconds
+            cursor.execute("PRAGMA busy_timeout=60000")  # 60 seconds for migration operations
+            # Enable WAL mode for better concurrency
+            cursor.execute("PRAGMA journal_mode=WAL")
+            # Optimize for better performance
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA cache_size=10000")
+            cursor.execute("PRAGMA temp_store=MEMORY")
             cursor.close()
         except Exception as e:
             # Don't let pragma setting failures block the connection

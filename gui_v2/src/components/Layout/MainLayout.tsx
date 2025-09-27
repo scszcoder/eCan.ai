@@ -30,6 +30,7 @@ import PageBackBreadcrumb from './PageBackBreadcrumb';
 import A11yFocusGuard from '../Common/A11yFocusGuard';
 import { get_ipc_api } from '@/services/ipc_api';
 import { userStorageManager } from '../../services/storage/UserStorageManager';
+import { logoutManager } from '../../services/LogoutManager';
 
 
 const StyledLayout = styled(Layout)`
@@ -56,26 +57,17 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     }, [i18n]);
 
     const handleLogout = async () => {
-        pageRefreshManager.disable();
-        // 调用后端登出接口
         try {
-            await get_ipc_api().logout();
-        } catch (e) {
-            // 可以根据需要处理错误
-            console.error('Logout API error:', e);
-        }
+            // 使用新的LogoutManager进行统一的logout处理
+            await logoutManager.logout();
 
-        // 使用统一存储管理器进行完整的logout处理
-        try {
-            userStorageManager.logout();
-        } catch (e) {
-            console.error('Storage cleanup error:', e);
-            // 即使storage清理失败，也要继续logout流程
+            // 跳转到登录页面
+            window.location.replace('/login');
+        } catch (error) {
+            console.error('Logout error:', error);
+            // 即使logout过程中出现错误，也要跳转到登录页面
+            window.location.replace('/login');
         }
-
-        // 清理IPC请求队列
-        get_ipc_api().clearQueue();
-        window.location.replace('/login');
     };
 
     const handleLogoClick = () => {
