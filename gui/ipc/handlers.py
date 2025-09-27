@@ -686,3 +686,6 @@ def handle_get_initialization_progress(request: IPCRequest, params: Optional[Any
 
 # 打印所有已注册的处理器
 logger.info(f"Registered handlers: {IPCHandlerRegistry.list_handlers()}")
+
+# 导入文件处理器以注册相关的 IPC 处理方法
+from . import file_handlers

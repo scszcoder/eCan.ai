@@ -19,6 +19,10 @@ import emptyFlowData from './data/empty-flow.json';
 import { useSkillInfoStore } from './stores/skill-info-store';
 import { createSkillInfo } from './typings/skill-info';
 import { NodeInfoDisplay } from './components/node-info-display';
+import { useSimpleAutoLoad } from './hooks/useAutoLoadRecentFile';
+import { FilePathDisplay } from './components/file-path-display';
+import { useUnsavedChangesTracker } from './hooks/useUnsavedChangesTracker';
+import { useDragAndDrop } from './hooks/useDragAndDrop';
 import styled from 'styled-components';
 
 const EditorContainer = styled.div`
@@ -48,6 +52,23 @@ export const Editor = () => {
   const { skillInfo } = useSkillInfoStore();
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
 
+  // Auto-load the most recent file on startup
+  useSimpleAutoLoad();
+
+  // Track unsaved changes
+  useUnsavedChangesTracker();
+
+  // Enable drag-and-drop file support
+  useDragAndDrop({
+    enabled: true,
+    onFileDropped: (filePath, skillInfo) => {
+      console.log(`[Editor] File dropped: ${skillInfo.skillName || 'Untitled'} from ${filePath}`);
+    },
+    onDropError: (error) => {
+      console.error('[Editor] Drag-and-drop error:', error.message);
+    },
+  });
+
   // Determine the initial document: prefer current skill's workflow if available
   const preferredDoc: FlowDocumentJSON = useMemo(
     () => (skillInfo?.workFlow as FlowDocumentJSON) || (shouldLoadInitialData ? initialData : emptyData),
@@ -76,7 +97,7 @@ export const Editor = () => {
               <NodeInfoDisplay />
               <div className="demo-container">
                 <EditorRenderer className="demo-editor">
-                  {skillInfo?.skillName && <SkillNameLabel>{skillInfo.skillName}</SkillNameLabel>}
+                  <FilePathDisplay />
                 </EditorRenderer>
               </div>
               <Tools />

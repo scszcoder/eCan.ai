@@ -13,6 +13,11 @@ interface SkillInfoStoreState {
   addBreakpoint: (nodeId: string) => void;
   removeBreakpoint: (nodeId: string) => void;
   setBreakpoints: (nodeIds: string[]) => void;
+  // File path tracking for desktop platform
+  currentFilePath: string | null;
+  setCurrentFilePath: (path: string | null) => void;
+  hasUnsavedChanges: boolean;
+  setHasUnsavedChanges: (hasChanges: boolean) => void;
 }
 
 export const useSkillInfoStore = create<SkillInfoStoreState>((set) => ({
@@ -24,4 +29,9 @@ export const useSkillInfoStore = create<SkillInfoStoreState>((set) => ({
   removeBreakpoint: (nodeId) =>
     set((state) => ({ breakpoints: state.breakpoints.filter((id) => id !== nodeId) })),
   setBreakpoints: (nodeIds) => set({ breakpoints: nodeIds }),
+  // File path tracking
+  currentFilePath: null,
+  setCurrentFilePath: (path) => set({ currentFilePath: path }),
+  hasUnsavedChanges: false,
+  setHasUnsavedChanges: (hasChanges) => set({ hasUnsavedChanges: hasChanges }),
 }));
