@@ -61,7 +61,12 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
             {t('pages.org.details.title')}
           </Space>
           <Space>
-            <Tooltip title={t('pages.org.actions.edit')}>
+            <Tooltip
+              title={t('pages.org.actions.edit')}
+              mouseEnterDelay={0.5}
+              mouseLeaveDelay={0.1}
+              placement="bottom"
+            >
               <Button
                 size="small"
                 icon={<EditOutlined />}
@@ -75,7 +80,12 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
               okText={t('common.confirm')}
               cancelText={t('common.cancel')}
             >
-              <Tooltip title={t('pages.org.actions.delete')}>
+              <Tooltip
+                title={t('pages.org.actions.delete')}
+                mouseEnterDelay={0.5}
+                mouseLeaveDelay={0.1}
+                placement="bottom"
+              >
                 <Button
                   size="small"
                   danger

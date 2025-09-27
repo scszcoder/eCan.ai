@@ -60,9 +60,9 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
                             icon: <ClusterOutlined />, 
                         },
                         {
-                            label: t('pages.vehicles.status'),
-                            value: <StatusTag status={vehicle.status} />, 
-                            icon: <CheckCircleOutlined />, 
+                            label: t('pages.vehicles.statusLabel'),
+                            value: <StatusTag status={vehicle.status} />,
+                            icon: <CheckCircleOutlined />,
                         },
                         {
                             label: t('pages.vehicles.location'),
