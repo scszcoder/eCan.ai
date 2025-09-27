@@ -561,7 +561,8 @@
         "unbindFailed": "Unbind failed",
         "unbindSuccess": "Unbind successful",
         "updateFailed": "Update failed",
-        "updateSuccess": "Update successful"
+        "updateSuccess": "Update successful",
+        "allAgentsAlreadyBound": "All selected agents are already bound to current organization"
       },
       "modal": {
         "bind": {
@@ -579,6 +580,11 @@
         "noAgents": "No agents",
         "noAvailableAgents": "No available agents",
         "selectOrg": "Please select organization"
+      },
+      "binding": {
+        "bound": "Bound",
+        "unbound": "Unbound",
+        "noDescription": "No description"
       },
       "status": {
         "active": "Active",

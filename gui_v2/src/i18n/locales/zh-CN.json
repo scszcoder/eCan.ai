@@ -561,7 +561,8 @@
         "unbindFailed": "解绑失败",
         "unbindSuccess": "解绑成功",
         "updateFailed": "更新失败",
-        "updateSuccess": "更新成功"
+        "updateSuccess": "更新成功",
+        "allAgentsAlreadyBound": "所选代理都已绑定到当前组织"
       },
       "modal": {
         "bind": {
@@ -579,6 +580,11 @@
         "noAgents": "暂无代理",
         "noAvailableAgents": "暂无可用代理",
         "selectOrg": "请选择组织"
+      },
+      "binding": {
+        "bound": "已绑定",
+        "unbound": "未绑定",
+        "noDescription": "暂无描述"
       },
       "status": {
         "active": "活跃",
