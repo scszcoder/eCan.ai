@@ -11,7 +11,6 @@ from utils.logger_helper import logger_helper as logger
 import traceback
 from app_context import AppContext
 import asyncio
-from tests.unittests import run_default_tests
 
 
 def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
@@ -499,6 +498,7 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
                 main_win = AppContext.get_main_window()
                 print("oooooooooooooo running default test ooooooooooooooooooooooooooo")
                 # results = []
+                from tests.unittests import run_default_tests
                 result = run_default_tests(main_win)
             # Add other test cases as needed
             else:

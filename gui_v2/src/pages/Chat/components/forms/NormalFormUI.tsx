@@ -1,8 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { Form, Button, Card, Slider, Input, Select, Tooltip, Typography } from '@douyinfe/semi-ui';
+import { Form, Button, Card, Input, Select, Tooltip, Typography } from '@douyinfe/semi-ui';
 import { IconInfoCircle } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
-import { getValidators, validateField } from '../../hooks/useChatForm';
+import { validateField } from '../../hooks/useChatForm';
 import { logger } from '@/utils/logger';
 import { DynamicNormalFormProps } from './types';
 
