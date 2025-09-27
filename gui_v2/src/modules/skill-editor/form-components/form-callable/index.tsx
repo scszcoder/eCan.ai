@@ -23,9 +23,11 @@ export function FormCallable() {
   const realSystemFunctions: CallableFunction[] = tools.map(tool => ({
     id: tool.id,
     name: tool.name,
-    description: tool.description,
-    type: 'system', // Assuming all fetched tools are 'system' tools
-    source: '', // Or another appropriate default
+    desc: tool.description,
+    params: tool.inputSchema ?? { type: 'object', properties: {} },
+    returns: tool.outputSchema ?? { type: 'object', properties: {} },
+    type: 'system',
+    source: '',
   }));
 
   return (
@@ -38,7 +40,9 @@ export function FormCallable() {
               readonly={readonly}
               value={field.value}
               onChange={(func) => {
+                try { console.log('[Callable] onChange selected:', func); } catch {}
                 field.onChange(func);
+                try { console.log('[Callable] data.callable updated with:', func); } catch {}
               }}
               onAdd={() => {
                 if (readonly) return;

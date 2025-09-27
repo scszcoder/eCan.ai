@@ -8,6 +8,7 @@ from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 
 from utils.logger_helper import logger_helper as logger
+from agent.mcp.server import tool_schemas as mcp_tool_schemas
 
 @IPCHandlerRegistry.handler('get_tools')
 def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
@@ -56,7 +57,6 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
             'LOGIN_ERROR',
             f"Error during get tools: {str(e)}"
         )
-
 
 
 @IPCHandlerRegistry.handler('new_tools')

@@ -17,11 +17,29 @@ const Tools: React.FC = () => {
   const username = useUserStore((state) => state.username);
   const { tools, loading, fetchTools } = useToolStore();
 
+  // Debug: log raw tools payload including schemas
   useEffect(() => {
-    if (username) {
-      fetchTools(username);
-    }
-  }, [username, fetchTools]);
+    try {
+      if (tools && tools.length) {
+        // Avoid spamming huge logs repeatedly by stringifying succinctly
+        console.log('[Tools] tools count =', tools.length);
+        console.log('[Tools] tools raw array JSON:', JSON.stringify(tools, null, 2));
+      } else {
+        console.log('[Tools] tools empty');
+      }
+    } catch {}
+  }, [tools]);
+
+  // Debug: log selected tool and its schemas whenever it changes
+  useEffect(() => {
+    if (!selectedTool) return;
+    try {
+      console.log('[Tools] selected tool:', selectedTool);
+      // Some backends may nest schemas under different keys; dump common candidates
+      console.log('[Tools] selected tool inputSchema:', (selectedTool as any).inputSchema);
+      console.log('[Tools] selected tool outputSchema:', (selectedTool as any).outputSchema);
+    } catch {}
+  }, [selectedTool]);
 
   useEffect(() => {
     if (tools.length > 0 && !selectedTool) {
