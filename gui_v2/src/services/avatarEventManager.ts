@@ -11,6 +11,7 @@ import {
   SceneEventHandler 
 } from '@/types/avatarScene';
 import { logger } from '@/utils/logger';
+import { logoutManager } from './LogoutManager';
 
 // Event Manager Class
 export class AvatarEventManager {
@@ -18,9 +19,11 @@ export class AvatarEventManager {
   private eventQueue: SceneEvent[] = [];
   private isProcessing = false;
   private eventIdCounter = 0;
+  private processorIntervalId: NodeJS.Timeout | null = null;
 
   constructor() {
     this.startEventProcessor();
+    this.registerLogoutCleanup();
   }
 
   /**
@@ -240,9 +243,39 @@ export class AvatarEventManager {
    * Start event processor
    */
   private startEventProcessor(): void {
-    setInterval(() => {
+    this.processorIntervalId = setInterval(() => {
       this.processEventQueue();
     }, 16); // ~60fps processing
+  }
+
+  /**
+   * Stop event processor
+   */
+  private stopEventProcessor(): void {
+    if (this.processorIntervalId) {
+      clearInterval(this.processorIntervalId);
+      this.processorIntervalId = null;
+      logger.debug('[AvatarEventManager] Event processor stopped');
+    }
+  }
+
+  /**
+   * Register logout cleanup function
+   */
+  private registerLogoutCleanup(): void {
+    logoutManager.registerCleanup({
+      name: 'AvatarEventManager',
+      cleanup: () => {
+        logger.info('[AvatarEventManager] Cleaning up for logout...');
+        this.stopEventProcessor();
+        this.clearQueue();
+        this.subscriptions.clear();
+        this.isProcessing = false;
+        this.eventIdCounter = 0;
+        logger.info('[AvatarEventManager] Cleanup completed');
+      },
+      priority: 15 // 较低优先级，让其他组件先清理
+    });
   }
 
   /**

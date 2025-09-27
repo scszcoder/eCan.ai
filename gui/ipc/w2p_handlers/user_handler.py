@@ -45,6 +45,12 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
         auth_messages.set_language(lang)
 
         login = AppContext.get_login()
+        if login is None:
+            logger.warning("Login object is None - system may not be properly initialized")
+            return create_error_response(request, 
+                'SYSTEM_NOT_READY',
+                'System not ready - please try again')
+        
         result = login.handleLogin(username, password, machine_role)
 
         if result.get('success'):
@@ -75,6 +81,12 @@ def handle_get_last_login(request: IPCRequest, params: Optional[Any]) -> IPCResp
             auth_messages.set_language(lang)
 
         login = AppContext.get_login()
+        if login is None:
+            logger.warning("Login object is None - user may have logged out")
+            return create_error_response(request, 
+                'LOGIN_REQUIRED',
+                'Login required - please login again')
+        
         result = login.handleGetLastLogin()
 
         logger.info("last saved user info:", result)
@@ -98,6 +110,12 @@ def handle_logout(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
             auth_messages.set_language(lang)
 
         login = AppContext.get_login()
+        if login is None:
+            logger.warning("Login object is None - user may already be logged out")
+            return create_success_response(request, {
+                'message': auth_messages.get_message('logout_success')
+            })
+        
         result = login.handleLogout()
 
         return create_success_response(request, {

@@ -154,4 +154,48 @@ class AppContext(metaclass=AppContextMeta):
         """获取线程池实例"""
         return cls.get_instance().thread_pool
 
+    def cleanup(self):
+        """清理 AppContext 中的所有引用"""
+        try:
+            # 清理各种实例引用
+            self.main_window = None
+            
+            # 注意：不清理 app, logger, thread_pool, login，因为它们可能在应用完全退出前还需要使用
+            
+            return True
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Error during AppContext cleanup: {e}")
+            return False
+
+    @classmethod
+    def cleanup_instance(cls):
+        """类方法：清理 AppContext 实例"""
+        instance = cls.get_instance()
+        return instance.cleanup()
+
+    @classmethod
+    def safe_get_login(cls):
+        """安全获取 login 对象，如果为 None 则抛出有意义的异常"""
+        login = cls.get_login()
+        if login is None:
+            raise RuntimeError("Login object is not available - user may have logged out or system not initialized")
+        return login
+
+    @classmethod
+    def safe_get_main_window(cls):
+        """安全获取 main_window 对象，如果为 None 则抛出有意义的异常"""
+        main_window = cls.get_main_window()
+        if main_window is None:
+            raise RuntimeError("MainWindow is not available - user may have logged out or system not initialized")
+        return main_window
+
+    @classmethod
+    def safe_get_web_gui(cls):
+        """安全获取 web_gui 对象，如果为 None 则抛出有意义的异常"""
+        web_gui = cls.get_web_gui()
+        if web_gui is None:
+            raise RuntimeError("WebGUI is not available - user may have logged out or system not initialized")
+        return web_gui
+
     # 你可以继续添加更多 set/get 方法

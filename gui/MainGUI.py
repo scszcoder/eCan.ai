@@ -176,6 +176,9 @@ class MainWindow:
             'ui_ready': False,
             'critical_services_ready': False
         }
+        
+        # Initialize shutdown flag
+        self._shutting_down = False
 
         # ============================================================================
         # PHASE 1: CRITICAL SYNCHRONOUS INITIALIZATION (UI-blocking, keep minimal)
@@ -326,7 +329,7 @@ class MainWindow:
         asyncio.create_task(self._async_setup_browser_manager())
         asyncio.create_task(self._async_start_lightrag())
         self.wan_sub_task = asyncio.create_task(self._async_start_wan_chat())
-        asyncio.create_task(self._async_start_llm_subscription())
+        self.llm_sub_task = asyncio.create_task(self._async_start_llm_subscription())
 
         # Wait for agents initialization to complete before marking system fully ready
         try:
@@ -1218,6 +1221,11 @@ class MainWindow:
         """
         from agent.cloud_api.cloud_api import subscribe_cloud_llm_task
         try:
+            # Check if shutting down before starting
+            if hasattr(self, '_shutting_down') and self._shutting_down:
+                logger.info("System is shutting down, skipping LLM subscription")
+                return
+                
             # Wait a bit to ensure other services are ready
             await asyncio.sleep(0.5)
 
@@ -1231,11 +1239,16 @@ class MainWindow:
             logger.info("ws_host", ws_host, "token:", token[:100] if token else "", "ws_endpoint:", ws_endpoint)
             acctSiteID = self.getAcctSiteID()
             print("acct site id:", acctSiteID)
-            # Start the server process in executor (this is the blocking part)
-            await asyncio.get_event_loop().run_in_executor(
+            
+            # Start the server process in executor and save references for cleanup
+            ws, thread = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: subscribe_cloud_llm_task(acctSiteID, token, ws_endpoint)
             )
+            
+            # Save references for cleanup
+            self.cloud_llm_ws = ws
+            self.cloud_llm_thread = thread
 
             logger.info("✅ Cloud LLM Subscription initialization completed!")
 
@@ -4278,25 +4291,65 @@ class MainWindow:
 
     async def _async_cleanup_and_logout(self):
         """Asynchronously cleanup background tasks, servers, and resources, then logout."""
+        logger.info("[MainWindow] 🧹 Starting comprehensive cleanup for logout...")
+        
+        # Set shutdown flag to prevent WAN Chat reconnections
+        self._shutting_down = True
+        
         # Stop LightRAG server
         try:
-            self.stop_lightrag_server()
+            if hasattr(self, 'lightrag_server') and self.lightrag_server:
+                self.stop_lightrag_server()
+                logger.info("[MainWindow] ✅ LightRAG server stopped")
         except Exception as e:
-            logger.warning(f"Error stopping LightRAG server: {e}")
+            logger.warning(f"[MainWindow] ❌ Error stopping LightRAG server: {e}")
 
         # Stop local Starlette server (uvicorn) and join thread
         try:
-            from gui.LocalServer import stop_local_server
+            from gui.LocalServer import stop_local_server, MCPHandler
+            
+            # First, clean up MCP session manager BEFORE stopping the server
+            # This prevents the TaskGroup context issues
+            try:
+                logger.info("[MainWindow] 🧹 Pre-cleaning MCP session manager...")
+                await MCPHandler.cleanup()
+                logger.info("[MainWindow] ✅ MCP session manager pre-cleaned")
+            except Exception as e:
+                logger.warning(f"[MainWindow] ❌ Error pre-cleaning MCP session manager: {e}")
+            
+            # Then stop the server
             stop_local_server()
+            logger.info("[MainWindow] ✅ Local Starlette server stopped")
+            
         except Exception as e:
-            logger.warning(f"Error stopping local server: {e}")
-
+            logger.warning(f"[MainWindow] ❌ Error stopping local server: {e}")
 
         # Close MCP client manager session
         try:
             await mcp_client_manager.close()
+            logger.info("[MainWindow] ✅ MCP client manager closed")
         except Exception as e:
-            logger.warning(f"Error closing MCP client manager: {e}")
+            logger.warning(f"[MainWindow] ❌ Error closing MCP client manager: {e}")
+
+        # Close MCP client if present
+        try:
+            if hasattr(self, 'mcp_client') and self.mcp_client:
+                if hasattr(self.mcp_client, 'close'):
+                    await self.mcp_client.close()
+                self.mcp_client = None
+                logger.info("[MainWindow] ✅ MCP client closed")
+        except Exception as e:
+            logger.warning(f"[MainWindow] ❌ Error closing MCP client: {e}")
+
+        # Close SSE connection manager if present
+        try:
+            if hasattr(self, '_sse_cm') and self._sse_cm:
+                if hasattr(self._sse_cm, 'close'):
+                    await self._sse_cm.close()
+                self._sse_cm = None
+                logger.info("[MainWindow] ✅ SSE connection manager closed")
+        except Exception as e:
+            logger.warning(f"[MainWindow] ❌ Error closing SSE connection manager: {e}")
 
         # Close websocket if present
         try:
@@ -4308,20 +4361,86 @@ class MainWindow:
                         await close_fn()
                     else:
                         close_fn()
+                self.websocket = None
+                logger.info("[MainWindow] ✅ Websocket closed")
         except Exception as e:
-            logger.debug(f"Error closing websocket: {e}")
+            logger.debug(f"[MainWindow] ❌ Error closing websocket: {e}")
+
+        # Close unified browser manager
+        try:
+            if hasattr(self, 'unified_browser_manager') and self.unified_browser_manager:
+                if hasattr(self.unified_browser_manager, 'cleanup'):
+                    cleanup_fn = self.unified_browser_manager.cleanup
+                    if asyncio.iscoroutinefunction(cleanup_fn):
+                        await cleanup_fn()
+                    else:
+                        cleanup_fn()
+                elif hasattr(self.unified_browser_manager, 'close'):
+                    close_fn = self.unified_browser_manager.close
+                    if asyncio.iscoroutinefunction(close_fn):
+                        await close_fn()
+                    else:
+                        close_fn()
+                self.unified_browser_manager = None
+                logger.info("[MainWindow] ✅ Unified browser manager closed")
+        except Exception as e:
+            logger.warning(f"[MainWindow] ❌ Error closing unified browser manager: {e}")
+
+        # Close default webdriver if present
+        try:
+            if hasattr(self, 'default_webdriver') and self.default_webdriver:
+                self.default_webdriver.quit()
+                self.default_webdriver = None
+                logger.info("[MainWindow] ✅ Default webdriver closed")
+        except Exception as e:
+            logger.warning(f"[MainWindow] ❌ Error closing default webdriver: {e}")
+
+        # Close TCP server if present
+        try:
+            if hasattr(self, 'tcpServer') and self.tcpServer:
+                if hasattr(self.tcpServer, 'close'):
+                    self.tcpServer.close()
+                self.tcpServer = None
+                logger.info("[MainWindow] ✅ TCP server closed")
+        except Exception as e:
+            logger.warning(f"[MainWindow] ❌ Error closing TCP server: {e}")
+
+        # Close commander transport if present
+        try:
+            if hasattr(self, 'commanderXport') and self.commanderXport:
+                if hasattr(self.commanderXport, 'close'):
+                    self.commanderXport.close()
+                self.commanderXport = None
+                logger.info("[MainWindow] ✅ Commander transport closed")
+        except Exception as e:
+            logger.warning(f"[MainWindow] ❌ Error closing commander transport: {e}")
+
+        # Close session (cloud connection)
+        try:
+            if hasattr(self, 'session') and self.session:
+                if hasattr(self.session, 'close'):
+                    close_fn = self.session.close
+                    if asyncio.iscoroutinefunction(close_fn):
+                        await close_fn()
+                    else:
+                        close_fn()
+                self.session = None
+                logger.info("[MainWindow] ✅ Cloud session closed")
+        except Exception as e:
+            logger.warning(f"[MainWindow] ❌ Error closing cloud session: {e}")
 
         # Signal all agent TaskRunner loops to stop (while-loops in threads)
         try:
             TaskRunnerRegistry.stop_all()
+            logger.info("[MainWindow] ✅ TaskRunners stopped")
         except Exception as e:
-            logger.debug(f"Error stopping TaskRunners: {e}")
+            logger.debug(f"[MainWindow] ❌ Error stopping TaskRunners: {e}")
 
         # Cancel asyncio tasks we manage
         to_cancel = []
         for name in (
             'lan_task', 'peer_task', 'monitor_task', 'chat_task', 'wan_sub_task',
-            'rpa_task', 'manager_task'
+            'rpa_task', 'manager_task', 'wan_chat_task', 'llm_sub_task'
         ):
             try:
                 t = getattr(self, name, None)
@@ -4333,43 +4452,140 @@ class MainWindow:
         if to_cancel:
             try:
                 await asyncio.gather(*to_cancel, return_exceptions=True)
+                logger.info(f"[MainWindow] ✅ Cancelled {len(to_cancel)} asyncio tasks")
             except Exception:
                 pass
 
-        # for task in (self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task):
-        #     if not task.done():
-        #         task.cancel()
+        # Close Cloud LLM WebSocket and thread
+        try:
+            if hasattr(self, 'cloud_llm_ws') and self.cloud_llm_ws:
+                self.cloud_llm_ws.close()
+                logger.info("[MainWindow] ✅ Cloud LLM WebSocket closed")
+            if hasattr(self, 'cloud_llm_thread') and self.cloud_llm_thread:
+                # Thread is daemon, so it will be terminated when main process exits
+                logger.info("[MainWindow] ✅ Cloud LLM thread will terminate with main process")
+        except Exception as e:
+            logger.debug(f"[MainWindow] ❌ Error closing Cloud LLM WebSocket: {e}")
 
         # Shut down ThreadPoolExecutor
         try:
-            self.threadPoolExecutor.shutdown(wait=False, cancel_futures=True)
+            if hasattr(self, 'threadPoolExecutor') and self.threadPoolExecutor:
+                self.threadPoolExecutor.shutdown(wait=False, cancel_futures=True)
+                logger.info("[MainWindow] ✅ ThreadPoolExecutor shutdown")
         except Exception as e:
-            logger.debug(f"Error shutting down ThreadPoolExecutor: {e}")
+            logger.debug(f"[MainWindow] ❌ Error shutting down ThreadPoolExecutor: {e}")
 
+        # Close database services and connections
+        try:
+            # Close chat service
+            if hasattr(self, 'db_chat_service') and self.db_chat_service:
+                if hasattr(self.db_chat_service, 'close'):
+                    self.db_chat_service.close()
+                self.db_chat_service = None
+                logger.info("[MainWindow] ✅ Database chat service closed")
+        except Exception as e:
+            logger.warning(f"[MainWindow] ❌ Error closing database chat service: {e}")
+
+        try:
+            # Close database engine and session
+            if hasattr(self, '_db_engine') and self._db_engine:
+                self._db_engine.dispose()
+                self._db_engine = None
+                logger.info("[MainWindow] ✅ Database engine disposed")
+            
+            if hasattr(self, '_db_session') and self._db_session:
+                self._db_session.close()
+                self._db_session = None
+                logger.info("[MainWindow] ✅ Database session closed")
+        except Exception as e:
+            logger.warning(f"[MainWindow] ❌ Error closing database engine/session: {e}")
 
         # Clear IPC registry system ready cache
         try:
             from gui.ipc.registry import IPCHandlerRegistry
             IPCHandlerRegistry.clear_system_ready_cache()
-            logger.debug("Cleared IPC registry system ready cache on logout")
+            logger.debug("[MainWindow] ✅ IPC registry system ready cache cleared")
         except Exception as e:
-            logger.debug(f"Error clearing IPC registry cache: {e}")
+            logger.debug(f"[MainWindow] ❌ Error clearing IPC registry cache: {e}")
 
         # Close database manager and clean up database connections
         try:
-            if self.ec_db_mgr:
+            if hasattr(self, 'ec_db_mgr') and self.ec_db_mgr:
                 self.ec_db_mgr.close()
-                logger.info("Database manager closed successfully on logout")
+                self.ec_db_mgr = None
+                logger.info("[MainWindow] ✅ Database manager closed")
         except Exception as e:
-            logger.warning(f"Error closing database manager: {e}")
+            logger.warning(f"[MainWindow] ❌ Error closing database manager: {e}")
+
+        # Clear component managers
+        try:
+            manager_attrs = [
+                'bot_manager', 'missionWin', 'train_manager', 'reminder_manager',
+                'platoonWin', 'skill_manager', 'settings_manager', 'vehicle_monitor',
+                'config_manager'
+            ]
+            for attr in manager_attrs:
+                if hasattr(self, attr):
+                    manager = getattr(self, attr)
+                    if manager and hasattr(manager, 'cleanup'):
+                        try:
+                            if asyncio.iscoroutinefunction(manager.cleanup):
+                                await manager.cleanup()
+                            else:
+                                manager.cleanup()
+                        except Exception as e:
+                            logger.debug(f"[MainWindow] Error cleaning up {attr}: {e}")
+                    setattr(self, attr, None)
+            logger.info("[MainWindow] ✅ Component managers cleared")
+        except Exception as e:
+            logger.warning(f"[MainWindow] ❌ Error clearing component managers: {e}")
+
+        # Clear resource objects
+        try:
+            resource_attrs = ['file_resource', 'static_resource', 'zipper']
+            for attr in resource_attrs:
+                if hasattr(self, attr):
+                    setattr(self, attr, None)
+            logger.info("[MainWindow] ✅ Resource objects cleared")
+        except Exception as e:
+            logger.warning(f"[MainWindow] ❌ Error clearing resource objects: {e}")
+
+        # Clear data collections
+        try:
+            data_attrs = [
+                'agents', 'botJsonData', 'sellerInventoryJsonData', 'mcp_tools_schemas',
+                'todays_work', 'reactive_work'
+            ]
+            for attr in data_attrs:
+                if hasattr(self, attr):
+                    data = getattr(self, attr)
+                    if isinstance(data, (list, dict)):
+                        data.clear()
+                    else:
+                        setattr(self, attr, None)
+            logger.info("[MainWindow] ✅ Data collections cleared")
+        except Exception as e:
+            logger.warning(f"[MainWindow] ❌ Error clearing data collections: {e}")
+
+        # Clear AppContext references
+        try:
+            from app_context import AppContext
+            if AppContext.cleanup_instance():
+                logger.info("[MainWindow] ✅ AppContext cleared")
+            else:
+                logger.warning("[MainWindow] ⚠️  AppContext cleanup had issues")
+        except Exception as e:
+            logger.warning(f"[MainWindow] ❌ Error clearing AppContext: {e}")
 
         # Finally, call auth logout and close window
         try:
-            self.auth_manager.logout()
+            if hasattr(self, 'auth_manager') and self.auth_manager:
+                self.auth_manager.logout()
+                logger.info("[MainWindow] ✅ Auth manager logout completed")
         except Exception as e:
-            logger.debug(f"Auth logout error: {e}")
+            logger.debug(f"[MainWindow] ❌ Auth logout error: {e}")
 
-        logger.info("logged out........")
+        logger.info("[MainWindow] 🎉 Comprehensive cleanup completed - logged out successfully")
 
 
     def addNewBots(self, new_bots):

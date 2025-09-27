@@ -252,7 +252,7 @@ export const SidebarRenderer = () => {
             width: 14,
             height: '100%',
             cursor: 'col-resize',
-            zIndex: 200000,
+            zIndex: 1500,
             pointerEvents: 'auto',
             background: 'linear-gradient(to right, rgba(0,0,0,0.05), rgba(0,0,0,0))',
           }}
@@ -277,7 +277,7 @@ export const SidebarRenderer = () => {
             height: 28,
             width: '100%',
             cursor: 'ns-resize',
-            zIndex: 200000,
+            zIndex: 1500,
             pointerEvents: 'auto',
             background: 'linear-gradient(to top, rgba(0,0,0,0.06), rgba(0,0,0,0))',
           }}
@@ -300,7 +300,7 @@ export const SidebarRenderer = () => {
             width: 20,
             height: 20,
             cursor: 'nwse-resize',
-            zIndex: 200001,
+            zIndex: 1501,
             pointerEvents: 'auto',
             background: 'linear-gradient(45deg, rgba(0,0,0,0.04), rgba(0,0,0,0))',
           }}
@@ -323,7 +323,7 @@ export const SidebarRenderer = () => {
             width: 20,
             height: 20,
             cursor: 'nesw-resize',
-            zIndex: 200001,
+            zIndex: 1501,
             pointerEvents: 'auto',
             background: 'linear-gradient(135deg, rgba(0,0,0,0.04), rgba(0,0,0,0))',
           }}

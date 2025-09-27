@@ -655,7 +655,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
               fontSize: '12px',
               fontWeight: 500,
               whiteSpace: 'nowrap',
-              zIndex: 10,
+              zIndex: 100, // 内容层级
               boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
             }}>
               {currentValue}{unit}

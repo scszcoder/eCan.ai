@@ -215,4 +215,28 @@ export class WorkflowRuntimeService {
         }
       });
   }
+
+  /**
+   * Cleanup method for logout or component unmount
+   */
+  public cleanup(): void {
+    // Cancel any running task
+    if (this.taskID) {
+      this.taskCancel().catch(console.error);
+    }
+    
+    // Clear interval
+    if (this.syncTaskReportIntervalID) {
+      clearInterval(this.syncTaskReportIntervalID);
+      this.syncTaskReportIntervalID = undefined;
+    }
+    
+    // Reset state
+    this.reset();
+    
+    // Dispose emitters
+    this.reportEmitter.dispose();
+    this.resetEmitter.dispose();
+    this.resultEmitter.dispose();
+  }
 }

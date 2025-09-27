@@ -435,10 +435,10 @@ class ManagedTask(Task):
             await agen.aclose()
 
 
-    async def create_scheduler_task(self):
-        self.task = asyncio.create_task(self.scheduled_run())
 
     def exit(self):
+        """Stop the task and cancel any running operations."""
+        self.cancel()  # Signal cancellation
         if self.task and not self.task.done():
             self.task.cancel()
 
@@ -714,8 +714,37 @@ class TaskRunner(Generic[Context]):
         try:
             # Signal internal stop event
             self._stop_event.set()
+            # Get agent name safely - handle both dict and AgentCard object
+            agent_card = getattr(self.agent, 'card', None)
+            if agent_card:
+                if hasattr(agent_card, 'name'):
+                    agent_name = agent_card.name
+                elif isinstance(agent_card, dict):
+                    agent_name = agent_card.get('name', 'unknown')
+                else:
+                    agent_name = 'unknown'
+            else:
+                agent_name = 'unknown'
+            logger.info(f"[TaskRunner] Stop event set for agent {agent_name}")
 
-            # Notify each ManagedTask's queue if the task is running
+            # Stop all ManagedTask instances and their scheduled tasks
+            try:
+                for task_id, managed_task in self.tasks.items():
+                    try:
+                        if managed_task:
+                            # Cancel the task's cancellation event
+                            managed_task.cancel()
+                            # Exit the task (cancels any running asyncio tasks)
+                            managed_task.exit()
+                            logger.debug(f"[TaskRunner] Stopped managed task: {task_id}")
+                    except Exception as e:
+                        logger.debug(f"[TaskRunner] Error stopping managed task {task_id}: {e}")
+                        pass
+            except Exception as e:
+                logger.debug(f"[TaskRunner] Error stopping managed tasks: {e}")
+                pass
+
+            # Notify each agent task's queue if the task is running
             try:
                 for t in getattr(self.agent, "tasks", []) or []:
                     try:
@@ -739,7 +768,8 @@ class TaskRunner(Generic[Context]):
                         pass
             except Exception:
                 pass
-        except Exception:
+        except Exception as e:
+            logger.debug(f"[TaskRunner] Error in stop method: {e}")
             pass
 
     def close(self):

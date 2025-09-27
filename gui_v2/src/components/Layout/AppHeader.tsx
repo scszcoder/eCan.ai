@@ -172,7 +172,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
                     placement="bottomRight"
                     overlayClassName="user-profile-dropdown"
                     overlayStyle={{
-                        zIndex: 10000,
+                        zIndex: 1060, // 使用合理的 zIndex，避免 Ant Design 警告
                         minWidth: 200,
                     }}
                     getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}

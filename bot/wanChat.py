@@ -281,25 +281,29 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody"):
                         ka_timeout_sec = response_data["payload"]["connectionTimeoutMs"]/1000
                         last_connected_ts = datetime.now()
                         break
+                except asyncio.CancelledError:
+                    logger.info("WAN Chat connection cancelled during setup (logout/shutdown)")
+                    mainwin.set_wan_connected(False)
+                    raise  # Re-raise to propagate cancellation
                 except websockets.exceptions.ConnectionClosedError as e:
-                    print(f"Wan Chat Connection closed with error: {e}")
+                    logger.error(f"Wan Chat Connection closed with error: {e}")
                     mainwin.set_wan_connected(False)
                     break
                 except json.JSONDecodeError as e:
-                    print(f"Failed to decode JSON: {e}")
+                    logger.error(f"Failed to decode JSON: {e}")
                     break
 
             if mainwin.get_wan_connected():
                 # now request to subscribe to the API
-                print("NOW start to wan chat subscribe1")
+                logger.debug("NOW start to wan chat subscribe1")
                 sub_data = {
                     "query": gen_wan_subscription_connection_string(),
                     "variables": {"chatID": chat_id}
                 }
-                print("NOW start to wan chat subscribe2")
+                logger.debug("NOW start to wan chat subscribe2")
 
                 sub_data_string = json.dumps(sub_data)
-                print("NOW start to wan chat subscribe3"+sub_data_string)
+                logger.debug("NOW start to wan chat subscribe3"+sub_data_string)
 
                 SUB_REG = {
                     "id": "1",
@@ -314,7 +318,7 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody"):
                     },
                     "type": "start"
                 }
-                print("SENDING WAN CHATWEBSOCKET SUBSCRIPTION REGISTRATION REQUEST!!!!"+json.dumps(SUB_REG))
+                logger.debug("SENDING WAN CHATWEBSOCKET SUBSCRIPTION REGISTRATION REQUEST!!!!"+json.dumps(SUB_REG))
 
                 await websocket.send(json.dumps(SUB_REG))
 
@@ -330,8 +334,13 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody"):
                             mainwin.set_wan_msg_subscribed(True)
                             last_subscribed_ts = datetime.now()
                             break
+                    except asyncio.CancelledError:
+                        logger.info("WAN Chat subscription cancelled during ack wait (logout/shutdown)")
+                        mainwin.set_wan_connected(False)
+                        mainwin.set_wan_msg_subscribed(False)
+                        raise  # Re-raise to propagate cancellation
                     except websockets.exceptions.ConnectionClosedError as e:
-                        print(f"Connection closed with error: {e}")
+                        logger.error(f"Connection closed with error: {e}")
                         mainwin.set_wan_connected(False)
                         break
                     except json.JSONDecodeError as e:
@@ -341,7 +350,8 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody"):
 
                 while True:
                     try:
-                        message = await websocket.recv()
+                        # Add timeout to recv to prevent hanging during shutdown
+                        message = await asyncio.wait_for(websocket.recv(), timeout=30.0)
                         print(f"WAN CHAT SUBSCRIBE Received message: {message}", type(message))  # this is string.
                         # send the message to
                         rcvd = json.loads(message)
@@ -366,11 +376,28 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody"):
                                     # Get the time difference in seconds
                                     td_seconds = td.total_seconds()
                                     if td_seconds > ka_timeout_sec:
-                                        # something is wrong, we're suppose to receive this every minute or so.
-                                        print("WARNING: Keep Alive Out Of Sync")
+                                        # Keep alive timeout - this is normal for long-running connections
+                                        print(f"INFO: Keep Alive timeout after {td_seconds:.1f}s (limit: {ka_timeout_sec}s)")
+                                        print("INFO: This is normal behavior - connection will be re-established")
                                         raise Exception("Keep Alive Timeout")
                                     else:
                                         last_connected_ts = this_ts
+                    except asyncio.CancelledError:
+                        logger.info("WAN Chat message loop cancelled (logout/shutdown)")
+                        mainwin.set_wan_connected(False)
+                        raise  # Re-raise to propagate cancellation
+                    except asyncio.TimeoutError:
+                        logger.info("WebSocket recv timeout - connection may be closing")
+                        mainwin.set_wan_connected(False)
+                        break
+                    except websockets.exceptions.ConnectionClosedOK:
+                        logger.info("WebSocket connection closed normally")
+                        mainwin.set_wan_connected(False)
+                        break
+                    except websockets.exceptions.ConnectionClosed as e:
+                        logger.warning(f"WebSocket connection closed: {e}")
+                        mainwin.set_wan_connected(False)
+                        break
                     except Exception as e:
                         traceback_info = traceback.extract_tb(e.__traceback__)
                         ex_stat = "ErrorsubscribeReceive:" + traceback.format_exc() + " " + str(e)
@@ -380,12 +407,26 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody"):
 
                 if not mainwin.get_wan_connected():
                     raise Exception("Keep Alive Timeout")
+    except asyncio.CancelledError:
+        logger.info("WAN Chat subscription cancelled (logout/shutdown)")
+        mainwin.set_wan_connected(False)
+        # Don't retry when cancelled - this is intentional shutdown
+        return
     except Exception as e:
-        print(f"Websocket Connection error: {e}. Retrying in 5 seconds...")
+        if "Keep Alive Timeout" in str(e):
+            logger.warning(f"INFO: WebSocket Keep Alive timeout - reconnecting in 5 seconds...")
+        else:
+            logger.error(f"Websocket Connection error: {e}. Retrying in 5 seconds...")
         traceback_info = traceback.extract_tb(e.__traceback__)
         ex_stat = "ErrorsubscribeToWanChat:" + traceback.format_exc() + " " + str(e)
         log3(ex_stat)
         mainwin.set_wan_connected(False)
+        
+        # Check if we should retry - don't retry if the main window is shutting down
+        if hasattr(mainwin, '_shutting_down') and mainwin._shutting_down:
+            logger.warning("INFO: Main window is shutting down, not retrying WAN Chat connection")
+            return
+            
         await asyncio.sleep(5)
         await subscribeToWanChat(mainwin, auth_token, chat_id)
 

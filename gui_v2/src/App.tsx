@@ -7,6 +7,7 @@ import { LanguageProvider } from './contexts/LanguageContext';
 import { getAntdLocale } from './i18n';
 import { pageRefreshManager } from './services/events/PageRefreshManager';
 import { logger, LogLevel } from './utils/logger';
+import { antdTheme } from './styles/antdTheme';
 import './styles/global.css';
 import 'antd/dist/reset.css';
 import './index.css';
@@ -16,6 +17,7 @@ import { IPCAPI } from './services/ipc';
 import { protocolHandler } from './pages/Chat/utils/protocolHandler';
 import { useToolStore } from './stores/toolStore';
 import { useUserStore } from './stores/userStore';
+import { logoutManager } from './services/LogoutManager';
 
 
 
@@ -87,6 +89,37 @@ const AppContent = () => {
     const username = useUserStore((state) => state.username);
 
     // Note: avoid immediate fetch on username to prevent racing backend init; we poll readiness below
+
+    // Register App-level cleanup for logout
+    React.useEffect(() => {
+        logoutManager.registerCleanup({
+            name: 'App',
+            cleanup: () => {
+                try {
+                    logger.info('[App] Cleaning up for logout...');
+                    
+                    // 清理用户状态
+                    const userStore = useUserStore.getState();
+                    if (userStore && typeof userStore.setUsername === 'function') {
+                        userStore.setUsername(null);
+                        logger.debug('[App] User state cleared');
+                    }
+                    
+                    // 清理工具状态
+                    const toolStore = useToolStore.getState();
+                    if (toolStore && typeof toolStore.clearTools === 'function') {
+                        toolStore.clearTools();
+                        logger.debug('[App] Tool state cleared');
+                    }
+                    
+                    logger.info('[App] App cleanup completed');
+                } catch (error) {
+                    logger.error('[App] Error during cleanup:', error);
+                }
+            },
+            priority: 30 // 较低优先级，在其他服务清理后执行
+        });
+    }, []);
 
     // Wait for backend to be fully ready before attempting to fetch tools schemas to avoid races
     React.useEffect(() => {
@@ -161,7 +194,10 @@ const AppContent = () => {
 
         return () => {
             cancelled = true;
-            if (timer) window.clearTimeout(timer);
+            if (timer) {
+                window.clearTimeout(timer);
+                timer = null;
+            }
         };
     }, [username, fetchTools]);
 

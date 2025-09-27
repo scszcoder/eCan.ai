@@ -6,6 +6,7 @@ import { IPCWCClient } from './ipcWCClient';
 import { IPCResponse } from './types';
 import { logger } from '../../utils/logger';
 import { createChatApi } from './chatApi';
+import { logoutManager } from '../LogoutManager';
 
 /**
  * API 响应类型
@@ -46,6 +47,8 @@ export class IPCAPI {
         this.ipcWCClient = IPCWCClient.getInstance();
         // 初始化 chat api
         this.chatApi = createChatApi(this);
+        // 注册logout清理函数
+        this.registerLogoutCleanup();
     }
 
     /**
@@ -53,6 +56,22 @@ export class IPCAPI {
      */
     public clearQueue(): void {
         this.ipcWCClient.clearQueue();
+    }
+
+    /**
+     * 注册logout清理函数
+     */
+    private registerLogoutCleanup(): void {
+        logoutManager.registerCleanup({
+            name: 'IPCAPI',
+            cleanup: () => {
+                logger.info('[IPCAPI] Cleaning up for logout...');
+                this.clearQueue(); // 清理IPC请求队列
+                // 可以在这里添加其他IPC相关的清理逻辑
+                logger.info('[IPCAPI] Cleanup completed');
+            },
+            priority: 5 // 最高优先级，最先清理IPC
+        });
     }
 
     /**
