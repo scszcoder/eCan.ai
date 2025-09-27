@@ -16,6 +16,7 @@ import { IPCAPI } from './services/ipc';
 import { protocolHandler } from './pages/Chat/utils/protocolHandler';
 import { useToolStore } from './stores/toolStore';
 import { useUserStore } from './stores/userStore';
+import { initializePlatform } from './config/platform';
 
 
 
@@ -187,6 +188,9 @@ function App() {
     React.useEffect(() => {
         // 同步初始化关键服务，异步初始化其他服务
         try {
+            // 初始化平台配置（同步）
+            initializePlatform();
+            
             // 初始化 IPC 服务（同步）
             set_ipc_api(createIPCAPI());
 
