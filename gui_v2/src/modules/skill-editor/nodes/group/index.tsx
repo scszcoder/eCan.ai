@@ -84,10 +84,10 @@ import {
         type: 'group',
         id: `group_${nanoid(5)}`,
         meta: {
-          position: {
-            x: 0,
-            y: 0,
-          },
+//           position: {
+//             x: 0,
+//             y: 0,
+//           },
         },
         data: {
           color: 'Green',
