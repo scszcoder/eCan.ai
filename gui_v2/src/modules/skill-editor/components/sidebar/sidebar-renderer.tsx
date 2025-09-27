@@ -96,13 +96,16 @@ export const SidebarRenderer = () => {
         }
         return;
       }
-      // If exactly one node is selected, sync the sidebar to that node instead of closing
+      // If exactly one node is selected, do NOT automatically open sidebar
+      // Sidebar will only open on explicit double-click (handled in NodeWrapper)
       if (selection.selection.length === 1) {
+        // Keep sidebar open if it's already showing the selected node
         const sel = selection.selection[0];
-        if (sel && sel.id !== nodeId) {
-          startTransition(() => setNodeId(sel.id));
-          lastOpenAtRef.current = Date.now();
+        if (sel && nodeId && sel.id === nodeId) {
+          // Sidebar is already open for this node, keep it open
+          return;
         }
+        // If sidebar is open for a different node, or closed, don't auto-open
         return;
       }
       // For multi-selection, close by default
