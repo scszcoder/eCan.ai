@@ -17,7 +17,9 @@ export const getPreferInteractiveType = () => {
   if (data && [InteractiveType.Mouse, InteractiveType.Pad].includes(data as InteractiveType)) {
     return data;
   }
-  return IS_MAC_OS ? InteractiveType.Pad : InteractiveType.Mouse;
+  // Default to Touchpad-Friendly so left-drag performs marquee selection without requiring Shift
+  // Users can still switch back via the toolbar control and their choice will persist in localStorage
+  return InteractiveType.Pad;
 };
 
 export const setPreferInteractiveType = (type: InteractiveType) => {

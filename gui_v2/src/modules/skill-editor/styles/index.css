@@ -21,7 +21,6 @@
   
   .gedit-selector-bounds-background {
     cursor: move;
-    display: none !important;
   }
   
   .gedit-selector-bounds-foreground {
