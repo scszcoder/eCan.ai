@@ -6,7 +6,7 @@
 import { useCallback, useLayoutEffect, useMemo } from 'react';
 
 import { nanoid } from 'nanoid';
-import { Field, FieldArray, WorkflowNodePortsData } from '@flowgram.ai/free-layout-editor';
+import { Field, FieldArray } from '@flowgram.ai/free-layout-editor';
 import { ConditionRow, ConditionRowValueType } from '@flowgram.ai/form-materials';
 import { Button, Select, Input } from '@douyinfe/semi-ui';
 import { IconPlus, IconCrossCircleStroked } from '@douyinfe/semi-icons';
@@ -14,7 +14,7 @@ import { IconPlus, IconCrossCircleStroked } from '@douyinfe/semi-icons';
 import { useNodeRenderContext } from '../../../hooks';
 import { FormItem } from '../../../form-components';
 import { Feedback } from '../../../form-components';
-import { ConditionPort } from './styles';
+// No port rendering here; ports are handled by engine via node meta defaultPorts
 
 interface ConditionValue {
   key: string;
@@ -53,13 +53,7 @@ const sortConditions = (conditions: ConditionValue[]): ConditionValue[] => {
 };
 
 export function ConditionInputs() {
-  const { node, readonly } = useNodeRenderContext();
-
-  useLayoutEffect(() => {
-    window.requestAnimationFrame(() => {
-      node.getData<WorkflowNodePortsData>(WorkflowNodePortsData).updateDynamicPorts();
-    });
-  }, [node]);
+  const { readonly } = useNodeRenderContext();
 
   const handleValueChange = useCallback((field: any, value: ConditionValue, newValue: any) => {
     const newValues = [...(field.value || [])];
@@ -75,6 +69,7 @@ export function ConditionInputs() {
       {({ field }) => {
         // Sort conditions to ensure proper order
         const sortedValues = sortConditions(field.value || []);
+        console.log('Conditions:', field.value, 'Sorted:', sortedValues);
 
         return (
           <>
@@ -84,15 +79,21 @@ export function ConditionInputs() {
               const isIf = conditionType === 'if';
               
               return (
-                <div key={value.key} style={{ width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
-                  <FormItem name={conditionType} type="boolean" required={!isElse} labelWidth={80}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', maxWidth: '100%', paddingRight: 36, boxSizing: 'border-box', overflow: 'hidden' }}>
-                      {isElse ? (
-                        <div style={{ flex: 1, color: 'var(--semi-color-text-2)' }}>Else branch</div>
-                      ) : (
-                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: '100%' }}>
-                          {/* Mode selector */}
-                          <Select
+                <div key={value.key} style={{ position: 'relative', width: '100%', maxWidth: '100%', overflow: 'visible' }}>
+                  {/* Custom label display */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
+                    <div style={{ width: 80, fontSize: 14, fontWeight: 500, color: 'var(--semi-color-text-0)', paddingTop: 8, flexShrink: 0 }}>
+                      {conditionType === 'if' ? 'if' : conditionType === 'else' ? 'else' : 'elsif'}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ width: '100%' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', maxWidth: '100%', paddingRight: 36, boxSizing: 'border-box', overflow: 'hidden' }}>
+                          {isElse ? (
+                            <div style={{ flex: 1, color: 'var(--semi-color-text-2)' }}>Else branch</div>
+                          ) : (
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: '100%' }}>
+                              {/* Mode selector */}
+                              <Select
                             value={(value.value as any)?.mode || 'state.condition'}
                             onChange={(val) => {
                               const mode = String(val);
@@ -143,8 +144,10 @@ export function ConditionInputs() {
                         />
                       )}
                     </div>
-                    <ConditionPort data-port-id={value.key} data-port-type="output" />
-                  </FormItem>
+                      </div>
+                    </div>
+                  </div>
+                  {/* No inline port markers here; relying on defaultPorts (if/else) only */}
                 </div>
               );
             })}
@@ -168,7 +171,7 @@ export function ConditionInputs() {
                     field.onChange(sortConditions(newValue));
                   }}
                 >
-                  Add
+                  Add elsif
                 </Button>
               </div>
             )}

@@ -16,6 +16,51 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => (
     <FormContent>
       <ConditionInputs />
     </FormContent>
+    {/* Dynamic port markers for condition outputs */}
+    <div
+      data-port-id="if_out"
+      data-port-type="output"
+      data-port-direction="output"
+      data-port-group="conditions"
+      data-port-name="if_out"
+      data-port="true"
+      style={{ 
+        position: 'absolute', 
+        right: -6, 
+        top: 60, 
+        width: 12, 
+        height: 12, 
+        borderRadius: '50%',
+        background: '#3b82f6',
+        border: '2px solid #fff',
+        zIndex: 100,
+        cursor: 'crosshair',
+        pointerEvents: 'auto'
+      }}
+      title="if"
+    />
+    <div
+      data-port-id="else_out"
+      data-port-type="output"
+      data-port-direction="output"
+      data-port-group="conditions"
+      data-port-name="else_out"
+      data-port="true"
+      style={{ 
+        position: 'absolute', 
+        right: -6, 
+        top: 80, 
+        width: 12, 
+        height: 12, 
+        borderRadius: '50%',
+        background: '#3b82f6',
+        border: '2px solid #fff',
+        zIndex: 110,
+        cursor: 'crosshair',
+        pointerEvents: 'auto'
+      }}
+      title="else"
+    />
   </>
 );
 
