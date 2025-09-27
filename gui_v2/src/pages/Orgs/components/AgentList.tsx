@@ -38,7 +38,12 @@ const AgentList: React.FC<AgentListProps> = ({
         <Title level={4}>
           <TeamOutlined /> {title || t('pages.org.agents.title')} ({agents.length})
         </Title>
-        <Tooltip title={t('pages.org.actions.bind')}>
+        <Tooltip
+          title={t('pages.org.actions.bind')}
+          mouseEnterDelay={0.5}
+          mouseLeaveDelay={0.1}
+          placement="bottom"
+        >
           <Button
             type="primary"
             icon={<PlusOutlined />}
