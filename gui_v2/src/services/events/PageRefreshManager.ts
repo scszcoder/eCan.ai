@@ -1,7 +1,6 @@
 import { logger } from '../../utils/logger';
-import { get_ipc_api } from '../../services/ipc_api';
-import { AppDataStoreHandler } from '../../stores/AppDataStoreHandler';
 import { userStorageManager } from '../storage/UserStorageManager';
+import { logoutManager } from '../LogoutManager';
 
 // 页面刷新后的操作类型
 export type PageRefreshAction = () => void | Promise<void>;
@@ -36,6 +35,7 @@ export class PageRefreshManager {
         logger.info('初始化 PageRefreshManager...');
         this.setupEventListeners();
         this.registerDefaultActions();
+        this.registerLogoutCleanup();
         this.isInitialized = true;
         
         // 不管localStorage中是否有数据，都要尝试从后端获取用户状态
@@ -232,6 +232,23 @@ export class PageRefreshManager {
             actionCount: this.actions.size,
             isEnabled: this.isEnabled
         };
+    }
+
+    /**
+     * 注册logout清理函数
+     */
+    private registerLogoutCleanup(): void {
+        logoutManager.registerCleanup({
+            name: 'PageRefreshManager',
+            cleanup: () => {
+                logger.info('[PageRefreshManager] Cleaning up for logout...');
+                this.disable(); // 禁用页面刷新操作
+                this.cleanup(); // 清理事件监听器
+                this.actions.clear(); // 清理所有注册的操作
+                logger.info('[PageRefreshManager] Cleanup completed');
+            },
+            priority: 20 // 中等优先级
+        });
     }
 }
 

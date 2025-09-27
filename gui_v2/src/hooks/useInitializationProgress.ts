@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { loadNodeStateSchema } from '../stores/nodeStateSchemaStore';
 import { get_ipc_api } from '../services/ipc_api';
 import { logger } from '../utils/logger';
+import { logoutManager } from '../services/LogoutManager';
 
 // Global singleton to prevent multiple polling instances
 class InitializationProgressManager {
@@ -16,6 +17,8 @@ class InitializationProgressManager {
     if (!InitializationProgressManager.instance) {
       logger.debug('[InitProgressManager] Creating singleton instance');
       InitializationProgressManager.instance = new InitializationProgressManager();
+      // 注册清理函数到logout管理器
+      InitializationProgressManager.instance.registerLogoutCleanup();
     } else {
       logger.debug('[InitProgressManager] Returning existing singleton instance');
     }
@@ -126,6 +129,36 @@ class InitializationProgressManager {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
+    logger.debug('[InitProgressManager] Polling stopped');
+  }
+
+  /**
+   * 注册logout清理函数
+   */
+  private registerLogoutCleanup(): void {
+    logoutManager.registerCleanup({
+      name: 'InitializationProgressManager',
+      cleanup: () => {
+        logger.info('[InitProgressManager] Cleaning up for logout...');
+        this.stopPolling();
+        this.subscribers.clear();
+        this.currentProgress = null;
+        this.isFetching = false;
+        logger.info('[InitProgressManager] Cleanup completed');
+      },
+      priority: 10 // 高优先级，尽早清理
+    });
+  }
+
+  /**
+   * 强制清理所有状态（用于logout）
+   */
+  public forceCleanup(): void {
+    logger.info('[InitProgressManager] Force cleanup initiated');
+    this.stopPolling();
+    this.subscribers.clear();
+    this.currentProgress = null;
+    this.isFetching = false;
   }
 
   // Method to manually refetch (for external use)
