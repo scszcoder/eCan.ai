@@ -50,11 +50,12 @@
     "sample": "Sample",
     "save_failed": "Save_failed",
     "saved_successfully": "Saved_successfully",
-    "select_vehicle": "Select_vehicle",
+    "select_vehicle": "Select Vehicle",
+    "select_item": "Select {{item}}",
     "stop": "Stop",
-    "unknown_error": "Unknown_error",
-    "validation_failed": "Validation_failed",
-    "video_load_error": "Video_load_error"
+    "unknown_error": "Unknown Error",
+    "validation_failed": "Validation Failed",
+    "video_load_error": "Video Load Error"
   },
   "navigation": {
     "dashboard": "Dashboard",
@@ -409,11 +410,25 @@
       "levelUp": "Level Up",
       "loadingEditor": "Loading Editor",
       "mastered": "Mastered",
+      "newSkill": "New Skill",
       "refresh": "Refresh",
       "refreshSkills": "Refresh Skills",
       "selectSkill": "Select Skill",
       "skillLevel": "Skill Level",
       "skillSettings": "Skill Settings",
+      "statusLabel": "Status",
+      "status": {
+        "active": "Active",
+        "inactive": "Inactive",
+        "draft": "Draft",
+        "unknown": "Unknown"
+      },
+      "categories": {
+        "automation": "Automation",
+        "analysis": "Analysis",
+        "communication": "Communication",
+        "unknown": "Unknown"
+      },
       "time": {
         "justNow": "Just Now"
       },
@@ -496,6 +511,7 @@
       "searchPlaceholder": "Search Placeholder",
       "selectVehicle": "Select Vehicle",
       "setOffline": "Set Offline",
+      "statusLabel": "Status",
       "status": {
         "active": "Active",
         "maintenance": "Maintenance",
@@ -724,6 +740,27 @@
   "roles": {
     "commander": "Commander",
     "platoon": "Platoon",
-    "staff_office": "Staff_office"
+    "staff_office": "Staff Office"
+  },
+  "personality": {
+    "friendly": "Friendly",
+    "analytical": "Analytical",
+    "creative": "Creative",
+    "efficient": "Efficient",
+    "empathetic": "Empathetic"
+  },
+  "title": {
+    "engineer": "Engineer",
+    "manager": "Manager",
+    "analyst": "Analyst",
+    "designer": "Designer",
+    "operator": "Operator"
+  },
+  "organization": {
+    "rd": "R&D Department",
+    "sales": "Sales Department",
+    "marketing": "Marketing Department",
+    "hr": "HR Department",
+    "ops": "Operations Department"
   }
 }

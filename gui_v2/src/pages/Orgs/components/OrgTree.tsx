@@ -66,7 +66,12 @@ const OrgTree: React.FC<OrgTreeProps> = ({
             <ApartmentOutlined />
             {t('pages.org.tree.title')}
           </Space>
-          <Tooltip title={t('pages.org.actions.add')}>
+          <Tooltip
+            title={t('pages.org.actions.add')}
+            mouseEnterDelay={0.5}
+            mouseLeaveDelay={0.1}
+            placement="bottom"
+          >
             <Button
               type="primary"
               size="small"
