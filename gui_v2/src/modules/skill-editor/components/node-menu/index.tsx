@@ -117,6 +117,13 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
     }
   }, [isBreakpoint, node.id, username, ipcApi, addBreakpoint, removeBreakpoint]);
 
+  const handleUngroup = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    // TODO: Implement ungroup functionality
+    // For now, just delete the group (same as delete)
+    deleteNode();
+  }, [deleteNode]);
+
   if (!visible) {
     return <></>;
   }
@@ -127,22 +134,32 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
       position="bottomRight"
       render={
         <Dropdown.Menu>
-          <Dropdown.Item onClick={handleEditTitle}>Edit Title</Dropdown.Item>
-          {canMoveOut && <Dropdown.Item onClick={handleMoveOut}>Move out</Dropdown.Item>}
-          <Dropdown.Item onClick={handleCopy} disabled={registry.meta!.copyDisable === true}>
-            Create Copy
-          </Dropdown.Item>
-          {![WorkflowNodeType.Condition, WorkflowNodeType.Loop, WorkflowNodeType.Group].includes(registry.type as any) && (
-            <Dropdown.Item onClick={(e) => handleBreakpointToggle(e)}>
-              {isBreakpoint ? 'Clear Breakpoint' : 'Set Breakpoint'}
-            </Dropdown.Item>
+          {/* Special menu for Group nodes */}
+          {registry.type === 'group' ? (
+            <>
+              <Dropdown.Item onClick={handleUngroup}>Ungroup</Dropdown.Item>
+              <Dropdown.Item onClick={handleDelete}>Delete</Dropdown.Item>
+            </>
+          ) : (
+            <>
+              <Dropdown.Item onClick={handleEditTitle}>Edit Title</Dropdown.Item>
+              {canMoveOut && <Dropdown.Item onClick={handleMoveOut}>Move out</Dropdown.Item>}
+              <Dropdown.Item onClick={handleCopy} disabled={registry.meta!.copyDisable === true}>
+                Create Copy
+              </Dropdown.Item>
+              {![WorkflowNodeType.Condition, WorkflowNodeType.Loop].includes(registry.type as any) && (
+                <Dropdown.Item onClick={(e) => handleBreakpointToggle(e)}>
+                  {isBreakpoint ? 'Clear Breakpoint' : 'Set Breakpoint'}
+                </Dropdown.Item>
+              )}
+              <Dropdown.Item
+                onClick={handleDelete}
+                disabled={!!(registry.canDelete?.(clientContext, node) || registry.meta!.deleteDisable)}
+              >
+                Delete
+              </Dropdown.Item>
+            </>
           )}
-          <Dropdown.Item
-            onClick={handleDelete}
-            disabled={!!(registry.canDelete?.(clientContext, node) || registry.meta!.deleteDisable)}
-          >
-            Delete
-          </Dropdown.Item>
         </Dropdown.Menu>
       }
     >

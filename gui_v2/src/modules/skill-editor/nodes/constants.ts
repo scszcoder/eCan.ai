@@ -24,4 +24,5 @@ export enum WorkflowNodeType {
   PendInput = 'pend_input_node',
   Event = 'event',
   BrowserAutomation = 'browser-automation',
+  Group = 'group',
 }
