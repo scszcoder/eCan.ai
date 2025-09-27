@@ -179,6 +179,13 @@ export class IPCAPI {
         return this.executeRequest<T>('get_tools', {username, tool_ids });
     }
 
+    /**
+     * Refresh MCP tool schemas on the backend and return refreshed list
+     */
+    public async refreshToolsSchemas<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('refresh_tools_schemas', {});
+    }
+
     // public async getKnowledges<T>(username: string, knowledge_ids: string[]): Promise<APIResponse<T>> {
     //     return this.executeRequest<T>('get_knowledges', {username, knowledge_ids });
     // }
