@@ -131,3 +131,95 @@
     cursor: pointer;
     border: 3px solid;
 }
+
+/* Resize handles for Group nodes */
+.workflow-group-resize-handle {
+    position: absolute;
+    background-color: #3b82f6;
+    border: 1px solid #1d4ed8;
+    border-radius: 2px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    pointer-events: auto !important;
+    z-index: 100;
+    user-select: none;
+}
+
+.workflow-group-render.selected .workflow-group-resize-handle {
+    opacity: 1;
+}
+
+.workflow-group-resize-handle:hover {
+    background-color: #1d4ed8;
+}
+
+/* Corner resize handles */
+.workflow-group-resize-handle.corner {
+    width: 8px;
+    height: 8px;
+}
+
+.workflow-group-resize-handle.corner.nw {
+    top: -4px;
+    left: -4px;
+    cursor: nw-resize !important;
+}
+
+.workflow-group-resize-handle.corner.ne {
+    top: -4px;
+    right: -4px;
+    cursor: ne-resize !important;
+}
+
+.workflow-group-resize-handle.corner.sw {
+    bottom: -4px;
+    left: -4px;
+    cursor: sw-resize !important;
+}
+
+.workflow-group-resize-handle.corner.se {
+    bottom: -4px;
+    right: -4px;
+    cursor: se-resize !important;
+}
+
+/* Edge resize handles */
+.workflow-group-resize-handle.edge {
+    background-color: #3b82f6;
+}
+
+.workflow-group-resize-handle.edge.n {
+    top: -4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 20px;
+    height: 8px;
+    cursor: n-resize !important;
+}
+
+.workflow-group-resize-handle.edge.s {
+    bottom: -4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 20px;
+    height: 8px;
+    cursor: s-resize !important;
+}
+
+.workflow-group-resize-handle.edge.w {
+    top: 50%;
+    left: -4px;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 20px;
+    cursor: w-resize !important;
+}
+
+.workflow-group-resize-handle.edge.e {
+    top: 50%;
+    right: -4px;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 20px;
+    cursor: e-resize !important;
+}
