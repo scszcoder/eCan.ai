@@ -244,7 +244,7 @@ export class IPCAPI {
         return this.executeRequest<T>('get_llm_provider_api_key', { name, show_full: showFull });
     }
 
-    public async runTest<T>(username: string, tests: TestConfig[]): Promise<APIResponse<T>> {
+    public async runTest<T>(tests: TestConfig[]): Promise<APIResponse<T>> {
         return this.executeRequest<T>('run_tests', { tests });
     }
 
@@ -261,12 +261,12 @@ export class IPCAPI {
         return this.executeRequest<void>('save_agents', {username, agents});
     }
 
-    public async deleteAgents<T>(username: string, agent_ids: (string|number)[]): Promise<APIResponse<void>> {
+    public async deleteAgents<T>(username: string, agent_ids: (string|number)[]): Promise<APIResponse<T>> {
         // Delete multiple agents by id
-        return this.executeRequest<void>('delete_agents', { username, agent_ids });
+        return this.executeRequest<T>('delete_agents', { username, agent_ids });
     }
 
-    public async deleteAgent<T>(username: string, agent_id: string|number): Promise<APIResponse<void>> {
+    public async deleteAgent<T>(username: string, agent_id: string|number): Promise<APIResponse<T>> {
         // Convenience wrapper to delete a single agent
         return this.deleteAgents<T>(username, [agent_id]);
     }
@@ -336,12 +336,12 @@ export class IPCAPI {
         return this.executeRequest<void>('step_run_skill', {username, skill});
     }
 
-    public async setSkillBreakpoints<T>(username: string, node_name: string): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('set_skill_breakpoints', {username, node_name});
+    public async setSkillBreakpoints<T>(username: string, node_name: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('set_skill_breakpoints', {username, node_name});
     }
 
-    public async clearSkillBreakpoints<T>(username: string, node_name: string): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('clear_skill_breakpoints', {username, node_name});
+    public async clearSkillBreakpoints<T>(username: string, node_name: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('clear_skill_breakpoints', {username, node_name});
     }
 
     public async requestSkillState<T>(username: string, skill: T): Promise<APIResponse<void>> {
