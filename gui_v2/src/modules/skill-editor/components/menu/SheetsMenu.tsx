@@ -2,7 +2,6 @@ import React from 'react';
 import { Dropdown, IconButton } from '@douyinfe/semi-ui';
 import { IconFolderOpen, IconDeleteStroked, IconExit, IconPlus, IconLayers, IconSave, IconEdit } from '@douyinfe/semi-icons';
 import { useClientContext, usePlayground, WorkflowSelectService, WorkflowDocument, useService } from '@flowgram.ai/free-layout-editor';
-import { saveSheetsBundle, loadSheetsBundle } from '../../services/sheets-persistence';
 import { useSheetsStore } from '../../stores/sheets-store';
 
 /**
@@ -77,35 +76,6 @@ export const SheetsMenu: React.FC = () => {
     renameSheet(activeId, name);
   };
 
-  const handleSaveAll = async () => {
-    try {
-      // Persist the current canvas to active sheet first
-      if (ctx?.document) {
-        const json = ctx.document.toJSON();
-        saveActiveDocument(json);
-      }
-      const bundle = getAllSheets();
-      await saveSheetsBundle(bundle, 'skill-bundle');
-    } catch (e) {
-      console.error('Save All failed', e);
-      alert('Save All failed: ' + (e as Error).message);
-    }
-  };
-
-  const handleLoadBundle = async () => {
-    try {
-      const result = await loadSheetsBundle();
-      // @ts-ignore
-      if (result && !result.cancelled) {
-        // @ts-ignore
-        loadBundle(result);
-      }
-    } catch (e) {
-      console.error('Load Bundle failed', e);
-      alert('Load Bundle failed: ' + (e as Error).message);
-    }
-  };
-
   return (
     <Dropdown
       position="bottomLeft"
@@ -118,8 +88,6 @@ export const SheetsMenu: React.FC = () => {
           <Dropdown.Item icon={<IconPlus />} onClick={handleNew}>New Sheet</Dropdown.Item>
           <Dropdown.Item icon={<IconFolderOpen />} onClick={handleOpen}>Open Sheet by ID</Dropdown.Item>
           <Dropdown.Item icon={<IconEdit />} onClick={handleRename} disabled={!activeId}>Rename Active Sheet</Dropdown.Item>
-          <Dropdown.Item icon={<IconSave />} onClick={handleSaveAll}>Save All Sheets (bundle)</Dropdown.Item>
-          <Dropdown.Item icon={<IconFolderOpen />} onClick={handleLoadBundle}>Load Bundle…</Dropdown.Item>
           <Dropdown.Item icon={<IconDeleteStroked />} onClick={handleClear} disabled={!activeId}>Clear Sheet (blank)</Dropdown.Item>
           <Dropdown.Item icon={<IconExit />} onClick={handleClose} disabled={!activeId}>Close Active Sheet</Dropdown.Item>
           <Dropdown.Item icon={<IconDeleteStroked />} onClick={handleDelete} disabled={!activeId}>Delete Active Sheet</Dropdown.Item>

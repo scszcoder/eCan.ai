@@ -68,6 +68,8 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
         root.destroy()
         
         if file_path:
+            # Distinct marker for selected main json path
+            logger.info(f"[SKILL_IO][BACKEND][SELECTED_MAIN_JSON] {file_path}")
             return create_success_response(request, {
                 'filePath': file_path,
                 'fileName': os.path.basename(file_path)
@@ -100,6 +102,10 @@ def handle_show_save_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
         
         # 获取参数
         default_filename = params.get('defaultFilename', 'untitled.json') if params else 'untitled.json'
+        try:
+            logger.info(f"[SKILL_IO][BACKEND][SAVE_DIALOG_DEFAULT] {default_filename}")
+        except Exception:
+            pass
         filters = params.get('filters', []) if params else []
         file_types = []
         
@@ -117,7 +123,7 @@ def handle_show_save_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
             title="Save Skill File",
             defaultextension=".json",
             filetypes=file_types,
-            initialvalue=default_filename
+            initialfile=default_filename
         )
         
         root.destroy()
@@ -166,9 +172,12 @@ def handle_read_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]
             )
         
         file_path = data['filePath']
+        # Distinct marker for any read attempt
+        logger.info(f"[SKILL_IO][BACKEND][READ_ATTEMPT] {file_path}")
         
         # 安全检查：确保文件存在
         if not os.path.exists(file_path):
+            logger.warning(f"[SKILL_IO][BACKEND][READ_NOT_FOUND] {file_path}")
             return create_error_response(
                 request,
                 'FILE_NOT_FOUND',
@@ -191,11 +200,13 @@ def handle_read_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]
             # 验证 JSON 格式
             json.loads(content)  # 验证是否为有效 JSON
             
+            size = os.path.getsize(file_path)
+            logger.info(f"[SKILL_IO][BACKEND][READ_OK] {file_path} size={size}")
             return create_success_response(request, {
                 'content': content,
                 'filePath': file_path,
                 'fileName': os.path.basename(file_path),
-                'fileSize': os.path.getsize(file_path)
+                'fileSize': size
             })
             
         except json.JSONDecodeError as e:
@@ -265,9 +276,16 @@ def handle_write_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]
         
         # 写入文件
         try:
+            # Distinct write attempt marker with byte length
+            try:
+                byte_len = len(content.encode('utf-8')) if isinstance(content, str) else len(json.dumps(content, ensure_ascii=False).encode('utf-8'))
+            except Exception:
+                byte_len = -1
+            logger.info(f"[SKILL_IO][BACKEND][WRITE_ATTEMPT] {file_path} bytes={byte_len}")
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
-            
+            size = os.path.getsize(file_path)
+            logger.info(f"[SKILL_IO][BACKEND][WRITE_OK] {file_path} size={size}")
             return create_success_response(request, {
                 'filePath': file_path,
                 'fileName': os.path.basename(file_path),
@@ -276,6 +294,7 @@ def handle_write_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]
             })
             
         except IOError as e:
+            logger.error(f"[SKILL_IO][BACKEND][WRITE_ERROR] {file_path} {str(e)}")
             return create_error_response(
                 request,
                 'WRITE_ERROR',
