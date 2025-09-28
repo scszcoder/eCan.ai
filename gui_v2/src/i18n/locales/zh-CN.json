@@ -100,7 +100,9 @@
       "tasks": "任务",
       "title": "标题",
       "updated_data_from_api": "从API更新数据",
-      "vehicle": "电脑"
+      "vehicle": "电脑",
+      "unassigned_agents": "未分配代理",
+      "unassigned_agents_desc": "没有归属组织的代理"
     },
     "analytics": {
       "activeAgents": "活跃代理",
@@ -537,6 +539,8 @@
         "title": "代理列表",
         "allLeafAgents": "所有子部门的代理"
       },
+      "direct_agents": "直属代理",
+      "direct_agents_desc": "该组织的直属代理",
       "confirm": {
         "delete": "确认删除此组织？",
         "unbind": "确认解绑此代理？"
@@ -595,7 +599,7 @@
       "placeholder": {
         "noAgents": "暂无代理",
         "noAvailableAgents": "暂无可用代理",
-        "selectOrg": "请选择组织"
+        "selectOrg": "请选择一个组织查看详情"
       },
       "binding": {
         "bound": "已绑定",
@@ -608,8 +612,8 @@
         "archived": "已归档"
       },
       "tooltip": {
-        "chat": "聊天",
-        "unbind": "解绑"
+        "chat": "与代理聊天",
+        "unbind": "解绑代理"
       },
       "tree": {
         "title": "组织架构"

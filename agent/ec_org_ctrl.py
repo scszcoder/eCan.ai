@@ -776,7 +776,7 @@ class EC_OrgCtrl:
 # Global instance for easy access
 ec_org_ctrl = None
 
-def get_org_manager(user: str = None, ec_db_mgr=None) -> EC_OrgCtrl:
+def get_ec_org_ctrl(user: str = None, ec_db_mgr=None) -> EC_OrgCtrl:
     """
     Get global org controller instance
 

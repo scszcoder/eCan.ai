@@ -174,6 +174,10 @@ export class IPCAPI {
         return this.executeRequest<T>('get_all', { username });
     }
 
+    public async getAllOrgAgents<T>(username: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_all_org_agents', { username });
+    }
+    
     public async getAgents<T>(username: string, skill_ids: string[]): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_agents', { username, skill_ids });
     }

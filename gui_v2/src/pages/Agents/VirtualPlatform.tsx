@@ -1,9 +1,14 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import departments from './data/departments';
+import { Spin, Alert } from 'antd';
+import { useTranslation } from 'react-i18next';
 import Door from './components/Door';
 import './VirtualPlatform.css';
-import { useTranslation } from 'react-i18next';
+import { useOrgStore } from '../../stores/orgStore';
+import { useUserStore } from '../../stores/userStore';
+import { get_ipc_api } from '@/services/ipc_api';
+import { DisplayNode, GetAllOrgAgentsResponse } from '../Orgs/types';
+import { logger } from '@/utils/logger';
 
 function getGridTemplate(deptCount: number) {
   // 2~4个门：2列，5~6个：3列，7~9个：3列，10+：4列
@@ -21,25 +26,192 @@ const satelliteDots = [
 ];
 
 const VirtualPlatform: React.FC = () => {
-  const deptCount = departments.length;
-  // 使用 useMemo 缓存计算结果，避免每次渲染重新计算
-  const gridTemplate = useMemo(() => getGridTemplate(deptCount), [deptCount]);
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const username = useUserStore((state) => state.username);
+  
+  // Organization store
+  const { 
+    displayNodes, 
+    loading, 
+    error, 
+    setAllOrgAgents, 
+    setLoading, 
+    setError, 
+    shouldFetchData 
+  } = useOrgStore();
 
-  // 使用 useCallback 缓存导航函数，避免每次渲染创建新函数
-  const handleDoorClick = useCallback((deptId: string) => {
-    navigate(`/agents/room/${deptId}`); // Navigate to nested route
+  const itemCount = displayNodes.length;
+  // 使用 useMemo 缓存计算结果，避免每次渲染重新计算
+  const gridTemplate = useMemo(() => getGridTemplate(itemCount), [itemCount]);
+
+  // Fetch organization structure data (组织架构 + Agent 数据)
+  const fetchOrgStructure = useCallback(async () => {
+    if (!username || !shouldFetchData()) return;
+
+    setLoading(true);
+    setError(null);
+    
+    try {
+      logger.info('[VirtualPlatform] Fetching organization structure...');
+      // 调用新的整合接口 getAllOrgAgents
+      const response = await get_ipc_api().getAllOrgAgents<GetAllOrgAgentsResponse>(username);
+      
+      if (response.success && response.data) {
+        setAllOrgAgents(response.data);
+        
+        // 从树形结构中统计 agents 数量
+        const countAgentsInTree = (node: any): { assigned: number, unassigned: number } => {
+          let assigned = 0;
+          let unassigned = 0;
+          
+          // 统计当前节点的 agents
+          if (node.agents) {
+            node.agents.forEach((agent: any) => {
+              if (agent.org_id) {
+                assigned++;
+              } else {
+                unassigned++;
+              }
+            });
+          }
+          
+          // 递归统计子节点的 agents
+          if (node.children) {
+            node.children.forEach((child: any) => {
+              const childCounts = countAgentsInTree(child);
+              assigned += childCounts.assigned;
+              unassigned += childCounts.unassigned;
+            });
+          }
+          
+          return { assigned, unassigned };
+        };
+        
+        const { assigned: assignedCount, unassigned: unassignedCount } = countAgentsInTree(response.data.orgs);
+        logger.info(`[VirtualPlatform] Successfully loaded tree structure with ${assignedCount} assigned agents, ${unassignedCount} unassigned agents`);
+      } else {
+        const errorMsg = response.error?.message || 'Failed to fetch organization structure';
+        setError(errorMsg);
+        logger.error('[VirtualPlatform] Failed to fetch organization structure:', errorMsg);
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      logger.error('[VirtualPlatform] Error fetching organization structure:', errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  }, [username, shouldFetchData, setAllOrgAgents, setLoading, setError]);
+
+  // Load organization structure on component mount
+  useEffect(() => {
+    fetchOrgStructure();
+  }, [fetchOrgStructure]);
+
+  // 处理不同类型的点击事件
+  const handleNodeClick = useCallback((node: DisplayNode) => {
+    if (node.type === 'org_with_children') {
+      // 有子节点的组织：进入子级页面（将来实现层级导航）
+      navigate(`/agents/room/${node.id}`);
+    } else if (node.type === 'org_with_agents') {
+      // 有 Agent 的组织：查看该组织的 Agent 列表
+      navigate(`/agents/room/${node.id}`);
+    } else if (node.type === 'unassigned_agents') {
+      // 未分配的 Agent：查看未分配 Agent 列表
+      navigate(`/agents/room/unassigned`);
+    }
   }, [navigate]);
 
   // 使用 useMemo 缓存门组件的渲染，避免每次重新创建
   const doorComponents = useMemo(() => {
-    return departments.map((dept) => (
-      <div key={dept.id} onClick={() => handleDoorClick(dept.id)} style={{cursor: 'pointer'}}>
-        <Door name={t(dept.name)} />
+    return displayNodes.map((node, index) => {
+      // 处理国际化键翻译
+      let displayName = node.name;
+      
+      // 如果是国际化键，进行翻译
+      if (node.name.startsWith('pages.')) {
+        displayName = t(node.name) || node.name;
+      }
+      
+      // 根据节点类型添加后缀
+      if (node.type === 'org_with_agents' && node.agentCount) {
+        displayName = `${displayName} (${node.agentCount})`;
+      } else if (node.type === 'unassigned_agents') {
+        displayName = `${displayName} (${node.agentCount || 0})`;
+      }
+      
+      return (
+        <div 
+          key={`${node.type}-${node.id}-${index}`} 
+          onClick={() => handleNodeClick(node)} 
+          style={{cursor: 'pointer'}}
+        >
+          <Door 
+            name={displayName}
+          />
+        </div>
+      );
+    });
+  }, [displayNodes, handleNodeClick, t]);
+
+  // Show loading state
+  if (loading && displayNodes.length === 0) {
+    return (
+      <div className="virtual-platform">
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          height: '100%',
+          flexDirection: 'column',
+          gap: '16px'
+        }}>
+          <Spin size="large" />
+          <div style={{ color: 'var(--ant-color-text-secondary)' }}>
+            Loading organizations...
+          </div>
+        </div>
       </div>
-    ));
-  }, [departments, handleDoorClick, t]);
+    );
+  }
+
+  // Show error state
+  if (error && displayNodes.length === 0) {
+    return (
+      <div className="virtual-platform">
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          height: '100%',
+          padding: '20px'
+        }}>
+          <Alert
+            message="Failed to load organizations"
+            description={error}
+            type="error"
+            showIcon
+            action={
+              <button 
+                onClick={fetchOrgStructure}
+                style={{
+                  background: 'var(--ant-primary-color)',
+                  color: 'white',
+                  border: 'none',
+                  padding: '4px 12px',
+                  borderRadius: '4px',
+                  cursor: 'pointer'
+                }}
+              >
+                Retry
+              </button>
+            }
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="virtual-platform">

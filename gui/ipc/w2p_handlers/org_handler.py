@@ -12,7 +12,7 @@ from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
-from agent.ec_org_ctrl import get_org_manager
+from agent.ec_org_ctrl import get_ec_org_ctrl
 
 
 @IPCHandlerRegistry.handler('get_orgs')
@@ -47,15 +47,15 @@ def handle_get_orgs(request: IPCRequest, params: Optional[list[Any]]) -> IPCResp
         logger.info(f"[organizations_handler] Getting organizations for user: {username}")
         
         # Get org manager
-        org_manager = get_org_manager(username)
+        ec_org_ctrl = get_ec_org_ctrl(username)
         
         # Load org template if needed (for new users)
-        template_result = org_manager.load_org_template()
+        template_result = ec_org_ctrl.load_org_template()
         if not template_result.get("success") and template_result.get("created_count", 0) == 0:
             logger.info(f"[organizations_handler] Template loading result: {template_result.get('message', 'No template loaded')}")
         
         # Get org tree
-        result = org_manager.get_org_tree()
+        result = ec_org_ctrl.get_org_tree()
         
         if result.get("success"):
             logger.info(f"[organizations_handler] Successfully retrieved organizations for user: {username}")
@@ -108,7 +108,7 @@ def handle_create_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         logger.info(f"[organizations_handler] Creating organization '{name}' for user: {username}")
         
         # Get org manager
-        org_manager = get_org_manager(username)
+        ec_org_ctrl = get_ec_org_ctrl(username)
         
         # Create organization data
         org_data = {
@@ -121,7 +121,7 @@ def handle_create_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         }
         
         # Create org
-        result = org_manager.create_org(org_data=org_data)
+        result = ec_org_ctrl.create_org(org_data=org_data)
         
         if result.get("success"):
             logger.info(f"[organizations_handler] Successfully created organization '{name}'")
@@ -171,13 +171,13 @@ def handle_update_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         logger.info(f"[organizations_handler] Updating organization {organization_id} for user: {username}")
         
         # Get org manager
-        org_manager = get_org_manager(username)
+        ec_org_ctrl = get_ec_org_ctrl(username)
         
         # Prepare update fields (exclude username and organization_id)
         update_fields = {k: v for k, v in data.items() if k not in ['username', 'organization_id']}
         
         # Update org
-        result = org_manager.update_org(organization_id, update_fields)
+        result = ec_org_ctrl.update_org(organization_id, update_fields)
         
         if result.get("success"):
             logger.info(f"[organizations_handler] Successfully updated organization {organization_id}")
@@ -227,10 +227,10 @@ def handle_delete_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         logger.info(f"[organizations_handler] Deleting organization {organization_id} for user: {username}")
         
         # Get org manager
-        org_manager = get_org_manager(username)
+        ec_org_ctrl = get_ec_org_ctrl(username)
         
         # Delete org
-        result = org_manager.delete_org(organization_id)
+        result = ec_org_ctrl.delete_org(organization_id)
         
         if result.get("success"):
             logger.info(f"[organizations_handler] Successfully deleted organization {organization_id}")
@@ -280,10 +280,10 @@ def handle_get_org_agents(request: IPCRequest, params: Optional[list[Any]]) -> I
         logger.info(f"[organizations_handler] Getting agents for organization {organization_id}, user: {username}, include_descendants: {include_descendants}")
 
         # Get org manager
-        org_manager = get_org_manager(username)
+        ec_org_ctrl = get_ec_org_ctrl(username)
 
         # Get org agents with descendants option
-        result = org_manager.get_org_agents(organization_id, include_descendants)
+        result = ec_org_ctrl.get_org_agents(organization_id, include_descendants)
         
         if result.get("success"):
             logger.info(f"[organizations_handler] Successfully retrieved agents for organization {organization_id}")
@@ -334,10 +334,10 @@ def handle_bind_agent_to_org(request: IPCRequest, params: Optional[list[Any]]) -
         logger.info(f"[organizations_handler] Binding agent {agent_id} to organization {organization_id}, user: {username}")
         
         # Get org manager
-        org_manager = get_org_manager(username)
+        ec_org_ctrl = get_ec_org_ctrl(username)
         
         # Bind agent to org
-        result = org_manager.bind_agent_to_org(agent_id, organization_id)
+        result = ec_org_ctrl.bind_agent_to_org(agent_id, organization_id)
         
         if result.get("success"):
             logger.info(f"[organizations_handler] Successfully bound agent {agent_id} to organization {organization_id}")
@@ -386,10 +386,10 @@ def handle_unbind_agent_from_org(request: IPCRequest, params: Optional[list[Any]
         logger.info(f"[organizations_handler] Unbinding agent {agent_id} from organization, user: {username}")
         
         # Get org manager
-        org_manager = get_org_manager(username)
+        ec_org_ctrl = get_ec_org_ctrl(username)
         
         # Unbind agent from org
-        result = org_manager.unbind_agent_from_org(agent_id)
+        result = ec_org_ctrl.unbind_agent_from_org(agent_id)
         
         if result.get("success"):
             logger.info(f"[organizations_handler] Successfully unbound agent {agent_id} from organization")
@@ -438,10 +438,10 @@ def handle_get_available_agents_for_binding(request: IPCRequest, params: Optiona
         logger.info(f"[organizations_handler] Getting available agents for binding, user: {username}")
         
         # Get org manager
-        org_manager = get_org_manager(username)
+        ec_org_ctrl = get_ec_org_ctrl(username)
         
         # Get available agents
-        result = org_manager.get_available_agents(org_id=organization_id)
+        result = ec_org_ctrl.get_available_agents(org_id=organization_id)
         
         if result.get("success"):
             logger.info(f"[organizations_handler] Successfully retrieved available agents for binding")

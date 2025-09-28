@@ -148,7 +148,7 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
                 onBindAgents={onBindAgents}
                 onUnbindAgent={onUnbindAgent}
                 onChatWithAgent={onChatWithAgent}
-                title={t('org.agents.allLeafAgents', '所有子部门的Agent')}
+                title={t('pages.org.agents.allLeafAgents') || '所有子部门的代理'}
               />
             </div>
           ) : (

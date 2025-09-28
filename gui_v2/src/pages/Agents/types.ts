@@ -45,4 +45,4 @@ export const updateAgentsGUI = (data: Agent[]) => {
 };
 
 // 导出事件总线供组件使用
-export { agentsEventBus }; 
+export { agentsEventBus };

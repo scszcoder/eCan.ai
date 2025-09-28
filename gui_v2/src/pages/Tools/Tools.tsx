@@ -4,7 +4,8 @@ import { ReloadOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import ActionButtons from '../../components/Common/ActionButtons';
 import { useUserStore } from '../../stores/userStore';
-import { useToolStore, Tool } from '../../stores/toolStore';
+import { useToolStore } from '../../stores/toolStore';
+import { Tool } from './types';
 import ToolsList from './ToolsList';
 import ToolDetail from './ToolDetail';
 import DetailLayout from '../../components/Layout/DetailLayout';
@@ -41,6 +42,14 @@ const Tools: React.FC = () => {
     } catch {}
   }, [selectedTool]);
 
+  // Auto-load tools when component mounts or username changes
+  useEffect(() => {
+    if (username && tools.length === 0 && !loading) {
+      console.log('[Tools] Auto-loading tools for user:', username);
+      fetchTools(username).catch(console.error);
+    }
+  }, [username, tools.length, loading, fetchTools]);
+
   useEffect(() => {
     if (tools.length > 0 && !selectedTool) {
       setSelectedTool(tools[0]);
@@ -49,6 +58,7 @@ const Tools: React.FC = () => {
 
   const handleRefresh = useCallback(async () => {
     if (username) {
+      console.log('[Tools] Manual refresh triggered');
       await fetchTools(username);
     }
   }, [username, fetchTools]);

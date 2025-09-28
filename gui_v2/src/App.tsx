@@ -13,9 +13,7 @@ import 'antd/dist/reset.css';
 import './index.css';
 import { set_ipc_api } from './services/ipc_api';
 import { createIPCAPI } from './services/ipc';
-import { IPCAPI } from './services/ipc';
 import { protocolHandler } from './pages/Chat/utils/protocolHandler';
-import { useToolStore } from './stores/toolStore';
 import { useUserStore } from './stores/userStore';
 import { logoutManager } from './services/LogoutManager';
 import { initializePlatform } from './config/platform';
@@ -86,8 +84,6 @@ const renderRoutes = (routes: RouteConfig[]) => {
 const AppContent = () => {
     const { theme: currentTheme } = useTheme();
     const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    const { fetchTools } = useToolStore();
-    const username = useUserStore((state) => state.username);
 
     // Note: avoid immediate fetch on username to prevent racing backend init; we poll readiness below
 
@@ -106,12 +102,7 @@ const AppContent = () => {
                         logger.debug('[App] User state cleared');
                     }
 
-                    // 清理工具状态
-                    const toolStore = useToolStore.getState();
-                    if (toolStore && typeof toolStore.clearTools === 'function') {
-                        toolStore.clearTools();
-                        logger.debug('[App] Tool state cleared');
-                    }
+                    // 工具状态清理已移至 Tools 页面按需处理
 
                     logger.info('[App] App cleanup completed');
                 } catch (error) {
@@ -122,85 +113,8 @@ const AppContent = () => {
         });
     }, []);
 
-    // Wait for backend to be fully ready before attempting to fetch tools schemas to avoid races
-    React.useEffect(() => {
-        if (!username) return;
-
-        let cancelled = false;
-        let timer: number | undefined;
-
-        const pollReadyAndFetch = async () => {
-            try {
-                const api = IPCAPI.getInstance();
-                const start = Date.now();
-                const timeoutMs = 60_000; // 60s max wait
-                const intervalMs = 1000; // 1s interval
-
-                // quick check first
-                const first = await api.getInitializationProgress();
-                if (first.success && first.data?.fully_ready) {
-                    if (!cancelled) {
-                        await fetchTools(username);
-                        // If still empty, force a backend refresh then refetch
-                        try {
-                            const toolsNow = (useToolStore as any).getState?.().tools || [];
-                            if (!cancelled && (!Array.isArray(toolsNow) || toolsNow.length === 0)) {
-                                console.warn('[App] Tools empty after ready; attempting backend refresh of tool schemas');
-                                await api.refreshToolsSchemas();
-                                if (!cancelled) await fetchTools(username);
-                            }
-                        } catch (e) {
-                            console.warn('[App] Could not verify tools state or refresh schemas:', e);
-                        }
-                    }
-                    return;
-                }
-
-                const tick = async (): Promise<void> => {
-                    if (cancelled) return;
-                    const resp = await api.getInitializationProgress();
-                    if (resp.success && resp.data?.fully_ready) {
-                        if (!cancelled) {
-                            await fetchTools(username);
-                            try {
-                                const toolsNow = (useToolStore as any).getState?.().tools || [];
-                                if (!cancelled && (!Array.isArray(toolsNow) || toolsNow.length === 0)) {
-                                    console.warn('[App] Tools empty after ready; attempting backend refresh of tool schemas');
-                                    await api.refreshToolsSchemas();
-                                    if (!cancelled) await fetchTools(username);
-                                }
-                            } catch (e) {
-                                console.warn('[App] Could not verify tools state or refresh schemas:', e);
-                            }
-                        }
-                        return;
-                    }
-                    if (Date.now() - start > timeoutMs) {
-                        console.warn('[App] Backend not fully ready within timeout; proceeding to fetch tools anyway');
-                        if (!cancelled) await fetchTools(username);
-                        return;
-                    }
-                    timer = window.setTimeout(() => { tick().catch(console.error); }, intervalMs);
-                };
-
-                timer = window.setTimeout(() => { tick().catch(console.error); }, intervalMs);
-            } catch (e) {
-                console.error('[App] Error polling initialization progress:', e);
-                // best effort fetch
-                if (!cancelled) fetchTools(username).catch(console.error);
-            }
-        };
-
-        pollReadyAndFetch().catch(console.error);
-
-        return () => {
-            cancelled = true;
-            if (timer) {
-                window.clearTimeout(timer);
-                timer = null;
-            }
-        };
-    }, [username, fetchTools]);
+    // Tools are now loaded on-demand when accessing Tools page or skill editor
+    // This improves startup performance by removing unnecessary preloading
 
     return (
         <ConfigProvider

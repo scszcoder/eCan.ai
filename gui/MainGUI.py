@@ -684,13 +684,13 @@ class MainWindow:
     def _load_organization_template(self):
         """Load default organization structure from template"""
         try:
-            from agent.ec_org_ctrl import get_org_manager
+            from agent.ec_org_ctrl import get_ec_org_ctrl
             
             # Get org manager (use existing database manager to avoid conflicts)
-            org_manager = get_org_manager(self.log_user, self.ec_db_mgr)
+            ec_org_ctrl = get_ec_org_ctrl(self.log_user, self.ec_db_mgr)
             
             # Load org template using the controller
-            result = org_manager.load_org_template()
+            result = ec_org_ctrl.load_org_template()
             
             if result.get("success"):
                 created_count = result.get("created_count", 0)

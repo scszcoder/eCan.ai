@@ -5,6 +5,106 @@ from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
+from agent.ec_org_ctrl import get_ec_org_ctrl
+
+
+def build_org_agent_tree(organizations, agents):
+    """
+    Build tree structure with organization and agent data integrated
+    
+    Args:
+        organizations: List of organization data from ec_org_ctrl
+        agents: List of agent data with org_id field
+        
+    Returns:
+        dict: Tree structure with integrated organization and agent data
+    """
+    # Create agent lookup by org_id for efficient access
+    agents_by_org = {}
+    unassigned_agents = []
+    
+    for agent in agents:
+        org_id = agent.get('org_id')
+        if org_id:
+            if org_id not in agents_by_org:
+                agents_by_org[org_id] = []
+            agents_by_org[org_id].append(agent)
+        else:
+            unassigned_agents.append(agent)
+    
+    # Find root organization (parent_id is None or empty)
+    root_org = None
+    child_orgs = []
+    
+    for org in organizations:
+        if not org.get('parent_id'):
+            root_org = org
+        else:
+            child_orgs.append(org)
+    
+    # If no root found, create a default one
+    if not root_org:
+        root_org = {
+            'id': 'root',
+            'name': 'eCan.ai',
+            'description': '根组织',
+            'org_type': 'company',
+            'level': 0,
+            'sort_order': 0,
+            'status': 'active'
+        }
+        logger.info("[agent_handler] No root organization found, using default root")
+    
+    # Build tree structure recursively
+    def build_tree_node(org_data, all_orgs):
+        """Build a single tree node with its children and agents"""
+        node = {
+            'id': org_data['id'],
+            'name': org_data['name'],
+            'description': org_data.get('description', ''),
+            'org_type': org_data.get('org_type', 'department'),
+            'level': org_data.get('level', 0),
+            'sort_order': org_data.get('sort_order', 0),
+            'status': org_data.get('status', 'active'),
+            'parent_id': org_data.get('parent_id'),
+            'created_at': org_data.get('created_at'),
+            'updated_at': org_data.get('updated_at'),
+            'children': [],
+            'agents': agents_by_org.get(org_data['id'], [])  # Agents belonging to this org
+        }
+        
+        # Find child organizations from ALL organizations, not just child_orgs
+        child_orgs_list = [org for org in all_orgs if org.get('parent_id') == org_data['id']]
+        for child_org in child_orgs_list:
+            child_node = build_tree_node(child_org, all_orgs)
+            node['children'].append(child_node)
+        
+        # Sort children by sort_order and name
+        node['children'].sort(key=lambda x: (x['sort_order'], x['name']))
+        
+        return node
+    
+    # Build the complete tree starting from root, pass ALL organizations for recursive lookup
+    tree_root = build_tree_node(root_org, organizations)
+    
+    # Add unassigned agents to root level
+    tree_root['agents'].extend(unassigned_agents)
+    
+    # Debug: detailed tree structure logging
+    def log_tree_structure(node, indent=0):
+        prefix = "  " * indent
+        logger.info(f"{prefix}- {node['name']} (id: {node['id']}) - {len(node.get('agents', []))} agents, {len(node.get('children', []))} children")
+        for child in node.get('children', []):
+            log_tree_structure(child, indent + 1)
+    
+    logger.info(f"[agent_handler] Built integrated tree structure:")
+    logger.info(f"  - Total organizations processed: {len(organizations)}")
+    logger.info(f"  - Unassigned agents: {len(unassigned_agents)}")
+    logger.info(f"Tree structure:")
+    log_tree_structure(tree_root)
+    
+    return tree_root
+
 
 @IPCHandlerRegistry.handler('get_agents')
 def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
@@ -245,3 +345,170 @@ def handle_new_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
             'LOGIN_ERROR',
             f"Error during create agents: {str(e)}"
         )
+
+
+@IPCHandlerRegistry.handler('get_all_org_agents')
+def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
+    """
+    Get all organizations and their associated agents in a single request
+    
+    This is an optimized endpoint that returns:
+    - All organizations in a hierarchical structure
+    - All agents that belong to organizations (org_agents)
+    - All agents that don't belong to any organization (unassigned_agents)
+    
+    Args:
+        request: IPC request object
+        params: Request parameters with username
+    
+    Returns:
+        IPCResponse: Response with integrated organization and agent data
+    """
+    try:
+        logger.debug(f"[agent_handler] get_all_org_agents called with request: {request}")
+        
+        # Validate required parameters
+        is_valid, data, error = validate_params(request.get('params'), ['username'])
+        if not is_valid:
+            logger.warning(f"[agent_handler] Invalid parameters for get_all_org_agents: {error}")
+            return create_error_response(
+                request_id=request['id'],
+                method=request['method'],
+                error_code='INVALID_PARAMS',
+                error_message=error
+            )
+
+        username = data['username']
+        logger.info(f"[agent_handler] Getting all organizations and agents for user: {username}")
+        
+        # Get main window for agents data
+        main_window = AppContext.get_main_window()
+        if main_window is None:
+            logger.warning(f"[agent_handler] MainWindow not available for user: {username}")
+            return create_error_response(request, 'MAIN_WINDOW_ERROR', 'User session not available - please login again')
+        
+        # Get all agents from main window
+        all_agents = getattr(main_window, 'agents', []) or []
+        logger.info(f"[agent_handler] Retrieved {len(all_agents)} total agents from main window")
+        
+        # Get org manager for organization data
+        ec_org_ctrl = get_ec_org_ctrl(username)
+        
+        # Get all organizations as flat list (not tree structure)
+        org_result = ec_org_ctrl.org_service.get_all_orgs()
+        
+        if not org_result.get("success"):
+            logger.error(f"[agent_handler] Failed to get organizations: {org_result.get('error')}")
+            return create_error_response(request, 'GET_ORGANIZATIONS_FAILED', org_result.get('error', 'Unknown error'))
+        
+        organizations = org_result.get("data", [])
+        logger.info(f"[agent_handler] Retrieved {len(organizations)} organizations from flat list")
+        
+        # Debug: detailed logging to understand why organizations might be empty
+        logger.info(f"[agent_handler] org_result full response: {org_result}")
+        logger.info(f"[agent_handler] org_service type: {type(ec_org_ctrl.org_service)}")
+        
+        # Debug: log organization structure
+        if organizations:
+            logger.info("[agent_handler] Organization details:")
+            for org in organizations:
+                logger.info(f"  - Org: {org.get('name', 'Unknown')} (id: {org.get('id')}, parent_id: {org.get('parent_id')})")
+        else:
+            logger.error("[agent_handler] No organizations found in database!")
+            logger.error(f"[agent_handler] Database query result: success={org_result.get('success')}, data={org_result.get('data')}, error={org_result.get('error')}")
+            
+            # Check if the service is properly initialized
+            try:
+                # Check database service initialization
+                if hasattr(ec_org_ctrl.org_service, 'session_scope'):
+                    logger.info("[agent_handler] Database service appears to be initialized")
+                    
+                    # Try to check if table exists and has data
+                    try:
+                        with ec_org_ctrl.org_service.session_scope() as session:
+                            from agent.db.models.org_model import DBAgentOrg
+                            
+                            # Check if table exists by trying to count records
+                            count = session.query(DBAgentOrg).count()
+                            logger.info(f"[agent_handler] Found {count} organizations in agent_orgs table")
+                            
+                            if count == 0:
+                                logger.warning("[agent_handler] agent_orgs table is empty - this explains why children is empty")
+                                logger.warning("[agent_handler] You may need to check if organization template was loaded during initialization")
+                            else:
+                                # If there are records, let's see what they look like
+                                sample_orgs = session.query(DBAgentOrg).limit(3).all()
+                                logger.info("[agent_handler] Sample organizations from database:")
+                                for org in sample_orgs:
+                                    logger.info(f"  - {org.name} (id: {org.id}, parent_id: {org.parent_id})")
+                                    
+                    except Exception as db_e:
+                        logger.error(f"[agent_handler] Error checking database table: {db_e}")
+                        
+                else:
+                    logger.error("[agent_handler] Database service not properly initialized - missing session_scope")
+                    
+            except Exception as debug_e:
+                logger.error(f"[agent_handler] Error during debugging: {debug_e}")
+        
+        # Process all agents with org_id field to indicate assignment
+        agents = []
+        
+        for agent in all_agents:
+            try:
+                # Convert agent to dict format
+                agent_dict = agent.to_dict() if hasattr(agent, 'to_dict') else agent
+                
+                # Check if agent has organization assignment
+                org_id = None
+                
+                # Try different ways to get org_id
+                if hasattr(agent, 'organization_id') and agent.organization_id:
+                    org_id = agent.organization_id
+                elif hasattr(agent, 'organizations') and agent.organizations:
+                    org_id = agent.organizations[0] if isinstance(agent.organizations, list) else agent.organizations
+                elif isinstance(agent_dict, dict):
+                    org_id = agent_dict.get('organization_id') or (
+                        agent_dict.get('organizations', [None])[0] if agent_dict.get('organizations') else None
+                    )
+                
+                # Create agent data with org_id field (null for unassigned)
+                agent_data = {
+                    'id': agent_dict.get('id') or (agent_dict.get('card', {}).get('id') if agent_dict.get('card') else None),
+                    'name': agent_dict.get('name') or (agent_dict.get('card', {}).get('name') if agent_dict.get('card') else 'Unknown'),
+                    'description': agent_dict.get('description') or agent_dict.get('job_description', ''),
+                    'avatar': agent_dict.get('avatar'),
+                    'status': agent_dict.get('status', 'active'),
+                    'org_id': org_id,  # null for unassigned, org_id for assigned
+                    'created_at': agent_dict.get('created_at'),
+                    'updated_at': agent_dict.get('updated_at'),
+                    'capabilities': agent_dict.get('capabilities', [])
+                }
+                
+                agents.append(agent_data)
+                    
+            except Exception as e:
+                logger.warning(f"[agent_handler] Error processing agent {getattr(agent, 'id', 'unknown')}: {e}")
+                continue
+        
+        # Count assigned vs unassigned for logging
+        assigned_count = len([a for a in agents if a['org_id']])
+        unassigned_count = len([a for a in agents if not a['org_id']])
+        logger.info(f"[agent_handler] Processed {len(agents)} total agents: {assigned_count} assigned, {unassigned_count} unassigned")
+        
+        # Build integrated tree structure with organizations and their agents
+        tree_root = build_org_agent_tree(organizations, agents)
+        
+        # Return complete tree structure with root as orgs
+        result_data = {
+            'orgs': tree_root,  # Complete tree structure: root with children and agents
+            'message': 'Successfully retrieved integrated organizations and agents tree'
+        }
+        
+        logger.info(f"[agent_handler] Successfully retrieved integrated data for user: {username}")
+        return create_success_response(request, result_data)
+        
+    except Exception as e:
+        logger.error(f"[agent_handler] Error in get_all_org_agents: {e}")
+        logger.error(traceback.format_exc())
+        return create_error_response(request, 'GET_ALL_ORG_AGENTS_ERROR', str(e))
