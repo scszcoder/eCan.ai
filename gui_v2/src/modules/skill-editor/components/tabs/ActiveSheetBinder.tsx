@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useClientContext } from '@flowgram.ai/free-layout-editor';
+import { useClientContext, usePlayground, usePlaygroundTools } from '@flowgram.ai/free-layout-editor';
 import { useSheetsStore } from '../../stores/sheets-store';
 import blankFlowData from '../../data/blank-flow.json';
 
@@ -10,10 +10,14 @@ import blankFlowData from '../../data/blank-flow.json';
  */
 export const ActiveSheetBinder = () => {
   const ctx = useClientContext();
+  const playground = usePlayground();
+  const tools = usePlaygroundTools();
   const activeSheetId = useSheetsStore((s) => s.activeSheetId);
   const getActiveDocument = useSheetsStore((s) => s.getActiveDocument);
   const saveActiveDocument = useSheetsStore((s) => s.saveActiveDocument);
   const revision = useSheetsStore((s) => s.revision);
+  const saveActiveViewState = useSheetsStore((s) => s.saveActiveViewState);
+  const getActiveViewState = useSheetsStore((s) => s.getActiveViewState);
 
   const lastSheetIdRef = useRef<string | null>(null);
 
@@ -29,6 +33,12 @@ export const ActiveSheetBinder = () => {
       } catch (e) {
         /* noop */
       }
+      // Save current zoom as view state
+      try {
+        if (typeof tools.zoom === 'number') {
+          saveActiveViewState({ zoom: tools.zoom });
+        }
+      } catch {}
     }
 
     // Load active sheet document into editor
@@ -40,8 +50,17 @@ export const ActiveSheetBinder = () => {
     if (docToLoad) {
       ctx.document.fromJSON(docToLoad);
     }
-    // Fit to view to make switch obvious
-    (ctx.document as any).fitView && (ctx.document as any).fitView();
+    // Restore view state (zoom) if available, otherwise fit view
+    try {
+      const view = getActiveViewState();
+      if (view?.zoom && playground?.config?.updateZoom) {
+        playground.config.updateZoom(view.zoom);
+      } else {
+        (ctx.document as any).fitView && (ctx.document as any).fitView();
+      }
+    } catch {
+      (ctx.document as any).fitView && (ctx.document as any).fitView();
+    }
 
     lastSheetIdRef.current = activeSheetId ?? null;
   }, [activeSheetId, revision, ctx, getActiveDocument, saveActiveDocument]);

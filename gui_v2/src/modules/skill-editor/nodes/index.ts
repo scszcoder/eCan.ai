@@ -25,6 +25,9 @@ import { ChatNodeRegistry } from './chat';
 import { PendInputNodeRegistry } from './pend-input';
 import { EventNodeRegistry } from './event';
 import { BrowserAutomationNodeRegistry } from './browser-automation';
+import { SheetCallNodeRegistry } from './sheet-call';
+import { SheetInputsNodeRegistry } from './sheet-inputs';
+import { SheetOutputsNodeRegistry } from './sheet-outputs';
 export { WorkflowNodeType } from './constants';
 
 export const nodeRegistries: FlowNodeRegistry[] = [
@@ -49,4 +52,7 @@ export const nodeRegistries: FlowNodeRegistry[] = [
   PendInputNodeRegistry,
   EventNodeRegistry,
   BrowserAutomationNodeRegistry,
+  SheetCallNodeRegistry,
+  SheetInputsNodeRegistry,
+  SheetOutputsNodeRegistry,
 ];

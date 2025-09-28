@@ -1,0 +1,76 @@
+{
+  "version": 2,
+  "mainSheetId": "main",
+  "activeSheetId": "main",
+  "openTabs": ["main", "subA"],
+  "sheets": [
+    {
+      "id": "main",
+      "name": "Main",
+      "document": {
+        "nodes": [
+          {
+            "id": "input1",
+            "type": "const",
+            "data": { "value": 100 },
+            "meta": { "position": { "x": -200, "y": -80 } }
+          },
+          {
+            "id": "merge1",
+            "type": "merge",
+            "data": {},
+            "meta": { "position": { "x": 260, "y": -60 } }
+          },
+          {
+            "id": "call_subA",
+            "type": "sheet-call",
+            "data": {
+              "callName": "SubA Call",
+              "targetSheetId": "subA",
+              "inputMapping": {
+                "x": { "kind": "local-port", "nodeId": "input1", "port": "value" },
+                "y": { "kind": "const", "value": 42 }
+              },
+              "outputMapping": {
+                "result": { "kind": "local-port", "nodeId": "merge1", "port": "in1" }
+              }
+            },
+            "meta": { "position": { "x": 40, "y": -60 } }
+          }
+        ],
+        "edges": []
+      }
+    },
+    {
+      "id": "subA",
+      "name": "Sub A",
+      "document": {
+        "nodes": [
+          {
+            "id": "sheet_inputs",
+            "type": "sheet-inputs",
+            "data": { "inputs": [{ "name": "x" }, { "name": "y" }] },
+            "meta": { "position": { "x": -280, "y": -40 } }
+          },
+          {
+            "id": "compute1",
+            "type": "sum",
+            "data": {},
+            "meta": { "position": { "x": -20, "y": -40 } }
+          },
+          {
+            "id": "sheet_outputs",
+            "type": "sheet-outputs",
+            "data": { "outputs": [{ "name": "result" }] },
+            "meta": { "position": { "x": 240, "y": -40 } }
+          }
+        ],
+        "edges": [
+          { "id": "e1", "source": "sheet_inputs", "sourcePort": "x", "target": "compute1", "targetPort": "a" },
+          { "id": "e2", "source": "sheet_inputs", "sourcePort": "y", "target": "compute1", "targetPort": "b" },
+          { "id": "e3", "source": "compute1", "sourcePort": "out", "target": "sheet_outputs", "targetPort": "result" }
+        ]
+      }
+    }
+  ]
+}
