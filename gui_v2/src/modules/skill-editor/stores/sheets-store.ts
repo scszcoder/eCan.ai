@@ -235,6 +235,10 @@ export const useSheetsStore = create<SheetsState>((set, get) => ({
       map[s.id] = { ...s, lastOpenedAt: Date.now(), createdAt: s.createdAt ?? Date.now() } as Sheet;
       order.push(s.id);
     });
+    // Enforce main sheet display name
+    if (bundle.mainSheetId && map[bundle.mainSheetId]) {
+      map[bundle.mainSheetId] = { ...map[bundle.mainSheetId], name: 'Main' };
+    }
     const maxTabs = get().maxOpenTabs;
     const openTabs = bundle.openTabs && bundle.openTabs.length
       ? bundle.openTabs.filter((id) => map[id])
