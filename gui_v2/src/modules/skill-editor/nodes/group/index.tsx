@@ -12,10 +12,15 @@ import {
   
   import { FlowNodeRegistry } from '../../typings';
   import { WorkflowNodeType } from '../constants';
+  import iconBasic from '../../assets/icon-basic.png';
   
   let index = 0;
   export const GroupNodeRegistry: FlowNodeRegistry = {
     type: 'group',
+    info: {
+      icon: iconBasic,
+      description: 'A container node used to group related nodes together.',
+    },
     meta: {
       //renderKey: FlowNodeBaseType.GROUP,
       renderKey: FlowNodeBaseType.GROUP,
@@ -96,4 +101,3 @@ import {
       };
     },
   };
-  

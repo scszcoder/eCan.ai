@@ -2,15 +2,17 @@ import { nanoid } from 'nanoid';
 import { FlowNodeRegistry } from '../../typings';
 import { WorkflowNodeType } from '../constants';
 import { formMeta } from './form-meta';
+import iconScript from '../../assets/icon-script.png';
 
 let index = 0;
 export const SheetCallNodeRegistry: FlowNodeRegistry = {
-  type: WorkflowNodeType.Custom as any, // falls back if no dedicated enum; engine uses string `type` below
+  // Use explicit string type for consistent panel label and selection
+  type: 'sheet-call',
   meta: {
     size: { width: 360, height: 120 },
   },
   info: {
-    icon: '',
+    icon: iconScript,
     description: 'Invoke another sheet and map its inputs/outputs.',
   },
   onAdd() {

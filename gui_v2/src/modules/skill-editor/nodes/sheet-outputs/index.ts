@@ -1,16 +1,18 @@
 import { nanoid } from 'nanoid';
 import { FlowNodeRegistry } from '../../typings';
 import { WorkflowNodeType } from '../constants';
+import iconVariable from '../../assets/icon-variable.png';
 
 let index = 0;
 export const SheetOutputsNodeRegistry: FlowNodeRegistry = {
-  type: WorkflowNodeType.Custom as any,
+  // Use explicit string type for consistent panel label and selection
+  type: 'sheet-outputs',
   meta: {
     size: { width: 320, height: 100 },
     defaultPorts: [],
   },
   info: {
-    icon: '',
+    icon: iconVariable,
     description: 'Defines the output interface (ports) for this sheet.',
   },
   onAdd() {
