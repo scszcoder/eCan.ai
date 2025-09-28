@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { EditorRenderer, FreeLayoutEditorProvider } from '@flowgram.ai/free-layout-editor';
+import { EditorRenderer, FreeLayoutEditorProvider, useClientContext } from '@flowgram.ai/free-layout-editor';
 import { useEffect, useMemo, useRef } from 'react';
 import React from 'react';
 
@@ -24,6 +24,10 @@ import { FilePathDisplay } from './components/file-path-display';
 import { useUnsavedChangesTracker } from './hooks/useUnsavedChangesTracker';
 import { useDragAndDrop } from './hooks/useDragAndDrop';
 import styled from 'styled-components';
+import { useSheetsStore } from './stores/sheets-store';
+import { SheetsTabBar } from './components/tabs/SheetsTabBar';
+import { SheetsMenu } from './components/menu/SheetsMenu';
+import { ActiveSheetBinder } from './components/tabs/ActiveSheetBinder';
 
 const EditorContainer = styled.div`
   position: relative;
@@ -88,14 +92,39 @@ export const Editor = () => {
   // Build editor props from the chosen initial document
   const editorProps = useEditorProps(preferredDoc, nodeRegistries);
 
+  // Sheets store: ensure main sheet exists with initial document
+  const initMain = useSheetsStore((s) => s.initMain);
+  const activeSheetId = useSheetsStore((s) => s.activeSheetId);
+  const openSheet = useSheetsStore((s) => s.openSheet);
+  const saveActiveDocument = useSheetsStore((s) => s.saveActiveDocument);
+  const getActiveDocument = useSheetsStore((s) => s.getActiveDocument);
+
+  // Initialize main sheet once when skill info is ready
+  useEffect(() => {
+    // Seed main sheet with preferredDoc so it matches current editor
+    initMain(preferredDoc);
+    // Ensure main tab is open/active
+    openSheet('main');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <EditorContainer>
       <div className="doc-free-feature-overview">
         <SkillEditorErrorBoundary>
           <FreeLayoutEditorProvider {...editorProps}>
+            {/* Sync the active sheet's document with the editor's WorkflowDocument */}
+            <ActiveSheetBinder />
             <SidebarProvider>
               <NodeInfoDisplay />
               <div className="demo-container">
+                {/* Sheets toolbar: tab bar and sheets menu */}
+                <div style={{ display: 'flex', alignItems: 'center', padding: '4px 8px', gap: 8 }}>
+                  <SheetsTabBar />
+                  <div style={{ marginLeft: 'auto' }}>
+                    <SheetsMenu />
+                  </div>
+                </div>
                 <EditorRenderer className="demo-editor">
                   <FilePathDisplay />
                 </EditorRenderer>
