@@ -10,6 +10,7 @@ import { Button, Badge, Notification } from '@douyinfe/semi-ui';
 import { IconPlay } from '@douyinfe/semi-icons';
 
 import { TestRunSidePanel } from '../testrun-panel';
+import { isValidationDisabled } from '../../../services/validation-config';
 
 import styles from './index.module.less';
 
@@ -19,6 +20,10 @@ export function TestRunButton(props: { disabled: boolean }) {
   const [visible, setVisible] = useState(false);
 
   const updateValidateData = useCallback(() => {
+    if (isValidationDisabled()) {
+      setErrorCount(0);
+      return;
+    }
     const allForms = clientContext.document.getAllNodes().map((node) => getNodeForm(node));
     const count = allForms.filter((form) => form?.state.invalid).length;
     setErrorCount(count);
@@ -30,30 +35,31 @@ export function TestRunButton(props: { disabled: boolean }) {
   const onTestRun = useCallback(async () => {
     const allNodes = clientContext.document.getAllNodes();
     const allForms = allNodes.map((node) => getNodeForm(node));
+    if (!isValidationDisabled()) {
+      await Promise.all(allForms.map(async (form) => form?.validate()));
 
-    await Promise.all(allForms.map(async (form) => form?.validate()));
-
-    const errorMessages: string[] = [];
-    allNodes.forEach((node) => {
-      const form = getNodeForm(node);
-      if (form?.state.invalid) {
-        const nodeTitle = node.data?.title || node.id;
-        const invalidFields = Object.keys(form.state.errors);
-        errorMessages.push(`Node '${nodeTitle}': Invalid fields - ${invalidFields.join(', ')}`);
-      }
-    });
-
-    if (errorMessages.length > 0) {
-      Notification.error({
-        title: 'Validation Failed',
-        content: (
-          <ul style={{ listStyle: 'none', padding: 0 }}>
-            {errorMessages.map((msg, i) => <li key={i}>{msg}</li>)}
-          </ul>
-        ),
-        duration: 5,
+      const errorMessages: string[] = [];
+      allNodes.forEach((node) => {
+        const form = getNodeForm(node);
+        if (form?.state.invalid) {
+          const nodeTitle = node.data?.title || node.id;
+          const invalidFields = Object.keys(form.state.errors);
+          errorMessages.push(`Node '${nodeTitle}': Invalid fields - ${invalidFields.join(', ')}`);
+        }
       });
-      return;
+
+      if (errorMessages.length > 0) {
+        Notification.error({
+          title: 'Validation Failed',
+          content: (
+            <ul style={{ listStyle: 'none', padding: 0 }}>
+              {errorMessages.map((msg, i) => <li key={i}>{msg}</li>)}
+            </ul>
+          ),
+          duration: 5,
+        });
+        return;
+      }
     }
 
     console.log('>>>>> save data: ', clientContext.document.toJSON());

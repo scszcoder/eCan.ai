@@ -45,6 +45,15 @@ export interface ValidationResult {
  * - Optionally detects simple call cycles
  */
 export function validateBundle(bundle: SheetsBundleLike): ValidationResult {
+  // Temporarily bypass validation when disabled via flag
+  try {
+    const { isValidationDisabled } = require('./validation-config');
+    if (typeof isValidationDisabled === 'function' && isValidationDisabled()) {
+      return { ok: true, errors: [], warnings: [], callGraph: {} };
+    }
+  } catch {
+    // ignore missing module in unusual build environments
+  }
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
 

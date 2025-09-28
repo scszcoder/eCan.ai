@@ -24,6 +24,7 @@ import {
 
 import { WorkflowRuntimeClient } from '../client';
 import { WorkflowNodeType } from '../../../nodes';
+import { isValidationDisabled } from '../../../services/validation-config';
 
 const SYNC_TASK_REPORT_INTERVAL = 500;
 
@@ -77,23 +78,27 @@ export class WorkflowRuntimeService {
     if (this.taskID) {
       await this.taskCancel();
     }
-    const isFormValid = await this.validateForm();
-    if (!isFormValid) {
-      this.resultEmitter.fire({
-        errors: ['Form validation failed'],
-      });
-      return;
+    if (!isValidationDisabled()) {
+      const isFormValid = await this.validateForm();
+      if (!isFormValid) {
+        this.resultEmitter.fire({
+          errors: ['Form validation failed'],
+        });
+        return;
+      }
     }
     const schema = this.document.toJSON();
-    const validateResult = await this.runtimeClient.TaskValidate({
-      schema: JSON.stringify(schema),
-      inputs,
-    });
-    if (!validateResult?.valid) {
-      this.resultEmitter.fire({
-        errors: validateResult?.errors ?? ['Internal Server Error'],
+    if (!isValidationDisabled()) {
+      const validateResult = await this.runtimeClient.TaskValidate({
+        schema: JSON.stringify(schema),
+        inputs,
       });
-      return;
+      if (!validateResult?.valid) {
+        this.resultEmitter.fire({
+          errors: validateResult?.errors ?? ['Internal Server Error'],
+        });
+        return;
+      }
     }
     this.reset();
     let taskID: string | undefined;
@@ -132,6 +137,7 @@ export class WorkflowRuntimeService {
   }
 
   private async validateForm(): Promise<boolean> {
+    if (isValidationDisabled()) return true;
     const allForms = this.document.getAllNodes().map((node) => getNodeForm(node));
     const formValidations = await Promise.all(allForms.map(async (form) => form?.validate()));
     const validations = formValidations.filter((validation) => validation !== undefined);

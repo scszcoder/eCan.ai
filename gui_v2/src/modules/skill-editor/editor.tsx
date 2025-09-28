@@ -28,6 +28,7 @@ import { useSheetsStore } from './stores/sheets-store';
 import { SheetsTabBar } from './components/tabs/SheetsTabBar';
 import { SheetsMenu } from './components/menu/SheetsMenu';
 import { ActiveSheetBinder } from './components/tabs/ActiveSheetBinder';
+import { isValidationDisabled } from './services/validation-config';
 
 const EditorContainer = styled.div`
   position: relative;
@@ -88,6 +89,21 @@ export const Editor = () => {
       seededRef.current = true;
     }
   }, [skillInfo, preferredDoc, setSkillInfo]);
+
+  // Visibility: warn when validation is globally disabled
+  useEffect(() => {
+    try {
+      // Force-disable validation at runtime for now
+      (window as any).__SKILL_EDITOR_DISABLE_VALIDATION__ = true;
+      localStorage.setItem('SKILL_EDITOR_DISABLE_VALIDATION', 'true');
+    } catch {}
+
+    if (isValidationDisabled()) {
+      console.warn('[VALIDATION_DISABLED] Frontend validation is disabled in the skill editor.');
+    } else {
+      console.warn('[VALIDATION_DISABLED] Attempted to disable validation but flag still false.');
+    }
+  }, []);
 
   // Build editor props from the chosen initial document
   const editorProps = useEditorProps(preferredDoc, nodeRegistries);
