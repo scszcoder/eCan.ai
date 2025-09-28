@@ -33,6 +33,8 @@ const NodeLabel = styled.div`
   margin-left: 10px;
   opacity: 1;
   visibility: visible;
+  /* Force readable text color regardless of parent/inherited styles */
+  color: #334155; /* slate-700 */
 `;
 
 interface NodeProps {
