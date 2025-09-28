@@ -48,6 +48,17 @@ export const Open = ({ disabled }: OpenProps) => {
 
         if (fileResponse.success && fileResponse.data) {
           const raw = JSON.parse(fileResponse.data.content);
+          // Enforce filename matches skillName (strip _skill suffix)
+          try {
+            const base = (String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '');
+            const baseNoSuffix = base.replace(/_skill$/i, '');
+            const nameInFile = String((raw && (raw as any).skillName) || '').trim();
+            if (nameInFile && baseNoSuffix.toLowerCase() !== nameInFile.toLowerCase()) {
+              console.error('[SKILL_IO][FRONTEND][NAME_MISMATCH]', { fileBase: baseNoSuffix, skillName: nameInFile });
+              try { Toast.error({ content: `Skill name mismatch: file '${baseNoSuffix}' vs skillName '${nameInFile}'.` }); } catch {}
+              return; // abort load
+            }
+          } catch {}
           const isBundle = raw && typeof raw === 'object' && 'mainSheetId' in raw && Array.isArray(raw.sheets);
           if (isBundle) {
             const bundle = raw as SheetsBundle;
@@ -137,6 +148,7 @@ export const Open = ({ disabled }: OpenProps) => {
         reader.onload = (event) => {
           try {
             const raw = JSON.parse(event.target?.result as string);
+            // Enforce filename matches skillName not applicable in web picker (no path), but if name provided in file meta, skip
             const isBundle = raw && typeof raw === 'object' && 'mainSheetId' in raw && Array.isArray(raw.sheets);
             if (isBundle) {
               loadBundle(raw as SheetsBundle);
