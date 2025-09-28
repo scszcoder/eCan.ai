@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
-import { Tooltip, IconButton } from '@douyinfe/semi-ui';
+import { Tooltip, IconButton, Toast } from '@douyinfe/semi-ui';
 import { IconFolderOpen } from '@douyinfe/semi-icons';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { SkillInfo } from '../../typings/skill-info';
@@ -24,130 +24,155 @@ export const Open = ({ disabled }: OpenProps) => {
   const loadBundle = useSheetsStore((s) => s.loadBundle);
 
   const handleOpen = useCallback(async () => {
+    let ipcHandled = false;
+    // Try IPC path first
     try {
-      if (hasIPCSupport() && hasFullFilePaths()) {
-        // Desktop mode: Use IPC backend for full file path support
-        const { IPCAPI } = await import('../../../../services/ipc/api');
-        const ipcApi = IPCAPI.getInstance();
-        
-        const dialogResponse = await ipcApi.showOpenDialog([
-          { name: 'Skill Files', extensions: ['json'] },
-          { name: 'All Files', extensions: ['*'] }
-        ]);
+      const { IPCAPI } = await import('../../../../services/ipc/api');
+      const ipcApi = IPCAPI.getInstance();
+      console.log('[SKILL_IO][FRONTEND][IPC_ATTEMPT] showOpenDialog');
+      const dialogResponse = await ipcApi.showOpenDialog([
+        { name: 'Skill Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]);
 
-        if (dialogResponse.success && dialogResponse.data && !dialogResponse.data.cancelled) {
-          const filePath = dialogResponse.data.filePath;
-          
-          // Read file content through IPC
-          const fileResponse = await ipcApi.readSkillFile(filePath);
-          
-          if (fileResponse.success && fileResponse.data) {
-            const raw = JSON.parse(fileResponse.data.content);
-            // Detect bundle vs single-skill
+      if (dialogResponse.success && dialogResponse.data && !dialogResponse.data.cancelled) {
+        ipcHandled = true;
+        const filePath = (dialogResponse.data as any).filePaths?.[0] || (dialogResponse.data as any).filePath;
+        if (!filePath) { console.warn('[Open] No filePath from dialog'); return; }
+        console.log('[SKILL_IO][FRONTEND][SELECTED_MAIN_JSON]', filePath);
+        try { Toast.info({ content: `Opening: ${String(filePath).split('\\').pop()}` }); } catch {}
+
+        // Read file content through IPC
+        const fileResponse = await ipcApi.readSkillFile(filePath);
+        console.log('[SKILL_IO][FRONTEND][IPC_READ_PRIMARY_RESULT]', { success: fileResponse.success, size: fileResponse?.data?.content?.length ?? 'n/a' });
+
+        if (fileResponse.success && fileResponse.data) {
+          const raw = JSON.parse(fileResponse.data.content);
+          const isBundle = raw && typeof raw === 'object' && 'mainSheetId' in raw && Array.isArray(raw.sheets);
+          if (isBundle) {
+            const bundle = raw as SheetsBundle;
+            console.log('[SKILL_IO][FRONTEND][PRIMARY_IS_BUNDLE] Loading primary bundle file:', filePath);
+            loadBundle(bundle);
+            setCurrentFilePath(filePath);
+            setHasUnsavedChanges(false);
+            addRecentFile(createRecentFile(filePath, 'Multi-sheet Bundle'));
+            return;
+          }
+
+          // Try sibling bundle
+          try {
+            const idx = filePath.toLowerCase().lastIndexOf('.json');
+            const base = idx !== -1 ? filePath.slice(0, idx) : filePath;
+            const candidates = [
+              `${base}_bundle.json`,
+              `${base}-bundle.json`,
+            ];
+            console.log('[SKILL_IO][FRONTEND][BUNDLE_CANDIDATES]', candidates);
+            for (const bundlePath of candidates) {
+              try {
+                console.log('[SKILL_IO][FRONTEND][TRY_BUNDLE_PATH]', bundlePath);
+                const bundleResp = await ipcApi.readSkillFile(bundlePath);
+                console.log('[SKILL_IO][FRONTEND][TRY_BUNDLE_RESULT]', bundlePath, 'success=', bundleResp.success);
+                if (bundleResp.success && bundleResp.data) {
+                  const maybeBundle = JSON.parse(bundleResp.data.content);
+                  const isSiblingBundle = maybeBundle && typeof maybeBundle === 'object' && 'mainSheetId' in maybeBundle && Array.isArray(maybeBundle.sheets);
+                  if (isSiblingBundle) {
+                    console.log('[SKILL_IO][FRONTEND][FOUND_BUNDLE_JSON]', bundlePath);
+                    loadBundle(maybeBundle as SheetsBundle);
+                    // Keep currentFilePath as the main skill JSON path
+                    setCurrentFilePath(filePath);
+                    setHasUnsavedChanges(false);
+                    addRecentFile(createRecentFile(bundlePath, 'Multi-sheet Bundle'));
+                    return;
+                  }
+                }
+              } catch (err) {
+                console.warn('[SKILL_IO][FRONTEND][TRY_BUNDLE_ERROR]', bundlePath, err);
+              }
+            }
+            console.log('[SKILL_IO][FRONTEND][NO_BUNDLE_JSON] No valid sibling bundle found; proceeding with single-skill load.');
+          } catch (e) {
+            console.warn('[SKILL_IO][FRONTEND][BUNDLE_CHECK_ERROR]', e);
+          }
+
+          const data = raw as SkillInfo;
+          const diagram = data.workFlow;
+          if (diagram) {
+            console.log('[Open] Loading single-skill diagram. Nodes=', Array.isArray(diagram.nodes) ? diagram.nodes.length : 'n/a');
+            setSkillInfo(data);
+            setCurrentFilePath(filePath);
+            setHasUnsavedChanges(false);
+            const breakpointIds = diagram.nodes
+              .filter((node: any) => node.data?.break_point)
+              .map((node: any) => node.id);
+            setBreakpoints(breakpointIds);
+            workflowDocument.clear();
+            workflowDocument.fromJSON(diagram);
+            workflowDocument.fitView && workflowDocument.fitView();
+          } else {
+            workflowDocument.clear();
+            workflowDocument.fromJSON(data as any);
+            workflowDocument.fitView && workflowDocument.fitView();
+          }
+        } else {
+          console.error('[Open] Failed to read primary file:', fileResponse.error);
+        }
+        return; // handled IPC path
+      }
+    } catch (e) {
+      console.warn('[SKILL_IO][FRONTEND][IPC_ERROR]', e);
+    }
+
+    // Web fallback path
+    console.log('[SKILL_IO][FRONTEND][WEB_MODE_FALLBACK] Using browser FileReader flow');
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.style.display = 'none';
+
+    input.onchange = (e: Event) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const raw = JSON.parse(event.target?.result as string);
             const isBundle = raw && typeof raw === 'object' && 'mainSheetId' in raw && Array.isArray(raw.sheets);
             if (isBundle) {
-              const bundle = raw as SheetsBundle;
-              loadBundle(bundle);
-              setCurrentFilePath(filePath);
+              loadBundle(raw as SheetsBundle);
+              setCurrentFilePath(null);
               setHasUnsavedChanges(false);
-              addRecentFile(createRecentFile(filePath, 'Multi-sheet Bundle'));
               return;
             }
-
             const data = raw as SkillInfo;
             const diagram = data.workFlow;
-
             if (diagram) {
-              // Set skill info with file path
               setSkillInfo(data);
-              setCurrentFilePath(filePath);
+              setCurrentFilePath(null);
               setHasUnsavedChanges(false);
-
-              // Add to recent files
-              addRecentFile(createRecentFile(filePath, data.skillName));
-
-              // Find and set breakpoints
               const breakpointIds = diagram.nodes
                 .filter((node: any) => node.data?.break_point)
                 .map((node: any) => node.id);
               setBreakpoints(breakpointIds);
-
-              // Load diagram into the editor
               workflowDocument.clear();
               workflowDocument.fromJSON(diagram);
               workflowDocument.fitView && workflowDocument.fitView();
             } else {
-              // Fallback for older formats
               workflowDocument.clear();
               workflowDocument.fromJSON(data as any);
               workflowDocument.fitView && workflowDocument.fitView();
             }
-          } else {
-            console.error('Failed to read file:', fileResponse.error);
+          } catch (error) {
+            console.error('Failed to load file:', error);
           }
-        }
-      } else {
-        // Web mode: Use browser FileReader API (original implementation)
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.json,application/json';
-        input.style.display = 'none';
-
-        input.onchange = (e: Event) => {
-          const file = (e.target as HTMLInputElement).files?.[0];
-          if (file) {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-              try {
-                const raw = JSON.parse(event.target?.result as string);
-                const isBundle = raw && typeof raw === 'object' && 'mainSheetId' in raw && Array.isArray(raw.sheets);
-                if (isBundle) {
-                  loadBundle(raw as SheetsBundle);
-                  setCurrentFilePath(null);
-                  setHasUnsavedChanges(false);
-                  return;
-                }
-                const data = raw as SkillInfo;
-                const diagram = data.workFlow;
-
-                if (diagram) {
-                  // Set skill info without file path (web mode limitation)
-                  setSkillInfo(data);
-                  setCurrentFilePath(null);
-                  setHasUnsavedChanges(false);
-
-                  // Find and set breakpoints
-                  const breakpointIds = diagram.nodes
-                    .filter((node: any) => node.data?.break_point)
-                    .map((node: any) => node.id);
-                  setBreakpoints(breakpointIds);
-
-                  // Load diagram into the editor
-                  workflowDocument.clear();
-                  workflowDocument.fromJSON(diagram);
-                  workflowDocument.fitView && workflowDocument.fitView();
-                } else {
-                  // Fallback for older formats
-                  workflowDocument.clear();
-                  workflowDocument.fromJSON(data as any);
-                  workflowDocument.fitView && workflowDocument.fitView();
-                }
-              } catch (error) {
-                console.error('Failed to load file:', error);
-              }
-            };
-            reader.readAsText(file);
-          }
-          // Clean up the input element
-          document.body.removeChild(input);
         };
-
-        document.body.appendChild(input);
-        input.click();
+        reader.readAsText(file);
       }
-    } catch (error) {
-      console.error('Failed to open file:', error);
-    }
+      document.body.removeChild(input);
+    };
+
+    document.body.appendChild(input);
+    input.click();
   }, [workflowDocument, setSkillInfo, setBreakpoints, setCurrentFilePath, setHasUnsavedChanges]);
 
   return (

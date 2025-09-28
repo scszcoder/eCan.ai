@@ -15,6 +15,7 @@ export const ActiveSheetBinder = () => {
   const activeSheetId = useSheetsStore((s) => s.activeSheetId);
   const getActiveDocument = useSheetsStore((s) => s.getActiveDocument);
   const saveActiveDocument = useSheetsStore((s) => s.saveActiveDocument);
+  const saveDocumentFor = useSheetsStore((s) => s.saveDocumentFor);
   const revision = useSheetsStore((s) => s.revision);
   const saveActiveViewState = useSheetsStore((s) => s.saveActiveViewState);
   const getActiveViewState = useSheetsStore((s) => s.getActiveViewState);
@@ -29,7 +30,8 @@ export const ActiveSheetBinder = () => {
     if (lastId && lastId !== activeSheetId) {
       try {
         const currentJson = ctx.document.toJSON();
-        saveActiveDocument(currentJson);
+        // Save to the previously active sheet, not the newly activated one
+        saveDocumentFor && saveDocumentFor(lastId, currentJson);
       } catch (e) {
         /* noop */
       }

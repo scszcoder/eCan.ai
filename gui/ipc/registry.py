@@ -40,6 +40,8 @@ class IPCHandlerRegistry:
         'logout',  # logout 不需要 token 验证，因为可能在 token 失效时调用
         'get_initialization_progress',  # 允许在系统未就绪时检查初始化进度
         'skill_editor.get_node_state_schema',  # Allow schema retrieval pre-auth/init for editor boot
+        # File operations should be usable early for local open/save
+        'show_open_dialog', 'show_save_dialog', 'read_skill_file', 'write_skill_file',
     }
     
     @classmethod
