@@ -7,24 +7,24 @@ import { formMeta } from './form-meta';
 import { DEFAULT_NODE_OUTPUTS } from '../../typings/node-outputs';
 
 let index = 0;
-export const MCPNodeRegistry: FlowNodeRegistry = {
-  type: WorkflowNodeType.MCP,
+export const BasicNodeRegistry: FlowNodeRegistry = {
+  type: WorkflowNodeType.Basic,
   info: {
     icon: iconMcp,
-    description: 'An MCP node for executing general tasks via MCP tools with simple input and output.',
+    description: 'A basic node with no editor fields. Use it as a simple placeholder or pass-through.',
   },
   meta: {
     size: {
-      width: 360,
-      height: 305,
+      width: 320,
+      height: 160,
     },
   },
   onAdd() {
     return {
-      id: `mcp_${nanoid(5)}`,
-      type: 'mcp',
+      id: `basic_${nanoid(5)}`,
+      type: 'basic',
       data: {
-        title: `MCP_${++index}`,
+        title: `Basic_${++index}`,
         inputsValues: {},
         inputs: {
           type: 'object',
