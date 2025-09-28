@@ -1,16 +1,10 @@
 // stores/toolStore.ts
 import { create } from 'zustand';
 import { IPCAPI, APIResponse } from '../services/ipc';
+import { Tool } from '../pages/Tools/types';
 
-// This should match the Tool type used in the Tools page
-export interface Tool {
-  id: string;
-  name: string;
-  description: string;
-  inputSchema?: any;
-  outputSchema?: any;
-  // Add other properties from your actual Tool type
-}
+// Re-export Tool type for convenience
+export type { Tool };
 
 interface ToolStoreState {
   tools: Tool[];

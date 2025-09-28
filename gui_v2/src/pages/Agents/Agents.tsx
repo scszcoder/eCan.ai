@@ -1,9 +1,10 @@
 import React, { useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
-import { useAppDataStore } from '../../stores/appDataStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { useUserStore } from '../../stores/userStore';
+import { useOrgStore } from '../../stores/orgStore';
 import { Agent } from './types';
+import { DisplayNode } from '../Orgs/types';
 import { logger } from '@/utils/logger';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useTranslation } from 'react-i18next';
@@ -78,7 +79,38 @@ const Agents = forwardRef<AgentsRef>((_props, ref) => {
 
         console.log('Agents: fetchAgents called', { username, shouldFetch: shouldFetchAgents(), hasFetched: hasFetchedRef.current });
 
-        // 强制获取最新数据，在后台静默更新，不显示loading状态避免页面闪烁
+        // 检查是否已经有组织数据（从 VirtualPlatform 获取）
+        // 如果有，则从组织数据中提取 agents，避免重复请求
+        const { displayNodes } = useOrgStore.getState();
+        console.log('Agents: Checking cache - displayNodes:', displayNodes?.length || 0, 'nodes');
+        
+        if (displayNodes && displayNodes.length > 0) {
+            // 从 displayNodes 中提取所有 agents
+            const allAgents: Agent[] = [];
+            displayNodes.forEach((node: DisplayNode) => {
+                if (node.agents) {
+                    console.log(`Agents: Found ${node.agents.length} agents in node:`, node.name);
+                    // 转换 OrgAgent 到 Agent 类型 (简化转换)
+                    const convertedAgents = node.agents.map(orgAgent => orgAgent as unknown as Agent);
+                    allAgents.push(...convertedAgents);
+                }
+            });
+            
+            console.log('Agents: Total agents extracted from cache:', allAgents.length);
+            
+            if (allAgents.length > 0) {
+                setAgents(allAgents);
+                logger.info('Agents: Using cached data from organization structure:', allAgents.length, 'agents');
+                hasFetchedRef.current = true; // 标记为已获取
+                return;
+            } else {
+                console.log('Agents: No agents found in cache, will proceed with API request');
+            }
+        } else {
+            console.log('Agents: No displayNodes available, will proceed with API request');
+        }
+
+        // 如果没有缓存数据，才进行 API 请求
         setError(null);
         try {
             const response = await get_ipc_api().getAgents<{ agents: Agent[] }>(username, []);
@@ -103,16 +135,23 @@ const Agents = forwardRef<AgentsRef>((_props, ref) => {
         }
     }, [username, setError, setAgents, shouldFetchAgents, t]);
 
+    // 监听组织数据变化，当有数据时触发 agents 获取
+    const displayNodes = useOrgStore((state) => state.displayNodes);
+    
     useEffect(() => {
         // 只在组件首次挂载时执行，避免重复初始化
-        console.log('Agents: useEffect called', { isInitialized: isInitializedRef.current, username });
+        console.log('Agents: useEffect called', { 
+            isInitialized: isInitializedRef.current, 
+            username, 
+            hasOrgData: displayNodes && displayNodes.length > 0 
+        });
         
         // 只有在用户名存在且未初始化时才获取数据
         if (username && !isInitializedRef.current) {
             fetchAgents();
             isInitializedRef.current = true;
         }
-    }, [username]); // 只依赖username，避免fetchAgents导致的重复调用
+    }, [username, displayNodes]); // 依赖 displayNodes，当组织数据加载完成时重新评估
 
     // 使用 Outlet 渲染子路由，这样主组件保持挂载状态
     return <Outlet />;

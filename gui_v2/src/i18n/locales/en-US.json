@@ -100,7 +100,9 @@
       "tasks": "Tasks",
       "title": "Title",
       "updated_data_from_api": "Updated_data_from_api",
-      "vehicle": "Vehicle"
+      "vehicle": "Vehicle",
+      "unassigned_agents": "Unassigned Agents",
+      "unassigned_agents_desc": "Agents without organization assignment"
     },
     "analytics": {
       "activeAgents": "Active Agents",
@@ -537,6 +539,8 @@
         "title": "Agent List",
         "allLeafAgents": "All Leaf Department Agents"
       },
+      "direct_agents": "Direct Agents",
+      "direct_agents_desc": "Direct agents of this organization",
       "confirm": {
         "delete": "Are you sure to delete this organization?",
         "unbind": "Are you sure to unbind this agent?"
