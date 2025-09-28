@@ -30,6 +30,13 @@ interface SheetsState {
   saveActiveDocument: (doc: any) => void;
   getActiveDocument: () => any | null;
   clearActiveSheet: () => void;
+  // reorder tabs
+  moveTabLeft: (id: string) => void;
+  moveTabRight: (id: string) => void;
+  reorderTabs: (order: string[]) => void;
+  // bundle helpers
+  getAllSheets: () => { mainSheetId: string; sheets: Sheet[]; openTabs: string[]; activeSheetId: string | null };
+  loadBundle: (bundle: { mainSheetId: string; sheets: Sheet[]; openTabs?: string[]; activeSheetId?: string | null }) => void;
 }
 
 export const useSheetsStore = create<SheetsState>((set, get) => ({
@@ -160,6 +167,48 @@ export const useSheetsStore = create<SheetsState>((set, get) => ({
     set({
       sheets: { ...st.sheets, [id]: { ...sheet, document: (blankFlow as any) } },
       revision: st.revision + 1,
+    });
+  },
+
+  moveTabLeft: (id: string) => {
+    const st = get();
+    const idx = st.openTabs.indexOf(id);
+    if (idx <= 0) return;
+    const newOrder = [...st.openTabs];
+    [newOrder[idx - 1], newOrder[idx]] = [newOrder[idx], newOrder[idx - 1]];
+    set({ openTabs: newOrder });
+  },
+  moveTabRight: (id: string) => {
+    const st = get();
+    const idx = st.openTabs.indexOf(id);
+    if (idx === -1 || idx >= st.openTabs.length - 1) return;
+    const newOrder = [...st.openTabs];
+    [newOrder[idx], newOrder[idx + 1]] = [newOrder[idx + 1], newOrder[idx]];
+    set({ openTabs: newOrder });
+  },
+  reorderTabs: (order: string[]) => {
+    set({ openTabs: order });
+  },
+
+  getAllSheets: () => {
+    const st = get();
+    const sheets = st.order.map((id) => st.sheets[id]).filter(Boolean) as Sheet[];
+    return { mainSheetId: st.order[0] || 'main', sheets, openTabs: [...st.openTabs], activeSheetId: st.activeSheetId };
+  },
+  loadBundle: (bundle) => {
+    const map: Record<string, Sheet> = {};
+    const order: string[] = [];
+    bundle.sheets.forEach((s) => {
+      map[s.id] = { ...s, lastOpenedAt: Date.now(), createdAt: s.createdAt ?? Date.now() } as Sheet;
+      order.push(s.id);
+    });
+    const openTabs = bundle.openTabs && bundle.openTabs.length ? bundle.openTabs.filter((id) => map[id]) : [bundle.mainSheetId];
+    set({
+      sheets: map,
+      order,
+      openTabs,
+      activeSheetId: bundle.activeSheetId ?? bundle.mainSheetId,
+      revision: get().revision + 1,
     });
   },
 }));

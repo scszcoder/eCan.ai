@@ -10,6 +10,8 @@ import { SkillInfo } from '../../typings/skill-info';
 import { hasIPCSupport, hasFullFilePaths } from '../../../../config/platform';
 import '../../../../services/ipc/file-api'; // Import file API extensions
 import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files-store';
+import { useSheetsStore } from '../../stores/sheets-store';
+import { saveSheetsBundleToPath } from '../../services/sheets-persistence';
 // 添加 File System Access API 的类型定义
 declare global {
   interface Window {
@@ -142,6 +144,8 @@ export const Save = ({ disabled }: SaveProps) => {
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
   const addRecentFile = useRecentFilesStore((state) => state.addRecentFile);
   const username = useUserStore((state) => state.username);
+  const getAllSheets = useSheetsStore((s) => s.getAllSheets);
+  const saveActiveSheetDoc = useSheetsStore((s) => s.saveActiveDocument);
 
   const handleSave = useCallback(async () => {
     if (!skillInfo) return;
@@ -192,6 +196,29 @@ export const Save = ({ disabled }: SaveProps) => {
         }
 
         console.log('Skill saved successfully');
+
+        // Also persist the multi-sheet bundle alongside the skill JSON
+        try {
+          // Persist current canvas into the active sheet before bundling
+          saveActiveSheetDoc(diagram);
+          const bundle = getAllSheets();
+          // Derive bundle path/name: same folder, -bundle suffix
+          let bundleTarget = 'skill-bundle.json';
+          if (finalFilePath) {
+            const idx = finalFilePath.lastIndexOf('.json');
+            if (idx !== -1) {
+              bundleTarget = `${finalFilePath.slice(0, idx)}-bundle.json`;
+            } else {
+              bundleTarget = `${finalFilePath}-bundle.json`;
+            }
+          } else if (updatedSkillInfo.skillName) {
+            bundleTarget = `${updatedSkillInfo.skillName}-bundle.json`;
+          }
+          await saveSheetsBundleToPath(bundleTarget, bundle);
+          console.log('Multi-sheet bundle saved:', bundleTarget);
+        } catch (e) {
+          console.warn('Bundle save failed (non-fatal):', (e as Error).message);
+        }
       }
     } catch (error) {
       console.error('Failed to save skill:', error);
