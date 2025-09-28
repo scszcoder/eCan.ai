@@ -17,6 +17,7 @@ import { Divider } from '@douyinfe/semi-ui';
 
 import { FlowNodeJSON } from '../typings';
 import { FormHeader, FormContent, FormInputs } from '../form-components';
+import { isValidationDisabled } from '../services/validation-config';
  
 
 export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => (
@@ -71,20 +72,25 @@ export const defaultFormMeta: FormMeta<FlowNodeJSON> = {
    * 1: validate as options: { title: () => {} , ... }
    * 2: validate as dynamic function: (values,  ctx) => ({ title: () => {}, ... })
    */
-  validate: {
-    title: ({ value }) => (value ? undefined : 'Title is required'),
-    'inputsValues.*': ({ value, context, formValues, name }) => {
-      const valuePropertyKey = name.replace(/^inputsValues\./, '');
-      const required = formValues.inputs?.required || [];
+  validate: (values, context) => {
+    if (isValidationDisabled()) {
+      return {};
+    }
+    return {
+      title: ({ value }: any) => (value ? undefined : 'Title is required'),
+      'inputsValues.*': ({ value, context, formValues, name }: any) => {
+        const valuePropertyKey = name.replace(/^inputsValues\./, '');
+        const required = formValues.inputs?.required || [];
 
-      return validateFlowValue(value, {
-        node: context.node,
-        required: required.includes(valuePropertyKey),
-        errorMessages: {
-          required: `${valuePropertyKey} is required`,
-        },
-      });
-    },
+        return validateFlowValue(value, {
+          node: context.node,
+          required: required.includes(valuePropertyKey),
+          errorMessages: {
+            required: `${valuePropertyKey} is required`,
+          },
+        });
+      },
+    } as any;
   },
   /**
    * Initialize (fromJSON) data transformation
