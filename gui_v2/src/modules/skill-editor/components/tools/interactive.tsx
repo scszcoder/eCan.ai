@@ -17,9 +17,8 @@ export const getPreferInteractiveType = () => {
   if (data && [InteractiveType.Mouse, InteractiveType.Pad].includes(data as InteractiveType)) {
     return data;
   }
-  // Default to Touchpad-Friendly so left-drag performs marquee selection without requiring Shift
-  // Users can still switch back via the toolbar control and their choice will persist in localStorage
-  return InteractiveType.Pad;
+  // Original behavior: default based on OS (Pad on macOS/iPad, Mouse otherwise)
+  return IS_MAC_OS ? InteractiveType.Pad : InteractiveType.Mouse;
 };
 
 export const setPreferInteractiveType = (type: InteractiveType) => {
@@ -55,6 +54,8 @@ export const Interactive = () => {
   const handleClose = () => {
     setVisible(false);
   };
+
+  // No additional key/pointer handlers in original behavior
 
   return (
     <Popover trigger="custom" position="top" visible={visible} onClickOutSide={handleClose}>

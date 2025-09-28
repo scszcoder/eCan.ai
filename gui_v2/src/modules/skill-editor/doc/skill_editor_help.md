@@ -17,6 +17,7 @@ Welcome to the Skill Editor. This guide explains the core features and how to us
   - [Toolbar](#toolbar)
   - [Selection & Sidebar](#selection--sidebar)
   - [Saving & Loading](#saving--loading)
+  - [Panning & Zooming](#panning--zooming)
 - [Debugger](#debugger)
   - [Breakpoints](#breakpoints)
   - [Controls: Pause / Step / Resume / Stop](#controls-pause--step--resume--stop)
@@ -71,6 +72,9 @@ Start emits initial values; End collects and displays final outputs.
 ### Saving & Loading
 - Save the current flow to JSON; load an existing flow from JSON.
 
+### Panning & Zooming
+- To pan around the canvas - hold down the mouse wheel button and move around, or alternatively move the view port in the minimap..
+- To zoom in and out - hold down the <CTRL> key and scroll the mouse wheel.
 ---
 
 ## Debugger
