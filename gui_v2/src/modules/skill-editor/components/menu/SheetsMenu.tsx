@@ -1,7 +1,7 @@
 import React from 'react';
 import { Dropdown, IconButton } from '@douyinfe/semi-ui';
 import { IconFolderOpen, IconDeleteStroked, IconExit, IconPlus, IconLayers, IconSave, IconEdit } from '@douyinfe/semi-icons';
-import { useClientContext } from '@flowgram.ai/free-layout-editor';
+import { useClientContext, usePlayground, WorkflowSelectService, WorkflowDocument, useService } from '@flowgram.ai/free-layout-editor';
 import { saveSheetsBundle, loadSheetsBundle } from '../../services/sheets-persistence';
 import { useSheetsStore } from '../../stores/sheets-store';
 
@@ -12,6 +12,9 @@ import { useSheetsStore } from '../../stores/sheets-store';
  */
 export const SheetsMenu: React.FC = () => {
   const ctx = useClientContext();
+  const playground = usePlayground();
+  const workflowDocument = useService(WorkflowDocument);
+  const selectService = useService(WorkflowSelectService);
   const activeId = useSheetsStore((s) => s.activeSheetId);
   const openSheet = useSheetsStore((s) => s.openSheet);
   const closeSheet = useSheetsStore((s) => s.closeSheet);
@@ -28,6 +31,21 @@ export const SheetsMenu: React.FC = () => {
   const handleOpen = () => {
     const id = window.prompt('Open sheet by ID:');
     if (id) openSheet(id);
+  };
+
+  const handleInsertSheetCall = () => {
+    try {
+      const center = playground.config.getPosFromMouseEvent({
+        clientX: Math.round(window.innerWidth / 2),
+        clientY: Math.round((window.innerHeight / 2)),
+      });
+      const node = workflowDocument.createWorkflowNodeByType('sheet-call' as any, center, undefined as any, undefined);
+      // Select the new node for editing in sidebar
+      selectService.selectNode(node);
+      setVisible(false);
+    } catch (e) {
+      console.error('Failed to insert sheet-call node', e);
+    }
   };
   const handleClose = () => {
     if (activeId) closeSheet(activeId);
@@ -96,6 +114,7 @@ export const SheetsMenu: React.FC = () => {
       onClickOutSide={() => setVisible(false)}
       render={
         <Dropdown.Menu>
+          <Dropdown.Item icon={<IconPlus />} onClick={handleInsertSheetCall}>Insert Sheet Call…</Dropdown.Item>
           <Dropdown.Item icon={<IconPlus />} onClick={handleNew}>New Sheet</Dropdown.Item>
           <Dropdown.Item icon={<IconFolderOpen />} onClick={handleOpen}>Open Sheet by ID</Dropdown.Item>
           <Dropdown.Item icon={<IconEdit />} onClick={handleRename} disabled={!activeId}>Rename Active Sheet</Dropdown.Item>

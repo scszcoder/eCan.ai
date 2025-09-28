@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { nanoid } from 'nanoid/non-secure';
 import blankFlow from '../data/blank-flow.json';
+import { validateBundle } from '../services/sheets-resolver';
 
 export interface Sheet {
   id: string;
@@ -9,6 +10,8 @@ export interface Sheet {
   document?: any;
   createdAt: number;
   lastOpenedAt: number;
+  view?: { zoom?: number };
+  selectionIds?: string[];
 }
 
 interface SheetsState {
@@ -30,6 +33,10 @@ interface SheetsState {
   saveActiveDocument: (doc: any) => void;
   getActiveDocument: () => any | null;
   clearActiveSheet: () => void;
+  saveActiveViewState: (view: { zoom?: number }) => void;
+  getActiveViewState: () => { zoom?: number } | null;
+  saveActiveSelection: (ids: string[]) => void;
+  getActiveSelection: () => string[];
   // reorder tabs
   moveTabLeft: (id: string) => void;
   moveTabRight: (id: string) => void;
@@ -196,6 +203,17 @@ export const useSheetsStore = create<SheetsState>((set, get) => ({
     return { mainSheetId: st.order[0] || 'main', sheets, openTabs: [...st.openTabs], activeSheetId: st.activeSheetId };
   },
   loadBundle: (bundle) => {
+    // Validate before applying
+    const validation = validateBundle(bundle as any);
+    if (!validation.ok) {
+      // eslint-disable-next-line no-alert
+      alert('Bundle validation failed: ' + validation.errors.map((e) => e.message).join('; '));
+      return;
+    }
+    if (validation.warnings.length) {
+      // eslint-disable-next-line no-console
+      console.warn('[Sheets] Bundle validation warnings:', validation.warnings);
+    }
     const map: Record<string, Sheet> = {};
     const order: string[] = [];
     bundle.sheets.forEach((s) => {

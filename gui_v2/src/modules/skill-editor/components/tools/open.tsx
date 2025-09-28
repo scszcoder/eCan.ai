@@ -7,6 +7,8 @@ import { SkillInfo } from '../../typings/skill-info';
 import { hasIPCSupport, hasFullFilePaths } from '../../../../config/platform';
 import '../../../../services/ipc/file-api'; // Import file API extensions
 import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files-store';
+import { useSheetsStore } from '../../stores/sheets-store';
+import { SheetsBundle } from '../../services/sheets-persistence';
 
 interface OpenProps {
   disabled?: boolean;
@@ -19,6 +21,7 @@ export const Open = ({ disabled }: OpenProps) => {
   const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
   const addRecentFile = useRecentFilesStore((state) => state.addRecentFile);
+  const loadBundle = useSheetsStore((s) => s.loadBundle);
 
   const handleOpen = useCallback(async () => {
     try {
@@ -39,7 +42,19 @@ export const Open = ({ disabled }: OpenProps) => {
           const fileResponse = await ipcApi.readSkillFile(filePath);
           
           if (fileResponse.success && fileResponse.data) {
-            const data = JSON.parse(fileResponse.data.content) as SkillInfo;
+            const raw = JSON.parse(fileResponse.data.content);
+            // Detect bundle vs single-skill
+            const isBundle = raw && typeof raw === 'object' && 'mainSheetId' in raw && Array.isArray(raw.sheets);
+            if (isBundle) {
+              const bundle = raw as SheetsBundle;
+              loadBundle(bundle);
+              setCurrentFilePath(filePath);
+              setHasUnsavedChanges(false);
+              addRecentFile(createRecentFile(filePath, 'Multi-sheet Bundle'));
+              return;
+            }
+
+            const data = raw as SkillInfo;
             const diagram = data.workFlow;
 
             if (diagram) {
@@ -75,7 +90,7 @@ export const Open = ({ disabled }: OpenProps) => {
         // Web mode: Use browser FileReader API (original implementation)
         const input = document.createElement('input');
         input.type = 'file';
-        input.accept = '.json';
+        input.accept = '.json,application/json';
         input.style.display = 'none';
 
         input.onchange = (e: Event) => {
@@ -84,7 +99,15 @@ export const Open = ({ disabled }: OpenProps) => {
             const reader = new FileReader();
             reader.onload = (event) => {
               try {
-                const data = JSON.parse(event.target?.result as string) as SkillInfo;
+                const raw = JSON.parse(event.target?.result as string);
+                const isBundle = raw && typeof raw === 'object' && 'mainSheetId' in raw && Array.isArray(raw.sheets);
+                if (isBundle) {
+                  loadBundle(raw as SheetsBundle);
+                  setCurrentFilePath(null);
+                  setHasUnsavedChanges(false);
+                  return;
+                }
+                const data = raw as SkillInfo;
                 const diagram = data.workFlow;
 
                 if (diagram) {
