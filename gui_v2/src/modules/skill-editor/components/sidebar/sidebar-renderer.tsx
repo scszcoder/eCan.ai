@@ -134,12 +134,9 @@ export const SidebarRenderer = () => {
       return false;
     }
     const { sidebarDisabled = false } = node.getNodeMeta<FlowNodeMeta>();
-    return !sidebarDisabled;
-  }, [node]);
-
-  if (playground.config.readonly) {
-    return null;
-  }
+    // Also hide when editor is readonly to avoid mid-render hook order changes
+    return !sidebarDisabled && !playground.config.readonly;
+  }, [node, playground.config.readonly]);
   /**
    * Add "key" to rerender the sidebar when the node changes
    */

@@ -27,6 +27,7 @@ import { Comment } from './comment';
 import { AutoLayout } from './auto-layout';
 import { Open } from './open';
 import { Info } from './info';
+import { GitMenu } from './git';
 import { HelpPanel } from '../help/help-panel';
 import { NewPage } from './new-page';
 import { IPCAPI } from '../../../../services/ipc/api';
@@ -122,6 +123,7 @@ export const Tools = () => {
         <Divider layout="vertical" style={{ height: '16px' }} margin={3} />
         <SkillNameBadge />
         <Info />
+        <GitMenu />
         {/* Help button */}
         <Tooltip content="Help">
           <IconButton

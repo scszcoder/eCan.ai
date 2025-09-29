@@ -11,6 +11,7 @@ export interface SkillInfo {
   version: string;
   lastModified: string;
   workFlow: FlowDocumentJSON;
+  mode?: 'development' | 'released';
 }
 
 // @ts-ignore
@@ -24,5 +25,6 @@ export function createSkillInfo(workFlow: FlowDocumentJSON): SkillInfo {
     version: '1.0.0',
     lastModified: new Date().toISOString(),
     workFlow,
+    mode: 'development',
   };
-} 
+}

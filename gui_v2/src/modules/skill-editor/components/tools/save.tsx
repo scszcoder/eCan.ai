@@ -177,6 +177,7 @@ export const Save = ({ disabled }: SaveProps) => {
         ...skillInfo,
         workFlow: diagram,
         lastModified: new Date().toISOString(),
+        mode: (skillInfo as any)?.mode ?? 'development',
       };
 
       // 4. Save the file with platform-aware handling
@@ -282,6 +283,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
         ...skillInfo,
         workFlow: diagram,
         lastModified: new Date().toISOString(),
+        mode: (skillInfo as any)?.mode ?? 'development',
       } as SkillInfo;
 
       const saveResult = await saveFile(updatedSkillInfo, username || undefined, null);
