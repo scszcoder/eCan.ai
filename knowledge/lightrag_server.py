@@ -5,21 +5,19 @@ import signal
 from pathlib import Path
 import threading
 import time
+import locale
 from utils.logger_helper import logger_helper as logger
-
-# Prioritize reading .env file from knowledge directory
-try:
-    from dotenv import load_dotenv
-    load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)
-except ImportError:
-    pass
 
 
 class LightragServer:
     def __init__(self, extra_env=None):
         self.extra_env = extra_env or {}
-        logger.info(f"[LightragServer] extra_env: {self.extra_env}")
+        if self.extra_env:
+            logged_keys = sorted(str(k) for k in self.extra_env.keys())
+            logger.info(f"[LightragServer] extra_env keys: {logged_keys}")
         self.proc = None
+        self._stdout_log_handle = None
+        self._stderr_log_handle = None
 
         # Detect if running in PyInstaller packaged environment
         self.is_frozen = getattr(sys, 'frozen', False)
@@ -97,22 +95,94 @@ class LightragServer:
         except Exception as e:
             logger.warning(f"[LightragServer] Failed to setup signal handlers: {e}")
 
+    def _get_env_file_paths(self):
+        """Get possible .env file paths for both development and PyInstaller environments"""
+        possible_paths = []
+
+        def add_path(path: Path):
+            if path and path not in possible_paths:
+                possible_paths.append(path)
+
+        resource_env_name = "lightrag.env"
+        add_path(Path.cwd() / "resource" / "data" / resource_env_name)
+
+        if self.is_frozen:
+            exe_dir = Path(sys.executable).parent
+            add_path(exe_dir / "resource" / "data" / resource_env_name)
+            add_path(exe_dir / ".env")
+            add_path(exe_dir / "knowledge" / ".env")
+            add_path(Path.cwd() / ".env")
+            add_path(Path.cwd() / "knowledge" / ".env")
+        else:
+            script_dir = Path(__file__).parent
+            project_root = script_dir.parent
+            add_path(project_root / "resource" / "data" / resource_env_name)
+            add_path(script_dir / ".env")
+            add_path(project_root / ".env")
+            add_path(project_root / "knowledge" / ".env")
+            add_path(Path.cwd() / ".env")
+            add_path(Path.cwd() / "knowledge" / ".env")
+
+        return possible_paths
+
+    def _load_env_file_content(self):
+        """Load .env file content and return as dict - unified logic for all environments"""
+        possible_paths = self._get_env_file_paths()
+        
+        # Find the first existing .env file
+        env_file = None
+        for env_path in possible_paths:
+            if env_path.exists():
+                env_file = env_path
+                logger.info(f"[LightragServer] Found .env file at: {env_file}")
+                break
+        
+        if not env_file:
+            logger.warning(f"[LightragServer] .env file not found. Searched paths: {[str(p) for p in possible_paths]}")
+            return {}
+        
+        # Load .env file content - same logic for all environments
+        temp_env = {}
+        try:
+            logger.info(f"[LightragServer] Loading environment from {env_file}")
+            with open(env_file, 'r', encoding='utf-8') as f:
+                for line_num, line in enumerate(f, 1):
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        try:
+                            key, value = line.split('=', 1)
+                            # Remove quotes if present - unified processing
+                            value = value.strip('"\'')
+                            temp_env[key] = value
+                            logger.debug(f"[LightragServer] Loaded {key}={value}")
+                        except ValueError:
+                            logger.warning(f"[LightragServer] Invalid line {line_num} in .env file: {line}")
+            
+            logger.info(f"[LightragServer] Loaded {len(temp_env)} variables from .env file")
+            return temp_env
+        except Exception as e:
+            logger.error(f"[LightragServer] Error loading .env file {env_file}: {e}")
+            return {}
+
     def build_env(self):
+        # Start with current environment
         env = os.environ.copy()
+        
+        # Load .env file content
+        env_file_content = self._load_env_file_content()
+        if env_file_content:
+            env.update(env_file_content)
 
         # Force fix Windows encoding issues
         env['PYTHONIOENCODING'] = 'utf-8'
         env['PYTHONUTF8'] = '1'
         env['PYTHONUNBUFFERED'] = '1'  # Force unbuffered output for subprocess to avoid missing logs
         env['PYTHONLEGACYWINDOWSSTDIO'] = '0'
-        env['LANG'] = 'en_US.UTF-8'
-        env['LC_ALL'] = 'en_US.UTF-8'
 
-        # Set default values
-        env.setdefault('HOST', '127.0.0.1')
-        env.setdefault('PORT', '9621')
-        env.setdefault('MAX_RESTARTS', '3')
-        env.setdefault('RESTART_COOLDOWN', '5')
+        self._ensure_utf8_locale(env)
+
+        env.setdefault('MAX_RESTARTS', '5')  # Increase restart attempts for network issues
+        env.setdefault('RESTART_COOLDOWN', '10')  # Longer cooldown for network recovery
         env.setdefault('NO_COLOR', '1')
         env.setdefault('ASCII_COLORS_DISABLE', '1')
 
@@ -120,20 +190,22 @@ class LightragServer:
         env.setdefault('LIGHTRAG_HEALTH_TIMEOUT', '45')  # seconds
         env.setdefault('LIGHTRAG_HEALTH_INTERVAL_INITIAL', '0.5')  # seconds
         env.setdefault('LIGHTRAG_HEALTH_INTERVAL_MAX', '1.5')  # seconds
+        
+        # Network timeout configurations for OpenAI API to prevent ConnectTimeout
+        env.setdefault('OPENAI_TIMEOUT', '300')  # 5 minutes total timeout
+        env.setdefault('OPENAI_CONNECT_TIMEOUT', '60')  # 1 minute connection timeout
+        env.setdefault('OPENAI_READ_TIMEOUT', '240')  # 4 minutes read timeout
+        env.setdefault('HTTPX_TIMEOUT', '300')  # HTTP client timeout
 
+        # Apply extra_env (from parent process) - these take priority over .env file
         if self.extra_env:
-            env.update({str(k): str(v) for k, v in self.extra_env.items()})
+            logger.info(f"[LightragServer] Applying {len(self.extra_env)} extra environment variables")
+            for k, v in self.extra_env.items():
+                env[str(k)] = str(v)
+                logger.debug(f"[LightragServer] Extra env: {k}={self._mask_env_value(k, v)}")
 
-        # Special handling in packaged environment
-        if self.is_frozen:
-            # Clear Python environment variables that might cause conflicts
-            env.pop("PYTHONPATH", None)
-            env.pop("PYTHONHOME", None)
-            logger.info("[LightragServer] Cleaned Python environment variables for packaged environment")
-            # # Force bind to 127.0.0.1, avoid 0.0.0.0 in .env affecting health checks in packaged environment
-            # host = str(env.get('HOST', '127.0.0.1')).strip()
-            # if host in ('0.0.0.0', '::', ''):
-            #     env['HOST'] = '127.0.0.1'
+        # Apply environment-specific optimizations - unified approach
+        self._apply_environment_optimizations(env)
 
         # Set path-related environment variables
         if 'APP_DATA_PATH' in env:
@@ -157,8 +229,166 @@ class LightragServer:
             logger.info(f"[LightragServer] ✅ EMBEDDING_BINDING_API_KEY overridden from OPENAI_API_KEY environment variable ({masked_key})")
         else:
             logger.error("[LightragServer] ❌ OPENAI_API_KEY environment variable not found or empty. LLM and Embedding API keys will use .env file values.")
+        
+        # Log critical timeout settings for debugging
+        critical_vars = ['EMBEDDING_TIMEOUT', 'LLM_TIMEOUT', 'EMBEDDING_FUNC_MAX_ASYNC', 
+                        'OPENAI_TIMEOUT', 'OPENAI_CONNECT_TIMEOUT', 'OPENAI_READ_TIMEOUT']
+        logger.info("[LightragServer] 🔧 Critical timeout settings:")
+        for critical_var in critical_vars:
+            value = env.get(critical_var, 'NOT_SET')
+            logger.info(f"[LightragServer]   {critical_var}: {value}")
+
+        self._sync_restart_settings(env)
 
         return env
+
+    def _sync_restart_settings(self, env):
+        """Synchronize restart settings from environment"""
+
+        def _read_int(key, current_value, minimum=0):
+            raw_value = env.get(key)
+            if raw_value is None:
+                return current_value
+            try:
+                parsed = int(raw_value)
+                if parsed < minimum:
+                    logger.warning(f"[LightragServer] {key} ({parsed}) below minimum {minimum}, using minimum")
+                    return minimum
+                return parsed
+            except (TypeError, ValueError):
+                logger.warning(f"[LightragServer] {key} has invalid value {raw_value}, keeping {current_value}")
+                return current_value
+
+        new_max_restarts = _read_int('MAX_RESTARTS', self.max_restarts)
+        new_cooldown = _read_int('RESTART_COOLDOWN', self.restart_cooldown)
+
+        if new_max_restarts != self.max_restarts:
+            logger.info(f"[LightragServer] MAX_RESTARTS updated to {new_max_restarts}")
+        if new_cooldown != self.restart_cooldown:
+            logger.info(f"[LightragServer] RESTART_COOLDOWN updated to {new_cooldown}")
+
+        self.max_restarts = new_max_restarts
+        self.restart_cooldown = new_cooldown
+
+    def _ensure_utf8_locale(self, env):
+        """Ensure UTF-8 locale if available without forcing missing locales"""
+        target_locale = 'en_US.UTF-8'
+        if env.get('LANG') or env.get('LC_ALL'):
+            return
+
+        if self._locale_available(target_locale):
+            env.setdefault('LANG', target_locale)
+            env.setdefault('LC_ALL', target_locale)
+            logger.debug(f"[LightragServer] Locale set to {target_locale}")
+        else:
+            logger.warning(f"[LightragServer] Locale {target_locale} not available, skipping locale override")
+
+    @staticmethod
+    def _locale_available(locale_name: str) -> bool:
+        """Check whether a locale can be set on this system"""
+        try:
+            current_locale = locale.setlocale(locale.LC_ALL)
+        except locale.Error:
+            current_locale = None
+
+        try:
+            locale.setlocale(locale.LC_ALL, locale_name)
+            return True
+        except locale.Error:
+            return False
+        finally:
+            if current_locale:
+                try:
+                    locale.setlocale(locale.LC_ALL, current_locale)
+                except locale.Error:
+                    pass
+
+    @staticmethod
+    def _mask_env_value(key: str, value: str) -> str:
+        """Mask sensitive environment values when logging"""
+        if value is None:
+            return "<None>"
+
+        sensitive_markers = ["KEY", "TOKEN", "SECRET", "PASSWORD"]
+        upper_key = str(key).upper()
+        if any(marker in upper_key for marker in sensitive_markers):
+            text = str(value)
+            if len(text) <= 8:
+                return "***"
+            return f"{text[:4]}...{text[-4:]}"
+
+        return str(value)
+
+    def _apply_environment_optimizations(self, env):
+        """Apply environment-specific optimizations - unified logic with different defaults"""
+        # Set default values based on environment
+        default_values = self._get_environment_defaults()
+        
+        for key, default_value in default_values.items():
+            if not env.get(key):
+                env[key] = default_value
+                logger.info(f"[LightragServer] Set {('PyInstaller' if self.is_frozen else 'development')} default: {key}={default_value}")
+        
+        # Clean Python environment variables for PyInstaller (doesn't affect development)
+        if self.is_frozen:
+            env.pop("PYTHONPATH", None)
+            env.pop("PYTHONHOME", None)
+            logger.info("[LightragServer] Cleaned Python environment variables for packaged environment")
+
+    def _get_environment_defaults(self):
+        """Get environment-specific default values - only for values not in .env file"""
+        base_defaults = {}
+        
+        # Only set defaults for values that are truly environment-specific
+        # and not already configured in .env file
+        if self.is_frozen:
+            # PyInstaller-specific: prefer localhost to avoid network issues
+            # Only override if HOST is not already set
+            if not os.environ.get('HOST'):
+                base_defaults['HOST'] = '127.0.0.1'
+        
+        return base_defaults
+
+    def _validate_critical_env_vars(self, env):
+        """Validate that critical environment variables are properly set"""
+        critical_issues = []
+        
+        # Check OPENAI_API_KEY
+        if not env.get('OPENAI_API_KEY'):
+            critical_issues.append("OPENAI_API_KEY is missing")
+        
+        # Check timeout settings
+        embedding_timeout = env.get('EMBEDDING_TIMEOUT')
+        if not embedding_timeout:
+            critical_issues.append("EMBEDDING_TIMEOUT is not set")
+        else:
+            try:
+                timeout_val = int(embedding_timeout)
+                if timeout_val < 30:
+                    critical_issues.append(f"EMBEDDING_TIMEOUT ({timeout_val}s) is too low, recommend >= 60s")
+            except ValueError:
+                critical_issues.append(f"EMBEDDING_TIMEOUT ({embedding_timeout}) is not a valid number")
+        
+        # Check concurrency settings
+        max_async = env.get('EMBEDDING_FUNC_MAX_ASYNC')
+        if not max_async:
+            critical_issues.append("EMBEDDING_FUNC_MAX_ASYNC is not set")
+        else:
+            try:
+                async_val = int(max_async)
+                if async_val > 5:
+                    critical_issues.append(f"EMBEDDING_FUNC_MAX_ASYNC ({async_val}) is too high, recommend <= 2")
+            except ValueError:
+                critical_issues.append(f"EMBEDDING_FUNC_MAX_ASYNC ({max_async}) is not a valid number")
+        
+        if critical_issues:
+            logger.warning("[LightragServer] ⚠️ Critical environment variable issues:")
+            for issue in critical_issues:
+                logger.warning(f"[LightragServer]   - {issue}")
+        else:
+            logger.info("[LightragServer] ✅ All critical environment variables are properly configured")
+        
+        return len(critical_issues) == 0
 
     def _get_virtual_env_python(self):
         """Get Python interpreter path in virtual environment"""
@@ -226,96 +456,110 @@ class LightragServer:
             return False
 
     def _create_simple_lightrag_script(self):
-        """Create simple LightRAG startup script, utilizing main.py protection mechanism"""
+        """Create simple LightRAG startup script - unified approach for environment setup"""
         try:
             import tempfile
+            import textwrap
 
-            # Safely handle environment variables
-            env_settings = []
-            for key, value in self.extra_env.items():
-                # Safely escape paths
-                safe_value = str(value).replace('\\', '/')
-                env_settings.append(f'os.environ["{key}"] = r"{safe_value}"')
+            # Create simple startup script without persisting environment secrets
+            script_content = textwrap.dedent(
+                """
+                #!/usr/bin/env python3
+                # -*- coding: utf-8 -*-
+                #
+                # LightRAG Simple Startup Script
+                # Utilize existing protection mechanism in main.py; do not import main program module.
 
-            env_code = '\n    '.join(env_settings)
+                import sys
+                import os
+                import io
 
-            # Create simple startup script
-            # Key: don't import main module, run LightRAG directly
-            script_content = f'''#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-LightRAG Simple Startup Script
-Utilize existing protection mechanism in main.py, don't import main program module
-"""
+                # Force UTF-8 encoding to avoid UnicodeEncodeError from Windows GBK console encoding
+                os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
+                os.environ.setdefault('PYTHONUTF8', '1')
+                # Most coloring libraries support NO_COLOR to disable colored output, minimize non-ASCII characters
+                os.environ.setdefault('NO_COLOR', '1')
 
-import sys
-import os
-import io
+                try:
+                    if hasattr(sys.stdout, 'reconfigure'):
+                        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+                        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+                    else:
+                        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+                        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+                except Exception:
+                    pass
 
-# Force UTF-8 encoding to avoid UnicodeEncodeError from Windows GBK console encoding
-os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
-os.environ.setdefault('PYTHONUTF8', '1')
-# Most coloring libraries support NO_COLOR to disable colored output, minimize non-ASCII characters
-os.environ.setdefault('NO_COLOR', '1')
+                def setup_lightrag_environment():
+                    # Configure runtime environment based on inherited variables
+                    print("Setting up LightRAG environment variables...")
+                    _log_environment_status()
+                    sys.argv = ["lightrag_server"]
+                    print("LightRAG Environment Setup Complete")
 
-try:
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-    else:
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
-except Exception:
-    pass
+                def _log_environment_status():
+                    # Log key environment settings for quick diagnosis
+                    critical_vars = ['EMBEDDING_TIMEOUT', 'LLM_TIMEOUT', 'EMBEDDING_FUNC_MAX_ASYNC', 'LOG_LEVEL']
+                    print("Critical timeout settings:")
+                    for critical_var in critical_vars:
+                        value = os.environ.get(critical_var, 'NOT_SET')
+                        print(f"  {critical_var}: {value}")
 
-def setup_lightrag_environment():
-    """Setup LightRAG environment"""
-    # Set environment variables
-    {env_code}
+                    has_openai = bool(os.environ.get('OPENAI_API_KEY'))
+                    has_llm = bool(os.environ.get('LLM_BINDING_API_KEY'))
+                    has_embed = bool(os.environ.get('EMBEDDING_BINDING_API_KEY'))
+                    print(f"API Keys: OPENAI={'✓' if has_openai else '✗'}, LLM={'✓' if has_llm else '✗'}, EMBED={'✓' if has_embed else '✗'}")
 
-    # Clean command line arguments
-    sys.argv = ["lightrag_server"]
+                    log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
+                    if log_level in ['DEBUG', 'INFO', 'WARNING', 'ERROR']:
+                        import logging
+                        lightrag_logger = logging.getLogger('lightrag')
+                        level = getattr(logging, log_level)
+                        lightrag_logger.setLevel(level)
+                        print(f"LightRAG log level set to: {log_level}")
+                    else:
+                        print(f"Invalid LOG_LEVEL: {log_level}, using default")
 
-    print("LightRAG Environment Setup Complete")
+                def main():
+                    # Entrypoint for LightRAG when launched via packaged worker
+                    try:
+                        print("=" * 50)
+                        print("LightRAG Server Starting...")
+                        print("=" * 50)
 
-def main():
-    """Start LightRAG server"""
-    try:
-        print("=" * 50)
-        print("LightRAG Server Starting...")
-        print("=" * 50)
+                        setup_lightrag_environment()
 
-        # Setup environment
-        setup_lightrag_environment()
+                        try:
+                            import lightrag
+                            print(f"LightRAG version: {getattr(lightrag, '__version__', 'unknown')}")
+                        except ImportError as e:
+                            print(f"LightRAG not available: {e}")
+                            print("Exiting gracefully...")
+                            return 0
 
-        # Check LightRAG availability
-        try:
-            import lightrag
-            print(f"LightRAG version: {{getattr(lightrag, '__version__', 'unknown')}}")
-        except ImportError as e:
-            print(f"LightRAG not available: {{e}}")
-            print("Exiting gracefully...")
-            return 0
+                        from lightrag.api.lightrag_server import main as lightrag_main
+                        print("Starting LightRAG API server...")
 
-        # Start LightRAG server
-        from lightrag.api.lightrag_server import main as lightrag_main
-        print("Starting LightRAG API server...")
-        lightrag_main()
+                        log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
+                        if log_level in ['DEBUG', 'INFO', 'WARNING', 'ERROR']:
+                            sys.argv = ["lightrag_server", "--log-level", log_level.lower()]
+                            print(f"LightRAG will start with log level: {log_level}")
 
-    except KeyboardInterrupt:
-        print("LightRAG server interrupted")
-        return 0
-    except Exception as e:
-        print(f"LightRAG server error: {{e}}")
-        import traceback
-        traceback.print_exc()
-        return 1
+                        lightrag_main()
 
-# Use standard if __name__ == '__main__'
-# This will be properly handled by main.py protection mechanism
-if __name__ == '__main__':
-    sys.exit(main())
-'''
+                    except KeyboardInterrupt:
+                        print("LightRAG server interrupted")
+                        return 0
+                    except Exception as e:
+                        print(f"LightRAG server error: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        return 1
+
+                if __name__ == '__main__':
+                    sys.exit(main())
+                """
+            ).lstrip()
 
             # Create temporary file
             with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
@@ -328,124 +572,6 @@ if __name__ == '__main__':
         except Exception as e:
             logger.error(f"[LightragServer] Failed to create simple startup script: {e}")
             return None
-
-    def _check_and_free_port(self):
-        """Check if port is occupied, try to free it if occupied"""
-        try:
-            import socket
-            import platform
-            import subprocess
-            import time
-
-            port = int(self.extra_env.get("PORT", "9621"))
-            is_windows = platform.system().lower().startswith('win')
-
-            # Check if port is occupied
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(1)
-            result = sock.connect_ex(('localhost', port))
-            sock.close()
-
-            if result == 0:
-                # Port is occupied, try to free it
-                logger.warning(f"[LightragServer] Port {port} is in use, attempting to free it...")
-
-                pids = self._find_processes_using_port(port, is_windows)
-
-                if pids:
-                    logger.info(f"[LightragServer] Found {len(pids)} process(es) using port {port}: {pids}")
-
-                    # Try to kill processes
-                    killed_count = 0
-                    for pid in pids:
-                        if self._kill_process(pid, is_windows):
-                            killed_count += 1
-                            logger.info(f"[LightragServer] Successfully killed process {pid}")
-                        else:
-                            logger.warning(f"[LightragServer] Failed to kill process {pid}")
-
-                    if killed_count > 0:
-                        # Wait for port to be released
-                        for i in range(15):  # Wait up to 15 seconds
-                            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                            sock.settimeout(1)
-                            result = sock.connect_ex(('localhost', port))
-                            sock.close()
-                            if result != 0:
-                                logger.info(f"[LightragServer] Port {port} is now free after killing {killed_count} process(es)")
-                                return True
-                            time.sleep(1)
-
-                        logger.warning(f"[LightragServer] Port {port} is still in use after killing processes")
-                    else:
-                        logger.warning(f"[LightragServer] Could not kill any processes using port {port}")
-
-                    # If unable to kill processes, try using different port
-                    return self._try_alternative_port(port)
-                else:
-                    logger.warning(f"[LightragServer] Could not find processes using port {port}")
-                    return self._try_alternative_port(port)
-            else:
-                # Port is available
-                return True
-
-        except Exception as e:
-            logger.warning(f"[LightragServer] Error checking port: {e}")
-            return True  # If check fails, assume port is available
-
-    def _find_processes_using_port(self, port, is_windows):
-        """Find processes using specified port"""
-        try:
-            if is_windows:
-                # Windows: use netstat
-                result = subprocess.run(
-                    ['netstat', '-ano'],
-                    capture_output=True, text=True, timeout=10
-                )
-                if result.returncode == 0:
-                    pids = []
-                    for line in result.stdout.split('\n'):
-                        if f':{port}' in line and 'LISTENING' in line:
-                            parts = line.split()
-                            if len(parts) >= 5:
-                                pid = parts[-1]
-                                if pid.isdigit():
-                                    pids.append(pid)
-                    return pids
-            else:
-                # Unix/Linux/macOS: use lsof
-                result = subprocess.run(
-                    ['lsof', '-ti', f':{port}'],
-                    capture_output=True, text=True, timeout=10
-                )
-                if result.returncode == 0 and result.stdout.strip():
-                    return result.stdout.strip().split('\n')
-
-            return []
-        except Exception as e:
-            logger.warning(f"[LightragServer] Error finding processes using port {port}: {e}")
-            return []
-
-    def _kill_process(self, pid, is_windows):
-        """Try to kill process"""
-        try:
-            if is_windows:
-                # Windows: use taskkill
-                result = subprocess.run(
-                    ['taskkill', '/PID', str(pid), '/F'],
-                    capture_output=True, text=True, timeout=10
-                )
-                return result.returncode == 0
-            else:
-                # Unix/Linux/macOS: use kill
-                result = subprocess.run(
-                    ['kill', '-9', str(pid)],
-                    capture_output=True, text=True, timeout=10
-                )
-                return result.returncode == 0
-        except Exception as e:
-            logger.warning(f"[LightragServer] Error killing process {pid}: {e}")
-            return False
 
     def _try_alternative_port(self, original_port):
         """Try to use alternative port"""
@@ -592,6 +718,18 @@ if __name__ == '__main__':
 
         return stdout_log, stderr_log, stdout_log_path, stderr_log_path
 
+    def _close_log_files(self):
+        """Close log file handles if they are open"""
+        for attr in ('_stdout_log_handle', '_stderr_log_handle'):
+            handle = getattr(self, attr, None)
+            if handle:
+                try:
+                    handle.close()
+                except Exception:
+                    pass
+                finally:
+                    setattr(self, attr, None)
+
     def _start_server_process(self, wait_gating: bool = False):
         """Start server process
         
@@ -600,7 +738,17 @@ if __name__ == '__main__':
         """
         try:
             env = self.build_env()
+            
+            # Validate critical environment variables
+            if not self._validate_critical_env_vars(env):
+                logger.error("[LightragServer] Critical environment variables validation failed")
+                # Continue anyway, but with warnings
+            
+            self._close_log_files()
             stdout_log, stderr_log, stdout_log_path, stderr_log_path = self._create_log_files()
+            self._stdout_log_handle = stdout_log
+            self._stderr_log_handle = stderr_log
+            log_handles_active = True
 
             # Check and determine final port (based on env, find available port if necessary), keep env and extra_env consistent
             try:
@@ -635,16 +783,23 @@ if __name__ == '__main__':
                 try:
                     import lightrag
                     logger.info("[LightragServer] lightrag module is available in packaged environment")
-                except ImportError:
-                    logger.warning("[LightragServer] lightrag module not available in packaged environment")
+                    
+                    # Log environment status for PyInstaller debugging
+                    logger.info("[LightragServer] PyInstaller environment status:")
+                    logger.info(f"[LightragServer]   sys.executable: {sys.executable}")
+                    logger.info(f"[LightragServer]   sys.frozen: {getattr(sys, 'frozen', False)}")
+                    logger.info(f"[LightragServer]   _MEIPASS: {getattr(sys, '_MEIPASS', 'Not found')}")
+                    
+                except ImportError as e:
+                    logger.warning(f"[LightragServer] lightrag module not available in packaged environment: {e}")
                     logger.warning("[LightragServer] LightRAG server will be disabled")
                     return False
 
             import platform
 
-            # Build start command
+            # Build start command - unified approach for both environments
             if self.is_frozen:
-                # In packaged environment, use the existing protection mechanism in main.py
+                # PyInstaller environment: use the existing protection mechanism in main.py
                 logger.info("[LightragServer] Using main.py protection mechanism for packaged environment")
 
                 # Create a simple startup script to import and run LightRAG
@@ -659,21 +814,44 @@ if __name__ == '__main__':
                 # Use environment variable to deliver script path to main.exe (worker mode)
                 env['ECAN_RUN_SCRIPT'] = script_path
                 env['ECAN_BYPASS_SINGLE_INSTANCE'] = '1'
-                cmd = [python_executable]  # No -u needed; PYTHONUNBUFFERED=1 forces unbuffered output
-                logger.info(f"[LightragServer] PyInstaller mode command: {cmd} with ECAN_RUN_SCRIPT={script_path}")
+                cmd = [python_executable]
+                logger.info(f"[LightragServer] PyInstaller command: {cmd} with ECAN_RUN_SCRIPT={script_path}")
             else:
-                # Development environment: use -u for unbuffered output to locate errors quickly
+                # Development environment: direct module execution with log level
                 cmd = [python_executable, "-u", "-m", "lightrag.api.lightrag_server"]
-                logger.info(f"[LightragServer] Development mode command: {' '.join(cmd)}")
+                
+                # Add log level parameter if specified in .env
+                log_level = env.get('LOG_LEVEL', 'INFO').upper()
+                if log_level in ['DEBUG', 'INFO', 'WARNING', 'ERROR']:
+                    cmd.extend(["--log-level", log_level])
+                    logger.info(f"[LightragServer] Adding log level parameter: --log-level {log_level}")
+                
+                logger.info(f"[LightragServer] Development command: {' '.join(cmd)}")
+            
+            # Both environments use the same subprocess.Popen parameters
 
             if platform.system().lower().startswith('win'):
                 # Hide console window in production by default; enable via env for debugging
                 show_console = os.getenv("ECBOT_CHILD_SHOW_CONSOLE") == "1"
                 creation_flags = 0
+                
+                # Always create new process group for better process management
                 if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP'):
                     creation_flags |= subprocess.CREATE_NEW_PROCESS_GROUP
-                if not show_console and hasattr(subprocess, 'CREATE_NO_WINDOW'):
-                    creation_flags |= subprocess.CREATE_NO_WINDOW
+                
+                # Hide console window in production (PyInstaller environment)
+                if not show_console:
+                    if hasattr(subprocess, 'CREATE_NO_WINDOW'):
+                        creation_flags |= subprocess.CREATE_NO_WINDOW
+                    # Additional flag to ensure window is hidden
+                    if hasattr(subprocess, 'STARTF_USESHOWWINDOW'):
+                        startupinfo = subprocess.STARTUPINFO()
+                        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                        startupinfo.wShowWindow = 0  # SW_HIDE
+                    else:
+                        startupinfo = None
+                else:
+                    startupinfo = None
 
                 self.proc = subprocess.Popen(
                     cmd,
@@ -684,7 +862,8 @@ if __name__ == '__main__':
                     text=True,
                     encoding='utf-8',
                     errors='replace',
-                    creationflags=creation_flags
+                    creationflags=creation_flags,
+                    startupinfo=startupinfo
                 )
                 try:
                     self.proc.stdin.write("yes\n")
@@ -693,11 +872,10 @@ if __name__ == '__main__':
                     logger.error(f"[LightragServer] Failed to write to stdin: {e}")
             else:
                 # Unix-like systems
-                yes_proc = subprocess.Popen(["yes", "yes"], stdout=subprocess.PIPE)
                 self.proc = subprocess.Popen(
                     cmd,
                     env=env,
-                    stdin=yes_proc.stdout,
+                    stdin=subprocess.PIPE,
                     stdout=stdout_log,
                     stderr=stderr_log,
                     text=True,
@@ -705,6 +883,12 @@ if __name__ == '__main__':
                     errors='replace',
                     preexec_fn=os.setsid if hasattr(os, 'setsid') else None
                 )
+                try:
+                    if self.proc.stdin:
+                        self.proc.stdin.write("yes\n")
+                        self.proc.stdin.flush()
+                except Exception as e:
+                    logger.error(f"[LightragServer] Failed to write to stdin: {e}")
 
             final_host = env.get("HOST", "127.0.0.1")
             final_port = env.get("PORT", "9621")
@@ -747,6 +931,7 @@ if __name__ == '__main__':
                             if r.status_code < 500:
                                 logger.info(f"[LightragServer] Server started at http://{final_host}:{final_port}")
                                 logger.info(f"[LightragServer] WebUI: http://{final_host}:{final_port}/webui")
+                                log_handles_active = False
                                 return True
                         except Exception as e:
                             last_err = e
@@ -767,11 +952,15 @@ if __name__ == '__main__':
             else:
                 # Non-blocking mode: return immediately; health check should be handled by the monitor thread or via logs
                 logger.info(f"[LightragServer] Started (non-blocking) at http://{final_host}:{final_port}, skipping health-gating")
+                log_handles_active = False
                 return True
 
         except Exception as e:
             logger.error(f"[LightragServer] Failed to start server: {e}")
             return False
+        finally:
+            if locals().get('log_handles_active'):
+                self._close_log_files()
 
     def start(self, wait_ready: bool = False):
         """Start the server
@@ -847,6 +1036,8 @@ if __name__ == '__main__':
                 self.proc = None
         else:
             logger.info("[LightragServer] Server is not running")
+
+        self._close_log_files()
 
         # Clean up temporary startup script
         try:
