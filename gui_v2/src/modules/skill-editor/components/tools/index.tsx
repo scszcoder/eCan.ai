@@ -16,7 +16,8 @@ import { AddNode } from '../add-node';
 import { ZoomSelect } from './zoom-select';
 import { SwitchLine } from './switch-line';
 import { ToolContainer, ToolSection } from './styles';
-import { Save } from './save';
+import { Save, SaveAs } from './save';
+import { SkillNameBadge } from './skill-name';
 import { Readonly } from './readonly';
 import { MinimapSwitch } from './minimap-switch';
 import { Minimap } from './minimap';
@@ -117,6 +118,9 @@ export const Tools = () => {
         <Open disabled={playground.config.readonly} />
         <NewPage disabled={playground.config.readonly} />
         <Save disabled={playground.config.readonly} />
+        <SaveAs disabled={playground.config.readonly} />
+        <Divider layout="vertical" style={{ height: '16px' }} margin={3} />
+        <SkillNameBadge />
         <Info />
         {/* Help button */}
         <Tooltip content="Help">

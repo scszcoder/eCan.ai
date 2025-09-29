@@ -8,18 +8,25 @@ export interface SheetsBundle {
 }
 
 // Save bundle to a specific file path (IPC) or download with a specific name (web)
-export async function saveSheetsBundleToPath(targetPathOrName: string, bundle: SheetsBundle) {
+export async function saveSheetsBundleToPath(
+  targetPathOrName: string,
+  bundle: SheetsBundle
+): Promise<{ success: true; filePath?: string; mode: 'ipc' | 'download' }>{
   const jsonString = JSON.stringify(bundle, null, 2);
-  if (hasIPCSupport() && hasFullFilePaths()) {
+  // Try IPC write first; if anything fails, fall back to download method
+  try {
     const { IPCAPI } = await import('../../../services/ipc/api');
     const ipcApi = IPCAPI.getInstance();
     const writeResponse = await ipcApi.writeSkillFile(targetPathOrName, jsonString);
     if (!writeResponse.success) {
       throw new Error(writeResponse.error || 'Failed to write bundle');
     }
-    return { success: true, filePath: targetPathOrName };
+    return { success: true, filePath: targetPathOrName, mode: 'ipc' };
+  } catch (e) {
+    // Fall through to browser download
+    console.warn('[sheets-persistence] IPC write failed, falling back to download:', e);
   }
-  // Web: force a download using the provided name
+  // Browser/Web fallback: force a download using the provided name
   const blob = new Blob([jsonString], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -34,7 +41,7 @@ export async function saveSheetsBundleToPath(targetPathOrName: string, bundle: S
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }, 100);
-  return { success: true };
+  return { success: true, mode: 'download' };
 }
 
 export async function saveSheetsBundle(bundle: SheetsBundle, suggestedName?: string) {

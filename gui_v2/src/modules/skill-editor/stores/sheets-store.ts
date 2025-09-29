@@ -31,6 +31,8 @@ interface SheetsState {
   renameSheet: (id: string, name: string) => void;
   setActiveSheet: (id: string) => void;
   saveActiveDocument: (doc: any) => void;
+  // Save document for a specific sheet id (used during sheet switch)
+  saveDocumentFor?: (id: string, doc: any) => void;
   getActiveDocument: () => any | null;
   clearActiveSheet: () => void;
   saveActiveViewState: (view: { zoom?: number }) => void;
@@ -61,7 +63,8 @@ export const useSheetsStore = create<SheetsState>((set, get) => ({
     const main: Sheet = {
       id: 'main',
       name: 'Main',
-      document: initialDoc ?? null,
+      // Deep clone to avoid shared object references
+      document: initialDoc ? JSON.parse(JSON.stringify(initialDoc)) : null,
       createdAt: now,
       lastOpenedAt: now,
     };
@@ -79,7 +82,10 @@ export const useSheetsStore = create<SheetsState>((set, get) => ({
     const sheet: Sheet = {
       id,
       name: name || `Sheet ${get().order.length + 1}`,
-      document: initialDoc ?? (blankFlow as any),
+      // Ensure each sheet gets its own document object
+      document: initialDoc
+        ? JSON.parse(JSON.stringify(initialDoc))
+        : JSON.parse(JSON.stringify(blankFlow as any)),
       createdAt: now,
       lastOpenedAt: now,
     };
@@ -158,6 +164,14 @@ export const useSheetsStore = create<SheetsState>((set, get) => ({
     set({ sheets: { ...st.sheets, [id]: { ...sheet, document: doc } } });
   },
 
+  // Explicitly save for a specific sheet id (useful when switching sheets)
+  saveDocumentFor: (id: string, doc: any) => {
+    const st = get();
+    const sheet = st.sheets[id];
+    if (!sheet) return;
+    set({ sheets: { ...st.sheets, [id]: { ...sheet, document: doc } } });
+  },
+
   getActiveDocument: () => {
     const st = get();
     const id = st.activeSheetId;
@@ -172,7 +186,8 @@ export const useSheetsStore = create<SheetsState>((set, get) => ({
     const sheet = st.sheets[id];
     if (!sheet) return;
     set({
-      sheets: { ...st.sheets, [id]: { ...sheet, document: (blankFlow as any) } },
+      // Reset to a fresh blank document (deep clone)
+      sheets: { ...st.sheets, [id]: { ...sheet, document: JSON.parse(JSON.stringify(blankFlow as any)) } },
       revision: st.revision + 1,
     });
   },
@@ -220,7 +235,16 @@ export const useSheetsStore = create<SheetsState>((set, get) => ({
       map[s.id] = { ...s, lastOpenedAt: Date.now(), createdAt: s.createdAt ?? Date.now() } as Sheet;
       order.push(s.id);
     });
-    const openTabs = bundle.openTabs && bundle.openTabs.length ? bundle.openTabs.filter((id) => map[id]) : [bundle.mainSheetId];
+    // Enforce main sheet display name
+    if (bundle.mainSheetId && map[bundle.mainSheetId]) {
+      map[bundle.mainSheetId] = { ...map[bundle.mainSheetId], name: 'Main' };
+    }
+    const maxTabs = get().maxOpenTabs;
+    const openTabs = bundle.openTabs && bundle.openTabs.length
+      ? bundle.openTabs.filter((id) => map[id])
+      : order.slice(0, maxTabs);
+    // visibility log
+    try { console.log('[Sheets][LOAD_BUNDLE]', { sheetsCount: order.length, mainSheetId: bundle.mainSheetId, openTabs }); } catch {}
     set({
       sheets: map,
       order,
