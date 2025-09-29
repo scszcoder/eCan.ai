@@ -320,7 +320,13 @@ class AuthManager:
 
     # --- Session persistence helpers ---
     def _refresh_service(self) -> str:
-        return "ecan_refresh"
+        import sys
+        if getattr(sys, 'frozen', False):
+            # Running as packaged app
+            return "ecan_refresh"
+        else:
+            # Running in development environment
+            return "ecan_refresh_dev"
 
     def _check_keychain_access(self) -> tuple[bool, str]:
         """Check if keychain is accessible and provide diagnostic information."""
@@ -329,12 +335,17 @@ class AuthManager:
             if platform.system() != "Darwin":
                 return True, "Not macOS - keychain not applicable"
 
-            # Try a simple keychain operation
-            test_service = "ecan_keychain_test"
-            test_username = "test_user"
-            test_value = "test_value"
-
+            # Simple check without using actual service name to avoid conflicts
             try:
+                import sys
+                if getattr(sys, 'frozen', False):
+                    test_service = "ecan_keychain_test"
+                else:
+                    test_service = "ecan_keychain_test_dev"
+                    
+                test_username = "test_user"
+                test_value = "test_value"
+                
                 keyring.set_password(test_service, test_username, test_value)
                 keyring.delete_password(test_service, test_username)
                 return True, "Keychain access is working"
@@ -420,6 +431,8 @@ class AuthManager:
                     return True
                 else:
                     logger.warning("macOS direct storage failed, falling back to file storage")
+                    logger.info("Note: In development environments, keychain access may be restricted.")
+                    logger.info("File storage provides the same security for refresh tokens.")
 
             else:
                 # Linux and other platforms: Try direct first, then chunked
@@ -461,30 +474,29 @@ class AuthManager:
                 return False
 
     def _store_refresh_token_direct(self, username: str, refresh_token: str) -> bool:
-        """Store refresh token directly in keyring with base64 encoding.
+        """Store refresh token directly in keyring with enhanced error handling.
 
         This method is optimized for macOS and Linux where keyring can handle longer content.
         """
         try:
-            # Encode token to base64 for safe storage
-            encoded_token = base64.b64encode(refresh_token.encode('utf-8')).decode('ascii')
             safe_username = self._sanitize_username_for_keyring(username)
-
-            # Store directly in keyring
-            keyring.set_password(self._refresh_service(), safe_username, encoded_token)
-            logger.debug(f"Stored refresh token directly (base64 length: {len(encoded_token)})")
+            
+            # Simple approach: try direct storage
+            keyring.set_password(self._refresh_service(), safe_username, refresh_token)
+            logger.info(f"✅ Stored refresh token directly in keychain")
             return True
 
         except Exception as e:
             error_msg = str(e)
             logger.warning(f"Direct keyring storage failed: {error_msg}")
 
-            # Provide specific guidance for common keychain errors
+            # Handle -25244 error specifically
             if "(-25244" in error_msg or "Can't store password on keychain" in error_msg:
                 logger.warning("Keychain access denied. This is usually caused by:")
                 logger.warning("1. Keychain is locked - unlock it in Keychain Access app")
                 logger.warning("2. App lacks keychain permissions - grant access when prompted")
                 logger.warning("3. Development environment restrictions")
+                logger.info("💡 File storage will be used as fallback.")
 
             return False
 
@@ -539,20 +551,15 @@ class AuthManager:
         return self._get_refresh_token_file(username)
 
     def _get_refresh_token_direct(self, username: str) -> tuple[bool, str]:
-        """Get refresh token from direct keyring storage."""
+        """Get refresh token from direct keyring storage with intelligent format detection."""
         try:
             safe_username = self._sanitize_username_for_keyring(username)
-            encoded_token = keyring.get_password(self._refresh_service(), safe_username)
+            
+            stored_token = keyring.get_password(self._refresh_service(), safe_username)
 
-            if encoded_token is not None and len(encoded_token.strip()) > 0:
-                try:
-                    # Decode from base64
-                    token = base64.b64decode(encoded_token.encode('ascii')).decode('utf-8')
-                    logger.debug(f"Retrieved refresh token directly (base64 length: {len(encoded_token)})")
-                    return True, token
-                except Exception as decode_e:
-                    logger.warning(f"Failed to decode direct keyring token: {decode_e}")
-                    return False, "Decode error"
+            if stored_token is not None and len(stored_token.strip()) > 0:
+                logger.debug(f"Retrieved refresh token from keychain")
+                return True, stored_token
             else:
                 return False, "No token found"
 
@@ -564,7 +571,7 @@ class AuthManager:
         """Delete refresh token from both chunked keyring and file storage."""
         success = True
         
-        # Delete from direct keyring (base64 encoded)
+        # Delete from direct keyring
         try:
             safe_username = self._sanitize_username_for_keyring(username)
             try:

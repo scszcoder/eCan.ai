@@ -148,15 +148,17 @@ class Migration200To300(BaseMigration):
             sql = """
             CREATE TABLE agent_orgs (
                 id VARCHAR(64) PRIMARY KEY,
-                name VARCHAR(100) NOT NULL,
-                org_type VARCHAR(50) DEFAULT 'department',
+                name VARCHAR(128) NOT NULL,
                 description TEXT,
                 parent_id VARCHAR(64) REFERENCES agent_orgs(id),
+                org_type VARCHAR(64) DEFAULT 'department',
                 level INTEGER DEFAULT 0,
                 sort_order INTEGER DEFAULT 0,
                 status VARCHAR(32) DEFAULT 'active',
+                settings JSON,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                ext TEXT
             )
             """
             

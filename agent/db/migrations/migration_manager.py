@@ -15,6 +15,13 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import OperationalError
 from ..models import DBVersion
 from .base_migration import BaseMigration
+from .migration_config import (
+    get_latest_version, 
+    is_version_supported, 
+    get_version_path,
+    version_to_tuple,
+    compare_versions
+)
 from utils.logger_helper import logger_helper as logger
 
 class MigrationManager:
@@ -39,9 +46,62 @@ class MigrationManager:
         self._migration_classes: Dict[str, Type[BaseMigration]] = {}
         self._migration_graph: Dict[str, str] = {}  # version -> previous_version
         
-        # Load all available migrations
-        self._discover_migrations()
-        self._build_migration_graph()
+        # 延迟加载：不在初始化时加载所有迁移脚本
+        # 只在真正需要迁移时才加载相关脚本
+    
+    def _load_migration(self, version: str) -> Optional[Type[BaseMigration]]:
+        """
+        按需加载特定版本的迁移脚本。
+        
+        Args:
+            version: 要加载的版本号
+            
+        Returns:
+            Optional[Type[BaseMigration]]: 迁移类，如果加载失败返回 None
+        """
+        # 如果已经加载过，直接返回
+        if version in self._migration_classes:
+            return self._migration_classes[version]
+        
+        # 根据版本号推断文件名模式
+        version_patterns = {
+            "1.0.1": "migration_001_to_101",
+            "2.0.0": "migration_101_to_200", 
+            "3.0.0": "migration_200_to_300",
+            "3.0.1": "migration_300_to_301"
+        }
+        
+        module_name = version_patterns.get(version)
+        if not module_name:
+            logger.error(f"No migration module pattern found for version {version}")
+            return None
+        
+        try:
+            # 导入特定的迁移模块
+            full_module_name = f"{self.migrations_package}.{module_name}"
+            module = importlib.import_module(full_module_name)
+            
+            # 查找迁移类
+            for name, obj in inspect.getmembers(module, inspect.isclass):
+                if (issubclass(obj, BaseMigration) and 
+                    obj != BaseMigration and 
+                    hasattr(obj, 'version')):
+                    
+                    try:
+                        migration_instance = obj(self.engine)
+                        if migration_instance.version == version:
+                            self._migration_classes[version] = obj
+                            logger.debug(f"Loaded migration: {version} from {module_name}")
+                            return obj
+                    except Exception as e:
+                        logger.error(f"Failed to instantiate migration {name}: {e}")
+            
+            logger.error(f"No migration class found for version {version} in {module_name}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to load migration module {module_name}: {e}")
+            return None
     
     def _discover_migrations(self) -> None:
         """
@@ -177,18 +237,12 @@ class MigrationManager:
     
     def _get_latest_version(self) -> str:
         """
-        Get the latest available version from migrations.
+        Get the latest available version from static configuration.
         
         Returns:
             str: Latest version string
         """
-        if not self._migration_classes:
-            return '1.0.0'
-        
-        return max(
-            self._migration_classes.keys(),
-            key=self._version_to_tuple
-        )
+        return get_latest_version()
     
     def get_current_version(self) -> str:
         """
@@ -238,26 +292,29 @@ class MigrationManager:
     
     def get_available_migrations(self) -> List[Dict[str, Any]]:
         """
-        Get information about all available migrations.
+        Get information about all available migrations from static configuration.
         
         Returns:
             List[Dict]: List of migration information
         """
-        migrations_info = []
-        for version, migration_class in self._migration_classes.items():
-            try:
-                migration_instance = migration_class(self.engine)
-                migrations_info.append(migration_instance.get_migration_info())
-            except Exception as e:
-                logger.error(f"Failed to get info for migration {version}: {e}")
+        from .migration_config import VERSION_HISTORY, VERSION_DEPENDENCIES
         
-        # Sort by version
-        migrations_info.sort(key=lambda x: self._version_to_tuple(x['version']))
+        migrations_info = []
+        for version in VERSION_HISTORY:
+            if version == "1.0.0":  # Skip initial version
+                continue
+                
+            migrations_info.append({
+                'version': version,
+                'previous_version': VERSION_DEPENDENCIES.get(version, '1.0.0'),
+                'description': f'Migration to version {version}',
+                'available': True
+            })
         return migrations_info
     
     def get_migration_path(self, from_version: str, to_version: str) -> List[str]:
         """
-        Get the migration path from one version to another.
+        Get the migration path from one version to another using static configuration.
         
         Args:
             from_version: Starting version
@@ -266,24 +323,7 @@ class MigrationManager:
         Returns:
             List[str]: List of versions in the migration path
         """
-        if from_version == to_version:
-            return []
-        
-        # Build path using the migration graph
-        path = []
-        current = to_version
-        
-        # Traverse backwards to build the path
-        while current != from_version and current in self._migration_graph:
-            path.append(current)
-            current = self._migration_graph[current]
-        
-        if current != from_version:
-            raise ValueError(f"No migration path found from {from_version} to {to_version}")
-        
-        # Reverse to get forward path
-        path.reverse()
-        return path
+        return get_version_path(from_version, to_version)
     
     def migrate_to_version(self, target_version: str, description: Optional[str] = None) -> bool:
         """
@@ -346,8 +386,8 @@ class MigrationManager:
                 create_all_tables(self.engine)
                 return True
             
-            # Get migration path
-            migration_path = self.get_migration_path(current_version, target_version)
+            # 使用配置中的路径计算，避免加载所有迁移脚本
+            migration_path = get_version_path(current_version, target_version)
             
             if not migration_path:
                 logger.info(f"No migrations needed from {current_version} to {target_version}")
@@ -399,15 +439,8 @@ class MigrationManager:
         Returns:
             bool: True if migration successful, False otherwise
         """
-        if not self._migration_classes:
-            logger.info("No migrations available")
-            return True
-        
-        # Find the latest version
-        latest_version = max(
-            self._migration_classes.keys(),
-            key=self._version_to_tuple
-        )
+        # 使用静态配置获取最新版本，无需加载所有迁移脚本
+        latest_version = self._get_latest_version()
         
         # Check current version first to avoid unnecessary migration attempts
         try:
@@ -478,11 +511,11 @@ class MigrationManager:
         Returns:
             bool: True if successful, False otherwise
         """
-        if version not in self._migration_classes:
+        # 按需加载迁移脚本
+        migration_class = self._load_migration(version)
+        if not migration_class:
             logger.error(f"Migration not found for version {version}")
             return False
-        
-        migration_class = self._migration_classes[version]
         migration = migration_class(self.engine)
         
         logger.info(f"Executing migration to {version}: {migration.description}")
@@ -546,21 +579,16 @@ class MigrationManager:
         Convert version string to tuple for comparison.
         
         Args:
-            version: Version string (e.g., "2.1.0")
+            version: Version string like "1.0.0"
             
         Returns:
-            tuple: Version as tuple (e.g., (2, 1, 0))
+            tuple: Version as tuple like (1, 0, 0)
         """
-        try:
-            return tuple(int(x) for x in version.split('.'))
-        except (ValueError, AttributeError):
-            # Default to 1.0.0 if version parsing fails
-            return (1, 0, 0)
+        return version_to_tuple(version)
     
     def get_migration_status(self) -> Dict[str, Any]:
         """
         Get current migration status and information.
-        
         Returns:
             dict: Migration status information
         """
@@ -572,10 +600,8 @@ class MigrationManager:
         
         available_migrations = self.get_available_migrations()
         
-        latest_version = max(
-            self._migration_classes.keys(),
-            key=self._version_to_tuple
-        ) if self._migration_classes else current_version
+        # 使用静态配置获取最新版本
+        latest_version = self._get_latest_version()
         
         return {
             'current_version': current_version,
