@@ -81,6 +81,15 @@ const renderRoutes = (routes: RouteConfig[]) => {
 };
 
 const AppContent = () => {
+    // Initialize platform at app mount so IPC gating flags are correct
+    React.useEffect(() => {
+        try {
+            initializePlatform();
+        } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn('[App] Failed to initialize platform, defaulting to env-based config:', e);
+        }
+    }, []);
     const { theme: currentTheme } = useTheme();
     const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
