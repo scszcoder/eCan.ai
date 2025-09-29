@@ -6,7 +6,7 @@ import { useUserStore } from '../../stores/userStore';
 import { useOrgStore } from '../../stores/orgStore';
 import { useAgentStore } from '../../stores/agentStore';
 import OrgDoor from './components/OrgDoor';
-import AgentAvatar from './components/AgentAvatar';
+import AgentCard from './components/AgentCard';
 import './OrgNavigator.css';
 import { logger } from '../../utils/logger';
 import { get_ipc_api } from '@/services/ipc_api';
@@ -537,7 +537,7 @@ const OrgNavigator: React.FC = () => {
             {agentsForDisplay.map((agent) => {
               const cardId = (agent as any)?.card?.id ?? (agent as any)?.id ?? agent.card.name;
               return (
-                <AgentAvatar
+                <AgentCard
                   key={cardId}
                   agent={agent}
                   onChat={() => navigate(`/chat?agentId=${cardId}`)}

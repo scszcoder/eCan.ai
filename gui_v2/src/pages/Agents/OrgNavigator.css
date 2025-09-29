@@ -167,7 +167,7 @@
   max-height: 100vh;
   max-width: 100vw;
   overflow: auto;
-  padding: 120px 32px 120px 32px;
+  padding: 40px 32px 40px 32px;
   z-index: 2;
   position: relative;
 }
@@ -267,13 +267,12 @@
   place-items: center;
   justify-content: center;
   align-content: flex-start;
-  gap: 32px 40px;
   width: 100%;
-  padding: 32px 0 120px 0;
-  grid-template-columns: repeat(auto-fit, minmax(340px, max-content));
+  padding: 32px 0 40px 0;
+  grid-template-columns: repeat(auto-fit, minmax(360px, max-content));
 }
 
-/* 使用浏览器默认滚动条样式 - 保持与原 VirtualPlatform 一致 */
+/* AgentCard 网格布局与门网格保持一致的风格 */
 
 @media (max-width: 992px) {
   .navigator-header {
@@ -281,7 +280,7 @@
   }
 
   .doors-grid {
-    padding: 100px 24px 100px;
+    padding: 40px 32px 40px 32px;
     gap: 24px 32px;
     grid-template-columns: repeat(2, 1fr) !important;
   }
@@ -291,7 +290,7 @@
   }
 
   .agent-roster-grid {
-    padding: 32px 24px 100px;
+    padding: 32px 24px 40px;
     gap: 24px 32px;
     grid-template-columns: repeat(auto-fit, minmax(300px, max-content));
   }
@@ -303,7 +302,7 @@
 
 @media (max-width: 768px) {
   .doors-grid {
-    padding: 140px 16px 80px;
+    padding: 40px 16px 40px 16px;
     gap: 20px 24px;
     grid-template-columns: repeat(1, 1fr) !important;
   }
@@ -320,7 +319,7 @@
   }
 
   .agent-roster-grid {
-    padding: 24px 16px 80px;
+    padding: 24px 16px 40px;
     gap: 20px 24px;
     grid-template-columns: repeat(auto-fit, minmax(280px, max-content));
   }

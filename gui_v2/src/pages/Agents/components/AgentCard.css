@@ -1,4 +1,4 @@
-.agent-avatar {
+.agent-card {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -14,7 +14,7 @@
   transition: box-shadow 0.2s, transform 0.2s;
   z-index: 1;
 }
-.agent-avatar:hover {
+.agent-card:hover {
   box-shadow: 0 14px 56px 0 rgba(59,130,246,0.22), 0 4px 16px 0 rgba(0,0,0,0.16);
   transform: translateY(-6px) scale(1.04);
 }
