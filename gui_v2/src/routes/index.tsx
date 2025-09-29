@@ -20,8 +20,7 @@ const Settings = React.lazy(() => import('../pages/Settings/Settings'));
 const Console = React.lazy(() => import('../pages/Console/Console'));
 const KnowledgePlatform = React.lazy(() => import('../pages/Knowledge/index'));
 const Tests = React.lazy(() => import('../pages/Tests/Tests'));
-const VirtualPlatform = React.lazy(() => import('../pages/Agents/VirtualPlatform'));
-const DepartmentRoom = React.lazy(() => import('../pages/Agents/DepartmentRoom'));
+const OrgNavigator = React.lazy(() => import('../pages/Agents/OrgNavigator'));
 const AgentDetails = React.lazy(() => import('../pages/Agents/components/AgentDetails'));
 const Organizations = React.lazy(() => import('../pages/Orgs/Orgs'));
 
@@ -116,7 +115,7 @@ export const protectedRoutes: RouteConfig[] = [
                 children: [
                     {
                         path: '',
-                        element: <LazyWrapper><VirtualPlatform /></LazyWrapper>,
+                        element: <LazyWrapper><OrgNavigator /></LazyWrapper>,
                     },
                     {
                         path: 'details/:id',
@@ -124,7 +123,7 @@ export const protectedRoutes: RouteConfig[] = [
                     },
                     {
                         path: 'room/:departmentId',
-                        element: <LazyWrapper><DepartmentRoom /></LazyWrapper>,
+                        element: <LazyWrapper><OrgNavigator /></LazyWrapper>,
                     },
                 ],
             },

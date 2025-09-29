@@ -102,7 +102,10 @@
       "updated_data_from_api": "从API更新数据",
       "vehicle": "电脑",
       "unassigned_agents": "未分配代理",
-      "unassigned_agents_desc": "没有归属组织的代理"
+      "unassigned_agents_desc": "没有归属组织的代理",
+      "load_failed": "组织数据加载失败",
+      "no_sub_orgs": "暂无下级组织",
+      "direct_agents": "直属代理"
     },
     "analytics": {
       "activeAgents": "活跃代理",
