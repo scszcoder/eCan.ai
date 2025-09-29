@@ -4,12 +4,12 @@
  */
 import { IPCRequest } from './types';
 import { useAppDataStore } from '../../stores/appDataStore';
-import { logger } from '../../utils/logger';
+import { useAgentStore } from '../../stores/agentStore';
 import { eventBus } from '@/utils/eventBus';
 import { useRunningNodeStore } from '@/modules/skill-editor/stores/running-node-store';
 import { useAvatarSceneStore } from '../../stores/avatarSceneStore';
-import { AvatarEventManager } from '../avatarEventManager';
-
+import { AvatarEventType } from '../avatarEventType';
+import { logger } from '@/utils/logger';
 // 处理器类型定义
 type Handler = (request: IPCRequest) => Promise<unknown>;
 type HandlerMap = Record<string, Handler>;
@@ -35,6 +35,7 @@ export class IPCHandlers {
     private handlers: HandlerMap = {};
 
     constructor() {
+        this.registerHandler('update_org_agents', this.updateOrgAgents);
         this.registerHandler('get_config', this.getConfig);
         this.registerHandler('set_config', this.setConfig);
         this.registerHandler('notify_event', this.notifyEvent);
@@ -64,6 +65,22 @@ export class IPCHandlers {
         return this.handlers;
     }
 
+    async updateOrgAgents(request: IPCRequest): Promise<unknown> {
+        logger.info('Received update_org_agents request:', request.params);
+        
+        // 简单发送事件，让 agents 组件自己决定如何处理
+        eventBus.emit('org-agents-update', {
+            timestamp: Date.now(),
+            source: 'backend_notification',
+            data: request.params
+        });
+        
+        return { 
+            success: true,
+            timestamp: Date.now()
+        };
+    }
+
     async getConfig(request: IPCRequest): Promise<unknown> {
         validateParams(request, ['key']);
         const { key } = request.params as { key: string };
@@ -89,19 +106,35 @@ export class IPCHandlers {
 
     async updateAgents(request: IPCRequest): Promise<unknown> {
         logger.info('Received update_agents request:', request.params);
-        useAppDataStore.getState().setAgents(request.params as any);
+        const agents = request.params as any;
+        
+        // 只更新专用的 agentStore，移除重复更新
+        useAgentStore.getState().setAgents(agents);
+        
+        logger.info('Updated agentStore with agents:', agents?.length || 0);
         return { refreshed: true };
     }
 
     async updateAgentsScenes(request: IPCRequest): Promise<unknown> {
-    logger.info('Received update_agents_scenes request:', request.params);
-        useAppDataStore.getState().setAgents(request.params as any);
+        logger.info('Received update_agents_scenes request:', request.params);
+        const agents = request.params as any;
+        
+        // 只更新专用的 agentStore，移除重复更新
+        useAgentStore.getState().setAgents(agents);
+        
+        logger.info('Updated agentStore with agents scenes:', agents?.length || 0);
         return { refreshed: true };
     }
 
     async updateSkills(request: IPCRequest): Promise<unknown> {
         logger.info('Received update_skills request:', request.params);
-        useAppDataStore.getState().setSkills(request.params as any);
+        const skills = request.params as any;
+        
+        // 使用专用的 skillStore（如果存在）
+        // 暂时保留 appDataStore 直到所有组件迁移完成
+        useAppDataStore.getState().setSkills(skills);
+        
+        logger.info('Updated skills:', skills?.length || 0);
         return { refreshed: true };
     }
 

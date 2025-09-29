@@ -14,6 +14,7 @@ import { set_ipc_api } from './services/ipc_api';
 import { createIPCAPI } from './services/ipc';
 import { protocolHandler } from './pages/Chat/utils/protocolHandler';
 import { useUserStore } from './stores/userStore';
+import { useAgentStore } from './stores/agentStore';
 import { logoutManager } from './services/LogoutManager';
 import { initializePlatform } from './config/platform';
 
@@ -108,6 +109,13 @@ const AppContent = () => {
                     if (userStore && typeof userStore.setUsername === 'function') {
                         userStore.setUsername(null);
                         logger.debug('[App] User state cleared');
+                    }
+
+                    // 清理 agents 状态
+                    const agentStore = useAgentStore.getState();
+                    if (agentStore && typeof agentStore.setAgents === 'function') {
+                        agentStore.setAgents([]);
+                        logger.debug('[App] Agent state cleared');
                     }
 
                     // 工具状态清理已移至 Tools 页面按需处理

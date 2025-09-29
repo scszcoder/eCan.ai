@@ -340,7 +340,6 @@ export class IPCWCClient {
         const request = createRequest(method, this.addAuthToken(method, params));
         const paramsStr = params ? JSON.stringify(params) : '';
         const truncatedParams = paramsStr.length > 500 ? paramsStr.substring(0, 500) + '...' : paramsStr;
-        logger.debug(`[IPCWCClient] Sending request: ${method}`, params ? `with params: ${truncatedParams}` : '');
         console.log('[IPCWCClient] sending web_to_python', { id: request.id, method, truncatedParams });
 
         // 对于登录请求，使用更长的超时时间
@@ -370,7 +369,6 @@ export class IPCWCClient {
             try {
                 const responseStr = await this.ipcWebChannel!.web_to_python(JSON.stringify(request));
                 console.log('[IPCWCClient] immediate response received', { id: request.id, method });
-                // logger.debug(`Received response: ${responseStr}`);
                 const immediateResponse = JSON.parse(responseStr) as IPCResponse;
                 
                 // 如果是同步任务，它会立即完成，我们不需要等待推送
@@ -380,13 +378,11 @@ export class IPCWCClient {
                     resolve(immediateResponse);
                     console.log('[IPCWCClient] completed synchronously', { id: request.id, method });
                 } else {
-                    logger.debug(`Received pending response for request ${request.id}`);
                     console.log('[IPCWCClient] pending response (await push)', { id: request.id, method });
                 }
                 // 如果是 'pending'，则我们什么都不做，把清理工作留给 handleMessage 或超时
             } catch (error) {
                 this.pendingRequests.delete(request.id); // 发送失败，也要清理
-                logger.error(`Failed to send or process immediate response for ${method}:`, error);
                 console.error('[IPCWCClient] send error', { id: request.id, method, error });
                 reject(error instanceof Error ? createErrorResponse(request.id, 'SEND_ERROR', error.message) : error);
             }
@@ -409,13 +405,11 @@ export class IPCWCClient {
         try {
             // 优化日志打印：超过500字符时只显示前500个字符
             const truncatedMessage = message.length > 500 ? message.substring(0, 500) + '...' : message;
-            logger.debug(`[IPCWCClient] python_to_web: Received message: ${truncatedMessage}`);
             console.log('[IPCWCClient] python_to_web message', truncatedMessage);
             const message_obj = JSON.parse(message);
 
             // 检查这是否是一个对后台任务的最终响应
             if (isIPCResponse(message_obj) && this.pendingRequests.has(message_obj.id)) {
-                logger.debug(`[IPCWCClient] Received pushed response for request ${message_obj.id}`);
                 console.log('[IPCWCClient] pushed response for pending request', message_obj.id);
                 const response = message_obj as IPCResponse;
 
@@ -429,11 +423,9 @@ export class IPCWCClient {
             if (message_obj.type === 'request') {
                 this.handleRequest(message_obj);
             } else {
-                logger.warn('Received unhandled message:', message_obj);
                 console.warn('[IPCWCClient] unhandled message', message_obj);
             }
         } catch (error) {
-            logger.error('Failed to parse or handle message:', error);
             console.error('[IPCWCClient] handleMessage parse error', error);
         }
     }
@@ -459,7 +451,6 @@ private async handleRequest(request: IPCRequest): Promise<void> {
         console.log('[IPCWCClient] Request handled successfully:', request.method);
         this.sendResponse(request.id, result);
     } catch (error) {
-        logger.error(`Error handling request '${request.method}':`, error);
         console.error('[IPCWCClient] Request handling error:', error);
         this.sendErrorResponse(request.id, {
             code: 'HANDLER_ERROR',
@@ -532,10 +523,8 @@ private setupMessageHandler(): void {
     // 关键: 监听 python_to_web 信号
     if (this.ipcWebChannel.python_to_web && typeof this.ipcWebChannel.python_to_web.connect === 'function') {
         this.ipcWebChannel.python_to_web.connect(this.handleMessage.bind(this));
-        logger.info("[IPCWCClient] Connected to python_to_web signal for pushed messages.");
         console.log('[IPCWCClient] Connected to python_to_web signal');
     } else {
-        logger.error("[IPCWCClient] Could not connect to python_to_web signal. Pushed messages will not be received.");
         console.error('[IPCWCClient] Could not connect to python_to_web signal');
     }
 }

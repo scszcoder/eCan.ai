@@ -6,8 +6,8 @@ import { useOrgStore } from '../../stores/orgStore';
 import { Agent } from './types';
 import { DisplayNode } from '../Orgs/types';
 import { logger } from '@/utils/logger';
-import { get_ipc_api } from '@/services/ipc_api';
 import { useTranslation } from 'react-i18next';
+import { useOrgAgentsUpdate } from './hooks/useOrgAgentsUpdate';
 
 // 定义组件的 ref 类型
 export interface AgentsRef {
@@ -107,43 +107,57 @@ const Agents = forwardRef<AgentsRef>((_props, ref) => {
                 console.log('Agents: No agents found in cache, will proceed with API request');
             }
         } else {
-            console.log('Agents: No displayNodes available, will proceed with API request');
+            console.log('Agents: No displayNodes available, checking if org data is still loading...');
+            
+            // 检查组织数据是否正在加载
+            const { loading: orgLoading } = useOrgStore.getState();
+            
+            if (orgLoading) {
+                console.log('Agents: Organization data is still loading, waiting...');
+                // 组织数据正在加载，等待一段时间后重试
+                setTimeout(() => {
+                    if (!hasFetchedRef.current) {
+                        console.log('Agents: Retrying after org data load...');
+                        fetchAgents();
+                    }
+                }, 1000); // 1秒后重试
+                return;
+            }
+            
+            console.log('Agents: Organization data load completed but no agents found, checking if we should use fallback API...');
+            
+            // 如果组织数据加载完成但没有找到 agents，可能是因为：
+            // 1. 真的没有 agents
+            // 2. 组织数据结构有问题
+            // 在这种情况下，我们可以选择不调用 getAgents，而是显示空状态
+            
+            // 检查是否有组织数据但没有 agents（这种情况下不需要调用 getAgents）
+            const { root, treeOrgs } = useOrgStore.getState();
+            if (root || (treeOrgs && treeOrgs.length > 0)) {
+                console.log('Agents: Organization structure exists but no agents found, showing empty state');
+                setAgents([]);
+                hasFetchedRef.current = true;
+                return;
+            }
         }
 
-        // 如果没有缓存数据，才进行 API 请求
-        setError(null);
-        try {
-            const response = await get_ipc_api().getAgents<{ agents: Agent[] }>(username, []);
-            console.log(t('pages.agents.fetched_agents') || 'Fetched agents:', response.data);
-            if (response.success && response.data) {
-                // 总是更新store中的agents数据，即使是空数组也更新
-                setAgents(response.data.agents || []);
-                logger.info(t('pages.agents.updated_data_from_api') || 'Updated agents data from API:', response.data.agents?.length || 0, t('common.agents') || 'agents');
-            } else {
-                logger.error(t('pages.agents.fetch_failed') || 'Failed to fetch agents:', response.error?.message);
-                // 可以选择显示错误消息，但不影响页面显示
-                // messageApi.error(`${t('common.failed')}: ${response.error?.message || 'Unknown error'}`);
-            }
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : t('common.unknown_error') || 'Unknown error';
-            setError(errorMessage);
-            logger.error(t('pages.agents.error_fetching') || 'Error fetching agents:', errorMessage);
-            // 可以选择显示错误消息，但不影响页面显示
-            // messageApi.error(`${t('common.failed')}: ${errorMessage}`);
-        } finally {
-            hasFetchedRef.current = true;
-        }
+        // 完全没有组织数据的情况下，显示空状态（不再调用 getAgents 后备接口）
+        console.log('Agents: No organization data available, showing empty state');
+        setAgents([]);
+        hasFetchedRef.current = true;
     }, [username, setError, setAgents, shouldFetchAgents, t]);
 
     // 监听组织数据变化，当有数据时触发 agents 获取
     const displayNodes = useOrgStore((state) => state.displayNodes);
+    const orgLoading = useOrgStore((state) => state.loading);
     
     useEffect(() => {
         // 只在组件首次挂载时执行，避免重复初始化
         console.log('Agents: useEffect called', { 
             isInitialized: isInitializedRef.current, 
             username, 
-            hasOrgData: displayNodes && displayNodes.length > 0 
+            hasOrgData: displayNodes && displayNodes.length > 0,
+            orgLoading
         });
         
         // 只有在用户名存在且未初始化时才获取数据
@@ -151,7 +165,31 @@ const Agents = forwardRef<AgentsRef>((_props, ref) => {
             fetchAgents();
             isInitializedRef.current = true;
         }
-    }, [username, displayNodes]); // 依赖 displayNodes，当组织数据加载完成时重新评估
+        // 如果组织数据加载完成且之前没有成功获取到 agents，重新尝试
+        else if (username && !orgLoading && displayNodes && displayNodes.length > 0 && !hasFetchedRef.current) {
+            console.log('Agents: Organization data loaded, retrying agent fetch...');
+            fetchAgents();
+        }
+    }, [username, displayNodes, orgLoading]); // 依赖 displayNodes 和 orgLoading，当组织数据状态变化时重新评估
+
+    // 强制刷新 agents 数据的回调
+    const forceRefreshAgents = useCallback(() => {
+        logger.info('[Agents] Force refreshing agents data...');
+        // 重置所有缓存标记，强制重新获取数据
+        hasFetchedRef.current = false;
+        isInitializedRef.current = false;
+        
+        // 直接调用 fetchAgents，不依赖其他条件
+        if (username) {
+            logger.info('[Agents] Calling fetchAgents with force refresh...');
+            fetchAgents();
+        } else {
+            logger.warn('[Agents] No username available for force refresh');
+        }
+    }, [username, fetchAgents]);
+
+    // 使用自定义 Hook 监听组织数据更新事件
+    useOrgAgentsUpdate(forceRefreshAgents, [forceRefreshAgents], 'Agents');
 
     // 使用 Outlet 渲染子路由，这样主组件保持挂载状态
     return <Outlet />;
