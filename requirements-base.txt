@@ -29,7 +29,7 @@ mem0ai==0.1.117
 langmem==0.0.29
 faiss-cpu>=1.11.0.post1
 chroma-hnswlib==0.7.6
-lightrag-hku>=1.4.6
+lightrag-hku==1.4.9
 
 # ============================================================================
 # AI & MACHINE LEARNING - LLM PROVIDERS & MODELS

@@ -49,11 +49,6 @@ def handle_get_orgs(request: IPCRequest, params: Optional[list[Any]]) -> IPCResp
         # Get org manager
         ec_org_ctrl = get_ec_org_ctrl(username)
         
-        # Load org template if needed (for new users)
-        template_result = ec_org_ctrl.load_org_template()
-        if not template_result.get("success") and template_result.get("created_count", 0) == 0:
-            logger.info(f"[organizations_handler] Template loading result: {template_result.get('message', 'No template loaded')}")
-        
         # Get org tree
         result = ec_org_ctrl.get_org_tree()
         

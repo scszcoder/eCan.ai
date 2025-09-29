@@ -7,7 +7,6 @@ import { LanguageProvider } from './contexts/LanguageContext';
 import { getAntdLocale } from './i18n';
 import { pageRefreshManager } from './services/events/PageRefreshManager';
 import { logger, LogLevel } from './utils/logger';
-import { antdTheme } from './styles/antdTheme';
 import './styles/global.css';
 import 'antd/dist/reset.css';
 import './index.css';
@@ -138,11 +137,11 @@ function App() {
     React.useEffect(() => {
         // 同步初始化关键服务，异步初始化其他服务
         try {
-            // 初始化平台配置（同步）
-            initializePlatform();
-
-            // 初始化 IPC 服务（同步）
+            // 初始化 IPC 服务（同步）- 必须在平台检测之前
             set_ipc_api(createIPCAPI());
+
+            // 初始化平台配置（同步）- 依赖 IPC API 进行平台检测
+            initializePlatform();
 
             // 异步初始化其他服务
             const initOtherServices = async () => {

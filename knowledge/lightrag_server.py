@@ -113,8 +113,6 @@ class LightragServer:
         env.setdefault('PORT', '9621')
         env.setdefault('MAX_RESTARTS', '3')
         env.setdefault('RESTART_COOLDOWN', '5')
-        # Disable LightRAG colored output/startup banner (can be overridden by environment variables)
-        env.setdefault('ECBOT_LIGHTRAG_DISABLE_SPLASH', '1')
         env.setdefault('NO_COLOR', '1')
         env.setdefault('ASCII_COLORS_DISABLE', '1')
 
@@ -132,10 +130,10 @@ class LightragServer:
             env.pop("PYTHONPATH", None)
             env.pop("PYTHONHOME", None)
             logger.info("[LightragServer] Cleaned Python environment variables for packaged environment")
-            # Force bind to 127.0.0.1, avoid 0.0.0.0 in .env affecting health checks in packaged environment
-            host = str(env.get('HOST', '127.0.0.1')).strip()
-            if host in ('0.0.0.0', '::', ''):
-                env['HOST'] = '127.0.0.1'
+            # # Force bind to 127.0.0.1, avoid 0.0.0.0 in .env affecting health checks in packaged environment
+            # host = str(env.get('HOST', '127.0.0.1')).strip()
+            # if host in ('0.0.0.0', '::', ''):
+            #     env['HOST'] = '127.0.0.1'
 
         # Set path-related environment variables
         if 'APP_DATA_PATH' in env:
@@ -143,6 +141,22 @@ class LightragServer:
             env.setdefault('INPUT_DIR', os.path.join(app_data_path, 'inputs'))
             env.setdefault('WORKING_DIR', os.path.join(app_data_path, 'rag_storage'))
             env.setdefault('LOG_DIR', os.path.join(app_data_path, 'runlogs'))
+
+        # Override API keys from OPENAI_API_KEY environment variable
+        openai_api_key = env.get('OPENAI_API_KEY')
+        if openai_api_key and openai_api_key.strip():
+            # Create masked version for logging
+            masked_key = openai_api_key[:8] + "..." + openai_api_key[-4:] if len(openai_api_key) > 12 else "***"
+            
+            # Override LLM API key
+            env['LLM_BINDING_API_KEY'] = openai_api_key
+            logger.info(f"[LightragServer] ✅ LLM_BINDING_API_KEY overridden from OPENAI_API_KEY environment variable ({masked_key})")
+            
+            # Override Embedding API key
+            env['EMBEDDING_BINDING_API_KEY'] = openai_api_key
+            logger.info(f"[LightragServer] ✅ EMBEDDING_BINDING_API_KEY overridden from OPENAI_API_KEY environment variable ({masked_key})")
+        else:
+            logger.error("[LightragServer] ❌ OPENAI_API_KEY environment variable not found or empty. LLM and Embedding API keys will use .env file values.")
 
         return env
 

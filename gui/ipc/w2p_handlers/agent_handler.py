@@ -404,9 +404,7 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
         organizations = org_result.get("data", [])
         logger.info(f"[agent_handler] Retrieved {len(organizations)} organizations from flat list")
         
-        # Debug: detailed logging to understand why organizations might be empty
-        logger.info(f"[agent_handler] org_result full response: {org_result}")
-        logger.info(f"[agent_handler] org_service type: {type(ec_org_ctrl.org_service)}")
+        # logger.info(f"[agent_handler] org_result full response: {org_result}")
         
         # Debug: log organization structure
         if organizations:
