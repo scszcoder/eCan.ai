@@ -102,7 +102,10 @@
       "updated_data_from_api": "Updated_data_from_api",
       "vehicle": "Vehicle",
       "unassigned_agents": "Unassigned Agents",
-      "unassigned_agents_desc": "Agents without organization assignment"
+      "unassigned_agents_desc": "Agents without organization assignment",
+      "load_failed": "Failed to load organizations",
+      "no_sub_orgs": "No sub organizations available.",
+      "direct_agents": "Direct Agents"
     },
     "analytics": {
       "activeAgents": "Active Agents",

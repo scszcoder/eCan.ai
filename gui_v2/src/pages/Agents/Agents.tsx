@@ -64,25 +64,23 @@ const Agents = forwardRef<AgentsRef>((_props, ref) => {
     const fetchAgents = useCallback(async () => {
         if (!username) return;
         
-        // 检查是否已经有数据且缓存仍然有效
-        if (hasFetchedRef.current && shouldFetchAgents() === false) {
-          console.log('Agents: Skipping fetch - already fetched and cache is valid');
-          return;
-        }
+        console.log('Agents: fetchAgents called', { username, shouldFetch: shouldFetchAgents(), hasFetched: hasFetchedRef.current });
+
+        // 首先检查 agentStore 中是否已经有数据
+        const currentAgents = useAgentStore.getState().agents;
+        console.log('Agents: Checking agentStore - current agents:', currentAgents?.length || 0);
         
-        // 如果已经有agents数据且是最近获取的，跳过请求
-        if (agents && agents.length > 0 && shouldFetchAgents() === false) {
-          console.log('Agents: Skipping fetch - data already available and fresh');
+        // 如果 agentStore 中有数据，直接使用（不检查缓存时间，因为数据可能是最新的）
+        if (currentAgents && currentAgents.length > 0) {
+          console.log('Agents: Using data from agentStore:', currentAgents.length, 'agents');
+          setAgents(currentAgents);
           hasFetchedRef.current = true;
           return;
         }
 
-        console.log('Agents: fetchAgents called', { username, shouldFetch: shouldFetchAgents(), hasFetched: hasFetchedRef.current });
-
-        // 检查是否已经有组织数据（从 VirtualPlatform 获取）
-        // 如果有，则从组织数据中提取 agents，避免重复请求
+        // 检查是否已经有组织数据（从 OrgNavigator 获取）
         const { displayNodes } = useOrgStore.getState();
-        console.log('Agents: Checking cache - displayNodes:', displayNodes?.length || 0, 'nodes');
+        console.log('Agents: Checking displayNodes:', displayNodes?.length || 0, 'nodes');
         
         if (displayNodes && displayNodes.length > 0) {
             // 从 displayNodes 中提取所有 agents
@@ -96,52 +94,41 @@ const Agents = forwardRef<AgentsRef>((_props, ref) => {
                 }
             });
             
-            console.log('Agents: Total agents extracted from cache:', allAgents.length);
+            console.log('Agents: Total agents extracted from displayNodes:', allAgents.length);
             
             if (allAgents.length > 0) {
                 setAgents(allAgents);
                 logger.info('Agents: Using cached data from organization structure:', allAgents.length, 'agents');
-                hasFetchedRef.current = true; // 标记为已获取
-                return;
-            } else {
-                console.log('Agents: No agents found in cache, will proceed with API request');
-            }
-        } else {
-            console.log('Agents: No displayNodes available, checking if org data is still loading...');
-            
-            // 检查组织数据是否正在加载
-            const { loading: orgLoading } = useOrgStore.getState();
-            
-            if (orgLoading) {
-                console.log('Agents: Organization data is still loading, waiting...');
-                // 组织数据正在加载，等待一段时间后重试
-                setTimeout(() => {
-                    if (!hasFetchedRef.current) {
-                        console.log('Agents: Retrying after org data load...');
-                        fetchAgents();
-                    }
-                }, 1000); // 1秒后重试
-                return;
-            }
-            
-            console.log('Agents: Organization data load completed but no agents found, checking if we should use fallback API...');
-            
-            // 如果组织数据加载完成但没有找到 agents，可能是因为：
-            // 1. 真的没有 agents
-            // 2. 组织数据结构有问题
-            // 在这种情况下，我们可以选择不调用 getAgents，而是显示空状态
-            
-            // 检查是否有组织数据但没有 agents（这种情况下不需要调用 getAgents）
-            const { root, treeOrgs } = useOrgStore.getState();
-            if (root || (treeOrgs && treeOrgs.length > 0)) {
-                console.log('Agents: Organization structure exists but no agents found, showing empty state');
-                setAgents([]);
                 hasFetchedRef.current = true;
                 return;
             }
         }
 
-        // 完全没有组织数据的情况下，显示空状态（不再调用 getAgents 后备接口）
+        // 检查组织数据是否正在加载
+        const { loading: orgLoading } = useOrgStore.getState();
+        
+        if (orgLoading) {
+            console.log('Agents: Organization data is still loading, waiting...');
+            // 组织数据正在加载，等待一段时间后重试
+            setTimeout(() => {
+                if (!hasFetchedRef.current) {
+                    console.log('Agents: Retrying after org data load...');
+                    fetchAgents();
+                }
+            }, 500); // 减少到500ms，更快响应
+            return;
+        }
+        
+        // 最后检查：如果有组织结构但没有agents，显示空状态
+        const { root, treeOrgs } = useOrgStore.getState();
+        if (root || (treeOrgs && treeOrgs.length > 0)) {
+            console.log('Agents: Organization structure exists but no agents found, showing empty state');
+            setAgents([]);
+            hasFetchedRef.current = true;
+            return;
+        }
+
+        // 完全没有组织数据的情况下，显示空状态
         console.log('Agents: No organization data available, showing empty state');
         setAgents([]);
         hasFetchedRef.current = true;
@@ -151,14 +138,27 @@ const Agents = forwardRef<AgentsRef>((_props, ref) => {
     const displayNodes = useOrgStore((state) => state.displayNodes);
     const orgLoading = useOrgStore((state) => state.loading);
     
+    // 监听 agentStore 的变化
+    const agentStoreAgents = useAgentStore((state) => state.agents);
+    
     useEffect(() => {
         // 只在组件首次挂载时执行，避免重复初始化
         console.log('Agents: useEffect called', { 
             isInitialized: isInitializedRef.current, 
             username, 
             hasOrgData: displayNodes && displayNodes.length > 0,
-            orgLoading
+            orgLoading,
+            agentStoreCount: agentStoreAgents?.length || 0
         });
+        
+        // 如果 agentStore 中有数据，直接使用
+        if (agentStoreAgents && agentStoreAgents.length > 0 && !hasFetchedRef.current) {
+            console.log('Agents: Found agents in agentStore, using them directly');
+            setAgents(agentStoreAgents);
+            hasFetchedRef.current = true;
+            isInitializedRef.current = true;
+            return;
+        }
         
         // 只有在用户名存在且未初始化时才获取数据
         if (username && !isInitializedRef.current) {
@@ -170,23 +170,35 @@ const Agents = forwardRef<AgentsRef>((_props, ref) => {
             console.log('Agents: Organization data loaded, retrying agent fetch...');
             fetchAgents();
         }
-    }, [username, displayNodes, orgLoading]); // 依赖 displayNodes 和 orgLoading，当组织数据状态变化时重新评估
+    }, [username, displayNodes, orgLoading, agentStoreAgents, setAgents]); // 添加 agentStoreAgents 依赖
 
     // 强制刷新 agents 数据的回调
     const forceRefreshAgents = useCallback(() => {
         logger.info('[Agents] Force refreshing agents data...');
+        
         // 重置所有缓存标记，强制重新获取数据
         hasFetchedRef.current = false;
         isInitializedRef.current = false;
         
-        // 直接调用 fetchAgents，不依赖其他条件
+        // 立即检查 agentStore 中是否有最新数据
+        const currentAgents = useAgentStore.getState().agents;
+        logger.info('[Agents] Current agentStore has:', currentAgents?.length || 0, 'agents');
+        
+        if (currentAgents && currentAgents.length > 0) {
+            logger.info('[Agents] Using fresh data from agentStore');
+            setAgents(currentAgents);
+            hasFetchedRef.current = true;
+            return;
+        }
+        
+        // 如果 agentStore 中没有数据，调用 fetchAgents
         if (username) {
             logger.info('[Agents] Calling fetchAgents with force refresh...');
             fetchAgents();
         } else {
             logger.warn('[Agents] No username available for force refresh');
         }
-    }, [username, fetchAgents]);
+    }, [username, fetchAgents, setAgents]);
 
     // 使用自定义 Hook 监听组织数据更新事件
     useOrgAgentsUpdate(forceRefreshAgents, [forceRefreshAgents], 'Agents');

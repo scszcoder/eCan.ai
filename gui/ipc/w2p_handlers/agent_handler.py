@@ -1,4 +1,5 @@
 import traceback
+from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Optional, Dict
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
@@ -6,6 +7,15 @@ from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create
 from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
 from agent.ec_org_ctrl import get_ec_org_ctrl
+
+
+def _normalize_id(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    # Treat empty strings as missing
+    if isinstance(value, str) and value.strip() == '':
+        return None
+    return str(value)
 
 
 def build_org_agent_tree(organizations, agents):
@@ -20,47 +30,77 @@ def build_org_agent_tree(organizations, agents):
         dict: Tree structure with integrated organization and agent data
     """
     # Create agent lookup by org_id for efficient access
-    agents_by_org = {}
+    agents_by_org: Dict[str, list] = defaultdict(list)
     unassigned_agents = []
-    
+
     for agent in agents:
-        org_id = agent.get('org_id')
-        if org_id:
-            if org_id not in agents_by_org:
-                agents_by_org[org_id] = []
-            agents_by_org[org_id].append(agent)
+        raw_org_id = agent.get('org_id')
+        normalized_org_id = _normalize_id(raw_org_id)
+
+        if normalized_org_id:
+            # Store normalized org_id back onto the agent so downstream consumers get consistent types
+            agent['org_id'] = normalized_org_id
+            agents_by_org[normalized_org_id].append(agent)
         else:
+            agent['org_id'] = None
             unassigned_agents.append(agent)
-    
-    # Find root organization (parent_id is None or empty)
-    root_org = None
-    child_orgs = []
-    
+
+    # Build organization lookup and parent-child relationships
+    normalized_orgs = []
     for org in organizations:
-        if not org.get('parent_id'):
-            root_org = org
+        org_copy = dict(org)
+        org_copy['_normalized_id'] = _normalize_id(org.get('id'))
+        org_copy['_normalized_parent_id'] = _normalize_id(org.get('parent_id'))
+        normalized_orgs.append(org_copy)
+
+    org_map: Dict[str, Dict[str, Any]] = {
+        org['_normalized_id']: org
+        for org in normalized_orgs
+        if org.get('_normalized_id')
+    }
+
+    children_map: Dict[str, list] = defaultdict(list)
+    root_candidates = []
+
+    for org in normalized_orgs:
+        org_id = org.get('_normalized_id')
+        if not org_id:
+            continue
+
+        parent_id = org.get('_normalized_parent_id')
+        if parent_id and parent_id in org_map:
+            children_map[parent_id].append(org)
         else:
-            child_orgs.append(org)
-    
-    # If no root found, create a default one
-    if not root_org:
-        root_org = {
-            'id': 'root',
+            root_candidates.append(org)
+
+    # If no valid root found, create a default root organization placeholder
+    if not root_candidates:
+        default_root = {
+            'id': '__virtual_root__',
             'name': 'eCan.ai',
             'description': '根组织',
             'org_type': 'company',
             'level': 0,
             'sort_order': 0,
-            'status': 'active'
+            'status': 'active',
+            'parent_id': None,
+            'created_at': None,
+            'updated_at': None,
+            '_normalized_id': '__virtual_root__',
+            '_normalized_parent_id': None,
         }
-        logger.info("[agent_handler] No root organization found, using default root")
-    
+        root_candidates = [default_root]
+        org_map[default_root['_normalized_id']] = default_root
+
+    def sort_key(org_data: Dict[str, Any]):
+        return (org_data.get('sort_order', 0), org_data.get('name', ''))
+
     # Build tree structure recursively
-    def build_tree_node(org_data, all_orgs):
+    def build_tree_node(org_data: Dict[str, Any]):
         """Build a single tree node with its children and agents"""
         node = {
-            'id': org_data['id'],
-            'name': org_data['name'],
+            'id': org_data.get('id'),
+            'name': org_data.get('name'),
             'description': org_data.get('description', ''),
             'org_type': org_data.get('org_type', 'department'),
             'level': org_data.get('level', 0),
@@ -70,24 +110,42 @@ def build_org_agent_tree(organizations, agents):
             'created_at': org_data.get('created_at'),
             'updated_at': org_data.get('updated_at'),
             'children': [],
-            'agents': agents_by_org.get(org_data['id'], [])  # Agents belonging to this org
+            'agents': agents_by_org.get(org_data.get('_normalized_id'), [])
         }
-        
-        # Find child organizations from ALL organizations, not just child_orgs
-        child_orgs_list = [org for org in all_orgs if org.get('parent_id') == org_data['id']]
+
+        child_orgs_list = sorted(
+            children_map.get(org_data.get('_normalized_id'), []),
+            key=sort_key,
+        )
         for child_org in child_orgs_list:
-            child_node = build_tree_node(child_org, all_orgs)
-            node['children'].append(child_node)
-        
-        # Sort children by sort_order and name
-        node['children'].sort(key=lambda x: (x['sort_order'], x['name']))
-        
+            node['children'].append(build_tree_node(child_org))
+
         return node
-    
-    # Build the complete tree starting from root, pass ALL organizations for recursive lookup
-    tree_root = build_tree_node(root_org, organizations)
-    
+
+    # Build the complete tree starting from root candidates
+    if len(root_candidates) == 1:
+        tree_root = build_tree_node(root_candidates[0])
+    else:
+        tree_root = {
+            'id': '__virtual_root__',
+            'name': 'Organizations',
+            'description': 'Virtual root node for multiple top-level organizations',
+            'org_type': 'company',
+            'level': 0,
+            'sort_order': 0,
+            'status': 'active',
+            'parent_id': None,
+            'created_at': None,
+            'updated_at': None,
+            'children': [
+                build_tree_node(org)
+                for org in sorted(root_candidates, key=sort_key)
+            ],
+            'agents': []
+        }
+
     # Add unassigned agents to root level
+    tree_root.setdefault('agents', [])
     tree_root['agents'].extend(unassigned_agents)
     
     # Debug: detailed tree structure logging
@@ -471,6 +529,7 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
                     )
                 
                 # Create agent data with org_id field (null for unassigned)
+                # Ensure compatibility with frontend OrgAgent interface
                 agent_data = {
                     'id': agent_dict.get('id') or (agent_dict.get('card', {}).get('id') if agent_dict.get('card') else None),
                     'name': agent_dict.get('name') or (agent_dict.get('card', {}).get('name') if agent_dict.get('card') else 'Unknown'),
@@ -480,7 +539,8 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
                     'org_id': org_id,  # null for unassigned, org_id for assigned
                     'created_at': agent_dict.get('created_at'),
                     'updated_at': agent_dict.get('updated_at'),
-                    'capabilities': agent_dict.get('capabilities', [])
+                    'capabilities': agent_dict.get('capabilities', []),
+                    'isBound': org_id is not None  # 添加前端期望的 isBound 字段
                 }
                 
                 agents.append(agent_data)

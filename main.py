@@ -8,6 +8,32 @@ import traceback
 # Global QApplication instance
 _global_app = None
 
+
+def _is_multiprocessing_bootstrap() -> bool:
+    """Detect PyInstaller/Windows multiprocessing helper launches"""
+    try:
+        # PyInstaller passes --multiprocessing-<mode> to helper processes
+        return any(arg.startswith('--multiprocessing-') for arg in sys.argv[1:])
+    except Exception:
+        # Fail safe: assume regular launch
+        return False
+
+
+def _prepare_multiprocessing_runtime() -> bool:
+    """Run freeze_support and tell caller whether this is a helper process."""
+    try:
+        import multiprocessing as mp
+    except Exception:
+        mp = None
+
+    if mp and hasattr(mp, 'freeze_support'):
+        try:
+            mp.freeze_support()
+        except Exception as exc:
+            print(f"[MULTIPROCESSING] freeze_support failed: {exc}")
+
+    return _is_multiprocessing_bootstrap()
+
 def _configure_multiprocessing():
     """
     Configure multiprocessing settings for better process management.
@@ -59,6 +85,12 @@ def _configure_multiprocessing():
 try:
     # Multi-process protection - must be before all other imports
     if __name__ == '__main__':
+        # Multi-process protection - exit if this is a multiprocessing bootstrap process
+        # Worker processes (with ECAN_RUN_SCRIPT) should continue to execute their scripts
+        if not os.getenv('ECAN_RUN_SCRIPT') and _prepare_multiprocessing_runtime():
+            # This is a true multiprocessing bootstrap, should exit
+            sys.exit(0)
+
         # Apply PyInstaller fixes early
         try:
             from utils.runtime_utils import initialize_runtime_environment

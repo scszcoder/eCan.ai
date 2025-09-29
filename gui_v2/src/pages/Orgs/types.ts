@@ -29,7 +29,7 @@ export interface Org {
 // 显示节点类型枚举
 export type DisplayNodeType = 'org_with_children' | 'org_with_agents' | 'unassigned_agents';
 
-// 显示节点类型（用于 VirtualPlatform 页面的门组件显示）
+// 显示节点类型（用于 OrgNavigator 页面的门组件显示）
 export interface DisplayNode {
   id: string;
   name: string;
@@ -436,5 +436,3 @@ export type OrganizationAgent = OrgAgent;
 export type GetOrganizationsResponse = GetOrgsResponse;
 export const buildOrganizationTree = buildOrgTree;
 export const findOrganizationById = findOrgById;
-
-

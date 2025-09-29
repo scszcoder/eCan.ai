@@ -1,18 +1,17 @@
 import React, { useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import doorClosedImg from '@/assets/icons1_door_256.png';
 import doorOpenImg from '@/assets/icons3_door_256.png';
-import './Door.css';
-import { useTranslation } from 'react-i18next';
+import './OrgDoor.css';
 
-interface DoorProps {
+interface OrgDoorProps {
   name: string;
 }
 
-const Door: React.FC<DoorProps> = ({ name }) => {
+const OrgDoor: React.FC<OrgDoorProps> = ({ name }) => {
   const [hovered, setHovered] = useState(false);
   const { t } = useTranslation();
 
-  // 使用 useCallback 缓存事件处理函数
   const handleMouseEnter = useCallback(() => {
     setHovered(true);
   }, []);
@@ -23,22 +22,21 @@ const Door: React.FC<DoorProps> = ({ name }) => {
 
   return (
     <div
-      className={`door custom-door${hovered ? ' opening' : ''}`}
+      className={`org-door custom-door${hovered ? ' opening' : ''}`}
       style={{ position: 'static', zIndex: 2 }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      <div className="door-img-container">
-        {/* 只显示门图片，不播放动画视频 */}
+      <div className="org-door-img-container">
         <img
           src={hovered ? doorOpenImg : doorClosedImg}
           alt={t('common.door') || 'door'}
-          className="door-img-png"
+          className="org-door-img"
         />
       </div>
-      <div className="door-label-below">{name}</div>
+      <div className="org-door-label">{name}</div>
     </div>
   );
 };
 
-export default React.memo(Door); 
+export default React.memo(OrgDoor);
