@@ -107,7 +107,7 @@ async def create_rpa_helper_chatter_skill(mainwin):
         helper_skill.set_work_flow(workflow)
         # Store manager so caller can close it after using the skill
         helper_skill.mcp_client = mcp_client  # type: ignore[attr-defined]
-        print("helper_skill build is done!")
+        print("helper_chatter_skill build is done!")
 
     except Exception as e:
         # Get the traceback information
@@ -185,7 +185,7 @@ async def create_rpa_operator_chatter_skill(mainwin):
         operator_skill.set_work_flow(workflow)
         # Store manager so caller can close it after using the skill
         operator_skill.mcp_client = mcp_client  # type: ignore[attr-defined]
-        print("operator_skill build is done!")
+        print("operator_chatter_skill build is done!")
 
     except Exception as e:
         # Get the traceback information
@@ -274,7 +274,7 @@ async def create_rpa_supervisor_scheduling_chatter_skill(mainwin):
         supervisor_skill.set_work_flow(workflow)
         # Store manager so caller can close it after using the skill
         supervisor_skill.mcp_client = mcp_client  # type: ignore[attr-defined]
-        print("supervisor_skill build is done!")
+        print("supervisor_scheduling_chatter_skill build is done!")
 
     except Exception as e:
         # Get the traceback information
@@ -427,7 +427,7 @@ async def create_rpa_supervisor_chatter_skill(mainwin):
         supervisor_skill.set_work_flow(workflow)
         # Store manager so caller can close it after using the skill
         supervisor_skill.mcp_client = mcp_client  # type: ignore[attr-defined]
-        print("supervisor_skill build is done!")
+        print("supervisor_chatter_skill build is done!")
 
     except Exception as e:
         # Get the traceback information

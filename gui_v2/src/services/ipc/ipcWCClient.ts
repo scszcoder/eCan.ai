@@ -470,6 +470,60 @@ private async handleRequest(request: IPCRequest): Promise<void> {
 }
 
 /**
+ * 发送响应给后端
+ * @param requestId - 请求ID
+ * @param result - 响应结果
+ */
+private sendResponse(requestId: string, result: any): void {
+    if (!this.ipcWebChannel) {
+        logger.error('Cannot send response: IPC channel not initialized');
+        return;
+    }
+
+    const response: IPCResponse = {
+        id: requestId,
+        type: 'response',
+        status: 'success',
+        result: result,
+        timestamp: Date.now()
+    };
+
+    try {
+        this.ipcWebChannel.web_to_python(JSON.stringify(response));
+        logger.debug(`Response sent for request ${requestId}`);
+    } catch (error) {
+        logger.error(`Failed to send response for request ${requestId}:`, error);
+    }
+}
+
+/**
+ * 发送错误响应给后端
+ * @param requestId - 请求ID
+ * @param error - 错误信息
+ */
+private sendErrorResponse(requestId: string, error: { code: string; message: string; details?: any }): void {
+    if (!this.ipcWebChannel) {
+        logger.error('Cannot send error response: IPC channel not initialized');
+        return;
+    }
+
+    const response: IPCResponse = {
+        id: requestId,
+        type: 'response',
+        status: 'error',
+        error: error,
+        timestamp: Date.now()
+    };
+
+    try {
+        this.ipcWebChannel.web_to_python(JSON.stringify(response));
+        logger.debug(`Error response sent for request ${requestId}:`, error.message);
+    } catch (sendError) {
+        logger.error(`Failed to send error response for request ${requestId}:`, sendError);
+    }
+}
+
+/**
  * 设置消息处理器，监听来自 Python 的消息
  */
 private setupMessageHandler(): void {

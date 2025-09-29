@@ -121,6 +121,12 @@ class IPCAPI:
         """
         self._send_request('get_config', {'key': key}, callback=callback)
     
+    def update_org_agents(self, 
+        callback: Optional[Callable[[APIResponse[Dict[str, Any]]], None]] = None
+    ) -> None:
+        logger.info("[IPCAPI] update_org_agents")
+        self._send_request('update_org_agents', callback=callback)
+
     def set_config(
         self,
         key: str,
