@@ -20,6 +20,7 @@ import os
 import platform
 import requests
 import socket
+import threading
 import time
 import traceback
 from datetime import datetime, timedelta
@@ -32,6 +33,7 @@ from typing import List
 # ============================================================================
 from utils.time_util import TimeUtil
 from utils.logger_helper import logger_helper as logger
+from utils.port_allocator import get_port_allocator
 from bot.envi import getECBotDataHome
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
@@ -420,6 +422,9 @@ class MainWindow:
         self.static_resource = StaticResource()
         self.session = set_up_cloud()
         self.threadPoolExecutor = concurrent.futures.ThreadPoolExecutor(max_workers=16)
+        
+        # Port allocation for thread-safe agent port management
+        self._port_allocator = get_port_allocator()
 
         # Machine role configuration
         if "Platoon" in self.machine_role:
@@ -1803,18 +1808,58 @@ class MainWindow:
             logger.info("Warning, supervisor not found...")
 
     def get_free_agent_ports(self, n):
-        used_ports = [ag.get_a2a_server_port() for ag in self.agents if ag is not None]
-        local_agent_ports = self.config_manager.general_settings.local_agent_ports
-        logger.info("#agents:", len(self.agents), "used ports:", used_ports, "port range:", local_agent_ports)
-        all_ports = range(local_agent_ports[0], local_agent_ports[1]+1)
-        free_ports = [port for port in all_ports if port not in used_ports]
+        """
+        Thread-safe port allocation for agents.
+        Uses the global port allocator to prevent race conditions during parallel agent launch.
+        """
+        try:
+            # Get currently used ports from existing agents
+            used_ports = [ag.get_a2a_server_port() for ag in self.agents if ag is not None and hasattr(ag, 'get_a2a_server_port')]
+            
+            # Get port range from configuration
+            local_agent_ports = self.config_manager.general_settings.local_agent_ports
+            
+            logger.info(f"[MainWindow] Port allocation: {len(self.agents)} agents, used ports: {used_ports}, range: {local_agent_ports}")
+            
+            # Use thread-safe allocator
+            free_ports = self._port_allocator.get_free_ports(n, local_agent_ports, used_ports)
+            
+            logger.info(f"[MainWindow] Allocated ports: {free_ports}")
+            return free_ports
+            
+        except Exception as e:
+            logger.error(f"[MainWindow] Port allocation failed: {e}")
+            # Fallback to original method if allocator fails
+            used_ports = [ag.get_a2a_server_port() for ag in self.agents if ag is not None]
+            local_agent_ports = self.config_manager.general_settings.local_agent_ports
+            all_ports = range(local_agent_ports[0], local_agent_ports[1]+1)
+            free_ports = [port for port in all_ports if port not in used_ports]
+            
+            if len(free_ports) < n:
+                raise RuntimeError(f"Only {len(free_ports)} free ports available, but {n} requested.")
+            
+            return free_ports[:n]
 
-        if len(free_ports) < n:
-            raise RuntimeError(f"Only {len(free_ports)} free ports available, but {n} requested.")
 
-        # print("free ports", free_ports)
-        return free_ports[:n]
+    def release_agent_port(self, port):
+        """
+        Release a port back to the allocator when an agent shuts down.
+        """
+        try:
+            self._port_allocator.release_port(port)
+            logger.info(f"[MainWindow] Released agent port: {port}")
+        except Exception as e:
+            logger.warning(f"[MainWindow] Failed to release port {port}: {e}")
 
+    def release_agent_ports(self, ports):
+        """
+        Release multiple ports back to the allocator.
+        """
+        try:
+            self._port_allocator.release_ports(ports)
+            logger.info(f"[MainWindow] Released agent ports: {ports}")
+        except Exception as e:
+            logger.warning(f"[MainWindow] Failed to release ports {ports}: {e}")
     def save_agent_skill(self, skill):
         from agent.ec_skills.save_agent_skills import save_agent_skills
         return save_agent_skills(self, [skill])
