@@ -206,6 +206,9 @@ class MainWindow:
         # 7. Network communication setup (lightweight)
         self._init_network_communication()
 
+        # 8. Database initialization (essential for data persistence)
+        self._init_database()
+
         # Mark UI as ready for display and sync init complete
         self._initialization_status['ui_ready'] = True
         self._initialization_status['sync_init_complete'] = True
@@ -523,11 +526,6 @@ class MainWindow:
         self.dbfile = f"{self.my_ecb_data_homepath}/resource/data/myecb.db"
         self.product_catelog_file = f"{self.my_ecb_data_homepath}/resource/data/product_catelog.json"
         self.build_dom_tree_script_path = f"{self.homepath}/resource/build_dom_tree.js"
-        
-
-        
-        # Initialize inventory data (requires file paths to be set)
-        # self.readSellerInventoryJsonFile("")
 
         logger.info(f"[MainWindow] ✅ File system initialized - Data path: {self.my_ecb_data_homepath}")
 
@@ -552,10 +550,26 @@ class MainWindow:
 
         logger.info(f"[MainWindow] ✅ Configuration manager initialized - Debug: {self.config_manager.general_settings.debug_mode}, Schedule: {self.config_manager.general_settings.schedule_mode}")
 
-    def _init_database_services(self):
+    def _init_database(self):
         """Initialize database and related services with parallel optimization"""
-        logger.info("[MainWindow] 🗄️ Initializing database services...")
+        logger.info("[MainWindow] 🗄️ Initializing database ...")
 
+        # Initialize database manager and chat service
+        start_time = time.time()
+        
+        # Initialize eCan database system
+        self.ec_db_mgr = initialize_ecan_database(self.my_ecb_data_homepath, auto_migrate=True)
+        db_init_time = time.time() - start_time
+        logger.info(f"[MainWindow] ✅ Database manager initialized in {db_init_time:.3f}s")
+        
+        # Load default template data for new users
+        start_time = time.time()
+        self._load_default_template_data()
+        template_init_time = time.time() - start_time
+        logger.info(f"[MainWindow] ✅ Default template data loaded in {template_init_time:.3f}s")
+
+        # TODO need to remove this, use ec_db_mgr get_chat_service
+        self.db_chat_service = self.ec_db_mgr.get_chat_service()
 
         if "Commander" in self.machine_role:
             # Initialize database for Commander role
@@ -563,16 +577,21 @@ class MainWindow:
             engine = init_db(self.dbfile)
             session = get_session(engine)
             db_init_time = time.time() - start_time
-            logger.info(f"[MainWindow] 🗄️ Database engine created in {db_init_time:.3f}s")
-
-            # Parallel service initialization using ThreadPoolExecutor
-            start_time = time.time()
+            logger.info(f"[MainWindow] 🗄️ ecbot Database engine created in {db_init_time:.3f}s")
 
             # Store engine and session for service initialization
             self._db_engine = engine
             self._db_session = session
 
+    def _init_database_services(self):
+        """Initialize database and related services with parallel optimization"""
+        logger.info("[MainWindow] 🗄️ Initializing database services...")
+
+        if "Commander" in self.machine_role:
+            # Initialize database for Commander role
+
             # Initialize services in parallel using thread pool
+            start_time = time.time()
             # Define services to initialize
             services_config = [
                 ('bot_service', BotService),
@@ -611,24 +630,7 @@ class MainWindow:
             self.skill_service: SkillService = None
             self.vehicle_service: VehicleService = None
 
-
             logger.info("[MainWindow] ✅ Database services skipped for Platoon role")
-
-        # Initialize database manager and chat service
-        start_time = time.time()
-        
-        # Initialize eCan database system
-        self.ec_db_mgr = initialize_ecan_database(self.my_ecb_data_homepath, auto_migrate=True)
-        db_init_time = time.time() - start_time
-        logger.info(f"[MainWindow] ✅ Database manager initialized in {db_init_time:.3f}s")
-        
-        self.db_chat_service = self.ec_db_mgr.get_chat_service()
-        
-        # Load default template data for new users
-        start_time = time.time()
-        self._load_default_template_data()
-        template_init_time = time.time() - start_time
-        logger.info(f"[MainWindow] ✅ Default template data loaded in {template_init_time:.3f}s")
 
     def _init_service_threaded(self, service_class, service_name):
         """Generic function to initialize any service in a separate thread
@@ -1048,9 +1050,19 @@ class MainWindow:
         """Start LightRAG server in deferred mode."""
         try:
             from knowledge.lightrag_server import LightragServer
-            self.lightrag_server = LightragServer(
-                extra_env={"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"}
-            )
+            
+            # Prepare environment variables for LightRAG server
+            lightrag_env = {"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"}
+            
+            # Ensure OPENAI_API_KEY is passed to LightRAG server
+            openai_api_key = os.environ.get('OPENAI_API_KEY')
+            if openai_api_key and openai_api_key.strip():
+                lightrag_env['OPENAI_API_KEY'] = openai_api_key
+                logger.info("[MainWindow] 🔑 OPENAI_API_KEY found and will be passed to LightRAG server (deferred)")
+            else:
+                logger.warning("[MainWindow] ⚠️ OPENAI_API_KEY not found in environment variables (deferred)")
+            
+            self.lightrag_server = LightragServer(extra_env=lightrag_env)
             # Start server process but don't wait for it to be ready
             self.lightrag_server.start(wait_ready=False)
             logger.info("[MainWindow] LightRAG server started (deferred, non-blocking)")
@@ -1151,9 +1163,19 @@ class MainWindow:
             # Initialize LightRAG server in main thread to allow signal handlers
             # but run the actual server start in executor for non-blocking behavior
             from knowledge.lightrag_server import LightragServer
-            self.lightrag_server = LightragServer(
-                extra_env={"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"}
-            )
+            
+            # Prepare environment variables for LightRAG server
+            lightrag_env = {"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"}
+            
+            # Ensure OPENAI_API_KEY is passed to LightRAG server
+            openai_api_key = os.environ.get('OPENAI_API_KEY')
+            if openai_api_key and openai_api_key.strip():
+                lightrag_env['OPENAI_API_KEY'] = openai_api_key
+                logger.info("[MainWindow] 🔑 OPENAI_API_KEY found and will be passed to LightRAG server")
+            else:
+                logger.warning("[MainWindow] ⚠️ OPENAI_API_KEY not found in environment variables")
+            
+            self.lightrag_server = LightragServer(extra_env=lightrag_env)
 
             # Start the server process in executor (this is the blocking part)
             await asyncio.get_event_loop().run_in_executor(
@@ -1236,7 +1258,8 @@ class MainWindow:
             ws_host = self.getWSApiHost()
             ws_endpoint = self.getWSApiEndpoint()
             token = self.get_auth_token()
-            logger.info("ws_host", ws_host, "token:", token[:100] if token else "", "ws_endpoint:", ws_endpoint)
+            masked_token = token[:15] + "..." + token[-4:] if len(token) > 20 else "***"
+            logger.info("ws_host", ws_host, "token:", masked_token if token else "", "ws_endpoint:", ws_endpoint)
             acctSiteID = self.getAcctSiteID()
             print("acct site id:", acctSiteID)
             

@@ -244,7 +244,6 @@ try:
             logger.info("Running in production mode (built files)")
 
         # Create Web GUI (do not show yet; wait until resources are loaded)
-        print("Starting to create WebGUI instance...")
         logger.info("Creating WebGUI instance...")
         progress_manager.update_progress(70, "Creating main interface...")
 
@@ -253,7 +252,6 @@ try:
             progress_manager.update_progress(progress, status)
 
         web_gui = WebGUI(splash=startup_splash, progress_callback=webgui_progress_callback)
-        print("WebGUI instance created successfully")
         logger.info("WebGUI instance created successfully")
 
         progress_manager.update_progress(80, "Setting up URL scheme handling...")

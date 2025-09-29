@@ -3,7 +3,6 @@ __pycache__/
 *.egg-info/
 *.sqlite3
 .venv/
-.env
 venv/
 /resource/data/myecb.db
 /resource/data/myecb.db-journal

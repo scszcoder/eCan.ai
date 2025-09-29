@@ -60,8 +60,13 @@ export const detectPlatform = (): PlatformType => {
     try {
       const { get_ipc_api } = require('@/services/ipc_api');
       const api = get_ipc_api();
-      return api ? 'desktop' : 'web';
-    } catch {
+      // More robust check: ensure API exists and has expected methods
+      if (api && typeof api === 'object' && typeof api.call === 'function') {
+        return 'desktop';
+      }
+      return 'web';
+    } catch (error) {
+      console.debug('[Platform] IPC API not available, defaulting to web platform:', error);
       return 'web';
     }
   }
@@ -77,7 +82,7 @@ export const initializePlatform = () => {
   
   // Override config if detection differs from environment
   if (detectedPlatform !== PLATFORM_CONFIG.type) {
-    console.warn(`Platform mismatch: configured as ${PLATFORM_CONFIG.type}, detected as ${detectedPlatform}`);
+    console.info(`[Platform] Auto-correcting platform: configured as ${PLATFORM_CONFIG.type}, detected as ${detectedPlatform}. This is normal during development.`);
     
     // Update features based on detected platform
     const isDesktop = detectedPlatform === 'desktop';
