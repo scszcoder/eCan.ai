@@ -1,14 +1,16 @@
 import React, { useMemo, useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Spin, Alert } from 'antd';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
+import { useUserStore } from '../../stores/userStore';
 import Door from './components/Door';
 import './VirtualPlatform.css';
 import { useOrgStore } from '../../stores/orgStore';
-import { useUserStore } from '../../stores/userStore';
+import { useAgentStore } from '../../stores/agentStore';
+import { logger } from '../../utils/logger';
 import { get_ipc_api } from '@/services/ipc_api';
 import { DisplayNode, GetAllOrgAgentsResponse } from '../Orgs/types';
-import { logger } from '@/utils/logger';
+import { useOrgAgentsUpdate } from './hooks/useOrgAgentsUpdate';
 
 function getGridTemplate(deptCount: number) {
   // 2~4个门：2列，5~6个：3列，7~9个：3列，10+：4列
@@ -40,6 +42,9 @@ const VirtualPlatform: React.FC = () => {
     setError, 
     shouldFetchData 
   } = useOrgStore();
+  
+  // Agent store
+  const setAgents = useAgentStore((state) => state.setAgents);
 
   const itemCount = displayNodes.length;
   // 使用 useMemo 缓存计算结果，避免每次渲染重新计算
@@ -58,7 +63,46 @@ const VirtualPlatform: React.FC = () => {
       const response = await get_ipc_api().getAllOrgAgents<GetAllOrgAgentsResponse>(username);
       
       if (response.success && response.data) {
+        // 保存完整的组织结构数据到 orgStore
         setAllOrgAgents(response.data);
+        
+        // 从组织结构中提取 agents 并转换为 agentStore 期望的格式
+        const extractAllAgents = (node: any): any[] => {
+          let allAgents: any[] = [];
+          
+          if (node.agents && Array.isArray(node.agents)) {
+            const transformedAgents = node.agents.map((agent: any) => ({
+              card: {
+                id: agent.id,
+                name: agent.name,
+                description: agent.description,
+                avatar: agent.avatar,
+                status: agent.status
+              },
+              ...agent
+            }));
+            allAgents.push(...transformedAgents);
+          }
+          
+          if (node.children && Array.isArray(node.children)) {
+            node.children.forEach((child: any) => {
+              const childAgents = extractAllAgents(child);
+              allAgents.push(...childAgents);
+            });
+          }
+          
+          return allAgents;
+        };
+        
+        const allAgents = extractAllAgents(response.data.orgs);
+        
+        // 保存 agents 数据到 agentStore
+        if (allAgents.length > 0) {
+          setAgents(allAgents);
+          logger.info(`[VirtualPlatform] Extracted and saved ${allAgents.length} agents to agentStore`);
+        } else {
+          logger.warn('[VirtualPlatform] No agents found in organization structure');
+        }
         
         // 从树形结构中统计 agents 数量
         const countAgentsInTree = (node: any): { assigned: number, unassigned: number } => {
@@ -96,18 +140,87 @@ const VirtualPlatform: React.FC = () => {
         logger.error('[VirtualPlatform] Failed to fetch organization structure:', errorMsg);
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
       setError(errorMessage);
       logger.error('[VirtualPlatform] Error fetching organization structure:', errorMessage);
     } finally {
       setLoading(false);
     }
-  }, [username, shouldFetchData, setAllOrgAgents, setLoading, setError]);
+  }, [username, setAllOrgAgents, setAgents, setLoading, setError, shouldFetchData]);
 
-  // Load organization structure on component mount
   useEffect(() => {
     fetchOrgStructure();
   }, [fetchOrgStructure]);
+
+  // 强制刷新组织数据的回调（绕过缓存检查）
+  const forceRefreshOrgStructure = useCallback(async () => {
+    if (!username) return;
+
+    logger.info('[VirtualPlatform] Force refreshing organization structure...');
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // 直接调用 API，不检查 shouldFetchData
+      const response = await get_ipc_api().getAllOrgAgents<GetAllOrgAgentsResponse>(username);
+      
+      if (response.success && response.data) {
+        // 保存完整的组织结构数据到 orgStore
+        setAllOrgAgents(response.data);
+        
+        // 从组织结构中提取 agents 并转换为 agentStore 期望的格式
+        const extractAllAgents = (node: any): any[] => {
+          let allAgents: any[] = [];
+          
+          if (node.agents && Array.isArray(node.agents)) {
+            const transformedAgents = node.agents.map((agent: any) => ({
+              card: {
+                id: agent.id,
+                name: agent.name,
+                description: agent.description,
+                avatar: agent.avatar,
+                status: agent.status
+              },
+              ...agent
+            }));
+            allAgents.push(...transformedAgents);
+          }
+          
+          if (node.children && Array.isArray(node.children)) {
+            node.children.forEach((child: any) => {
+              const childAgents = extractAllAgents(child);
+              allAgents.push(...childAgents);
+            });
+          }
+          
+          return allAgents;
+        };
+        
+        const allAgents = extractAllAgents(response.data.orgs);
+        
+        // 保存 agents 数据到 agentStore
+        if (allAgents.length > 0) {
+          setAgents(allAgents);
+          logger.info(`[VirtualPlatform] Force refreshed and saved ${allAgents.length} agents to agentStore`);
+        }
+        
+        logger.info('[VirtualPlatform] Organization structure force refreshed successfully');
+      } else {
+        const errorMessage = response.error?.message || 'Failed to fetch organization structure';
+        setError(errorMessage);
+        logger.error('[VirtualPlatform] Error in force refresh response:', errorMessage);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setError(errorMessage);
+      logger.error('[VirtualPlatform] Error force refreshing organization structure:', errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  }, [username, setAllOrgAgents, setLoading, setError]);
+
+  // 使用自定义 Hook 监听组织数据更新事件
+  useOrgAgentsUpdate(forceRefreshOrgStructure, [forceRefreshOrgStructure], 'VirtualPlatform');
 
   // 处理不同类型的点击事件
   const handleNodeClick = useCallback((node: DisplayNode) => {

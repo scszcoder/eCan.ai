@@ -50,6 +50,7 @@ const AgentDetails: React.FC = () => {
   const { message } = App.useApp();
 
   // Pull tasks and skills from global app data store (populated by Tasks/Skills pages)
+  // TODO: 将来迁移到专用的 taskStore 和 skillStore
   const storeTasks = useAppDataStore((state) => state.tasks);
   const storeSkills = useAppDataStore((state) => state.skills);
   const setTasks = useAppDataStore((state) => state.setTasks);

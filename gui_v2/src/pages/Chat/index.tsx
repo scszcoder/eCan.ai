@@ -166,26 +166,16 @@ const ChatPage: React.FC = () => {
         isFetchingRef.current = true;
         
         try {
-            // 等待 myTwinAgentId 可用，最多重试 10 次
+            // 获取 myTwinAgentId
             let currentTwinAgentId = myTwinAgentId;
             if (!currentTwinAgentId) {
-                logger.debug("myTwinAgentId not available, trying to get it");
-                let retry = 0;
-                while (retry < 10) {
-                    const myTwinAgent = useAgentStore.getState().getMyTwinAgent();
-                    currentTwinAgentId = myTwinAgent?.card?.id;
-                    if (currentTwinAgentId) {
-                        logger.debug("Got myTwinAgentId after retry:", currentTwinAgentId);
-                        break;
-                    }
-                    await new Promise(res => setTimeout(res, 100)); // 100ms
-                    retry++;
+                const myTwinAgent = useAgentStore.getState().getMyTwinAgent();
+                currentTwinAgentId = myTwinAgent?.card?.id;
+                
+                if (!currentTwinAgentId) {
+                    logger.error("Cannot find MyTwinAgent");
+                    return;
                 }
-            }
-            
-            if (!currentTwinAgentId) {
-                logger.error("Failed to get myTwinAgentId after retries");
-                return;
             }
             
             // 拉取聊天列表

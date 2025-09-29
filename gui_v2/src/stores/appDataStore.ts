@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Agent } from '@/pages/Agents/types';
+// import { Agent } from '@/pages/Agents/types'; // 已迁移到 agentStore，不再需要
 import { Task } from '@/pages/Tasks/types';
 import { KnowledgeEntry as Knowledge } from '@/pages/Knowledge/types';
 import { Skill } from '@/pages/Skills/types';
@@ -9,10 +9,11 @@ import { Vehicle } from '@/pages/Vehicles/types';
 import { Settings } from '@/pages/Settings/types';
 import { Chat } from '@/pages/Chat/types/chat';
 import appData from './app_data.json';
-import { useAgentStore } from './agentStore';
+// import { useAgentStore } from './agentStore'; // 不再需要，agents 已迁移
 
 export interface AppData {
-  agents: Agent[];
+  // 移除 agents 数据，使用专用的 agentStore
+  // agents: Agent[]; // 已迁移到 agentStore
   tasks: Task[];
   knowledges: Knowledge[];
   skills: Skill[];
@@ -20,40 +21,54 @@ export interface AppData {
   vehicles: Vehicle[];
   settings: Settings | null;
   chats: Chat[];
+  
+  // 全局状态
   isLoading: boolean;
   error: string | null;
   initialized: boolean;
-  agentsLastFetched: number | null; // 记录最后获取agents数据的时间戳
-  tasksLastFetched: number | null; // 记录最后获取tasks数据的时间戳
-  skillsLastFetched: number | null; // 记录最后获取skills数据的时间戳
-  toolsLastFetched: number | null; // 记录最后获取tools数据的时间戳
-  vehiclesLastFetched: number | null; // 记录最后获取vehicles数据的时闶戳
+  
+  // 数据获取时间戳（保留非 agents 相关的）
+  // agentsLastFetched: number | null; // 已迁移到 agentStore
+  tasksLastFetched: number | null;
+  skillsLastFetched: number | null;
+  toolsLastFetched: number | null;
+  vehiclesLastFetched: number | null;
+  
+  // 全局状态管理
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
-  setAgents: (agents: Agent[]) => void;
+  setInitialized: (v: boolean) => void;
+  
+  // 数据管理（保留非 agents 相关的）
+  // setAgents: (agents: Agent[]) => void; // 已迁移到 agentStore
   setTasks: (tasks: Task[]) => void;
   setSkills: (skills: Skill[]) => void;
   setKnowledges: (knowledges: Knowledge[]) => void;
   setTools: (tools: Tool[]) => void;
   setVehicles: (vehicles: Vehicle[]) => void;
   setSettings: (settings: Settings) => void;
+  
   // Chat actions
   setChats: (chats: Chat[]) => void;
-  myTwinAgent: () => Agent | null;
-  setInitialized: (v: boolean) => void;
-  getAgentById: (id: string) => Agent | null;
-  shouldFetchAgents: () => boolean; // 判断是否需要重新获取agents数据
-  shouldFetchTasks: () => boolean; // 判断是否需要重新获取tasks数据
-  shouldFetchSkills: () => boolean; // 判断是否需要重新获取skills数据
-  shouldFetchTools: () => boolean; // 判断是否需要重新获取tools数据
-  shouldFetchVehicles: () => boolean; // 判断是否需要重新获取vehicles数据
-  shouldFetchData: (dataType: 'agents' | 'tasks' | 'skills' | 'tools' | 'vehicles') => boolean; // 通用的数据获取判断
+  
+  // 移除 agents 相关方法，使用 agentStore
+  // myTwinAgent: () => Agent | null; // 使用 agentStore.getMyTwinAgent()
+  // getAgentById: (id: string) => Agent | null; // 使用 agentStore.getAgentById()
+  
+  // 数据获取判断（保留非 agents 相关的）
+  // shouldFetchAgents: () => boolean; // 已迁移到 agentStore
+  shouldFetchTasks: () => boolean;
+  shouldFetchSkills: () => boolean;
+  shouldFetchTools: () => boolean;
+  shouldFetchVehicles: () => boolean;
+  shouldFetchData: (dataType: 'tasks' | 'skills' | 'tools' | 'vehicles') => boolean; // 移除 'agents'
 }
 
 const useAppDataStore = create<AppData>()(
   persist(
     (set, get) => ({
-      agents: appData.agents as Agent[],
+      // 移除 agents 相关数据，使用专用的 agentStore
+      // agents: appData.agents as Agent[], // 已迁移到 agentStore
       tasks: appData.tasks as Task[],
       knowledges: appData.knowledges as Knowledge[],
       skills: appData.skills as any as Skill[],
@@ -61,17 +76,26 @@ const useAppDataStore = create<AppData>()(
       vehicles: appData.vehicles as any as Vehicle[],
       settings: appData.settings as any as Settings,
       chats: [],
+      
+      // 全局状态
       isLoading: false,
       error: null,
       initialized: false,
-      agentsLastFetched: null, // Initialize agentsLastFetched
+      
+      // 数据获取时间戳（移除 agents 相关）
+      // agentsLastFetched: null, // 已迁移到 agentStore
       tasksLastFetched: null,
       skillsLastFetched: null,
       toolsLastFetched: null,
       vehiclesLastFetched: null,
+      
+      // 全局状态管理
       setLoading: (loading) => set({ isLoading: loading }),
       setError: (error) => set({ error }),
-      setAgents: (agents) => set({ agents, agentsLastFetched: Date.now() }),
+      setInitialized: (v) => set({ initialized: v }),
+      
+      // 数据管理（移除 agents 相关）
+      // setAgents: (agents) => set({ agents, agentsLastFetched: Date.now() }), // 已迁移到 agentStore
       setTasks: (tasks) => set({ tasks, tasksLastFetched: Date.now() }),
       setSkills: (skills) => set({ skills, skillsLastFetched: Date.now() }),
       setKnowledges: (knowledges) => set({ knowledges }),
@@ -81,23 +105,11 @@ const useAppDataStore = create<AppData>()(
 
       // Chat actions implementation
       setChats: (chats) => set({ chats }),
-      myTwinAgent: () => {
-        const agents = get().agents;
-        return agents.find(a => a.card?.name === 'My Twin Agent') || null;
-      },
-      setInitialized: (v) => set({ initialized: v }),
-      getAgentById: (id) => {
-        const agents = get().agents;
-        return agents.find(a => a.card?.id === id) || null;
-      },
-      shouldFetchAgents: () => {
-        const lastFetched = get().agentsLastFetched;
-        if (!lastFetched) return true; // No data fetched yet
-        const now = Date.now();
-        const diff = now - lastFetched;
-        // Re-fetch agents every 5 minutes
-        return diff > 5 * 60 * 1000;
-      },
+      
+      // 移除 agents 相关方法，使用 agentStore
+      // myTwinAgent: () => { ... }, // 使用 agentStore.getMyTwinAgent()
+      // getAgentById: (id) => { ... }, // 使用 agentStore.getAgentById()
+      // shouldFetchAgents: () => { ... }, // 已迁移到 agentStore
       shouldFetchTasks: () => {
         const lastFetched = get().tasksLastFetched;
         if (!lastFetched) return true;
