@@ -369,7 +369,7 @@ const Login: React.FC = () => {
       // Add timeout for Google login
       const loginPromise = api.googleLogin(i18n.language);
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Google login timeout after 30 seconds')), 30000);
+        setTimeout(() => reject(new Error('Google login timeout after 30 seconds')), 60000);
       });
 
       const response: APIResponse<any> = await Promise.race([loginPromise, timeoutPromise]);
