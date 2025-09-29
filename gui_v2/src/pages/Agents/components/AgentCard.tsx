@@ -1,16 +1,15 @@
-import React, { useMemo, useEffect, useState } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import agentGifs, { logVideoSupport } from '@/assets/gifs'; // 需实现导入所有 gif
-import { Agent, AgentCard } from '../types';
+import { Agent, type AgentCard } from '../types';
 import { Button, Dropdown, Modal, message } from 'antd';
 import type { MenuProps } from 'antd';
 import { MessageOutlined, MoreOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { useAppDataStore } from '@/stores/appDataStore';
 import { useAgentStore } from '@/stores/agentStore';
 import { useNavigate } from 'react-router-dom';
 import { useUserStore } from '@/stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
-import { DynamicAgentAnimation } from '../../../components/DynamicAgentAnimation';
+import './AgentCard.css';
 import { useAvatarSceneStore } from '../../../stores/avatarSceneStore';
 
 function getRandomGif(): string {
@@ -23,12 +22,12 @@ function getRandomGif(): string {
 // 全局标记，确保视频支持检测只执行一次
 let videoSupportChecked = false;
 
-interface AgentAvatarProps {
+interface AgentCardProps {
   agent: Agent | AgentCard;
   onChat?: () => void;
 }
 
-function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
+function AgentCard({ agent, onChat }: AgentCardProps) {
   const { t } = useTranslation();
   const myTwinAgent = useAgentStore((state) => state.getMyTwinAgent());
   const myTwinAgentId = myTwinAgent?.card?.id;
@@ -92,12 +91,10 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
 
   const menuItems: MenuProps['items'] = [
     { key: 'edit', label: t('common.edit') || 'Edit', onClick: handleEdit },
-    { type: 'divider' },
-    { key: 'delete', label: t('common.delete') || 'Delete', danger: true, onClick: handleDelete },
   ];
 
   return (
-    <div className="agent-avatar" key={id} style={{ position: 'relative' }}>
+    <div className="agent-card" key={id} style={{ position: 'relative' }}>
       {isVideo ? (
         <div
           className="agent-gif-video-wrapper"
@@ -145,4 +142,4 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
   );
 }
 
-export default React.memo(AgentAvatar);
+export default React.memo(AgentCard);

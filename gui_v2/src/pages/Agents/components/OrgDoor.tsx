@@ -20,6 +20,24 @@ const OrgDoor: React.FC<OrgDoorProps> = ({ name }) => {
     setHovered(false);
   }, []);
 
+  // 解析名称和计数
+  const parseNameAndCount = useCallback((displayName: string) => {
+    // 匹配形如 "Name (count)" 的格式
+    const match = displayName.match(/^(.+?)\s*\((\d+)\)$/);
+    if (match) {
+      return {
+        name: match[1].trim(),
+        count: match[2]
+      };
+    }
+    return {
+      name: displayName,
+      count: null
+    };
+  }, []);
+
+  const { name: doorName, count } = parseNameAndCount(name);
+
   return (
     <div
       className={`org-door custom-door${hovered ? ' opening' : ''}`}
@@ -34,7 +52,12 @@ const OrgDoor: React.FC<OrgDoorProps> = ({ name }) => {
           className="org-door-img"
         />
       </div>
-      <div className="org-door-label">{name}</div>
+      <div className="org-door-label">
+        <div className="org-door-label-name">{doorName}</div>
+        {count && (
+          <div className="org-door-label-count">({count})</div>
+        )}
+      </div>
     </div>
   );
 };

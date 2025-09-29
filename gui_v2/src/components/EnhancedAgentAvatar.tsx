@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import AgentAvatar from '../pages/Agents/components/AgentAvatar';
+import AgentCardComponent from '../pages/Agents/components/AgentCard';
 import { DynamicAgentAnimation } from './DynamicAgentAnimation';
 import { useAvatarSceneStore } from '@/stores/avatarSceneStore';
-import { Agent, AgentCard } from '../pages/Agents/types';
+import { Agent, type AgentCard } from '../pages/Agents/types';
 
-interface EnhancedAgentAvatarProps {
+interface EnhancedAgentCardProps {
   agent: Agent | AgentCard;
   onChat?: () => void;
   useDynamicSystem?: boolean;
@@ -13,10 +13,10 @@ interface EnhancedAgentAvatarProps {
 }
 
 /**
- * Enhanced AgentAvatar component that integrates with the dynamic avatar scene system.
- * Falls back to the original AgentAvatar component when dynamic scenes are not available.
+ * Enhanced AgentCard component that integrates with the dynamic avatar scene system.
+ * Falls back to the original AgentCard component when dynamic scenes are not available.
  */
-export const EnhancedAgentAvatar: React.FC<EnhancedAgentAvatarProps> = ({
+const EnhancedAgentCard: React.FC<EnhancedAgentCardProps> = ({
   agent,
   onChat,
   useDynamicSystem = true,
@@ -46,7 +46,7 @@ export const EnhancedAgentAvatar: React.FC<EnhancedAgentAvatarProps> = ({
     const safeDesc = typeof rawDesc === 'string' ? rawDesc : '';
 
     return (
-      <div className="enhanced-agent-avatar" style={{ position: 'relative' }}>
+      <div className="enhanced-agent-card" style={{ position: 'relative' }}>
         <div
           className="agent-gif-video-wrapper"
           style={{ 
@@ -109,13 +109,12 @@ export const EnhancedAgentAvatar: React.FC<EnhancedAgentAvatarProps> = ({
           }}>
             {safeDesc}
           </div>
-        )}
       </div>
     );
   }
 
   // Fallback to original AgentAvatar component
-  return <AgentAvatar agent={agent} onChat={onChat} />;
+  return <AgentCardComponent agent={agent} onChat={onChat} />;
 };
 
-export default EnhancedAgentAvatar;
+export default EnhancedAgentCard;
