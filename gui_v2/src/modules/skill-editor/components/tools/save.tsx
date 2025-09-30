@@ -173,13 +173,36 @@ export const Save = ({ disabled }: SaveProps) => {
         }
       });
 
-      // 3. Create the updated skillInfo object
+      // 3. Promote node-level mapping_rules into top-level config.nodes for backend runtime
+      const configNodes: Record<string, any> = {};
+      try {
+        for (const n of diagram.nodes || []) {
+          const data = (n && n.data) || {};
+          if (data && data.mapping_rules) {
+            const key = (data.name || n.id || '').toString();
+            if (key) {
+              configNodes[key] = { ...(configNodes[key] || {}), mapping_rules: data.mapping_rules };
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[Save] mapping_rules promotion skipped', e);
+      }
+
+      // 4. Create the updated skillInfo object, merging config nodes
       const updatedSkillInfo = {
         ...skillInfo,
         workFlow: diagram,
         lastModified: new Date().toISOString(),
         mode: (skillInfo as any)?.mode ?? 'development',
-      };
+        config: {
+          ...(skillInfo as any)?.config,
+          nodes: {
+            ...((skillInfo as any)?.config?.nodes || {}),
+            ...configNodes,
+          },
+        },
+      } as any;
 
       // 4. If user renamed the skill, and we have a current path, rename the underlying <name>_skill folder
       let effectivePath = currentFilePath || null;
