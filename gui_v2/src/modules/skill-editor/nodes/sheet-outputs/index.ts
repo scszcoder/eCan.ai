@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid';
 import { FlowNodeRegistry } from '../../typings';
 import { WorkflowNodeType } from '../constants';
+import { formMeta } from './form-meta';
 import iconVariable from '../../assets/icon-variable.png';
 
 let index = 0;
@@ -30,4 +31,5 @@ export const SheetOutputsNodeRegistry: FlowNodeRegistry = {
       },
     } as any;
   },
+  formMeta,
 };
