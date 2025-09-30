@@ -16,12 +16,11 @@ class EC_OrgCtrl:
     EC Organization Controller for handling all organization-related operations
     """
     
-    def __init__(self, user: str = None, ec_db_mgr =None):
+    def __init__(self, ec_db_mgr: ECDBMgr = None):
         """
         Initialize organization controller
         
         Args:
-            user (str, optional): User identifier for database path (optional, uses ECDBMgr)
             ec_db_mgr (ECDBMgr, optional): Existing database manager instance
         """
         # Use existing database manager if provided, otherwise create new one
@@ -776,12 +775,11 @@ class EC_OrgCtrl:
 # Global instance for easy access
 ec_org_ctrl = None
 
-def get_ec_org_ctrl(user: str = None, ec_db_mgr=None) -> EC_OrgCtrl:
+def get_ec_org_ctrl(ec_db_mgr: ECDBMgr = None) -> EC_OrgCtrl:
     """
     Get global org controller instance
 
     Args:
-        user (str, optional): User identifier for database path (for backward compatibility)
         ec_db_mgr (ECDBMgr, optional): Existing database manager instance
 
     Returns:
@@ -789,5 +787,5 @@ def get_ec_org_ctrl(user: str = None, ec_db_mgr=None) -> EC_OrgCtrl:
     """
     global ec_org_ctrl
     if ec_org_ctrl is None:
-        ec_org_ctrl = EC_OrgCtrl(user, ec_db_mgr)
+        ec_org_ctrl = EC_OrgCtrl(ec_db_mgr)
     return ec_org_ctrl

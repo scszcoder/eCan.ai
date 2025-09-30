@@ -275,7 +275,7 @@ class EC_Agent(Agent):
 	def start(self):
 		# kick off a2a server:
 		self.start_a2a_server_in_thread(self.a2a_server)
-		logger.info("A2A server started....")
+		logger.info("A2A server started....", self.card.name)
 		# loop = asyncio.get_running_loop()
 		# kick off TaskExecutor
 		thread_pool_executor = self.mainwin.threadPoolExecutor

@@ -47,7 +47,7 @@ def handle_get_orgs(request: IPCRequest, params: Optional[list[Any]]) -> IPCResp
         logger.info(f"[organizations_handler] Getting organizations for user: {username}")
         
         # Get org manager
-        ec_org_ctrl = get_ec_org_ctrl(username)
+        ec_org_ctrl = get_ec_org_ctrl()
         
         # Get org tree
         result = ec_org_ctrl.get_org_tree()
@@ -103,7 +103,7 @@ def handle_create_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         logger.info(f"[organizations_handler] Creating organization '{name}' for user: {username}")
         
         # Get org manager
-        ec_org_ctrl = get_ec_org_ctrl(username)
+        ec_org_ctrl = get_ec_org_ctrl()
         
         # Create organization data
         org_data = {
@@ -166,7 +166,7 @@ def handle_update_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         logger.info(f"[organizations_handler] Updating organization {organization_id} for user: {username}")
         
         # Get org manager
-        ec_org_ctrl = get_ec_org_ctrl(username)
+        ec_org_ctrl = get_ec_org_ctrl()
         
         # Prepare update fields (exclude username and organization_id)
         update_fields = {k: v for k, v in data.items() if k not in ['username', 'organization_id']}
@@ -222,7 +222,7 @@ def handle_delete_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         logger.info(f"[organizations_handler] Deleting organization {organization_id} for user: {username}")
         
         # Get org manager
-        ec_org_ctrl = get_ec_org_ctrl(username)
+        ec_org_ctrl = get_ec_org_ctrl()
         
         # Delete org
         result = ec_org_ctrl.delete_org(organization_id)
@@ -275,7 +275,7 @@ def handle_get_org_agents(request: IPCRequest, params: Optional[list[Any]]) -> I
         logger.info(f"[organizations_handler] Getting agents for organization {organization_id}, user: {username}, include_descendants: {include_descendants}")
 
         # Get org manager
-        ec_org_ctrl = get_ec_org_ctrl(username)
+        ec_org_ctrl = get_ec_org_ctrl()
 
         # Get org agents with descendants option
         result = ec_org_ctrl.get_org_agents(organization_id, include_descendants)
@@ -329,7 +329,7 @@ def handle_bind_agent_to_org(request: IPCRequest, params: Optional[list[Any]]) -
         logger.info(f"[organizations_handler] Binding agent {agent_id} to organization {organization_id}, user: {username}")
         
         # Get org manager
-        ec_org_ctrl = get_ec_org_ctrl(username)
+        ec_org_ctrl = get_ec_org_ctrl()
         
         # Bind agent to org
         result = ec_org_ctrl.bind_agent_to_org(agent_id, organization_id)
@@ -381,7 +381,7 @@ def handle_unbind_agent_from_org(request: IPCRequest, params: Optional[list[Any]
         logger.info(f"[organizations_handler] Unbinding agent {agent_id} from organization, user: {username}")
         
         # Get org manager
-        ec_org_ctrl = get_ec_org_ctrl(username)
+        ec_org_ctrl = get_ec_org_ctrl()
         
         # Unbind agent from org
         result = ec_org_ctrl.unbind_agent_from_org(agent_id)
@@ -433,7 +433,7 @@ def handle_get_available_agents_for_binding(request: IPCRequest, params: Optiona
         logger.info(f"[organizations_handler] Getting available agents for binding, user: {username}")
         
         # Get org manager
-        ec_org_ctrl = get_ec_org_ctrl(username)
+        ec_org_ctrl = get_ec_org_ctrl()
         
         # Get available agents
         result = ec_org_ctrl.get_available_agents(org_id=organization_id)

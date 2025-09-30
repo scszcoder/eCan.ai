@@ -450,7 +450,7 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
         logger.info(f"[agent_handler] Retrieved {len(all_agents)} total agents from main window")
         
         # Get org manager for organization data
-        ec_org_ctrl = get_ec_org_ctrl(username)
+        ec_org_ctrl = get_ec_org_ctrl()
         
         # Get all organizations as flat list (not tree structure)
         org_result = ec_org_ctrl.org_service.get_all_orgs()
