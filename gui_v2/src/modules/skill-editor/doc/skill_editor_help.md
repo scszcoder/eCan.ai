@@ -119,6 +119,11 @@ Start emits initial values; End collects and displays final outputs.
 
 - Save the current flow to JSON; load an existing flow from JSON.
 
+### Data Movements （between nodes & between external event and node）
+
+- A workflow node will sometimes generate new data for other nodes to use, the carrier for the data exchange is the node state data structure. but since the node state data structure is generic, but every workflow is different, there needs to be a way to describe the data move scheme, and we use a simple mapping DSL (domain specific language) to manage this.
+- Quite often a workflow involves external events, the situation could be a human-in-loop action where we pend for human input and the human chat message arrived, or in a multi-agent screnario a workflow may pend on data from another agent and this data just arrived, or simply some type of timer based wait and wait expired or an incoming webhook callback event, when an event happens and trigger the workflow to resume, some data carried along with the event may need to injected back into the workflow (i.e. the node state), again there needs to be a way to describe/specify such data flow, and we use the same mapping DSL to describe this. the mapping DSL is json based, the details can be found [here](./mapping-dsl.md).
+
 ---
 
 ## Cross-Sheet References
