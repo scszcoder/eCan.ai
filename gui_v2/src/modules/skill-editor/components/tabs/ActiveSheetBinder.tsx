@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useClientContext, usePlayground, usePlaygroundTools, useService, WorkflowSelectService } from '@flowgram.ai/free-layout-editor';
 import { useSheetsStore } from '../../stores/sheets-store';
 import blankFlowData from '../../data/blank-flow.json';
+import { useSkillInfoStore } from '../../stores/skill-info-store';
 
 /**
  * Keeps the editor's WorkflowDocument in sync with the active sheet in the sheets store.
@@ -22,6 +23,7 @@ export const ActiveSheetBinder = () => {
   const getActiveViewState = useSheetsStore((s) => s.getActiveViewState);
   const saveActiveSelection = useSheetsStore((s) => s.saveActiveSelection);
   const getActiveSelection = useSheetsStore((s) => s.getActiveSelection);
+  const setBreakpoints = useSkillInfoStore((s) => s.setBreakpoints);
 
   const lastSheetIdRef = useRef<string | null>(null);
 
@@ -33,6 +35,16 @@ export const ActiveSheetBinder = () => {
     if (lastId && lastId !== activeSheetId) {
       try {
         const currentJson = ctx.document.toJSON();
+        // Merge breakpoint flags from store into node JSON before saving
+        try {
+          const bpSet = new Set<string>(useSkillInfoStore.getState().breakpoints || []);
+          if (Array.isArray(currentJson?.nodes)) {
+            currentJson.nodes = currentJson.nodes.map((n: any) => ({
+              ...n,
+              data: { ...(n?.data || {}), breakpoint: bpSet.has(n?.id) },
+            }));
+          }
+        } catch {}
         // Save to the previously active sheet, not the newly activated one
         saveDocumentFor && saveDocumentFor(lastId, currentJson);
       } catch (e) {
@@ -84,6 +96,14 @@ export const ActiveSheetBinder = () => {
       if (ids && ids.length > 0 && (selectService as any)?.selectByIds) {
         (selectService as any).selectByIds(ids);
       }
+    } catch {}
+
+    // Sync breakpoint list from node JSON (nodes with data.breakpoint === true)
+    try {
+      const json = ctx.document.toJSON?.();
+      const nodes: any[] = Array.isArray(json?.nodes) ? json.nodes : [];
+      const bp = nodes.filter((n) => n?.data?.breakpoint === true).map((n) => n.id).filter(Boolean);
+      setBreakpoints(bp);
     } catch {}
 
     lastSheetIdRef.current = activeSheetId ?? null;

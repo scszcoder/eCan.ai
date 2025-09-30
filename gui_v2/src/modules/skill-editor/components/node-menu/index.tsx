@@ -12,6 +12,7 @@ import {
   WorkflowDragService,
   WorkflowNodeEntity,
   WorkflowSelectService,
+  FlowNodeFormData,
 } from '@flowgram.ai/free-layout-editor';
 import { NodeIntoContainerService } from '@flowgram.ai/free-container-plugin';
 import { IconButton, Dropdown } from '@douyinfe/semi-ui';
@@ -96,26 +97,43 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
   }, [updateTitleEdit]);
 
   const handleBreakpointToggle = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation(); // Disable clicking prevents the sidebar from opening
-    if (!username) return;
+    e.stopPropagation(); // keep sidebar closed
+    const targetId = node.id;
+    // compute current state from store at click-time to avoid stale closure
+    const currIsBp = useSkillInfoStore.getState().breakpoints.includes(targetId);
+    const nextIsBp = !currIsBp;
 
-    const node_name = node.id;
-
-    let response;
-    if (isBreakpoint) {
-      response = await ipcApi.clearSkillBreakpoints(username, node_name);
-    } else {
-      response = await ipcApi.setSkillBreakpoints(username, node_name);
-    }
-
-    if (response.success) {
-      if (isBreakpoint) {
-        removeBreakpoint(node.id);
+    // 1) Optimistic UI update: store + node JSON
+    try {
+      if (nextIsBp) addBreakpoint(targetId); else removeBreakpoint(targetId);
+      // update node form json if available
+      const formData = node.getData?.(FlowNodeFormData);
+      const formModel = formData?.getFormModel?.();
+      const formControl = formModel?.formControl as any;
+      if (formControl?.setFieldValue) {
+        formControl.setFieldValue('data.breakpoint', nextIsBp);
       } else {
-        addBreakpoint(node.id);
+        // fallback: patch raw data
+        try { (node as any).raw = { ...(node as any).raw, data: { ...((node as any).raw?.data || {}), breakpoint: nextIsBp } }; } catch {}
       }
+    } catch {}
+    // refresh menu label
+    rerenderMenu();
+
+    // 2) Backend sync (best-effort). No rollback on failure; keep UI responsive.
+    try {
+      if (!username) return;
+      const node_name = targetId;
+      const resp = nextIsBp
+        ? await ipcApi.setSkillBreakpoints(username, node_name)
+        : await ipcApi.clearSkillBreakpoints(username, node_name);
+      if (!resp.success) {
+        console.warn('[Breakpoint] backend rejected toggle for', node_name);
+      }
+    } catch {
+      console.warn('[Breakpoint] network error during toggle');
     }
-  }, [isBreakpoint, node.id, username, ipcApi, addBreakpoint, removeBreakpoint]);
+  }, [node, username, ipcApi, addBreakpoint, removeBreakpoint, rerenderMenu]);
 
   const handleUngroup = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
