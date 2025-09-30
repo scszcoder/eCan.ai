@@ -1,6 +1,6 @@
 """
-File operation IPC handlers for skill editor
-Provides platform-aware file dialog and file I/O operations
+File operation IPC handlers for the Skill Editor.
+Provides platform-aware file dialogs and file I/O operations.
 """
 
 import os
@@ -13,7 +13,7 @@ from utils.logger_helper import logger_helper as logger
 
 
 def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
-    """验证请求参数"""
+    """Validate request parameters."""
     if not params:
         return False, None, f"Missing required parameters: {', '.join(required)}"
     
@@ -26,14 +26,14 @@ def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tu
 
 @IPCHandlerRegistry.handler('show_open_dialog')
 def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理显示文件打开对话框请求
-    
+    """Handle the file open dialog request.
+
     Args:
-        request: IPC 请求对象
-        params: 请求参数，包含 filters 等选项
-        
+        request: IPC request object
+        params: Optional parameters, e.g. filters
+
     Returns:
-        IPCResponse: 包含选中文件路径的响应
+        IPCResponse: Response with selected file path or cancellation info
     """
     try:
         logger.debug(f"Show open dialog handler called with request: {request}")
@@ -41,34 +41,63 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
         from tkinter import filedialog
         import tkinter as tk
         
-        # 创建隐藏的根窗口
+        # Create a hidden root window
         root = tk.Tk()
         root.withdraw()
         
-        # 获取过滤器参数
+        # Build file type filters
         filters = params.get('filters', []) if params else []
         file_types = []
         
         for filter_item in filters:
             name = filter_item.get('name', 'All Files')
             extensions = filter_item.get('extensions', ['*'])
-            # 转换为 tkinter 格式
+            # Convert to tkinter format
             ext_pattern = ';'.join([f'*.{ext}' for ext in extensions])
             file_types.append((name, ext_pattern))
         
         if not file_types:
             file_types = [('JSON Files', '*.json'), ('All Files', '*.*')]
         
-        # 显示文件对话框
+        # Force initial directory to the per-user skills root
+        try:
+            skills_root = user_skills_root()
+            os.makedirs(skills_root, exist_ok=True)
+            initial_dir = str(skills_root)
+        except Exception:
+            initial_dir = None
+
+        # Show file dialog (initial directory at skills root)
         file_path = filedialog.askopenfilename(
             title="Open Skill File",
-            filetypes=file_types
+            filetypes=file_types,
+            initialdir=initial_dir
         )
         
-        # 清理根窗口
+        # Destroy the root window
         root.destroy()
         
         if file_path:
+            # Validate that the selected file is under the skills root
+            try:
+                root = str(user_skills_root())
+                norm_root = os.path.abspath(root)
+                norm_sel = os.path.abspath(file_path)
+                common = os.path.commonpath([norm_root, norm_sel])
+                if common != norm_root:
+                    logger.warning(f"[SKILL_IO][BACKEND][OPEN_OUT_OF_ROOT] selected={norm_sel} root={norm_root}")
+                    return create_error_response(
+                        request,
+                        'OUTSIDE_SKILL_ROOT',
+                        f'Selected file is outside skill root: {norm_root}'
+                    )
+            except Exception as ve:
+                logger.error(f"[SKILL_IO][BACKEND][OPEN_ROOT_VALIDATE_ERROR] {ve}")
+                return create_error_response(
+                    request,
+                    'OPEN_ROOT_VALIDATE_ERROR',
+                    'Failed to validate selection path'
+                )
             # Distinct marker for selected main json path
             logger.info(f"[SKILL_IO][BACKEND][SELECTED_MAIN_JSON] {file_path}")
             return create_success_response(request, {
@@ -91,7 +120,7 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
 
 @IPCHandlerRegistry.handler('show_save_dialog')
 def handle_show_save_dialog(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理显示文件保存对话框请求"""
+    """Handle the file save dialog request."""
     try:
         logger.debug(f"Show save dialog handler called with request: {request}")
         
@@ -101,7 +130,7 @@ def handle_show_save_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
         root = tk.Tk()
         root.withdraw()
         
-        # 获取参数
+        # Resolve parameters
         default_filename = params.get('defaultFilename', 'untitled.json') if params else 'untitled.json'
         try:
             logger.info(f"[SKILL_IO][BACKEND][SAVE_DIALOG_DEFAULT] {default_filename}")
@@ -119,7 +148,7 @@ def handle_show_save_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
         if not file_types:
             file_types = [('JSON Files', '*.json'), ('All Files', '*.*')]
         
-        # 显示保存对话框
+        # Show save dialog
         file_path = filedialog.asksaveasfilename(
             title="Save Skill File",
             defaultextension=".json",
@@ -150,19 +179,19 @@ def handle_show_save_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
 
 @IPCHandlerRegistry.handler('read_skill_file')
 def handle_read_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理读取技能文件请求
-    
+    """Handle reading a skill file.
+
     Args:
-        request: IPC 请求对象
-        params: 请求参数，包含 filePath
-        
+        request: IPC request object
+        params: Request params, must include filePath
+
     Returns:
-        IPCResponse: 包含文件内容的响应
+        IPCResponse: Response with file content
     """
     try:
         logger.debug(f"Read skill file handler called with request: {request}")
         
-        # 验证参数
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['filePath'])
         if not is_valid:
             logger.warning(f"Invalid parameters for read skill file: {error}")
@@ -176,7 +205,7 @@ def handle_read_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]
         # Distinct marker for any read attempt
         logger.info(f"[SKILL_IO][BACKEND][READ_ATTEMPT] {file_path}")
         
-        # 安全检查：确保文件存在
+        # Safety check: ensure file exists
         if not os.path.exists(file_path):
             logger.warning(f"[SKILL_IO][BACKEND][READ_NOT_FOUND] {file_path}")
             return create_error_response(
@@ -185,7 +214,7 @@ def handle_read_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]
                 f'File not found: {file_path}'
             )
         
-        # 检查文件扩展名
+        # Validate file extension
         if not file_path.lower().endswith('.json'):
             return create_error_response(
                 request,
@@ -193,13 +222,13 @@ def handle_read_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]
                 'Only JSON files are supported'
             )
         
-        # 读取文件内容
+        # Read file content
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            # 验证 JSON 格式
-            json.loads(content)  # 验证是否为有效 JSON
+            # Validate JSON format
+            json.loads(content)
             
             size = os.path.getsize(file_path)
             logger.info(f"[SKILL_IO][BACKEND][READ_OK] {file_path} size={size}")
@@ -234,19 +263,19 @@ def handle_read_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]
 
 @IPCHandlerRegistry.handler('write_skill_file')
 def handle_write_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理写入技能文件请求
-    
+    """Handle writing a skill file.
+
     Args:
-        request: IPC 请求对象
-        params: 请求参数，包含 filePath 和 content
-        
+        request: IPC request object
+        params: Request params, must include filePath and content
+
     Returns:
-        IPCResponse: 写入结果响应
+        IPCResponse: Write result
     """
     try:
         logger.debug(f"Write skill file handler called with request: {request}")
         
-        # 验证参数
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['filePath', 'content'])
         if not is_valid:
             logger.warning(f"Invalid parameters for write skill file: {error}")
@@ -259,10 +288,10 @@ def handle_write_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]
         file_path = data['filePath']
         content = data['content']
         
-        # 验证 JSON 内容
+        # Validate JSON content
         try:
             if isinstance(content, str):
-                json.loads(content)  # 验证 JSON 格式
+                json.loads(content)
             else:
                 content = json.dumps(content, indent=2, ensure_ascii=False)
         except json.JSONDecodeError as e:
@@ -272,10 +301,10 @@ def handle_write_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]
                 f'Invalid JSON content: {str(e)}'
             )
         
-        # 确保目录存在
+        # Ensure directory exists
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         
-        # 写入文件
+        # Write file
         try:
             # Distinct write attempt marker with byte length
             try:
