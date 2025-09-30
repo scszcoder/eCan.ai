@@ -75,6 +75,7 @@ class EC_Skill(AgentSkill):
     version: str = "0.0.0"
     level: str = "entry"
     path: str = ""
+    run_mode: str = "released"      # has to be either "development" or "released"
     # Optional: per-skill mapping rules for resume/state mapping DSL
     mapping_rules: dict | None = None
 
@@ -182,18 +183,23 @@ class NodeState(TypedDict):
     formatted_prompts: List[dict]
     messages: List[Any]
     threads: List[dict]
-    metadata: dict
     this_node: str
     attributes: dict
     result: dict
     tool_input: dict
     tool_result: dict
+    http_response: dict
+    cli_input: dict
+    cli_results: dict
     error: str
     retries: int
     condition: bool
+    condition_vars: dict
+    loop_end_vars: dict
     case: str
     goals: List[Goal]
     breakpoint: bool
+    metadata: dict
 
 
 class ToT_Context(TypedDict):
