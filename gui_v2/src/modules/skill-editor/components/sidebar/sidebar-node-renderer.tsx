@@ -8,6 +8,7 @@ import { useNodeRender, FlowNodeEntity } from '@flowgram.ai/free-layout-editor';
 import { NodeRenderContext } from '../../context';
 import { useNodeStateSchema } from '../../../../stores/nodeStateSchemaStore';
 import NodeStatePanel from '../node-state/NodeStatePanel';
+import MappingEditor, { type MappingConfig } from '../mapping/MappingEditor';
 import { IPCAPI } from '../../../../services/ipc/api';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 
@@ -16,6 +17,7 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
   const nodeRender = useNodeRender(node);
   const { schema, loading } = useNodeStateSchema();
   const { skillInfo } = useSkillInfoStore();
+  const setHasUnsavedChanges = useSkillInfoStore((s) => s.setHasUnsavedChanges);
 
   // Bind 'state' field helpers
   const form = nodeRender.form as any;
@@ -30,6 +32,37 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
     try {
       if (form?.setFieldValue) return form.setFieldValue('state', val);
     } catch {}
+  };
+
+  // Mapping Rules bindings (persist to node.data.mapping_rules)
+  const getMappingRules = (): MappingConfig | null => {
+    try {
+      const dataAny = (node as any).data as any;
+      const cfg = dataAny?.mapping_rules;
+      if (cfg && typeof cfg === 'object') return cfg as MappingConfig;
+    } catch {}
+    return null;
+  };
+  const setMappingRules = (cfg: MappingConfig) => {
+    try {
+      // Mark unsaved changes in skill store so Save prompts/flags work
+      try { setHasUnsavedChanges(true); } catch {}
+      // Best-effort setters depending on editor runtime
+      const current = (node as any).data || {};
+      const next = { ...current, mapping_rules: cfg };
+      if (typeof (node as any).setData === 'function') {
+        (node as any).setData(next);
+        return;
+      }
+      if (typeof (node as any).updateData === 'function') {
+        (node as any).updateData(next);
+        return;
+      }
+      // Fallback: mutate in-place (some editors proxy writes)
+      (node as any).data = next;
+    } catch (e) {
+      console.error('[MappingEditor] persist mapping_rules failed', e);
+    }
   };
 
   return (
@@ -100,6 +133,11 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
           ) : (
             <NodeStatePanel schema={schema} value={getStateValue() ?? {}} onChange={setStateValue} />
           )}
+          {/* Mapping rules editor */}
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>Mapping Rules</div>
+            <MappingEditor value={getMappingRules()} onChange={setMappingRules} />
+          </div>
         </div>
       </div>
     </NodeRenderContext.Provider>

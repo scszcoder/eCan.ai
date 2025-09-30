@@ -75,6 +75,8 @@ class EC_Skill(AgentSkill):
     version: str = "0.0.0"
     level: str = "entry"
     path: str = ""
+    # Optional: per-skill mapping rules for resume/state mapping DSL
+    mapping_rules: dict | None = None
 
     tags: List[str] | None = None
     examples: List[str] | None = None
