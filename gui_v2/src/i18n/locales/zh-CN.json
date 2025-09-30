@@ -696,7 +696,17 @@
     "resetting": "重置中...",
     "googleSuccess": "谷歌登录成功",
     "googleFailed": "谷歌登录失败",
-    "googleError": "谷歌登录错误"
+    "googleError": "谷歌登录错误",
+    "redirectingToMain": "正在跳转到主页面...",
+    "authenticating": "认证中...",
+    "openingGoogle": "正在打开谷歌...",
+    "signupSuccessMessage": "注册成功！请使用新账号登录。",
+    "forgotResetError": "重置密码失败",
+    "lastError": "上次错误：",
+    "retryHint": "请检查您的凭据并重试。"
+  },
+  "agents": {
+    "addAgent": "添加代理"
   },
   "menu": {
     "agents": "代理",

@@ -20,7 +20,7 @@ if sys.platform == 'darwin':
 
 
 class WebGUI(QMainWindow):
-    def __init__(self, parent=None, splash: Optional[object] = None, progress_callback=None):
+    def __init__(self, parent=None, splash=None, progress_callback=None):
         super().__init__()
         self.setWindowTitle("eCan.ai")
         self.parent = parent
@@ -29,7 +29,7 @@ class WebGUI(QMainWindow):
 
         # Update progress if callback is available
         if self._progress_callback:
-            self._progress_callback(72, "Setting up main window...")
+            self._progress_callback(30, "Initializing WebGUI...")
 
         # Windows-specific optimizations to reduce flicker
         if sys.platform == 'win32':
@@ -127,7 +127,7 @@ class WebGUI(QMainWindow):
         if self._splash is None:
             try:
                 self.show()
-                # 在窗口显示后设置Windows任务栏图标
+                # Set Windows taskbar icon after window is shown
                 self._setup_windows_taskbar_icon_delayed()
             except Exception:
                 pass
@@ -150,7 +150,7 @@ class WebGUI(QMainWindow):
             self.show()
             # Ensure window icon is set after showing for taskbar display
             self._set_window_icon()
-            # 在窗口显示后设置Windows任务栏图标
+            # Set Windows taskbar icon after window is shown
             self._setup_windows_taskbar_icon_delayed()
         except Exception:
             try:
@@ -843,7 +843,7 @@ class WebGUI(QMainWindow):
             logger.error(f"Failed to set titlebar icon: {e}")
 
     def _setup_windows_taskbar_icon_delayed(self):
-        """在窗口完全显示后设置Windows任务栏图标"""
+        """Set Windows taskbar icon after window is fully displayed"""
         if sys.platform != 'win32':
             return
 
@@ -859,7 +859,7 @@ class WebGUI(QMainWindow):
                     logger.warning("No QApplication instance found for taskbar icon setup")
                     return
 
-                # 确保窗口已经完全显示和初始化
+                # Ensure window is fully displayed and initialized
                 if not self.isVisible() or not self.winId():
                     logger.warning("Window not ready for taskbar icon setup")
                     return
@@ -871,7 +871,7 @@ class WebGUI(QMainWindow):
                 if os.path.exists(icon_path):
                     success = set_windows_taskbar_icon(app, icon_path, logger, self)
                     if success:
-                        # 验证图标是否真的设置成功
+                        # Verify if icon was actually set successfully
                         verified = verify_taskbar_icon_setting(self, logger)
                         if verified:
                             logger.info("WebGUI delayed taskbar icon setup successful and verified")
@@ -879,7 +879,7 @@ class WebGUI(QMainWindow):
                             logger.warning("WebGUI taskbar icon setup completed but verification failed")
                     else:
                         logger.warning("WebGUI delayed taskbar icon setup failed")
-                        # 尝试备用方案：重新设置窗口图标
+                        # Try fallback: reset window icon
                         try:
                             from PySide6.QtGui import QIcon
                             window_icon = QIcon(icon_path)
@@ -895,7 +895,7 @@ class WebGUI(QMainWindow):
             except Exception as e:
                 logger.warning(f"WebGUI delayed taskbar icon setup failed: {e}")
 
-        # 延迟1秒确保窗口完全显示
+        # Delay 1 second to ensure window is fully displayed
         QTimer.singleShot(1000, setup_taskbar_icon)
 
     def _add_window_controls(self, layout):

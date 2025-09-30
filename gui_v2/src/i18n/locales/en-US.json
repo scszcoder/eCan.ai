@@ -696,7 +696,17 @@
     "resetting": "Resetting...",
     "googleSuccess": "Google login successful",
     "googleFailed": "Google login failed",
-    "googleError": "Google login error"
+    "googleError": "Google login error",
+    "redirectingToMain": "Redirecting to main page...",
+    "authenticating": "Authenticating...",
+    "openingGoogle": "Opening Google...",
+    "signupSuccessMessage": "Registration successful! Please login with your new account.",
+    "forgotResetError": "Failed to reset password",
+    "lastError": "Last error:",
+    "retryHint": "Please check your credentials and try again."
+  },
+  "agents": {
+    "addAgent": "Add Agent"
   },
   "menu": {
     "agents": "Agents",
