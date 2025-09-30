@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useClientContext, usePlayground, usePlaygroundTools } from '@flowgram.ai/free-layout-editor';
+import { useClientContext, usePlayground, usePlaygroundTools, useService, WorkflowSelectService } from '@flowgram.ai/free-layout-editor';
 import { useSheetsStore } from '../../stores/sheets-store';
 import blankFlowData from '../../data/blank-flow.json';
 
@@ -12,6 +12,7 @@ export const ActiveSheetBinder = () => {
   const ctx = useClientContext();
   const playground = usePlayground();
   const tools = usePlaygroundTools();
+  const selectService = useService(WorkflowSelectService);
   const activeSheetId = useSheetsStore((s) => s.activeSheetId);
   const getActiveDocument = useSheetsStore((s) => s.getActiveDocument);
   const saveActiveDocument = useSheetsStore((s) => s.saveActiveDocument);
@@ -19,13 +20,15 @@ export const ActiveSheetBinder = () => {
   const revision = useSheetsStore((s) => s.revision);
   const saveActiveViewState = useSheetsStore((s) => s.saveActiveViewState);
   const getActiveViewState = useSheetsStore((s) => s.getActiveViewState);
+  const saveActiveSelection = useSheetsStore((s) => s.saveActiveSelection);
+  const getActiveSelection = useSheetsStore((s) => s.getActiveSelection);
 
   const lastSheetIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!ctx?.document) return;
 
-    // On sheet switch: save current, then load new
+    // On sheet switch: save current doc/zoom/selection, then load new
     const lastId = lastSheetIdRef.current;
     if (lastId && lastId !== activeSheetId) {
       try {
@@ -39,6 +42,17 @@ export const ActiveSheetBinder = () => {
       try {
         if (typeof tools.zoom === 'number') {
           saveActiveViewState({ zoom: tools.zoom });
+        }
+      } catch {}
+      // Save current selection ids
+      try {
+        const ids: string[] = Array.isArray((selectService as any)?.selection)
+          ? (selectService as any).selection.map((n: any) => n?.id).filter(Boolean)
+          : (typeof (selectService as any)?.getSelectedIds === 'function'
+              ? (selectService as any).getSelectedIds()
+              : []);
+        if (ids?.length >= 0) {
+          saveActiveSelection(ids);
         }
       } catch {}
     }
@@ -63,6 +77,14 @@ export const ActiveSheetBinder = () => {
     } catch {
       (ctx.document as any).fitView && (ctx.document as any).fitView();
     }
+
+    // Restore selection for this sheet if any
+    try {
+      const ids = getActiveSelection();
+      if (ids && ids.length > 0 && (selectService as any)?.selectByIds) {
+        (selectService as any).selectByIds(ids);
+      }
+    } catch {}
 
     lastSheetIdRef.current = activeSheetId ?? null;
   }, [activeSheetId, revision, ctx, getActiveDocument, saveActiveDocument]);
