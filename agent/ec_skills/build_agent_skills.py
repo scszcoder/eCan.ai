@@ -1,6 +1,9 @@
 import traceback
 import asyncio
 import time
+from pathlib import Path
+from typing import List, Optional, Tuple, Any
+import json
 from agent.ec_agents.agent_utils import load_agent_skills_from_cloud
 from agent.ec_skills.ecbot_rpa.ecbot_rpa_chatter_skill import create_rpa_helper_chatter_skill, create_rpa_operator_chatter_skill, create_rpa_supervisor_chatter_skill, create_rpa_supervisor_scheduling_chatter_skill
 from agent.ec_skills.ecbot_rpa.ecbot_rpa_skill import create_rpa_helper_skill, create_rpa_operator_skill, create_rpa_supervisor_scheduling_skill, create_rpa_supervisor_skill
@@ -15,6 +18,10 @@ from agent.ec_skills.dev_utils.skill_dev_utils import create_test_dev_skill
 
 from agent.mcp.server.tool_schemas import tool_schemas
 from utils.logger_helper import logger_helper as logger
+from agent.ec_skills.extern_skills.extern_skills import user_skills_root, ensure_skill_venv
+from agent.ec_skills.extern_skills.inproc_loader import temp_sys_path, _site_packages
+from agent.ec_skill import EC_Skill
+from agent.ec_skills.flowgram2langgraph import flowgram2langgraph
 
 async def build_agent_skills_parallel(mainwin):
     """优化的分批并行技能创建"""
@@ -240,8 +247,183 @@ async def _build_local_skills_async(mainwin, skill_path=""):
         return []
 
 
-def build_agent_skills_from_files(mainwin, skill_path=""):
-    """从文件构建技能（占位符实现）"""
-    logger.info(f"[build_agent_skills] Building skills from files: {skill_path}")
-    # TODO: 实现从文件加载技能的逻辑
-    return []
+def build_agent_skills_from_files(mainwin, skill_path: str = ""):
+    """从文件构建技能，目录结构：
+
+    <skills_root>/<name>_skill/
+      ├─ code_skill/         # pure Python realization（dir should include abc_skill.py）
+      └─ diagram_dir/        # Flowgram exported jsons: abc_skill.json abc_skill_bundle.json
+
+    pick strategy：
+    - if only 1 exists, just load from there
+    - if both exist, pick the one with most recent modification date
+    """
+    try:
+        skills: List[object] = []
+
+        def latest_mtime(path: Path) -> float:
+            if not path.exists():
+                return -1.0
+            if path.is_file():
+                return path.stat().st_mtime
+            m = -1.0
+            for p in path.rglob("*"):
+                try:
+                    m = max(m, p.stat().st_mtime)
+                except Exception:
+                    pass
+            return m
+
+        def find_package_dir_in_code(code_dir: Path) -> Optional[Tuple[Path, str]]:
+            # package dir is any child containing abc_skill.py; name is folder name
+            if not code_dir.exists():
+                return None
+            for child in code_dir.iterdir():
+                if child.is_dir() and (child / "abc_skill.py").exists():
+                    return child, child.name
+            return None
+
+        def load_from_code(skill_root: Path, code_dir: Path) -> Optional[EC_Skill]:
+            pkg = find_package_dir_in_code(code_dir)
+            if not pkg:
+                logger.warning(f"[build_agent_skills] No package with *_skill.py under {code_dir}")
+                return None
+            pkg_dir, pkg_name = pkg
+
+            # prepare venv under skill root
+            ensure_skill_venv(skill_root, reuse_host_libs=True)
+            venv_dir = skill_root / ".venv"
+
+            # import in-process
+            from contextlib import ExitStack
+            import importlib
+
+            with ExitStack() as stack:
+                stack.enter_context(temp_sys_path([pkg_dir]))
+                stack.enter_context(temp_sys_path(_site_packages(venv_dir)))
+                mod = importlib.import_module(f"{pkg_name}.abc_skill")
+                if not hasattr(mod, "build_skill"):
+                    logger.error(f"[build_agent_skills] {pkg_name}.abc_skill missing build_skill()")
+                    return None
+                built = mod.build_skill()
+
+                # Accept either EC_Skill or (dto, stategraph)
+                if isinstance(built, EC_Skill):
+                    return built
+                if isinstance(built, tuple) and len(built) == 2:
+                    dto, sg = built
+                    try:
+                        sk = EC_Skill()
+                        sk.name = getattr(dto, "name", pkg_name)
+                        sk.description = getattr(dto, "description", "")
+                        sk.config = getattr(dto, "config", {}) or {}
+                        sk.set_work_flow(sg)
+                        return sk
+                    except Exception as e:
+                        logger.error(f"[build_agent_skills] Failed to wrap tuple into EC_Skill: {e}")
+                        return None
+                logger.error("[build_agent_skills] build_skill() returned unsupported type")
+                return None
+
+        def load_from_diagram(diagram_dir: Path) -> Optional[EC_Skill]:
+            # Expect files <name>_skill.json and optional <name>_skill_bundle.json under diagram_dir
+            try:
+                # Derive name from parent folder '<name>_skill'
+                skill_root = diagram_dir.parent
+                base = skill_root.name
+                name = base[:-6] if base.endswith("_skill") else base
+                core_path = diagram_dir / f"{name}_skill.json"
+                bundle_path = diagram_dir / f"{name}_skill_bundle.json"
+
+                if not core_path.exists():
+                    logger.warning(f"[build_agent_skills] Diagram core JSON not found: {core_path}")
+                    return None
+
+                with core_path.open("r", encoding="utf-8") as f:
+                    core_dict = json.load(f)
+                bundle_dict = None
+                if bundle_path.exists():
+                    with bundle_path.open("r", encoding="utf-8") as bf:
+                        bundle_dict = json.load(bf)
+
+                workflow, _breakpoints = flowgram2langgraph(core_dict, bundle_dict)
+                if not workflow:
+                    logger.error(f"[build_agent_skills] flowgram2langgraph returned empty workflow for {core_path}")
+                    return None
+
+                sk = EC_Skill()
+                sk.name = name
+                # Try to set description/config if present in core_dict
+                try:
+                    sk.description = core_dict.get("description", "") or sk.description
+                except Exception:
+                    pass
+                try:
+                    cfg = core_dict.get("config")
+                    if isinstance(cfg, dict):
+                        sk.config = cfg
+                except Exception:
+                    pass
+                sk.set_work_flow(workflow)
+                return sk
+            except Exception as e:
+                logger.error(f"[build_agent_skills] Diagram load failed at {diagram_dir}: {e}")
+                return None
+
+        def load_one_skill(skill_root: Path) -> Optional[EC_Skill]:
+            if not skill_root.exists() or not skill_root.is_dir():
+                return None
+            code_dir = skill_root / "code_skill"
+            diagram_dir = skill_root / "diagram_dir"
+
+            code_exists = code_dir.exists()
+            diagram_exists = diagram_dir.exists()
+
+            chosen = None
+            if code_exists and not diagram_exists:
+                chosen = ("code", code_dir)
+            elif diagram_exists and not code_exists:
+                chosen = ("diagram", diagram_dir)
+            elif code_exists and diagram_exists:
+                mc = latest_mtime(code_dir)
+                md = latest_mtime(diagram_dir)
+                chosen = ("code", code_dir) if mc >= md else ("diagram", diagram_dir)
+            else:
+                logger.warning(f"[build_agent_skills] No code_skill or diagram_dir under {skill_root}")
+                return None
+
+            kind, path_sel = chosen
+            if kind == "code":
+                return load_from_code(skill_root, path_sel)
+            else:
+                return load_from_diagram(path_sel)
+
+        # Scan and load
+        if not skill_path:
+            root = user_skills_root()
+            root.mkdir(parents=True, exist_ok=True)
+            logger.info(f"[build_agent_skills] Scanning skills under: {root}")
+            for entry in sorted(root.iterdir()):
+                # expect entries named <name>_skill
+                if entry.is_dir() and entry.name.endswith("_skill"):
+                    sk = load_one_skill(entry)
+                    if sk is not None:
+                        skills.append(sk)
+        else:
+            sdir = Path(skill_path)
+            # If user points to inside code_skill or diagram_dir, go up to the skill root (<name>_skill)
+            if sdir.name in ("code_skill", "diagram_dir"):
+                skill_root = sdir.parent
+            else:
+                skill_root = sdir
+            sk = load_one_skill(skill_root)
+            if sk is not None:
+                skills.append(sk)
+
+        logger.info(f"[build_agent_skills] Loaded {len(skills)} skill(s) from files")
+        return skills
+
+    except Exception as e:
+        logger.error(f"[build_agent_skills] Error loading skills from files: {e}")
+        logger.error(traceback.format_exc())
+        return []

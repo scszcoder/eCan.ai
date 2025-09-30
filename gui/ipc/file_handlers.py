@@ -6,6 +6,7 @@ Provides platform-aware file dialog and file I/O operations
 import os
 import json
 from typing import Any, Optional, Dict
+from agent.ec_skills.extern_skills.extern_skills import scaffold_skill, rename_skill, user_skills_root
 from .types import IPCRequest, IPCResponse, create_success_response, create_error_response
 from .registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper as logger
@@ -311,3 +312,46 @@ def handle_write_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]
 
 
 logger.info("File operation handlers registered successfully")
+
+
+@IPCHandlerRegistry.handler('skills.scaffold')
+def handle_skills_scaffold(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Scaffold a new skill directory under the per-user skills root.
+
+    Params:
+      - name: skill base name (without _skill). If omitted, a timestamped name is generated.
+      - kind: 'code' | 'diagram' (default: 'diagram')
+      - description: optional description
+    Returns: { skillRoot: str, name: str }
+    """
+    try:
+        p = params or {}
+        import datetime
+        name = p.get('name') or datetime.datetime.now().strftime('skill_%Y%m%d_%H%M%S')
+        kind = (p.get('kind') or 'diagram').lower()
+        description = p.get('description') or ''
+        path = scaffold_skill(name, description, kind)
+        return create_success_response(request, { 'skillRoot': str(path), 'name': name })
+    except Exception as e:
+        logger.error(f"[IPC] skills.scaffold error: {e}")
+        return create_error_response(request, 'SCAFFOLD_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('skills.rename')
+def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Rename an existing skill root directory <old>_skill -> <new>_skill.
+
+    Params:
+      - oldName
+      - newName
+    Returns: { skillRoot: str }
+    """
+    try:
+        ok, data, err = validate_params(params, ['oldName', 'newName'])
+        if not ok:
+            return create_error_response(request, 'INVALID_PARAMS', err or 'invalid')
+        new_path = rename_skill(data['oldName'], data['newName'])
+        return create_success_response(request, { 'skillRoot': str(new_path) })
+    except Exception as e:
+        logger.error(f"[IPC] skills.rename error: {e}")
+        return create_error_response(request, 'RENAME_ERROR', str(e))

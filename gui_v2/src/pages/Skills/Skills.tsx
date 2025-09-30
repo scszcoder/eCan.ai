@@ -10,6 +10,7 @@ import { Skill, SkillsAPIResponseData } from './types';
 import SkillList from './components/SkillList';
 import SkillDetails from './components/SkillDetails';
 import { get_ipc_api } from '@/services/ipc_api';
+import { IPCWCClient } from '@/services/ipc/ipcWCClient';
 
 const Skills: React.FC = () => {
     const { t } = useTranslation();
@@ -96,9 +97,22 @@ const Skills: React.FC = () => {
                 <Button
                     type="primary"
                     icon={<PlusOutlined />}
-                    onClick={() => {
+                    onClick={async () => {
+                        // Scaffold a code-based skill on backend
+                        const defaultName = `skill_${Date.now()}`;
+                        try {
+                            const resp: any = await IPCWCClient.getInstance().sendRequest('skills.scaffold', { name: defaultName, kind: 'code' });
+                            if (resp?.status !== 'success') {
+                                // eslint-disable-next-line no-console
+                                console.warn('[Skills] scaffold code skill failed', resp);
+                            }
+                        } catch (e) {
+                            // eslint-disable-next-line no-console
+                            console.warn('[Skills] scaffold code skill exception', e);
+                        }
                         setIsAddingNew(true);
-                        // do not select an empty item; details will render a clean form
+                        // Refresh list to include the new scaffold
+                        await fetchSkills();
                     }}
                     title={t('pages.skills.addSkill')}
                 />
