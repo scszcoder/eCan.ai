@@ -135,7 +135,11 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
     a callable that can be used as a node in the graph.
     """
     print("building basic node", config_metadata)
-    code_source = config_metadata.get('script').get('content')
+    # Safely extract inline script content; tolerate missing keys and fall back to no-op
+    try:
+        code_source = (config_metadata or {}).get('script', {}).get('content')
+    except Exception:
+        code_source = None
     print("code_source:", code_source)
     if not code_source or not isinstance(code_source, str):
         print("Error: 'code' key is missing or invalid in config_metadata for basic_node.")

@@ -207,7 +207,9 @@ def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp
     # Process all blocks (nodes) within the group/loop
     for block in blocks:
         block_id = block["id"]
-        node_map[block_id] = block_id
+        # Sanitize block id as well (blocks might inherit ids that include colons)
+        sanitized_block_id = str(block_id).replace(":", "__")
+        node_map[block_id] = sanitized_block_id
         id_to_node[block_id] = block
 
         node_type = block.get("type", "code")
@@ -223,7 +225,7 @@ def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp
         node_callable = node_builder(raw_callable, block_id, skill_name, owner, bp_manager)
 
         # Add the constructed node to the workflow
-        workflow.add_node(block_id, node_callable)
+        workflow.add_node(sanitized_block_id, node_callable)
 
         if node_type in ["loop", "group"] and "blocks" in block:
             nested_edges = block.get("edges", [])
@@ -260,7 +262,8 @@ def flowgram2langgraph(flowgram_json, bundle_json=None):
         per_sheet_entry = {}   # sheet_key -> entry global node id
         breakpoints = []
 
-        print("flowgram2langgraph", type(flowgram_json))
+        # Debug marker to ensure the latest code is running
+        print("flowgram2langgraph[v_sanitize_colon_1]", type(flowgram_json))
         skill_name = flow.get("skillName", "")
         owner = flow.get("owner", "")
         # breakpoint manager (dev/test path)
@@ -320,14 +323,19 @@ def flowgram2langgraph(flowgram_json, bundle_json=None):
                     breakpoints.append(f"{sname}:{node_id}")
 
                 global_id = f"{sname}:{node_id}"
-                node_map[global_id] = global_id
+                # LangGraph forbids ':' in node names; sanitize for workflow usage
+                sanitized_id = global_id.replace(":", "__")
+                node_map[global_id] = sanitized_id
                 id_to_node[global_id] = {"sheet": sname, "node": node}
 
                 # Builder
                 builder_func = function_registry.get(node_type, build_debug_node)
                 raw_callable = builder_func(node_data, global_id, skill_name, owner, bp_manager)
                 node_callable = node_builder(raw_callable, global_id, skill_name, owner, bp_manager)
-                workflow.add_node(global_id, node_callable)
+                # Debug to verify sanitized ids are used
+                if ":" in sanitized_id:
+                    print("[WARN] unsanitized id detected:", global_id, "->", sanitized_id)
+                workflow.add_node(sanitized_id, node_callable)
 
             # Record per-sheet entry (global id)
             if entry_local:
@@ -337,7 +345,9 @@ def flowgram2langgraph(flowgram_json, bundle_json=None):
         main_entry = per_sheet_entry.get(main_sheet_name)
         if not main_entry:
             raise ValueError("Could not determine the entry point from the start node of the main sheet.")
-        workflow.set_entry_point(main_entry)
+        # Map to sanitized id if present
+        entry_sanitized = node_map.get(main_entry, main_entry)
+        workflow.set_entry_point(entry_sanitized)
 
         # Second pass: add edges across all sheets
         for sheet in sheets:
@@ -361,12 +371,12 @@ def flowgram2langgraph(flowgram_json, bundle_json=None):
                     logger.warning(f"Edge source node not found in map: {source_global}")
                     continue
                 if target_global == "end":
-                    workflow.add_edge(source_global, END)
+                    workflow.add_edge(node_map[source_global], END)
                     continue
                 if target_global not in node_map:
                     logger.warning(f"Edge target node not found in map: {target_global}")
                     continue
-                workflow.add_edge(source_global, target_global)
+                workflow.add_edge(node_map[source_global], node_map[target_global])
 
         # Conditional edges (by sheet)
         for sheet in sheets:
@@ -375,14 +385,23 @@ def flowgram2langgraph(flowgram_json, bundle_json=None):
             for node in wf.get("nodes", []):
                 if node.get("type") == "condition":
                     node_id = node.get("id")
-                    gid = f"{sname}:{node_id}"
+                    gid_global = f"{sname}:{node_id}"
+                    gid = node_map.get(gid_global)
+                    if not gid:
+                        logger.warning(f"Condition node not found in map: {gid_global}")
+                        continue
                     outgoing_edges = [e for e in wf.get("edges", []) if e.get("sourceNodeID") == node_id]
                     port_map = {}
                     for e in outgoing_edges:
                         port = e.get("sourcePortID")
                         if port:
                             tgt = e.get("targetNodeID")
-                            port_map[port] = f"{sname}:{tgt}"
+                            tgt_gid = f"{sname}:{tgt}"
+                            if tgt_gid in node_map:
+                                port_map[port] = node_map[tgt_gid]
+                            else:
+                                logger.warning(f"Conditional edge target not found in map: {tgt_gid}")
+                    # Build selector with sanitized id and a port_map that points to sanitized ids
                     selector = make_condition_selector(gid, node.get("data", {}), port_map)
                     workflow.add_conditional_edges(gid, selector, path_map=port_map)
 
@@ -404,8 +423,13 @@ def flowgram2langgraph(flowgram_json, bundle_json=None):
                     data = node.get("data", {})
                     target_sheet = data.get("target_sheet") or data.get("targetSheet") or data.get("sheet") or data.get("name")
                     if target_sheet and target_sheet in per_sheet_entry:
-                        src_gid = f"{sname}:{node.get('id')}"
-                        dst_gid = per_sheet_entry[target_sheet]
+                        src_gid_global = f"{sname}:{node.get('id')}"
+                        dst_gid_global = per_sheet_entry[target_sheet]
+                        src_gid = node_map.get(src_gid_global)
+                        dst_gid = node_map.get(dst_gid_global)
+                        if not src_gid or not dst_gid:
+                            logger.warning(f"Failed to resolve sheet-call ids: {src_gid_global} -> {dst_gid_global}")
+                            continue
                         try:
                             workflow.add_edge(src_gid, dst_gid)
                         except Exception:

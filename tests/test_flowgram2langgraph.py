@@ -11,8 +11,8 @@ class Flowgram2LangGraphTests(unittest.TestCase):
             "workFlow": {
                 "nodes": [
                     {"id": "start", "type": "start"},
-                    {"id": "a", "type": "code", "data": {}},
-                    {"id": "b", "type": "code", "data": {}},
+                    {"id": "a", "type": "code", "data": {"script": {"content": "def main(state):\n    return state\n"}}},
+                    {"id": "b", "type": "code", "data": {"script": {"content": "def main(state):\n    return state\n"}}},
                     {"id": "end", "type": "end"},
                 ],
                 "edges": [
@@ -33,7 +33,7 @@ class Flowgram2LangGraphTests(unittest.TestCase):
                     "document": {
                         "nodes": [
                             {"id": "start", "type": "start"},
-                            {"id": "x", "type": "code", "data": {}},
+                            {"id": "x", "type": "code", "data": {"script": {"content": "def main(state):\n    return state\n"}}},
                         ],
                         "edges": [
                             {"sourceNodeID": "start", "targetNodeID": "x"}
@@ -45,7 +45,7 @@ class Flowgram2LangGraphTests(unittest.TestCase):
                     "document": {
                         "nodes": [
                             {"id": "start", "type": "start"},
-                            {"id": "y", "type": "code", "data": {}},
+                            {"id": "y", "type": "code", "data": {"script": {"content": "def main(state):\n    return state\n"}}},
                         ],
                         "edges": [
                             {"sourceNodeID": "start", "targetNodeID": "y"}
@@ -78,7 +78,7 @@ class Flowgram2LangGraphTests(unittest.TestCase):
                     "document": {
                         "nodes": [
                             {"id": "start", "type": "start"},
-                            {"id": "z", "type": "code", "data": {}},
+                            {"id": "z", "type": "code", "data": {"script": {"content": "def main(state):\n    return state\n"}}},
                         ],
                         "edges": [
                             {"sourceNodeID": "start", "targetNodeID": "z"}
@@ -125,9 +125,9 @@ class Flowgram2LangGraphTests(unittest.TestCase):
                             {"key": "else_2", "value": {}}
                         ]
                     }},
-                    {"id": "a", "type": "code", "data": {}},
-                    {"id": "b", "type": "code", "data": {}},
-                    {"id": "c", "type": "code", "data": {}},
+                    {"id": "a", "type": "code", "data": {"script": {"content": "def main(state):\n    return state\n"}}},
+                    {"id": "b", "type": "code", "data": {"script": {"content": "def main(state):\n    return state\n"}}},
+                    {"id": "c", "type": "code", "data": {"script": {"content": "def main(state):\n    return state\n"}}},
                     {"id": "end", "type": "end"},
                 ],
                 "edges": [
@@ -153,12 +153,12 @@ class Flowgram2LangGraphTests(unittest.TestCase):
                 "nodes": [
                     {"id": "start", "type": "start"},
                     {"id": "loop1", "type": "loop", "data": {"iter": 3}, "blocks": [
-                        {"id": "n1", "type": "code", "data": {}},
-                        {"id": "n2", "type": "code", "data": {}},
+                        {"id": "n1", "type": "code", "data": {"script": {"content": "def main(state):\n    return state\n"}}},
+                        {"id": "n2", "type": "code", "data": {"script": {"content": "def main(state):\n    return state\n"}}},
                     ], "edges": [
                         {"sourceNodeID": "n1", "targetNodeID": "n2"}
                     ]},
-                    {"id": "after", "type": "code", "data": {}},
+                    {"id": "after", "type": "code", "data": {"script": {"content": "def main(state):\n    return state\n"}}},
                     {"id": "end", "type": "end"},
                 ],
                 "edges": [
@@ -179,7 +179,7 @@ class Flowgram2LangGraphTests(unittest.TestCase):
                 "nodes": [
                     {"id": "start", "type": "start"},
                     {"id": "note", "type": "comment", "data": {"text": "just a note"}},
-                    {"id": "x", "type": "code", "data": {}},
+                    {"id": "x", "type": "code", "data": {"script": {"content": "def main(state):\n    return state\n"}}},
                     {"id": "end", "type": "end"},
                 ],
                 "edges": [
@@ -218,8 +218,8 @@ class Flowgram2LangGraphTests(unittest.TestCase):
                                     {"key": "else_1", "value": {}}
                                 ]
                             }},
-                            {"id": "p", "type": "code", "data": {}},
-                            {"id": "q", "type": "code", "data": {}},
+                            {"id": "p", "type": "code", "data": {"script": {"content": "def main(state):\n    return state\n"}}},
+                            {"id": "q", "type": "code", "data": {"script": {"content": "def main(state):\n    return state\n"}}},
                         ],
                         "edges": [
                             {"sourceNodeID": "start", "targetNodeID": "condS"},

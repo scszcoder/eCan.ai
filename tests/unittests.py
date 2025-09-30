@@ -53,6 +53,7 @@ import pyautogui
 import base64
 import threading
 import aiohttp
+from tests.test_flowgram2langgraph import Flowgram2LangGraphTests
 
 def test_eb_orders_scraper():
     orders = []
@@ -2331,8 +2332,9 @@ def testLongLLMTask(mwin, setup):
 def run_default_tests(mwin, test_setup=None):
     print("run_default_tests with setup:", test_setup)
     results = None
-    results = testLongLLMTask(mwin, test_setup)
-
+    # results = testLongLLMTask(mwin, test_setup)
+    f2l_test = Flowgram2LangGraphTests()
+    f2l_test.test_multi_sheet_with_condition_in_sub_sheet()
     return results
 
 print(TimeUtil.formatted_now_with_ms() + "loading unittests finished...")
