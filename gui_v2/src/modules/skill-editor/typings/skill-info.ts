@@ -12,6 +12,15 @@ export interface SkillInfo {
   lastModified: string;
   workFlow: FlowDocumentJSON;
   mode?: 'development' | 'released';
+  // Optional per-skill config. We use this to promote node.data.mapping_rules
+  // into a runtime-friendly location consumed by the agent backend.
+  config?: {
+    nodes?: Record<string, {
+      mapping_rules?: any;
+      [key: string]: any;
+    }>;
+    [key: string]: any;
+  };
 }
 
 // @ts-ignore
