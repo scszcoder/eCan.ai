@@ -9,7 +9,6 @@ import { userStorageManager } from '../../services/storage/UserStorageManager';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import { useInitializationProgress } from '../../hooks/useInitializationProgress';
 import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
-import { logoutManager } from '../../services/LogoutManager';
 import logo from '../../assets/logoWhite22.png';
 import googleIcon from '../../assets/Google_Icons.png';
 import appleIcon from '../../assets/Apple_Icon3.png';

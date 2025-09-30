@@ -1,6 +1,8 @@
 from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
 from utils.time_util import TimeUtil
+from typing import Dict, Any, Optional, Callable
+from enum import Enum
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui start...")
 
@@ -8,6 +10,7 @@ from auth.auth_manager import AuthManager
 from config.app_info import app_info
 from bot.envi import getECBotDataHome
 from bot.network import commanderIP
+import asyncio
 
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui finished...")
@@ -15,6 +18,27 @@ print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui finished...")
 # Configuration
 ecbhomepath = app_info.app_home_path
 ecb_data_homepath = getECBotDataHome()
+
+
+class LoginType(Enum):
+    """Login type enumeration"""
+    USERNAME_PASSWORD = "username_password"
+    GOOGLE_OAUTH = "google_oauth"
+    MICROSOFT_OAUTH = "microsoft_oauth"
+    GITHUB_OAUTH = "github_oauth"
+    SSO = "sso"
+    
+
+class LoginRequest:
+    """Login request data class"""
+    def __init__(self, login_type: LoginType, **kwargs):
+        self.login_type = login_type
+        self.username = kwargs.get('username', '')
+        self.password = kwargs.get('password', '')
+        self.role = kwargs.get('role', 'Commander')
+        self.schedule_mode = kwargs.get('schedule_mode', 'manual')
+        self.extra_params = {k: v for k, v in kwargs.items() 
+                           if k not in ['username', 'password', 'role', 'schedule_mode']}
 
 
 class Login:
@@ -29,20 +53,144 @@ class Login:
         self.xport = None
         self.ip = commanderIP
         self.main_win = None
+        
+        # Login progress tracking
+        self._login_in_progress = False
+        self._login_progress_callback = None
+        
+        # Login handler mapping
+        self._login_handlers = {
+            LoginType.USERNAME_PASSWORD: self._handle_username_password_auth,
+            LoginType.GOOGLE_OAUTH: self._handle_google_oauth_auth,
+            # Reserved for future expansion
+            # LoginType.MICROSOFT_OAUTH: self._handle_microsoft_oauth_auth,
+            # LoginType.GITHUB_OAUTH: self._handle_github_oauth_auth,
+            # LoginType.SSO: self._handle_sso_auth,
+        }
 
         logger.info("Login controller initialized end")
 
 
-    # Handler methods for UI callbacks, now simplified to delegate to AuthManager
+    # Unified login entry method
+    def login(self, request: LoginRequest) -> Dict[str, Any]:
+        """Unified login processing entry point"""
+        # Check if user is already logged in
+        if self.auth_manager.is_signed_in():
+            logger.info(f"User is already authenticated, launching main window directly")
+            try:
+                self._launch_main_window(request.schedule_mode)
+                return {'success': True, 'message': 'Already authenticated, main window launched'}
+            except Exception as e:
+                logger.error(f"Failed to launch main window for authenticated user: {e}")
+                return {'success': False, 'error': f'Failed to launch main window: {str(e)}'}
+        
+        # Check if login is already in progress
+        if self._login_in_progress:
+            logger.warning(f"Login already in progress, ignoring new {request.login_type.value} request")
+            return {'success': False, 'error': 'Login already in progress'}
+        
+        # Check if the login type is supported
+        if request.login_type not in self._login_handlers:
+            return {'success': False, 'error': f'Unsupported login type: {request.login_type.value}'}
+        
+        # Set login status immediately to prevent concurrency
+        self._login_in_progress = True
+        
+        try:
+            # Start async login
+            asyncio.create_task(self._async_login(request))
+            return {'success': True, 'message': f'{request.login_type.value} login started asynchronously'}
+        except Exception as e:
+            # Reset status if startup fails
+            self._login_in_progress = False
+            logger.error(f"Failed to start async {request.login_type.value} login: {e}")
+            return {'success': False, 'error': f'Failed to start login: {str(e)}'}
+    
+    # Compatibility method
     def _handle_login(self, username: str, password: str, role: str, schedule_mode: str):
-        """Handle login request from UI and return the result."""
-        result = self.auth_manager.login(username, password, role)
-        if result['success']:
-            self._launch_main_window(schedule_mode)
-            logger.info("Login successful!")
-        else:
-            logger.error(f"Login failed: {result.get('error')}")
-        return result
+        """Handle login request from UI and return the result (legacy compatibility)."""
+        request = LoginRequest(
+            LoginType.USERNAME_PASSWORD,
+            username=username,
+            password=password,
+            role=role,
+            schedule_mode=schedule_mode
+        )
+        return self.login(request)
+    
+    async def _async_login(self, request: LoginRequest):
+        """Unified async login processing method"""
+        try:
+            logger.info(f"[AsyncLogin] Starting async {request.login_type.value} login")
+            
+            # Update progress: start authentication
+            self._update_progress(10, f"Starting {self._get_login_type_display_name(request.login_type)} authentication...")
+            
+            # Get corresponding authentication handler
+            auth_handler = self._login_handlers[request.login_type]
+            
+            # Execute authentication
+            result = await auth_handler(request)
+            
+            if result['success']:
+                # Update progress: authentication successful
+                self._update_progress(75, "Authentication successful, launching main window...")
+                
+                # Launch main window
+                try:
+                    self._launch_main_window(request.schedule_mode)
+                    self._update_progress(100, "Login completed!")
+                    logger.info(f"[AsyncLogin] ✅ Async {request.login_type.value} login completed successfully")
+                except Exception as e:
+                    logger.error(f"[AsyncLogin] ❌ Main window launch failed: {e}")
+                    self._update_progress(100, f"Launch failed: {str(e)}")
+            else:
+                # Authentication failed
+                error_msg = result.get('error', 'Unknown error')
+                logger.error(f"[AsyncLogin] ❌ Async {request.login_type.value} login failed: {error_msg}")
+                self._update_progress(100, f"Authentication failed: {error_msg}")
+                
+        except Exception as e:
+            logger.error(f"[AsyncLogin] ❌ Async {request.login_type.value} login exception: {e}")
+            self._update_progress(100, f"Login exception: {str(e)}")
+        finally:
+            self._login_in_progress = False
+    
+    def _update_progress(self, progress: int, message: str):
+        """Update login progress"""
+        if self._login_progress_callback:
+            self._login_progress_callback(progress, message)
+    
+    def _get_login_type_display_name(self, login_type: LoginType) -> str:
+        """Get display name for login type"""
+        display_names = {
+            LoginType.USERNAME_PASSWORD: "Username/Password",
+            LoginType.GOOGLE_OAUTH: "Google",
+            LoginType.MICROSOFT_OAUTH: "Microsoft",
+            LoginType.GITHUB_OAUTH: "GitHub",
+            LoginType.SSO: "SSO"
+        }
+        return display_names.get(login_type, login_type.value)
+    
+    async def _handle_username_password_auth(self, request: LoginRequest) -> Dict[str, Any]:
+        """Handle username/password authentication"""
+        loop = asyncio.get_event_loop()
+        auth_future = loop.run_in_executor(
+            None, 
+            self.auth_manager.login, 
+            request.username, request.password, request.role
+        )
+        return await auth_future
+    
+    async def _handle_google_oauth_auth(self, request: LoginRequest) -> Dict[str, Any]:
+        """Handle Google OAuth authentication"""
+        loop = asyncio.get_event_loop()
+        auth_future = loop.run_in_executor(
+            None,
+            self.auth_manager.google_login,
+            request.role
+        )
+        return await auth_future
 
     def _handle_signup(self, username: str, password: str):
         """Handle signup request from UI."""
@@ -57,14 +205,16 @@ class Login:
         self.auth_manager.confirm_forgot_password(username, confirm_code, new_password)
 
     def _handle_google_login(self, machine_role: str = "Commander", schedule_mode: str = "manual"):
-        """Handle Google OAuth login request from UI."""
-        result = self.auth_manager.google_login(machine_role)
+        """Handle Google OAuth login request from UI (legacy compatibility)."""
+        request = LoginRequest(
+            LoginType.GOOGLE_OAUTH,
+            role=machine_role,
+            schedule_mode=schedule_mode
+        )
+        result = self.login(request)
         if result['success']:
-            self._launch_main_window(schedule_mode)
-            logger.info("Google login successful!")
-            return True, "Google login successful", {}
+            return True, result['message'], {}
         else:
-            logger.error(f"Google login failed: {result['error']}")
             return False, result['error'], {}
 
     def set_xport(self, xport):
@@ -97,16 +247,65 @@ class Login:
     def _launch_main_window(self, schedule_mode: str):
         """Launch the main application window after successful login."""
         try:
-            from gui.MainGUI import MainWindow
-            self.main_win = MainWindow(
-                self.auth_manager, AppContext.main_loop, self.ip,
-                self.auth_manager.get_current_user(), ecbhomepath,
-                self.auth_manager.get_role(), schedule_mode
-            )
+            # Ensure execution in main thread
+            from PySide6.QtCore import QMetaObject, Qt
+            from PySide6.QtWidgets import QApplication
+            
+            # Get main application instance
+            app = QApplication.instance()
+            if not app:
+                raise RuntimeError("QApplication instance not found")
+            
+            # Use QMetaObject.invokeMethod to ensure execution in main thread
+            def create_main_window():
+                try:
+                    from PySide6.QtCore import QThread
+                    logger.info(f"[AsyncLogin] Creating MainWindow in thread: {QThread.currentThread()}")
+                    from gui.MainGUI import MainWindow
+                    self.main_win = MainWindow(
+                        self.auth_manager, AppContext.main_loop, self.ip,
+                        self.auth_manager.get_current_user(), ecbhomepath,
+                        self.auth_manager.get_role(), schedule_mode
+                    )
 
-            AppContext().set_main_window(self.main_win)
-
-            logger.info(f"Main window launched for user: {self.auth_manager.get_current_user()}")
+                    AppContext().set_main_window(self.main_win)
+                    logger.info(f"[AsyncLogin] ✅ Main window launched for user: {self.auth_manager.get_current_user()}")
+                    return True
+                except Exception as e:
+                    logger.error(f"[AsyncLogin] ❌ Error creating main window: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    return False
+            
+            # Check current thread
+            from PySide6.QtCore import QThread
+            current_thread = QThread.currentThread()
+            main_thread = app.thread()
+            logger.info(f"[AsyncLogin] Current thread: {current_thread}, Main thread: {main_thread}")
+            
+            # If already in main thread, execute directly
+            if current_thread == main_thread:
+                logger.info("[AsyncLogin] Executing in main thread directly")
+                return create_main_window()
+            else:
+                # Otherwise use invokeMethod to execute in main thread
+                logger.info("[AsyncLogin] Scheduling execution in main thread")
+                result = [False]
+                exception_info = [None]
+                
+                def wrapper():
+                    try:
+                        result[0] = create_main_window()
+                    except Exception as e:
+                        exception_info[0] = e
+                        logger.error(f"[AsyncLogin] Exception in wrapper: {e}")
+                
+                QMetaObject.invokeMethod(app, wrapper, Qt.BlockingQueuedConnection)
+                
+                if exception_info[0]:
+                    raise exception_info[0]
+                
+                return result[0]
 
         except Exception as e:
             logger.error(f"Error launching main window: {e}")
@@ -154,22 +353,51 @@ class Login:
         return self.auth_manager.logout()
 
     def get_main_window_status(self):
-        """获取MainWindow的初始化状态"""
+        """Get MainWindow initialization status"""
+        # If async login is in progress, return login progress
+        if self._login_in_progress:
+            return {"ready": False, "progress": 50, "status": "logging_in"}
+            
         if not self.main_win:
             return {"ready": False, "progress": 0, "status": "initializing"}
         
-        # 使用MainWindow自身的状态管理
+        # Use MainWindow's own state management
         if hasattr(self.main_win, 'is_fully_initialized'):
             is_fully_ready = self.main_win.is_fully_initialized()
             
             return {
                 "ready": is_fully_ready,
-                "progress": 100 if is_fully_ready else 0,
-                "status": "ready" if is_fully_ready else "not_ready"
+                "progress": 100 if is_fully_ready else 80,
+                "status": "ready" if is_fully_ready else "initializing"
             }
         
-        # 兜底方案：检查是否有基本的初始化完成标志
+        # Fallback: check if there are basic initialization completion flags
         return {"ready": True, "progress": 100, "status": "ready"}
+    
+    def set_login_progress_callback(self, callback):
+        """Set login progress callback function"""
+        self._login_progress_callback = callback
+    
+    
+    def is_login_in_progress(self):
+        """Check if login is in progress"""
+        return self._login_in_progress
+    
+    # Extension methods: reserved for future other login types
+    # async def _handle_microsoft_oauth_auth(self, request: LoginRequest) -> Dict[str, Any]:
+    #     """Handle Microsoft OAuth authentication"""
+    #     # TODO: Implement Microsoft OAuth authentication logic
+    #     pass
+    # 
+    # async def _handle_github_oauth_auth(self, request: LoginRequest) -> Dict[str, Any]:
+    #     """Handle GitHub OAuth authentication"""
+    #     # TODO: Implement GitHub OAuth authentication logic
+    #     pass
+    # 
+    # async def _handle_sso_auth(self, request: LoginRequest) -> Dict[str, Any]:
+    #     """Handle SSO authentication"""
+    #     # TODO: Implement SSO authentication logic
+    #     pass
     
     # Legacy methods for backward compatibility with IPC handlers
     def handleLogin(self, uname="", pw="", mrole=""):
@@ -195,3 +423,41 @@ class Login:
         """IPC handler to get main window initialization status"""
         status = self.get_main_window_status()
         return status['ready'], status['progress'], status['status']
+    
+    # Convenience methods: provide shortcuts for common login types
+    def login_with_username_password(self, username: str, password: str, 
+                                   role: str = "Commander", schedule_mode: str = "manual") -> Dict[str, Any]:
+        """Convenience method for username/password login"""
+        request = LoginRequest(
+            LoginType.USERNAME_PASSWORD,
+            username=username,
+            password=password,
+            role=role,
+            schedule_mode=schedule_mode
+        )
+        return self.login(request)
+    
+    def login_with_google(self, role: str = "Commander", schedule_mode: str = "manual") -> Dict[str, Any]:
+        """Convenience method for Google OAuth login"""
+        request = LoginRequest(
+            LoginType.GOOGLE_OAUTH,
+            role=role,
+            schedule_mode=schedule_mode
+        )
+        return self.login(request)
+    
+    # Convenience methods reserved for future expansion
+    # def login_with_microsoft(self, role: str = "Commander", schedule_mode: str = "manual") -> Dict[str, Any]:
+    #     """Convenience method for Microsoft OAuth login"""
+    #     request = LoginRequest(LoginType.MICROSOFT_OAUTH, role=role, schedule_mode=schedule_mode)
+    #     return self.login(request)
+    # 
+    # def login_with_github(self, role: str = "Commander", schedule_mode: str = "manual") -> Dict[str, Any]:
+    #     """Convenience method for GitHub OAuth login"""
+    #     request = LoginRequest(LoginType.GITHUB_OAUTH, role=role, schedule_mode=schedule_mode)
+    #     return self.login(request)
+    # 
+    # def login_with_sso(self, sso_provider: str, role: str = "Commander", schedule_mode: str = "manual") -> Dict[str, Any]:
+    #     """Convenience method for SSO login"""
+    #     request = LoginRequest(LoginType.SSO, role=role, schedule_mode=schedule_mode, sso_provider=sso_provider)
+    #     return self.login(request)
