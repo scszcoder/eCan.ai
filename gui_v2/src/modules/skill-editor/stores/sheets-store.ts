@@ -218,8 +218,64 @@ export const useSheetsStore = create<SheetsState>((set, get) => ({
     return { mainSheetId: st.order[0] || 'main', sheets, openTabs: [...st.openTabs], activeSheetId: st.activeSheetId };
   },
   loadBundle: (bundle) => {
+    // Normalize bundle: upgrade legacy sheet-call fields to use targetSheetId
+    const cloned = JSON.parse(JSON.stringify(bundle || {}));
+    try {
+      const sheetsArr: any[] = Array.isArray(cloned.sheets) ? cloned.sheets : [];
+      const sheetById: Record<string, any> = {};
+      const sheetByNameCI: Record<string, any> = {};
+      sheetsArr.forEach((s) => {
+        if (!s || !s.id) return;
+        sheetById[s.id] = s;
+        const nm = (s.name || '').toString();
+        if (nm) sheetByNameCI[nm.toLowerCase()] = s;
+      });
+      sheetsArr.forEach((s) => {
+        const doc = (s && s.document) || { nodes: [], edges: [] };
+        const nodes: any[] = Array.isArray(doc.nodes) ? doc.nodes : [];
+        nodes.forEach((n) => {
+          if (!n || n.type !== 'sheet-call') return;
+          const data = (n.data = n.data || {});
+          let tid = data.targetSheetId;
+          const known = tid && !!sheetById[tid];
+          if (!known) {
+            const tName = (data.target_sheet || data.targetSheet || data.name || data.target || '').toString();
+            if (tName) {
+              const hit = sheetByNameCI[tName.toLowerCase()];
+              if (hit) {
+                data.targetSheetId = hit.id;
+                // Mirror for backend compatibility and future saves
+                data.target_sheet = hit.name;
+                data.targetSheet = hit.name;
+              }
+            } else {
+              // Fallback: if there is exactly one other sheet in the bundle (excluding current), default to it
+              try {
+                const candidates = sheetsArr.filter((x) => x && x.id && x.id !== s.id);
+                if (candidates.length === 1) {
+                  const only = candidates[0];
+                  data.targetSheetId = only.id;
+                  data.target_sheet = only.name;
+                  data.targetSheet = only.name;
+                }
+              } catch {}
+            }
+          } else {
+            // Ensure mirrored name fields exist
+            try {
+              const hit = sheetById[tid];
+              if (hit) {
+                data.target_sheet = data.target_sheet || hit.name;
+                data.targetSheet = data.targetSheet || hit.name;
+              }
+            } catch {}
+          }
+        });
+      });
+    } catch {}
+
     // Validate before applying
-    const validation = validateBundle(bundle as any);
+    const validation = validateBundle(cloned as any);
     if (!validation.ok) {
       // eslint-disable-next-line no-alert
       alert('Bundle validation failed: ' + validation.errors.map((e) => e.message).join('; '));
@@ -231,25 +287,25 @@ export const useSheetsStore = create<SheetsState>((set, get) => ({
     }
     const map: Record<string, Sheet> = {};
     const order: string[] = [];
-    bundle.sheets.forEach((s) => {
+    cloned.sheets.forEach((s) => {
       map[s.id] = { ...s, lastOpenedAt: Date.now(), createdAt: s.createdAt ?? Date.now() } as Sheet;
       order.push(s.id);
     });
     // Enforce main sheet display name
-    if (bundle.mainSheetId && map[bundle.mainSheetId]) {
-      map[bundle.mainSheetId] = { ...map[bundle.mainSheetId], name: 'Main' };
+    if (cloned.mainSheetId && map[cloned.mainSheetId]) {
+      map[cloned.mainSheetId] = { ...map[cloned.mainSheetId], name: 'Main' };
     }
     const maxTabs = get().maxOpenTabs;
-    const openTabs = bundle.openTabs && bundle.openTabs.length
-      ? bundle.openTabs.filter((id) => map[id])
+    const openTabs = cloned.openTabs && cloned.openTabs.length
+      ? cloned.openTabs.filter((id) => map[id])
       : order.slice(0, maxTabs);
     // visibility log
-    try { console.log('[Sheets][LOAD_BUNDLE]', { sheetsCount: order.length, mainSheetId: bundle.mainSheetId, openTabs }); } catch {}
+    try { console.log('[Sheets][LOAD_BUNDLE]', { sheetsCount: order.length, mainSheetId: cloned.mainSheetId, openTabs }); } catch {}
     set({
       sheets: map,
       order,
       openTabs,
-      activeSheetId: bundle.activeSheetId ?? bundle.mainSheetId,
+      activeSheetId: cloned.activeSheetId ?? cloned.mainSheetId,
       revision: get().revision + 1,
     });
   },

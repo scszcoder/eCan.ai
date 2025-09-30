@@ -77,6 +77,28 @@ const MappingRow: React.FC<{
 };
 
 const SheetCallForm: React.FC<FormRenderProps<FlowNodeJSON>> = ({ form }) => {
+  // Compatibility setter: prefer setFieldValue; fallback to setValue if provided by form API
+  const setField = React.useCallback((name: string, value: any) => {
+    const anyForm: any = form as any;
+    if (anyForm && typeof anyForm.setFieldValue === 'function') {
+      anyForm.setFieldValue(name, value);
+    } else if (anyForm && typeof anyForm.setValue === 'function') {
+      anyForm.setValue(name, value);
+    } else {
+      // last-resort: try assign into values object (won't trigger form updates but avoids crash)
+      try {
+        const parts = name.split('.');
+        let cur: any = anyForm?.values || {};
+        for (let i = 0; i < parts.length - 1; i++) {
+          const k = parts[i];
+          cur[k] = cur[k] || {};
+          cur = cur[k];
+        }
+        cur[parts[parts.length - 1]] = value;
+      } catch {}
+      console.warn('[SheetCallForm] Form API does not expose setFieldValue/setValue, updated values shallowly.');
+    }
+  }, [form]);
   const sheets = useSheetsStore((s) => s.sheets);
   const ctx = useClientContext();
   const sheetOptions = useMemo(
@@ -114,9 +136,9 @@ const SheetCallForm: React.FC<FormRenderProps<FlowNodeJSON>> = ({ form }) => {
     const badge = ' ⚠';
     const hasBadge = title.endsWith(badge);
     if (hasWarn && !hasBadge) {
-      form.setFieldValue('data.title', `${title}${badge}`);
+      setField('data.title', `${title}${badge}`);
     } else if (!hasWarn && hasBadge) {
-      form.setFieldValue('data.title', title.slice(0, -badge.length));
+      setField('data.title', title.slice(0, -badge.length));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(missingInputs), JSON.stringify(missingOutputs)]);
@@ -126,14 +148,25 @@ const SheetCallForm: React.FC<FormRenderProps<FlowNodeJSON>> = ({ form }) => {
       <Typography.Text strong>Sheet Call</Typography.Text>
       <Input
         value={data.callName || ''}
-        onChange={(v) => form.setFieldValue('data.callName', v)}
+        onChange={(v) => setField('data.callName', v)}
         placeholder="Call name"
       />
       <Select
         value={data.targetSheetId || ''}
         placeholder="Select target sheet"
         optionList={sheetOptions}
-        onChange={(v) => form.setFieldValue('data.targetSheetId', v as string)}
+        onChange={(v) => {
+          const id = v as string;
+          setField('data.targetSheetId', id);
+          try {
+            const sheet = sheets[id];
+            if (sheet) {
+              // Store name for backend compatibility (flowgram2langgraph reads target_sheet/targetSheet)
+              setField('data.target_sheet', sheet.name);
+              setField('data.targetSheet', sheet.name);
+            }
+          } catch {}
+        }}
       />
       {data.targetSheetId ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -153,7 +186,7 @@ const SheetCallForm: React.FC<FormRenderProps<FlowNodeJSON>> = ({ form }) => {
               key={name}
               label={name}
               value={(data.inputMapping || {})[name] as any}
-              onChange={(v) => form.setFieldValue(`data.inputMapping.${name}`, v)}
+              onChange={(v) => setField(`data.inputMapping.${name}`, v)}
               nodeOptions={nodeOptions}
             />
           ))}
@@ -166,7 +199,7 @@ const SheetCallForm: React.FC<FormRenderProps<FlowNodeJSON>> = ({ form }) => {
               key={name}
               label={name}
               value={(data.outputMapping || {})[name] as any}
-              onChange={(v) => form.setFieldValue(`data.outputMapping.${name}`, v)}
+              onChange={(v) => setField(`data.outputMapping.${name}`, v)}
               nodeOptions={nodeOptions}
             />
           ))}
