@@ -17,6 +17,7 @@ interface OpenProps {
 export const Open = ({ disabled }: OpenProps) => {
   const { document: workflowDocument } = useClientContext();
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
+  const skillInfoFromStore = useSkillInfoStore((state) => state.skillInfo);
   const setBreakpoints = useSkillInfoStore((state) => state.setBreakpoints);
   const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
@@ -64,6 +65,15 @@ export const Open = ({ disabled }: OpenProps) => {
             const bundle = raw as SheetsBundle;
             console.log('[SKILL_IO][FRONTEND][PRIMARY_IS_BUNDLE] Loading primary bundle file:', filePath);
             loadBundle(bundle);
+            // Derive a user-facing skill name from file name (strip _skill suffix)
+            try {
+              const base = (String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '');
+              const baseNoSuffix = base.replace(/_skill$/i, '');
+              const current = skillInfoFromStore;
+              if (current?.skillName !== baseNoSuffix) {
+                setSkillInfo({ ...(current || { skillId: (current as any)?.skillId || '', skillName: baseNoSuffix, version: '1.0.0', lastModified: new Date().toISOString(), workFlow: workflowDocument.toJSON() as any }), skillName: baseNoSuffix });
+              }
+            } catch {}
             setCurrentFilePath(filePath);
             setHasUnsavedChanges(false);
             addRecentFile(createRecentFile(filePath, 'Multi-sheet Bundle'));
@@ -90,6 +100,15 @@ export const Open = ({ disabled }: OpenProps) => {
                   if (isSiblingBundle) {
                     console.log('[SKILL_IO][FRONTEND][FOUND_BUNDLE_JSON]', bundlePath);
                     loadBundle(maybeBundle as SheetsBundle);
+                    // Update skill name using the primary JSON base name
+                    try {
+                      const base = (String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '');
+                      const baseNoSuffix = base.replace(/_skill$/i, '');
+                      const current = skillInfoFromStore;
+                      if (current?.skillName !== baseNoSuffix) {
+                        setSkillInfo({ ...(current || { skillId: (current as any)?.skillId || '', skillName: baseNoSuffix, version: '1.0.0', lastModified: new Date().toISOString(), workFlow: workflowDocument.toJSON() as any }), skillName: baseNoSuffix });
+                      }
+                    } catch {}
                     // Keep currentFilePath as the main skill JSON path
                     setCurrentFilePath(filePath);
                     setHasUnsavedChanges(false);
@@ -151,7 +170,16 @@ export const Open = ({ disabled }: OpenProps) => {
             // Enforce filename matches skillName not applicable in web picker (no path), but if name provided in file meta, skip
             const isBundle = raw && typeof raw === 'object' && 'mainSheetId' in raw && Array.isArray(raw.sheets);
             if (isBundle) {
-              loadBundle(raw as SheetsBundle);
+              const bundle = raw as SheetsBundle;
+              loadBundle(bundle);
+              // In web mode we don't have file path; use first sheet name or a generic label
+              try {
+                const firstName = (Array.isArray(bundle.sheets) && bundle.sheets[0]?.name) || 'Multi-sheet Skill';
+                const current = skillInfoFromStore;
+                if (current?.skillName !== firstName) {
+                  setSkillInfo({ ...(current || { skillId: (current as any)?.skillId || '', skillName: firstName, version: '1.0.0', lastModified: new Date().toISOString(), workFlow: workflowDocument.toJSON() as any }), skillName: firstName });
+                }
+              } catch {}
               setCurrentFilePath(null);
               setHasUnsavedChanges(false);
               return;

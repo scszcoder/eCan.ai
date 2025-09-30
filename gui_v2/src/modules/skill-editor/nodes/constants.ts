@@ -23,6 +23,7 @@ export enum WorkflowNodeType {
   RAG = 'rag',
   Chat = 'chat_node',
   PendInput = 'pend_input_node',
+  PendEvent = 'pend_event_node',
   Event = 'event',
   BrowserAutomation = 'browser-automation',
   Group = 'group',

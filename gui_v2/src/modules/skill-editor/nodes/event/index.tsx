@@ -30,8 +30,9 @@ export const EventNodeRegistry: FlowNodeRegistry = {
     defaultPorts: [{ type: 'output' }],
     size: {
       width: 360,
-      height: 390,
+      height: 300,
     },
+    nodePanelVisible: false,
   },
   onAdd() {
     return {
