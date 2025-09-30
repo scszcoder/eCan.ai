@@ -1,6 +1,7 @@
 import React from 'react';
 import { FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
-import { Button, Input, Typography } from '@douyinfe/semi-ui';
+import { Button, Input, Typography, Select } from '@douyinfe/semi-ui';
+import { Field } from '@flowgram.ai/free-layout-editor';
 import { FlowNodeJSON } from '../../typings';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { FormHeader, FormContent } from '../../form-components';
@@ -17,8 +18,8 @@ const OutputsEditor: React.FC<FormRenderProps<FlowNodeJSON>> = ({ form }) => {
   };
   const sheets = useSheetsStore((s) => s.sheets);
   const openSheet = useSheetsStore((s) => s.openSheet);
-  const nextId = String((form as any)?.values?.data?.nextSheet || '');
-  const nextExists = !!(nextId && sheets[nextId]);
+  // options built from current bundle's sheets
+  const options = Object.values(sheets).map((s) => ({ label: `${s.name} (${s.id})`, value: s.id }));
 
   return (
     <>
@@ -40,20 +41,30 @@ const OutputsEditor: React.FC<FormRenderProps<FlowNodeJSON>> = ({ form }) => {
           <Button onClick={onAdd}>Add Output</Button>
           <div style={{ height: 1, background: '#eee' }} />
           <Typography.Text strong>Next Sheet (optional)</Typography.Text>
-          <Input
-            placeholder="Enter next sheet id"
-            value={nextId}
-            onChange={(v) => {
-              try { (form as any).setFieldValue?.('data.nextSheet', String(v)); } catch {}
+          <Field<string> name="data.nextSheet">
+            {({ field }) => {
+              const nextId = String(field.value || '');
+              const nextExists = !!(nextId && sheets[nextId]);
+              return (
+                <>
+                  <Select
+                    placeholder="Pick next sheet"
+                    value={nextId}
+                    optionList={options}
+                    onChange={(v) => field.onChange(String(v))}
+                    filter
+                    style={{ minWidth: 240 }}
+                  />
+                  {!nextExists && nextId && (
+                    <Typography.Text type="warning">Selected sheet id not found in this bundle.</Typography.Text>
+                  )}
+                  {nextExists && (
+                    <Button onClick={() => openSheet(nextId)}>Open next sheet</Button>
+                  )}
+                </>
+              );
             }}
-            style={{ minWidth: 220 }}
-          />
-          {!nextExists && nextId && (
-            <Typography.Text type="warning">Selected sheet id not found in this bundle.</Typography.Text>
-          )}
-          {nextExists && (
-            <Button onClick={() => openSheet(nextId)}>Open next sheet</Button>
-          )}
+          </Field>
         </div>
       </FormContent>
     </>

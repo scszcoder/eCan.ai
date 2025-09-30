@@ -54,11 +54,12 @@ export const ErrorIcon = () => (
 
 export const BreakpointIcon = styled.div`
   position: absolute;
-  color: 'darkgreen',
-  left: -8,
-  top: -8,
-  zIndex: 1,
-  background: 'white',
-  borderRadius: '50%',
-  padding: '2px',
+  top: 4px;
+  left: 4px;
+  width: 10px;
+  height: 10px;
+  background: #ff3b30; /* bright red */
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px #ffffff; /* white ring for contrast */
+  z-index: 11;
 `;
