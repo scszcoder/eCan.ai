@@ -6,6 +6,29 @@ from utils.logger_helper import get_traceback
 async def create_test_dev_skill(mainwin):
     try:
         test_dev_skill = EC_Skill(name="test skill under development", description="test run on a skill under development.")
+        # Attach optional mapping_rules for testing the DSL. These are additive and won't break defaults.
+        test_dev_skill.mapping_rules = {
+            "mappings": [
+                # Map a synthetic event field into tool_input and resume
+                {
+                    "from": ["event.data.sample_tool_input"],
+                    "to": [
+                        {"target": "state.tool_input.sample"},
+                        {"target": "resume.sample_tool_input"}
+                    ],
+                    "on_conflict": "overwrite"
+                },
+                # Map synthetic meta into state.metadata for downstream nodes
+                {
+                    "from": ["event.data.sample_meta"],
+                    "to": [
+                        {"target": "state.metadata.extra"}
+                    ],
+                    "on_conflict": "merge_deep"
+                }
+            ],
+            "options": {"strict": False}
+        }
     except Exception as e:
         err_msg = get_traceback(e, "ErrorCreateTestDevSkill")
         logger.error(err_msg)
