@@ -262,6 +262,11 @@ try:
         loop = qasync.QEventLoop(app)
         asyncio.set_event_loop(loop)
 
+        # Async preload will be started by WebGUI after event loop is running
+        # This allows heavy modules to load in background during user login
+        progress_manager.update_progress(58, "Preparing background preload...")
+        logger.info("✅ [Startup] Async preload will start after event loop is ready")
+
         # Create login component
         progress_manager.update_progress(60, "Initializing login system...")
         login = Login()
@@ -333,6 +338,16 @@ try:
             pass
 
         sys.exit(1)
+    finally:
+        # Cleanup async preloader
+        try:
+            from gui.async_preloader import cleanup_async_preloader
+            if asyncio.get_event_loop().is_running():
+                asyncio.create_task(cleanup_async_preloader())
+            else:
+                asyncio.run(cleanup_async_preloader())
+        except Exception:
+            pass
 
 except Exception as e:
     # Top-level exception handling, catch all import exceptions
