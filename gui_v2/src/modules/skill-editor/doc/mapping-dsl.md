@@ -1,15 +1,15 @@
-# Mapping DSL for Node State and Resume Payload
- 
-> Note: This document has moved to the Skill Editor docs. Please see the canonical version here: [gui_v2/src/modules/skill-editor/doc/mapping-dsl.md](../gui_v2/src/modules/skill-editor/doc/mapping-dsl.md)
- 
+# Mapping DSL (Domain-Specific Language) for Node State and Resume Payload
+
 This document describes the declarative mapping rules used to project data from events or node outputs into LangGraph node state and Command(resume=...) payload.
 
 ## Goals
+
 - General-purpose routing from sources (Event/Node/State) to targets (state.attributes|metadata|tool_input, resume.*).
 - No/low-code: simple rules with optional transforms and conflict policies.
 - Backward compatible with existing `qa_form`, `notification`, `human_text` behavior.
 
 ## Sources
+
 - `event`: normalized event envelope with fields:
   - `event.type`: human_chat | a2a | webhook | timer | other
   - `event.source`: e.g., gui:<chatId>
@@ -21,12 +21,14 @@ This document describes the declarative mapping rules used to project data from 
 - `state`: current state (read-only for rules)
 
 ## Targets
+
 - `state.attributes.<path>`
 - `state.metadata.<path>`
 - `state.tool_input.<path>`
 - `resume.<key>`
 
 ## Rule Schema
+
 ```
 {
   "mappings": [
@@ -56,12 +58,14 @@ This document describes the declarative mapping rules used to project data from 
 - `when` (optional): simple expression with access to `event`, `node`, `state`.
 
 ## Defaults (preserve current behavior)
+
 - Map QA form to `state.attributes.forms.qa_form` and `resume.qa_form_to_agent`.
 - Map Notification to `state.attributes.notifications.latest` and `resume.notification_to_agent`.
 - Map Human text to `state.attributes.human.last_message` and `resume.human_text`.
 - Map `event.tag` to `state.attributes.cloud_task_id`. If checkpoint exists, it is also injected into checkpoint `values.attributes.cloud_task_id`.
 
 ## Where it runs
+
 - Implemented in `agent/tasks_resume.py`:
   - `normalize_event()` builds the event envelope.
   - `select_checkpoint()` finds the checkpoint by tag.
@@ -70,8 +74,10 @@ This document describes the declarative mapping rules used to project data from 
 - `agent/tasks.py` uses this behind feature flag `RESUME_PAYLOAD_V2` (default on) and deep-merges `state_patch` into `task.metadata['state']`.
 
 ## Per-skill customization
+
 - Skills can set `EC_Skill.mapping_rules` (a dict matching the schema). If absent, defaults apply.
 - Example (see `agent/ec_skills/dev_utils/skill_dev_utils.py`):
+
 ```
 {
   "mappings": [
@@ -90,6 +96,7 @@ This document describes the declarative mapping rules used to project data from 
 ```
 
 ## Future GUI (Node Editor)
+
 - Source picker: Event / Node Output / State trees with path selection and previews.
 - Target picker: attributes / metadata / tool_input / resume with path editor and validation.
 - Transforms: dropdown with optional parameters.
@@ -98,4 +105,5 @@ This document describes the declarative mapping rules used to project data from 
 - Preview: show computed writes given a sample input.
 
 ## Testing
+
 - Unit tests in `tests/test_tasks_resume.py` cover normalization, mapping, checkpoint selection, and orchestration.
