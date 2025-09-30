@@ -15,16 +15,30 @@ Welcome to the Skill Editor. This guide explains the core features and how to us
   - [Condition / Loop / Group](#condition--loop--group)
 - [Editor Basics](#editor-basics)
   - [Toolbar](#toolbar)
-  - [Selection & Sidebar](#selection--sidebar)
-  - [Saving & Loading](#saving--loading)
+  - [Add/Remov/Edit/Duplicate Nodes](#addremoveditduplicate-nodes)
+  - [Adding/Removing/Re-route Edges](#addingremovingre-route-edges)
+  - [Multi-select](#multi-select)
   - [Panning & Zooming](#panning--zooming)
-- [Debugger](#debugger)
+  - [Multi-Sheet (Naming Convention）](#multi-sheet-naming-convention)
+  - [Saving & Loading](#saving--loading)
+- [Cross-Sheet References](#cross-sheet-references)
+  - [Define a sheet interface](#define-a-sheet-interface)
+  - [Insert a Sheet Call](#insert-a-sheet-call)
+  - [Map inputs and outputs](#map-inputs-and-outputs)
+  - [Navigate between sheets](#navigate-between-sheets)
+  - [Save/Load multi-sheet bundles](#saveload-multi-sheet-bundles)
+  - [Troubleshooting](#troubleshooting)
+- [Run And Debug](#run-and-debug)
   - [Breakpoints](#breakpoints)
-  - [Controls: Pause / Step / Resume / Stop](#controls-pause--step--resume--stop)
+  - [Controlled Run: Pause / Step / Resume / Stop](#controlled-run-pause--step--resume--stop)
+- [Version Controll With Git](#version-controll-with-git)
+  - [Git with eCan.ai's cloud service](#git-with-ecanais-cloud-service)
+  - [Git locally](#git-locally)
 - [Test Run](#test-run)
   - [Inputs](#inputs)
   - [Outputs](#outputs)
 - [Shortcuts](#shortcuts)
+- [Reference](#reference)
 - [FAQ](#faq)
 
 ---
@@ -38,23 +52,28 @@ The Skill Editor lets you build flows by placing nodes on a canvas and connectin
 ## Nodes
 
 ### Start/End
+
 Start emits initial values; End collects and displays final outputs.
 
 ### Code
+
 - Edit code inline with Monaco editor.
 - Language selector supports Python, JavaScript, and TypeScript.
 - "Reset to template" restores a starter snippet for the selected language.
 - "Load File" allows importing code from local files.
 
 ### LLM
+
 - Choose a Model Provider and Model Name from dropdowns.
 - Provider/Model options are loaded from a model store; defaults are used if none are provided.
 
 ### HTTP
+
 - Configure method, URL, headers, params, body, timeout.
 - API Key field is available for passing credentials.
 
 ### Condition / Loop / Group
+
 - Condition routes based on predicates.
 - Loop iterates over arrays and runs nested blocks.
 - Group organizes related nodes.
@@ -64,17 +83,42 @@ Start emits initial values; End collects and displays final outputs.
 ## Editor Basics
 
 ### Toolbar
+
 - Add nodes, zoom, fit view, auto-layout, open/save, test-run controls, help.
 
-### Selection & Sidebar
-- Click a node to open its editor in the sidebar. Multi-select hides the sidebar.
+### Add/Remov/Edit/Duplicate Nodes
 
-### Saving & Loading
-- Save the current flow to JSON; load an existing flow from JSON.
+- right click the mouse, or click on the node icon to bring up the node selection menu, pick the one you'd like to add the sheet, move the mouse to where you'd like to place the node on the sheet, click to drop the node to that location.
+- use node menu on its upper right corner to remove the node.
+- double-click on the node to bring up its node editor, and key in the relavent parameters and selection the various options associated with that node.
+- use node menu on its upper right corner to make a copy of the node.
+
+### Adding/Removing/Re-route Edges
+
+- Click a node's output port, keep the mouse down and drag it to next node's input port to complete the edge adding process.
+- Click and press down on an edge's end-point, drag it to any blank spot on the sheet to remove the edge.
+- Click and press down on an edge's end-point, drag it to another node's input port to re-route the edge.
+
+### Multi-select
+
+- Hold down <shift> [shift] key on keyboard, then use mouse click drag and drop to draw a enclosing rectangle covering the nodes you'd like to multi-select, then you can move them all-together
 
 ### Panning & Zooming
+
 - To pan around the canvas - hold down the mouse wheel button and move around, or alternatively move the view port in the minimap..
 - To zoom in and out - hold down the <CTRL> key and scroll the mouse wheel.
+
+### Multi-Sheet (Naming Convention）
+
+- Use the sheet menu on upper right corner to add/remove additional sheet to your skill (work-flow) project, making a complicated flow more managable.
+- Sheet name can be modified directly on the sheet tab, just double click on the sheet name on the tab, you can then edit the sheet name.
+- Make sure the sheet that contains entry point node of the entire skill is named "main", this is crtical for running skill later on.
+- Add a "sheet-call" node to a sheet if this sheet will be calling work flow on another sheet.
+
+### Saving & Loading
+
+- Save the current flow to JSON; load an existing flow from JSON.
+
 ---
 
 ## Cross-Sheet References
@@ -82,30 +126,36 @@ Start emits initial values; End collects and displays final outputs.
 Multi-sheet flows let you organize logic across multiple canvases (sheets). Use a `sheet-call` node to call another sheet that declares its inputs/outputs.
 
 ### Define a sheet interface
+
 - Add a `sheet-inputs` node on the callee sheet and list the input names (e.g., `x`, `y`).
 - Add a `sheet-outputs` node on the callee sheet and list the output names (e.g., `result`).
 - You can edit these lists from the sidebar form when the node is selected.
 
 ### Insert a Sheet Call
+
 - Open the caller sheet.
 - Click the Sheets menu (layers icon) and choose `Insert Sheet Call…`.
 - A `sheet-call` node appears; select it to open the sidebar form.
 - Choose the target sheet from the dropdown.
 
 ### Map inputs and outputs
+
 - For each exposed input, choose a mapping:
   - `Constant`: enter a JSON value (e.g., `42` or `{ "foo": "bar" }`).
   - `Local Port`: pick a node from the dropdown, then enter the port name.
 - For each exposed output, map the result to a local port similarly.
 
 ### Navigate between sheets
+
 - In the `sheet-call` panel, click `Jump to target sheet` to open the callee.
 
 ### Save/Load multi-sheet bundles
+
 - Regular Save also writes a companion bundle file with `-bundle.json` suffix. This contains all sheets, open tabs, and the active sheet id.
 - Use `Load Bundle…` from the Sheets menu to open a multi-sheet bundle.
 
 ### Troubleshooting
+
 - Missing mappings: If any required input/output isn’t mapped, a warning appears in the sidebar and a `⚠` badge is appended to the `sheet-call` title.
 - Missing target sheet: Ensure the `targetSheetId` exists; fix by selecting a valid target sheet.
 - Cycles: If the call graph contains cycles, a warning is logged when loading the bundle. Consider refactoring to avoid recursive loops.
@@ -113,22 +163,36 @@ Multi-sheet flows let you organize logic across multiple canvases (sheets). Use 
 
 ---
 
-## Debugger
+## Run And Debug
 
 ### Breakpoints
-- Toggle breakpoints on nodes and resume execution from paused states.
 
-### Controls: Pause / Step / Resume / Stop
-- Use control buttons on the toolbar to manage execution during development.
+- Go to a node's upper right corner menu to toggle on/off a breakpoint on this node(will break at pre-execution instance). you can set multiple breakpoints on multiple node.
+
+### Controlled Run: Pause / Step / Resume / Stop
+
+- Use control buttons on the toolbar to manage execution during debugging, a running animation will be shown on the current running node, once stopped, you can open node editor to inspect the node state, and modify the node state if you like, and then continue to run.
+
+## Version Controll With Git
+
+### Git with eCan.ai's cloud service
+
+- If you subscribe to eCan.ai's paid service, you may version control your skills on eCan.ai's git repository and potentially commercialized your skill.
+
+### Git locally
+
+- You can git version control your skill files locally.
 
 ---
 
 ## Test Run
 
 ### Inputs
+
 - Provide input JSON or form values to simulate a run.
 
 ### Outputs
+
 - Inspect outputs emitted by nodes and the final End node result.
 
 ---
@@ -138,6 +202,12 @@ Multi-sheet flows let you organize logic across multiple canvases (sheets). Use 
 - Ctrl/Cmd + Z: Undo
 - Ctrl/Cmd + Y: Redo
 - Mouse wheel: Zoom
+
+---
+
+## Reference
+
+- Mapping DSL (Node State & Resume Payload): see `mapping-dsl.md` in this folder or open directly: [Mapping DSL](./mapping-dsl.md)
 
 ---
 

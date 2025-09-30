@@ -1,3 +1,17 @@
+"""
+Utilities for normalizing incoming events, selecting/injecting checkpoints,
+and building a standardized "resume" payload + state patch using declarative
+mapping rules. This module is intentionally dependency-light to avoid import
+cycles with runtime/agent components.
+
+Key concepts:
+- event: unified envelope for heterogeneous incoming messages (GUI, cloud, etc.)
+- resume: minimal payload sent back to orchestrator/cloud for bookkeeping
+- state_patch: partial update applied into the graph state before resuming
+- mapping rules: declarative rules describing how to extract/transform data
+  from event/node/state into resume/state_patch.
+"""
+
 import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -12,6 +26,11 @@ Json = Dict[str, Any]
 
 
 def _safe_get(d: Any, path: str, default: Any = None) -> Any:
+    """Safely get a dotted path from a nested dict.
+
+    Example: _safe_get({"a": {"b": 1}}, "a.b") -> 1
+    Returns `default` if any segment is missing.
+    """
     if d is None:
         return default
     cur = d
@@ -24,6 +43,10 @@ def _safe_get(d: Any, path: str, default: Any = None) -> Any:
 
 
 def _ensure_path(obj: Dict[str, Any], path: str) -> Tuple[Dict[str, Any], str]:
+    """Ensure all parent objects exist for a dotted path on a dict.
+
+    Returns a tuple of (parent_dict, leaf_key).
+    """
     parts = path.split(".")
     for p in parts[:-1]:
         if p not in obj or not isinstance(obj[p], dict):
@@ -33,6 +56,14 @@ def _ensure_path(obj: Dict[str, Any], path: str) -> Tuple[Dict[str, Any], str]:
 
 
 def _write(obj: Dict[str, Any], path: str, value: Any, on_conflict: str = "overwrite") -> None:
+    """Write `value` to dotted `path` on `obj` with conflict policy.
+
+    on_conflict policies:
+    - overwrite (default)
+    - skip
+    - merge_deep | merge_shallow (dict-only)
+    - append (list-only)
+    """
     parent, leaf = _ensure_path(obj, path)
     if leaf in parent and parent[leaf] is not None:
         if on_conflict == "skip":
@@ -51,6 +82,7 @@ def _write(obj: Dict[str, Any], path: str, value: Any, on_conflict: str = "overw
 
 
 def _deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively merge dict b into dict a and return a new dict."""
     out = dict(a)
     for k, v in b.items():
         if k in out and isinstance(out[k], dict) and isinstance(v, dict):
@@ -61,6 +93,7 @@ def _deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _to_string(v: Any) -> str:
+    """Best-effort convert a value to a UTF-8-safe JSON/string representation."""
     if isinstance(v, str):
         return v
     try:
@@ -142,6 +175,7 @@ def normalize_event(msg: Any) -> Dict[str, Any]:
 
 
 def _infer_event_type(mtype: Optional[str]) -> str:
+    """Map raw message type codes to canonical event types used downstream."""
     if not mtype:
         return "other"
     if mtype == "send_chat":
@@ -152,6 +186,7 @@ def _infer_event_type(mtype: Optional[str]) -> str:
 
 
 def _infer_event_source(metadata: Dict[str, Any]) -> Optional[str]:
+    """Derive a lightweight source identifier from metadata (e.g., gui:<chatId>)."""
     if not isinstance(metadata, dict):
         return None
     src = metadata.get("source")
@@ -164,6 +199,7 @@ def _infer_event_source(metadata: Dict[str, Any]) -> Optional[str]:
 
 
 def _extract_text_from_message(message: Any) -> str:
+    """Collect concatenated text from message.parts[] or message.text."""
     try:
         parts = getattr(message, "parts", None)
         if not parts and isinstance(message, dict):
@@ -185,6 +221,11 @@ def _extract_text_from_message(message: Any) -> str:
 # ---------- Checkpoint selection & injection ----------
 
 def select_checkpoint(task: Any, tag: Optional[str]):
+    """Pop and return the checkpoint object for a given tag, if present.
+
+    Removes the matched checkpoint record from task.checkpoint_nodes to avoid
+    reusing it multiple times.
+    """
     if not tag:
         return None
     try:
@@ -199,6 +240,11 @@ def select_checkpoint(task: Any, tag: Optional[str]):
 
 
 def inject_attributes_into_checkpoint(cp: Any, attrs: Dict[str, Any]) -> None:
+    """Inject key/value pairs into checkpoint.values.attributes in-place.
+
+    Creates the attributes dict if missing. Silently no-ops on unexpected
+    checkpoint structure (logged at debug).
+    """
     if not cp:
         return
     try:
@@ -261,6 +307,11 @@ DEFAULT_MAPPINGS: Dict[str, Any] = {
 
 
 def _resolve_from(event: Json, node: Json, state: Json, from_list: List[str], default_on_missing=None):
+    """Resolve the first non-null value from a list of dotted source paths.
+
+    Each path starts with a root namespace: event.|node.|state., followed by
+    a dotted path. Returns `default_on_missing` if all candidates are None.
+    """
     for path in from_list:
         root, *rest = path.split(".")
         if root == "event":
@@ -338,6 +389,13 @@ def _apply_transform(val: Any, transform: Optional[Union[str, Dict[str, Any]]]):
 
 
 def build_resume_from_mapping(event: Json, state: Json, node_output: Optional[Json], mapping: Json) -> Tuple[Json, Json]:
+    """Apply declarative mapping rules to produce (resume, state_patch).
+
+    - event: normalized event envelope
+    - state: current graph state snapshot (read-only)
+    - node_output: last node's output (if any)
+    - mapping: mapping rules object ({ mappings:[...], options:{...} })
+    """
     resume: Json = {}
     state_patch: Json = {}
     opts = mapping.get("options", {}) if isinstance(mapping, dict) else {}
