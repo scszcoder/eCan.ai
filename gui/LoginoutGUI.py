@@ -292,64 +292,41 @@ class Login:
             # Use QMetaObject.invokeMethod to ensure execution in main thread
             def create_main_window():
                 try:
-                    from PySide6.QtCore import QThread
-                    import sys
-                    import time
-                    
-                    logger.info(f"[AsyncLogin] Creating MainWindow in thread: {QThread.currentThread()}")
-                    logger.info(f"[AsyncLogin] 🔍 sys.modules count before MainWindow import: {len(sys.modules)}")
-                    
-                    # Time the MainWindow import
-                    import_start = time.time()
                     from gui.MainGUI import MainWindow
-                    import_time = time.time() - import_start
-                    
-                    logger.info(f"[AsyncLogin] ⚡ MainWindow imported in {import_time:.3f}s")
-                    logger.info(f"[AsyncLogin] 🔍 sys.modules count after MainWindow import: {len(sys.modules)}")
                     self.main_win = MainWindow(
                         self.auth_manager, AppContext.main_loop, self.ip,
                         self.auth_manager.get_current_user(), ecbhomepath,
                         self.auth_manager.get_role(), schedule_mode
                     )
-
                     AppContext().set_main_window(self.main_win)
-                    logger.info(f"[AsyncLogin] ✅ Main window launched for user: {self.auth_manager.get_current_user()}")
+                    logger.info(f"[AsyncLogin] Main window launched for user: {self.auth_manager.get_current_user()}")
                     return True
                 except Exception as e:
-                    logger.error(f"[AsyncLogin] ❌ Error creating main window: {e}")
+                    logger.error(f"[AsyncLogin] Error creating main window: {e}")
                     import traceback
                     logger.error(traceback.format_exc())
                     return False
             
-            # Check current thread
             from PySide6.QtCore import QThread
             current_thread = QThread.currentThread()
             main_thread = app.thread()
-            logger.info(f"[AsyncLogin] Current thread: {current_thread}, Main thread: {main_thread}")
             
-            # If already in main thread, execute directly
             if current_thread == main_thread:
-                logger.info("[AsyncLogin] Executing in main thread directly")
                 return create_main_window()
             else:
-                # Otherwise use invokeMethod to execute in main thread
-                logger.info("[AsyncLogin] Scheduling execution in main thread")
-                result = [False]
-                exception_info = [None]
+                from PySide6.QtCore import QTimer
                 
-                def wrapper():
+                def schedule_in_main_thread():
                     try:
-                        result[0] = create_main_window()
+                        create_main_window()
                     except Exception as e:
-                        exception_info[0] = e
-                        logger.error(f"[AsyncLogin] Exception in wrapper: {e}")
+                        logger.error(f"[AsyncLogin] Error in main window creation: {e}")
+                        import traceback
+                        logger.error(traceback.format_exc())
                 
-                QMetaObject.invokeMethod(app, wrapper, Qt.BlockingQueuedConnection)
-                
-                if exception_info[0]:
-                    raise exception_info[0]
-                
-                return result[0]
+                QTimer.singleShot(0, app, schedule_in_main_thread)
+                logger.info("[AsyncLogin] MainWindow scheduled in main thread")
+                return True
 
         except Exception as e:
             logger.error(f"Error launching main window: {e}")

@@ -51,16 +51,15 @@ const Login: React.FC = () => {
 	// 错误状态
 	const [lastError, setLastError] = useState<string | null>(null);
 
-	// Monitor backend initialization progress during login process
+	// Poll backend initialization progress during login
 	const { progress: initProgress } = useInitializationProgress(loading || showInitProgress);
 
-	// Navigate to main page when login is successful and UI is ready
+	// Navigate when UI is ready
 	useEffect(() => {
 		if ((loading || showInitProgress) && initProgress?.ui_ready && !loginSuccessful) {
 			setLoginSuccessful(true);
-			console.log('[Login] UI ready, navigating to main page. Background initialization will continue.');
+			console.log('[Login] UI ready, navigating to main page');
 
-			// Small delay to show success state before navigation
 			setTimeout(() => {
 				setLoading(false);
 				setShowInitProgress(false);
@@ -362,13 +361,17 @@ const Login: React.FC = () => {
       const api = get_ipc_api();
       if (!api) throw new Error(t('common.error'));
 
-      console.log('Starting Google OAuth login');
+      // Get the selected role from form or use default
+      const selectedRole = form.getFieldValue('role') || 'Commander';
+
+      console.log('Starting Google OAuth login with role:', selectedRole);
       setGoogleLoginProgress('authenticating');
 
-      // Add timeout for Google login
-      const loginPromise = api.googleLogin(i18n.language);
+      // Add timeout for Google login - Google login requires user interaction in browser
+      // and can take up to 5 minutes, so we set a longer timeout
+      const loginPromise = api.googleLogin(i18n.language, selectedRole);
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Google login timeout after 30 seconds')), 60000);
+        setTimeout(() => reject(new Error('Google login timeout - please try again')), 300000); // 5 minutes
       });
 
       const response: APIResponse<any> = await Promise.race([loginPromise, timeoutPromise]);
@@ -383,8 +386,8 @@ const Login: React.FC = () => {
         const loginSession = {
           token,
           userInfo: {
-            username: user_info.email,
-            role: 'Commander', // Default role for Google users
+            username: user_info.username || user_info.email,
+            role: user_info.role || selectedRole,
             email: user_info.email
           },
           loginTime: Date.now()
@@ -395,12 +398,8 @@ const Login: React.FC = () => {
         // Enable page refresh monitoring
         pageRefreshManager.enable();
 
-        // Show success message
         messageApi.success(message || t('login.googleSuccess') || 'Google login successful');
-
         setLoginSuccessful(true);
-
-        // Google登录成功，设置跳转状态（showInitProgress已在handleGoogleLogin开始时设置）
         setGoogleLoginProgress('redirecting');
 
       } else {
@@ -425,7 +424,7 @@ const Login: React.FC = () => {
       });
       setLoading(false);
     }
-  }, [i18n.language, navigate, messageApi, loading, loginSuccessful, t]);
+  }, [i18n.language, navigate, messageApi, loading, loginSuccessful, t, form]);
 
   // Placeholder for Apple login to prevent runtime errors if referenced in JSX
   const handleAppleLogin = useCallback(() => {
@@ -697,9 +696,9 @@ const Login: React.FC = () => {
 										{(() => {
 											switch (googleLoginProgress) {
 												case 'opening':
-													return t('login.openingGoogle') || 'Opening Google...';
+													return t('login.openingGoogle') || 'Opening browser for Google authentication...';
 												case 'authenticating':
-													return t('login.authenticating') || 'Authenticating...';
+													return t('login.waitingForBrowserAuth') || 'Please complete authentication in the browser window...';
 												case 'success':
 													return t('login.loginSuccess') || 'Success!';
 												case 'redirecting':

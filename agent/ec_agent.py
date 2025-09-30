@@ -311,7 +311,7 @@ class EC_Agent(Agent):
 		# runnable = self.skill_set[0].get_runnable()
 		# response: dict[str, Any] = await self.runnable.ainvoke(input_messages)
 		# runnable.ainvoke()
-		logger.info("Ready to A2A chat....")
+		logger.info("Ready to A2A chat....", self.card.name)
 
 	async def hone_skills(self):
 		logger.info("hone skills...")

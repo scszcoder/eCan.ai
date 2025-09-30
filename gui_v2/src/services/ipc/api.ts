@@ -162,8 +162,8 @@ export class IPCAPI {
         return this.executeRequest<T>('confirm_forgot_password', { username, confirmCode, newPassword, lang});
     }
 
-    public async googleLogin<T>(lang?: string): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('google_login', { lang });
+    public async googleLogin<T>(lang?: string, role?: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('google_login', { lang, role });
     }
 
     public async loginWithApple<T>(): Promise<APIResponse<T>> {

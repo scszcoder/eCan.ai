@@ -40,7 +40,8 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
 
         username = data['username']
         password = data['password']
-        machine_role = data.get('machine_role', 'Commander')
+        # Support both 'role' (from frontend) and 'machine_role' (legacy) for consistency
+        machine_role = data.get('role', data.get('machine_role', 'Commander'))
         lang = data.get('lang', auth_messages.DEFAULT_LANG)
         auth_messages.set_language(lang)
 
@@ -56,9 +57,15 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
         if result.get('success'):
             from gui.ipc.token_manager import token_manager
             token = token_manager.generate_token(username, machine_role)
+            # Return consistent response format with user_info (like Google login)
             return create_success_response(request, {
                 'token': token,
-                'message': auth_messages.get_message('login_success')
+                'message': auth_messages.get_message('login_success'),
+                'user_info': {
+                    'username': username,
+                    'role': machine_role,
+                    'email': username  # For email-based usernames
+                }
             })
         else:
             error_code = result.get('error', 'login_failed')
@@ -219,34 +226,60 @@ def handle_confirm_forgot_password(request: IPCRequest, params: Optional[Dict[st
         auth_messages.set_language(lang)
         return create_error_response(request, 'CONFIRM_FORGOT_PASSWORD_ERROR', auth_messages.get_message('confirm_forgot_failed'))
 
-@IPCHandlerRegistry.handler('google_login')
+@IPCHandlerRegistry.background_handler('google_login')
 def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Handles google_login requests with internationalized responses."""
+    """Handle Google OAuth login in background thread to avoid blocking UI."""
     lang = auth_messages.DEFAULT_LANG
     try:
         lang = params.get('lang', auth_messages.DEFAULT_LANG) if params else auth_messages.DEFAULT_LANG
-        machine_role = params.get('machine_role', 'Commander') if params else 'Commander'
-        schedule_mode = params.get('schedule_mode', 'manual') if params else 'manual'
+        machine_role = params.get('role', params.get('machine_role', 'Commander')) if params else 'Commander'
         auth_messages.set_language(lang)
 
         login = AppContext.get_login()
-        success, message, _ = login._handle_google_login(machine_role, schedule_mode)
+        if login is None:
+            return create_error_response(request, 'SYSTEM_NOT_READY', 'System not ready')
+        
+        logger.info(f"[GoogleLogin] Starting Google OAuth login...")
+        
+        from gui.LoginoutGUI import LoginRequest, LoginType
+        import asyncio
+        
+        login_request = LoginRequest(LoginType.GOOGLE_OAUTH, role=machine_role, schedule_mode='manual')
+        
+        try:
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            new_loop.run_until_complete(login._async_login(login_request))
+            new_loop.close()
+            
+            if login.auth_manager.is_signed_in() and login.auth_manager.get_current_user():
+                result = {'success': True}
+            else:
+                result = {'success': False, 'error': 'Authentication failed'}
+        except Exception as e:
+            logger.error(f"[GoogleLogin] Exception: {e}")
+            result = {'success': False, 'error': str(e)}
 
-        if success:
+        if result.get('success'):
             from gui.ipc.token_manager import token_manager
             user_email = login.auth_manager.get_current_user()
             session_token = token_manager.generate_token(user_email, machine_role)
-            response_data = {
+            
+            logger.info(f"[GoogleLogin] Completed for {user_email}")
+            
+            return create_success_response(request, {
                 'token': session_token,
-                'message': auth_messages.get_message('google_login_success'),
+                'message': result.get('message', auth_messages.get_message('google_login_success')),
                 'user_info': {
+                    'username': user_email,
+                    'role': machine_role,
                     'email': user_email
                 }
-            }
-            return create_success_response(request, response_data)
+            })
         else:
-            # The message from the auth_manager is already a user-facing error string.
-            return create_error_response(request, 'GOOGLE_LOGIN_ERROR', message)
+            error_msg = result.get('error', 'Unknown error')
+            logger.error(f"[GoogleLogin] Failed: {error_msg}")
+            return create_error_response(request, 'GOOGLE_LOGIN_ERROR', error_msg)
 
     except Exception as e:
         logger.error(f"Error in Google login handler: {e} {traceback.format_exc()}")

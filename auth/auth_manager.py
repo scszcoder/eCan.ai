@@ -237,7 +237,7 @@ class AuthManager:
             IPCHandlerRegistry.clear_system_ready_cache()
             logger.debug("AuthManager: Cleared IPC registry system ready cache on logout")
         except Exception as e:
-            logger.debug(f"AuthManager: Error clearing IPC registry cache: {e}")
+            logger.error(f"AuthManager: Error clearing IPC registry cache: {e}")
 
         self.stop_refresh_task()  # Stop the background refresh task
         self.tokens = None
@@ -520,7 +520,7 @@ class AuthManager:
                 if success and token and len(token.strip()) > 0:
                     return True, token
             except Exception as e:
-                logger.debug(f"Failed to get refresh token from Windows chunked keyring: {e}")
+                logger.error(f"Failed to get refresh token from Windows chunked keyring: {e}")
 
         elif is_macos:
             # macOS: Try direct storage first
@@ -529,7 +529,7 @@ class AuthManager:
                 if success and token and len(token.strip()) > 0:
                     return True, token
             except Exception as e:
-                logger.debug(f"Failed to get refresh token from macOS direct keyring: {e}")
+                logger.error(f"Failed to get refresh token from macOS direct keyring: {e}")
 
         else:
             # Linux and others: Try direct first, then chunked
@@ -538,14 +538,14 @@ class AuthManager:
                 if success and token and len(token.strip()) > 0:
                     return True, token
             except Exception as e:
-                logger.debug(f"Failed to get refresh token from direct keyring: {e}")
+                logger.error(f"Failed to get refresh token from direct keyring: {e}")
 
             try:
                 success, token = self._get_refresh_token_chunked(username)
                 if success and token and len(token.strip()) > 0:
                     return True, token
             except Exception as e:
-                logger.debug(f"Failed to get refresh token from chunked keyring: {e}")
+                logger.error(f"Failed to get refresh token from chunked keyring: {e}")
 
         # Try file fallback for all platforms
         return self._get_refresh_token_file(username)
@@ -564,7 +564,7 @@ class AuthManager:
                 return False, "No token found"
 
         except Exception as e:
-            logger.debug(f"Failed to get refresh token from direct keyring: {e}")
+            logger.error(f"Failed to get refresh token from direct keyring: {e}")
             return False, str(e)
 
     def _delete_refresh_token(self, username: str) -> bool:
@@ -579,21 +579,21 @@ class AuthManager:
             except Exception:
                 keyring.set_password(self._refresh_service(), safe_username, "")
         except Exception as e:
-            logger.warning(f"Failed to delete refresh token from direct keyring: {e}")
+            logger.error(f"Failed to delete refresh token from direct keyring: {e}")
             success = False
         
         # Delete from chunked keyring
         try:
             self._delete_refresh_token_chunked(username)
         except Exception as e:
-            logger.warning(f"Failed to delete refresh token from chunked keyring: {e}")
+            logger.error(f"Failed to delete refresh token from chunked keyring: {e}")
             success = False
             
         # Delete from file storage
         try:
             self._delete_refresh_token_file(username)
         except Exception as e:
-            logger.warning(f"Failed to delete refresh token from file: {e}")
+            logger.error(f"Failed to delete refresh token from file: {e}")
             success = False
             
         return success
@@ -648,7 +648,7 @@ class AuthManager:
             refresh_token = base64.b64decode(encoded_token.encode('ascii')).decode('utf-8')
             return True, refresh_token
         except Exception as e:
-            logger.debug(f"Failed to get refresh token from file: {e}")
+            logger.error(f"Failed to get refresh token from file: {e}")
             return False, str(e)
 
     def _delete_refresh_token_file(self, username: str) -> bool:
@@ -660,7 +660,7 @@ class AuthManager:
                 logger.debug("Refresh token file deleted")
             return True
         except Exception as e:
-            logger.warning(f"Failed to delete refresh token file: {e}")
+            logger.error(f"Failed to delete refresh token file: {e}")
             return False
 
     # --- Chunked keyring storage methods ---
@@ -752,7 +752,7 @@ class AuthManager:
             try:
                 chunk_count = int(chunk_count_str)
             except ValueError:
-                logger.warning(f"Invalid chunk count: {chunk_count_str}")
+                logger.error(f"Invalid chunk count: {chunk_count_str}")
                 return False, "Invalid chunk count"
             
             if chunk_count <= 0:
@@ -783,7 +783,7 @@ class AuthManager:
             return True, refresh_token
             
         except Exception as e:
-            logger.debug(f"Failed to get refresh token from chunks: {e}")
+            logger.error(f"Failed to get refresh token from chunks: {e}")
             return False, str(e)
     
     def _delete_refresh_token_chunked(self, username: str) -> bool:
@@ -811,11 +811,11 @@ class AuthManager:
                             try:
                                 keyring.set_password(service_name, safe_username, "")
                             except Exception as e:
-                                logger.warning(f"Failed to delete chunk {i}: {e}")
+                                logger.error(f"Failed to delete chunk {i}: {e}")
                                 success = False
                                 
                 except ValueError:
-                    logger.warning(f"Invalid chunk count when deleting: {chunk_count_str}")
+                    logger.error(f"Invalid chunk count when deleting: {chunk_count_str}")
             
             # Delete chunk count
             try:
@@ -824,7 +824,7 @@ class AuthManager:
                 try:
                     keyring.set_password(self._get_chunk_count_service_name(), safe_username, "")
                 except Exception as e:
-                    logger.warning(f"Failed to delete chunk count: {e}")
+                    logger.error(f"Failed to delete chunk count: {e}")
                     success = False
             
             if success:
@@ -832,7 +832,7 @@ class AuthManager:
             return success
             
         except Exception as e:
-            logger.warning(f"Failed to delete refresh token chunks: {e}")
+            logger.error(f"Failed to delete refresh token chunks: {e}")
             return False
     
     def _sanitize_username_for_keyring(self, username: str) -> str:
@@ -864,7 +864,7 @@ class AuthManager:
             with open(self.acct_file, 'w') as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            logger.warning(f"Failed to persist username: {e}")
+            logger.error(f"Failed to persist username: {e}")
 
     def _get_saved_username(self) -> str | None:
         try:
@@ -874,7 +874,7 @@ class AuthManager:
                     return data.get("user")
             return None
         except Exception as e:
-            logger.warning(f"Failed to read saved username: {e}")
+            logger.error(f"Failed to read saved username: {e}")
             return None
         
     def _get_saved_machine_role(self) -> str | None:
@@ -885,7 +885,7 @@ class AuthManager:
                     return data.get("machine_role")
             return None
         except Exception as e:
-            logger.warning(f"Failed to read saved machine role: {e}")
+            logger.error(f"Failed to read saved machine role: {e}")
             return None
 
     def try_restore_session(self) -> bool:
@@ -921,25 +921,25 @@ class AuthManager:
             try:
                 self.start_refresh_task()
             except Exception as e:
-                logger.debug(f"AuthManager: Could not start refresh task yet: {e}")
+                logger.error(f"AuthManager: Could not start refresh task yet: {e}")
             return True
         except Exception as e:
-            logger.warning(f"AuthManager: Failed to restore session: {e}")
+            logger.error(f"AuthManager: Failed to restore session: {e}")
             return False
 
     def start_refresh_task(self):
         """Starts the background token refresh task."""
         if self.refresh_task is None or self.refresh_task.done():
             if not self.tokens or not self.tokens.get('RefreshToken'):
-                logger.warning("AuthManager: start_refresh_task called without a refresh token. Task not started.")
+                logger.warning("AuthManager: No refresh token available")
                 return
 
-            logger.info("AuthManager: Starting token refresh task.")
             try:
-                self.refresh_task = asyncio.create_task(self._token_refresh_loop())
-            except RuntimeError as e:
-                # No running event loop; will be started later when loop is available
-                logger.debug(f"AuthManager: Cannot start refresh task (no event loop?): {e}")
+                loop = asyncio.get_running_loop()
+                self.refresh_task = loop.create_task(self._token_refresh_loop())
+                logger.info("AuthManager: Token refresh task started")
+            except RuntimeError:
+                logger.debug("AuthManager: No event loop available for refresh task")
                 self.refresh_task = None
 
     def stop_refresh_task(self):
@@ -980,7 +980,7 @@ class AuthManager:
                     break
 
             except asyncio.CancelledError:
-                logger.info("AuthManager: Token refresh task was cancelled.")
+                logger.error("AuthManager: Token refresh task was cancelled.")
                 break
             except Exception as e:
                 logger.error(f"AuthManager: An error occurred in the token refresh loop: {e}")

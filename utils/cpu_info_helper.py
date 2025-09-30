@@ -6,6 +6,7 @@ CPU信息获取工具模块
 
 import platform
 import cpuinfo
+from utils.logger_helper import logger_helper as logger
 
 
 def get_cpu_info_safely(timeout_seconds=5):
@@ -28,15 +29,12 @@ def get_cpu_info_safely(timeout_seconds=5):
         'Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz'
     """
     try:
-        # 设置超时和异常处理，避免子进程阻塞
-        import signal
+        import threading
         
-        # 在Windows上不支持signal.alarm，使用不同的策略
-        if platform.system() == 'Windows':
-            # Windows上使用线程超时机制
-            import threading
-            import time
-            
+        is_main_thread = threading.current_thread() is threading.main_thread()
+        
+        # signal.alarm only works in main thread on Unix, use threading elsewhere
+        if platform.system() == 'Windows' or not is_main_thread:
             result = {'error': True}
             
             def get_cpu_info():
@@ -53,26 +51,24 @@ def get_cpu_info_safely(timeout_seconds=5):
             thread.join(timeout=timeout_seconds)
             
             if result.get('error', True):
-                raise TimeoutError("CPU info retrieval timed out or failed")
+                raise TimeoutError("CPU info retrieval timed out")
             
             return result['data']
         else:
-            # Unix系统使用signal.alarm
+            import signal
+            
             def timeout_handler(signum, frame):
                 raise TimeoutError("CPU info retrieval timed out")
 
-            # 设置超时
             signal.signal(signal.SIGALRM, timeout_handler)
             signal.alarm(timeout_seconds)
-
             cpu_info = cpuinfo.get_cpu_info()
-            signal.alarm(0)  # 取消超时
+            signal.alarm(0)
             
             return cpu_info
 
     except (TimeoutError, KeyboardInterrupt, Exception) as e:
-        print(f"Warning: Failed to get CPU info: {e}")
-        # 使用默认值
+        logger.error(f"Failed to get CPU info: {e}")
         return _get_default_cpu_info()
 
 
@@ -102,7 +98,7 @@ def _get_default_cpu_info():
             'release': platform.release()
         }
     except Exception as e:
-        print(f"Warning: Failed to get even basic system info: {e}")
+        logger.error(f"Warning: Failed to get even basic system info: {e}")
         return {
             'brand_raw': 'Unknown Processor',
             'hz_advertised_friendly': 'Unknown Speed',
