@@ -20,9 +20,44 @@ function_registry = {
     "loop": build_loop_node,
     "condition": build_condition_node,
     "tool": build_mcp_tool_calling_node,
-    # "group": process_blocks,
+    # No dedicated builder for group; groups are expanded via process_blocks
+    # Best-effort support for event/comment/variable/sheet-call
+    "event": lambda data, node_id, skill_name, owner, bp_mgr: (lambda state, **kwargs: {}),
+    "comment": lambda data, node_id, skill_name, owner, bp_mgr: (lambda state, **kwargs: {}),
+    "variable": lambda data, node_id, skill_name, owner, bp_mgr: _build_variable_node(data),
+    "sheet-call": lambda data, node_id, skill_name, owner, bp_mgr: (lambda state, **kwargs: {}),
     "default": build_debug_node,
 }
+
+
+def _build_variable_node(data: dict):
+    """Return a callable that assigns variables to state.attributes/metadata/tool_input.
+    Expected data shape (best-effort): {
+      assignments: [ { target: 'attributes.x'|'metadata.y'|'tool_input.z', value: <any> }, ... ]
+    }
+    """
+    assignments = (data or {}).get("assignments") or []
+    def _node(state: dict, **kwargs) -> dict:
+        try:
+            for a in assignments:
+                tgt = str(a.get("target", ""))
+                val = a.get("value")
+                root, _, path = tgt.partition(".")
+                if not root or not path:
+                    continue
+                container = state.setdefault(root, {}) if isinstance(state.get(root), dict) else state.setdefault(root, {})
+                # Drill down
+                parts = [p for p in path.split(".") if p]
+                cur = container
+                for p in parts[:-1]:
+                    if not isinstance(cur.get(p), dict):
+                        cur[p] = {}
+                    cur = cur[p]
+                cur[parts[-1]] = val
+        except Exception:
+            pass
+        return {}
+    return _node
 
 def evaluate_condition_legacy(state, conditions):
     """Legacy evaluator: list of { value: {left/right/operator} }. Kept for backward compatibility."""
@@ -214,112 +249,168 @@ def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp
 def flowgram2langgraph(flowgram_json, bundle_json=None):
     try:
         flow = json.loads(flowgram_json) if isinstance(flowgram_json, str) else flowgram_json
-        # Optionally merge or attach bundle info for future use
+        # Optionally attach bundle (multi-sheet)
         if bundle_json is not None:
             flow["bundle"] = bundle_json
+
+        # Prepare global workflow
         workflow = StateGraph(NodeState)
-        node_map = {}
-        id_to_node = {}
+        node_map = {}          # global_id -> global_id
+        id_to_node = {}        # global_id -> node json (with sheet info)
+        per_sheet_entry = {}   # sheet_key -> entry global node id
         breakpoints = []
-        print("flowgram2langgraph", type(flowgram_json), flowgram_json)
+
+        print("flowgram2langgraph", type(flowgram_json))
         skill_name = flow.get("skillName", "")
         owner = flow.get("owner", "")
-        # find breakpoint manager of the dev task, since it will always be that.
+        # breakpoint manager (dev/test path)
         login: Login = AppContext.login
         tester_agent = next((ag for ag in login.main_win.agents if "test" in ag.card.name.lower()), None)
-        bp_manager = tester_agent.runner.bp_manager
+        bp_manager = tester_agent.runner.bp_manager if tester_agent else None
 
-        # Find the actual entry point node ID
-        start_node_id = None
-        entry_point_node_id = None
-        for node in flow.get("workFlow", {}).get("nodes", []):
-            if node.get("type") == "start":
-                start_node_id = node["id"]
-                break
+        # Collect sheets: from flow.bundle.sheets, or single workFlow as one sheet
+        sheets = []
+        # Preferred: bundle
+        try:
+            b = flow.get("bundle") or {}
+            if isinstance(b, dict) and isinstance(b.get("sheets"), list):
+                for s in b["sheets"]:
+                    name = s.get("name") or s.get("id") or f"sheet_{len(sheets)}"
+                    doc = s.get("document") or {}
+                    wf = doc if (isinstance(doc, dict) and "nodes" in doc and "edges" in doc) else None
+                    if wf:
+                        sheets.append({"name": str(name), "workFlow": wf})
+        except Exception:
+            pass
+        # Fallback: single sheet
+        if not sheets:
+            sheets.append({"name": flow.get("sheetName", "main"), "workFlow": flow.get("workFlow", {})})
 
-        if start_node_id:
-            for edge in flow.get("workFlow", {}).get("edges", []):
-                if edge.get("sourceNodeID") == start_node_id:
-                    entry_point_node_id = edge.get("targetNodeID")
+        # Determine main sheet: first one
+        main_sheet_name = sheets[0]["name"] if sheets else "main"
+
+        # Helper to compute entry for a sheet
+        def _find_entry(wf: dict):
+            start_id = None
+            entry_id = None
+            for n in wf.get("nodes", []):
+                if n.get("type") == "start":
+                    start_id = n.get("id")
                     break
+            if start_id:
+                for e in wf.get("edges", []):
+                    if e.get("sourceNodeID") == start_id:
+                        entry_id = e.get("targetNodeID")
+                        break
+            return entry_id
 
-        if not entry_point_node_id:
-            raise ValueError("Could not determine the entry point from the start node.")
-
-        for node in flow.get("workFlow", {}).get("nodes", []):
-            node_id = node["id"]
-            node_type = node.get("type", "basic")
-
-            # Skip the visual 'start' and 'end' nodes, as they aren't executable parts of the graph
-            if node_type in ["start", "end"]:
-                continue
-
-            node_data = node.get("data", {})
-
-            if node_data.get("break_point") is True:
-                breakpoints.append(node_id)
-
-            node_map[node_id] = node_id
-            id_to_node[node_id] = node
-
-            # Get the appropriate builder function from the registry
-            print("node_type:", node_type)
-            builder_func = function_registry.get(node_type, build_debug_node)
-            print("builder_func:", builder_func)
-
-            # Call the builder function with the node's data to get the raw callable
-            raw_callable = builder_func(node_data, node_id, skill_name, owner, bp_manager)
-
-            # Wrap the raw callable with the node_builder to add retries, context, etc.
-            node_callable = node_builder(raw_callable, node_id, skill_name, owner, bp_manager)
-
-            # Add the constructed node to the workflow
-            workflow.add_node(node_id, node_callable)
-
-            if node_type in ["loop", "group"] and "blocks" in node:
-                edges_in_block = node.get("edges", [])
-                process_blocks(workflow, node["blocks"], node_map, id_to_node, skill_name, owner, bp_manager, edges_in_block)
-        
-        # Set the entry point after all nodes have been added
-        workflow.set_entry_point(entry_point_node_id)
-
-        # Add edges
-        for edge in flow.get("workFlow", {}).get("edges", []):
-            source_id = edge.get("sourceNodeID")
-            target_id = edge.get("targetNodeID")
-
-            # Skip edges originating from the start node as it's already handled by set_entry_point
-            if source_id == start_node_id:
-                continue
-
-            source_node = node_map.get(source_id)
-            if not source_node:
-                logger.warning(f"Edge source node not found in map: {source_id}")
-                continue
-
-            # If the target is the special 'end' node, link to LangGraph's END
-            if target_id == "end":
-                workflow.add_edge(source_node, END)
-            else:
-                # Otherwise, it's a regular edge between two nodes
-                target_node = node_map.get(target_id)
-                if not target_node:
-                    logger.warning(f"Edge target node not found in map: {target_id}")
+        # First pass: add nodes from all sheets (prefix global ids)
+        for sheet in sheets:
+            sname = str(sheet.get("name") or "sheet")
+            wf = sheet.get("workFlow", {})
+            entry_local = _find_entry(wf)
+            # Register nodes
+            for node in wf.get("nodes", []):
+                node_id = node.get("id")
+                node_type = node.get("type", "basic")
+                if node_type in ("start", "end"):
                     continue
-                workflow.add_edge(source_node, target_node)
+                node_data = node.get("data", {})
+                if node_data.get("break_point") is True:
+                    breakpoints.append(f"{sname}:{node_id}")
 
-        # Add conditional edges (supporting new Condition model)
-        for node in flow.get("workFlow", {}).get("nodes", []):
-            if node["type"] == "condition":
-                node_id = node["id"]
-                outgoing_edges = [e for e in flow.get("workFlow", {}).get("edges", []) if e["sourceNodeID"] == node_id]
-                port_map = {}
-                for edge in outgoing_edges:
-                    port = edge.get("sourcePortID") # In Flowgram, the handle on the source node is the port
-                    if port:
-                        port_map[port] = edge["targetNodeID"]
-                selector = make_condition_selector(node_id, node.get("data", {}), port_map)
-                workflow.add_conditional_edges(node_id, selector, path_map=port_map)
+                global_id = f"{sname}:{node_id}"
+                node_map[global_id] = global_id
+                id_to_node[global_id] = {"sheet": sname, "node": node}
+
+                # Builder
+                builder_func = function_registry.get(node_type, build_debug_node)
+                raw_callable = builder_func(node_data, global_id, skill_name, owner, bp_manager)
+                node_callable = node_builder(raw_callable, global_id, skill_name, owner, bp_manager)
+                workflow.add_node(global_id, node_callable)
+
+            # Record per-sheet entry (global id)
+            if entry_local:
+                per_sheet_entry[sname] = f"{sname}:{entry_local}"
+
+        # Set entry point to main sheet's entry
+        main_entry = per_sheet_entry.get(main_sheet_name)
+        if not main_entry:
+            raise ValueError("Could not determine the entry point from the start node of the main sheet.")
+        workflow.set_entry_point(main_entry)
+
+        # Second pass: add edges across all sheets
+        for sheet in sheets:
+            sname = str(sheet.get("name") or "sheet")
+            wf = sheet.get("workFlow", {})
+            # Identify local start id to skip that outgoing edge
+            local_start = None
+            for n in wf.get("nodes", []):
+                if n.get("type") == "start":
+                    local_start = n.get("id")
+                    break
+            for edge in wf.get("edges", []):
+                source_id = edge.get("sourceNodeID")
+                target_id = edge.get("targetNodeID")
+                if source_id == local_start:
+                    # skip, handled via per-sheet entry
+                    continue
+                source_global = f"{sname}:{source_id}"
+                target_global = f"{sname}:{target_id}" if target_id != "end" else "end"
+                if source_global not in node_map:
+                    logger.warning(f"Edge source node not found in map: {source_global}")
+                    continue
+                if target_global == "end":
+                    workflow.add_edge(source_global, END)
+                    continue
+                if target_global not in node_map:
+                    logger.warning(f"Edge target node not found in map: {target_global}")
+                    continue
+                workflow.add_edge(source_global, target_global)
+
+        # Conditional edges (by sheet)
+        for sheet in sheets:
+            sname = str(sheet.get("name") or "sheet")
+            wf = sheet.get("workFlow", {})
+            for node in wf.get("nodes", []):
+                if node.get("type") == "condition":
+                    node_id = node.get("id")
+                    gid = f"{sname}:{node_id}"
+                    outgoing_edges = [e for e in wf.get("edges", []) if e.get("sourceNodeID") == node_id]
+                    port_map = {}
+                    for e in outgoing_edges:
+                        port = e.get("sourcePortID")
+                        if port:
+                            tgt = e.get("targetNodeID")
+                            port_map[port] = f"{sname}:{tgt}"
+                    selector = make_condition_selector(gid, node.get("data", {}), port_map)
+                    workflow.add_conditional_edges(gid, selector, path_map=port_map)
+
+        # Expand in-node groups
+        for sheet in sheets:
+            sname = str(sheet.get("name") or "sheet")
+            wf = sheet.get("workFlow", {})
+            for node in wf.get("nodes", []):
+                if node.get("type") in ["loop", "group"] and "blocks" in node:
+                    edges_in_block = node.get("edges", [])
+                    process_blocks(workflow, node["blocks"], node_map, id_to_node, skill_name, owner, bp_manager, edges_in_block)
+
+        # Treat sheet-call as a jump to target sheet entry (best-effort)
+        for sheet in sheets:
+            sname = str(sheet.get("name") or "sheet")
+            wf = sheet.get("workFlow", {})
+            for node in wf.get("nodes", []):
+                if node.get("type") == "sheet-call":
+                    data = node.get("data", {})
+                    target_sheet = data.get("target_sheet") or data.get("targetSheet") or data.get("sheet") or data.get("name")
+                    if target_sheet and target_sheet in per_sheet_entry:
+                        src_gid = f"{sname}:{node.get('id')}"
+                        dst_gid = per_sheet_entry[target_sheet]
+                        try:
+                            workflow.add_edge(src_gid, dst_gid)
+                        except Exception:
+                            logger.warning(f"Failed to add sheet-call edge: {src_gid} -> {dst_gid}")
+
     except Exception as e:
         err_msg = get_traceback(e, "ErrorFlowgram2Langgraph")
         logger.error(f"{err_msg}")
