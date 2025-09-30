@@ -4,65 +4,27 @@
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
   z-index: 2;
   width: 220px;
   height: 340px;
-  border-radius: 20px;
-  background: linear-gradient(145deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98));
-  backdrop-filter: blur(10px);
+  border-radius: 16px;
+  background: rgba(30, 41, 59, 0.9);
   border: 1px solid rgba(59, 130, 246, 0.2);
-  box-shadow: 
-    0 20px 60px 0 rgba(59, 130, 246, 0.15),
-    0 8px 32px 0 rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   position: relative;
   overflow: visible;
   padding: 18px 12px;
 }
 
-/* 简化的发光背景效果 - 无动画 */
-.org-door::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: radial-gradient(
-    ellipse at center,
-    rgba(59, 130, 246, 0.05) 0%,
-    rgba(99, 102, 241, 0.08) 50%,
-    transparent 70%
-  );
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  z-index: -1;
-  border-radius: 20px;
-}
-
-.org-door:hover::before {
-  opacity: 1;
-}
-
 .org-door:hover {
-  transform: translateY(-8px) scale(1.05) !important;
-  box-shadow: 
-    0 32px 80px 0 rgba(59, 130, 246, 0.25),
-    0 16px 48px 0 rgba(99, 102, 241, 0.2),
-    0 8px 32px 0 rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.2);
   border-color: rgba(59, 130, 246, 0.4);
 }
 
 .org-door.custom-door:hover {
-  transform: translateY(-10px) scale(1.06) !important;
-  box-shadow: 
-    0 40px 100px 0 rgba(59, 130, 246, 0.3),
-    0 20px 60px 0 rgba(99, 102, 241, 0.25),
-    0 10px 40px 0 rgba(0, 0, 0, 0.35),
-    inset 0 2px 0 rgba(255, 255, 255, 0.25) !important;
-  border-color: rgba(59, 130, 246, 0.5);
+  transform: translateY(-4px);
 }
 
 .org-door.custom-door {
@@ -87,96 +49,25 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  filter: drop-shadow(0 8px 24px rgba(59, 130, 246, 0.3));
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  transform: perspective(600px) rotateY(0deg);
-  transform-origin: left center;
-  border-radius: 20px;
-  box-shadow: 
-    0 8px 32px rgba(59, 130, 246, 0.2),
-    0 4px 16px rgba(0, 0, 0, 0.15),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+  transition: opacity 0.2s ease;
+  border-radius: 12px;
   position: relative;
   z-index: 2;
-  image-rendering: auto;
-  -webkit-image-rendering: auto;
-  -moz-image-rendering: auto;
-}
-
-.org-door.opening .org-door-img {
-  animation: doorOpenImgAnim 0.3s ease-out forwards !important;
-  transform-origin: left center !important;
-}
-
-.org-door.custom-door.opening .org-door-img {
-  animation: doorOpenImgAnim 0.4s ease-out forwards !important;
-  transform-origin: left center !important;
-}
-
-/* 关闭门动画 */
-.org-door:not(.opening) .org-door-img {
-  animation: doorCloseImgAnim 0.3s ease-in forwards !important;
-  transform-origin: left center !important;
-}
-
-.org-door.custom-door:not(.opening) .org-door-img {
-  animation: doorCloseImgAnim 0.3s ease-in forwards !important;
-  transform-origin: left center !important;
-}
-
-.org-door-img-anim-open {
-  animation: doorOpenImgAnim 0.3s forwards;
-}
-
-@keyframes doorOpenImgAnim {
-  0% { 
-    transform: perspective(600px) rotateY(0deg);
-    filter: drop-shadow(0 8px 24px rgba(59, 130, 246, 0.3));
-  }
-  100% { 
-    transform: perspective(600px) rotateY(25deg);
-    filter: drop-shadow(0 10px 28px rgba(59, 130, 246, 0.4)) brightness(1.05);
-  }
-}
-
-@keyframes doorCloseImgAnim {
-  0% { 
-    transform: perspective(600px) rotateY(25deg);
-    filter: drop-shadow(0 10px 28px rgba(59, 130, 246, 0.4)) brightness(1.05);
-  }
-  100% { 
-    transform: perspective(600px) rotateY(0deg);
-    filter: drop-shadow(0 8px 24px rgba(59, 130, 246, 0.3));
-  }
-}
-
-.org-door-img-opened {
-  transform: perspective(400px) rotateY(80deg);
-  transition: none;
 }
 
 .org-door-label {
   width: 100%;
   text-align: center;
   margin: 0;
-  padding: 12px 12px;
+  padding: 12px;
   min-height: 60px;
   max-height: 80px;
   border-radius: 12px;
-  background: linear-gradient(145deg, 
-    rgba(30, 41, 59, 0.9), 
-    rgba(15, 23, 42, 0.95)
-  );
-  backdrop-filter: blur(8px);
+  background: rgba(30, 41, 59, 0.8);
   border: 1px solid rgba(59, 130, 246, 0.3);
-  box-shadow: 
-    0 4px 16px rgba(0, 0, 0, 0.3),
-    0 2px 8px rgba(59, 130, 246, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
   pointer-events: none;
   user-select: none;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background 0.2s ease;
   position: relative;
   overflow: hidden;
   display: flex;
@@ -194,11 +85,6 @@
   font-weight: 600;
   font-size: 0.95em;
   line-height: 1.3;
-  letter-spacing: 0.3px;
-  text-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.8),
-    0 1px 2px rgba(0, 0, 0, 0.6),
-    0 0 4px rgba(59, 130, 246, 0.3);
   width: 100%;
   text-align: center;
   display: -webkit-box;
@@ -209,7 +95,6 @@
   text-overflow: ellipsis;
   word-wrap: break-word;
   word-break: break-word;
-  hyphens: auto;
 }
 
 /* 门标签计数部分 */
@@ -218,10 +103,6 @@
   font-weight: 500;
   font-size: 0.8em;
   line-height: 1.2;
-  letter-spacing: 0.2px;
-  text-shadow:
-    0 1px 4px rgba(0, 0, 0, 0.6),
-    0 0 2px rgba(59, 130, 246, 0.4);
   width: 100%;
   text-align: center;
   white-space: nowrap;
@@ -231,50 +112,8 @@
 
 /* 门标签悬停效果 */
 .org-door:hover .org-door-label {
-  transform: translateY(-2px);
+  background: rgba(30, 41, 59, 0.95);
   border-color: rgba(59, 130, 246, 0.5);
-  box-shadow: 
-    0 6px 24px rgba(0, 0, 0, 0.4),
-    0 4px 12px rgba(59, 130, 246, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15);
-}
-
-.org-door:hover .org-door-label-name {
-  color: rgba(255, 255, 255, 1);
-  text-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.8),
-    0 1px 2px rgba(0, 0, 0, 0.6),
-    0 0 8px rgba(59, 130, 246, 0.5);
-}
-
-.org-door:hover .org-door-label-count {
-  color: rgba(59, 130, 246, 1);
-  text-shadow:
-    0 1px 4px rgba(0, 0, 0, 0.6),
-    0 0 4px rgba(59, 130, 246, 0.6);
-}
-
-/* 简化的标签发光效果 - 无动画 */
-.org-door-label::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(
-    135deg,
-    rgba(59, 130, 246, 0.05) 0%,
-    rgba(99, 102, 241, 0.08) 50%,
-    rgba(59, 130, 246, 0.05) 100%
-  );
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  border-radius: 12px;
-}
-
-.org-door:hover .org-door-label::before {
-  opacity: 1;
 }
 
 @media (max-width: 768px) {

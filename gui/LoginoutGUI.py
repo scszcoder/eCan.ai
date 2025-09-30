@@ -134,9 +134,42 @@ class Login:
             
             if result['success']:
                 # Update progress: authentication successful
-                self._update_progress(75, "Authentication successful, launching main window...")
+                self._update_progress(65, "Authentication successful, waiting for preload...")
+                
+                # Check and wait for background preload completion
+                # Preload runs in background during login, should be complete by now
+                try:
+                    from gui.async_preloader import get_async_preloader
+                    
+                    preloader = get_async_preloader()
+                    
+                    if preloader.is_in_progress():
+                        # Preload still running, wait for it to complete
+                        logger.info("[AsyncLogin] 📦 Waiting for background preload to complete...")
+                        self._update_progress(70, "Finalizing preload...")
+                        
+                        preload_result = await preloader.wait_for_completion(timeout=15.0)
+                        success_count = preload_result.get('success_count', 0)
+                        total_tasks = preload_result.get('total_tasks', 0)
+                        
+                        logger.info(f"[AsyncLogin] 📦 Preload completed: {success_count}/{total_tasks} successful")
+                        self._update_progress(75, f"Preload ready ({success_count}/{total_tasks})")
+                    elif preloader.is_complete():
+                        # Preload already completed - perfect timing!
+                        result = preloader.get_summary()
+                        logger.info(f"[AsyncLogin] ✅ Preload ready: {result['success_count']}/{result['total_tasks']} modules")
+                        self._update_progress(75, "Preload ready")
+                    else:
+                        # Preload not started - continue anyway
+                        logger.warning("[AsyncLogin] ⚠️ Preload not available, continuing...")
+                        self._update_progress(75, "Loading without preload...")
+                        
+                except Exception as e:
+                    logger.warning(f"[AsyncLogin] ⚠️ Preload check failed: {e}")
+                    self._update_progress(75, "Continuing...")
                 
                 # Launch main window
+                self._update_progress(80, "Launching main window...")
                 try:
                     self._launch_main_window(request.schedule_mode)
                     self._update_progress(100, "Login completed!")
@@ -260,8 +293,19 @@ class Login:
             def create_main_window():
                 try:
                     from PySide6.QtCore import QThread
+                    import sys
+                    import time
+                    
                     logger.info(f"[AsyncLogin] Creating MainWindow in thread: {QThread.currentThread()}")
+                    logger.info(f"[AsyncLogin] 🔍 sys.modules count before MainWindow import: {len(sys.modules)}")
+                    
+                    # Time the MainWindow import
+                    import_start = time.time()
                     from gui.MainGUI import MainWindow
+                    import_time = time.time() - import_start
+                    
+                    logger.info(f"[AsyncLogin] ⚡ MainWindow imported in {import_time:.3f}s")
+                    logger.info(f"[AsyncLogin] 🔍 sys.modules count after MainWindow import: {len(sys.modules)}")
                     self.main_win = MainWindow(
                         self.auth_manager, AppContext.main_loop, self.ip,
                         self.auth_manager.get_current_user(), ecbhomepath,
