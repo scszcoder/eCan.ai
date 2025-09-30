@@ -10,8 +10,8 @@ from langchain_core.runnables import RunnableLambda
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-from typing import TypedDict, List, Any
 import subprocess
+from dataclasses import dataclass
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.graph.message import AnyMessage, add_messages, MessagesState, BaseMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -128,6 +128,17 @@ class EC_Skill(AgentSkill):
             "level": self.level,
         }
 
+
+@dataclass
+class SkillDTO:
+    name: str
+    description: str
+    config: Dict[str, Any]
+
+@dataclass
+class LoadedSkill:
+    dto: SkillDTO
+    work_flow: StateGraph
 
 
 class BaseState(MessagesState):
