@@ -1,0 +1,446 @@
+import os
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+# Minimal logger fallback to avoid import cycles if any
+try:
+    from utils.logger_helper import logger_helper as logger
+except Exception:  # pragma: no cover
+    import logging
+    logger = logging.getLogger(__name__)
+
+Json = Dict[str, Any]
+
+
+def _safe_get(d: Any, path: str, default: Any = None) -> Any:
+    if d is None:
+        return default
+    cur = d
+    for part in path.split("."):
+        if isinstance(cur, dict) and part in cur:
+            cur = cur[part]
+        else:
+            return default
+    return cur
+
+
+def _ensure_path(obj: Dict[str, Any], path: str) -> Tuple[Dict[str, Any], str]:
+    parts = path.split(".")
+    for p in parts[:-1]:
+        if p not in obj or not isinstance(obj[p], dict):
+            obj[p] = {}
+        obj = obj[p]
+    return obj, parts[-1]
+
+
+def _write(obj: Dict[str, Any], path: str, value: Any, on_conflict: str = "overwrite") -> None:
+    parent, leaf = _ensure_path(obj, path)
+    if leaf in parent and parent[leaf] is not None:
+        if on_conflict == "skip":
+            return
+        if on_conflict.startswith("merge") and isinstance(parent[leaf], dict) and isinstance(value, dict):
+            # deep merge for merge_deep, shallow for merge_shallow
+            if on_conflict == "merge_deep":
+                parent[leaf] = _deep_merge(parent[leaf], value)
+            else:
+                parent[leaf].update(value)
+            return
+        if on_conflict == "append" and isinstance(parent[leaf], list) and isinstance(value, list):
+            parent[leaf] += value
+            return
+    parent[leaf] = value
+
+
+def _deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(a)
+    for k, v in b.items():
+        if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+def _to_string(v: Any) -> str:
+    if isinstance(v, str):
+        return v
+    try:
+        import json as _json
+        return _json.dumps(v, ensure_ascii=False)
+    except Exception:
+        return str(v)
+
+
+# ---------- Event normalization ----------
+
+def normalize_event(msg: Any) -> Dict[str, Any]:
+    """Normalize heterogeneous incoming message into a unified event envelope."""
+    event: Dict[str, Any] = {
+        "type": None,
+        "source": None,
+        "tag": None,
+        "timestamp": None,
+        "data": {},
+        "context": {},
+    }
+    try:
+        # Accept dict or pydantic-like object with .params
+        if hasattr(msg, "params"):
+            p = msg.params
+            message = getattr(p, "message", None)
+            metadata = getattr(p, "metadata", {}) or {}
+            event["context"] = {
+                "id": getattr(p, "id", None),
+                "sessionId": getattr(p, "sessionId", None),
+            }
+        elif isinstance(msg, dict):
+            message = msg.get("params", {}).get("message") or msg.get("message")
+            metadata = msg.get("params", {}).get("metadata", {}) or msg.get("metadata", {}) or {}
+            event["context"] = {
+                "id": _safe_get(msg, "params.id") or msg.get("id"),
+                "sessionId": _safe_get(msg, "params.sessionId"),
+            }
+        else:
+            message, metadata = None, {}
+
+        # Type/source/tag
+        mtype = None
+        if isinstance(metadata, dict):
+            mtype = metadata.get("mtype")
+            event["tag"] = metadata.get("i_tag") or metadata.get("tag")
+            event["timestamp"] = metadata.get("timestamp")
+            # carry over convenient fields
+            event["context"].update({
+                "chatId": metadata.get("chatId"),
+                "msgId": metadata.get("msgId"),
+            })
+        event["type"] = _infer_event_type(mtype)
+        event["source"] = _infer_event_source(metadata)
+
+        # Extract primary data
+        event_data: Dict[str, Any] = {}
+        # message.parts[] text → human_text
+        human_text = _extract_text_from_message(message)
+        if human_text:
+            event_data["human_text"] = human_text
+        # known payloads
+        if isinstance(metadata, dict):
+            for k in ("qa_form_to_agent", "qa_form"):
+                if k in metadata:
+                    event_data["qa_form_to_agent"] = metadata[k]
+                    break
+            for k in ("notification_to_agent", "notification"):
+                if k in metadata:
+                    event_data["notification_to_agent"] = metadata[k]
+                    break
+            # include full metadata for advanced mapping
+            event_data["metadata"] = metadata
+        event["data"] = event_data
+        return event
+    except Exception as e:
+        logger.debug(f"normalize_event error: {e}")
+        return event
+
+
+def _infer_event_type(mtype: Optional[str]) -> str:
+    if not mtype:
+        return "other"
+    if mtype == "send_chat":
+        return "human_chat"
+    if mtype == "send_task":
+        return "a2a"
+    return mtype
+
+
+def _infer_event_source(metadata: Dict[str, Any]) -> Optional[str]:
+    if not isinstance(metadata, dict):
+        return None
+    src = metadata.get("source")
+    if src:
+        return src
+    chat_id = metadata.get("chatId")
+    if chat_id:
+        return f"gui:{chat_id}"
+    return None
+
+
+def _extract_text_from_message(message: Any) -> str:
+    try:
+        parts = getattr(message, "parts", None)
+        if not parts and isinstance(message, dict):
+            parts = message.get("parts")
+        if not parts:
+            return getattr(message, "text", "") if hasattr(message, "text") else (message or "")
+        texts: List[str] = []
+        for p in parts:
+            ptype = getattr(p, "type", None) or (p.get("type") if isinstance(p, dict) else None)
+            if ptype == "text":
+                txt = getattr(p, "text", None) or (p.get("text") if isinstance(p, dict) else None)
+                if txt:
+                    texts.append(txt)
+        return "\n".join(texts)
+    except Exception:
+        return ""
+
+
+# ---------- Checkpoint selection & injection ----------
+
+def select_checkpoint(task: Any, tag: Optional[str]):
+    if not tag:
+        return None
+    try:
+        found_cp = next((cpn for cpn in task.checkpoint_nodes if cpn.get("tag") == tag), None)
+        if found_cp:
+            idx = task.checkpoint_nodes.index(found_cp)
+            be_to_resumed = task.checkpoint_nodes.pop(idx)
+            return be_to_resumed.get("checkpoint")
+    except Exception as e:
+        logger.debug(f"select_checkpoint error: {e}")
+    return None
+
+
+def inject_attributes_into_checkpoint(cp: Any, attrs: Dict[str, Any]) -> None:
+    if not cp:
+        return
+    try:
+        vals = getattr(cp, "values", None)
+        if isinstance(vals, dict):
+            attributes = vals.get("attributes")
+            if not isinstance(attributes, dict):
+                attributes = {}
+                vals["attributes"] = attributes
+            for k, v in attrs.items():
+                attributes[k] = v
+        else:
+            logger.debug("inject_attributes_into_checkpoint: unexpected checkpoint values type")
+    except Exception as e:
+        logger.debug(f"inject_attributes_into_checkpoint error: {e}")
+
+
+# ---------- Mapping rules ----------
+DEFAULT_MAPPINGS: Dict[str, Any] = {
+    "mappings": [
+        {
+            "from": ["event.data.qa_form_to_agent", "event.data.qa_form"],
+            "to": [
+                {"target": "state.attributes.forms.qa_form"},
+                {"target": "resume.qa_form_to_agent"}
+            ],
+            "on_conflict": "merge_deep"
+        },
+        {
+            "from": ["event.data.notification_to_agent", "event.data.notification"],
+            "to": [
+                {"target": "state.attributes.notifications.latest"},
+                {"target": "resume.notification_to_agent"}
+            ],
+            "on_conflict": "merge_deep"
+        },
+        {
+            "from": ["event.data.human_text"],
+            "to": [
+                {"target": "state.attributes.human.last_message"},
+                {"target": "resume.human_text"}
+            ],
+            "transform": "to_string",
+            "on_conflict": "overwrite"
+        },
+        {
+            "from": ["event.tag"],
+            "to": [
+                {"target": "state.attributes.cloud_task_id"}
+            ],
+            "on_conflict": "overwrite"
+        }
+    ],
+    "options": {
+        "strict": False,
+        "default_on_missing": None,
+        "apply_order": "top_down"
+    }
+}
+
+
+def _resolve_from(event: Json, node: Json, state: Json, from_list: List[str], default_on_missing=None):
+    for path in from_list:
+        root, *rest = path.split(".")
+        if root == "event":
+            val = _safe_get(event, ".".join(rest), default_on_missing)
+        elif root == "node":
+            val = _safe_get(node, ".".join(rest), default_on_missing)
+        elif root == "state":
+            val = _safe_get(state, ".".join(rest), default_on_missing)
+        else:
+            val = default_on_missing
+        if val is not None:
+            return val
+    return default_on_missing
+
+
+def _apply_transform(val: Any, transform: Optional[Union[str, Dict[str, Any]]]):
+    """Apply a transform which may be a simple string or an object with args.
+    Supported:
+      - to_string
+      - identity
+      - parse_json
+      - pick { path: 'a.b.c' }
+      - coalesce { paths: ['x','y','z'] } (first non-null from value or context not used here)
+    """
+    if not transform:
+        return val
+    name: str
+    args: Dict[str, Any] = {}
+    if isinstance(transform, str):
+        name = transform
+    elif isinstance(transform, dict):
+        name = transform.get("name") or "identity"
+        args = transform.get("args") or {}
+    else:
+        return val
+
+    if name == "identity":
+        return val
+    if name == "to_string":
+        return _to_string(val)
+    if name == "parse_json":
+        try:
+            import json as _json
+            if isinstance(val, (dict, list)):
+                return val
+            return _json.loads(val)
+        except Exception:
+            return val
+    if name == "pick":
+        path = args.get("path")
+        if isinstance(path, str):
+            if isinstance(val, dict):
+                return _safe_get(val, path)
+            # allow picking from JSON string
+            try:
+                import json as _json
+                parsed = _json.loads(val) if isinstance(val, str) else {}
+                if isinstance(parsed, dict):
+                    return _safe_get(parsed, path)
+            except Exception:
+                return None
+        return None
+    if name == "coalesce":
+        # For simplicity, accept a list of paths to try within 'val' if it's a dict
+        # If not dict, return val when not None
+        paths = args.get("paths") or []
+        if isinstance(val, dict) and paths:
+            for p in paths:
+                v = _safe_get(val, p)
+                if v is not None:
+                    return v
+            return None
+        return val if val is not None else None
+    return val
+
+
+def build_resume_from_mapping(event: Json, state: Json, node_output: Optional[Json], mapping: Json) -> Tuple[Json, Json]:
+    resume: Json = {}
+    state_patch: Json = {}
+    opts = mapping.get("options", {}) if isinstance(mapping, dict) else {}
+    default_on_missing = opts.get("default_on_missing", None)
+    rules = mapping.get("mappings", []) if isinstance(mapping, dict) else []
+
+    for rule in rules:
+        from_list = rule.get("from") or []
+        to_list = rule.get("to") or []
+        transform = rule.get("transform")
+        on_conflict = rule.get("on_conflict", "overwrite")
+
+        value = _resolve_from(event, node_output or {}, state or {}, from_list, default_on_missing)
+        if value is None:
+            try:
+                logger.debug(f"[mapping] skip rule: no source value. from={from_list}")
+            except Exception:
+                pass
+            continue
+        value = _apply_transform(value, transform)
+
+        for target in to_list:
+            tpath = target.get("target")
+            if not tpath:
+                continue
+            root, *rest = tpath.split(".")
+            rest_path = ".".join(rest)
+            if root == "resume":
+                _write(resume, rest_path, value, on_conflict)
+                try:
+                    logger.debug(f"[mapping] applied -> resume.{rest_path} (conflict={on_conflict})")
+                except Exception:
+                    pass
+            elif root == "state":
+                _write(state_patch, rest_path, value, on_conflict)
+                try:
+                    logger.debug(f"[mapping] applied -> state.{rest_path} (conflict={on_conflict})")
+                except Exception:
+                    pass
+            else:
+                logger.debug(f"Unknown mapping root: {root}")
+
+    # Always include minimal event summary in resume for debugging/telemetry
+    resume.setdefault("event", {
+        "type": event.get("type"),
+        "source": event.get("source"),
+        "tag": event.get("tag"),
+        "timestamp": event.get("timestamp"),
+    })
+    return resume, state_patch
+
+
+def load_mapping_for_task(task: Any) -> Dict[str, Any]:
+    """Resolve mapping rules with precedence:
+    1) Node-level mapping: task.skill.config.nodes[<this_node.name>].mapping_rules
+    2) Skill-level mapping: task.skill.mapping_rules
+    3) Defaults
+    """
+    try:
+        skill = getattr(task, "skill", None)
+        # 1) Node-level mapping
+        try:
+            state = (task.metadata or {}).get("state") or {}
+            this_node = state.get("this_node") or {}
+            node_name = this_node.get("name")
+            if skill and isinstance(skill, object) and hasattr(skill, "config") and isinstance(skill.config, dict):
+                node_cfg = (skill.config.get("nodes") or {}).get(node_name) if node_name else None
+                node_rules = node_cfg.get("mapping_rules") if isinstance(node_cfg, dict) else None
+                if isinstance(node_rules, dict):
+                    return node_rules
+        except Exception:
+            pass
+        # 2) Skill-level mapping
+        if skill and hasattr(skill, "mapping_rules") and isinstance(skill.mapping_rules, dict):
+            return skill.mapping_rules
+    except Exception:
+        pass
+    # 3) Defaults
+    return DEFAULT_MAPPINGS
+
+
+def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
+    """
+    Orchestrate general-purpose resume payload creation.
+    Returns: (resume_payload, checkpoint, state_patch)
+    """
+    event = normalize_event(msg)
+    cp = select_checkpoint(task, event.get("tag"))
+
+    mapping = load_mapping_for_task(task)
+    current_state = (task.metadata or {}).get("state") or {}
+    resume_payload, state_patch = build_resume_from_mapping(event, current_state, node_output=None, mapping=mapping)
+
+    # Preserve existing behavior: inject cloud_task_id into checkpoint attributes, and mirror into state attributes
+    cloud_task_id = event.get("tag")
+    if cp and cloud_task_id:
+        inject_attributes_into_checkpoint(cp, {"cloud_task_id": cloud_task_id})
+        # Also reflect in our cached state attributes if present
+        try:
+            attrs = current_state.get("attributes")
+            if isinstance(attrs, dict):
+                attrs["cloud_task_id"] = cloud_task_id
+        except Exception:
+            pass
+
+    return resume_payload, cp, state_patch

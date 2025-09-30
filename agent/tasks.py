@@ -28,6 +28,7 @@ from langgraph.types import Interrupt
 from agent.ec_skills.dev_defs import BreakpointManager
 from utils.logger_helper import get_traceback
 from langgraph.errors import NodeInterrupt
+from agent.tasks_resume import build_general_resume_payload
 
 # self.REPEAT_TYPES = ["none", "by seconds", "by minutes", "by hours", "by days", "by weeks", "by months", "by years"]
 # self.WEEK_DAY_TYPES = ["M", "Tu", "W", "Th", "F", "Sa", "Su"]
@@ -1014,7 +1015,37 @@ class TaskRunner(Generic[Context]):
             return ""
 
     def _build_resume_payload(self, task, msg) -> dict:
-        """Build a resume payload from incoming chat/task message."""
+        """Build a resume payload from incoming chat/task message.
+        Uses general-purpose mapping when RESUME_PAYLOAD_V2 is enabled; otherwise falls back to legacy behavior.
+        """
+        # Feature-flagged path
+        try:
+            use_v2 = os.getenv("RESUME_PAYLOAD_V2", "true").lower() in ("1", "true", "yes", "on")
+            if use_v2:
+                resume_payload, resume_cp, state_patch = build_general_resume_payload(task, msg)
+                # Merge state_patch into task.metadata["state"] non-invasively
+                try:
+                    if isinstance(state_patch, dict) and state_patch:
+                        cur_state = task.metadata.get("state") if isinstance(task.metadata, dict) else None
+                        if isinstance(cur_state, dict):
+                            # deep merge state_patch into cur_state
+                            def _deep_merge(a, b):
+                                out = dict(a)
+                                for k, v in b.items():
+                                    if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+                                        out[k] = _deep_merge(out[k], v)
+                                    else:
+                                        out[k] = v
+                                return out
+                            merged = _deep_merge(cur_state, state_patch)
+                            task.metadata["state"] = merged
+                except Exception as e:
+                    logger.debug(f"_build_resume_payload v2 state merge error: {e}")
+                return resume_payload, resume_cp
+        except Exception as e:
+            logger.debug(f"_build_resume_payload v2 failed, falling back to legacy: {e}")
+
+        # Legacy behavior (current implementation)
         try:
             if hasattr(msg, "params"):
                 message = getattr(msg.params, "message", None)
@@ -1069,21 +1100,6 @@ class TaskRunner(Generic[Context]):
             return payload, resume_cp
         except Exception:
             return {"human_text": ""}, None
-
-
-    async def async_task_wait_in_line(self, event_type, request):
-        try:
-            print("async task waiting in line.....", event_type,  self.agent.card.name, self.event_handler_queues, request)
-            event_queue = self.event_handler_queues.get(event_type, None)
-            if event_queue:
-                await event_queue.put(request)
-                # self.a2a_msg_queue.put_nowait(request)
-                print("task now in line....")
-            else:
-                logger.error("event queue NOT FOUND for event type: " + event_type)
-        except Exception as e:
-            ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
-            print(f"{ex_stat}")
 
     def sync_task_wait_in_line(self, event_type, request):
         try:
