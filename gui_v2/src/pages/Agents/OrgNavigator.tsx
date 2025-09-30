@@ -1,7 +1,7 @@
 import React, { useMemo, useCallback, useEffect } from 'react';
 import { Alert, Button, Spin } from 'antd';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useUserStore } from '../../stores/userStore';
 import { useOrgStore } from '../../stores/orgStore';
 import { useAgentStore } from '../../stores/agentStore';
@@ -36,26 +36,7 @@ function findTreeNodeById(node: TreeOrgNode, targetId: string): TreeOrgNode | nu
   return null;
 }
 
-// 查找到节点的路径
-function findPathToNode(node: TreeOrgNode, targetId: string, stack: TreeOrgNode[] = []): TreeOrgNode[] | null {
-  const nextStack = [...stack, node];
-  if (node.id === targetId) {
-    return nextStack;
-  }
-
-  if (!node.children || node.children.length === 0) {
-    return null;
-  }
-
-  for (const child of node.children) {
-    const found = findPathToNode(child, targetId, nextStack);
-    if (found) {
-      return found;
-    }
-  }
-
-  return null;
-}
+// Helper function to find path to a node - removed as it was not being used
 
 const mapOrgAgentToAgent = (orgAgent: OrgAgent, orgId?: string): Agent => {
   const resolvedOrgId = orgId ?? (orgAgent.org_id ?? undefined);
@@ -211,71 +192,7 @@ const OrgNavigator: React.FC = () => {
     return rawAgents.map((agent) => mapOrgAgentToAgent(agent, orgId));
   }, [rawAgents, departmentId, isUnassignedView]);
 
-  const breadcrumbItems = useMemo(() => {
-    if (!rootNode) {
-      return [];
-    }
-
-    const trail: { key: string; title: React.ReactNode }[] = [];
-    const rootTitle = rootNode.name || t('pages.agents.organizations') || 'Organizations';
-
-    if (isRootView) {
-      trail.push({ key: rootNode.id, title: rootTitle });
-      return trail;
-    }
-
-    trail.push({
-      key: rootNode.id,
-      title: (
-        <Link to="/agents" replace>
-          {rootTitle}
-        </Link>
-      ),
-    });
-
-    if (isUnassignedView) {
-      trail.push({
-        key: UNASSIGNED_NODE_ID,
-        title: t('pages.agents.unassigned_agents') || 'Unassigned Agents',
-      });
-      return trail;
-    }
-
-    if (!currentNode) {
-      return trail;
-    }
-
-    const path = findPathToNode(rootNode, currentNode.id);
-    if (!path) {
-      return trail;
-    }
-
-    path.slice(1).forEach((node, index, arr) => {
-      const isLast = index === arr.length - 1;
-      trail.push({
-        key: node.id,
-        title: isLast ? (
-          node.name
-        ) : (
-          <a
-            onClick={() => navigate(`/agents/room/${node.id}`)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                navigate(`/agents/room/${node.id}`);
-              }
-            }}
-            role="link"
-            tabIndex={0}
-          >
-            {node.name}
-          </a>
-        ),
-      });
-    });
-
-    return trail;
-  }, [rootNode, currentNode, isRootView, isUnassignedView, navigate, t]);
+  // Breadcrumb items removed as they were not being used
 
   const handleDoorClick = useCallback(
     (door: DisplayNode) => {
@@ -299,6 +216,10 @@ const OrgNavigator: React.FC = () => {
 
       if (door.type === 'org_with_agents' && typeof door.agentCount === 'number') {
         displayName = `${displayName} (${door.agentCount})`;
+      }
+
+      if (door.type === 'org_with_children' && typeof door.childrenCount === 'number') {
+        displayName = `${displayName} (${door.childrenCount})`;
       }
 
       if (door.type === 'unassigned_agents') {
