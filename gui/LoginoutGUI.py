@@ -148,7 +148,7 @@ class Login:
                         logger.info("[AsyncLogin] 📦 Waiting for background preload to complete...")
                         self._update_progress(70, "Finalizing preload...")
                         
-                        preload_result = await preloader.wait_for_completion(timeout=15.0)
+                        preload_result = await preloader.wait_for_completion(timeout=30.0)
                         success_count = preload_result.get('success_count', 0)
                         total_tasks = preload_result.get('total_tasks', 0)
                         
