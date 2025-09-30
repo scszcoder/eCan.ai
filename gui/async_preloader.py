@@ -22,11 +22,15 @@ class AsyncPreloader:
         self._preload_errors: Dict[str, Exception] = {}
         self._is_preloading = False
         self._start_time = None
-        self._completion_event = asyncio.Event()
         self._lock = asyncio.Lock()
         
-    async def start_preload(self) -> None:
-        """Start async preload (non-blocking)"""
+    async def start_preload(self, wait_for_completion: bool = False) -> None:
+        """
+        Start async preload
+        
+        Args:
+            wait_for_completion: If True, wait for all tasks to complete before returning
+        """
         async with self._lock:
             if self._is_preloading:
                 logger.info("[AsyncPreloader] Preload already in progress")
@@ -34,15 +38,19 @@ class AsyncPreloader:
                 
             self._is_preloading = True
             self._start_time = time.time()
-            self._completion_event.clear()
             
         logger.info("[AsyncPreloader] 🚀 Starting async preload...")
         
         # Start preload tasks
         await self._start_preload_tasks()
         
-        # Monitor completion in background
-        asyncio.create_task(self._monitor_completion())
+        # Monitor completion
+        if wait_for_completion:
+            # Wait for completion synchronously
+            await self._monitor_completion()
+        else:
+            # Monitor completion in background
+            asyncio.ensure_future(self._monitor_completion())
     
     async def _start_preload_tasks(self) -> None:
         """Start all preload tasks in parallel"""
@@ -91,7 +99,6 @@ class AsyncPreloader:
         finally:
             async with self._lock:
                 self._is_preloading = False
-            self._completion_event.set()
     
     async def _preload_mainwindow_dependencies(self) -> Dict[str, Any]:
         """Preload MainWindow heavy dependencies with parallel sub-tasks"""
@@ -372,11 +379,30 @@ class AsyncPreloader:
             }
     
     async def wait_for_completion(self, timeout: float = 30.0) -> Dict[str, Any]:
-        """Wait for preload completion"""
+        """
+        Wait for preload completion (thread-safe polling)
+        
+        Note: Uses polling instead of event waiting because preload runs in a separate thread
+        with its own event loop, and asyncio.Event is not thread-safe across event loops.
+        """
+        import time
+        start_time = time.time()
+        poll_interval = 0.1  # Poll every 100ms
+        
         try:
-            await asyncio.wait_for(self._completion_event.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
-            logger.warning(f"[AsyncPreloader] Wait for completion timed out after {timeout}s")
+            while time.time() - start_time < timeout:
+                # Check if preload is complete (thread-safe)
+                if not self._is_preloading and len(self._preload_tasks) > 0:
+                    logger.info(f"[AsyncPreloader] ✅ Preload completion detected")
+                    break
+                
+                # Sleep asynchronously to not block the event loop
+                await asyncio.sleep(poll_interval)
+            else:
+                # Timeout reached
+                logger.warning(f"[AsyncPreloader] Wait for completion timed out after {timeout}s")
+        except Exception as e:
+            logger.error(f"[AsyncPreloader] Wait for completion error: {e}")
         
         return self.get_summary()
     
@@ -439,10 +465,10 @@ def get_async_preloader() -> AsyncPreloader:
     return _global_preloader
 
 
-async def start_async_preload() -> None:
+async def start_async_preload(wait_for_completion: bool = True) -> None:
     """Start async preload (convenience function)"""
     preloader = get_async_preloader()
-    await preloader.start_preload()
+    await preloader.start_preload(wait_for_completion=wait_for_completion)
 
 
 async def wait_for_preload_completion(timeout: float = 30.0) -> Dict[str, Any]:

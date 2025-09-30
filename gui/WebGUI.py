@@ -146,11 +146,56 @@ class WebGUI(QMainWindow):
         """
         try:
             import asyncio
+            import threading
             from gui.async_preloader import start_async_preload
             
             logger.info("🚀 [WebGUI] Starting async preload in background...")
-            asyncio.create_task(start_async_preload())
-            logger.info("✅ [WebGUI] Async preload task created successfully")
+            
+            # Run async preload in a separate thread with its own event loop
+            # This is necessary because Qt has its own event loop and doesn't run asyncio
+            def _run_async_preload():
+                loop = None
+                try:
+                    # Create new event loop for this thread
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                    # Run the preload coroutine (wait for completion)
+                    loop.run_until_complete(start_async_preload(wait_for_completion=True))
+                    
+                    # Get preload summary
+                    from gui.async_preloader import get_preload_summary
+                    summary = get_preload_summary()
+                    success_count = summary.get('success_count', 0)
+                    total_tasks = summary.get('total_tasks', 0)
+                    total_time = summary.get('total_time', 0)
+                    
+                    logger.info(f"✅ [WebGUI] Async preload completed: {success_count}/{total_tasks} tasks in {total_time:.2f}s")
+                except Exception as e:
+                    logger.warning(f"⚠️ [WebGUI] Async preload thread error: {e}")
+                    import traceback
+                    logger.warning(f"⚠️ [WebGUI] Traceback: {traceback.format_exc()}")
+                finally:
+                    # Ensure loop is properly closed
+                    if loop is not None and not loop.is_closed():
+                        try:
+                            # Cancel any remaining tasks
+                            pending = asyncio.all_tasks(loop)
+                            for task in pending:
+                                task.cancel()
+                            # Wait for cancellations
+                            if pending:
+                                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                        except Exception:
+                            pass
+                        finally:
+                            loop.close()
+            
+            # Start preload in daemon thread (won't block app exit)
+            preload_thread = threading.Thread(target=_run_async_preload, daemon=True, name="AsyncPreloadThread")
+            preload_thread.start()
+            logger.info("✅ [WebGUI] Async preload thread started")
+            
         except Exception as e:
             logger.warning(f"⚠️ [WebGUI] Failed to start preload: {e}")
             import traceback
