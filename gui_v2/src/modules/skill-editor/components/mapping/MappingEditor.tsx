@@ -203,7 +203,7 @@ export function MappingEditor(props: {
   }, [config, sampleEvent, sampleState, sampleNode]);
 
   return (
-    <div style={{ border: '1px solid #eee', borderRadius: 6, padding: 8, background: '#fff', marginTop: 8 }}>
+    <div style={{ border: '1px solid #eee', borderRadius: 6, padding: 8, background: '#ffffff', marginTop: 8, color: '#222' }}>
       <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>Mapping Rules</div>
 
       {/* Rules editor */}
@@ -214,7 +214,7 @@ export function MappingEditor(props: {
               <div style={{ flex: '1 1 240px' }}>
                 <div style={{ fontSize: 12, color: '#555' }}>From (comma-separated paths)</div>
                 <input
-                  style={{ width: '100%' }}
+                  style={{ width: '100%', color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: '4px 6px' }}
                   value={(rule.from || []).join(', ')}
                   onChange={(e) => setRuleField(idx, 'from', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
                   placeholder="event.data.qa_form_to_agent, event.data.qa_form"
@@ -225,6 +225,7 @@ export function MappingEditor(props: {
                 <select
                   value={typeof rule.transform === 'string' ? rule.transform : (rule.transform?.name || '')}
                   onChange={(e) => setRuleField(idx, 'transform', e.target.value || undefined)}
+                  style={{ width: '100%', color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: '4px 6px' }}
                 >
                   <option value="">(none)</option>
                   <option value="identity">identity</option>
@@ -241,7 +242,7 @@ export function MappingEditor(props: {
                     const path = cur.args?.path || '';
                     return (
                       <input
-                        style={{ width: '100%', marginTop: 4 }}
+                        style={{ width: '100%', marginTop: 4, color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: '4px 6px' }}
                         placeholder="args.path"
                         value={path}
                         onChange={(e) => setRuleField(idx, 'transform', { name: 'pick', args: { path: e.target.value } })}
@@ -253,7 +254,7 @@ export function MappingEditor(props: {
                     const paths = (cur.args?.paths || []) as string[];
                     return (
                       <input
-                        style={{ width: '100%', marginTop: 4 }}
+                        style={{ width: '100%', marginTop: 4, color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: '4px 6px' }}
                         placeholder="args.paths (comma-separated)"
                         value={paths.join(', ')}
                         onChange={(e) => setRuleField(idx, 'transform', { name: 'coalesce', args: { paths: e.target.value.split(',').map(s => s.trim()).filter(Boolean) } })}
@@ -268,6 +269,7 @@ export function MappingEditor(props: {
                 <select
                   value={rule.on_conflict || 'overwrite'}
                   onChange={(e) => setRuleField(idx, 'on_conflict', e.target.value as any)}
+                  style={{ width: '100%', color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: '4px 6px' }}
                 >
                   <option value="overwrite">overwrite</option>
                   <option value="skip">skip</option>
@@ -298,7 +300,7 @@ export function MappingEditor(props: {
       <div style={{ marginTop: 12 }}>
         <div style={{ fontSize: 12, color: '#555', marginBottom: 4 }}>Raw Mapping JSON</div>
         <textarea
-          style={{ width: '100%', minHeight: 120, fontFamily: 'monospace', fontSize: 12 }}
+          style={{ width: '100%', minHeight: 120, fontFamily: 'monospace', fontSize: 12, color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: 8 }}
           value={JSON.stringify(config, null, 2)}
           onChange={(e) => {
             try { const js = JSON.parse(e.target.value); update(js); } catch { /* ignore */ }
@@ -310,15 +312,15 @@ export function MappingEditor(props: {
       <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
         <div>
           <div style={{ fontSize: 12, color: '#555', marginBottom: 4 }}>Sample Event</div>
-          <textarea style={{ width: '100%', minHeight: 120, fontFamily: 'monospace', fontSize: 12 }} value={sampleEvent} onChange={(e) => setSampleEvent(e.target.value)} />
+          <textarea style={{ width: '100%', minHeight: 120, fontFamily: 'monospace', fontSize: 12, color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: 8 }} value={sampleEvent} onChange={(e) => setSampleEvent(e.target.value)} />
         </div>
         <div>
           <div style={{ fontSize: 12, color: '#555', marginBottom: 4 }}>Sample State</div>
-          <textarea style={{ width: '100%', minHeight: 120, fontFamily: 'monospace', fontSize: 12 }} value={sampleState} onChange={(e) => setSampleState(e.target.value)} />
+          <textarea style={{ width: '100%', minHeight: 120, fontFamily: 'monospace', fontSize: 12, color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: 8 }} value={sampleState} onChange={(e) => setSampleState(e.target.value)} />
         </div>
         <div>
           <div style={{ fontSize: 12, color: '#555', marginBottom: 4 }}>Sample Node Output</div>
-          <textarea style={{ width: '100%', minHeight: 120, fontFamily: 'monospace', fontSize: 12 }} value={sampleNode} onChange={(e) => setSampleNode(e.target.value)} />
+          <textarea style={{ width: '100%', minHeight: 120, fontFamily: 'monospace', fontSize: 12, color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: 8 }} value={sampleNode} onChange={(e) => setSampleNode(e.target.value)} />
         </div>
       </div>
       <div style={{ marginTop: 8 }}>
@@ -360,12 +362,13 @@ function TargetsEditor(props: { value: MappingTarget[]; onChange: (v: MappingTar
               const rest = (t.target || '').split('.').slice(1).join('.') || (root === 'resume' ? 'human_text' : 'attributes.x');
               setTarget(i, `${root}.${rest}`);
             }}
+            style={{ color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: '4px 6px' }}
           >
             <option value="resume">resume</option>
             <option value="state">state</option>
           </select>
           <input
-            style={{ flex: 1 }}
+            style={{ flex: 1, color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: '4px 6px' }}
             placeholder={"path e.g. " + ((t.target || '').startsWith('resume') ? 'human_text' : 'attributes.x')}
             value={(t.target || '').split('.').slice(1).join('.')}
             onChange={(e) => {
@@ -385,7 +388,7 @@ function btn() {
   return { fontSize: 12, padding: '2px 8px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5', color: '#333', cursor: 'pointer' } as React.CSSProperties;
 }
 function pre() {
-  return { whiteSpace: 'pre-wrap', background: '#fafafa', padding: 8, border: '1px solid #eee', borderRadius: 6, fontSize: 12 } as React.CSSProperties;
+  return { whiteSpace: 'pre-wrap', background: '#fafafa', color: '#222', padding: 8, border: '1px solid #eee', borderRadius: 6, fontSize: 12 } as React.CSSProperties;
 }
 
 export default MappingEditor;

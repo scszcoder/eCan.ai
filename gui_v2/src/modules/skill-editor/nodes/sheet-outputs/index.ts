@@ -9,7 +9,9 @@ export const SheetOutputsNodeRegistry: FlowNodeRegistry = {
   type: 'sheet-outputs',
   meta: {
     size: { width: 320, height: 100 },
-    defaultPorts: [],
+    defaultPorts: [
+      { type: 'input', key: 'in' },
+    ],
   },
   info: {
     icon: iconVariable,

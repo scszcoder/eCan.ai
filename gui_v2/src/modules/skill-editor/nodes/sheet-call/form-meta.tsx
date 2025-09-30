@@ -3,6 +3,7 @@ import { FormMeta, FormRenderProps, useClientContext } from '@flowgram.ai/free-l
 import { Select, Input, Typography, Button, Radio, Space } from '@douyinfe/semi-ui';
 import { FlowNodeJSON } from '../../typings';
 import { useSheetsStore } from '../../stores/sheets-store';
+import { FormHeader, FormContent } from '../../form-components';
 
 type MappingValue = { kind: 'const'; value: any } | { kind: 'local-port'; nodeId: string; port: string };
 
@@ -144,8 +145,11 @@ const SheetCallForm: React.FC<FormRenderProps<FlowNodeJSON>> = ({ form }) => {
   }, [JSON.stringify(missingInputs), JSON.stringify(missingOutputs)]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <Typography.Text strong>Sheet Call</Typography.Text>
+    <>
+      <FormHeader />
+      <FormContent>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Typography.Text strong>Sheet Call</Typography.Text>
       <Input
         value={data.callName || ''}
         onChange={(v) => setField('data.callName', v)}
@@ -209,7 +213,9 @@ const SheetCallForm: React.FC<FormRenderProps<FlowNodeJSON>> = ({ form }) => {
       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
         <Button disabled={!data.targetSheetId} onClick={() => data.targetSheetId && openSheet(data.targetSheetId)}>Jump to target sheet</Button>
       </div>
-    </div>
+        </div>
+      </FormContent>
+    </>
   );
 };
 

@@ -1,5 +1,5 @@
 /**
- * Pend Input Node Registry
+ * Pend Event Node Registry
  */
 import { nanoid } from 'nanoid';
 import { WorkflowNodeType } from '../constants';
@@ -9,11 +9,11 @@ import { formMeta } from './form-meta';
 import iconBreak from '../../assets/icon-break.jpg';
 
 let idx = 0;
-export const PendInputNodeRegistry: FlowNodeRegistry = {
-  type: WorkflowNodeType.PendInput,
+export const PendEventNodeRegistry: FlowNodeRegistry = {
+  type: WorkflowNodeType.PendEvent as any,
   info: {
     icon: iconBreak,
-    description: 'Pause the flow until a message arrives from selected queues/events.',
+    description: 'Pause the flow until a specified event type arrives, then resume.',
   },
   meta: {
     defaultPorts: [
@@ -22,23 +22,24 @@ export const PendInputNodeRegistry: FlowNodeRegistry = {
       { type: 'output', key: 'out' },
     ],
     size: { width: 380, height: 300 },
-    nodePanelVisible: false,
   },
   onAdd() {
     return {
-      id: `pend_${nanoid(5)}`,
-      type: 'pend_input_node',
+      id: `pend_event_${nanoid(5)}`,
+      type: 'pend_event_node',
       data: {
-        title: `PendInput_${++idx}`,
+        title: `PendEvent_${++idx}`,
         inputsValues: {
+          eventType: { type: 'constant', content: 'human_chat' },
           pendingSources: { type: 'constant', content: [] },
           timeoutSec: { type: 'constant', content: 0 },
           resumePolicy: { type: 'constant', content: 'first' },
         },
         inputs: {
           type: 'object',
-          required: ['pendingSources'],
+          required: ['eventType'],
           properties: {
+            eventType: { type: 'string' },
             pendingSources: { type: 'array' },
             timeoutSec: { type: 'number' },
             resumePolicy: { type: 'string' },
@@ -46,7 +47,7 @@ export const PendInputNodeRegistry: FlowNodeRegistry = {
         },
         outputs: DEFAULT_NODE_OUTPUTS,
       },
-    };
+    } as any;
   },
   formMeta,
 };

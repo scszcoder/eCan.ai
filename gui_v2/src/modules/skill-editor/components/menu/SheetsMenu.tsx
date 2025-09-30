@@ -21,11 +21,13 @@ export const SheetsMenu: React.FC = () => {
   const newSheet = useSheetsStore((s) => s.newSheet);
   const clearActiveSheet = useSheetsStore((s) => s.clearActiveSheet);
   const saveActiveDocument = useSheetsStore((s) => s.saveActiveDocument);
-  const getAllSheets = useSheetsStore((s) => s.getAllSheets);
+  const sheetOrder = useSheetsStore((s) => s.order);
+  const sheetMap = useSheetsStore((s) => s.sheets);
   const loadBundle = useSheetsStore((s) => s.loadBundle);
   const renameSheet = useSheetsStore((s) => s.renameSheet);
 
   const [visible, setVisible] = React.useState(false);
+  const sheetList = React.useMemo(() => sheetOrder.map((id) => sheetMap[id]).filter(Boolean), [sheetOrder, sheetMap]);
 
   const handleOpen = () => {
     const id = window.prompt('Open sheet by ID:');
@@ -87,6 +89,15 @@ export const SheetsMenu: React.FC = () => {
           <Dropdown.Item icon={<IconPlus />} onClick={handleInsertSheetCall}>Insert Sheet Call…</Dropdown.Item>
           <Dropdown.Item icon={<IconPlus />} onClick={handleNew}>New Sheet</Dropdown.Item>
           <Dropdown.Item icon={<IconFolderOpen />} onClick={handleOpen}>Open Sheet by ID</Dropdown.Item>
+          <Dropdown.Item disabled>
+            <span style={{ fontWeight: 600, color: '#666' }}>Open Sheet…</span>
+          </Dropdown.Item>
+          {/* Auto-generated list of available sheets */}
+          {(sheetList || []).map((s) => (
+            <Dropdown.Item key={s.id} onClick={() => { openSheet(s.id); setVisible(false); }}>
+              {s.name || s.id} <span style={{ color: '#999' }}>({s.id})</span>
+            </Dropdown.Item>
+          ))}
           <Dropdown.Item icon={<IconEdit />} onClick={handleRename} disabled={!activeId}>Rename Active Sheet</Dropdown.Item>
           <Dropdown.Item icon={<IconDeleteStroked />} onClick={handleClear} disabled={!activeId}>Clear Sheet (blank)</Dropdown.Item>
           <Dropdown.Item icon={<IconExit />} onClick={handleClose} disabled={!activeId}>Close Active Sheet</Dropdown.Item>
