@@ -76,6 +76,38 @@ export const useSheetsStore = create<SheetsState>((set, get) => ({
     }));
   },
 
+  // Persist current sheet's view state (zoom only for now)
+  saveActiveViewState: (view: { zoom?: number }) => {
+    const st = get();
+    const id = st.activeSheetId;
+    if (!id) return;
+    const sheet = st.sheets[id];
+    if (!sheet) return;
+    set({ sheets: { ...st.sheets, [id]: { ...sheet, view: { ...(sheet.view || {}), ...view } } } });
+  },
+  getActiveViewState: () => {
+    const st = get();
+    const id = st.activeSheetId;
+    if (!id) return null;
+    return st.sheets[id]?.view || null;
+  },
+
+  // Persist and retrieve selection IDs for active sheet
+  saveActiveSelection: (ids: string[]) => {
+    const st = get();
+    const id = st.activeSheetId;
+    if (!id) return;
+    const sheet = st.sheets[id];
+    if (!sheet) return;
+    set({ sheets: { ...st.sheets, [id]: { ...sheet, selectionIds: Array.isArray(ids) ? [...ids] : [] } } });
+  },
+  getActiveSelection: () => {
+    const st = get();
+    const id = st.activeSheetId;
+    if (!id) return [];
+    return st.sheets[id]?.selectionIds || [];
+  },
+
   newSheet: (name?: string, initialDoc?: any) => {
     const id = nanoid(8);
     const now = Date.now();

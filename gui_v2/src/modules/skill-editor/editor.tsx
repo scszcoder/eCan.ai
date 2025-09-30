@@ -28,6 +28,7 @@ import { useSheetsStore } from './stores/sheets-store';
 import { SheetsTabBar } from './components/tabs/SheetsTabBar';
 import { SheetsMenu } from './components/menu/SheetsMenu';
 import { ActiveSheetBinder } from './components/tabs/ActiveSheetBinder';
+import { RunningNodeNavigator } from './components/tabs/RunningNodeNavigator';
 import { isValidationDisabled } from './services/validation-config';
 
 const EditorContainer = styled.div`
@@ -131,6 +132,7 @@ export const Editor = () => {
           <FreeLayoutEditorProvider {...editorProps}>
             {/* Sync the active sheet's document with the editor's WorkflowDocument */}
             <ActiveSheetBinder />
+            <RunningNodeNavigator />
             <SidebarProvider>
               <NodeInfoDisplay />
               <div className="demo-container">
