@@ -211,15 +211,18 @@ def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp
         else:
             logger.warning(f"Edge source or target not found in node_map: {source_id} -> {target_id}")
 
-def flowgram2langgraph(flowgram_json):
+def flowgram2langgraph(flowgram_json, bundle_json=None):
     try:
         flow = json.loads(flowgram_json) if isinstance(flowgram_json, str) else flowgram_json
+        # Optionally merge or attach bundle info for future use
+        if bundle_json is not None:
+            flow["bundle"] = bundle_json
         workflow = StateGraph(NodeState)
         node_map = {}
         id_to_node = {}
         breakpoints = []
         print("flowgram2langgraph", type(flowgram_json), flowgram_json)
-        skill_name = flowgram_json["skillName"]
+        skill_name = flow.get("skillName", "")
         owner = flow.get("owner", "")
         # find breakpoint manager of the dev task, since it will always be that.
         login: Login = AppContext.login

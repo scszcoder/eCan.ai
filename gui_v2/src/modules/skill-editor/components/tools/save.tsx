@@ -10,6 +10,7 @@ import { SkillInfo } from '../../typings/skill-info';
 import { hasIPCSupport, hasFullFilePaths } from '../../../../config/platform';
 import '../../../../services/ipc/file-api'; // Import file API extensions
 import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files-store';
+import { IPCWCClient } from '@/services/ipc/ipcWCClient';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { saveSheetsBundleToPath, saveSheetsBundle } from '../../services/sheets-persistence';
 // 添加 File System Access API 的类型定义
@@ -180,8 +181,31 @@ export const Save = ({ disabled }: SaveProps) => {
         mode: (skillInfo as any)?.mode ?? 'development',
       };
 
-      // 4. Save the file with platform-aware handling
-      const saveResult = await saveFile(updatedSkillInfo, username || undefined, currentFilePath);
+      // 4. If user renamed the skill, and we have a current path, rename the underlying <name>_skill folder
+      let effectivePath = currentFilePath || null;
+      try {
+        if (effectivePath) {
+          // Expect path like .../<old>_skill/diagram_dir/<old>_skill.json
+          const norm = effectivePath.replace(/\\/g, '/');
+          const m = norm.match(/\/([^\/]+)_skill\/diagram_dir\//);
+          const oldName = m?.[1];
+          const newName = updatedSkillInfo.skillName;
+          if (oldName && newName && oldName !== newName) {
+            const resp: any = await IPCWCClient.getInstance().sendRequest('skills.rename', { oldName, newName });
+            if (resp?.status === 'success' && resp.result?.skillRoot) {
+              const newRoot: string = String(resp.result.skillRoot).replace(/\\/g, '/');
+              // point to new diagram json under renamed root
+              effectivePath = `${newRoot}/diagram_dir/${newName}_skill.json`;
+              setCurrentFilePath(effectivePath);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[Save] rename flow failed or skipped', e);
+      }
+
+      // 5. Save the file with platform-aware handling
+      const saveResult = await saveFile(updatedSkillInfo, username || undefined, effectivePath);
 
       if (saveResult && !saveResult.cancelled) {
         // Update the skill info store
@@ -194,7 +218,7 @@ export const Save = ({ disabled }: SaveProps) => {
         }
 
         // Add to recent files when saving (update last opened time)
-        const finalFilePath = saveResult.filePath || currentFilePath;
+        const finalFilePath = saveResult.filePath || effectivePath;
         if (finalFilePath) {
           addRecentFile(createRecentFile(finalFilePath, updatedSkillInfo.skillName));
         }

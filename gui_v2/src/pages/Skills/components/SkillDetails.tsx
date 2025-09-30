@@ -15,6 +15,7 @@ import ActionButtons from '../../../components/Common/ActionButtons';
 import { useNavigate } from 'react-router-dom';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
+import { IPCWCClient } from '@/services/ipc/ipcWCClient';
 
 const { Text, Title } = Typography;
 
@@ -125,12 +126,31 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
     const handleSave = async () => {
         try {
             const values = await form.validateFields();
-            // send to backend via IPC
             const payload = {
                 ...values,
                 id: (values as any).id,
                 owner: username,
             } as ExtendedSkill;
+
+            // Rename local folder if path indicates a local diagram and name changed
+            try {
+                const currentPath = (payload as any).path as string | undefined;
+                const oldNameMatch = currentPath ? String(currentPath).replace(/\\/g, '/').match(/\/([^\/]+)_skill\/diagram_dir\//) : null;
+                const oldName = oldNameMatch?.[1];
+                const newName = (payload as any).name as string;
+                if (!isNew && currentPath && oldName && newName && oldName !== newName) {
+                    const resp: any = await IPCWCClient.getInstance().sendRequest('skills.rename', { oldName, newName });
+                    if (resp?.status === 'success' && resp.result?.skillRoot) {
+                        const newRoot: string = String(resp.result.skillRoot).replace(/\\/g, '/');
+                        // update diagram path in payload to reflect rename
+                        (payload as any).path = `${newRoot}/diagram_dir/${newName}_skill.json`;
+                    }
+                }
+            } catch (e) {
+                // eslint-disable-next-line no-console
+                console.warn('[Skills] rename flow skipped or failed', e);
+            }
+
             const api = get_ipc_api();
             const resp = isNew
                 ? await api.newSkill(username, payload as any)

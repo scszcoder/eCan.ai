@@ -7,12 +7,9 @@
 # On macOS: ~/Library/Application Support/MyApp/my_skills/…
 # On Linux: ~/.local/share/MyApp/my_skills/…
 
-
-
-
 # host_plugins.py
 from __future__ import annotations
-import os, sys, json, subprocess, textwrap, uuid
+import os, sys, json, subprocess, textwrap, uuid, shutil
 from pathlib import Path
 import venv
 from typing import Any, Callable
@@ -21,9 +18,8 @@ APP_NAME = "eCan.ai"              # change to your real app name
 SKILLS_DIRNAME = "my_skills"    # as requested
 
 
-
 # ===============================================================================
-def user_plugins_root() -> Path:
+def user_skills_root() -> Path:
     """Return the per-user skills root dir."""
     if sys.platform == "win32":
         base = Path(os.getenv("APPDATA", Path.home() / "AppData" / "Roaming"))
@@ -34,62 +30,74 @@ def user_plugins_root() -> Path:
         return Path.home() / ".local" / "share" / APP_NAME / SKILLS_DIRNAME
 
 
-def scaffold_skill(skill_name: str = "abc_skill", description: str = "This skill ....") -> Path:
-    root = user_plugins_root()
-    skill_dir = root / skill_name
-    pkg = skill_dir / skill_name
-    pkg.mkdir(parents=True, exist_ok=True)
+def scaffold_skill(skill_name: str = "abc", description: str = "This skill ....", kind: str = "code") -> Path:
+    """Create `<root>/<name>_skill/` with either `code_skill/` or `diagram_dir/`.
 
-    # plugin-only deps (host already provides langchain)
-    (skill_dir / "requirements.txt").write_text("pandas>=2.2\n", encoding="utf-8")
-    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    kind:
+      - "code": create code_skill/<name>/abc_skill.py (+requirements.txt)
+      - "diagram": create diagram_dir/<name>_skill.json (+ optional bundle placeholder)
+    """
+    root = user_skills_root()
+    root.mkdir(parents=True, exist_ok=True)
+    skill_root = root / f"{skill_name}_skill"
+    skill_root.mkdir(parents=True, exist_ok=True)
 
-    # Entry module returns (SkillDTO, StateGraph)
-    (pkg / "abc_skill.py").write_text(textwrap.dedent(f"""\
-        from typing import Dict, Any
-        from models import SkillDTO
-        from langgraph.graph import StateGraph
+    if kind == "code":
+        code_dir = skill_root / "code_skill"
+        pkg = code_dir / skill_name
+        pkg.mkdir(parents=True, exist_ok=True)
+        (skill_root / "requirements.txt").write_text("pandas>=2.2\n", encoding="utf-8")
+        (pkg / "__init__.py").write_text("", encoding="utf-8")
+        (pkg / "abc_skill.py").write_text(textwrap.dedent(f"""\
+            # {skill_name} code skill scaffold
+            from langgraph.graph import StateGraph
 
-        # plugin can use host-provided libs and its own extras:
-        import langchain             # from host environment
-        import pandas as pd          # from this plugin's .venv
+            def build_stategraph():
+                g = StateGraph(dict)
+                def start(state: dict):
+                    state['hello'] = 'world'
+                    return state
+                g.add_node('start', start)
+                g.set_entry_point('start')
+                return g
 
-        Description:
-            {description}
-            
-        def build_stategraph() -> Any:
-            # Minimal StateGraph example; adjust to your real state type
-            # For demo we assume dict-state
-            g = StateGraph(dict)
-
-            # Example nodes
-            def start(state: dict):
-                state["msg"] = state.get("msg", "hi")
-                return state
-
-            def done(state: dict):
-                state["done"] = True
-                return state
-
-            g.add_node("start", start)
-            g.add_node("done", done)
-            g.add_edge("start", "done")
-            g.set_entry_point("start")
-            g.set_finish_point("done")
-            return g
-
-        def build_skill():
-            dto = SkillDTO(
-                name="{skill_name}",
-                description="{description}",
-                config={{"uses": ["pandas", "langgraph"], "langgraph_version": getattr(langgraph, "__version__", "unknown")}}
-            )
-            sg = build_stategraph()
-            return dto, sg
+            def build_skill():
+                # return (dto, stategraph) tuple or EC_Skill; loader supports both
+                class DTO:
+                    def __init__(self):
+                        self.name = '{skill_name}'
+                        self.description = '{description}'
+                        self.config = {{}}
+                return DTO(), build_stategraph()
         """), encoding="utf-8")
+    elif kind == "diagram":
+        diagram_dir = skill_root / "diagram_dir"
+        diagram_dir.mkdir(parents=True, exist_ok=True)
+        core = {
+            "skillName": skill_name,
+            "description": description,
+            "owner": "",
+            "workFlow": {"nodes": [], "edges": []}
+        }
+        (diagram_dir / f"{skill_name}_skill.json").write_text(json.dumps(core, indent=2, ensure_ascii=False), encoding="utf-8")
+        (diagram_dir / f"{skill_name}_skill_bundle.json").write_text(json.dumps({"resources": []}, indent=2, ensure_ascii=False), encoding="utf-8")
+    else:
+        raise ValueError("kind must be 'code' or 'diagram'")
 
-    return skill_dir
+    return skill_root
 
+
+def rename_skill(old_name: str, new_name: str) -> Path:
+    """Rename `<root>/<old>_skill` -> `<root>/<new>_skill`. Returns new path."""
+    root = user_skills_root()
+    old_dir = root / f"{old_name}_skill"
+    new_dir = root / f"{new_name}_skill"
+    if not old_dir.exists():
+        raise FileNotFoundError(f"Skill root not found: {old_dir}")
+    if new_dir.exists():
+        raise FileExistsError(f"Target already exists: {new_dir}")
+    old_dir.rename(new_dir)
+    return new_dir
 
 
 def _venv_paths(venv_dir: Path):
