@@ -149,26 +149,143 @@ class CIOTAInstaller:
 
         # 验证安装
         if not target_path.exists():
-            print(f"[CI-OTA] Installation verification failed: {target_path} not found")
             return False
 
         print(f"[CI-OTA] Successfully installed {name} at: {target_path}")
         return True
 
-    def _extract_zip(self, archive_path: Path, target_dir: Path):
-        """解压ZIP文件"""
-        with zipfile.ZipFile(archive_path, 'r') as zip_ref:
-            zip_ref.extractall(target_dir)
-
-    def _extract_tar(self, archive_path: Path, target_dir: Path):
-        """解压TAR文件"""
-        with tarfile.open(archive_path, 'r:*') as tar_ref:
-            tar_ref.extractall(target_dir)
+    def _extract_tar(self, archive_path: Path, target_dir: Path) -> None:
+        """Extract TAR file"""
+        import tempfile
+        
+        # Create a temporary directory for extraction
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_dir_path = Path(temp_dir)
+            
+            # Extract the archive to the temporary directory
+            if archive_path.suffix == '.xz':
+                import lzma
+                with lzma.open(archive_path) as f, tarfile.open(fileobj=f) as tar:
+                    tar.extractall(path=temp_dir_path)
+            else:
+                with tarfile.open(archive_path) as tar:
+                    tar.extractall(path=temp_dir_path)
+            
+            # Find the Sparkle.framework in the extracted files
+            sparkle_framework = None
+            for path in temp_dir_path.rglob('Sparkle.framework'):
+                if path.is_dir() and 'Sparkle.framework' in str(path):
+                    sparkle_framework = path
+                    break
+            
+            if not sparkle_framework:
+                raise FileNotFoundError("Could not find Sparkle.framework in the downloaded archive")
+            
+            # Remove existing target directory if it exists
+            target_framework = target_dir / 'Sparkle.framework'
+            if target_framework.exists():
+                shutil.rmtree(target_framework)
+            
+            # Move the framework to the target directory
+            shutil.move(str(sparkle_framework), str(target_dir))
+            
+            # Ensure proper permissions
+            sparkle_binary = target_framework / 'Versions' / 'Current' / 'Sparkle'
+            if sparkle_binary.exists():
+                os.chmod(sparkle_binary, 0o755)
+                
+            # Set permissions for generate_appcast tool (in Resources directory)
+            generate_appcast = target_framework / 'Versions' / 'Current' / 'Resources' / 'generate_appcast'
+            if generate_appcast.exists():
+                os.chmod(generate_appcast, 0o755)
+            
+            print(f"[CI-OTA] Successfully extracted Sparkle.framework to {target_framework}")
+            
+    def _extract_zip(self, archive_path: Path, target_dir: Path) -> None:
+        """Extract ZIP file for Windows OTA dependencies"""
+        from zipfile import ZipFile
+        import tempfile
+        
+        # Create a temporary directory for extraction
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_dir_path = Path(temp_dir)
+            
+            # Extract the archive to the temporary directory
+            print(f"[CI-OTA] Extracting {archive_path.name} to {temp_dir_path}")
+            with ZipFile(archive_path, 'r') as zip_ref:
+                # List all files in the archive for debugging
+                file_list = zip_ref.namelist()
+                print(f"[CI-OTA] Archive contains {len(file_list)} files:")
+                for file_name in file_list[:10]:  # Show first 10 files
+                    print(f"[CI-OTA]   - {file_name}")
+                if len(file_list) > 10:
+                    print(f"[CI-OTA]   ... and {len(file_list) - 10} more files")
+                
+                zip_ref.extractall(temp_dir_path)
+            
+            # List extracted files for debugging
+            print(f"[CI-OTA] Extracted files in {temp_dir_path}:")
+            for item in temp_dir_path.rglob('*'):
+                if item.is_file():
+                    print(f"[CI-OTA]   - {item.relative_to(temp_dir_path)}")
+            
+            # Find the winsparkle files in the extracted files
+            winsparkle_files = list(temp_dir_path.rglob('winsparkle.dll'))
+            print(f"[CI-OTA] Found {len(winsparkle_files)} winsparkle.dll files")
+            
+            if not winsparkle_files:
+                # Check if the dll is in a subdirectory
+                print("[CI-OTA] Searching for winsparkle.dll in subdirectories...")
+                for path in temp_dir_path.rglob('*'):
+                    if path.is_dir():
+                        print(f"[CI-OTA] Checking directory: {path.relative_to(temp_dir_path)}")
+                        if 'winsparkle' in path.name.lower():
+                            winsparkle_files = list(path.rglob('winsparkle.dll'))
+                            print(f"[CI-OTA] Found {len(winsparkle_files)} dll files in {path.name}")
+                            if winsparkle_files:
+                                break
+            
+            if not winsparkle_files:
+                # Try to find any .dll files for debugging
+                all_dll_files = list(temp_dir_path.rglob('*.dll'))
+                print(f"[CI-OTA] Found {len(all_dll_files)} .dll files in total:")
+                for dll_file in all_dll_files:
+                    print(f"[CI-OTA]   - {dll_file.relative_to(temp_dir_path)}")
+                
+                raise FileNotFoundError("Could not find winsparkle.dll in the downloaded archive")
+            
+            # Create target directory if it doesn't exist
+            target_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Copy all files from the winsparkle directory to the target directory
+            winsparkle_dir = winsparkle_files[0].parent
+            print(f"[CI-OTA] Copying files from {winsparkle_dir.relative_to(temp_dir_path)} to {target_dir}")
+            
+            copied_files = []
+            for item in winsparkle_dir.iterdir():
+                dest = target_dir / item.name
+                if dest.exists():
+                    if dest.is_dir():
+                        shutil.rmtree(dest)
+                    else:
+                        dest.unlink()
+                
+                if item.is_dir():
+                    shutil.copytree(item, dest)
+                    copied_files.append(f"{item.name}/ (directory)")
+                else:
+                    shutil.copy2(item, dest)
+                    copied_files.append(item.name)
+            
+            print(f"[CI-OTA] Copied {len(copied_files)} items:")
+            for file_name in copied_files:
+                print(f"[CI-OTA]   - {file_name}")
+            
+            print(f"[CI-OTA] Successfully extracted WinSparkle files to {target_dir}")
 
     def _create_sparkle_cli(self):
         """创建Sparkle CLI包装器"""
         cli_script = self.third_party_dir / "sparkle" / "sparkle-cli"
-
         script_content = '''#!/bin/bash
 # Sparkle CLI wrapper for eCan OTA (CI-installed)
 
@@ -228,47 +345,95 @@ esac
 
         with open(cli_script, 'w') as f:
             f.write(script_content)
-
-        # 设置可执行权限
+        
         os.chmod(cli_script, 0o755)
         print(f"[CI-OTA] Created Sparkle CLI wrapper: {cli_script}")
 
     def _create_winsparkle_cli(self):
-        """创建winSparkle CLI包装器"""
-        cli_script = self.third_party_dir / "winsparkle" / "winsparkle-cli.bat"
-
+        """Create winSparkle CLI wrapper"""
+        winsparkle_dir = self.third_party_dir / "winsparkle"
+        cli_script = winsparkle_dir / "winsparkle-cli.bat"
+        
+        # Ensure the winsparkle directory exists
+        winsparkle_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create a more robust batch script with better error handling
         script_content = '''@echo off
-REM winSparkle CLI wrapper for eCan OTA (CI-installed)
+:: winSparkle CLI wrapper for eCan OTA (CI-installed)
+:: This script is automatically generated - do not modify manually
 
-set SCRIPT_DIR=%~dp0
-set DLL_PATH=%SCRIPT_DIR%winsparkle\\winsparkle.dll
+setlocal enabledelayedexpansion
 
-if not exist "%DLL_PATH%" (
-    echo Error: winsparkle.dll not found at %DLL_PATH%
+:: Get the directory where this script is located
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR%"=="" set "SCRIPT_DIR=.\\"
+
+:: Normalize the path (remove trailing backslash if present)
+if "%SCRIPT_DIR:~-1%"=="\\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+
+:: Set the path to winsparkle.dll
+set "DLL_PATH=%SCRIPT_DIR%\\winsparkle.dll"
+set "DLL_PATH_EXISTS=0"
+
+:: Check if winsparkle.dll exists
+if exist "%DLL_PATH%" (
+    set "DLL_PATH_EXISTS=1"
+) else (
+    echo [ERROR] winsparkle.dll not found at: %DLL_PATH%
     echo Please ensure OTA dependencies are installed via CI
+    echo.
+    echo Searching for winsparkle.dll in: %~dp0
+    dir /s /b "%~dp0winsparkle.dll"
     exit /b 1
 )
 
-REM Simulate CLI behavior using Python OTA system
-if "%1"=="check" (
-    echo Checking for updates via winSparkle...
-    python -c "import sys, os; sys.path.insert(0, os.path.join(os.path.dirname(r'%SCRIPT_DIR%'), '..')); from ota import OTAUpdater; updater = OTAUpdater(); has_update = updater.check_for_updates(silent=True); sys.exit(0 if has_update else 1)"
-    exit /b %ERRORLEVEL%
+:: Get the project root (two levels up from third_party/winsparkle)
+set "PROJECT_ROOT=%SCRIPT_DIR%\\..\\..\"
+set "PROJECT_ROOT=%PROJECT_ROOT:\\=\\%"
+
+:: Handle commands
+if "%1"=="" goto usage
+
+if /i "%1"=="check" (
+    echo [INFO] Checking for updates via WinSparkle...
+    python -c "import sys, os; sys.path.insert(0, r'%PROJECT_ROOT%'); from ota import OTAUpdater; updater = OTAUpdater(); has_update = updater.check_for_updates(silent=True); sys.exit(0 if has_update else 1)"
+    set "EXIT_CODE=!ERRORLEVEL!"
+    if !EXIT_CODE! EQU 0 (
+        echo [INFO] Update available
+    ) else (
+        echo [INFO] No updates available
+    )
+    exit /b !EXIT_CODE!
+) 
+
+if /i "%1"=="install" (
+    echo [INFO] Installing updates via WinSparkle...
+    python -c "import sys, os; sys.path.insert(0, r'%PROJECT_ROOT%'); from ota import OTAUpdater; updater = OTAUpdater(); updater.install_update()"
+    exit /b !ERRORLEVEL!
 )
 
-if "%1"=="install" (
-    echo Installing update via winSparkle...
-    python -c "import sys, os; sys.path.insert(0, os.path.join(os.path.dirname(r'%SCRIPT_DIR%'), '..')); from ota import OTAUpdater; updater = OTAUpdater(); success = updater.install_update(); sys.exit(0 if success else 1)"
-    exit /b %ERRORLEVEL%
-)
+:usage
+echo.
+echo WinSparkle CLI for eCan OTA Updates
+echo ===================================
+echo.
+echo Usage: %~nx0 [command]
+echo.
+echo Commands:
+echo   check    Check for available updates
+echo   install  Install available updates
+echo.
+echo Example:
+echo   %~nx0 check
+echo   %~nx0 install
+echo.
 
-echo Usage: winsparkle-cli.bat [check^|install]
 exit /b 1
 '''
-
+        
         with open(cli_script, 'w') as f:
             f.write(script_content)
-
+        
         print(f"[CI-OTA] Created winSparkle CLI wrapper: {cli_script}")
 
     def _create_install_info(self):
@@ -317,42 +482,52 @@ exit /b 1
         """验证安装"""
         print(f"[CI-OTA] Verifying OTA dependencies installation...")
 
-        # 检查third_party结构
-        info_file = None
+        # 直接检查每个平台的依赖文件
+        all_verified = True
         for name, config in self.dependencies.items():
             if config.get("platform") == self.platform:
                 target_dir = self.third_party_dir / config["target_dir"]
-                info_file = target_dir / "install_info.json"
-                if info_file.exists():
-                    break
-
-        if not info_file or not info_file.exists():
-            print("[CI-OTA] ❌ Install info file not found")
-            return False
-
-        try:
-            with open(info_file, 'r') as f:
-                info = json.load(f)
-
-            installed_deps = info.get("installed_dependencies", {})
-            if not installed_deps:
-                print("[CI-OTA] [ERROR] No dependencies installed")
-                return False
-
-            all_verified = True
-            for name, dep_info in installed_deps.items():
-                target_path = Path(dep_info["target_path"])
+                target_path = target_dir / config["target_path"]
+                
+                print(f"[CI-OTA] Checking {name}:")
+                print(f"[CI-OTA]   Target directory: {target_dir}")
+                print(f"[CI-OTA]   Target file: {target_path}")
+                print(f"[CI-OTA]   Directory exists: {target_dir.exists()}")
+                print(f"[CI-OTA]   File exists: {target_path.exists()}")
+                
+                if target_dir.exists():
+                    print(f"[CI-OTA]   Directory contents:")
+                    for item in target_dir.iterdir():
+                        print(f"[CI-OTA]     - {item.name} ({'dir' if item.is_dir() else 'file'})")
+                
                 if target_path.exists():
                     print(f"[CI-OTA] [OK] {name} verified at: {target_path}")
                 else:
                     print(f"[CI-OTA] [ERROR] {name} not found at: {target_path}")
                     all_verified = False
 
-            return all_verified
+        # 检查install_info.json文件（如果存在）
+        info_file = None
+        for name, config in self.dependencies.items():
+            if config.get("platform") == self.platform:
+                target_dir = self.third_party_dir / config["target_dir"]
+                info_file = target_dir / "install_info.json"
+                if info_file.exists():
+                    print(f"[CI-OTA] Found install info file: {info_file}")
+                    try:
+                        with open(info_file, 'r') as f:
+                            info = json.load(f)
+                        print(f"[CI-OTA] Install info: {json.dumps(info, indent=2)}")
+                    except Exception as e:
+                        print(f"[CI-OTA] Failed to read install info: {e}")
+                    break
 
-        except Exception as e:
-            print(f"[CI-OTA] [ERROR] Failed to verify installation: {e}")
-            return False
+        if all_verified:
+            print("[CI-OTA] [OK] OTA dependencies installed and verified successfully!")
+        else:
+            print("[CI-OTA] [ERROR] Some OTA dependencies are missing or invalid")
+            
+        return all_verified
 
 
 def main():

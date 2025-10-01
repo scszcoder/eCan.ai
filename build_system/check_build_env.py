@@ -213,8 +213,31 @@ class BuildEnvChecker:
                 self.warnings.append("Frontend dependencies not installed")
         else:
             print("   [INFO] Frontend directory: not found (skipping frontend checks)")
-            
+    
+    def run_all_checks(self):
+        """Run all environment checks and return status code"""
         print("=" * 70)
+        print("[CHECK] Starting Build Environment Check")
+        print("=" * 70)
+        
+        # Run all check methods
+        self.check_basic_tools()
+        self.check_nodejs()
+        self.check_python_packages()
+        
+        # Platform-specific checks
+        if self.target_platform == 'windows':
+            self.check_windows_tools()
+        elif self.target_platform == 'macos':
+            self.check_macos_tools()
+        
+        # Additional checks
+        self.check_build_files()
+        self.check_frontend_files()
+        self.check_disk_space()
+        
+        # Print summary
+        print("\n" + "=" * 70)
         print("[SUMMARY] Check Results:")
         print("=" * 70)
         
