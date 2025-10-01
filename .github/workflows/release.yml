@@ -889,11 +889,11 @@ jobs:
         body: |
           # eCan AI Assistant v${{ needs.validate-tag.outputs.version }}
           
-          ## 🚀 New Release
+          ##  New Release
           
           This is the latest version of eCan AI Assistant with new features and improvements.
           
-          ## 📦 Download Links
+          ##  Download Links
           
           ### Windows Users
           - **Installer**: `eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe` (Recommended)
@@ -903,7 +903,7 @@ jobs:
           - **PKG Installer**: `eCan-${{ needs.validate-tag.outputs.version }}-macos-*.pkg` (Recommended)
           - **ZIP Archive**: `eCan-${{ needs.validate-tag.outputs.version }}-macos-*.zip`
           
-          ## 🔧 Installation Instructions
+          ##  Installation Instructions
           
           ### Windows
           1. Download the `eCan-*-Setup.exe` installer
@@ -915,14 +915,14 @@ jobs:
           2. Double-click the package and follow the prompts to complete installation
           3. Launch eCan from the Applications folder
           
-          ## ⚠️ System Requirements
+          ##  System Requirements
           - **Windows**: Windows 10 or later
           - **macOS**: macOS 11.0 or later
           
-          ## 📝 Changelog
+          ##  Changelog
           Please see [CHANGELOG.md](CHANGELOG.md) for detailed update information.
           
-          ## 🐛 Issue Reporting
+          ##  Issue Reporting
           If you encounter any issues, please submit feedback on the [Issues](https://github.com/scszcoder/ecbot/issues) page.
         draft: false
         prerelease: false
