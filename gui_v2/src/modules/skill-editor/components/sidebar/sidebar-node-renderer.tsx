@@ -11,6 +11,7 @@ import NodeStatePanel from '../node-state/NodeStatePanel';
 import MappingEditor, { type MappingConfig } from '../mapping/MappingEditor';
 import { IPCAPI } from '../../../../services/ipc/api';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
+import { useRuntimeStateStore } from '../../stores/runtime-state-store';
 
 export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
   const { node } = props;
@@ -18,6 +19,15 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
   const { schema, loading } = useNodeStateSchema();
   const { skillInfo } = useSkillInfoStore();
   const setHasUnsavedChanges = useSkillInfoStore((s) => s.setHasUnsavedChanges);
+  // live runtime state for this node (from backend updates)
+  const runtimeEntry = useRuntimeStateStore((s) => s.byNodeId[node.id]);
+  // dev: log when runtime entry changes for this node
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    React.useEffect(() => {
+      try { console.info('[NodeRuntime] sidebar', { nodeId: node.id, runtimeEntry }); } catch {}
+    }, [node.id, runtimeEntry]);
+  } catch {}
 
   // Bind 'state' field helpers
   const form = nodeRender.form as any;
@@ -133,6 +143,40 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
           ) : (
             <NodeStatePanel schema={schema} value={getStateValue() ?? {}} onChange={setStateValue} />
           )}
+          {/* Runtime state (read-only, from backend) */}
+          <div style={{ marginTop: 12, borderTop: '1px dashed #eee', paddingTop: 8 }}>
+            <div style={{ fontWeight: 600, marginBottom: 6, color: '#222' }}>Runtime State (read-only)</div>
+            <div style={{ fontSize: 12, color: '#333', marginBottom: 6 }}>Node ID: <code style={{ color: '#222' }}>{node.id}</code></div>
+            {runtimeEntry ? (
+              <>
+                <div style={{ fontSize: 12, color: '#333', marginBottom: 6 }}>
+                  Status: <b>{runtimeEntry.status || 'n/a'}</b>
+                  <span style={{ marginLeft: 8, color: '#999' }}>Updated: {new Date(runtimeEntry.updatedAt).toLocaleTimeString()}</span>
+                </div>
+                <pre style={{ maxHeight: 180, overflow: 'auto', color: '#111', background: '#fff', border: '1px solid #e5e5e5', padding: 8, borderRadius: 4 }}>
+                  {JSON.stringify(runtimeEntry.state ?? {}, null, 2)}
+                </pre>
+                {/* Optional: sync button to copy runtime into editable form 'state' */}
+                <div style={{ marginTop: 8 }}>
+                  <button
+                    type="button"
+                    style={{ fontSize: 12, padding: '2px 8px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5', color: '#333', cursor: 'pointer' }}
+                    onClick={() => {
+                      try {
+                        const incoming = runtimeEntry.state ?? {};
+                        setStateValue(incoming);
+                        try { setHasUnsavedChanges(true); } catch {}
+                      } catch (e) {
+                        console.error('[NodeState] Sync to Form failed', e);
+                      }
+                    }}
+                  >Sync to Form</button>
+                </div>
+              </>
+            ) : (
+              <div style={{ fontSize: 12, color: '#999' }}>No runtime data for this node yet. Make sure this exact node is being executed.</div>
+            )}
+          </div>
           {/* Mapping rules editor */}
           <div style={{ marginTop: 16 }}>
             <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>Mapping Rules</div>

@@ -381,6 +381,20 @@ export class IPCAPI {
     }
 
     /**
+     * Step-sim debug: cache sheets bundle and move to Start node on backend
+     */
+    public async setupSimStep<T>(bundle: any): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('setup_sim_step', { bundle });
+    }
+
+    /**
+     * Step-sim debug: advance one node on backend
+     */
+    public async stepSim<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('step_sim', {});
+    }
+
+    /**
      * 获取可调用函数列表
      * @param filter - 过滤条件，可选包含：
      *   - text: 文本过滤条件，会搜索函数名、描述和参数

@@ -1,8 +1,9 @@
 import React from 'react';
-import { Dropdown, IconButton } from '@douyinfe/semi-ui';
+import { Dropdown, IconButton, Toast } from '@douyinfe/semi-ui';
 import { IconFolderOpen, IconDeleteStroked, IconExit, IconPlus, IconLayers, IconSave, IconEdit } from '@douyinfe/semi-icons';
 import { useClientContext, usePlayground, WorkflowSelectService, WorkflowDocument, useService } from '@flowgram.ai/free-layout-editor';
 import { useSheetsStore } from '../../stores/sheets-store';
+import { IPCAPI } from '../../../../services/ipc/api';
 
 /**
  * Minimal sheet menu - opens on click of a toolbar icon, similar to Add Node.
@@ -25,6 +26,7 @@ export const SheetsMenu: React.FC = () => {
   const sheetMap = useSheetsStore((s) => s.sheets);
   const loadBundle = useSheetsStore((s) => s.loadBundle);
   const renameSheet = useSheetsStore((s) => s.renameSheet);
+  const getAllSheets = useSheetsStore((s) => s.getAllSheets);
 
   const [visible, setVisible] = React.useState(false);
   const sheetList = React.useMemo(() => sheetOrder.map((id) => sheetMap[id]).filter(Boolean), [sheetOrder, sheetMap]);
@@ -78,6 +80,47 @@ export const SheetsMenu: React.FC = () => {
     renameSheet(activeId, name);
   };
 
+  // ---- Dev test driver: step simulation ----
+  const handleSetupStepSim = async () => {
+    try {
+      console.info('[SIM][FE] setup-step-sim: saving active document and sending bundle to backend');
+      // Persist current active document first
+      try { saveActiveDocument(ctx.document.toJSON()); } catch {}
+      const bundle = getAllSheets();
+      try { console.debug('[SIM][FE] setup-step-sim bundle summary', { sheets: bundle?.sheets?.length, mainSheetId: (bundle as any)?.mainSheetId, activeSheetId: (bundle as any)?.activeSheetId }); } catch {}
+      const ipc = IPCAPI.getInstance();
+      const resp = await ipc.setupSimStep(bundle);
+      console.info('[SIM][FE] setup-step-sim: backend response', resp);
+      if (resp.success) {
+        Toast.success({ content: 'Step Sim: setup complete. Backend moved to Start.' });
+      } else {
+        Toast.error({ content: `Setup failed: ${resp.error?.message || 'unknown error'}` });
+      }
+    } catch (e) {
+      console.error('[SheetsMenu] setup-step-sim error', e);
+      Toast.error({ content: 'Setup step sim error' });
+    } finally {
+      setVisible(false);
+    }
+  };
+
+  const handleStepSim = async () => {
+    try {
+      console.info('[SIM][FE] step-sim: requesting backend to advance one node');
+      const ipc = IPCAPI.getInstance();
+      const resp = await ipc.stepSim();
+      console.info('[SIM][FE] step-sim: backend response', resp);
+      if (!resp.success) {
+        Toast.error({ content: `Step failed: ${resp.error?.message || 'unknown error'}` });
+      }
+    } catch (e) {
+      console.error('[SheetsMenu] step-sim error', e);
+      Toast.error({ content: 'Step sim error' });
+    } finally {
+      setVisible(false);
+    }
+  };
+
   return (
     <Dropdown
       position="bottomLeft"
@@ -102,6 +145,9 @@ export const SheetsMenu: React.FC = () => {
           <Dropdown.Item icon={<IconDeleteStroked />} onClick={handleClear} disabled={!activeId}>Clear Sheet (blank)</Dropdown.Item>
           <Dropdown.Item icon={<IconExit />} onClick={handleClose} disabled={!activeId}>Close Active Sheet</Dropdown.Item>
           <Dropdown.Item icon={<IconDeleteStroked />} onClick={handleDelete} disabled={!activeId}>Delete Active Sheet</Dropdown.Item>
+          <Dropdown.Divider />
+          <Dropdown.Item icon={<IconEdit />} onClick={handleSetupStepSim}>[DEV] setup-step-sim</Dropdown.Item>
+          <Dropdown.Item icon={<IconEdit />} onClick={handleStepSim}>[DEV] step-sim</Dropdown.Item>
         </Dropdown.Menu>
       }
     >
