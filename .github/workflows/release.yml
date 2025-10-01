@@ -410,7 +410,6 @@ jobs:
       with:
         name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
         path: |
-          dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-${{ env.BUILD_ARCH }}.exe
           dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-${{ env.BUILD_ARCH }}-Setup.exe
           dist/*.msi
           build.log

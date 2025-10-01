@@ -327,6 +327,8 @@ class InstallerBuilder:
             if arch == 'x86_64':
                 arch = 'amd64'
             app_version = installer_config.get('app_version', app_info.get('version', '1.0.0'))
+            # Inno Setup VersionInfoVersion must be strictly numeric dotted (max 4 parts)
+            file_version = self._sanitize_inno_file_version(app_version)
             installer_filename = f"eCan-{app_version}-windows-{arch}-Setup"
 
             # Get Windows-specific installer settings
@@ -357,7 +359,7 @@ AllowNoIcons=yes
 DisableProgramGroupPage=auto
 CloseApplications=yes
 RestartApplications=no
-VersionInfoVersion={installer_config.get('app_version', app_info.get('version', '1.0.0'))}
+VersionInfoVersion={file_version}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -419,6 +421,33 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
             print(f"[ERROR] Failed to create Inno Setup script: {e}")
             return None
 
+    def _sanitize_inno_file_version(self, version: str) -> str:
+        """Sanitize semantic version to Inno-compatible file version.
+
+        Inno Setup requires a dotted numeric version (up to 4 integers), e.g., 1.2.3.0.
+        This converts versions like '0.0.0-gui-v2-cc252e9f' -> '0.0.0.0'.
+        """
+        try:
+            import re
+            # Extract numeric components from the start of the version string
+            # Split by non-digit characters but keep dots between numeric runs
+            # First, keep only digits and dots at the beginning
+            match = re.match(r"^(\d+(?:\.\d+)*)", str(version))
+            core = match.group(1) if match else "0.0.0"
+            parts = [p for p in core.split('.') if p.isdigit()]
+            # Ensure at least 3 parts
+            while len(parts) < 3:
+                parts.append('0')
+            # Limit to 4 parts; if more, truncate; if exactly 3, add a trailing 0
+            parts = parts[:4]
+            if len(parts) == 3:
+                parts.append('0')
+            # Remove leading zeros normalization (but keep '0' if part is empty)
+            norm = [str(int(p)) if p.isdigit() else '0' for p in parts]
+            return '.'.join(norm)
+        except Exception:
+            return '1.0.0.0'
+
     def _run_inno_setup(self, iss_file: Path) -> bool:
         """Run Inno Setup"""
         try:
@@ -479,24 +508,11 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
             if arch == 'x86_64':
                 arch = 'amd64'
 
-            # Create standardized EXE filename
-            onedir_exe = self.dist_dir / 'eCan' / 'eCan.exe'
-            onefile_exe = self.dist_dir / 'eCan.exe'
-
-            source_exe = None
-            if onedir_exe.exists():
-                source_exe = onedir_exe
-            elif onefile_exe.exists():
-                source_exe = onefile_exe
-
-            if source_exe:
-                std_exe = self.dist_dir / f"eCan-{app_version}-windows-{arch}.exe"
-                if not std_exe.exists():
-                    try:
-                        shutil.copy2(source_exe, std_exe)
-                        print(f"[INFO] Created standardized EXE: {std_exe.name}")
-                    except Exception as e:
-                        print(f"[WARNING] Failed to create standardized EXE: {e}")
+            # Note: For Windows distribution, we rely on Inno Setup installer
+            # which packages the complete dist/eCan/ directory structure.
+            # No need to create separate ZIP or standalone exe files.
+            print(f"[INFO] Windows distribution handled by Inno Setup installer")
+            print(f"[INFO] Installer: eCan-{app_version}-windows-{arch}-Setup.exe")
 
             # Only keep standardized installer filename to avoid duplicates
             installer_std = self.dist_dir / f"eCan-{app_version}-windows-{arch}-Setup.exe"
@@ -516,8 +532,55 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
             else:
                 print(f"[WARNING] Standardized installer not found: {installer_std.name}")
 
+            # Bundle winSparkle DLL to expected locations for validation and runtime
+            try:
+                self._bundle_winsparkle_dll()
+            except Exception as e:
+                print(f"[WARNING] Failed to bundle winSparkle DLL: {e}")
+
         except Exception as e:
             print(f"[WARNING] Failed to create standardized Windows artifacts: {e}")
+
+    def _bundle_winsparkle_dll(self) -> None:
+        """Ensure winSparkle DLL is copied into dist directories expected by CI and installer.
+
+        Sources:
+          - project_root/third_party/winsparkle/winsparkle.dll (installed by setup-ota-deps)
+
+        Targets:
+          - dist/third_party/winsparkle/winsparkle.dll (CI validator path)
+          - dist/eCan/third_party/winsparkle/winsparkle.dll (included by Inno Setup when using onedir)
+        """
+        third_party_dir = self.project_root / "third_party" / "winsparkle"
+        src_dll = third_party_dir / "winsparkle.dll"
+        if not src_dll.exists():
+            # Also try ota build output as fallback
+            alt_src = self.project_root / "ota" / "build" / "winsparkle" / "winsparkle.dll"
+            if alt_src.exists():
+                src_dll = alt_src
+        if not src_dll.exists():
+            print("[OTA] [WARN] winSparkle source DLL not found; skipping bundle")
+            return
+
+        # dist/third_party/winsparkle/winsparkle.dll
+        dst1 = self.dist_dir / "third_party" / "winsparkle"
+        dst1.mkdir(parents=True, exist_ok=True)
+        # dist/eCan/third_party/winsparkle/winsparkle.dll (if onedir exists)
+        dst2_root = self.dist_dir / "eCan" / "third_party" / "winsparkle"
+        if (self.dist_dir / "eCan").exists():
+            dst2_root.mkdir(parents=True, exist_ok=True)
+        import shutil
+        try:
+            shutil.copy2(src_dll, dst1 / "winsparkle.dll")
+            print(f"[OTA] Copied winSparkle to {dst1 / 'winsparkle.dll'}")
+        except Exception as e:
+            print(f"[OTA] [WARN] Failed to copy to {dst1}: {e}")
+        if (self.dist_dir / "eCan").exists():
+            try:
+                shutil.copy2(src_dll, dst2_root / "winsparkle.dll")
+                print(f"[OTA] Copied winSparkle to {dst2_root / 'winsparkle.dll'}")
+            except Exception as e:
+                print(f"[OTA] [WARN] Failed to copy to {dst2_root}: {e}")
 
     def _build_macos_installer(self) -> bool:
         """Build macOS PKG installer"""
