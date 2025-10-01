@@ -98,16 +98,49 @@ class UnifiedBuildSystem:
     def clean_environment(self, skip_cleanup: bool = False) -> None:
         """Clean build environment"""
         if skip_cleanup:
-            print("[CLEAN] Skipping automatic cleanup")
+            print("[CLEAN] Skipped")
             return
             
-        print("[CLEAN] Performing automatic build environment cleanup...")
         try:
-            cleanup_results = self.cleaner.clean_all()
-            print(f"[CLEAN] Cleanup completed: freed {cleanup_results['total_size_mb']:.1f}MB, "
-                  f"removed {cleanup_results['broken_symlinks']} broken symlinks")
+            results = self.cleaner.clean_all()
+            print(f"[CLEAN] Freed {results['total_size_mb']:.1f}MB, removed {results['broken_symlinks']} broken symlinks")
         except Exception as e:
             print(f"[CLEAN] Warning: Cleanup failed: {e}")
+    
+    def verify_sparkle_framework(self) -> None:
+        """Verify Sparkle framework installation for macOS OTA updates"""
+        print("[SPARKLE] Verifying Sparkle framework installation...")
+        
+        if platform.system() != 'Darwin':
+            print("[SPARKLE] Skipping Sparkle verification (not on macOS)")
+            return
+        
+        try:
+            # Check if Sparkle framework exists in third_party
+            sparkle_path = self.project_root / "third_party" / "sparkle" / "Sparkle.framework"
+            if sparkle_path.exists():
+                print(f"[SPARKLE]  Found Sparkle framework at: {sparkle_path}")
+                
+                # Verify framework structure
+                versions_path = sparkle_path / "Versions" / "Current"
+                if versions_path.exists():
+                    print("[SPARKLE]  Framework structure is valid")
+                else:
+                    print("[SPARKLE]   Framework structure incomplete")
+                
+                # Check for CLI tools
+                cli_path = versions_path / "Resources" / "sparkle-cli"
+                if cli_path.exists():
+                    print("[SPARKLE]  Sparkle CLI tools found")
+                else:
+                    print("[SPARKLE]   Sparkle CLI tools not found")
+                    
+            else:
+                print("[SPARKLE]   Sparkle framework not found in third_party")
+                print("[SPARKLE] Run 'python build_system/install_ota_dependencies.py install' to install OTA dependencies")
+                
+        except Exception as e:
+            print(f"[SPARKLE] Warning: Verification failed: {e}")
     
     def build_frontend(self, skip_frontend: bool = False) -> bool:
         """Build frontend with caching optimization"""
@@ -350,6 +383,12 @@ class UnifiedBuildSystem:
             stage_start = time.perf_counter()
             self.validate_environment(kwargs.get('skip_precheck', False))
             build_times['validation'] = time.perf_counter() - stage_start
+            
+            # Verify Sparkle framework on macOS (automatic)
+            if platform.system() == 'Darwin':
+                stage_start = time.perf_counter()
+                self.verify_sparkle_framework()
+                build_times['sparkle_verification'] = time.perf_counter() - stage_start
             
             # Clean environment
             stage_start = time.perf_counter()
