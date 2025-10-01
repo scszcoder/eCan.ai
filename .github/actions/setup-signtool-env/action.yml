@@ -25,7 +25,7 @@ outputs:
     value: ${{ steps.check-final.outputs.path }}
   installation-method:
     description: 'How signtool was made available (existing, chocolatey, manual)'
-    value: ${{ steps.setup.outputs.method }}
+    value: ${{ steps.check-final.outputs.method }}
 
 runs:
   using: 'composite'
@@ -40,7 +40,8 @@ runs:
         if ($existingSigntool) {
           Write-Host "✅ signtool already available at: $($existingSigntool.Source)" -ForegroundColor Green
           "available=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "path=$($existingSigntool.Source)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $pathOutput = "path=$($existingSigntool.Source)"
+          $pathOutput | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "method=existing" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           
           # Test signtool
@@ -87,14 +88,15 @@ runs:
                 
                 # Add to PATH
                 $signtoolDir = Split-Path $signtoolPath
-                echo "$signtoolDir" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+                $signtoolDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
                 
                 # Test signtool
                 try {
                   & $signtoolPath /? | Out-Null
                   Write-Host "✅ signtool is working" -ForegroundColor Green
                   "found=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-                  "path=$signtoolPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+                  $pathOutput = "path=$signtoolPath"
+                  $pathOutput | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
                   $foundSigntool = $true
                   break
                 } catch {
@@ -180,14 +182,15 @@ runs:
               
               # Add to PATH
               $signtoolDir = Split-Path $signtoolPath
-              echo "$signtoolDir" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+              $signtoolDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
               
               # Test signtool
               try {
                 & $signtoolPath /? | Out-Null
                 Write-Host "✅ Newly installed signtool is working" -ForegroundColor Green
                 "found=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-                "path=$signtoolPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+                $pathOutput = "path=$signtoolPath"
+                $pathOutput | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
               } catch {
                 Write-Host "❌ Newly installed signtool not working: $_" -ForegroundColor Red
                 "found=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
@@ -220,7 +223,8 @@ runs:
           Write-Host "✅ signtool is working correctly!" -ForegroundColor Green
           
           "available=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "path=$($signtoolCmd.Source)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $pathOutput = "path=$($signtoolCmd.Source)"
+          $pathOutput | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           
           # Determine method
           $method = "unknown"
@@ -246,7 +250,9 @@ runs:
       run: |
         Write-Host "`n📋 Setup Summary:" -ForegroundColor Cyan
         Write-Host "=================" -ForegroundColor Cyan
-        Write-Host "signtool Available: ${{ steps.check-final.outputs.available }}" -ForegroundColor $(if ("${{ steps.check-final.outputs.available }}" -eq "true") { "Green" } else { "Red" })
+        $availableStatus = "${{ steps.check-final.outputs.available }}"
+        $statusColor = if ($availableStatus -eq "true") { "Green" } else { "Red" }
+        Write-Host "signtool Available: $availableStatus" -ForegroundColor $statusColor
         
         if ("${{ steps.check-final.outputs.available }}" -eq "true") {
           Write-Host "signtool Path: ${{ steps.check-final.outputs.path }}" -ForegroundColor Gray
