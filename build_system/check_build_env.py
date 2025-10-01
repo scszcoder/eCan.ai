@@ -170,13 +170,13 @@ class BuildEnvChecker:
             print(f"   [INFO] Could not check disk space: {e}")
     
     def check_build_files(self):
-        """Check required build files"""
+        """Check essential build files"""
         print("\n[CHECK] Build Files:")
+        # Only check files that are actually required for PyInstaller builds
         required_files = [
-            ("setup.py", "Python package configuration"),
-            ("pyproject.toml", "Build system requirements"),
-            ("MANIFEST.in", "Package data files"),
-            ("README.md", "Project documentation")
+            ("README.md", "Project documentation"),
+            ("build.py", "Main build script"),
+            ("main.py", "Application entry point")
         ]
         
         for filename, description in required_files:
