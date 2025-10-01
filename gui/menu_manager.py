@@ -607,15 +607,16 @@ class MenuManager:
                 return
             
             # 在新的命令行窗口中启动服务器
+            from utils.subprocess_helper import popen_no_window
             if sys.platform == "win32":
                 # Windows
-                subprocess.Popen([
+                popen_no_window([
                     "cmd", "/c", "start", "cmd", "/k", 
                     f"python \"{start_script}\""
                 ], shell=True)
             else:
                 # macOS/Linux
-                subprocess.Popen([
+                popen_no_window([
                     "gnome-terminal", "--", "python", str(start_script)
                 ])
             

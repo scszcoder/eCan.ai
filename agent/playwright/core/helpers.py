@@ -61,32 +61,31 @@ def auto_install_playwright(target_path: Optional[Path] = None) -> bool:
         if target_path is None:
             target_path = core_utils.get_app_data_path() / "ms-playwright"
 
-        logger.info(f"🚀 Installing Playwright to: {target_path}")
         _print_install_environment_info(target_path)
 
         target_path.mkdir(parents=True, exist_ok=True)
 
         # Check and install playwright package
+        from utils.subprocess_helper import run_no_window
         try:
-            subprocess.run([sys.executable, "-m", "pip", "show", "playwright"],
+            run_no_window([sys.executable, "-m", "pip", "show", "playwright"],
                          check=True, capture_output=True)
         except subprocess.CalledProcessError:
             logger.info("⏳ Installing Playwright package...")
-            subprocess.run([sys.executable, "-m", "pip", "install", "playwright"], check=True)
+            run_no_window([sys.executable, "-m", "pip", "install", "playwright"], check=True)
 
         # Install browsers
         env = os.environ.copy()
-        env[core_utils.ENV_BROWSERS_PATH] = str(target_path)
+        env[core_utils.ENV_BASE_DIR] = str(target_path)
         env[core_utils.ENV_CACHE_DIR] = str(target_path)
 
         logger.info("⏳ Downloading browser files...")
-        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"],
+        run_no_window([sys.executable, "-m", "playwright", "install", "chromium"],
                       check=True, env=env)
 
         core_utils.set_environment_variables(target_path)
         logger.info(f"✅ Installation successful: {target_path}")
         return True
-
     except Exception as e:
         error_msg = friendly_error_message(e)
         logger.error(error_msg)

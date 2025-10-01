@@ -292,13 +292,14 @@ async def create_rpa_supervisor_scheduling_chatter_skill(mainwin):
 
 
 async def reconnect_wifi(params):
+    from utils.subprocess_helper import run_no_window
     # Disconnect current Wi-Fi
-    subprocess.run(["netsh", "wlan", "disconnect"])
+    run_no_window(["netsh", "wlan", "disconnect"])
     time.sleep(2)
 
     # Reconnect to a specific network
     cmd = ["netsh", "wlan", "connect", f"name={params['network_name']}"]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = run_no_window(cmd, capture_output=True, text=True)
     print(result.stdout)
 
 

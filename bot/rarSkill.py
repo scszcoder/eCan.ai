@@ -13,8 +13,9 @@ global STEP_GAP
 
 def is_tool(name):
     try:
+        from utils.subprocess_helper import popen_no_window
         devnull = open(os.devnull)
-        subprocess.Popen([name], stdout=devnull, stderr=devnull).communicate()
+        popen_no_window([name], stdout=devnull, stderr=devnull).communicate()
     except OSError as e:
         if e.errno == errno.ENOENT:
             return False
@@ -22,8 +23,9 @@ def is_tool(name):
 
 def find_prog(prog):
     if is_tool(prog):
+        from utils.subprocess_helper import run_no_window
         cmd = "where" if platform.system() == "Windows" else "which"
-        return subprocess.call([cmd, prog])
+        return run_no_window([cmd, prog])
 
 
 zipped_full_path = ""

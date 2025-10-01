@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { App, Button, Card, Col, DatePicker, Divider, Form, Input, Radio, Row, Select, Space, Tag, Tooltip } from 'antd';
-import { ArrowLeftOutlined, EditOutlined, SaveOutlined, PlusOutlined } from '@ant-design/icons';
+import { EditOutlined, SaveOutlined, PlusOutlined } from '@ant-design/icons';
 import { Dayjs } from 'dayjs';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -161,17 +161,20 @@ const AgentDetails: React.FC = () => {
   const [editMode, setEditMode] = useState(isNew);
   const [loading, setLoading] = useState(false);
   const [selectValues, setSelectValues] = useState<Record<string, string | undefined>>({});
-  const [isNavigating, setIsNavigating] = useState(false);
   
-  const goBack = useCallback(async () => {
-    if (isNavigating) return; // Prevent multiple rapid clicks
-    setIsNavigating(true);
-    try {
-      await navigate('/agents', { replace: true }); // Navigate to parent route
-    } finally {
-      setIsNavigating(false);
+  // 确定页面模式：view（查看）、edit（编辑）、create（新增）
+  const pageMode = useMemo(() => {
+    if (isNew) return 'create';
+    return editMode ? 'edit' : 'view';
+  }, [isNew, editMode]);
+  
+  // 动态标题
+  const pageTitle = useMemo(() => {
+    if (pageMode === 'create') {
+      return t('pages.agents.create_agent') || '新增 Agent';
     }
-  }, [navigate, isNavigating]);
+    return t('pages.agents.agent_details') || '代理详情';
+  }, [pageMode, t]);
 
   // 使用 useMemo 来初始化表单值，确保 Form 实例正确连接
   const initialValues: AgentDetailsForm = useMemo(() => {
@@ -312,39 +315,36 @@ const AgentDetails: React.FC = () => {
 
   return (
     <div style={{ padding: 16, height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <Space align="center" size={12} style={{ marginBottom: 16 }}>
-        <Button 
-          icon={<ArrowLeftOutlined />} 
-          onClick={goBack} 
-          title={t('common.back') || 'Back'} 
-          aria-label={t('common.back') || 'Back'}
-          loading={isNavigating}
-          disabled={isNavigating}
-        />
-        <span style={{ fontSize: 18, fontWeight: 600 }}>
-          {t('pages.agents.agent_details') || 'Agent Details'}
-          {isNew && defaultOrgId && (
-            <span style={{ fontSize: 14, fontWeight: 400, color: 'rgba(255, 255, 255, 0.65)', marginLeft: 8 }}>
-              - {getOrgName(defaultOrgId)}
-            </span>
-          )}
-        </span>
-        </Space>
+        <div style={{ marginBottom: 16 }}>
+          <span style={{ fontSize: 18, fontWeight: 600 }}>
+            {pageTitle}
+            {isNew && defaultOrgId && (
+              <span style={{ fontSize: 14, fontWeight: 400, color: 'rgba(255, 255, 255, 0.65)', marginLeft: 8 }}>
+                - {getOrgName(defaultOrgId)}
+              </span>
+            )}
+          </span>
+        </div>
 
       <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} styles={{ body: { padding: 16, height: '100%', overflow: 'hidden' } }}>
         <div style={{ height: '100%', overflowY: 'auto' }}>
           <Form form={form} layout="vertical">
             <Row gutter={[16, 16]}>
-              <Col span={12}>
-                <Form.Item name="id" label={t('common.id') || 'ID'}>
-                  <Input readOnly />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="agent_id" label={t('pages.agents.agent_id') || 'Agent ID'}>
-                  <Input readOnly />
-                </Form.Item>
-              </Col>
+              {/* ID 和 Agent ID：新增时不显示，查看/编辑时只读 */}
+              {!isNew && (
+                <>
+                  <Col span={12}>
+                    <Form.Item name="id" label={t('common.id') || 'ID'}>
+                      <Input readOnly />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item name="agent_id" label={t('pages.agents.agent_id') || 'Agent ID'}>
+                      <Input readOnly />
+                    </Form.Item>
+                  </Col>
+                </>
+              )}
 
               <Col span={12}>
                 <Form.Item name="name" label={t('common.name') || 'Name'} rules={[{ required: true, message: t('common.please_input_name') || 'Please input name' }]}>
@@ -353,7 +353,8 @@ const AgentDetails: React.FC = () => {
               </Col>
               <Col span={12}>
                 <Form.Item name="owner" label={t('common.owner') || 'Owner'}>
-                  <Input placeholder={t('common.owner') || 'Owner'} disabled />
+                  {/* Owner: 新增时可以修改，编辑时只读 */}
+                  <Input placeholder={t('common.owner') || 'Owner'} disabled={pageMode !== 'create'} />
                 </Form.Item>
               </Col>
 
@@ -476,7 +477,7 @@ const AgentDetails: React.FC = () => {
                         items={form.getFieldValue('tasks')}
                         setItems={(arr) => form.setFieldsValue({ tasks: arr })}
                         options={taskOptions}
-                        editable={true}
+                        editable={editMode}
                         onEdit={() => navigate(`/tasks`)}
                       />
                     )}
@@ -494,7 +495,7 @@ const AgentDetails: React.FC = () => {
                         items={form.getFieldValue('skills')}
                         setItems={(arr) => form.setFieldsValue({ skills: arr })}
                         options={skillOptions}
-                        editable={true}
+                        editable={editMode}
                         onEdit={() => navigate(`/skills`)}
                       />
                     )}
@@ -526,13 +527,33 @@ const AgentDetails: React.FC = () => {
 
           <Divider />
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-            <Button icon={<EditOutlined />} type="default" disabled={editMode} onClick={() => setEditMode(true)}>
-              {t('common.edit') || 'Edit'}
-            </Button>
-            {editMode && (
+            {/* 新增模式：只显示保存按钮 */}
+            {pageMode === 'create' && (
               <Button icon={<SaveOutlined />} type="primary" loading={loading} onClick={handleSave}>
-                {t('common.save') || 'Save'}
+                {t('common.create') || '创建'}
               </Button>
+            )}
+            
+            {/* 查看模式：显示编辑按钮 */}
+            {pageMode === 'view' && (
+              <Button icon={<EditOutlined />} type="default" onClick={() => setEditMode(true)}>
+                {t('common.edit') || '编辑'}
+              </Button>
+            )}
+            
+            {/* 编辑模式：显示取消和保存按钮 */}
+            {pageMode === 'edit' && (
+              <>
+                <Button onClick={() => {
+                  setEditMode(false);
+                  form.setFieldsValue(initialValues);
+                }}>
+                  {t('common.cancel') || '取消'}
+                </Button>
+                <Button icon={<SaveOutlined />} type="primary" loading={loading} onClick={handleSave}>
+                  {t('common.save') || '保存'}
+                </Button>
+              </>
             )}
           </div>
         </Card>

@@ -1049,14 +1049,16 @@ async def os_connect_to_chrome(mainwin, args):
 
 async def os_open_app(mainwin, args):
     try:
-        DETACHED_PROCESS = 0x00000008
         # 将应用名称转换为列表格式以避免 shell=True
         app_cmd = args["input"]["app_name"]
         if isinstance(app_cmd, str):
             app_cmd = [app_cmd]
-        subprocess.Popen(app_cmd, creationflags=DETACHED_PROCESS, close_fds=True,
-                         stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE)
+        
+        # Use subprocess helper to prevent console window popup in frozen environment
+        from utils.subprocess_helper import popen_no_window
+        popen_no_window(app_cmd, close_fds=True,
+                       stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE)
 
         msg = "completed opening app"
         result = [TextContent(type="text", text=msg)]
@@ -1225,20 +1227,21 @@ async def os_screen_capture(mainwin, args):
 async def os_seven_zip(mainwin, args):
     try:
         exe = 'C:/Program Files/7-Zip/7z.exe'
+        from utils.subprocess_helper import run_no_window, popen_no_window
         if "zip" in args["input"]["dest"]:
             # we are zipping a folder or file
             if args["input"]["dest"] != "":
-                cmd_output = subprocess.call([exe, "a", args["input"]["src"], "-o" + args["input"]["dest"]])
+                cmd_output = run_no_window([exe, "a", args["input"]["src"], "-o" + args["input"]["dest"]])
             else:
-                cmd_output = subprocess.call([exe, "e", args["input"]["src"]])
+                cmd_output = run_no_window([exe, "e", args["input"]["src"]])
             msg = f"completed seven zip {args['input']['src']}"
         else:
             # we are unzipping a single file
             if args["input"]["dest"] != "":
                 cmd = [exe, 'e', args["input"]["src"],  f'-o{args["input"]["dest"]}']
-                cmd_output = subprocess.Popen(cmd)
+                cmd_output = popen_no_window(cmd)
             else:
-                cmd_output = subprocess.call([exe, "e", args["input"]["src"]])
+                cmd_output = run_no_window([exe, "e", args["input"]["src"]])
             msg = f"completed seven unzip {args['input']['src']}"
 
         result = [TextContent(type="text", text=msg)]
@@ -1371,12 +1374,13 @@ async def rpa_operator_report_work_results(mainwin, args):
 
 async def os_reconnect_wifi(mainwin, args):
     try:
+        from utils.subprocess_helper import run_no_window
         # Disconnect current Wi-Fi
-        subprocess.run(["netsh", "wlan", "disconnect"])
+        run_no_window(["netsh", "wlan", "disconnect"])
         time.sleep(2)
         # Reconnect to a specific network
         cmd = ["netsh", "wlan", "connect", f"name={args['input']['network_name']}"]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = run_no_window(cmd, capture_output=True, text=True)
         msg = f"completed reconnecting wifi ({result.stdout})."
         result = [TextContent(type="text", text=msg)]
         return result

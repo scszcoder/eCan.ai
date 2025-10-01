@@ -375,7 +375,8 @@ def win_print_labels0(label_dir, printer, site, order_data, product_book, txt_fo
                    '-sDEVICE='
             args = args + currentprinter + ' '
             ghostscript = args + wpdf_name
-            subprocess.call(ghostscript, shell=True)
+            from utils.subprocess_helper import run_no_window
+            run_no_window(ghostscript, shell=True)
         else:
             log3('file name format error:' + file)
 

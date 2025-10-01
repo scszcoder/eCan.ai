@@ -3274,15 +3274,14 @@ def processOpenApp(step, i, mission):
                 # exec("global oa_exe\noa_exe = "+step["app_type"])
                 if step["cargs_type"] == "direct":
                     # 将字符串命令转换为列表格式
+                    from utils.subprocess_helper import run_no_window
                     if step["cargs"]:
                         cmd_args = step["cargs"].split()
-                        subprocess.call([executable] + cmd_args)
+                        run_no_window([executable] + cmd_args)
                     else:
-                        subprocess.call([executable])
+                        run_no_window([executable])
                 else:
                     # in case of "expr" type.
-                    DETACHED_PROCESS = 0x00000008
-                    # subprocess.Popen([step["app_type"], step["cargs"]],creationflags=DETACHED_PROCESS, close_fds=True)
                     if type(step["cargs"]) == list or step["cargs"] == "":
                         cmd = [executable] + step["cargs"]
                     else:
@@ -3292,8 +3291,9 @@ def processOpenApp(step, i, mission):
                         elif type(oa_args) == list:
                             cmd = [executable] + oa_args
 
-                    # subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    subprocess.Popen(cmd, creationflags=DETACHED_PROCESS, close_fds=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    # Use subprocess helper to prevent console window popup in frozen environment
+                    from utils.subprocess_helper import popen_no_window
+                    popen_no_window(cmd, close_fds=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         time.sleep(step["wait"])
         symTab[step["result"]] = True
@@ -3746,7 +3746,8 @@ def processCallExtern(step, i):
 
             cmdline.extend(args)
             log3("command line: "+json.dumps(cmdline))
-            result = subprocess.call(cmdline, capture_output=True, text=True)
+            from utils.subprocess_helper import run_no_window
+            result = run_no_window(cmdline, capture_output=True, text=True)
         else:
             # execute a string as raw python code.
             result = exec(step["file"])
@@ -3787,7 +3788,8 @@ async def processCallExtern8(step, i):
 
             cmdline.extend(args)
             log3("command line: " + json.dumps(cmdline))
-            result = subprocess.call(cmdline, capture_output=True, text=True)
+            from utils.subprocess_helper import run_no_window
+            result = run_no_window(cmdline, capture_output=True, text=True)
         else:
             # execute a string as raw python code.
             result = exec(step["file"])
@@ -4440,11 +4442,11 @@ def process7z(step, i):
             out_file = symTab[step["out_var"]]
 
         if step["action"] == "zip":
+            from utils.subprocess_helper import run_no_window
             if output_dir != "":
-
-                symTab[step["result"]] = subprocess.call([exe, "a", input, "-o" + output_dir])
+                symTab[step["result"]] = run_no_window([exe, "a", input, "-o" + output_dir])
             else:
-                symTab[step["result"]] = subprocess.call([exe, "e", input])
+                symTab[step["result"]] = run_no_window([exe, "e", input])
 
         elif step["action"] == "unzip":
             if output_dir != "":
@@ -4453,11 +4455,13 @@ def process7z(step, i):
                 log3("outputdir:"+output_dir)
                 # extremely key here, there should be no "" around Program Files....
                 cmd = ['C:/Program Files/7-Zip/7z.exe', 'e', input,  f'-o{output_dir}']
-                symTab[step["result"]] = subprocess.Popen(cmd)
+                # Use subprocess helper to prevent console window popup in frozen environment
+                from utils.subprocess_helper import popen_no_window
+                symTab[step["result"]] = popen_no_window(cmd)
                 # symTab[step["result"]] = subprocess.run(exe + " e " + input + " -o" + output_dir)
-                # symTab[step["result"]] = subprocess.Popen(['C:/Program Files/7-Zip/7z.exe'])
             else:
-                symTab[step["result"]] = subprocess.call([exe, "e", input])
+                from utils.subprocess_helper import run_no_window
+                symTab[step["result"]] = run_no_window([exe, "e", input])
 
     except Exception as e:
         # Get the traceback information
