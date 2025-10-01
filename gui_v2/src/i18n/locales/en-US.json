@@ -710,31 +710,6 @@
   "agents": {
     "addAgent": "Add Agent"
   },
-  "pages": {
-    "agents": {
-      "add_agent": "Add Agent",
-      "agent_details": "Agent Details",
-      "unassigned_agents": "Unassigned Agents",
-      "unassigned_agents_desc": "Agents not assigned to any organization",
-      "no_sub_orgs": "No sub organizations available",
-      "load_failed": "Failed to load organizations",
-      "personality": "Personality",
-      "title": "Title",
-      "organizations": "Organizations",
-      "organization": "Organization",
-      "supervisors": "Supervisors",
-      "supervisor": "Supervisor",
-      "subordinates": "Subordinates",
-      "subordinate": "Subordinate",
-      "tasks": "Tasks",
-      "task": "Task",
-      "skills": "Skills",
-      "skill": "Skill",
-      "vehicle": "Vehicle",
-      "metadata": "Metadata",
-      "agent_id": "Agent ID"
-    }
-  },
   "skills": {
     "addSkill": "Add Skill"
   },

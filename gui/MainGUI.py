@@ -1696,9 +1696,8 @@ class MainWindow:
             raise
 
     async def wait_for_server_async(self, agent, timeout: float = 5.0):
-        """异步等待Agent服务器启动，优化超时时间"""
+        """异步等待Agent服务器启动"""
         url = agent.get_card().url+'/ping'
-        logger.info("agent card url:", url)
         start = time.time()
         
         try:
@@ -1708,16 +1707,16 @@ class MainWindow:
                     try:
                         async with session.get(url) as response:
                             if response.status == 200:
-                                logger.info("✅ Server is up!")
+                                logger.info(f"✅ {agent.get_card().name} Server is up at {url}")
                                 return True
                     except (aiohttp.ClientError, asyncio.TimeoutError):
                         pass
-                    await asyncio.sleep(0.5)  # 减少等待间隔
+                    await asyncio.sleep(0.5)
         except Exception as e:
-            logger.error(f"Error in async server check: {e}")
+            logger.error(f"Error checking server {url}: {e}")
         
         logger.warning(f"⚠️ Server did not start within {timeout} seconds, continuing anyway")
-        return False  # 不抛出异常，继续执行
+        return False
 
     def wait_for_server(self, agent, timeout: float = 10.0):
         """保留原有同步方法作为备用"""
@@ -2015,20 +2014,34 @@ class MainWindow:
             return None
 
     async def _launch_single_agent_with_name_async(self, agent_name: str, agent):
-        """异步启动单个 Agent（返回启动结果）"""
+        """Asynchronously launch a single Agent (returns launch result)"""
         try:
-            # 检查 Agent 是否有启动方法
+            # Check if Agent has a launch method
             if hasattr(agent, 'launch') and callable(agent.launch):
-                # 在线程池中执行启动（避免阻塞）
+                # Execute launch in thread pool (avoid blocking)
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, agent.launch)
+                # Wait for server to be ready
+                await self.wait_for_server_async(agent, timeout=10.0)
                 return True
             elif hasattr(agent, 'start') and callable(agent.start):
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, agent.start)
-                return True
+                
+                # 🔧 Critical fix: Wait for A2A Server to be fully ready before returning
+                # Agent.start() launches Uvicorn in a thread but doesn't wait for it to be ready
+                # We must explicitly wait for the server's /ping endpoint to respond
+                logger.info(f"[MainWindow] 🔍 Waiting for {agent_name}'s A2A server to be ready...")
+                server_ready = await self.wait_for_server_async(agent, timeout=15.0)
+                
+                if server_ready:
+                    logger.info(f"[MainWindow] ✅ {agent_name}'s A2A server is ready")
+                    return True
+                else:
+                    logger.error(f"[MainWindow] ❌ {agent_name}'s A2A server failed to start within 10s")
+                    return False
             else:
-                # 如果没有特定的启动方法，尝试等待服务器就绪
+                # If no specific launch method, try waiting for server readiness
                 if hasattr(agent, 'get_card') and agent.get_card():
                     await self.wait_for_server_async(agent, timeout=3.0)
                     return True

@@ -1,14 +1,12 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { App, Button, Card, Col, DatePicker, Divider, Form, Input, Radio, Row, Select, Space, Tag, Tooltip } from 'antd';
-import { ArrowLeftOutlined, CloseOutlined, EditOutlined, SaveOutlined, PlusOutlined, ToolOutlined, FileTextOutlined } from '@ant-design/icons';
-import dayjs, { Dayjs } from 'dayjs';
+import { ArrowLeftOutlined, EditOutlined, SaveOutlined, PlusOutlined } from '@ant-design/icons';
+import { Dayjs } from 'dayjs';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useUserStore } from '@/stores/userStore';
 import { useOrgStore } from '@/stores/orgStore';
-import type { Agent } from '../types';
 import { useAppDataStore } from '@/stores/appDataStore';
-import { useAgentStore } from '@/stores/agentStore';
 import { get_ipc_api } from '@/services/ipc_api';
 
 type Gender = 'gender_options.male' | 'gender_options.female';
@@ -279,7 +277,6 @@ const AgentDetails: React.FC = () => {
     );
   };
 
-  const disabled = !editMode;
 
   const handleSave = async () => {
     try {
