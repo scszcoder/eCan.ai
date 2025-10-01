@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Appcast Generator for GitHub Release
-为 GitHub Release 生成 Sparkle appcast XML 文件
+Generate Sparkle appcast XML file for GitHub Release
 """
 
 import os
@@ -18,7 +18,7 @@ sys.path.insert(0, str(project_root))
 
 
 def calculate_file_hash(file_path: str, algorithm: str = 'sha256') -> str:
-    """计算文件哈希值"""
+    """Calculate file hash value"""
     hash_obj = hashlib.new(algorithm)
     with open(file_path, 'rb') as f:
         for chunk in iter(lambda: f.read(4096), b''):
@@ -27,25 +27,25 @@ def calculate_file_hash(file_path: str, algorithm: str = 'sha256') -> str:
 
 
 def sign_update(file_path: str) -> Optional[str]:
-    """使用 Ed25519 私钥签名更新文件"""
+    """Sign update file with Ed25519 private key"""
     try:
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
         import base64
         
-        # 从环境变量获取私钥
+        # Get private key from environment variable
         private_key_pem = os.environ.get('ED25519_PRIVATE_KEY')
         if not private_key_pem:
             print("Warning: ED25519_PRIVATE_KEY not set, skipping signature")
             return None
         
-        # 加载私钥
+        # Load private key
         private_key = serialization.load_pem_private_key(
             private_key_pem.encode('utf-8'),
             password=None
         )
         
-        # 读取文件内容并签名
+        # Read file content and sign
         with open(file_path, 'rb') as f:
             file_data = f.read()
         
@@ -61,26 +61,35 @@ def sign_update(file_path: str) -> Optional[str]:
 
 
 def filter_assets(assets: List[Dict], platform_filter: Optional[str] = None, 
-                  arch_filter: Optional[str] = None) -> List[Dict]:
-    """过滤资产列表"""
+                 arch_filter: Optional[str] = None) -> List[Dict]:
+    """Filter asset list by platform and architecture
+    
+    Args:
+        assets: List of asset dictionaries
+        platform_filter: Platform to filter by ('macos', 'windows', 'linux')
+        arch_filter: Architecture to filter by ('amd64', 'aarch64')
+        
+    Returns:
+        Filtered list of assets
+    """
     filtered = []
     
     for asset in assets:
         name = asset['name'].lower()
         
-        # 平台过滤
+        # Filter by platform
         if platform_filter:
             if platform_filter == 'macos':
-                if not ('macos' in name or 'darwin' in name or name.endswith('.pkg') or name.endswith('.dmg')):
+                if not (name.endswith('.pkg') or name.endswith('.dmg') or 'macos' in name or 'darwin' in name):
                     continue
             elif platform_filter == 'windows':
-                if not ('windows' in name or name.endswith('.exe') or name.endswith('.msi')):
+                if not (name.endswith('.exe') or name.endswith('.msi') or 'windows' in name):
                     continue
             elif platform_filter == 'linux':
-                if not ('linux' in name or name.endswith('.appimage')):
+                if not (name.endswith('.appimage') or 'linux' in name):
                     continue
         
-        # 架构过滤
+        # Filter by architecture
         if arch_filter:
             if arch_filter == 'amd64':
                 if not any(x in name for x in ['amd64', 'x86_64', 'x64']):
@@ -95,10 +104,10 @@ def filter_assets(assets: List[Dict], platform_filter: Optional[str] = None,
 
 
 def detect_os_and_arch(filename: str) -> tuple:
-    """从文件名检测操作系统和架构"""
+    """Detect OS and architecture from filename"""
     name_lower = filename.lower()
     
-    # 检测操作系统
+    # Detect operating system
     if 'windows' in name_lower or name_lower.endswith('.exe') or name_lower.endswith('.msi'):
         os_type = 'windows'
     elif 'macos' in name_lower or 'darwin' in name_lower or name_lower.endswith('.pkg') or name_lower.endswith('.dmg'):
@@ -108,7 +117,7 @@ def detect_os_and_arch(filename: str) -> tuple:
     else:
         os_type = 'unknown'
     
-    # 检测架构
+    # Detect architecture
     if any(x in name_lower for x in ['amd64', 'x86_64', 'x64']):
         arch = 'x86_64'
     elif any(x in name_lower for x in ['aarch64', 'arm64']):
@@ -120,10 +129,16 @@ def detect_os_and_arch(filename: str) -> tuple:
 
 
 def generate_appcast_xml(release: Dict, assets: List[Dict], output_path: str):
-    """生成 Sparkle appcast XML"""
+    """Generate Sparkle appcast XML
+    
+    Args:
+        release: Release information dictionary
+        assets: List of asset dictionaries
+        output_path: Path to save the generated XML file
+    """
     from xml.etree import ElementTree as ET
     
-    # 创建 RSS 根元素
+    # Create RSS root element
     rss = ET.Element('rss', {
         'version': '2.0',
         'xmlns:sparkle': 'http://www.andymatuschak.org/xml-namespaces/sparkle',
@@ -132,13 +147,13 @@ def generate_appcast_xml(release: Dict, assets: List[Dict], output_path: str):
     
     channel = ET.SubElement(rss, 'channel')
     
-    # 频道信息
+    # Channel information
     ET.SubElement(channel, 'title').text = 'eCan AI Assistant'
     ET.SubElement(channel, 'link').text = 'https://github.com/scszcoder/ecbot'
     ET.SubElement(channel, 'description').text = 'eCan AI Assistant Updates'
     ET.SubElement(channel, 'language').text = 'en'
     
-    # 为每个资产创建一个 item
+    # Create an item for each asset
     for asset in assets:
         item = ET.SubElement(channel, 'item')
         
@@ -152,7 +167,7 @@ def generate_appcast_xml(release: Dict, assets: List[Dict], output_path: str):
         ET.SubElement(item, 'pubDate').text = datetime.now().strftime('%a, %d %b %Y %H:%M:%S +0000')
         ET.SubElement(item, 'link').text = asset['browser_download_url']
         
-        # 创建 enclosure 元素
+        # Create enclosure element
         enclosure_attrs = {
             'url': asset['browser_download_url'],
             'length': str(asset['size']),
@@ -161,13 +176,13 @@ def generate_appcast_xml(release: Dict, assets: List[Dict], output_path: str):
             'sparkle:os': os_type,
         }
         
-        # 添加架构信息
+        # Add architecture information
         if arch != 'universal':
             enclosure_attrs['sparkle:arch'] = arch
         
-        # 尝试添加签名
-        # 注意：这里我们假设 asset 是本地文件路径
-        # 在 GitHub Actions 中，文件应该已经下载到本地
+        # Try to add signature
+        # Note: Here we assume asset is a local file path
+        # In GitHub Actions, the file should already be downloaded locally
         if os.path.exists(asset['name']):
             signature = sign_update(asset['name'])
             if signature:
@@ -175,11 +190,11 @@ def generate_appcast_xml(release: Dict, assets: List[Dict], output_path: str):
         
         ET.SubElement(item, 'enclosure', enclosure_attrs)
     
-    # 格式化并保存 XML
+    # Format and save XML
     tree = ET.ElementTree(rss)
     ET.indent(tree, space='  ')
     
-    # 确保输出目录存在
+    # Ensure output directory exists
     output_dir = Path(output_path).parent
     output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -190,19 +205,19 @@ def generate_appcast_xml(release: Dict, assets: List[Dict], output_path: str):
 def main(release: Dict, platform_filter: Optional[str] = None, 
          arch_filter: Optional[str] = None, output_path: str = 'appcast.xml'):
     """
-    主函数：生成 appcast XML
+    Main function: Generate appcast XML
     
     Args:
-        release: GitHub release 信息字典，包含 tag_name 和 assets
-        platform_filter: 平台过滤器 ('macos', 'windows', 'linux')
-        arch_filter: 架构过滤器 ('amd64', 'aarch64')
-        output_path: 输出文件路径
+        release: GitHub release info dict containing tag_name and assets
+        platform_filter: Platform filter ('macos', 'windows', 'linux')
+        arch_filter: Architecture filter ('amd64', 'aarch64')
+        output_path: Output file path
     """
     print(f"Generating appcast for release: {release.get('tag_name', 'unknown')}")
     print(f"Platform filter: {platform_filter or 'all'}")
     print(f"Arch filter: {arch_filter or 'all'}")
     
-    # 获取资产列表
+    # Get asset list
     assets = release.get('assets', [])
     if not assets:
         print("Warning: No assets found in release")
@@ -210,7 +225,7 @@ def main(release: Dict, platform_filter: Optional[str] = None,
     
     print(f"Total assets: {len(assets)}")
     
-    # 过滤资产
+    # Filter assets
     filtered_assets = filter_assets(assets, platform_filter, arch_filter)
     print(f"Filtered assets: {len(filtered_assets)}")
     
@@ -218,13 +233,13 @@ def main(release: Dict, platform_filter: Optional[str] = None,
         print("Warning: No assets match the filters")
         return
     
-    # 生成 appcast XML
+    # Generate appcast XML
     generate_appcast_xml(release, filtered_assets, output_path)
     print(f"Appcast generated successfully: {output_path}")
 
 
 if __name__ == '__main__':
-    # 测试代码
+    # Test code
     test_release = {
         'tag_name': 'v0.0.1',
         'assets': [
