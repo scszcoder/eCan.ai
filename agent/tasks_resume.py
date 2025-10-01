@@ -448,6 +448,42 @@ def build_resume_from_mapping(event: Json, state: Json, node_output: Optional[Js
     return resume, state_patch
 
 
+def build_node_transfer_patch(node_id: str, state_snapshot: Json, node_transfer_rules: Dict[str, Any]) -> Json:
+    """Build a state patch for a specific node using the same mapping DSL.
+
+    Args:
+        node_id: The id/name of the node we are resuming from.
+        state_snapshot: A safe snapshot of the current state (typically checkpoint.values).
+        node_transfer_rules: Dict keyed by node_id -> mapping spec ({mappings:[], options:{}}).
+
+    Returns:
+        A dict patch intended to be merged into the resume payload/state before continuing.
+    """
+    try:
+        if not node_id or not isinstance(node_transfer_rules, dict):
+            return {}
+        mapping = node_transfer_rules.get(node_id)
+        if not isinstance(mapping, dict):
+            return {}
+        # Node output: prefer explicit 'result' from state snapshot; tolerate variations.
+        node_output = {}
+        try:
+            if isinstance(state_snapshot, dict):
+                node_output = state_snapshot.get("result") or {}
+        except Exception:
+            node_output = {}
+        # Reuse the existing mapping engine. For per-node transfer, we have no external event,
+        # so pass an empty event; allow rules to use `node.*` and `state.*` sources.
+        resume_patch, state_patch = build_resume_from_mapping(event={}, state=state_snapshot or {}, node_output=node_output, mapping=mapping)
+        # We only need the state patch here; resume_patch can be ignored or used for telemetry.
+        return state_patch or {}
+    except Exception as e:
+        try:
+            logger.debug(f"build_node_transfer_patch error: {e}")
+        except Exception:
+            pass
+        return {}
+
 def load_mapping_for_task(task: Any) -> Dict[str, Any]:
     """Resolve mapping rules with precedence:
     1) Node-level mapping: task.skill.config.nodes[<this_node.name>].mapping_rules
