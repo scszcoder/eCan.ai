@@ -37,6 +37,13 @@ interface OrgStoreState {
   setError: (error: string | null) => void;
   clearData: () => void;
   shouldFetchData: () => boolean;
+  
+  // Update methods for real-time sync
+  updateOrg: (orgId: string, updates: Partial<Org>) => void;
+  addAgentToOrg: (orgId: string, agent: OrgAgent) => void;
+  removeAgentFromOrg: (agentId: string) => void;
+  updateAgent: (agentId: string, updates: Partial<OrgAgent>) => void;
+  refreshOrgData: () => Promise<void>;
 }
 
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -156,5 +163,154 @@ export const useOrgStore = create<OrgStoreState>((set, get) => ({
     const { lastFetchTime } = get();
     if (!lastFetchTime) return true;
     return Date.now() - lastFetchTime > CACHE_DURATION;
+  },
+  
+  // Update a specific organization
+  updateOrg: (orgId: string, updates: Partial<Org>) => {
+    const updateOrgInTree = (node: TreeOrgNode): TreeOrgNode => {
+      if (node.id === orgId) {
+        // Ensure we maintain TreeOrgNode structure by preserving children and agents
+        return { 
+          ...node, 
+          ...updates,
+          // Preserve required TreeOrgNode properties
+          children: node.children,
+          agents: node.agents
+        };
+      }
+      if (node.children && node.children.length > 0) {
+        return {
+          ...node,
+          children: node.children.map(updateOrgInTree)
+        };
+      }
+      return node;
+    };
+    
+    set(state => {
+      const updatedTreeOrgs = state.treeOrgs.map(updateOrgInTree);
+      const updatedOrgs = state.orgs.map(org => 
+        org.id === orgId ? { ...org, ...updates } : org
+      );
+      
+      // Rebuild display nodes
+      const displayNodes = buildDisplayNodesFromTree(null, updatedTreeOrgs[0]);
+      
+      return {
+        treeOrgs: updatedTreeOrgs,
+        orgs: updatedOrgs,
+        displayNodes
+      };
+    });
+  },
+  
+  // Add agent to organization
+  addAgentToOrg: (orgId: string, agent: OrgAgent) => {
+    const addAgentToNode = (node: TreeOrgNode): TreeOrgNode => {
+      if (node.id === orgId) {
+        const existingAgents = node.agents || [];
+        // Check if agent already exists
+        if (existingAgents.some(a => a.id === agent.id)) {
+          return node;
+        }
+        return {
+          ...node,
+          agents: [...existingAgents, agent]
+        };
+      }
+      if (node.children && node.children.length > 0) {
+        return {
+          ...node,
+          children: node.children.map(addAgentToNode)
+        };
+      }
+      return node;
+    };
+    
+    set(state => {
+      const updatedTreeOrgs = state.treeOrgs.map(addAgentToNode);
+      const updatedAgents = [...state.agents];
+      
+      // Add to agents list if not exists
+      if (!updatedAgents.some(a => a.id === agent.id)) {
+        updatedAgents.push(agent);
+      }
+      
+      // Rebuild display nodes
+      const displayNodes = buildDisplayNodesFromTree(null, updatedTreeOrgs[0]);
+      
+      return {
+        treeOrgs: updatedTreeOrgs,
+        agents: updatedAgents,
+        displayNodes
+      };
+    });
+  },
+  
+  // Remove agent from organization
+  removeAgentFromOrg: (agentId: string) => {
+    const removeAgentFromNode = (node: TreeOrgNode): TreeOrgNode => {
+      const updatedAgents = (node.agents || []).filter(a => a.id !== agentId);
+      const updatedChildren = node.children ? node.children.map(removeAgentFromNode) : [];
+      
+      return {
+        ...node,
+        agents: updatedAgents,
+        children: updatedChildren
+      };
+    };
+    
+    set(state => {
+      const updatedTreeOrgs = state.treeOrgs.map(removeAgentFromNode);
+      const updatedAgents = state.agents.filter(a => a.id !== agentId);
+      
+      // Rebuild display nodes
+      const displayNodes = buildDisplayNodesFromTree(null, updatedTreeOrgs[0]);
+      
+      return {
+        treeOrgs: updatedTreeOrgs,
+        agents: updatedAgents,
+        displayNodes
+      };
+    });
+  },
+  
+  // Update agent information
+  updateAgent: (agentId: string, updates: Partial<OrgAgent>) => {
+    const updateAgentInNode = (node: TreeOrgNode): TreeOrgNode => {
+      const updatedAgents = (node.agents || []).map(agent =>
+        agent.id === agentId ? { ...agent, ...updates } : agent
+      );
+      const updatedChildren = node.children ? node.children.map(updateAgentInNode) : [];
+      
+      return {
+        ...node,
+        agents: updatedAgents,
+        children: updatedChildren
+      };
+    };
+    
+    set(state => {
+      const updatedTreeOrgs = state.treeOrgs.map(updateAgentInNode);
+      const updatedAgents = state.agents.map(agent =>
+        agent.id === agentId ? { ...agent, ...updates } : agent
+      );
+      
+      // Rebuild display nodes
+      const displayNodes = buildDisplayNodesFromTree(null, updatedTreeOrgs[0]);
+      
+      return {
+        treeOrgs: updatedTreeOrgs,
+        agents: updatedAgents,
+        displayNodes
+      };
+    });
+  },
+  
+  // Refresh org data (for manual refresh)
+  refreshOrgData: async () => {
+    // This will be implemented by the component that uses the store
+    // It's here as a placeholder for future use
+    return Promise.resolve();
   },
 }));

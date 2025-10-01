@@ -4,6 +4,11 @@ import { persist } from 'zustand/middleware';
 import { Agent } from '@/pages/Agents/types';
 import { createIPCAPI } from '@/services/ipc/api';
 
+// Define the expected response structure from the backend
+interface AgentsResponse {
+  agents?: Agent[];
+}
+
 interface AgentStoreState {
   agents: Agent[];
   loading: boolean;
@@ -17,6 +22,7 @@ interface AgentStoreState {
   addAgent: (agent: Agent) => void;
   updateAgent: (id: string, updates: Partial<Agent>) => void;
   removeAgent: (id: string) => void;
+  updateAgentOrganization: (agentId: string, orgId: string | null) => void;
   
   // Selectors
   getAgentById: (id: string) => Agent | null;
@@ -60,6 +66,18 @@ export const useAgentStore = create<AgentStoreState>()(
       removeAgent: (id) => set((state) => ({
         agents: state.agents.filter(agent => agent.card?.id !== id)
       })),
+      
+      updateAgentOrganization: (agentId, orgId) => set((state) => ({
+        agents: state.agents.map(agent => {
+          if (agent.card?.id === agentId) {
+            return {
+              ...agent,
+              organizations: orgId ? [orgId] : []
+            };
+          }
+          return agent;
+        })
+      })),
 
       // Selectors
       getAgentById: (id) => {
@@ -87,14 +105,14 @@ export const useAgentStore = create<AgentStoreState>()(
         set({ loading: true, error: null });
         try {
           const api = createIPCAPI();
-          const response = await api.getAgents(username, skillIds);
+          const response = await api.getAgents<AgentsResponse | Agent[]>(username, skillIds);
           
           if (response && response.success && response.data) {
             // Handle different response structures
             let agentsData: Agent[] = [];
             if (Array.isArray(response.data)) {
               agentsData = response.data;
-            } else if (response.data.agents && Array.isArray(response.data.agents)) {
+            } else if (response.data && typeof response.data === 'object' && 'agents' in response.data && Array.isArray(response.data.agents)) {
               agentsData = response.data.agents;
             }
             

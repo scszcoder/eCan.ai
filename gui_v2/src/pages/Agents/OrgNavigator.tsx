@@ -1,7 +1,8 @@
 import React, { useMemo, useCallback, useEffect } from 'react';
-import { Alert, Button, Spin } from 'antd';
+import { Alert, Button, Spin, FloatButton } from 'antd';
+import { PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useUserStore } from '../../stores/userStore';
 import { useOrgStore } from '../../stores/orgStore';
 import { useAgentStore } from '../../stores/agentStore';
@@ -35,8 +36,6 @@ function findTreeNodeById(node: TreeOrgNode, targetId: string): TreeOrgNode | nu
 
   return null;
 }
-
-// Helper function to find path to a node - removed as it was not being used
 
 const mapOrgAgentToAgent = (orgAgent: OrgAgent, orgId?: string): Agent => {
   const resolvedOrgId = orgId ?? (orgAgent.org_id ?? undefined);
@@ -120,9 +119,27 @@ const buildDoorsForNode = (
 
 const OrgNavigator: React.FC = () => {
   const navigate = useNavigate();
-  const { departmentId } = useParams<{ departmentId?: string }>();
+  const { orgId } = useParams<{ orgId?: string }>();
+  const location = useLocation();
   const { t } = useTranslation();
   const username = useUserStore((state) => state.username);
+
+  // 解析嵌套路径中的实际 orgId
+  const actualOrgId = useMemo(() => {
+    // 从完整路径中提取最后一个 organization 后面的 orgId
+    const orgMatches = location.pathname.match(/organization\/([^/]+)/g);
+    console.log('[OrgNavigator] Current path:', location.pathname);
+    console.log('[OrgNavigator] Org matches:', orgMatches);
+    console.log('[OrgNavigator] useParams orgId:', orgId);
+    
+    if (orgMatches && orgMatches.length > 0) {
+      const lastMatch = orgMatches[orgMatches.length - 1];
+      const extractedOrgId = lastMatch.replace('organization/', '');
+      console.log('[OrgNavigator] Extracted orgId:', extractedOrgId);
+      return extractedOrgId;
+    }
+    return orgId;
+  }, [location.pathname, orgId]);
 
   const {
     treeOrgs,
@@ -137,8 +154,8 @@ const OrgNavigator: React.FC = () => {
   const setAgents = useAgentStore((state) => state.setAgents);
 
   const rootNode = treeOrgs[0];
-  const isRootView = !departmentId;
-  const isUnassignedView = departmentId === UNASSIGNED_NODE_ID;
+  const isRootView = !actualOrgId || actualOrgId === 'root';
+  const isUnassignedView = actualOrgId === UNASSIGNED_NODE_ID;
 
   const currentNode = useMemo(() => {
     if (!rootNode) {
@@ -149,8 +166,8 @@ const OrgNavigator: React.FC = () => {
       return rootNode;
     }
 
-    return findTreeNodeById(rootNode, departmentId!);
-  }, [departmentId, isRootView, isUnassignedView, rootNode]);
+    return findTreeNodeById(rootNode, actualOrgId!);
+  }, [actualOrgId, isRootView, isUnassignedView, rootNode]);
 
   const levelDoors = useMemo(() => {
     if (!rootNode) {
@@ -180,30 +197,38 @@ const OrgNavigator: React.FC = () => {
       return rootNode.agents || [];
     }
 
-    if (!departmentId || !currentNode) {
+    if (!actualOrgId || !currentNode) {
       return [] as OrgAgent[];
     }
 
     return currentNode.agents || [];
-  }, [rootNode, currentNode, isUnassignedView, departmentId]);
+  }, [rootNode, currentNode, isUnassignedView, actualOrgId]);
 
   const agentsForDisplay = useMemo(() => {
-    const orgId = isUnassignedView ? undefined : departmentId;
-    return rawAgents.map((agent) => mapOrgAgentToAgent(agent, orgId));
-  }, [rawAgents, departmentId, isUnassignedView]);
+    const currentOrgId = isUnassignedView ? undefined : actualOrgId;
+    return rawAgents.map((agent) => mapOrgAgentToAgent(agent, currentOrgId));
+  }, [rawAgents, actualOrgId, isUnassignedView]);
 
-  // Breadcrumb items removed as they were not being used
 
   const handleDoorClick = useCallback(
     (door: DisplayNode) => {
       if (door.type === 'unassigned_agents') {
-        navigate('/agents/room/unassigned');
+        const currentPath = location.pathname;
+        navigate(`${currentPath}/organization/unassigned`);
         return;
       }
 
-      navigate(`/agents/room/${door.id}`);
+      // 构建正确的嵌套路径：当前路径 + /organization/:orgId
+      // 这样 PageBackBreadcrumb 组件就能正确解析路径层级
+      const currentPath = location.pathname.replace(/\/$/, ''); // 移除末尾斜杠
+      const newPath = `${currentPath}/organization/${door.id}`;
+      
+      console.log('[OrgNavigator] Navigating from:', currentPath, 'to:', newPath);
+      console.log('[OrgNavigator] Current actualOrgId:', actualOrgId, 'Target door.id:', door.id);
+      
+      navigate(newPath);
     },
-    [navigate]
+    [navigate, location.pathname, actualOrgId]
   );
 
   const doorComponents = useMemo(() => {
@@ -440,6 +465,23 @@ const OrgNavigator: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 添加 Agent 浮动按钮 */}
+      <FloatButton
+        icon={<PlusOutlined />}
+        type="primary"
+        style={{ right: 24, bottom: 24 }}
+        tooltip={t('pages.agents.add_agent') || 'Add Agent'}
+        onClick={() => {
+          // 传递当前组织ID作为查询参数
+          const queryParams = new URLSearchParams();
+          if (actualOrgId && actualOrgId !== 'root' && actualOrgId !== UNASSIGNED_NODE_ID) {
+            queryParams.set('orgId', actualOrgId);
+          }
+          const queryString = queryParams.toString();
+          navigate(`/agents/add${queryString ? `?${queryString}` : ''}`);
+        }}
+      />
     </div>
   );
 };

@@ -12,7 +12,6 @@ const Schedule = React.lazy(() => import('../pages/Schedule/Schedule'));
 const Chat = React.lazy(() => import('../pages/Chat/index'));
 const Skills = React.lazy(() => import('../pages/Skills/Skills'));
 const SkillEditor = React.lazy(() => import('../pages/SkillEditor/SkillEditor'));
-const Agents = React.lazy(() => import('../pages/Agents/Agents'));
 const Analytics = React.lazy(() => import('../pages/Analytics/Analytics'));
 const Tasks = React.lazy(() => import('../pages/Tasks/Tasks'));
 const Tools = React.lazy(() => import('../pages/Tools/Tools'));
@@ -22,12 +21,7 @@ const KnowledgePlatform = React.lazy(() => import('../pages/Knowledge/index'));
 const Tests = React.lazy(() => import('../pages/Tests/Tests'));
 const OrgNavigator = React.lazy(() => import('../pages/Agents/OrgNavigator'));
 const AgentDetails = React.lazy(() => import('../pages/Agents/components/AgentDetails'));
-const Organizations = React.lazy(() => import('../pages/Orgs/Orgs'));
-
-// Agents 路由包装器，用于防止不必要的重新渲染
-const AgentsRouteWrapper: React.FC = () => {
-    return React.useMemo(() => <LazyWrapper><Agents /></LazyWrapper>, []);
-};
+const Orgs = React.lazy(() => import('../pages/Orgs/Orgs'));
 
 // 加载组件包装器
 const LazyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -111,7 +105,7 @@ export const protectedRoutes: RouteConfig[] = [
             },
             {
                 path: 'agents',
-                element: <AgentsRouteWrapper />,
+                element: <Outlet />,
                 children: [
                     {
                         path: '',
@@ -122,7 +116,11 @@ export const protectedRoutes: RouteConfig[] = [
                         element: <LazyWrapper><AgentDetails /></LazyWrapper>,
                     },
                     {
-                        path: 'room/:departmentId',
+                        path: 'add',
+                        element: <LazyWrapper><AgentDetails /></LazyWrapper>,
+                    },
+                    {
+                        path: 'organization/:orgId/*',
                         element: <LazyWrapper><OrgNavigator /></LazyWrapper>,
                     },
                 ],
@@ -157,7 +155,7 @@ export const protectedRoutes: RouteConfig[] = [
             },
             {
                 path: 'orgs',
-                element: <LazyWrapper><Organizations /></LazyWrapper>,
+                element: <LazyWrapper><Orgs /></LazyWrapper>,
             },
         ],
     },

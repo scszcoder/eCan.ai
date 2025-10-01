@@ -21,15 +21,13 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
-import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import AppSider from './AppSider';
 import AppHeader from './AppHeader';
 import AppContent from './AppContent';
 import BackgroundInitIndicator from '../BackgroundInitIndicator';
 import PageBackBreadcrumb from './PageBackBreadcrumb';
+import QuickActionMenu from './QuickActionMenu';
 import A11yFocusGuard from '../Common/A11yFocusGuard';
-import { get_ipc_api } from '@/services/ipc_api';
-import { userStorageManager } from '../../services/storage/UserStorageManager';
 import { logoutManager } from '../../services/LogoutManager';
 
 
@@ -93,7 +91,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
     const userMenuItems = React.useMemo<MenuProps['items']>(() => [
         { key: 'profile', icon: <UserOutlined />, label: t('common.profile') },
-    ], [t]) || [];
+    ], [t]) as NonNullable<MenuProps['items']>;
 
     const onMenuClick = ({ key }: { key: string }) => navigate(key);
 
@@ -115,7 +113,24 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                     onLogout={handleLogout}
                 />
                 <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
-                    <PageBackBreadcrumb />
+                    <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'space-between',
+                        position: 'absolute', 
+                        top: 0, 
+                        left: 0, 
+                        right: 0,
+                        zIndex: 10,
+                        padding: '12px 24px',
+                        background: 'var(--bg-secondary, rgba(15, 23, 42, 0.8))',
+                        backdropFilter: 'blur(12px)',
+                        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)'
+                    }}>
+                        <PageBackBreadcrumb />
+                        <QuickActionMenu />
+                    </div>
                     <AppContent>{children}</AppContent>
                 </div>
             </StyledInnerLayout>

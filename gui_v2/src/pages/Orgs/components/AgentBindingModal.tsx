@@ -12,14 +12,16 @@ import { MODAL_CONFIG } from '../constants';
 interface AgentBindingModalProps {
   visible: boolean;
   availableAgents: Agent[];
+  selectedOrgId?: string;
   onOk: (values: AgentBindingFormData) => Promise<void>;
   onCancel: () => void;
-  onLoadAgents: () => void;
+  onLoadAgents: (selectedOrgId?: string) => void;
 }
 
 const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
   visible,
   availableAgents,
+  selectedOrgId,
   onOk,
   onCancel,
   onLoadAgents,
@@ -27,12 +29,23 @@ const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
   const { t } = useTranslation();
   const [form] = Form.useForm();
 
+  // Memoize validation rules to prevent re-creation on every render
+  const agentIdsRules = React.useMemo(() => [
+    { required: true, message: t('pages.org.form.validation.nameRequired') }
+  ], [t]);
+
+  // Memoize filtered agents to prevent re-creation on every render
+  const validAgents = React.useMemo(() => 
+    availableAgents.filter(agent => agent && agent.id && agent.name),
+    [availableAgents]
+  );
+
   useEffect(() => {
     if (visible) {
       form.resetFields();
-      onLoadAgents();
+      onLoadAgents(selectedOrgId);
     }
-  }, [visible, form, onLoadAgents]);
+  }, [visible, selectedOrgId, onLoadAgents, form]);
 
   const handleOk = async () => {
     try {
@@ -54,15 +67,14 @@ const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
       open={visible}
       onOk={handleOk}
       onCancel={handleCancel}
+      destroyOnHidden={true}
       {...MODAL_CONFIG.BIND_AGENTS}
     >
-      <Form form={form} layout="vertical">
+      <Form form={form} layout="vertical" preserve={false}>
         <Form.Item
           label={t('pages.org.modal.bind.selectAgents')}
           name="agent_ids"
-          rules={[
-            { required: true, message: t('pages.org.form.validation.nameRequired') }
-          ]}
+          rules={agentIdsRules}
         >
           <Select
             mode="multiple"
@@ -72,11 +84,11 @@ const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
             optionFilterProp="children"
             showSearch
             filterOption={(input, option) => {
-              const agent = availableAgents.find(a => a && a.id === option?.value);
+              const agent = validAgents.find(a => a && a.id === option?.value);
               return agent?.name?.toLowerCase().includes(input.toLowerCase()) || false;
             }}
             notFoundContent={
-              availableAgents.length === 0 ? (
+              validAgents.length === 0 ? (
                 <Empty
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
                   description={t('pages.org.placeholder.noAvailableAgents')}
@@ -84,9 +96,7 @@ const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
               ) : null
             }
           >
-            {availableAgents
-              .filter(agent => agent && agent.id && agent.name) // Filter out invalid agents
-              .map(agent => (
+            {validAgents.map(agent => (
                 <Select.Option
                   key={agent.id}
                   value={agent.id}

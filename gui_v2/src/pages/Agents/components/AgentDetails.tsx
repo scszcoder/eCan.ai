@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { App, Button, Card, Col, DatePicker, Divider, Form, Input, Radio, Row, Select, Space, Tag, Tooltip } from 'antd';
 import { ArrowLeftOutlined, CloseOutlined, EditOutlined, SaveOutlined, PlusOutlined, ToolOutlined, FileTextOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useUserStore } from '@/stores/userStore';
+import { useOrgStore } from '@/stores/orgStore';
 import type { Agent } from '../types';
 import { useAppDataStore } from '@/stores/appDataStore';
 import { useAgentStore } from '@/stores/agentStore';
@@ -45,8 +46,14 @@ const AgentDetails: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { id } = useParams();
-  const isNew = id === 'new';
+  const location = useLocation();
+  // 支持两种新建模式：/agents/add 和 /agents/details/new
+  const isNew = id === 'new' || location.pathname === '/agents/add';
   const username = useUserStore((s: any) => s.username);
+  
+  // 从查询参数中获取 orgId
+  const searchParams = new URLSearchParams(location.search);
+  const defaultOrgId = searchParams.get('orgId');
   const { message } = App.useApp();
 
   // Pull tasks and skills from global app data store (populated by Tasks/Skills pages)
@@ -55,6 +62,9 @@ const AgentDetails: React.FC = () => {
   const storeSkills = useAppDataStore((state) => state.skills);
   const setTasks = useAppDataStore((state) => state.setTasks);
   const setSkills = useAppDataStore((state) => state.setSkills);
+  
+  // 获取组织数据
+  const { treeOrgs } = useOrgStore();
 
   // Build options for selects. ListEditor expects string[] options.
   // For tasks, use task.skill; for skills, use skill.name.
@@ -73,6 +83,52 @@ const AgentDetails: React.FC = () => {
     const unique = Array.from(new Set(names));
     return unique.length > 0 ? unique : knownSkills;
   }, [storeSkills]);
+
+  // 构建组织选项 - 从树形结构中提取所有组织
+  const organizationOptions = useMemo(() => {
+    const extractOrgs = (node: any): string[] => {
+      let orgs: string[] = [];
+      if (node.id && node.name) {
+        orgs.push(node.id);
+      }
+      if (node.children && Array.isArray(node.children)) {
+        node.children.forEach((child: any) => {
+          orgs = orgs.concat(extractOrgs(child));
+        });
+      }
+      return orgs;
+    };
+
+    if (treeOrgs && treeOrgs.length > 0) {
+      const allOrgIds = extractOrgs(treeOrgs[0]);
+      return allOrgIds.length > 0 ? allOrgIds : knownOrganizations;
+    }
+    return knownOrganizations;
+  }, [treeOrgs]);
+
+  // 获取组织名称的辅助函数
+  const getOrgName = useCallback((orgId: string) => {
+    const findOrgName = (node: any, targetId: string): string | null => {
+      if (node.id === targetId) {
+        return node.name;
+      }
+      if (node.children && Array.isArray(node.children)) {
+        for (const child of node.children) {
+          const found = findOrgName(child, targetId);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    if (treeOrgs && treeOrgs.length > 0) {
+      const orgName = findOrgName(treeOrgs[0], orgId);
+      if (orgName) return orgName;
+    }
+    
+    // 回退到翻译键
+    return t(orgId) || orgId;
+  }, [treeOrgs, t]);
 
   // Proactively fetch tasks/skills if empty so dropdowns populate without visiting their pages first
   useEffect(() => {
@@ -131,7 +187,7 @@ const AgentDetails: React.FC = () => {
         owner: username || t('common.owner') || 'owner',
         personality: [],
         title: [],
-        organizations: [],
+        organizations: defaultOrgId ? [defaultOrgId] : [], // 设置默认组织
         supervisors: [],
         subordinates: [],
         tasks: [],
@@ -158,7 +214,7 @@ const AgentDetails: React.FC = () => {
         metadata: `{\n  "${t('common.note') || 'note'}": "${t('common.sample') || 'sample'}"\n}`
       };
     }
-  }, [id, isNew, username, t]);
+  }, [id, isNew, username, t, defaultOrgId]);
 
   // 使用 useEffect 来设置表单值，但只在组件挂载后执行一次
   useEffect(() => {
@@ -186,7 +242,7 @@ const AgentDetails: React.FC = () => {
           {(items || []).map((v) => (
             <Tag key={`${label}-${v}`} closable={editable} onClose={() => setItems((items || []).filter(i => i !== v))}>
               <Space size={4}>
-                <span>{t(v) || v}</span>
+                <span>{label === (t('pages.agents.organization') || 'Organization') ? getOrgName(v) : (t(v) || v)}</span>
                 {onEdit && (
                   <Tooltip title={t('common.edit_item', { item: label }) || `Edit ${label}`}> 
                     <Button size="small" type="text" icon={<EditOutlined />} onClick={() => onEdit(v)} />
@@ -209,7 +265,10 @@ const AgentDetails: React.FC = () => {
               value={selectValue}
               onChange={setSelectValue}
               disabled={!editable}
-              options={options.map(o => ({ value: o, label: t(o) || o }))}
+              options={options.map(o => ({ 
+                value: o, 
+                label: label === (t('pages.agents.organization') || 'Organization') ? getOrgName(o) : (t(o) || o)
+              }))}
               placeholder={t('common.select_item', { item: label }) || `Select ${label}`}
               getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
 
@@ -265,7 +324,14 @@ const AgentDetails: React.FC = () => {
           loading={isNavigating}
           disabled={isNavigating}
         />
-        <span style={{ fontSize: 18, fontWeight: 600 }}>{t('pages.agents.agent_details') || 'Agent Details'}</span>
+        <span style={{ fontSize: 18, fontWeight: 600 }}>
+          {t('pages.agents.agent_details') || 'Agent Details'}
+          {isNew && defaultOrgId && (
+            <span style={{ fontSize: 14, fontWeight: 400, color: 'rgba(255, 255, 255, 0.65)', marginLeft: 8 }}>
+              - {getOrgName(defaultOrgId)}
+            </span>
+          )}
+        </span>
         </Space>
 
       <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} styles={{ body: { padding: 16, height: '100%', overflow: 'hidden' } }}>
@@ -358,7 +424,7 @@ const AgentDetails: React.FC = () => {
                         label={t('pages.agents.organization') || 'Organization'}
                         items={form.getFieldValue('organizations')}
                         setItems={(arr) => form.setFieldsValue({ organizations: arr })}
-                        options={knownOrganizations}
+                        options={organizationOptions}
                         editable={editMode}
                         onEdit={(id) => navigate(`/orgs/details/${id}`)}
                       />

@@ -27,7 +27,7 @@ const OrgTree: React.FC<OrgTreeProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  const findOrgById = (orgs: Org[], id: string): Org | null => {
+  const findOrgById = React.useCallback((orgs: Org[], id: string): Org | null => {
     for (const org of orgs) {
       if (org.id === id) return org;
       if (org.children) {
@@ -36,10 +36,9 @@ const OrgTree: React.FC<OrgTreeProps> = ({
       }
     }
     return null;
-  };
+  }, []);
 
-  const convertToTreeData = (orgs: Org[]): DataNode[] => {
-
+  const convertToTreeData = React.useCallback((orgs: Org[]): DataNode[] => {
     return orgs.map(org => ({
       key: org.id,
       title: (
@@ -56,7 +55,9 @@ const OrgTree: React.FC<OrgTreeProps> = ({
       children: org.children ? convertToTreeData(org.children) : undefined,
       isLeaf: !org.children || org.children.length === 0
     }));
-  };
+  }, []);
+
+  const treeData = React.useMemo(() => convertToTreeData(orgs), [orgs, convertToTreeData]);
 
   return (
     <Card
@@ -87,7 +88,7 @@ const OrgTree: React.FC<OrgTreeProps> = ({
       <Spin spinning={loading}>
         <Tree
           {...TREE_CONFIG}
-          treeData={convertToTreeData(orgs)}
+          treeData={treeData}
           onSelect={onSelect}
           onDrop={onDrop}
         />

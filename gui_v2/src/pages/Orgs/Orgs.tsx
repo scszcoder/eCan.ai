@@ -158,6 +158,7 @@ const Orgs: React.FC = () => {
       <AgentBindingModal
         visible={state.bindModalVisible}
         availableAgents={state.availableAgents}
+        selectedOrgId={state.selectedOrg?.id}
         onOk={handleAgentBindingModalOk}
         onCancel={handleAgentBindingModalCancel}
         onLoadAgents={actions.loadAvailableAgents}

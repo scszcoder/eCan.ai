@@ -55,7 +55,8 @@
     "stop": "停止",
     "unknown_error": "未知错误",
     "validation_failed": "验证失败",
-    "video_load_error": "视频加载错误"
+    "video_load_error": "视频加载错误",
+    "quick_add": "快速添加"
   },
   "navigation": {
     "dashboard": "仪表盘",
@@ -708,6 +709,40 @@
   },
   "agents": {
     "addAgent": "添加代理"
+  },
+  "pages": {
+    "agents": {
+      "add_agent": "添加代理",
+      "agent_details": "代理详情",
+      "unassigned_agents": "未分配代理",
+      "unassigned_agents_desc": "未分配到组织的代理",
+      "no_sub_orgs": "没有子组织可用",
+      "load_failed": "加载组织失败",
+      "personality": "个性",
+      "title": "职位",
+      "organizations": "组织",
+      "organization": "组织",
+      "supervisors": "上级",
+      "supervisor": "上级",
+      "subordinates": "下级",
+      "subordinate": "下级",
+      "tasks": "任务",
+      "task": "任务",
+      "skills": "技能",
+      "skill": "技能",
+      "vehicle": "设备",
+      "metadata": "元数据",
+      "agent_id": "代理ID"
+    }
+  },
+  "skills": {
+    "addSkill": "添加技能"
+  },
+  "tasks": {
+    "addTask": "添加任务"
+  },
+  "knowledge": {
+    "addKnowledge": "添加知识"
   },
   "menu": {
     "agents": "代理",

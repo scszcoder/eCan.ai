@@ -1,5 +1,5 @@
 /**
- * Org Form Modal Component
+ * Org Form Modal Component - Simplified Architecture
  */
 
 import React, { useEffect } from 'react';
@@ -24,24 +24,48 @@ const OrgModal: React.FC<OrgModalProps> = ({
   onCancel,
 }) => {
   const { t } = useTranslation();
+  
+  // 只在 Modal 可见时创建 Form 实例
   const [form] = Form.useForm();
 
   const isEditing = !!editingOrg;
 
+  // Memoize form rules to prevent re-creation on every render
+  const nameRules = React.useMemo(() => 
+    FORM_RULES.name.map(rule => ({
+      ...rule,
+      message: t(rule.message)
+    })), [t]);
+
+  const descriptionRules = React.useMemo(() => 
+    FORM_RULES.description.map(rule => ({
+      ...rule,
+      message: t(rule.message)
+    })), [t]);
+
+  const orgTypeRules = React.useMemo(() => 
+    FORM_RULES.org_type.map(rule => ({
+      ...rule,
+      message: t(rule.message)
+    })), [t]);
+
+  // Memoize org type options
+  const orgTypeOptions = React.useMemo(() => 
+    ORG_TYPES.map(type => (
+      <Select.Option key={type.value} value={type.value}>
+        {t(type.key)}
+      </Select.Option>
+    )), [t]);
+
   useEffect(() => {
-    if (visible) {
-      if (editingOrg) {
-        form.setFieldsValue({
-          name: editingOrg.name,
-          description: editingOrg.description,
-          org_type: editingOrg.org_type,
-        });
-      } else {
-        form.resetFields();
-        form.setFieldsValue({
-          org_type: DEFAULT_ORG_TYPE,
-        });
-      }
+    if (visible && editingOrg) {
+      form.setFieldsValue({
+        name: editingOrg.name,
+        description: editingOrg.description,
+        org_type: editingOrg.org_type,
+      });
+    } else if (visible) {
+      form.resetFields();
     }
   }, [visible, editingOrg, form]);
 
@@ -65,6 +89,7 @@ const OrgModal: React.FC<OrgModalProps> = ({
       open={visible}
       onOk={handleOk}
       onCancel={handleCancel}
+      destroyOnHidden={true}
       {...MODAL_CONFIG.CREATE_ORG}
     >
       <Form
@@ -73,14 +98,12 @@ const OrgModal: React.FC<OrgModalProps> = ({
         initialValues={{
           org_type: DEFAULT_ORG_TYPE,
         }}
+        preserve={false}
       >
         <Form.Item
           label={t('pages.org.form.name')}
           name="name"
-          rules={FORM_RULES.name.map(rule => ({
-            ...rule,
-            message: t(rule.message)
-          }))}
+          rules={nameRules}
         >
           <Input placeholder={t('pages.org.form.name')} />
         </Form.Item>
@@ -88,10 +111,7 @@ const OrgModal: React.FC<OrgModalProps> = ({
         <Form.Item
           label={t('pages.org.form.description')}
           name="description"
-          rules={FORM_RULES.description.map(rule => ({
-            ...rule,
-            message: t(rule.message)
-          }))}
+          rules={descriptionRules}
         >
           <TextArea
             rows={3}
@@ -102,17 +122,10 @@ const OrgModal: React.FC<OrgModalProps> = ({
         <Form.Item
           label={t('pages.org.form.type')}
           name="org_type"
-          rules={FORM_RULES.org_type.map(rule => ({
-            ...rule,
-            message: t(rule.message)
-          }))}
+          rules={orgTypeRules}
         >
           <Select placeholder={t('pages.org.form.type')}>
-            {ORG_TYPES.map(type => (
-              <Select.Option key={type.value} value={type.value}>
-                {t(type.key)}
-              </Select.Option>
-            ))}
+            {orgTypeOptions}
           </Select>
         </Form.Item>
       </Form>
