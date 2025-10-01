@@ -83,6 +83,7 @@
     "agents": {
       "add": "添加",
       "agent_details": "代理详情",
+      "create_agent": "新增 Agent",
       "agent_id": "代理ID",
       "error_fetching": "获取错误",
       "fetch_failed": "获取失败",

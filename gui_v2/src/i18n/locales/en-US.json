@@ -82,8 +82,9 @@
   "pages": {
     "agents": {
       "add": "Add",
-      "agent_details": "Agent_details",
-      "agent_id": "Agent_id",
+      "agent_details": "Agent Details",
+      "create_agent": "Create Agent",
+      "agent_id": "Agent ID",
       "error_fetching": "Error_fetching",
       "fetch_failed": "Fetch_failed",
       "fetched_agents": "Fetched_agents",

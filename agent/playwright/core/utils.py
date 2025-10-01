@@ -344,22 +344,23 @@ class PlaywrightCoreUtils:
     @staticmethod
     def install_playwright_browsers(target_path: Path) -> None:
         """Install Playwright browsers to specified path"""
+        from utils.subprocess_helper import run_no_window
         # Ensure playwright package is installed
         try:
-            subprocess.run([sys.executable, "-m", "pip", "show", "playwright"], 
+            run_no_window([sys.executable, "-m", "pip", "show", "playwright"], 
                          check=True, capture_output=True)
         except subprocess.CalledProcessError:
             logger.error("[PLAYWRIGHT] playwright not found; installing...")
-            subprocess.run([sys.executable, "-m", "pip", "install", "playwright"], check=True)
+            run_no_window([sys.executable, "-m", "pip", "install", "playwright"], check=True)
         
         # Set environment variables for subprocess
         env = os.environ.copy()
-        env[PlaywrightCoreUtils.ENV_BROWSERS_PATH] = str(target_path)
-        env[PlaywrightCoreUtils.ENV_CACHE_DIR] = str(target_path)
+        env[core_utils.ENV_BASE_DIR] = str(target_path)
+        env[core_utils.ENV_CACHE_DIR] = str(target_path)
         
         # Install browsers - install chromium and chromium-headless-shell
         logger.info("[PLAYWRIGHT] Installing chromium browsers...")
-        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium", "chromium-headless-shell"],
+        run_no_window([sys.executable, "-m", "playwright", "install", "chromium", "chromium-headless-shell"],
                       check=True, env=env)
     
     @staticmethod

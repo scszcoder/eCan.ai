@@ -482,11 +482,11 @@ class LLMManager:
 
     def _persist_windows_env(self, env_var: str, api_key: str):
         """Persist environment variable on Windows"""
-        import subprocess
+        from utils.subprocess_helper import run_no_window
         
         try:
             # Use setx command to set user environment variable
-            subprocess.run(['setx', env_var, api_key], check=True, capture_output=True)
+            run_no_window(['setx', env_var, api_key], check=True, capture_output=True)
             logger.info(f"Environment variable set using setx command")
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to set environment variable using setx: {e}")
@@ -694,11 +694,11 @@ For {system}, please refer to system documentation for setting environment varia
         Returns:
             bool: True if variable was found and removed, False otherwise
         """
-        import subprocess
+        from utils.subprocess_helper import run_no_window
         
         try:
             # Use reg command to delete user environment variable
-            result = subprocess.run(['reg', 'delete', 'HKEY_CURRENT_USER\\Environment', '/v', env_var, '/f'], 
+            result = run_no_window(['reg', 'delete', 'HKEY_CURRENT_USER\\Environment', '/v', env_var, '/f'], 
                          check=True, capture_output=True, text=True)
             logger.info(f"Environment variable deleted from Windows registry: {env_var}")
             return True
