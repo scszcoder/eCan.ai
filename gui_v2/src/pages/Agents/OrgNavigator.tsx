@@ -13,7 +13,6 @@ import { logger } from '../../utils/logger';
 import { get_ipc_api } from '@/services/ipc_api';
 import { DisplayNode, GetAllOrgAgentsResponse, OrgAgent, TreeOrgNode } from '../Orgs/types';
 import type { Agent } from './types';
-import { useOrgAgentsUpdate } from './hooks/useOrgAgentsUpdate';
 
 const UNASSIGNED_NODE_ID = 'unassigned';
 
@@ -153,7 +152,8 @@ const OrgNavigator: React.FC = () => {
 
   const setAgents = useAgentStore((state) => state.setAgents);
 
-  const rootNode = treeOrgs[0];
+  // 使用 useMemo 确保 rootNode 响应 treeOrgs 的变化
+  const rootNode = useMemo(() => treeOrgs[0], [treeOrgs]);
   const isRootView = !actualOrgId || actualOrgId === 'root';
   const isUnassignedView = actualOrgId === UNASSIGNED_NODE_ID;
 
@@ -167,7 +167,7 @@ const OrgNavigator: React.FC = () => {
     }
 
     return findTreeNodeById(rootNode, actualOrgId!);
-  }, [actualOrgId, isRootView, isUnassignedView, rootNode]);
+  }, [actualOrgId, isRootView, isUnassignedView, rootNode, treeOrgs]);
 
   const levelDoors = useMemo(() => {
     if (!rootNode) {
@@ -186,7 +186,7 @@ const OrgNavigator: React.FC = () => {
     }
 
     return buildDoorsForNode(targetNode, includeUnassignedDoor);
-  }, [rootNode, currentNode, isRootView, isUnassignedView]);
+  }, [rootNode, currentNode, isRootView, isUnassignedView, treeOrgs]);
 
   const rawAgents = useMemo(() => {
     if (!rootNode) {
@@ -202,7 +202,7 @@ const OrgNavigator: React.FC = () => {
     }
 
     return currentNode.agents || [];
-  }, [rootNode, currentNode, isUnassignedView, actualOrgId]);
+  }, [rootNode, currentNode, isUnassignedView, actualOrgId, treeOrgs]);
 
   const agentsForDisplay = useMemo(() => {
     const currentOrgId = isUnassignedView ? undefined : actualOrgId;
@@ -319,65 +319,6 @@ const OrgNavigator: React.FC = () => {
   useEffect(() => {
     fetchOrgStructure();
   }, [fetchOrgStructure]);
-
-  const forceRefreshOrgStructure = useCallback(async () => {
-    if (!username) {
-      return;
-    }
-
-    logger.info('[OrgNavigator] Force refreshing organization structure...');
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await get_ipc_api().getAllOrgAgents<GetAllOrgAgentsResponse>(username);
-
-      if (response.success && response.data) {
-        setAllOrgAgents(response.data);
-
-        const extractAllAgents = (node: TreeOrgNode): OrgAgent[] => {
-          let allAgents: OrgAgent[] = [];
-
-          if (node.agents && Array.isArray(node.agents)) {
-            allAgents = allAgents.concat(node.agents);
-          }
-
-          if (node.children && Array.isArray(node.children)) {
-            node.children.forEach((child) => {
-              allAgents = allAgents.concat(extractAllAgents(child));
-            });
-          }
-
-          return allAgents;
-        };
-
-        const allAgents = extractAllAgents(response.data.orgs);
-
-        if (allAgents.length > 0) {
-          setAgents(
-            allAgents.map((agent) =>
-              mapOrgAgentToAgent(agent, agent.org_id || undefined)
-            )
-          );
-          logger.info(`[OrgNavigator] Force refreshed and saved ${allAgents.length} agents to agentStore`);
-        }
-
-        logger.info('[OrgNavigator] Organization structure force refreshed successfully');
-      } else {
-        const errorMessage = response.error?.message || 'Failed to fetch organization structure';
-        setError(errorMessage);
-        logger.error('[OrgNavigator] Error in force refresh response:', errorMessage);
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      setError(errorMessage);
-      logger.error('[OrgNavigator] Error force refreshing organization structure:', errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  }, [username, setAllOrgAgents, setLoading, setError, setAgents]);
-
-  useOrgAgentsUpdate(forceRefreshOrgStructure, [forceRefreshOrgStructure], 'OrgNavigator');
 
   if (loading && !rootNode) {
     return (

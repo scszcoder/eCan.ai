@@ -24,7 +24,7 @@ const Tools: React.FC = () => {
       if (tools && tools.length) {
         // Avoid spamming huge logs repeatedly by stringifying succinctly
         console.log('[Tools] tools count =', tools.length);
-        console.log('[Tools] tools raw array JSON:', JSON.stringify(tools, null, 2));
+        // console.log('[Tools] tools raw array JSON:', JSON.stringify(tools, null, 2));
       } else {
         console.log('[Tools] tools empty');
       }
@@ -48,7 +48,8 @@ const Tools: React.FC = () => {
       console.log('[Tools] Auto-loading tools for user:', username);
       fetchTools(username).catch(console.error);
     }
-  }, [username, tools.length, loading, fetchTools]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [username, tools.length, loading]); // 移除 fetchTools 避免无限循环
 
   useEffect(() => {
     if (tools.length > 0 && !selectedTool) {

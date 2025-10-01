@@ -18,6 +18,7 @@ import { useAgentStore } from './stores/agentStore';
 import { logoutManager } from './services/LogoutManager';
 import { initializePlatform } from './config/platform';
 import { initializeStoreSync, cleanupStoreSync } from './services/storeSync';
+import { orgDataSyncService } from './services/OrgDataSyncService';
 
 
 
@@ -97,6 +98,15 @@ const AppContent = () => {
 
     // Note: avoid immediate fetch on username to prevent racing backend init; we poll readiness below
 
+    // 初始化组织数据同步服务（后台监听器）
+    React.useEffect(() => {
+        orgDataSyncService.initialize();
+        
+        return () => {
+            orgDataSyncService.cleanup();
+        };
+    }, []);
+
     // Register App-level cleanup for logout
     React.useEffect(() => {
         logoutManager.registerCleanup({
@@ -124,6 +134,10 @@ const AppContent = () => {
                     // 清理 store 同步监听器
                     cleanupStoreSync();
                     logger.debug('[App] Store sync listeners cleaned up');
+
+                    // 清理组织数据同步服务
+                    orgDataSyncService.cleanup();
+                    logger.debug('[App] Org data sync service cleaned up');
 
                     logger.info('[App] App cleanup completed');
                 } catch (error) {
