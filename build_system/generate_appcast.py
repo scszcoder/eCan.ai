@@ -181,12 +181,19 @@ def generate_appcast_xml(release: Dict, assets: List[Dict], output_path: str):
             enclosure_attrs['sparkle:arch'] = arch
         
         # Try to add signature
-        # Note: Here we assume asset is a local file path
-        # In GitHub Actions, the file should already be downloaded locally
-        if os.path.exists(asset['name']):
-            signature = sign_update(asset['name'])
+        # Note: In GitHub Actions, files should be in the current directory or specified path
+        asset_file_path = asset.get('local_path', asset['name'])
+        if os.path.exists(asset_file_path):
+            signature = sign_update(asset_file_path)
             if signature:
                 enclosure_attrs['sparkle:edSignature'] = signature
+                
+            # Add SHA256 hash for integrity verification
+            try:
+                sha256_hash = calculate_file_hash(asset_file_path, 'sha256')
+                enclosure_attrs['sparkle:sha256'] = sha256_hash
+            except Exception as e:
+                print(f"Warning: Failed to calculate hash for {asset_file_path}: {e}")
         
         ET.SubElement(item, 'enclosure', enclosure_attrs)
     
