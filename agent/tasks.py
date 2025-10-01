@@ -28,7 +28,7 @@ from langgraph.types import Interrupt
 from agent.ec_skills.dev_defs import BreakpointManager
 from utils.logger_helper import get_traceback
 from langgraph.errors import NodeInterrupt
-from agent.tasks_resume import build_general_resume_payload
+from agent.tasks_resume import build_general_resume_payload, build_node_transfer_patch
 
 # self.REPEAT_TYPES = ["none", "by seconds", "by minutes", "by hours", "by days", "by weeks", "by months", "by years"]
 # self.WEEK_DAY_TYPES = ["M", "Tu", "W", "Th", "F", "Sa", "Su"]
@@ -1492,6 +1492,24 @@ class TaskRunner(Generic[Context]):
                                 logger.warning(f"No checkpoint found for tag {tag}")
                                 continue
                             logger.info(f"Resuming execution from tag {tag}")
+                            # Build per-node transfer patch (optional)
+                            state_snapshot = {}
+                            try:
+                                state_snapshot = getattr(checkpoint, "values", {}) if checkpoint else {}
+                            except Exception:
+                                state_snapshot = {}
+                            try:
+                                node_rules = {}
+                                try:
+                                    node_rules = (dev_task.skill.mapping_rules or {}).get("node_transfers", {}) or {}
+                                except Exception:
+                                    node_rules = {}
+                                node_patch = build_node_transfer_patch(tag, state_snapshot, node_rules) or {}
+                                if node_patch:
+                                    payload = self._deep_merge(payload or {}, node_patch)
+                                    logger.info(f"Applied node transfer patch at {tag}: keys={list(node_patch.keys())}")
+                            except Exception as e:
+                                logger.debug(f"node transfer at resume failed: {e}")
                             # Inject cloud_task_id into checkpoint values for node resume detection
                             try:
                                 vals = getattr(checkpoint, "values", None)
@@ -1518,6 +1536,24 @@ class TaskRunner(Generic[Context]):
                                 logger.warning(f"No checkpoint found for tag {tag}")
                                 continue
                             logger.info(f"Stepping execution from tag {tag}")
+                            # Build per-node transfer patch (optional)
+                            state_snapshot = {}
+                            try:
+                                state_snapshot = getattr(checkpoint, "values", {}) if checkpoint else {}
+                            except Exception:
+                                state_snapshot = {}
+                            try:
+                                node_rules = {}
+                                try:
+                                    node_rules = (dev_task.skill.mapping_rules or {}).get("node_transfers", {}) or {}
+                                except Exception:
+                                    node_rules = {}
+                                node_patch = build_node_transfer_patch(tag, state_snapshot, node_rules) or {}
+                                if node_patch:
+                                    payload = self._deep_merge(payload or {}, node_patch)
+                                    logger.info(f"Applied node transfer patch at {tag}: keys={list(node_patch.keys())}")
+                            except Exception as e:
+                                logger.debug(f"node transfer at step failed: {e}")
                             # Inject cloud_task_id to ensure node detects resume
                             try:
                                 vals = getattr(checkpoint, "values", None)
