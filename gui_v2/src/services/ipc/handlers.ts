@@ -8,6 +8,8 @@ import { useAgentStore } from '../../stores/agentStore';
 import { eventBus } from '@/utils/eventBus';
 import { useRunningNodeStore } from '@/modules/skill-editor/stores/running-node-store';
 import { useAvatarSceneStore } from '../../stores/avatarSceneStore';
+import { useRuntimeStateStore } from '@/modules/skill-editor/stores/runtime-state-store';
+
 import { AvatarEventType } from '../avatarEventType';
 import { logger } from '@/utils/logger';
 // 处理器类型定义
@@ -191,7 +193,7 @@ export class IPCHandlers {
 
     async updateSkillRunStat(request: IPCRequest): Promise<{ success: boolean }> {
         // logger.info('Received updateSkillRunStat request:', request.params);
-        const { current_node, status } = request.params as { current_node?: string, status?: string };
+        const { current_node, status, nodeState } = request.params as { current_node?: string, status?: string, nodeState?: any };
 
         // Update the running node if the backend provides a specific node ID.
         if (typeof current_node === 'string' && current_node.length > 0) {
@@ -201,6 +203,22 @@ export class IPCHandlers {
         // Clear the running node if the skill has completed or failed.
         if (status === 'completed' || status === 'failed') {
             useRunningNodeStore.getState().setRunningNodeId(null);
+        }
+
+        // Capture runtime state for the current node (if provided)
+        try {
+            if (current_node) {
+                // Some backends send nodeState as { nodeState: {...} }, normalize it
+                const payload = nodeState ?? {};
+                const normalized = payload && typeof payload === 'object' && 'nodeState' in payload
+                    ? (payload as any).nodeState
+                    : payload;
+                try { console.info('[NodeRuntime] update', { node: current_node, status, normalized }); } catch {}
+                useRuntimeStateStore.getState().setNodeRuntimeState(current_node, normalized, status);
+            }
+        } catch (e) {
+            // non-fatal
+            logger.warn('updateSkillRunStat: failed to capture runtime state', e as any);
         }
 
         eventBus.emit('chat:latestSkillRunStat', request.params);

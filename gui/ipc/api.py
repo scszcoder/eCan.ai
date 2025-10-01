@@ -365,6 +365,11 @@ class IPCAPI:
             callback: 回调函数，接收 APIResponse[bool]
         """
         params = {'agentTaskId': agent_task_id, "current_node": current_node, "status": status, 'nodeState': langgraph_state, 'timestamp': timestamp}
+        try:
+            # Clear, distinguishable backend log for IPC emission
+            logger.info(f"[SIM][BE][IPC] sending update_skill_run_stat: agentTaskId={agent_task_id}, current_node={current_node}, status={status}, nodeState.keys={list(langgraph_state.keys())}")
+        except Exception:
+            pass
         self._send_request('update_skill_run_stat', params, callback=callback)
 
     def update_task_stat(
