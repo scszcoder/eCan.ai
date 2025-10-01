@@ -1,57 +1,96 @@
+/**
+ * AgentCard 组件
+ * 
+ * 改进：
+ * 1. 改善类型安全
+ * 2. 优化 React.memo 比较函数
+ * 3. 保持原有的简洁性
+ */
+
 import React, { useMemo, useEffect } from 'react';
-import agentGifs, { logVideoSupport } from '@/assets/gifs'; // 需实现导入所有 gif
-import { Agent, type AgentCard } from '../types';
 import { Button, Dropdown, Modal, message } from 'antd';
 import type { MenuProps } from 'antd';
 import { MessageOutlined, MoreOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { useAgentStore } from '@/stores/agentStore';
 import { useNavigate } from 'react-router-dom';
+import agentGifs, { logVideoSupport } from '@/assets/gifs';
+import { Agent, type AgentCard as AgentCardType } from '../types';
+import { useAgentStore } from '@/stores/agentStore';
 import { useUserStore } from '@/stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 import './AgentCard.css';
-import { useAvatarSceneStore } from '../../../stores/avatarSceneStore';
-
-function getRandomGif(): string {
-  // 这里假设 agentGifs 是一个字符串数组
-  if (!Array.isArray(agentGifs) || agentGifs.length === 0) return '';
-  const idx = Math.floor(Math.random() * agentGifs.length);
-  return agentGifs[idx] as string;
-}
 
 // 全局标记，确保视频支持检测只执行一次
 let videoSupportChecked = false;
 
 interface AgentCardProps {
-  agent: Agent | AgentCard;
+  agent: Agent | AgentCardType;
   onChat?: () => void;
 }
 
+/**
+ * 安全获取 Agent ID
+ */
+function getAgentId(agent: Agent | AgentCardType): string {
+  if ('id' in agent) return agent.id;
+  if ('card' in agent && agent.card?.id) return agent.card.id;
+  return '';
+}
+
+/**
+ * 安全获取 Agent 名称
+ */
+function getAgentName(agent: Agent | AgentCardType): string {
+  if ('name' in agent && typeof agent.name === 'string') return agent.name;
+  if ('card' in agent && typeof agent.card?.name === 'string') return agent.card.name;
+  return '';
+}
+
+/**
+ * 安全获取 Agent 描述
+ */
+function getAgentDescription(agent: Agent | AgentCardType): string {
+  if ('description' in agent && typeof agent.description === 'string') return agent.description;
+  if ('card' in agent && typeof agent.card?.description === 'string') return agent.card.description;
+  return '';
+}
+
+/**
+ * AgentCard 组件
+ */
 function AgentCard({ agent, onChat }: AgentCardProps) {
   const { t } = useTranslation();
-  const myTwinAgent = useAgentStore((state) => state.getMyTwinAgent());
-  const myTwinAgentId = myTwinAgent?.card?.id;
   const navigate = useNavigate();
-  const username = useUserStore((s: any) => s.username);
-  // 兼容Agent和AgentCard
-  const id = (agent as any).id || (agent as any).card?.id;
-  const rawName = (agent as any).name ?? (agent as any).card?.name;
-  const rawDesc = (agent as any).description ?? (agent as any).card?.description;
-  const safeName = typeof rawName === 'string' ? rawName : '';
-  const safeDesc = typeof rawDesc === 'string' ? rawDesc : '';
-  // 使用agent ID作为依赖，确保同一个Agent总是使用相同GIF
+  const username = useUserStore((state) => state.username);
+  const myTwinAgent = useAgentStore((state) => state.getMyTwinAgent());
+  
+  // 安全获取属性
+  const id = getAgentId(agent);
+  const name = getAgentName(agent);
+  const description = getAgentDescription(agent);
+  const myTwinAgentId = myTwinAgent?.card?.id;
+  
+  // 使用 useMemo 获取固定的媒体 URL（基于 ID）
   const mediaUrl = useMemo<string>(() => {
-    // 使用agent ID作为种子生成固定的随机数，确保一致性
-    if (!id) return getRandomGif();
-    const seed = id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
-    const index = seed % (agentGifs?.length || 1);
-    return Array.isArray(agentGifs) && agentGifs.length > 0 ? agentGifs[index] as string : '';
+    if (!id || !Array.isArray(agentGifs) || agentGifs.length === 0) {
+      return Array.isArray(agentGifs) && agentGifs.length > 0 
+        ? agentGifs[Math.floor(Math.random() * agentGifs.length)] as string 
+        : '';
+    }
+    // 使用 agent ID 作为种子生成固定的随机数
+    const seed = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const index = seed % agentGifs.length;
+    return agentGifs[index] as string;
   }, [id]);
-
-  // 只要 mediaUrl 存在且以 .webm 或 .mp4 结尾就用 video
-  const isVideo = Boolean(mediaUrl && typeof mediaUrl === 'string' && (mediaUrl.trim().toLowerCase().endsWith('.webm') || mediaUrl.trim().toLowerCase().endsWith('.mp4')));
-  // const [error, setError] = React.useState(false); // 暂时不需要
-
+  
+  // 判断是否为视频
+  const isVideo = Boolean(
+    mediaUrl && 
+    typeof mediaUrl === 'string' && 
+    (mediaUrl.trim().toLowerCase().endsWith('.webm') || 
+     mediaUrl.trim().toLowerCase().endsWith('.mp4'))
+  );
+  
   // 在第一次渲染时检测视频支持
   useEffect(() => {
     if (!videoSupportChecked) {
@@ -59,14 +98,17 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
       logVideoSupport();
     }
   }, []);
-
+  
+  // 处理编辑
   const handleEdit = () => {
     if (!id) return;
     navigate(`/agents/details/${id}`);
   };
-
+  
+  // 处理删除
   const handleDelete = () => {
-    if (!id) return;
+    if (!id || !username) return;
+    
     Modal.confirm({
       title: t('common.confirm_delete') || 'Confirm Delete',
       content: t('common.confirm_delete_desc') || 'Are you sure you want to delete this agent?',
@@ -88,17 +130,32 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
       }
     });
   };
-
+  
+  // 菜单项
   const menuItems: MenuProps['items'] = [
     { key: 'edit', label: t('common.edit') || 'Edit', onClick: handleEdit },
+    { key: 'delete', label: t('common.delete') || 'Delete', onClick: handleDelete, danger: true },
   ];
-
+  
   return (
-    <div className="agent-card" key={id} style={{ position: 'relative' }}>
+    <div className="agent-card" style={{ position: 'relative' }}>
+      {/* 媒体内容 */}
       {isVideo ? (
         <div
           className="agent-gif-video-wrapper"
-          style={{ width: 300, height: 300 * 9 / 16, marginBottom: 26, borderRadius: 28, background: '#222c', border: '4px solid var(--primary-color, #3b82f6)', boxShadow: '0 4px 18px 0 rgba(59,130,246,0.13)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
+          style={{
+            width: 300,
+            height: 169,
+            marginBottom: 26,
+            borderRadius: 28,
+            background: '#222c',
+            border: '4px solid var(--primary-color, #3b82f6)',
+            boxShadow: '0 4px 18px 0 rgba(59,130,246,0.13)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden'
+          }}
         >
           <video
             src={mediaUrl}
@@ -108,22 +165,57 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
             muted
             playsInline
             width={300}
-            height={300 * 9 / 16}
-            style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 28, background: 'transparent' }}
+            height={169}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              borderRadius: 28,
+              background: 'transparent'
+            }}
             poster="./assets/default-agent-poster.png"
-            // onError={e => { console.error(t('common.video_load_error') || 'video load error', mediaUrl, e); setError(true); }}
           />
         </div>
       ) : (
-        <img src={mediaUrl} alt={t('common.agent_working') || 'agent working'} className="agent-gif" style={{ width: 300, height: 300 * 9 / 16, objectFit: 'contain', borderRadius: 28, marginBottom: 26, background: '#222c', border: '4px solid var(--primary-color, #3b82f6)', boxShadow: '0 4px 18px 0 rgba(59,130,246,0.13)' }} onError={e => { console.error(t('common.img_load_error') || 'img load error', mediaUrl, e); }} />
+        <img
+          src={mediaUrl}
+          alt={t('common.agent_working') || 'agent working'}
+          className="agent-gif"
+          loading="lazy"
+          style={{
+            width: 300,
+            height: 169,
+            objectFit: 'contain',
+            borderRadius: 28,
+            marginBottom: 26,
+            background: '#222c',
+            border: '4px solid var(--primary-color, #3b82f6)',
+            boxShadow: '0 4px 18px 0 rgba(59,130,246,0.13)'
+          }}
+          onError={(e) => console.error(t('common.img_load_error') || 'img load error', mediaUrl, e)}
+        />
       )}
-      <div className="agent-info-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+      
+      {/* 信息行 */}
+      <div
+        className="agent-info-row"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12
+        }}
+      >
         <span style={{ display: 'inline-flex', alignItems: 'center' }}>
           <Dropdown menu={{ items: menuItems }} trigger={["click"]} placement="bottomLeft">
             <Button shape="circle" icon={<MoreOutlined />} size="middle" />
           </Dropdown>
         </span>
-        <div className="agent-name" style={{ flex: 1, textAlign: 'center' }}>{safeName ? t(safeName) : ''}</div>
+        
+        <div className="agent-name" style={{ flex: 1, textAlign: 'center' }}>
+          {name ? t(name) : ''}
+        </div>
+        
         <span style={{ display: 'inline-block' }}>
           <Button
             type="primary"
@@ -136,10 +228,23 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
           />
         </span>
       </div>
-
-      {safeDesc && <div className="agent-desc">{t(safeDesc)}</div>}
+      
+      {/* 描述 */}
+      {description && (
+        <div className="agent-desc">{t(description)}</div>
+      )}
     </div>
   );
 }
 
-export default React.memo(AgentCard);
+/**
+ * 优化的 memo 比较函数
+ * 只在 agent.id 变化时重新渲染
+ */
+export default React.memo(AgentCard, (prevProps, nextProps) => {
+  const prevId = getAgentId(prevProps.agent);
+  const nextId = getAgentId(nextProps.agent);
+  
+  // 如果 ID 相同且 onChat 函数相同，则不重新渲染
+  return prevId === nextId && prevProps.onChat === nextProps.onChat;
+});

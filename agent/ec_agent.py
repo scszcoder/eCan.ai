@@ -146,24 +146,28 @@ class EC_Agent(Agent):
 			except Exception:
 				return "127.0.0.1"  # fallback
 
-		host = get_lan_ip()
-		self.mainwin = mainwin
-		free_ports = mainwin.get_free_agent_ports(1)
-		if not free_ports:
+		# Extract port from Card URL (already allocated during card creation)
+		# This avoids duplicate port allocation
+		try:
+			a2a_server_port = int(card.url.split(":")[-1].split("/")[0])
+		except (ValueError, IndexError):
+			logger.error(f"Failed to extract port from card URL: {card.url}")
 			return None
-		a2a_server_port = free_ports[0]
+		
+		self.mainwin = mainwin
 		self.card = card
+		server_host = "0.0.0.0"  # Bind to all interfaces for both local and remote access
+		
 		self.a2a_client = A2AClient(self.card)
 		notification_sender_auth = PushNotificationSenderAuth()
 		notification_sender_auth.generate_jwk()
 		self.a2a_server = A2AServer(
 			agent_card=self.card,
 			task_manager=AgentTaskManager(notification_sender_auth=notification_sender_auth),
-			host=host,
+			host=server_host,
 			port=a2a_server_port,
 			endpoint="/a2a/",
 		)
-		logger.info("host:", host, "a2a server port:", a2a_server_port)
 		self.a2a_server.attach_agent(self)
 		self.a2a_msg_queue = Queue()
 
@@ -255,10 +259,16 @@ class EC_Agent(Agent):
 		return busy
 
 	def start_a2a_server_in_thread(self, a2a_server):
+		"""Start A2A server in a daemon thread"""
 		def run_server():
-			a2a_server.start()  # this is the uvicorn.run(...) call
+			try:
+				a2a_server.start()
+			except Exception as e:
+				logger.error(f"[{self.card.name}] A2A server error: {e}")
+				import traceback
+				logger.error(traceback.format_exc())
 
-		self.a2a_server_thread = threading.Thread(target=run_server)
+		self.a2a_server_thread = threading.Thread(target=run_server, name=f"A2A-{self.card.name}")
 		self.a2a_server_thread.daemon = True
 		self.a2a_server_thread.start()
 
@@ -271,9 +281,8 @@ class EC_Agent(Agent):
 		self.running_tasks.append({'id': tid, 'thread': task_thread})
 		return task_thread
 
-	# async def start(self):
 	def start(self):
-		# kick off a2a server:
+		# Start A2A server in daemon thread
 		self.start_a2a_server_in_thread(self.a2a_server)
 		logger.info("A2A server started....", self.card.name)
 		# loop = asyncio.get_running_loop()
