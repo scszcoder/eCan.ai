@@ -264,8 +264,8 @@ jobs:
                 print(f'[ERROR] {pkg} not found: {e}')
         "
 
-        # Run build with detailed output (including Sparkle support)
-        python build.py prod --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | Tee-Object -FilePath "build.log"
+        # Run build with detailed output (Sparkle support is automatic on macOS)
+        python build.py prod --version ${{ needs.validate-tag.outputs.version }} 2>&1 | Tee-Object -FilePath "build.log"
 
         # Check if build succeeded by verifying key files exist
         $buildSuccess = $true
@@ -608,8 +608,8 @@ jobs:
         echo "[INFO] Python architecture check:"
         python -c "import platform; print(f'Python platform: {platform.platform()}'); print(f'Python machine: {platform.machine()}'); print(f'Python architecture: {platform.architecture()}')"
 
-        # Run build with detailed output (including Sparkle support)
-        python build.py prod --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | tee build.log
+        # Run build with detailed output (Sparkle support is automatic on macOS)
+        python build.py prod --version ${{ needs.validate-tag.outputs.version }} 2>&1 | tee build.log
 
         # Check if build succeeded by verifying key files exist
         BUILD_SUCCESS=true
