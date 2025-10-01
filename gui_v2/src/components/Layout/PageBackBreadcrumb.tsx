@@ -1,44 +1,267 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button, Breadcrumb } from 'antd';
-import { ArrowLeftOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, HomeOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import { useOrgStore } from '../../stores/orgStore';
 
+// ==================== 类型定义 ====================
+interface BreadcrumbItem {
+    key: string;
+    title: React.ReactNode;
+    path?: string;
+}
+
+interface PathHandler {
+    // 检查是否匹配该路径
+    match: (segments: string[], path: string) => boolean;
+    // 生成面包屑项（添加 context 参数用于传递组件数据）
+    generate: (segments: string[], path: string, t: any, navigate: any, context?: any) => BreadcrumbItem[];
+}
+
+// ==================== 工具函数 ====================
+// 查找树节点
+function findTreeNodeById(node: any, targetId: string): any | null {
+    if (node.id === targetId) {
+        return node;
+    }
+    if (!node.children || node.children.length === 0) {
+        return null;
+    }
+    for (const child of node.children) {
+        const found = findTreeNodeById(child, targetId);
+        if (found) return found;
+    }
+    return null;
+}
+
+// 创建可点击的链接
+function createClickableLink(text: string, path: string, navigate: any): React.ReactNode {
+    return (
+        <span 
+            style={{ 
+                cursor: 'pointer', 
+                color: 'rgba(96, 165, 250, 0.9)',
+                transition: 'color 0.2s'
+            }} 
+            onClick={() => navigate(path)}
+            onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(147, 197, 253, 1)'}
+            onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(96, 165, 250, 0.9)'}
+        >
+            {text}
+        </span>
+    );
+}
+
+// 创建当前节点（不可点击）
+function createCurrentNode(text: string): React.ReactNode {
+    return <span style={{ color: 'rgba(255, 255, 255, 0.85)' }}>{text}</span>;
+}
+
+// ==================== Agents 路径处理器 ====================
+const agentsPathHandler: PathHandler = {
+    match: (segments) => segments[0] === 'agents',
+    
+    generate: (_segments, path, t, navigate, context) => {
+        const items: BreadcrumbItem[] = [];
+        const treeOrgs = context?.treeOrgs || [];
+        const rootNode = treeOrgs[0];
+        
+        // 添加 Agents 根节点
+        items.push({
+            key: '/agents',
+            title: (
+                <span 
+                    style={{ 
+                        cursor: 'pointer', 
+                        color: 'rgba(96, 165, 250, 0.9)', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '4px',
+                        transition: 'color 0.2s'
+                    }} 
+                    onClick={() => navigate('/agents')}
+                    onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(147, 197, 253, 1)'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(96, 165, 250, 0.9)'}
+                >
+                    <HomeOutlined />
+                    {rootNode?.name || t('menu.agents')}
+                </span>
+            ),
+            path: '/agents'
+        });
+        
+        // 解析 organization 路径
+        const orgMatches = path.match(/organization\/([^/]+)/g);
+        if (orgMatches && rootNode) {
+            let currentPath = '/agents';
+            orgMatches.forEach((match, index) => {
+                const orgId = match.replace('organization/', '');
+                const node = findTreeNodeById(rootNode, orgId);
+                
+                if (node) {
+                    currentPath += `/organization/${orgId}`;
+                    const isLast = index === orgMatches.length - 1 && !path.includes('/details/');
+                    
+                    items.push({
+                        key: currentPath,
+                        title: isLast 
+                            ? createCurrentNode(node.name)
+                            : createClickableLink(node.name, currentPath, navigate),
+                        path: isLast ? undefined : currentPath
+                    });
+                }
+            });
+        }
+        
+        // 如果是 details 页面
+        if (path.includes('/details/')) {
+            items.push({
+                key: path,
+                title: createCurrentNode(t('pages.agents.agent_details', 'Agent Details'))
+            });
+        }
+        
+        return items;
+    }
+};
+
+// ==================== 默认路径处理器 ====================
+const defaultPathHandler: PathHandler = {
+    match: () => true, // 匹配所有路径
+    
+    generate: (segments, _path, t, navigate) => {
+        const items: BreadcrumbItem[] = [];
+        
+        segments.forEach((seg, idx) => {
+            const segPath = '/' + segments.slice(0, idx + 1).join('/');
+            const isLast = idx === segments.length - 1;
+            
+            // 尝试翻译
+            let label = t(`breadcrumb.${seg}`);
+            if (label === `breadcrumb.${seg}`) {
+                // 如果没有翻译，尝试菜单翻译
+                label = t(`menu.${seg}`);
+                if (label === `menu.${seg}`) {
+                    // 如果还是没有，使用原始值并解码
+                    label = decodeURIComponent(seg);
+                }
+            }
+            
+            items.push({
+                key: segPath,
+                title: isLast 
+                    ? createCurrentNode(label)
+                    : createClickableLink(label, segPath, navigate),
+                path: isLast ? undefined : segPath
+            });
+        });
+        
+        return items;
+    }
+};
+
+// ==================== 路径处理器注册表 ====================
+const pathHandlers: PathHandler[] = [
+    agentsPathHandler,
+    // 可以在这里添加其他模块的处理器
+    // tasksPathHandler,
+    // skillsPathHandler,
+    // ...
+    defaultPathHandler, // 默认处理器放在最后
+];
+
+// ==================== 主组件 ====================
 const PageBackBreadcrumb: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { t } = useTranslation();
+    const { treeOrgs } = useOrgStore(); // 在组件中获取数据
     const path = location.pathname;
-    // 匹配 /xxx/yyy/zzz... 至少两级
+    
+    // 解析路径段
     const segments = path.split('/').filter(Boolean);
-    if (segments.length < 2) return null;
-    // 只在二级及以上页面显示
-    const parentPath = '/' + segments.slice(0, -1).join('/');
-    const items = segments.map((seg, idx) => {
-        const segPath = '/' + segments.slice(0, idx + 1).join('/');
-        const isLast = idx === segments.length - 1;
-        let label = t(`breadcrumb.${seg}`);
-        if (label === `breadcrumb.${seg}`) label = decodeURIComponent(seg);
-        return {
-            key: segPath,
-            title: isLast ? (
-                <span>{label}</span>
-            ) : (
-                <span style={{ cursor: 'pointer', color: 'var(--ant-primary-color)' }} onClick={() => navigate(segPath)}>{label}</span>
-            )
+    
+    // 构建面包屑项 - 使用处理器模式
+    const items = useMemo(() => {
+        // 找到第一个匹配的处理器
+        const handler = pathHandlers.find(h => h.match(segments, path));
+        
+        // 准备上下文数据
+        const context = {
+            treeOrgs
         };
-    });
+        
+        // 使用处理器生成面包屑项
+        return handler ? handler.generate(segments, path, t, navigate, context) : [];
+    }, [path, segments, t, navigate, treeOrgs]);
+    
+    // 计算返回路径
+    const parentPath = useMemo(() => {
+        // 如果是组织详情页，返回到组织列表
+        if (path.includes('/organization/')) {
+            const lastOrgIndex = path.lastIndexOf('/organization/');
+            return path.substring(0, lastOrgIndex) || '/agents';
+        }
+        // 默认返回上一级
+        return '/' + segments.slice(0, -1).join('/');
+    }, [path, segments]);
+    
+    // 总是显示面包屑（包括根目录）
+    // 只有在非根目录时显示返回按钮
+    const showBackButton = segments.length >= 2;
+    
     return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'absolute', top: 0, left: 0, zIndex: 10, padding: '8px 16px' }}>
-            <Button
-                type="text"
-                icon={<ArrowLeftOutlined />}
-                onClick={() => navigate(parentPath)}
-                style={{ color: 'var(--ant-primary-color)', paddingLeft: 0 }}
-            >
-                {t('common.back', '返回')}
-            </Button>
-            <Breadcrumb items={items} />
+        <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 12
+        }}>
+            {showBackButton && (
+                <Button
+                    type="text"
+                    icon={<ArrowLeftOutlined />}
+                    onClick={() => navigate(parentPath)}
+                    style={{ 
+                        color: 'rgba(255, 255, 255, 0.85)',
+                        paddingLeft: 0,
+                        fontSize: '14px'
+                    }}
+                >
+                    {t('common.back', '返回')}
+                </Button>
+            )}
+            {items.length > 0 && (
+                <Breadcrumb 
+                    items={items as any}
+                    style={{
+                        color: 'rgba(255, 255, 255, 0.65)'
+                    }}
+                    itemRender={(item, params, items, paths) => {
+                        const isLast = params.index === items.length - 1;
+                        if (isLast || !item.path) {
+                            return <span style={{ color: 'rgba(255, 255, 255, 0.85)' }}>{item.title}</span>;
+                        }
+                        return (
+                            <span 
+                                style={{ 
+                                    cursor: 'pointer', 
+                                    color: 'rgba(96, 165, 250, 0.9)',
+                                    transition: 'color 0.2s'
+                                }} 
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    navigate(item.path as string);
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(147, 197, 253, 1)'}
+                                onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(96, 165, 250, 0.9)'}
+                            >
+                                {item.title}
+                            </span>
+                        );
+                    }}
+                />
+            )}
         </div>
     );
 };

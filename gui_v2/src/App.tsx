@@ -17,6 +17,7 @@ import { useUserStore } from './stores/userStore';
 import { useAgentStore } from './stores/agentStore';
 import { logoutManager } from './services/LogoutManager';
 import { initializePlatform } from './config/platform';
+import { initializeStoreSync, cleanupStoreSync } from './services/storeSync';
 
 
 
@@ -119,6 +120,10 @@ const AppContent = () => {
                     }
 
                     // 工具状态清理已移至 Tools 页面按需处理
+                    
+                    // 清理 store 同步监听器
+                    cleanupStoreSync();
+                    logger.debug('[App] Store sync listeners cleaned up');
 
                     logger.info('[App] App cleanup completed');
                 } catch (error) {
@@ -168,6 +173,9 @@ function App() {
 
                     // 初始化协议处理器
                     protocolHandler.init();
+                    
+                    // 初始化 store 同步监听器
+                    initializeStoreSync();
 
                     // 根据环境设置日志等级
                     const isDevelopment = process.env.NODE_ENV === 'development';
