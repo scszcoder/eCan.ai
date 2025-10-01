@@ -39,9 +39,9 @@ runs:
         $existingSigntool = Get-Command signtool -ErrorAction SilentlyContinue
         if ($existingSigntool) {
           Write-Host "✅ signtool already available at: $($existingSigntool.Source)" -ForegroundColor Green
-          echo "available=true" >> $env:GITHUB_OUTPUT
-          echo "path=$($existingSigntool.Source)" >> $env:GITHUB_OUTPUT
-          echo "method=existing" >> $env:GITHUB_OUTPUT
+          "available=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "path=$($existingSigntool.Source)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "method=existing" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           
           # Test signtool
           try {
@@ -49,12 +49,12 @@ runs:
             Write-Host "✅ signtool is working correctly" -ForegroundColor Green
           } catch {
             Write-Host "⚠️ signtool found but not working properly" -ForegroundColor Yellow
-            echo "available=false" >> $env:GITHUB_OUTPUT
+            "available=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           }
         } else {
           Write-Host "❌ signtool not found in PATH" -ForegroundColor Red
-          echo "available=false" >> $env:GITHUB_OUTPUT
-          echo "method=none" >> $env:GITHUB_OUTPUT
+          "available=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "method=none" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
         }
 
     - name: Search for existing Windows SDK
@@ -93,8 +93,8 @@ runs:
                 try {
                   & $signtoolPath /? | Out-Null
                   Write-Host "✅ signtool is working" -ForegroundColor Green
-                  echo "found=true" >> $env:GITHUB_OUTPUT
-                  echo "path=$signtoolPath" >> $env:GITHUB_OUTPUT
+                  "found=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+                  "path=$signtoolPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
                   $foundSigntool = $true
                   break
                 } catch {
@@ -109,7 +109,7 @@ runs:
         
         if (-not $foundSigntool) {
           Write-Host "❌ No working signtool found in existing SDKs" -ForegroundColor Red
-          echo "found=false" >> $env:GITHUB_OUTPUT
+          "found=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
         }
 
     - name: Install Windows SDK
@@ -127,8 +127,8 @@ runs:
           $chocoAvailable = Get-Command choco -ErrorAction SilentlyContinue
           if (-not $chocoAvailable) {
             Write-Host "❌ Chocolatey not available, cannot install Windows SDK" -ForegroundColor Red
-            echo "success=false" >> $env:GITHUB_OUTPUT
-            echo "method=failed" >> $env:GITHUB_OUTPUT
+            "success=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            "method=failed" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
             exit 0
           }
           
@@ -140,18 +140,18 @@ runs:
           
           if ($LASTEXITCODE -eq 0) {
             Write-Host "✅ Windows SDK installation completed" -ForegroundColor Green
-            echo "success=true" >> $env:GITHUB_OUTPUT
-            echo "method=chocolatey" >> $env:GITHUB_OUTPUT
+            "success=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            "method=chocolatey" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           } else {
             Write-Host "❌ Windows SDK installation failed with exit code: $LASTEXITCODE" -ForegroundColor Red
-            echo "success=false" >> $env:GITHUB_OUTPUT
-            echo "method=failed" >> $env:GITHUB_OUTPUT
+            "success=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            "method=failed" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           }
           
         } catch {
           Write-Host "❌ Exception during Windows SDK installation: $_" -ForegroundColor Red
-          echo "success=false" >> $env:GITHUB_OUTPUT
-          echo "method=failed" >> $env:GITHUB_OUTPUT
+          "success=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "method=failed" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
         }
 
     - name: Find signtool after installation
@@ -186,23 +186,23 @@ runs:
               try {
                 & $signtoolPath /? | Out-Null
                 Write-Host "✅ Newly installed signtool is working" -ForegroundColor Green
-                echo "found=true" >> $env:GITHUB_OUTPUT
-                echo "path=$signtoolPath" >> $env:GITHUB_OUTPUT
+                "found=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+                "path=$signtoolPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
               } catch {
                 Write-Host "❌ Newly installed signtool not working: $_" -ForegroundColor Red
-                echo "found=false" >> $env:GITHUB_OUTPUT
+                "found=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
               }
             } else {
               Write-Host "❌ signtool.exe not found at expected location: $signtoolPath" -ForegroundColor Red
-              echo "found=false" >> $env:GITHUB_OUTPUT
+              "found=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
             }
           } else {
             Write-Host "❌ No SDK version directories found in: $sdkPath" -ForegroundColor Red
-            echo "found=false" >> $env:GITHUB_OUTPUT
+            "found=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           }
         } else {
           Write-Host "❌ Windows SDK path not found: $sdkPath" -ForegroundColor Red
-          echo "found=false" >> $env:GITHUB_OUTPUT
+          "found=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
         }
 
     - name: Final verification
@@ -219,8 +219,8 @@ runs:
           signtool /? | Out-Null
           Write-Host "✅ signtool is working correctly!" -ForegroundColor Green
           
-          echo "available=true" >> $env:GITHUB_OUTPUT
-          echo "path=$($signtoolCmd.Source)" >> $env:GITHUB_OUTPUT
+          "available=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "path=$($signtoolCmd.Source)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           
           # Determine method
           $method = "unknown"
@@ -231,14 +231,14 @@ runs:
           } elseif ("${{ steps.install-sdk.outputs.success }}" -eq "true") {
             $method = "chocolatey"
           }
-          echo "method=$method" >> $env:GITHUB_OUTPUT
+          "method=$method" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           
         } catch {
           Write-Host "❌ signtool final verification failed: $_" -ForegroundColor Red
           Write-Host "⚠️ Code signing will be skipped in the build process" -ForegroundColor Yellow
           
-          echo "available=false" >> $env:GITHUB_OUTPUT
-          echo "method=failed" >> $env:GITHUB_OUTPUT
+          "available=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "method=failed" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
         }
 
     - name: Summary
