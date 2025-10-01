@@ -12,10 +12,8 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { useAgentStore } from '@/stores/agentStore';
 import { useOrgStore } from '@/stores/orgStore';
 import { useUserStore } from '@/stores/userStore';
-import { useOrgAgentsUpdate } from './hooks/useOrgAgentsUpdate';
 import type { Agent } from './types';
 import type { DisplayNode } from '@/stores/orgStore';
-import { logger } from '@/utils/logger';
 
 const Agents = forwardRef<any, any>((props, ref) => {
   const location = useLocation();
@@ -106,27 +104,6 @@ const Agents = forwardRef<any, any>((props, ref) => {
       fetchAgents();
     }
   }, [username, displayNodes, orgLoading, agentStoreAgents, setAgents]);
-
-  // 强制刷新 agents 数据的回调
-  const forceRefreshAgents = useCallback(() => {
-    hasFetchedRef.current = false;
-    isInitializedRef.current = false;
-    
-    const currentAgents = useAgentStore.getState().agents;
-    
-    if (currentAgents && currentAgents.length > 0) {
-      setAgents(currentAgents);
-      hasFetchedRef.current = true;
-      return;
-    }
-    
-    if (username) {
-      fetchAgents();
-    }
-  }, [username, fetchAgents, setAgents]);
-
-  // 监听组织数据更新事件
-  useOrgAgentsUpdate(forceRefreshAgents, [forceRefreshAgents], 'Agents');
 
   return <Outlet />;
 });
