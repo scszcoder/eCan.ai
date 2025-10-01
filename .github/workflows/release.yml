@@ -232,9 +232,10 @@ jobs:
         }
 
     - name: Build Windows EXE
+      shell: pwsh
       run: |
-        echo "=== Starting Windows Build ==="
-        echo "Command: python build.py prod"
+        Write-Host "=== Starting Windows Build ===" -ForegroundColor Cyan
+        Write-Host "Command: python build.py prod" -ForegroundColor Gray
 
         # Set environment variables
         $env:PYTHONPATH = "$PWD"
@@ -271,7 +272,7 @@ jobs:
         $buildSuccess = $true
         $srcExe = "dist/eCan/eCan.exe"
         if (!(Test-Path $srcExe)) {
-            echo "[ERROR] Build failed - main executable not found: $srcExe"
+            Write-Host "[ERROR] Build failed - main executable not found: $srcExe" -ForegroundColor Red
             $buildSuccess = $false
         }
 
@@ -291,21 +292,21 @@ jobs:
         }
 
         if (-not $buildSuccess) {
-            echo "=== Build Log ==="
+            Write-Host "=== Build Log ===" -ForegroundColor Yellow
             Get-Content "build.log"
             exit 1
         }
 
-        echo "[OK] Build completed successfully"
+        Write-Host "[OK] Build completed successfully" -ForegroundColor Green
 
-        echo "=== Validating Build Artifacts ==="
+        Write-Host "=== Validating Build Artifacts ===" -ForegroundColor Cyan
         python build_system/build_validator.py --artifacts --version ${{ needs.validate-tag.outputs.version }} --arch $env:BUILD_ARCH
         if ($LASTEXITCODE -ne 0) {
-            echo "[ERROR] Build artifact validation failed"
+            Write-Host "[ERROR] Build artifact validation failed" -ForegroundColor Red
             exit 1
         }
 
-        echo "=== Verifying OTA artifacts in dist ==="
+        Write-Host "=== Verifying OTA artifacts in dist ===" -ForegroundColor Cyan
         $distWinSparkle = @(
           "dist/eCan/third_party/winsparkle/winsparkle.dll",
           "dist/third_party/winsparkle/winsparkle.dll"
@@ -355,15 +356,16 @@ jobs:
         Write-Host "Windows code signing done"
 
     - name: Check build result
+      shell: pwsh
       run: |
-        echo "=== Build Result Check ==="
-        echo "=== Environment Variables Summary ==="
-        echo "Windows Code Signing:"
-        echo "  WIN_CERT_PFX: ${{ env.WIN_CERT_PFX != 'NOT_SET' && 'Available' || 'Not Available' }}"
-        echo "  WIN_CERT_PASSWORD: ${{ env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Available' || 'Not Available' }}"
-        echo "  Status: ${{ env.WIN_CERT_PFX != 'NOT_SET' && env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Ready for signing' || 'Skipping signing' }}"
+        Write-Host "=== Build Result Check ===" -ForegroundColor Cyan
+        Write-Host "=== Environment Variables Summary ===" -ForegroundColor Cyan
+        Write-Host "Windows Code Signing:" -ForegroundColor Yellow
+        Write-Host "  WIN_CERT_PFX: ${{ env.WIN_CERT_PFX != 'NOT_SET' && 'Available' || 'Not Available' }}" -ForegroundColor Gray
+        Write-Host "  WIN_CERT_PASSWORD: ${{ env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Available' || 'Not Available' }}" -ForegroundColor Gray
+        Write-Host "  Status: ${{ env.WIN_CERT_PFX != 'NOT_SET' && env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Ready for signing' || 'Skipping signing' }}" -ForegroundColor Gray
         
-        echo "Dist directory contents:"
+        Write-Host "Dist directory contents:" -ForegroundColor Yellow
         Get-ChildItem -Path "dist" -Recurse | Format-Table -AutoSize
 
         $exeFound = $false
@@ -371,15 +373,15 @@ jobs:
 
         if (Test-Path "dist/eCan/eCan.exe") {
             $exe = Get-Item "dist/eCan/eCan.exe"
-            echo "Windows EXE found: dist/eCan/eCan.exe"
-            echo "   Size: $([math]::Round($exe.Length / 1MB, 2)) MB"
-            echo "   Created: $($exe.CreationTime)"
+            Write-Host "Windows EXE found: dist/eCan/eCan.exe" -ForegroundColor Green
+            Write-Host "   Size: $([math]::Round($exe.Length / 1MB, 2)) MB" -ForegroundColor Gray
+            Write-Host "   Created: $($exe.CreationTime)" -ForegroundColor Gray
             $exeFound = $true
         } else {
-            echo "ERROR: Windows EXE not found"
-            echo "Searching for .exe files..."
+            Write-Host "ERROR: Windows EXE not found" -ForegroundColor Red
+            Write-Host "Searching for .exe files..." -ForegroundColor Yellow
             Get-ChildItem -Path "dist" -Recurse -Filter "*.exe" | ForEach-Object {
-                echo "   Found: $($_.FullName)"
+                Write-Host "   Found: $($_.FullName)" -ForegroundColor Gray
             }
         }
 
@@ -388,20 +390,20 @@ jobs:
 
         if (Test-Path $stdSetup) {
             $setup = Get-Item $stdSetup
-            echo "Installer found: $stdSetup"
-            echo "   Size: $([math]::Round($setup.Length / 1MB, 2)) MB"
-            echo "   Created: $($setup.CreationTime)"
+            Write-Host "Installer found: $stdSetup" -ForegroundColor Green
+            Write-Host "   Size: $([math]::Round($setup.Length / 1MB, 2)) MB" -ForegroundColor Gray
+            Write-Host "   Created: $($setup.CreationTime)" -ForegroundColor Gray
             $setupFound = $true
         } else {
-            echo "WARN: No installer found: $stdSetup"
+            Write-Host "WARN: No installer found: $stdSetup" -ForegroundColor Yellow
         }
 
         if (-not $exeFound) {
-            echo "ERROR: Build validation failed - no executable found"
+            Write-Host "ERROR: Build validation failed - no executable found" -ForegroundColor Red
             exit 1
         }
 
-        echo "Build validation passed"
+        Write-Host "Build validation passed" -ForegroundColor Green
 
     - name: Upload Windows artifacts
       uses: actions/upload-artifact@v4
