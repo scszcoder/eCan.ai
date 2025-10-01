@@ -23,13 +23,13 @@ runs:
         else
           SCRIPT_PLATFORM="${{ inputs.platform }}"
         fi
-        python scripts/install_ota_dependencies.py install --platform $SCRIPT_PLATFORM
+        python build_system/install_ota_dependencies.py install --platform $SCRIPT_PLATFORM
 
     - name: Verify OTA dependencies
       shell: bash
       run: |
         echo "=== Verifying OTA Dependencies ==="
-        python scripts/install_ota_dependencies.py verify
+        python build_system/install_ota_dependencies.py verify
 
     - name: Check OTA installation
       shell: bash

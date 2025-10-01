@@ -994,7 +994,7 @@ jobs:
         run: |
           python - <<'PY'
           import os, glob
-          from scripts.generate_appcast import main
+          from build_system.generate_appcast import main
           assets = []
           for pat in ('macos-artifacts/*amd64*.pkg','macos-artifacts/*amd64*.zip','macos-artifacts/*x86_64*.pkg','macos-artifacts/*x86_64*.zip','macos-artifacts/*x64*.pkg','macos-artifacts/*x64*.zip'):
               for p in glob.glob(pat):
@@ -1014,7 +1014,7 @@ jobs:
         run: |
           python - <<'PY'
           import os, glob
-          from scripts.generate_appcast import main
+          from build_system.generate_appcast import main
           assets = []
           for pat in ('macos-artifacts/*aarch64*.pkg','macos-artifacts/*aarch64*.zip','macos-artifacts/*arm64*.pkg','macos-artifacts/*arm64*.zip'):
               for p in glob.glob(pat):
@@ -1034,7 +1034,7 @@ jobs:
         run: |
           python - <<'PY'
           import os, glob
-          from scripts.generate_appcast import main
+          from build_system.generate_appcast import main
           assets = []
           for pat in (
               'windows-artifacts/*amd64*.exe',
@@ -1064,7 +1064,7 @@ jobs:
         run: |
           python - <<'PY'
           import os, glob
-          from scripts.generate_appcast import main
+          from build_system.generate_appcast import main
           assets = []
           for pat in (
               'macos-artifacts/*.pkg',
@@ -1092,7 +1092,7 @@ jobs:
         run: |
           python - <<'PY'
           import os, glob
-          from scripts.generate_appcast import main
+          from build_system.generate_appcast import main
           assets = []
           for pat in (
               'windows-artifacts/*.exe',
