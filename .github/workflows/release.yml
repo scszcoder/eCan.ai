@@ -127,7 +127,7 @@ jobs:
       WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD || 'NOT_SET' }}
       # Set build architecture for the build process (Windows only supports amd64)
       BUILD_ARCH: amd64
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
     - name: Checkout code
@@ -400,15 +400,43 @@ jobs:
 
         Write-Host "Build validation passed" -ForegroundColor Green
 
+    - name: Compress Windows artifacts for upload
+      shell: pwsh
+      run: |
+        Write-Host "=== Compressing Windows artifacts ===" -ForegroundColor Cyan
+        $version = "${{ needs.validate-tag.outputs.version }}"
+        $arch = "$env:BUILD_ARCH"
+        
+        # Create artifacts directory
+        New-Item -ItemType Directory -Force -Path "artifacts" | Out-Null
+        
+        # Copy main installer
+        $setupFile = "dist/eCan-${version}-windows-${arch}-Setup.exe"
+        if (Test-Path $setupFile) {
+          Copy-Item $setupFile "artifacts/" -Force
+          $size = [math]::Round((Get-Item $setupFile).Length / 1MB, 2)
+          Write-Host "Copied installer: ${size} MB"
+        }
+        
+        # Copy MSI files if exist
+        Get-ChildItem "dist/*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
+          Copy-Item $_.FullName "artifacts/" -Force
+          Write-Host "Copied MSI: $($_.Name)"
+        }
+        
+        Write-Host "Artifacts prepared for upload"
+        Get-ChildItem "artifacts" | ForEach-Object {
+          $sizeMB = [math]::Round($_.Length / 1MB, 2)
+          Write-Host "  $($_.Name): ${sizeMB} MB"
+        }
+
     - name: Upload Windows artifacts
       uses: actions/upload-artifact@v4
       with:
         name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
-        path: |
-          dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-${{ env.BUILD_ARCH }}-Setup.exe
-          dist/*.msi
-          build.log
+        path: artifacts/
         retention-days: 30
+        compression-level: 6
 
   # macOS build - Matrix strategy for multiple architectures
   build-macos:
@@ -445,7 +473,7 @@ jobs:
       BUILD_ARCH: ${{ matrix.arch }}
       TARGET_ARCH: ${{ matrix.target_arch }}
       PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_arch }}
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
     - name: Check if this architecture should be built
@@ -790,15 +818,37 @@ jobs:
 
         echo "[OK] Build validation passed"
 
+    - name: Compress macOS artifacts for upload
+      if: steps.should_build.outputs.should_build == 'true'
+      run: |
+        echo "=== Compressing macOS artifacts ==="
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        ARCH="${{ matrix.arch }}"
+        
+        # Create artifacts directory
+        mkdir -p artifacts
+        
+        # Copy main PKG file
+        PKG_FILE="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+        if [ -f "$PKG_FILE" ]; then
+          cp "$PKG_FILE" artifacts/
+          SIZE=$(du -sh "$PKG_FILE" | cut -f1)
+          echo "Copied PKG: ${SIZE}"
+        else
+          echo "Warning: PKG file not found: $PKG_FILE"
+        fi
+        
+        echo "Artifacts prepared for upload:"
+        ls -lh artifacts/
+
     - name: Upload macOS artifacts
       if: steps.should_build.outputs.should_build == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: eCan-macOS-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
-        path: |
-          dist/eCan-${{ needs.validate-tag.outputs.version }}-macos-${{ matrix.arch }}.pkg
-          build.log
+        path: artifacts/
         retention-days: 30
+        compression-level: 6
 
 
 
