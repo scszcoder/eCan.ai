@@ -17,15 +17,23 @@ function_registry = {
     "basic": build_mcp_tool_calling_node,
     "code": build_basic_node,
     "http-api": build_api_node,
+    "http": build_api_node,
     "loop": build_loop_node,
     "condition": build_condition_node,
+    # MCP tools
+    "mcp": build_mcp_tool_calling_node,
+    # Backward-compat alias
     "tool": build_mcp_tool_calling_node,
-    # No dedicated builder for group; groups are expanded via process_blocks
-    # Best-effort support for event/comment/variable/sheet-call
+    # UX/structural/non-exec nodes -> debug no-op placeholders
     "event": lambda data, node_id, skill_name, owner, bp_mgr: (lambda state, **kwargs: {}),
     "comment": lambda data, node_id, skill_name, owner, bp_mgr: (lambda state, **kwargs: {}),
     "variable": lambda data, node_id, skill_name, owner, bp_mgr: _build_variable_node(data),
     "sheet-call": lambda data, node_id, skill_name, owner, bp_mgr: (lambda state, **kwargs: {}),
+    # Newly added placeholders
+    "pend_event_node": build_debug_node,
+    "chat_node": build_debug_node,
+    "rag_node": build_debug_node,
+    "browser-automation": build_debug_node,
     "default": build_debug_node,
 }
 
@@ -116,10 +124,13 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
     """
     try:
         safe_globals = {"__builtins__": {}}
-        safe_locals = {
-            "state": state,
-            "attributes": state.get("attributes", {}),
-        }
+        attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
+        # Merge attributes as bare names so flags like `data_ready` can be used
+        safe_locals = {"state": state, "attributes": attrs}
+        if isinstance(attrs, dict):
+            for k, v in attrs.items():
+                if isinstance(k, str) and k.isidentifier() and k not in safe_locals:
+                    safe_locals[k] = v
         return bool(eval(expr, safe_globals, safe_locals))
     except Exception:
         return False
@@ -203,14 +214,15 @@ def make_condition_selector(node_id: str, node_data: dict, port_map: dict):
     selector.__name__ = node_id
     return selector
 
-def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp_manager, edges_in_block):
+def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp_manager, edges_in_block, parent_gid: str = ""):
     # Process all blocks (nodes) within the group/loop
     for block in blocks:
         block_id = block["id"]
         # Sanitize block id as well (blocks might inherit ids that include colons)
-        sanitized_block_id = str(block_id).replace(":", "__")
-        node_map[block_id] = sanitized_block_id
-        id_to_node[block_id] = block
+        raw_ns = f"{parent_gid}:{block_id}" if parent_gid else str(block_id)
+        sanitized_block_id = str(raw_ns).replace(":", "__")
+        node_map[raw_ns] = sanitized_block_id
+        id_to_node[raw_ns] = block
 
         node_type = block.get("type", "code")
         node_data = block.get("data", {})
@@ -219,7 +231,7 @@ def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp
         builder_func = function_registry.get(node_type, build_debug_node)
 
         # Call the builder function with the node's data to get the raw callable
-        raw_callable = builder_func(node_data, block_id, skill_name, owner, bp_manager)
+        raw_callable = builder_func(node_data, raw_ns, skill_name, owner, bp_manager)
 
         # Wrap the raw callable with the node_builder to add retries, context, etc.
         node_callable = node_builder(raw_callable, block_id, skill_name, owner, bp_manager)
@@ -229,24 +241,26 @@ def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp
 
         if node_type in ["loop", "group"] and "blocks" in block:
             nested_edges = block.get("edges", [])
-            process_blocks(workflow, block["blocks"], node_map, id_to_node, skill_name, owner, bp_manager, nested_edges)
+            process_blocks(workflow, block["blocks"], node_map, id_to_node, skill_name, owner, bp_manager, nested_edges, parent_gid=raw_ns)
 
     # Process all edges within the group/loop
     for edge in edges_in_block:
         source_id = edge["sourceNodeID"]
         target_id = edge["targetNodeID"]
+        src_ns = f"{parent_gid}:{source_id}" if parent_gid else source_id
+        tgt_ns = f"{parent_gid}:{target_id}" if parent_gid else target_id
 
         # Ensure both source and target nodes are in the map
-        if source_id in node_map and target_id in node_map:
-            source = node_map[source_id]
-            target = node_map[target_id]
+        if src_ns in node_map and tgt_ns in node_map:
+            source = node_map[src_ns]
+            target = node_map[tgt_ns]
 
             if target == "end":
                 workflow.add_edge(source, END)
             else:
                 workflow.add_edge(source, target)
         else:
-            logger.warning(f"Edge source or target not found in node_map: {source_id} -> {target_id}")
+            logger.warning(f"Edge source or target not found in node_map: {src_ns} -> {tgt_ns}")
 
 def flowgram2langgraph(flowgram_json, bundle_json=None):
     try:
@@ -318,6 +332,9 @@ def flowgram2langgraph(flowgram_json, bundle_json=None):
                 node_type = node.get("type", "basic")
                 if node_type in ("start", "end"):
                     continue
+                # Treat non-executable UI nodes as debug no-ops
+                if node_type in ("sheet-inputs", "sheet-outputs", "comment"):
+                    node_type = "default"
                 node_data = node.get("data", {})
                 if node_data.get("break_point") is True:
                     breakpoints.append(f"{sname}:{node_id}")
@@ -350,6 +367,8 @@ def flowgram2langgraph(flowgram_json, bundle_json=None):
         workflow.set_entry_point(entry_sanitized)
 
         # Second pass: add edges across all sheets
+        # Collect loop rewiring info { loop_global_id: { entry_sanitized, exit_sanitized, after_loop_targets: [sanitized id] } }
+        loop_info = {}
         for sheet in sheets:
             sname = str(sheet.get("name") or "sheet")
             wf = sheet.get("workFlow", {})
@@ -359,6 +378,30 @@ def flowgram2langgraph(flowgram_json, bundle_json=None):
                 if n.get("type") == "start":
                     local_start = n.get("id")
                     break
+            # Precompute loop block entry/exit for this sheet
+            for node in wf.get("nodes", []):
+                if node.get("type") == "loop" and "blocks" in node:
+                    loop_gid = f"{sname}:{node.get('id')}"
+                    # Identify entry: edge block_start_* -> X
+                    entry_target = None
+                    exit_source = None
+                    for e in node.get("edges", []) or []:
+                        sid = e.get("sourceNodeID", "")
+                        tid = e.get("targetNodeID", "")
+                        if str(sid).startswith("block_start_"):
+                            entry_target = tid
+                        if str(tid).startswith("block_end_"):
+                            exit_source = sid
+                    if entry_target:
+                        entry_ns = node_map.get(f"{loop_gid}:{entry_target}")
+                    else:
+                        entry_ns = None
+                    if exit_source:
+                        exit_ns = node_map.get(f"{loop_gid}:{exit_source}")
+                    else:
+                        exit_ns = None
+                    loop_info[loop_gid] = {"entry": entry_ns, "exit": exit_ns, "after": []}
+
             for edge in wf.get("edges", []):
                 source_id = edge.get("sourceNodeID")
                 target_id = edge.get("targetNodeID")
@@ -367,6 +410,24 @@ def flowgram2langgraph(flowgram_json, bundle_json=None):
                     continue
                 source_global = f"{sname}:{source_id}"
                 target_global = f"{sname}:{target_id}" if target_id != "end" else "end"
+                # If edge references loop, record for rewiring and skip direct add
+                if source_global in loop_info:
+                    # This is an outgoing edge from loop enclosure
+                    if target_global == "end":
+                        loop_info[source_global]["after"].append(END)
+                    elif target_global in node_map:
+                        loop_info[source_global]["after"].append(node_map[target_global])
+                    else:
+                        logger.warning(f"Loop after-edge target not found in map: {target_global}")
+                    continue
+                if target_global in loop_info:
+                    # Incoming edge into loop: we'll reroute to controller later
+                    # Store under loop for later (use 'incoming' bucket)
+                    info = loop_info.get(target_global)
+                    if info is not None:
+                        info.setdefault("incoming", []).append(node_map.get(source_global))
+                    continue
+
                 if source_global not in node_map:
                     logger.warning(f"Edge source node not found in map: {source_global}")
                     continue
@@ -412,7 +473,107 @@ def flowgram2langgraph(flowgram_json, bundle_json=None):
             for node in wf.get("nodes", []):
                 if node.get("type") in ["loop", "group"] and "blocks" in node:
                     edges_in_block = node.get("edges", [])
-                    process_blocks(workflow, node["blocks"], node_map, id_to_node, skill_name, owner, bp_manager, edges_in_block)
+                    parent_gid = f"{sname}:{node.get('id')}"
+                    process_blocks(workflow, node["blocks"], node_map, id_to_node, skill_name, owner, bp_manager, edges_in_block, parent_gid=parent_gid)
+
+        # Loop controllers and conditional wiring (continue while true)
+        for loop_gid, info in loop_info.items():
+            entry_ns = info.get("entry")
+            exit_ns = info.get("exit")
+            after_targets = info.get("after") or []
+            incoming_sources = info.get("incoming") or []
+            if not entry_ns or not exit_ns:
+                logger.warning(f"Loop wiring incomplete for {loop_gid}: entry={entry_ns}, exit={exit_ns}")
+                continue
+            # Create controller node via basic code
+            ctrl_raw_id = f"{loop_gid}:__loop_ctrl__"
+            ctrl_id = ctrl_raw_id.replace(":", "__")
+            # Build a tiny controller script; for-mode initialization if present
+            # Extract loop node data to detect mode and ref
+            try:
+                sheet_name, loop_local = loop_gid.split(":", 1)
+            except Exception:
+                sheet_name, loop_local = ("", loop_gid)
+            # Best-effort: find the loop node data back from id_to_node
+            loop_node = None
+            try:
+                loop_node = id_to_node.get(loop_gid, {}).get("node")
+            except Exception:
+                loop_node = None
+            ldata = (loop_node or {}).get("data", {})
+            loop_mode = ldata.get("loopMode") or ldata.get("mode") or "loopFor"
+            loop_for_ref = (ldata.get("loopFor") or {}).get("content") if isinstance(ldata.get("loopFor"), dict) else None
+            while_key = ldata.get("whileKey") or ldata.get("loopKey")
+
+            # Generate Python for controller
+            if loop_mode == "loopFor":
+                ref_list = loop_for_ref if isinstance(loop_for_ref, list) else []
+                # walk code builds a counter under metadata.__loop__[loop_gid]
+                py_lines = [
+                    "def main(state, *, runtime, store):",
+                    "    md = state.setdefault('metadata', {})",
+                    "    loops = md.setdefault('__loop__', {})",
+                    f"    info = loops.setdefault('{loop_gid}', {{}})",
+                    "    if 'count' not in info:",
+                    "        cur = state",
+                ]
+                for key in ref_list:
+                    py_lines.append(f"        cur = cur.get('{key}') if isinstance(cur, dict) else None")
+                py_lines += [
+                    "        seq = cur if isinstance(cur, list) else []",
+                    "        info['count'] = len(seq)",
+                    "    else:",
+                    "        if info.get('count', 0) > 0:",
+                    "            info['count'] -= 1",
+                    "    return {}",
+                ]
+            else:  # while-mode controller is a no-op; decision in selector
+                py_lines = [
+                    "def main(state, *, runtime, store):",
+                    "    return {}",
+                ]
+            ctrl_code = "\n".join(py_lines)
+            ctrl_node_data = {"script": {"language": "python", "content": ctrl_code}}
+            raw_callable = build_basic_node(ctrl_node_data, ctrl_raw_id, skill_name, owner, None)
+            node_callable = node_builder(raw_callable, ctrl_raw_id, skill_name, owner, None)
+            workflow.add_node(ctrl_id, node_callable)
+            node_map[ctrl_raw_id] = ctrl_id
+
+            # Rewire incoming edges to controller
+            for src in incoming_sources:
+                if not src:
+                    continue
+                try:
+                    workflow.add_edge(src, ctrl_id)
+                except Exception:
+                    pass
+
+            # Build selector for continue/exit
+            def make_loop_selector(loop_gid_inner: str, mode: str, wkey: str):
+                def _sel(state: dict):
+                    try:
+                        if mode == 'loopFor':
+                            cnt = (((state or {}).get('metadata') or {}).get('__loop__') or {}).get(loop_gid_inner, {}).get('count', 0)
+                            return 'continue' if cnt > 0 else 'exit'
+                        # while-mode: continue while true
+                        done = (((state or {}).get('loop_end_vars') or {})).get(wkey)
+                        return 'continue' if bool(done) is True else 'exit'
+                    except Exception:
+                        return 'exit'
+                _sel.__name__ = f"loop_selector__{loop_gid_inner.replace(':','__')}"
+                return _sel
+            selector = make_loop_selector(loop_gid, loop_mode, while_key or "")
+            # Map paths
+            path_map = {"continue": entry_ns}
+            # Exit to first after-loop target if present, else END
+            exit_target = after_targets[0] if after_targets else END
+            path_map["exit"] = exit_target
+            workflow.add_conditional_edges(ctrl_id, selector, path_map=path_map)
+            # Back edge from loop exit to controller
+            try:
+                workflow.add_edge(exit_ns, ctrl_id)
+            except Exception:
+                logger.debug(f"Failed to add back-edge from loop-exit {exit_ns} to controller {ctrl_id}")
 
         # Treat sheet-call as a jump to target sheet entry (best-effort)
         for sheet in sheets:
@@ -440,6 +601,8 @@ def flowgram2langgraph(flowgram_json, bundle_json=None):
         logger.error(f"{err_msg}")
         workflow = {}
         breakpoints = []
+
+    print("workflow: ", workflow)
     return workflow, breakpoints
 
 def flatten_blocks(blocks):
