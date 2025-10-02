@@ -67,7 +67,25 @@ IPCAPI.prototype.showSaveDialog = function<T = FileDialogResponse>(
 };
 
 IPCAPI.prototype.readSkillFile = function<T = FileContentResponse>(filePath: string): Promise<APIResponse<T>> {
-  return this.executeRequest<T>('read_skill_file', { filePath });
+  console.log('[FileAPI] readSkillFile: sending request', { filePath });
+  const p = this.executeRequest<T>('read_skill_file', { filePath });
+  p.then((resp) => {
+    try {
+      const data: any = resp?.data as any;
+      console.log('[FileAPI] readSkillFile: response', {
+        success: resp?.success,
+        filePath: data?.filePath,
+        fileName: data?.fileName,
+        fileSize: data?.fileSize,
+        contentPreview: typeof data?.content === 'string' ? data.content.slice(0, 120) : undefined,
+      });
+    } catch (e) {
+      console.warn('[FileAPI] readSkillFile: log parse error', e);
+    }
+  }).catch((err) => {
+    console.error('[FileAPI] readSkillFile: request error', err);
+  });
+  return p;
 };
 
 IPCAPI.prototype.writeSkillFile = function<T = FileWriteResponse>(

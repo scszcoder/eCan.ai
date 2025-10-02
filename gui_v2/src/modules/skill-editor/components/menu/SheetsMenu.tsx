@@ -36,6 +36,23 @@ export const SheetsMenu: React.FC = () => {
     if (id) openSheet(id);
   };
 
+  const handleTestLanggraph2Flowgram = async () => {
+    try {
+      const ipc = IPCAPI.getInstance();
+      const resp = await ipc.testLanggraph2Flowgram();
+      if (resp.success) {
+        Toast.success({ content: 'langgraph2flowgram test exported to test_skill/diagram_dir' });
+      } else {
+        Toast.error({ content: `Test failed: ${resp.error?.message || 'unknown error'}` });
+      }
+    } catch (e) {
+      console.error('[SheetsMenu] test-langgraph2flowgram error', e);
+      Toast.error({ content: 'IPC error while testing langgraph2flowgram' });
+    } finally {
+      setVisible(false);
+    }
+  };
+
   const handleInsertSheetCall = () => {
     try {
       const center = playground.config.getPosFromMouseEvent({
@@ -148,6 +165,7 @@ export const SheetsMenu: React.FC = () => {
           <Dropdown.Divider />
           <Dropdown.Item icon={<IconEdit />} onClick={handleSetupStepSim}>[DEV] setup-step-sim</Dropdown.Item>
           <Dropdown.Item icon={<IconEdit />} onClick={handleStepSim}>[DEV] step-sim</Dropdown.Item>
+          <Dropdown.Item icon={<IconEdit />} onClick={handleTestLanggraph2Flowgram}>[DEV] test langgraph2flowgram</Dropdown.Item>
         </Dropdown.Menu>
       }
     >

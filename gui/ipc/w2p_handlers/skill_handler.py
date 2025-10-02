@@ -16,6 +16,7 @@ _SIM_COUNTER: int = 0
 # Whitelist the debug endpoints to avoid auth friction during editor testing
 IPCHandlerRegistry.add_to_whitelist('setup_sim_step')
 IPCHandlerRegistry.add_to_whitelist('step_sim')
+IPCHandlerRegistry.add_to_whitelist('test_langgraph2flowgram')
 
 @IPCHandlerRegistry.handler('get_skills')
 def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
@@ -489,3 +490,15 @@ def handle_step_sim(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IP
     except Exception as e:
         logger.error(f"Error in step_sim: {e} {traceback.format_exc()}")
         return create_error_response(request, 'STEP_SIM_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('test_langgraph2flowgram')
+def handle_test_langgraph2flowgram(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Build a tiny LangGraph on backend and export it to flowgram test files."""
+    try:
+        from agent.ec_skills.langgraph2flowgram import test_langgraph2flowgram
+        result = test_langgraph2flowgram()
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"Error in test_langgraph2flowgram: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'TEST_LG2FG_ERROR', str(e))

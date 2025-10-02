@@ -35,6 +35,7 @@ export const ActiveSheetBinder = () => {
     if (lastId && lastId !== activeSheetId) {
       try {
         const currentJson = ctx.document.toJSON();
+        try { console.log('[ActiveSheetBinder] Saving previous sheet document', { sheetId: lastId, nodes: currentJson?.nodes?.length, edges: currentJson?.edges?.length }); } catch {}
         // Merge breakpoint flags from store into node JSON before saving
         try {
           const bpSet = new Set<string>(useSkillInfoStore.getState().breakpoints || []);
@@ -71,12 +72,20 @@ export const ActiveSheetBinder = () => {
 
     // Load active sheet document into editor
     const nextDoc = getActiveDocument();
+    try { console.log('[ActiveSheetBinder] Loading active sheet', { activeSheetId, hasDoc: !!nextDoc, nodes: nextDoc?.nodes?.length, edges: nextDoc?.edges?.length, revision }); } catch {}
     // Always clear to ensure blank sheets start empty
     ctx.document.clear();
     // If no saved document, load an explicit blank flow (no nodes/edges)
     const docToLoad = nextDoc ?? (blankFlowData as any);
     if (docToLoad) {
-      ctx.document.fromJSON(docToLoad);
+      try { console.log('[ActiveSheetBinder] fromJSON()', { nodeCount: Array.isArray(docToLoad?.nodes) ? docToLoad.nodes.length : 'n/a' }); } catch {}
+      try {
+        console.time('[ActiveSheetBinder] fromJSON duration');
+        ctx.document.fromJSON(docToLoad);
+        console.timeEnd('[ActiveSheetBinder] fromJSON duration');
+      } catch (e) {
+        console.error('[ActiveSheetBinder] fromJSON error', e);
+      }
     }
     // Restore view state (zoom) if available, otherwise fit view
     try {
@@ -84,10 +93,18 @@ export const ActiveSheetBinder = () => {
       if (view?.zoom && playground?.config?.updateZoom) {
         playground.config.updateZoom(view.zoom);
       } else {
+        console.time('[ActiveSheetBinder] fitView duration');
         (ctx.document as any).fitView && (ctx.document as any).fitView();
+        console.timeEnd('[ActiveSheetBinder] fitView duration');
       }
     } catch {
-      (ctx.document as any).fitView && (ctx.document as any).fitView();
+      try {
+        console.time('[ActiveSheetBinder] fitView duration (catch)');
+        (ctx.document as any).fitView && (ctx.document as any).fitView();
+        console.timeEnd('[ActiveSheetBinder] fitView duration (catch)');
+      } catch (e) {
+        console.error('[ActiveSheetBinder] fitView error', e);
+      }
     }
 
     // Restore selection for this sheet if any
