@@ -6,10 +6,17 @@ Provides platform-aware file dialogs and file I/O operations.
 import os
 import json
 from typing import Any, Optional, Dict
-from agent.ec_skills.extern_skills.extern_skills import scaffold_skill, rename_skill, user_skills_root
+# Lazy import extern_skills to avoid blocking during module initialization
+# from agent.ec_skills.extern_skills.extern_skills import scaffold_skill, rename_skill, user_skills_root
 from .types import IPCRequest, IPCResponse, create_success_response, create_error_response
 from .registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper as logger
+
+
+def _get_extern_skills():
+    """Lazy import extern_skills to avoid blocking during module initialization."""
+    from agent.ec_skills.extern_skills.extern_skills import scaffold_skill, rename_skill, user_skills_root
+    return scaffold_skill, rename_skill, user_skills_root
 
 
 def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
@@ -61,6 +68,7 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
         
         # Force initial directory to the per-user skills root
         try:
+            _, _, user_skills_root = _get_extern_skills()
             skills_root = user_skills_root()
             os.makedirs(skills_root, exist_ok=True)
             initial_dir = str(skills_root)
@@ -80,6 +88,7 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
         if file_path:
             # Validate that the selected file is under the skills root
             try:
+                _, _, user_skills_root = _get_extern_skills()
                 root = str(user_skills_root())
                 norm_root = os.path.abspath(root)
                 norm_sel = os.path.abspath(file_path)
@@ -359,6 +368,7 @@ def handle_skills_scaffold(request: IPCRequest, params: Optional[Dict[str, Any]]
         name = p.get('name') or datetime.datetime.now().strftime('skill_%Y%m%d_%H%M%S')
         kind = (p.get('kind') or 'diagram').lower()
         description = p.get('description') or ''
+        scaffold_skill, _, _ = _get_extern_skills()
         path = scaffold_skill(name, description, kind)
         return create_success_response(request, { 'skillRoot': str(path), 'name': name })
     except Exception as e:
@@ -379,6 +389,7 @@ def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         ok, data, err = validate_params(params, ['oldName', 'newName'])
         if not ok:
             return create_error_response(request, 'INVALID_PARAMS', err or 'invalid')
+        _, rename_skill, _ = _get_extern_skills()
         new_path = rename_skill(data['oldName'], data['newName'])
         return create_success_response(request, { 'skillRoot': str(new_path) })
     except Exception as e:

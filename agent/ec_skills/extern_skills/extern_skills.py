@@ -2,7 +2,6 @@
 #   abc_skill/
 #     requirements.txt        # plugin-only deps (e.g., pandas)
 #     abc_skill/              # package folder
-#       __init__.py
 #       abc_skill.py          # entry module (run(ctx) + __main__)
 # On macOS: ~/Library/Application Support/MyApp/my_skills/…
 # On Linux: ~/.local/share/MyApp/my_skills/…
@@ -11,13 +10,12 @@
 from __future__ import annotations
 import os, sys, json, subprocess, textwrap
 from pathlib import Path
-import venv
+# venv only needed in development environment, import lazily
+# import venv  # Imported when needed in ensure_skill_venv()
 from utils.logger_helper import logger_helper as logger
 
 APP_NAME = "eCan.ai"              # change to your real app name
 SKILLS_DIRNAME = "my_skills"    # as requested
-
-# Detect if running in PyInstaller packaged environment
 IS_FROZEN = getattr(sys, 'frozen', False)
 
 
@@ -208,7 +206,6 @@ def ensure_skill_venv(skill_dir: Path, *, reuse_host_libs: bool = True):
                         logger.info(f"[ExternSkills] Required packages: {requirements}")
             except Exception as e:
                 logger.error(f"[ExternSkills] Error reading requirements.txt: {e}")
-        
         return  # Skip venv creation in packaged environment
     
     # Development environment: create venv and install dependencies
@@ -218,16 +215,17 @@ def ensure_skill_venv(skill_dir: Path, *, reuse_host_libs: bool = True):
     if not venv_dir.exists():
         logger.info(f"[ExternSkills] Creating venv at: {venv_dir}")
         try:
+            # Lazy import venv only when actually needed
+            import venv
             venv.EnvBuilder(with_pip=True, system_site_packages=reuse_host_libs).create(str(venv_dir))
-            logger.info(f"[ExternSkills] ✅ Venv created successfully")
+            logger.info(f"[ExternSkills]  Venv created successfully")
         except Exception as e:
-            logger.error(f"[ExternSkills] ❌ Failed to create venv: {e}")
+            logger.error(f"[ExternSkills]  Failed to create venv: {e}")
             raise
     else:
         logger.info(f"[ExternSkills] Venv already exists at: {venv_dir}")
     
     # Install dependencies from requirements.txt
-    req = skill_dir / "requirements.txt"
     if req.exists():
         logger.info(f"[ExternSkills] Installing dependencies from: {req}")
         try:
