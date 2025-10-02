@@ -395,6 +395,13 @@ export class IPCAPI {
     }
 
     /**
+     * Dev: trigger backend to run a small langgraph2flowgram export test
+     */
+    public async testLanggraph2Flowgram<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('test_langgraph2flowgram', {});
+    }
+
+    /**
      * 获取可调用函数列表
      * @param filter - 过滤条件，可选包含：
      *   - text: 文本过滤条件，会搜索函数名、描述和参数

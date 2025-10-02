@@ -60,6 +60,7 @@ export const Open = ({ disabled }: OpenProps) => {
               return; // abort load
             }
           } catch {}
+          // Case A: primary file itself is a bundle
           const isBundle = raw && typeof raw === 'object' && 'mainSheetId' in raw && Array.isArray(raw.sheets);
           if (isBundle) {
             const bundle = raw as SheetsBundle;
@@ -78,6 +79,31 @@ export const Open = ({ disabled }: OpenProps) => {
             setHasUnsavedChanges(false);
             addRecentFile(createRecentFile(filePath, 'Multi-sheet Bundle'));
             return;
+          }
+
+          // Case B: primary file embeds a bundle inside { bundle: { mainSheetId, sheets } }
+          try {
+            const embedded = (raw as any)?.bundle;
+            const looksLikeBundle = embedded && typeof embedded === 'object' && 'mainSheetId' in embedded && Array.isArray(embedded.sheets);
+            if (looksLikeBundle) {
+              console.log('[SKILL_IO][FRONTEND][PRIMARY_HAS_EMBEDDED_BUNDLE] Loading embedded bundle inside primary:', filePath);
+              loadBundle(embedded as SheetsBundle);
+              // Derive and set skill info
+              try {
+                const base = (String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '');
+                const baseNoSuffix = base.replace(/_skill$/i, '');
+                const current = skillInfoFromStore;
+                if (current?.skillName !== baseNoSuffix) {
+                  setSkillInfo({ ...(current || { skillId: (current as any)?.skillId || '', skillName: baseNoSuffix, version: '1.0.0', lastModified: new Date().toISOString(), workFlow: workflowDocument.toJSON() as any }), skillName: baseNoSuffix });
+                }
+              } catch {}
+              setCurrentFilePath(filePath);
+              setHasUnsavedChanges(false);
+              addRecentFile(createRecentFile(filePath, 'Multi-sheet Bundle (embedded)'));
+              return;
+            }
+          } catch (e) {
+            console.warn('[SKILL_IO][FRONTEND][EMBEDDED_BUNDLE_CHECK_ERROR]', e);
           }
 
           // Try sibling bundle
