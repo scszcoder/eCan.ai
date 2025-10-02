@@ -98,10 +98,18 @@ jobs:
           echo "version=${REF_NAME#v}" >> $GITHUB_OUTPUT
           echo "Tag detected: $REF_NAME"
         else
-          # Treat as branch; create fallback version 0.0.0-<branch>-<shortsha>
+          # Treat as branch; read VERSION file as base version
+          if [ -f "VERSION" ]; then
+            BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
+            echo "Read base version from VERSION file: $BASE_VERSION"
+          else
+            BASE_VERSION="0.0.0"
+            echo "VERSION file not found, using default: $BASE_VERSION"
+          fi
+          
           SHORT_SHA=$(git rev-parse --short HEAD)
           SAFE_BRANCH=$(echo "$REF_NAME" | tr '/' '-')
-          FALLBACK="0.0.0-${SAFE_BRANCH}-${SHORT_SHA}"
+          FALLBACK="${BASE_VERSION}-${SAFE_BRANCH}-${SHORT_SHA}"
           echo "valid=true" >> $GITHUB_OUTPUT
           echo "is_branch=true" >> $GITHUB_OUTPUT
           echo "version=$FALLBACK" >> $GITHUB_OUTPUT
