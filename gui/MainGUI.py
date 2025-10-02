@@ -1461,7 +1461,7 @@ class MainWindow:
                 except Exception as e:
                     logger.warning(f"[MainWindow] ⚠️ Agent skills building failed: {e}")
                     import traceback
-                    logger.debug(f"[MainWindow] Skills building traceback: {traceback.format_exc()}")
+                    logger.error(f"[MainWindow] Skills building traceback: {traceback.format_exc()}")
                     self.agent_skills = []
             
             # 环境准备（简化处理）
