@@ -14,6 +14,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from agent.ec_skill import node_builder
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
+from langgraph.types import interrupt
+from app_context import AppContext
 
 def get_default_node_schemas():
     schemas = {
@@ -586,17 +588,157 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
 
 
 def build_condition_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
-    node_callable = None
-
-    return node_callable
+    """Conditions are handled by graph's conditional edges.
+    Return a no-op callable to keep the graph executable when visited.
+    """
+    def _noop(state: dict, *, runtime=None, store=None, **kwargs):
+        return state
+    # Wrap to inherit common context/retry behavior
+    return node_builder(_noop, node_name, skill_name, owner, bp_manager)
 
 
 def build_loop_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
-    node_callable = None
+    """Loops are translated structurally by the compiler; runtime callable is a no-op."""
+    def _noop(state: dict, *, runtime=None, store=None, **kwargs):
+        return state
+    return node_builder(_noop, node_name, skill_name, owner, bp_manager)
 
-    return node_callable
 
-def build_debug_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
-    node_callable = None
+def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
+    """Chat node sends messages via TaskRunner GUI methods."""
+    role = ((config_metadata or {}).get("role") or "assistant").lower()
+    msg_tpl = (config_metadata or {}).get("message") or ""
+    wait_for_reply = bool((config_metadata or {}).get("wait_for_reply", False))
+    def _chat(state: dict, *, runtime=None, store=None, **kwargs):
+        attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
+        try:
+            message = msg_tpl.format(**attrs) if isinstance(msg_tpl, str) else str(msg_tpl)
+        except Exception:
+            message = str(msg_tpl)
 
-    return node_callable
+        if not isinstance(state.get("messages"), list):
+            state["messages"] = []
+        state["messages"].append({"role": role, "content": message})
+
+        # Try to deliver to GUI via TaskRunner helpers
+        try:
+            mainwin = AppContext.get_main_window()
+            # choose the first available agent/runner for now
+            agent = next((ag for ag in getattr(mainwin, 'agents', []) or []), None)
+            runner = getattr(agent, 'runner', None) if agent else None
+            # locate chatId from state metadata/attributes
+            chat_id = None
+            try:
+                chat_id = (state.get('metadata') or {}).get('chatId')
+                if not chat_id:
+                    chat_id = (state.get('attributes') or {}).get('chatId')
+            except Exception:
+                chat_id = None
+            chat_id = chat_id or 'default_chat'
+
+            if role == 'assistant':
+                runner and runner.sendChatMessageToGUI(agent, chat_id, message)
+            elif role == 'system':
+                runner and runner.sendChatNotificationToGUI(agent, chat_id, {"title": "system", "text": message})
+            else:  # user role -> treat as message
+                runner and runner.sendChatMessageToGUI(agent, chat_id, message)
+        except Exception as e:
+            logger.debug(f"chat_node GUI send failed: {e}")
+
+        if wait_for_reply:
+            interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": message})
+        return state
+
+    return node_builder(_chat, node_name, skill_name, owner, bp_manager)
+
+
+def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
+    """RAG node with optional LIGHTRAG API."""
+    query_path = (config_metadata or {}).get("query_path") or "attributes.query"
+    def _rag(state: dict, *, runtime=None, store=None, **kwargs):
+        # Resolve dotted path from state
+        cur = state
+        for part in query_path.split("."):
+            try:
+                cur = cur.get(part)
+            except Exception:
+                cur = None
+                break
+        query = cur if isinstance(cur, (str, int, float)) else None
+        # Try LIGHTRAG backend if configured, otherwise fallback to empty
+        results = []
+        try:
+            rag_url = os.getenv('LIGHTRAG_API_URL') or os.getenv('LIGHTRAG_URL')
+            if rag_url and query:
+                url = rag_url.rstrip('/') + '/query'
+                payload = {"query": str(query)}
+                with httpx.Client(timeout=20.0) as client:
+                    resp = client.post(url, json=payload)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        # best-effort normalize
+                        results = data.get('documents') or data.get('results') or data.get('hits') or []
+        except Exception as e:
+            logger.debug(f"RAG backend error: {e}")
+        state.setdefault("tool_result", {})
+        state["tool_result"][node_name] = {"query": query, "documents": results}
+        return state
+
+    return node_builder(_rag, node_name, skill_name, owner, bp_manager)
+
+
+def build_browser_automation_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
+    """Browser automation scaffold.
+
+    Config keys (best-effort):
+      - provider: 'browser-use' | 'browsebase' | 'crawl4ai' (default 'browser-use')
+      - task: high-level instruction text for the agent
+      - action/params: legacy fields folded into task when present
+      - wait_for_done: whether to interrupt when external completion is needed
+      - model: optional LLM model for browser-use (env fallback supported)
+    """
+    provider = ((config_metadata or {}).get("provider") or "browser-use").lower()
+    action = (config_metadata or {}).get("action") or "open_page"
+    params = (config_metadata or {}).get("params") or {}
+    wait_for_done = bool((config_metadata or {}).get("wait_for_done", False))
+    task_text = (config_metadata or {}).get("task") or f"{action} {params}".strip()
+
+    async def _run_browser_use(task: str, model_name: str | None) -> dict:
+        try:
+            from browser_use import Agent as BUAgent, Controller as BUController
+            from browser_use.llm import ChatOpenAI as BUChatOpenAI
+            from browser_use.browser.profile import BrowserProfile as BUBrowserProfile
+
+            controller = BUController()
+            model_name = model_name or os.getenv('BROWSER_USE_MODEL') or 'gpt-4o-mini'
+            model = BUChatOpenAI(model=model_name)
+            profile = BUBrowserProfile()
+            agent = BUAgent(task=task, llm=model, controller=controller, browser_profile=profile)
+            history = await agent.run()
+            final = history.final_result() if hasattr(history, 'final_result') else None
+            return {"final": final, "history": str(history)}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _auto(state: dict, *, runtime=None, store=None, **kwargs):
+        if provider == 'browser-use':
+            model_name = (config_metadata or {}).get('model')
+            info = {}
+            try:
+                info = run_async_in_sync(_run_browser_use(task_text, model_name)) or {}
+            except Exception as e:
+                info = {"error": f"browser-use run failed: {e}"}
+            state.setdefault("tool_result", {})
+            state["tool_result"][node_name] = {"provider": provider, "task": task_text, **info}
+            # Optionally interrupt if downstream needs human check
+            if wait_for_done and info.get("error"):
+                interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Automation pending: {action}"})
+            return state
+        # Fallback: record intent for other providers
+        intents = state.setdefault("metadata", {}).setdefault("automation_intents", [])
+        intents.append({"node": node_name, "provider": provider, "action": action, "params": params, "task": task_text})
+        if wait_for_done:
+            interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Please perform automation: {action}"})
+        return state
+
+    return node_builder(_auto, node_name, skill_name, owner, bp_manager)
