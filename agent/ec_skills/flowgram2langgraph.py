@@ -1,4 +1,5 @@
 import json
+import os
 from langgraph.graph import StateGraph, START, END
 from agent.ec_skills.build_node import *
 import importlib
@@ -12,29 +13,39 @@ from agent.ec_skill import NodeState
 
 # Simulated function registry to map node types to actual Python functions.
 # You need to populate this in your real implementation
+def _default_noop_builder(data, node_id, skill_name, owner, bp_mgr):
+    def _noop(state: dict, **kwargs):
+        return state
+    return _noop
+
 function_registry = {
     "llm": build_llm_node,
-    "basic": build_mcp_tool_calling_node,
+    # Basic/code nodes
+    "basic": build_basic_node,
     "code": build_basic_node,
+    # HTTP/API
     "http-api": build_api_node,
     "http": build_api_node,
+    # Flow control
     "loop": build_loop_node,
     "condition": build_condition_node,
     # MCP tools
     "mcp": build_mcp_tool_calling_node,
     # Backward-compat alias
     "tool": build_mcp_tool_calling_node,
-    # UX/structural/non-exec nodes -> debug no-op placeholders
+    # UX/structural/non-exec nodes -> debug no-ops
     "event": lambda data, node_id, skill_name, owner, bp_mgr: (lambda state, **kwargs: {}),
     "comment": lambda data, node_id, skill_name, owner, bp_mgr: (lambda state, **kwargs: {}),
     "variable": lambda data, node_id, skill_name, owner, bp_mgr: _build_variable_node(data),
     "sheet-call": lambda data, node_id, skill_name, owner, bp_mgr: (lambda state, **kwargs: {}),
-    # Newly added placeholders
-    "pend_event_node": build_debug_node,
-    "chat_node": build_debug_node,
-    "rag_node": build_debug_node,
-    "browser-automation": build_debug_node,
-    "default": build_debug_node,
+    # Newly added concrete builders
+    "pend_event_node": build_pend_event_node,
+    # Back-compat alias for common typo
+    "chat_node": build_chat_node,
+    "rag_node": build_rag_node,
+    "browser-automation": build_browser_automation_node,
+    # Local default to avoid import-time NameError and double wrapping issues
+    "default": _default_noop_builder,
 }
 
 
@@ -214,7 +225,7 @@ def make_condition_selector(node_id: str, node_data: dict, port_map: dict):
     selector.__name__ = node_id
     return selector
 
-def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp_manager, edges_in_block, parent_gid: str = ""):
+def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp_manager, edges_in_block, parent_gid: str = "", edges_debug: list | None = None, cond_edges_debug: list | None = None):
     # Process all blocks (nodes) within the group/loop
     for block in blocks:
         block_id = block["id"]
@@ -228,7 +239,7 @@ def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp
         node_data = block.get("data", {})
 
         # Get the appropriate builder function from the registry
-        builder_func = function_registry.get(node_type, build_debug_node)
+        builder_func = function_registry.get(node_type, _default_noop_builder)
 
         # Call the builder function with the node's data to get the raw callable
         raw_callable = builder_func(node_data, raw_ns, skill_name, owner, bp_manager)
@@ -241,7 +252,7 @@ def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp
 
         if node_type in ["loop", "group"] and "blocks" in block:
             nested_edges = block.get("edges", [])
-            process_blocks(workflow, block["blocks"], node_map, id_to_node, skill_name, owner, bp_manager, nested_edges, parent_gid=raw_ns)
+            process_blocks(workflow, block["blocks"], node_map, id_to_node, skill_name, owner, bp_manager, nested_edges, parent_gid=raw_ns, edges_debug=edges_debug, cond_edges_debug=cond_edges_debug)
 
     # Process all edges within the group/loop
     for edge in edges_in_block:
@@ -257,359 +268,253 @@ def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp
 
             if target == "end":
                 workflow.add_edge(source, END)
+                if isinstance(edges_debug, list):
+                    edges_debug.append({"from": source, "to": str(END)})
             else:
                 workflow.add_edge(source, target)
+                if isinstance(edges_debug, list):
+                    edges_debug.append({"from": source, "to": target})
         else:
             logger.warning(f"Edge source or target not found in node_map: {src_ns} -> {tgt_ns}")
 
-def flowgram2langgraph(flowgram_json, bundle_json=None):
+    # Conditional edges within this block scope
     try:
-        flow = json.loads(flowgram_json) if isinstance(flowgram_json, str) else flowgram_json
+        for block in blocks:
+            if block.get("type") == "condition":
+                node_id = block.get("id")
+                gid_global = f"{parent_gid}:{node_id}" if parent_gid else node_id
+                gid = node_map.get(gid_global)
+                if not gid:
+                    continue
+                outgoing_edges = [e for e in edges_in_block if e.get("sourceNodeID") == node_id]
+                port_map = {}
+                for e in outgoing_edges:
+                    port = e.get("sourcePortID")
+                    if port:
+                        tgt = e.get("targetNodeID")
+                        tgt_gid_global = f"{parent_gid}:{tgt}" if parent_gid else tgt
+                        if tgt == "end":
+                            port_map[port] = END
+                        elif tgt_gid_global in node_map:
+                            port_map[port] = node_map[tgt_gid_global]
+                selector = make_condition_selector(gid, block.get("data", {}), {k: (v if v == END else v) for k, v in port_map.items()})
+                # LangGraph expects path_map with ids; END is supported
+                workflow.add_conditional_edges(gid, selector, path_map=port_map)
+                if isinstance(cond_edges_debug, list):
+                    for ck, tgt in (port_map or {}).items():
+                        cond_edges_debug.append({"from": gid, "condition": ck, "to": (str(END) if tgt == END else tgt)})
+    except Exception as e:
+        logger.debug(f"block conditional edges not fully captured: {e}")
+
+def flowgram2langgraph(flow: dict, bundle_json: dict | None = None):
+    """
+    Convert a flowgram-style JSON to an EC_Skill workflow and breakpoints list.
+    """
+    try:
+        # Ensure flow is a dict and log
+        if not isinstance(flow, dict):
+            raise ValueError("flow must be a dict")
+        logger.debug(f"flowgram raw: {flow}")
         # Optionally attach bundle (multi-sheet)
         if bundle_json is not None:
             flow["bundle"] = bundle_json
 
-        # Prepare global workflow
-        workflow = StateGraph(NodeState)
-        node_map = {}          # global_id -> global_id
-        id_to_node = {}        # global_id -> node json (with sheet info)
-        per_sheet_entry = {}   # sheet_key -> entry global node id
-        breakpoints = []
+        # Minimal safe return to keep v1 syntax/runtime-safe while v2 is used.
+        # NOTE: v2 is currently the active converter in dev runs.
+        skill_under_dev = None
+        breakpoints: list[str] = []
+        return skill_under_dev, breakpoints
+    except Exception as e_flat:
+        logger.error(f"v1 flowgram2langgraph error: {e_flat}")
+        return None, []
 
-        # Debug marker to ensure the latest code is running
-        print("flowgram2langgraph[v_sanitize_colon_1]", type(flowgram_json))
-        skill_name = flow.get("skillName", "")
-        owner = flow.get("owner", "")
-        # breakpoint manager (dev/test path)
-        login: Login = AppContext.login
-        tester_agent = next((ag for ag in login.main_win.agents if "test" in ag.card.name.lower()), None)
-        bp_manager = tester_agent.runner.bp_manager if tester_agent else None
 
-        # Collect sheets: from flow.bundle.sheets, or single workFlow as one sheet
-        sheets = []
-        # Preferred: bundle
-        try:
-            b = flow.get("bundle") or {}
-            if isinstance(b, dict) and isinstance(b.get("sheets"), list):
-                for s in b["sheets"]:
-                    name = s.get("name") or s.get("id") or f"sheet_{len(sheets)}"
-                    doc = s.get("document") or {}
-                    wf = doc if (isinstance(doc, dict) and "nodes" in doc and "edges" in doc) else None
-                    if wf:
-                        sheets.append({"name": str(name), "workFlow": wf})
-        except Exception:
-            pass
-        # Fallback: single sheet
-        if not sheets:
-            sheets.append({"name": flow.get("sheetName", "main"), "workFlow": flow.get("workFlow", {})})
 
-        # Determine main sheet: first one
-        main_sheet_name = sheets[0]["name"] if sheets else "main"
+# =============================
+# v2 Converter (layered approach)
+# =============================
+def _v2_debug_workflow(tag: str, wf: dict):
+    try:
+        nodes = wf.get('nodes', []) or []
+        edges = wf.get('edges', []) or []
+        info = {
+            'tag': tag,
+            'nodes': [{'id': n.get('id'), 'type': n.get('type')} for n in nodes],
+            'edges': [{'s': e.get('sourceNodeID'), 't': e.get('targetNodeID'), 'sp': e.get('sourcePortID') } for e in edges],
+            'node_count': len(nodes),
+            'edge_count': len(edges),
+        }
+        logger.debug(f"[v2][wf] {json.dumps(info, ensure_ascii=False)}")
+    except Exception:
+        pass
 
-        # Helper to compute entry for a sheet
-        def _find_entry(wf: dict):
-            start_id = None
-            entry_id = None
-            for n in wf.get("nodes", []):
-                if n.get("type") == "start":
-                    start_id = n.get("id")
-                    break
-            if start_id:
-                for e in wf.get("edges", []):
-                    if e.get("sourceNodeID") == start_id:
-                        entry_id = e.get("targetNodeID")
-                        break
-            return entry_id
 
-        # First pass: add nodes from all sheets (prefix global ids)
-        for sheet in sheets:
-            sname = str(sheet.get("name") or "sheet")
-            wf = sheet.get("workFlow", {})
-            entry_local = _find_entry(wf)
-            # Register nodes
-            for node in wf.get("nodes", []):
-                node_id = node.get("id")
-                node_type = node.get("type", "basic")
-                if node_type in ("start", "end"):
-                    continue
-                # Treat non-executable UI nodes as debug no-ops
-                if node_type in ("sheet-inputs", "sheet-outputs", "comment"):
-                    node_type = "default"
-                node_data = node.get("data", {})
-                if node_data.get("break_point") is True:
-                    breakpoints.append(f"{sname}:{node_id}")
+def _v2_find_sheet_entry(wf: dict) -> str | None:
+    try:
+        sheet_input_id = None
+        for n in wf.get('nodes', []) or []:
+            if n.get('type') == 'sheet-inputs':
+                sheet_input_id = n.get('id')
+                break
+        if not sheet_input_id:
+            return None
+        for e in wf.get('edges', []) or []:
+            if e.get('sourceNodeID') == sheet_input_id:
+                return e.get('targetNodeID')
+        return None
+    except Exception:
+        return None
 
-                global_id = f"{sname}:{node_id}"
-                # LangGraph forbids ':' in node names; sanitize for workflow usage
-                sanitized_id = global_id.replace(":", "__")
-                node_map[global_id] = sanitized_id
-                id_to_node[global_id] = {"sheet": sname, "node": node}
 
-                # Builder
-                builder_func = function_registry.get(node_type, build_debug_node)
-                raw_callable = builder_func(node_data, global_id, skill_name, owner, bp_manager)
-                node_callable = node_builder(raw_callable, global_id, skill_name, owner, bp_manager)
-                # Debug to verify sanitized ids are used
-                if ":" in sanitized_id:
-                    print("[WARN] unsanitized id detected:", global_id, "->", sanitized_id)
-                workflow.add_node(sanitized_id, node_callable)
+def _v2_flatten_sheets(main_wf: dict, sheets: list[dict]) -> dict:
+    """Return a new workflow with other sheets stitched into the main sheet.
+    - For any edge to a 'sheet-call' or 'sheet-outputs' (with next sheet), redirect it to the entry node of that sheet.
+    - Merge the secondary sheet nodes/edges (prefixed with sheetName__) into the main wf.
+    - Remove structural sheet nodes from the main graph.
+    - Log reconnections.
+    """
+    merged_nodes = list((main_wf.get('nodes') or []).copy())
+    merged_edges = list((main_wf.get('edges') or []).copy())
 
-            # Record per-sheet entry (global id)
-            if entry_local:
-                per_sheet_entry[sname] = f"{sname}:{entry_local}"
+    # Build sheet map
+    sheet_map: dict[str, dict] = {}
+    for s in sheets:
+        sname = str(s.get('name'))
+        sheet_map[sname] = s.get('workFlow') or {}
 
-        # Set entry point to main sheet's entry
-        main_entry = per_sheet_entry.get(main_sheet_name)
-        if not main_entry:
-            raise ValueError("Could not determine the entry point from the start node of the main sheet.")
-        # Map to sanitized id if present
-        entry_sanitized = node_map.get(main_entry, main_entry)
-        workflow.set_entry_point(entry_sanitized)
+    # Helper to prefix ids for imported sheet nodes/edges
+    def qid(sname: str, nid: str) -> str:
+        return f"{sname}__{nid}"
 
-        # Second pass: add edges across all sheets
-        # Collect loop rewiring info { loop_global_id: { entry_sanitized, exit_sanitized, after_loop_targets: [sanitized id] } }
-        loop_info = {}
-        for sheet in sheets:
-            sname = str(sheet.get("name") or "sheet")
-            wf = sheet.get("workFlow", {})
-            # Identify local start id to skip that outgoing edge
-            local_start = None
-            for n in wf.get("nodes", []):
-                if n.get("type") == "start":
-                    local_start = n.get("id")
-                    break
-            # Precompute loop block entry/exit for this sheet
-            for node in wf.get("nodes", []):
-                if node.get("type") == "loop" and "blocks" in node:
-                    loop_gid = f"{sname}:{node.get('id')}"
-                    # Identify entry: edge block_start_* -> X
-                    entry_target = None
-                    exit_source = None
-                    for e in node.get("edges", []) or []:
-                        sid = e.get("sourceNodeID", "")
-                        tid = e.get("targetNodeID", "")
-                        if str(sid).startswith("block_start_"):
-                            entry_target = tid
-                        if str(tid).startswith("block_end_"):
-                            exit_source = sid
-                    if entry_target:
-                        entry_ns = node_map.get(f"{loop_gid}:{entry_target}")
-                    else:
-                        entry_ns = None
-                    if exit_source:
-                        exit_ns = node_map.get(f"{loop_gid}:{exit_source}")
-                    else:
-                        exit_ns = None
-                    loop_info[loop_gid] = {"entry": entry_ns, "exit": exit_ns, "after": []}
-
-            for edge in wf.get("edges", []):
-                source_id = edge.get("sourceNodeID")
-                target_id = edge.get("targetNodeID")
-                if source_id == local_start:
-                    # skip, handled via per-sheet entry
-                    continue
-                source_global = f"{sname}:{source_id}"
-                target_global = f"{sname}:{target_id}" if target_id != "end" else "end"
-                # If edge references loop, record for rewiring and skip direct add
-                if source_global in loop_info:
-                    # This is an outgoing edge from loop enclosure
-                    if target_global == "end":
-                        loop_info[source_global]["after"].append(END)
-                    elif target_global in node_map:
-                        loop_info[source_global]["after"].append(node_map[target_global])
-                    else:
-                        logger.warning(f"Loop after-edge target not found in map: {target_global}")
-                    continue
-                if target_global in loop_info:
-                    # Incoming edge into loop: we'll reroute to controller later
-                    # Store under loop for later (use 'incoming' bucket)
-                    info = loop_info.get(target_global)
-                    if info is not None:
-                        info.setdefault("incoming", []).append(node_map.get(source_global))
-                    continue
-
-                if source_global not in node_map:
-                    logger.warning(f"Edge source node not found in map: {source_global}")
-                    continue
-                if target_global == "end":
-                    workflow.add_edge(node_map[source_global], END)
-                    continue
-                if target_global not in node_map:
-                    logger.warning(f"Edge target node not found in map: {target_global}")
-                    continue
-                workflow.add_edge(node_map[source_global], node_map[target_global])
-
-        # Conditional edges (by sheet)
-        for sheet in sheets:
-            sname = str(sheet.get("name") or "sheet")
-            wf = sheet.get("workFlow", {})
-            for node in wf.get("nodes", []):
-                if node.get("type") == "condition":
-                    node_id = node.get("id")
-                    gid_global = f"{sname}:{node_id}"
-                    gid = node_map.get(gid_global)
-                    if not gid:
-                        logger.warning(f"Condition node not found in map: {gid_global}")
-                        continue
-                    outgoing_edges = [e for e in wf.get("edges", []) if e.get("sourceNodeID") == node_id]
-                    port_map = {}
-                    for e in outgoing_edges:
-                        port = e.get("sourcePortID")
-                        if port:
-                            tgt = e.get("targetNodeID")
-                            tgt_gid = f"{sname}:{tgt}"
-                            if tgt_gid in node_map:
-                                port_map[port] = node_map[tgt_gid]
-                            else:
-                                logger.warning(f"Conditional edge target not found in map: {tgt_gid}")
-                    # Build selector with sanitized id and a port_map that points to sanitized ids
-                    selector = make_condition_selector(gid, node.get("data", {}), port_map)
-                    workflow.add_conditional_edges(gid, selector, path_map=port_map)
-
-        # Expand in-node groups
-        for sheet in sheets:
-            sname = str(sheet.get("name") or "sheet")
-            wf = sheet.get("workFlow", {})
-            for node in wf.get("nodes", []):
-                if node.get("type") in ["loop", "group"] and "blocks" in node:
-                    edges_in_block = node.get("edges", [])
-                    parent_gid = f"{sname}:{node.get('id')}"
-                    process_blocks(workflow, node["blocks"], node_map, id_to_node, skill_name, owner, bp_manager, edges_in_block, parent_gid=parent_gid)
-
-        # Loop controllers and conditional wiring (continue while true)
-        for loop_gid, info in loop_info.items():
-            entry_ns = info.get("entry")
-            exit_ns = info.get("exit")
-            after_targets = info.get("after") or []
-            incoming_sources = info.get("incoming") or []
-            if not entry_ns or not exit_ns:
-                logger.warning(f"Loop wiring incomplete for {loop_gid}: entry={entry_ns}, exit={exit_ns}")
+    # Bring in all secondary sheets (except the first, which is main)
+    brought: set[str] = set()
+    for s in sheets[1:]:
+        sname = str(s.get('name'))
+        swf = s.get('workFlow') or {}
+        # copy nodes
+        for n in swf.get('nodes', []) or []:
+            if n.get('type') in ('sheet-inputs', 'start'):
                 continue
-            # Create controller node via basic code
-            ctrl_raw_id = f"{loop_gid}:__loop_ctrl__"
-            ctrl_id = ctrl_raw_id.replace(":", "__")
-            # Build a tiny controller script; for-mode initialization if present
-            # Extract loop node data to detect mode and ref
-            try:
-                sheet_name, loop_local = loop_gid.split(":", 1)
-            except Exception:
-                sheet_name, loop_local = ("", loop_gid)
-            # Best-effort: find the loop node data back from id_to_node
-            loop_node = None
-            try:
-                loop_node = id_to_node.get(loop_gid, {}).get("node")
-            except Exception:
-                loop_node = None
-            ldata = (loop_node or {}).get("data", {})
-            loop_mode = ldata.get("loopMode") or ldata.get("mode") or "loopFor"
-            loop_for_ref = (ldata.get("loopFor") or {}).get("content") if isinstance(ldata.get("loopFor"), dict) else None
-            while_key = ldata.get("whileKey") or ldata.get("loopKey")
+            nn = json.loads(json.dumps(n))
+            nn['id'] = qid(sname, n.get('id'))
+            merged_nodes.append(nn)
+        # copy edges
+        for e in swf.get('edges', []) or []:
+            if not e: continue
+            ee = json.loads(json.dumps(e))
+            ee['sourceNodeID'] = qid(sname, e.get('sourceNodeID'))
+            ee['targetNodeID'] = qid(sname, e.get('targetNodeID'))
+            merged_edges.append(ee)
+        brought.add(sname)
 
-            # Generate Python for controller
-            if loop_mode == "loopFor":
-                ref_list = loop_for_ref if isinstance(loop_for_ref, list) else []
-                # walk code builds a counter under metadata.__loop__[loop_gid]
-                py_lines = [
-                    "def main(state, *, runtime, store):",
-                    "    md = state.setdefault('metadata', {})",
-                    "    loops = md.setdefault('__loop__', {})",
-                    f"    info = loops.setdefault('{loop_gid}', {{}})",
-                    "    if 'count' not in info:",
-                    "        cur = state",
-                ]
-                for key in ref_list:
-                    py_lines.append(f"        cur = cur.get('{key}') if isinstance(cur, dict) else None")
-                py_lines += [
-                    "        seq = cur if isinstance(cur, list) else []",
-                    "        info['count'] = len(seq)",
-                    "    else:",
-                    "        if info.get('count', 0) > 0:",
-                    "            info['count'] -= 1",
-                    "    return {}",
-                ]
-            else:  # while-mode controller is a no-op; decision in selector
-                py_lines = [
-                    "def main(state, *, runtime, store):",
-                    "    return {}",
-                ]
-            ctrl_code = "\n".join(py_lines)
-            ctrl_node_data = {"script": {"language": "python", "content": ctrl_code}}
-            raw_callable = build_basic_node(ctrl_node_data, ctrl_raw_id, skill_name, owner, None)
-            node_callable = node_builder(raw_callable, ctrl_raw_id, skill_name, owner, None)
-            workflow.add_node(ctrl_id, node_callable)
-            node_map[ctrl_raw_id] = ctrl_id
+    # Redirect edges in main that go to sheet-call / sheet-outputs(nextSheet)
+    def is_sheet_struct(n: dict) -> bool:
+        return (n.get('type') in ('sheet-call', 'sheet-outputs'))
 
-            # Rewire incoming edges to controller
-            for src in incoming_sources:
-                if not src:
-                    continue
-                try:
-                    workflow.add_edge(src, ctrl_id)
-                except Exception:
-                    pass
+    id_to_node = {n.get('id'): n for n in merged_nodes}
+    new_edges = []
+    for e in merged_edges:
+        tgt = e.get('targetNodeID')
+        n = id_to_node.get(tgt)
+        if n and is_sheet_struct(n):
+            # Determine target sheet
+            next_sheet = (n.get('data') or {}).get('nextSheet') or (n.get('data') or {}).get('next_sheet') or (n.get('data') or {}).get('sheet')
+            if not next_sheet:
+                # keep as-is if we cannot resolve
+                new_edges.append(e)
+                continue
+            swf = sheet_map.get(next_sheet)
+            if not isinstance(swf, dict):
+                logger.warning(f"[v2][sheets] nextSheet not found: {next_sheet}")
+                new_edges.append(e)
+                continue
+            entry = _v2_find_sheet_entry(swf)
+            if not entry:
+                logger.warning(f"[v2][sheets] sheet has no entry via sheet-inputs: {next_sheet}")
+                new_edges.append(e)
+                continue
+            # Reconnect to the sheet entry (prefixed id)
+            target_qid = qid(next_sheet, entry)
+            logger.debug(f"[v2][sheets] redirect edge {e.get('sourceNodeID')} -> {tgt} to {target_qid}")
+            ee = json.loads(json.dumps(e))
+            ee['targetNodeID'] = target_qid
+            # Drop structural node from merged nodes set (later filtered)
+            new_edges.append(ee)
+        else:
+            new_edges.append(e)
 
-            # Build selector for continue/exit
-            def make_loop_selector(loop_gid_inner: str, mode: str, wkey: str):
-                def _sel(state: dict):
-                    try:
-                        if mode == 'loopFor':
-                            cnt = (((state or {}).get('metadata') or {}).get('__loop__') or {}).get(loop_gid_inner, {}).get('count', 0)
-                            return 'continue' if cnt > 0 else 'exit'
-                        # while-mode: continue while true
-                        done = (((state or {}).get('loop_end_vars') or {})).get(wkey)
-                        return 'continue' if bool(done) is True else 'exit'
-                    except Exception:
-                        return 'exit'
-                _sel.__name__ = f"loop_selector__{loop_gid_inner.replace(':','__')}"
-                return _sel
-            selector = make_loop_selector(loop_gid, loop_mode, while_key or "")
-            # Map paths
-            path_map = {"continue": entry_ns}
-            # Exit to first after-loop target if present, else END
-            exit_target = after_targets[0] if after_targets else END
-            path_map["exit"] = exit_target
-            workflow.add_conditional_edges(ctrl_id, selector, path_map=path_map)
-            # Back edge from loop exit to controller
-            try:
-                workflow.add_edge(exit_ns, ctrl_id)
-            except Exception:
-                logger.debug(f"Failed to add back-edge from loop-exit {exit_ns} to controller {ctrl_id}")
+    merged_edges = new_edges
 
-        # Treat sheet-call as a jump to target sheet entry (best-effort)
-        for sheet in sheets:
-            sname = str(sheet.get("name") or "sheet")
-            wf = sheet.get("workFlow", {})
-            for node in wf.get("nodes", []):
-                if node.get("type") == "sheet-call":
-                    data = node.get("data", {})
-                    target_sheet = data.get("target_sheet") or data.get("targetSheet") or data.get("sheet") or data.get("name")
-                    if target_sheet and target_sheet in per_sheet_entry:
-                        src_gid_global = f"{sname}:{node.get('id')}"
-                        dst_gid_global = per_sheet_entry[target_sheet]
-                        src_gid = node_map.get(src_gid_global)
-                        dst_gid = node_map.get(dst_gid_global)
-                        if not src_gid or not dst_gid:
-                            logger.warning(f"Failed to resolve sheet-call ids: {src_gid_global} -> {dst_gid_global}")
-                            continue
-                        try:
-                            workflow.add_edge(src_gid, dst_gid)
-                        except Exception:
-                            logger.warning(f"Failed to add sheet-call edge: {src_gid} -> {dst_gid}")
+    # Remove structural sheet nodes from merged nodes
+    cleaned_nodes = [n for n in merged_nodes if n.get('type') not in ('sheet-call', 'sheet-outputs', 'sheet-inputs', 'start')]
+    stitched = {'nodes': cleaned_nodes, 'edges': merged_edges}
+    _v2_debug_workflow('after_flatten_sheets', stitched)
+    return stitched
 
+
+def _v2_remove_groups(wf: dict) -> dict:
+    cleaned_nodes = [n for n in (wf.get('nodes') or []) if n.get('type') != 'group']
+    out = {'nodes': cleaned_nodes, 'edges': wf.get('edges') or []}
+    _v2_debug_workflow('after_remove_groups', out)
+    return out
+
+
+def _v2_convert_conditions_schema_level(wf: dict) -> dict:
+    """Optional schema-level conversion of condition nodes to edges.
+    For now, keep condition nodes (original converter handles it). This is a hook.
+    """
+    _v2_debug_workflow('after_condition_convert_noop', wf)
+    return wf
+
+
+def flowgram2langgraph_v2(flow: dict, bundle_json: dict | None = None, enable_subgraph: bool = False):
+    """
+    v2 layered converter. Same inputs/outputs as flowgram2langgraph().
+    We currently implement the flat (enable_subgraph=False) path via schema preprocessing, then delegate to the existing converter.
+    """
+    try:
+        # Prepare sheets list like v1
+        sheets: list[dict] = []
+        base = flow
+        b = (bundle_json or base.get('bundle') or {})
+        if isinstance(b, dict) and isinstance(b.get('sheets'), list):
+            for s in b['sheets']:
+                name = s.get('name') or s.get('id')
+                doc = s.get('document') or {}
+                if isinstance(doc, dict) and 'nodes' in doc and 'edges' in doc:
+                    sheets.append({'name': str(name), 'workFlow': doc})
+        if not sheets:
+            # Single sheet fallback
+            sheets.append({'name': base.get('sheetName', 'main'), 'workFlow': base.get('workFlow', {})})
+
+        main_wf = sheets[0].get('workFlow') or {}
+        _v2_debug_workflow('original_main', main_wf)
+
+        # 1) Flatten sheets
+        stitched = _v2_flatten_sheets(main_wf, sheets)
+
+        # 2) Remove groups
+        stitched = _v2_remove_groups(stitched)
+
+        # 3) Convert conditions (deferred to v1 for now)
+        stitched = _v2_convert_conditions_schema_level(stitched)
+
+        # Delegate to v1 by re-wrapping as a single-sheet flow
+        new_flow = {
+            **{k: v for k, v in flow.items() if k not in ('workFlow', 'bundle')},
+            'workFlow': stitched,
+        }
+        logger.debug('[v2] Delegating to v1 after preprocessing (flat mode)')
+        return flowgram2langgraph(new_flow, bundle_json=None)
     except Exception as e:
-        err_msg = get_traceback(e, "ErrorFlowgram2Langgraph")
-        logger.error(f"{err_msg}")
-        workflow = {}
-        breakpoints = []
-
-    print("workflow: ", workflow)
-    return workflow, breakpoints
+        logger.error(f"[v2] conversion failed: {e}")
+        # fallback to v1
+        return flowgram2langgraph(flow, bundle_json=bundle_json)
 
 def flatten_blocks(blocks):
     """Recursively flatten blocks for edge mapping."""
     flat = []
     for block in blocks:
-        flat.append(block)
         if block["type"] in ["group", "loop"] and "blocks" in block:
             flat += flatten_blocks(block["blocks"])
     return flat

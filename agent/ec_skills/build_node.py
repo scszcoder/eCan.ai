@@ -36,19 +36,45 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     Returns:
         A callable function that takes a state dictionary and returns the updated state.
     """
-    # Extract configuration from metadata with sensible defaults
+    # Extract configuration from metadata with sensible defaults (tolerant to missing keys)
+    print("building llm node:", config_metadata)
+    inputs = (config_metadata or {}).get("inputsValues", {}) or {}
+    # Prefer explicit provider; infer from apiHost if absent
+    raw_provider = None
     try:
-        print("building llm node:", config_metadata)
-        model_provider = config_metadata["inputsValues"]["modelProvider"].get("content", "OpenAI")
-        model_name = config_metadata["inputsValues"]["modelName"].get("content", "gpt-3.5-turbo")
-        api_key = config_metadata["inputsValues"]["apiKey"].get("content", "")
-        temperature = float(config_metadata["inputsValues"]["temperature"].get("content", 0.5))
-        llm_provider = model_provider.lower()
-        system_prompt_template = config_metadata["inputsValues"]["systemPrompt"].get("content", "You are an AI assistant.")
-        user_prompt_template = config_metadata["inputsValues"]["prompt"].get("content", "You are an AI assistant.")
-    except Exception as e:
-        error_message = get_traceback(e, "ErrBuildLLMNode0")
-        logger.error(error_message)
+        raw_provider = ((inputs.get("modelProvider") or {}).get("content")
+                        or (inputs.get("provider") or {}).get("content"))
+    except Exception:
+        raw_provider = None
+    model_name = ((inputs.get("modelName") or {}).get("content")
+                  or (inputs.get("model") or {}).get("content")
+                  or "gpt-3.5-turbo")
+    api_key = ((inputs.get("apiKey") or {}).get("content") or "")
+    api_host = ((inputs.get("apiHost") or {}).get("content") or "")
+    try:
+        temperature = float(((inputs.get("temperature") or {}).get("content") or 0.5))
+    except Exception:
+        temperature = 0.5
+    system_prompt_template = ((inputs.get("systemPrompt") or {}).get("content")
+                              or "You are an AI assistant.")
+    user_prompt_template = ((inputs.get("prompt") or {}).get("content")
+                            or "You are an AI assistant.")
+
+    # Infer provider when not explicitly set
+    def _infer_provider(host: str, model: str) -> str:
+        try:
+            h = (host or "").lower()
+            m = (model or "").lower()
+            if "anthropic" in h or m.startswith("claude"):
+                return "anthropic"
+            if "google" in h or "generativeai" in h or m.startswith("gemini"):
+                return "google"
+            return "openai"
+        except Exception:
+            return "openai"
+
+    model_provider = raw_provider or _infer_provider(api_host, model_name)
+    llm_provider = (model_provider or "openai").lower()
 
     # Factory function to get the correct LLM client
     def get_llm_client(provider, model, temp):
@@ -214,18 +240,37 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     Returns:
         A sync or async callable function that takes a state dictionary.
     """
-    # Extract configuration
+    # Extract configuration (support legacy `{http: {...}}` and new flowgram schema)
     print("building api node...", config_metadata)
-    api_endpoint = config_metadata["http"].get('apiUrl', "http://localhost:8000")
-    timeout = int(config_metadata["http"].get('timeout', 30))*10
-    retries = int(config_metadata["http"].get('retry', 3))
-    method = config_metadata["http"].get('apiMethod', "GET").upper()
+    cfg_http = config_metadata.get("http") if isinstance(config_metadata, dict) else None
+    if isinstance(cfg_http, dict):
+        api_endpoint = cfg_http.get('apiUrl') or cfg_http.get('url') or ""
+        method = (cfg_http.get('apiMethod') or cfg_http.get('method') or "GET").upper()
+        timeout = int(cfg_http.get('timeout', 30))
+        retries = int(cfg_http.get('retry', 3))
+        headers_template = cfg_http.get('requestHeadersValues', {'Content-Type': {'type': 'constant', 'content': 'application/json'}})
+        params_template = cfg_http.get('requestParams', {})
+        api_key = cfg_http.get('apiKey', "")
+        attachments = cfg_http.get('attachments', [])
+    else:
+        api = (config_metadata.get('api') or {}) if isinstance(config_metadata, dict) else {}
+        url_field = api.get('url')
+        if isinstance(url_field, dict):
+            api_endpoint = url_field.get('content') or ""
+        else:
+            api_endpoint = str(url_field or "")
+        method = (api.get('method') or "GET").upper()
+        to = (config_metadata.get('timeout') or {}) if isinstance(config_metadata, dict) else {}
+        # incoming timeout in ms; convert to seconds, fallback 10s
+        timeout = int(max(1, int((to.get('timeout') or 10000) / 1000)))
+        retries = int((to.get('retryTimes') or 1))
+        headers_template = (config_metadata.get('headers') or {})
+        params_template = (config_metadata.get('params') or {})
+        body_cfg = (config_metadata.get('body') or {})
+        attachments = body_cfg.get('attachments', []) if isinstance(body_cfg, dict) else []
+        api_key = (config_metadata.get('apiKey') or "")
 
-    headers_template = config_metadata["http"].get('requestHeadersValues', {'Content-Type': {'type': 'constant', 'content': 'application/json'}})
-    params_template = config_metadata["http"].get('requestParams', {})
-    api_key = config_metadata["http"].get('apiKey', "")
-    attachments = config_metadata["http"].get('attachments', [])
-    is_sync = config_metadata.get('sync', True)
+    is_sync = bool((config_metadata or {}).get('sync', True))
 
     if not api_endpoint:
         print("Error: 'api_endpoint' is missing in config_metadata for api_node.")
@@ -236,10 +281,48 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         if isinstance(template, str):
             return template.format(**attributes)
         if isinstance(template, dict):
-            return {k: _format_from_state(v, attributes) for k, v in template.items()}
+            out = {}
+            for k, v in template.items():
+                if isinstance(v, dict):
+                    # Prefer 'content' if present
+                    val = v.get('content', None)
+                    if val is None:
+                        # If no 'content', try formatting the entire dict recursively
+                        val = _format_from_state(v, attributes)
+                    out[k] = val
+                else:
+                    out[k] = _format_from_state(v, attributes)
+            return out
         if isinstance(template, list):
             return [_format_from_state(i, attributes) for i in template]
         return template
+
+    def _flatten_kv(template):
+        """Recursively flatten {key: {type, content}} -> {key: formatted_content}"""
+        out = {}
+        if not isinstance(template, dict):
+            return out
+        for k, v in template.items():
+            if isinstance(v, dict):
+                # Prefer 'content' if present
+                content = v.get('content')
+                if content is None:
+                    # If no 'content', try formatting the entire dict recursively
+                    content = _format_from_state(v, {})
+                if isinstance(content, str):
+                    try:
+                        content = content.format(**{})
+                    except Exception:
+                        pass
+                out[k] = content
+            elif isinstance(v, str):
+                try:
+                    out[k] = v.format(**{})
+                except Exception:
+                    out[k] = v
+            else:
+                out[k] = v
+        return out
 
     def _prepare_request_args(state):
         """Prepare final request arguments by formatting templates with state.
@@ -248,7 +331,10 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         - params_template may be {values: {name: {type, content}}} or a flat dict.
         """
         attributes = state.get("attributes", {})
-        final_url = api_endpoint.format(**attributes)
+        try:
+            final_url = (api_endpoint or "").format(**attributes)
+        except Exception:
+            final_url = api_endpoint or ""
 
         # Helper to flatten {key: {type, content}} -> {key: formatted_content}
         def _flatten_kv(template):
@@ -259,14 +345,10 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 if isinstance(v, dict):
                     # Prefer 'content' if present
                     content = v.get('content')
-                    if isinstance(content, str):
-                        try:
-                            content = content.format(**attributes)
-                        except Exception:
-                            pass
-                        out[k] = content
-                    elif content is not None:
-                        out[k] = content
+                    if content is None:
+                        # If no 'content', try formatting the entire dict recursively
+                        content = _format_from_state(v, attributes)
+                    out[k] = content
                 elif isinstance(v, str):
                     try:
                         out[k] = v.format(**attributes)
@@ -545,7 +627,17 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
     Returns:
         A callable function that takes a state dictionary.
     """
-    tool_name = config_metadata.get('tool_name')
+    # Accept multiple shapes from GUI/legacy formats
+    tool_name = None
+    try:
+        tool_name = (config_metadata.get('tool_name')
+                     or config_metadata.get('toolName')
+                     or ((config_metadata.get('inputsValues') or {}).get('tool_name') or {}).get('content')
+                     or ((config_metadata.get('inputsValues') or {}).get('toolName') or {}).get('content')
+                     or (config_metadata.get('inputs') or {}).get('tool_name')
+                     or (config_metadata.get('inputs') or {}).get('toolName'))
+    except Exception:
+        tool_name = None
 
     if not tool_name:
         print("Error: 'tool_name' is missing in config_metadata for mcp_tool_calling_node.")
@@ -602,6 +694,28 @@ def build_loop_node(config_metadata: dict, node_name: str, skill_name: str, owne
     def _noop(state: dict, *, runtime=None, store=None, **kwargs):
         return state
     return node_builder(_noop, node_name, skill_name, owner, bp_manager)
+
+
+def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
+    """Interrupt the graph and wait for an external event or human input.
+
+    Config (best-effort):
+      - prompt: optional string to present to human/agent
+      - tag: optional business tag; defaults to node_name
+    """
+    prompt = (config_metadata or {}).get("prompt") or "Action required to continue."
+    tag = (config_metadata or {}).get("tag") or node_name
+
+    def _pend(state: dict, *, runtime=None, store=None, **kwargs):
+        info = {
+            "i_tag": tag,
+            "paused_at": node_name,
+            "prompt_to_human": prompt,
+        }
+        interrupt(info)
+        return state
+
+    return node_builder(_pend, node_name, skill_name, owner, bp_manager)
 
 
 def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
