@@ -5,12 +5,78 @@ import getpass
 import time
 import hashlib
 
+def _is_process_running(pid):
+    """Check if a process with given PID is currently running"""
+    if not pid:
+        return False
+    
+    try:
+        pid = int(pid)
+        if sys.platform == 'win32':
+            # Windows: Use tasklist to check if process exists
+            import subprocess
+            try:
+                # More reliable: check if we can query process info
+                result = subprocess.run(['tasklist', '/FI', f'PID eq {pid}', '/NH'],
+                                      capture_output=True, text=True, timeout=2)
+                # If PID is running, output will contain the PID as a separate word
+                # Use word boundary to avoid matching PID 123 with PID 1234
+                import re
+                pattern = r'\b' + str(pid) + r'\b'
+                return bool(re.search(pattern, result.stdout))
+            except Exception:
+                return False
+        else:
+            # Unix/macOS: Send signal 0 to check if process exists
+            os.kill(pid, 0)
+            return True
+    except (OSError, ProcessLookupError, ValueError):
+        return False
+    except Exception:
+        return False
+
+def _clean_stale_lock(lock_file_path):
+    """Clean up stale lock file if the owning process is no longer running"""
+    try:
+        if not os.path.exists(lock_file_path):
+            return True
+        
+        # Read lock file to get PID
+        with open(lock_file_path, 'r') as f:
+            content = f.read()
+            
+        # Parse PID from lock file
+        pid = None
+        for line in content.split('\n'):
+            if line.startswith('pid:'):
+                pid = line.split(':', 1)[1].strip()
+                break
+        
+        # Check if the process is still running
+        if not _is_process_running(pid):
+            print(f"[SINGLE_INSTANCE] Found stale lock file (PID {pid} not running), cleaning up...")
+            try:
+                os.remove(lock_file_path)
+                print("[SINGLE_INSTANCE] Stale lock file removed successfully")
+                return True
+            except Exception as e:
+                print(f"[SINGLE_INSTANCE] Failed to remove stale lock: {e}")
+                return False
+        else:
+            print(f"[SINGLE_INSTANCE] Lock file is valid (PID {pid} is running)")
+            return False
+            
+    except Exception as e:
+        print(f"[SINGLE_INSTANCE] Error checking stale lock: {e}")
+        # If we can't determine, assume lock is valid (safer)
+        return False
+
 def install_single_instance():
     """
     Cross-platform single instance protection for Windows and macOS/Linux.
     Uses username and executable path to distinguish between different users and versions.
     Automatically cleans up locks when process exits.
-    Enhanced race condition protection.
+    Enhanced with stale lock detection and PID validation.
     """
     username = getpass.getuser()
 
@@ -28,6 +94,9 @@ def install_single_instance():
     print(f"[SINGLE_INSTANCE] Executable: {executable_path}")
     print(f"[SINGLE_INSTANCE] User: {username}")
 
+    # First, try to clean up stale lock files
+    _clean_stale_lock(lock_file_path)
+
     # Add retry mechanism to handle race conditions
     max_retries = 3
     retry_delay = 0.1  # 100ms
@@ -40,20 +109,40 @@ def install_single_instance():
                 success = _install_single_instance_unix(lock_file_path, attempt)
 
             if success:
-                print(f"[SINGLE_INSTANCE] Successfully acquired lock on attempt {attempt + 1}")
+                print(f"[SINGLE_INSTANCE] ✅ Successfully acquired lock on attempt {attempt + 1}")
                 return
 
             if attempt < max_retries - 1:
                 print(f"[SINGLE_INSTANCE] Attempt {attempt + 1} failed, retrying in {retry_delay}s...")
                 time.sleep(retry_delay)
                 retry_delay *= 2  # exponential backoff
+                # Try cleaning stale lock again before retry
+                _clean_stale_lock(lock_file_path)
         except Exception as e:
             print(f"[SINGLE_INSTANCE] Attempt {attempt + 1} error: {e}")
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
                 retry_delay *= 2
 
-    print("[SINGLE_INSTANCE] ECBot main process already running, exiting...")
+    # Write error to a log file for debugging packaged EXE
+    try:
+        log_path = os.path.join(tempfile.gettempdir(), f'ecbot_startup_error_{unique_id}.log')
+        with open(log_path, 'w') as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ECBot startup failed\n")
+            f.write(f"Reason: Another instance is already running\n")
+            f.write(f"Lock file: {lock_file_path}\n")
+            f.write(f"User: {username}\n")
+            f.write(f"Executable: {executable_path}\n")
+            if os.path.exists(lock_file_path):
+                f.write(f"\nLock file contents:\n")
+                with open(lock_file_path, 'r') as lf:
+                    f.write(lf.read())
+        print(f"[SINGLE_INSTANCE] Error log written to: {log_path}")
+    except Exception:
+        pass
+    
+    print("[SINGLE_INSTANCE] ❌ ECBot main process already running, exiting...")
+    print(f"[SINGLE_INSTANCE] If you believe this is an error, please delete: {lock_file_path}")
     sys.exit(0)
 
 def _install_single_instance_windows(lock_file_path, attempt):

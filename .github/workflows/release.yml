@@ -147,9 +147,10 @@ jobs:
       uses: actions/cache@v4
       with:
         path: gui_v2/node_modules
-        key: ${{ runner.os }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
+        # Include architecture in cache key to avoid cross-arch contamination (rollup has native binaries)
+        key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
         restore-keys: |
-          ${{ runner.os }}-node-
+          ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-
 
     - name: Setup Node.js Environment
       uses: ./.github/actions/setup-node-env
@@ -307,22 +308,16 @@ jobs:
         }
 
         Write-Host "=== Verifying OTA artifacts in dist ===" -ForegroundColor Cyan
-        $distWinSparkle = @(
-          "dist/eCan/third_party/winsparkle/winsparkle.dll",
-          "dist/third_party/winsparkle/winsparkle.dll"
-        )
-        $distFound = $false
-        foreach ($p in $distWinSparkle) {
-          if (Test-Path $p) {
-            Write-Host "[OK] winSparkle DLL packaged at: $p"
-            $dll = Get-Item $p
-            Write-Host "   Size: $([math]::Round($dll.Length / 1KB, 2)) KB"
-            $distFound = $true
-            break
-          }
-        }
-        if (-not $distFound) {
-          Write-Host "[WARN] winSparkle DLL not found in dist; OTA (Windows) may be disabled"
+        # Only check app bundle directory (dist/eCan/third_party/)
+        # This is what gets packaged into the installer
+        $winSparklePath = "dist/eCan/third_party/winsparkle/winsparkle.dll"
+        if (Test-Path $winSparklePath) {
+          Write-Host "[OK] winSparkle DLL packaged at: $winSparklePath"
+          $dll = Get-Item $winSparklePath
+          Write-Host "   Size: $([math]::Round($dll.Length / 1KB, 2)) KB"
+        } else {
+          Write-Host "[WARN] winSparkle DLL not found at: $winSparklePath"
+          Write-Host "[WARN] OTA (Windows) may be disabled"
         }
 
 
@@ -507,9 +502,10 @@ jobs:
       uses: actions/cache@v4
       with:
         path: gui_v2/node_modules
-        key: ${{ runner.os }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
+        # Include architecture in cache key to avoid cross-arch contamination (rollup has native binaries)
+        key: ${{ runner.os }}-${{ matrix.arch }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
         restore-keys: |
-          ${{ runner.os }}-node-
+          ${{ runner.os }}-${{ matrix.arch }}-node-
 
     - name: Setup Node.js Environment
       if: steps.should_build.outputs.should_build == 'true'
