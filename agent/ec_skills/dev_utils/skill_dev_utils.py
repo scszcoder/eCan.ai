@@ -1,7 +1,8 @@
 from utils.logger_helper import logger_helper as logger
 from agent.ec_skill import EC_Skill, NodeState
-from agent.ec_skills.flowgram2langgraph import flowgram2langgraph
+from agent.ec_skills.flowgram2langgraph_v2 import flowgram2langgraph_v2
 from utils.logger_helper import get_traceback
+from agent.ec_agents.create_dev_task import create_skill_dev_task
 
 async def create_test_dev_skill(mainwin):
     try:
@@ -45,9 +46,34 @@ def setup_dev_skill(mainwin, skill):
         logger.debug("tester_agent: ", type(skill), tester_agent)
         
         # Unpack the workflow and the list of breakpoints
-        skill_under_dev, breakpoints = flowgram2langgraph(skill)
+        # Accept either a top-level flow or a wrapper with a 'diagram' containing workFlow/bundle
+        flow_payload = skill.get("diagram") if isinstance(skill, dict) else None
+        if not flow_payload and isinstance(skill, dict):
+            flow_payload = skill
+        bundle_json = (flow_payload.get("bundle") if isinstance(flow_payload, dict) else None)
+        try:
+            bcnt = len((bundle_json or {}).get("sheets", [])) if isinstance(bundle_json, dict) else 0
+            print(f"[setup_dev_skill] bundle sheets to pass: {bcnt}")
+        except Exception:
+            pass
+        # Use v2 layered converter (flat mode for now)
+        skill_under_dev, breakpoints = flowgram2langgraph_v2(flow_payload or skill, bundle_json=bundle_json, enable_subgraph=False)
         logger.debug("langgraph skill converted....")
         
+        # Ensure the dev_run_task exists before using it; if missing, create and register it
+        if not dev_run_task:
+            print("Dev run task missing - creating one now...")
+            try:
+                new_task = create_skill_dev_task(mainwin)
+                if new_task:
+                    mainwin.agent_tasks.append(new_task)
+                    dev_run_task = new_task
+                    logger.info("Created and registered 'dev:run task for skill under development'.")
+                else:
+                    raise RuntimeError("create_skill_dev_task returned None")
+            except Exception as ce:
+                raise RuntimeError("Dev run task not found and auto-creation failed.") from ce
+
         # Set the workflow on the task
         dev_run_task.skill.set_work_flow(skill_under_dev)
 

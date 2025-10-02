@@ -25,6 +25,7 @@ import {
 import { WorkflowRuntimeClient } from '../client';
 import { WorkflowNodeType } from '../../../nodes';
 import { isValidationDisabled } from '../../../services/validation-config';
+import { useSheetsStore } from '../../../stores/sheets-store';
 
 const SYNC_TASK_REPORT_INTERVAL = 500;
 
@@ -88,9 +89,20 @@ export class WorkflowRuntimeService {
       }
     }
     const schema = this.document.toJSON();
+    // Compose bundle.sheets from sheets-store to include all sheets for backend
+    const allSheets = useSheetsStore.getState().getAllSheets();
+    const mainSheet = allSheets.sheets.find((s) => s.id === allSheets.mainSheetId) || allSheets.sheets[0];
+    const bundle = {
+      sheets: allSheets.sheets.map((s) => ({ name: s.name || s.id, document: s.document || {} })),
+    } as any;
+    const composedSchema = {
+      ...(schema || {}),
+      workFlow: (mainSheet && mainSheet.document) ? mainSheet.document : (schema as any)?.workFlow,
+      bundle,
+    };
     if (!isValidationDisabled()) {
       const validateResult = await this.runtimeClient.TaskValidate({
-        schema: JSON.stringify(schema),
+        schema: JSON.stringify(composedSchema),
         inputs,
       });
       if (!validateResult?.valid) {
@@ -104,7 +116,7 @@ export class WorkflowRuntimeService {
     let taskID: string | undefined;
     try {
       const output = await this.runtimeClient.TaskRun({
-        schema: JSON.stringify(schema),
+        schema: JSON.stringify(composedSchema),
         inputs,
       });
       taskID = output?.taskID;

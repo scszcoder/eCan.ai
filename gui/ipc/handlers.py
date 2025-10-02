@@ -10,6 +10,14 @@ from .registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper as logger
 import traceback
 from app_context import AppContext
+from agent.ec_skills.dev_utils.skill_dev_utils import (
+    run_dev_skill,
+    cancel_run_dev_skill,
+    pause_run_dev_skill,
+    resume_run_dev_skill,
+    step_run_dev_skill,
+    set_bps_dev_skill,
+)
 import asyncio
 
 
@@ -187,7 +195,18 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         logger.debug(f"Get start skill run handler called with request: {request}")
 
         main_window = AppContext.get_main_window()
-        skill = request.meta["skill_flowgram"]
+        # Prefer params['skill'] (sent by FE) over legacy request.meta key
+        skill_src = "params.skill" if isinstance(params, dict) and params.get("skill") is not None else "meta.skill_flowgram"
+        skill = (params or {}).get("skill") if skill_src == "params.skill" else request.meta.get("skill_flowgram")
+        logger.debug(f"[IPC][run_skill] skill source used: {skill_src}")
+        try:
+            diagram = (skill or {}).get("diagram") or {}
+            wf = diagram.get("workFlow") or {}
+            bundle = (diagram.get("bundle") or {}).get("sheets") or []
+            logger.debug(f"[IPC][run_skill] incoming diagram.workFlow: nodes={len(wf.get('nodes', []))} edges={len(wf.get('edges', []))}")
+            logger.debug(f"[IPC][run_skill] incoming diagram.bundle.sheets: count={len(bundle)} names={[ (s.get('name') or s.get('id')) for s in bundle if isinstance(s, dict) ]}")
+        except Exception as _e:
+            logger.debug(f"[IPC][run_skill] payload debug logging failed: {_e}")
         results = run_dev_skill(main_window, skill)
         return create_success_response(request, {
             "results": results,

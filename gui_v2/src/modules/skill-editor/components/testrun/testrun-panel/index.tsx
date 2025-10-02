@@ -19,6 +19,7 @@ import { SidebarContext } from '../../../context';
 import { IconCancel } from '../../../assets/icon-cancel';
 import { IPCAPI } from '../../../../../services/ipc/api';
 import { useUserStore } from '../../../../../stores/userStore';
+import { useSheetsStore } from '../../../stores/sheets-store';
 import { useSkillInfoStore } from '../../../stores/skill-info-store';
 import { useRunningNodeStore } from '../../../stores/running-node-store';
 
@@ -102,11 +103,34 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
         }
       });
 
+      // Compose bundle.sheets from sheets-store so backend receives all sheets
+      const allSheets = useSheetsStore.getState().getAllSheets();
+      const mainSheet = allSheets.sheets.find((s) => s.id === allSheets.mainSheetId) || allSheets.sheets[0];
+      const composedDiagram = {
+        ...(diagramWithBreakpoints || {}),
+        // Ensure workFlow points to main sheet document if available
+        ...(mainSheet && mainSheet.document ? { workFlow: mainSheet.document } : {}),
+        bundle: {
+          sheets: allSheets.sheets.map((s) => ({ name: s.name || s.id, document: s.document || {} })),
+        },
+      } as any;
+
       const skillPayload = {
         ...skillInfo,
-        diagram: diagramWithBreakpoints,
+        diagram: composedDiagram,
         testInputs: values,
       };
+
+      // Debug logs to verify bundle presence on FE side
+      try {
+        const sheetNames = (allSheets.sheets || []).map((s) => `${s.id}:${s.name}`);
+        // eslint-disable-next-line no-console
+        console.debug('[RunSkill][FE] sheets in store:', sheetNames);
+        // eslint-disable-next-line no-console
+        console.debug('[RunSkill][FE] composedDiagram.workFlow nodes:', (composedDiagram?.workFlow?.nodes || []).length, 'edges:', (composedDiagram?.workFlow?.edges || []).length);
+        // eslint-disable-next-line no-console
+        console.debug('[RunSkill][FE] composedDiagram.bundle.sheet_count:', (composedDiagram?.bundle?.sheets || []).length);
+      } catch {}
 
       // Send the skill payload to the backend
       const response = await ipcApi.runSkill(username, skillPayload);
