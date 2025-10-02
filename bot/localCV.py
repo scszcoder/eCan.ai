@@ -43,19 +43,18 @@ class NumpyEncoder(json.JSONEncoder):
             return obj.tolist()
         return super(NumpyEncoder, self).default(obj)
 
-cpu_nums = os.cpu_count()
-icon_match_executor = ProcessPoolExecutor(max_workers=cpu_nums)  # Optimize based on CPU cores
-
-def cleanup_executor():
-    """清理进程池执行器"""
-    global icon_match_executor
-    if icon_match_executor:
-        icon_match_executor.shutdown(wait=True)
-        icon_match_executor = None
-
-# 注册清理函数
-import atexit
-atexit.register(cleanup_executor)
+# NOTE: ProcessPoolExecutor was removed because it was never used
+# The async executor call at line ~418 is commented out and uses sync call instead
+# If you need to re-enable parallel processing in the future, use lazy initialization:
+#
+# _icon_match_executor = None
+# def get_icon_match_executor():
+#     global _icon_match_executor
+#     if _icon_match_executor is None:
+#         from concurrent.futures import ProcessPoolExecutor
+#         cpu_nums = os.cpu_count()
+#         _icon_match_executor = ProcessPoolExecutor(max_workers=cpu_nums)
+#     return _icon_match_executor
 
 def remove_duplicates(dicts, threshold=10):
     """

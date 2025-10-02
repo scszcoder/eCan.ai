@@ -10,10 +10,17 @@ _global_app = None
 
 
 def _is_multiprocessing_bootstrap() -> bool:
-    """Detect PyInstaller/Windows multiprocessing helper launches"""
+    """Detect PyInstaller/Windows multiprocessing helper launches and ProcessPoolExecutor workers"""
     try:
         # PyInstaller passes --multiprocessing-<mode> to helper processes
-        return any(arg.startswith('--multiprocessing-') for arg in sys.argv[1:])
+        # Also check for ProcessPoolExecutor worker processes
+        for arg in sys.argv[1:]:
+            if arg.startswith('--multiprocessing-'):
+                return True
+            # ProcessPoolExecutor workers have specific command line patterns
+            if 'multiprocessing.spawn' in arg:
+                return True
+        return False
     except Exception:
         # Fail safe: assume regular launch
         return False

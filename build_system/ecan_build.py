@@ -542,14 +542,15 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
             print(f"[WARNING] Failed to create standardized Windows artifacts: {e}")
 
     def _bundle_winsparkle_dll(self) -> None:
-        """Ensure winSparkle DLL is copied into dist directories expected by CI and installer.
+        """Ensure winSparkle DLL is copied into app bundle for OTA updates.
 
         Sources:
           - project_root/third_party/winsparkle/winsparkle.dll (installed by setup-ota-deps)
 
-        Targets:
-          - dist/third_party/winsparkle/winsparkle.dll (CI validator path)
+        Target:
           - dist/eCan/third_party/winsparkle/winsparkle.dll (included by Inno Setup when using onedir)
+        
+        Note: Only copies to the app bundle directory, not dist/third_party/ (removes redundancy)
         """
         third_party_dir = self.project_root / "third_party" / "winsparkle"
         src_dll = third_party_dir / "winsparkle.dll"
@@ -562,25 +563,22 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
             print("[OTA] [WARN] winSparkle source DLL not found; skipping bundle")
             return
 
-        # dist/third_party/winsparkle/winsparkle.dll
-        dst1 = self.dist_dir / "third_party" / "winsparkle"
-        dst1.mkdir(parents=True, exist_ok=True)
-        # dist/eCan/third_party/winsparkle/winsparkle.dll (if onedir exists)
-        dst2_root = self.dist_dir / "eCan" / "third_party" / "winsparkle"
-        if (self.dist_dir / "eCan").exists():
-            dst2_root.mkdir(parents=True, exist_ok=True)
+        # Only copy to app bundle directory (dist/eCan/third_party/)
+        # This is what gets packaged into the installer
+        app_bundle_dir = self.dist_dir / "eCan"
+        if not app_bundle_dir.exists():
+            print("[OTA] [WARN] App bundle directory not found, skipping winSparkle copy")
+            return
+            
+        dst_winsparkle = app_bundle_dir / "third_party" / "winsparkle"
+        dst_winsparkle.mkdir(parents=True, exist_ok=True)
+        
         import shutil
         try:
-            shutil.copy2(src_dll, dst1 / "winsparkle.dll")
-            print(f"[OTA] Copied winSparkle to {dst1 / 'winsparkle.dll'}")
+            shutil.copy2(src_dll, dst_winsparkle / "winsparkle.dll")
+            print(f"[OTA] ✅ Copied winSparkle to {dst_winsparkle / 'winsparkle.dll'}")
         except Exception as e:
-            print(f"[OTA] [WARN] Failed to copy to {dst1}: {e}")
-        if (self.dist_dir / "eCan").exists():
-            try:
-                shutil.copy2(src_dll, dst2_root / "winsparkle.dll")
-                print(f"[OTA] Copied winSparkle to {dst2_root / 'winsparkle.dll'}")
-            except Exception as e:
-                print(f"[OTA] [WARN] Failed to copy to {dst2_root}: {e}")
+            print(f"[OTA] [ERROR] Failed to copy winSparkle: {e}")
 
     def _build_macos_installer(self) -> bool:
         """Build macOS PKG installer"""
