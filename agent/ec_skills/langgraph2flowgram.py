@@ -55,19 +55,37 @@ def place_nodes(node_ids: List[str], edge_tuples: List[Tuple[str, str]]) -> Dict
 
 
 def _is_subgraph_node(stategraph: StateGraph, node_id: str) -> Tuple[bool, Optional[StateGraph]]:
-    """Heuristic: a node is a subgraph if its runnable holds a nested StateGraph under common attributes."""
+    """Detect whether a node is a subgraph.
+    Priority: use explicit registry stategraph._subgraphs if present; otherwise fall back to runnable attribute heuristics.
+    """
+    # 1) Explicit registry set by builder/tests
+    try:
+        registry = getattr(stategraph, "_subgraphs", None)
+        if isinstance(registry, dict) and node_id in registry and isinstance(registry[node_id], StateGraph):
+            return True, registry[node_id]
+    except Exception:
+        pass
+    # 2) Heuristic: nested StateGraph under common attributes on runnable
     try:
         runnable = stategraph.nodes[node_id].runnable
     except Exception:
         runnable = None
     # Common places to find a nested graph
-    candidates = []
-    for attr in ("graph", "subgraph", "workflow", "stategraph"):
-        if hasattr(runnable, attr):
-            candidates.append(getattr(runnable, attr))
-    for c in candidates:
-        if isinstance(c, StateGraph):
-            return True, c
+    for attr in ("graph", "subgraph", "workflow", "stategraph", "inner", "wrapped"):
+        try:
+            candidate = getattr(runnable, attr)
+            if isinstance(candidate, StateGraph):
+                return True, candidate
+        except Exception:
+            continue
+    # Try __dict__ fallback
+    try:
+        d = getattr(runnable, "__dict__", {})
+        for k, v in (d.items() if isinstance(d, dict) else []):
+            if isinstance(v, StateGraph):
+                return True, v
+    except Exception:
+        pass
     return False, None
 
 
@@ -115,23 +133,66 @@ def langgraph2flowgram(workflow: StateGraph, out_dir: str = "test_skill/diagram_
     edges_main = [(u, v) for (u, v) in workflow.edges]
     subgraph_nodes: Dict[str, StateGraph] = {}
     for nid in node_ids_main:
+        # Try to get runnable and provide diagnostics regardless of detection
+        try:
+            runnable = getattr(workflow.nodes.get(nid), 'runnable', None)
+            rtype = type(runnable).__name__ if runnable is not None else None
+        except Exception:
+            runnable, rtype = None, None
         is_sub, subg = _is_subgraph_node(workflow, nid)
         if is_sub and isinstance(subg, StateGraph):
             subgraph_nodes[nid] = subg
+            try:
+                snodes = list(getattr(subg, 'nodes').keys())
+                sedges = [(u, v) for (u, v) in getattr(subg, 'edges')]
+                msg = f"[LG2FG] Detected subgraph node '{nid}' with {len(snodes)} nodes and {len(sedges)} edges"
+                logger.info(msg)
+                print(msg)
+                logger.debug(f"[LG2FG] Subgraph '{nid}' nodes: {snodes}")
+                logger.debug(f"[LG2FG] Subgraph '{nid}' edges: {sedges}")
+            except Exception:
+                logger.warning(f"[LG2FG] Subgraph '{nid}' detected but failed to introspect topology")
+                print(f"[LG2FG] Subgraph '{nid}' detected but failed to introspect topology")
+        else:
+            # Not detected as subgraph; log runnable type for visibility
+            try:
+                logger.info(f"[LG2FG] Node '{nid}' not a subgraph (runnable type: {rtype})")
+                print(f"[LG2FG] Node '{nid}' not a subgraph (runnable type: {rtype})")
+            except Exception:
+                pass
+    try:
+        logger.info(f"[LG2FG] Subgraph nodes detected: {list(subgraph_nodes.keys())}")
+        print(f"[LG2FG] Subgraph nodes detected: {list(subgraph_nodes.keys())}")
+    except Exception:
+        pass
 
     # Placement for main sheet (all nodes for positioning now)
     placements_main = place_nodes(node_ids_main, edges_main)
+    try:
+        logger.debug(f"[LG2FG] Main placements: {placements_main}")
+    except Exception:
+        pass
 
-    # Build main sheet nodes: code nodes for non-subgraphs; sheet-call nodes for subgraphs
+    # Build main sheet nodes:
+    # - Non-subgraphs: code nodes
+    # - Subgraphs: a sheet-outputs node that sends flow to the subgraph sheet
     main_nodes: List[dict] = []
+    # Map subgraph id -> synthetic sheet-outputs node id on main
+    sub_main_exit_map: Dict[str, str] = {}
     for nid in node_ids_main:
         x, y = placements_main.get(nid, (0, 0))
         if nid in subgraph_nodes:
-            # Represent subgraph in main as a sheet-call stub
+            # Represent transition to subgraph sheet via a sheet-outputs node
+            exit_id = f"sheet_outputs_call_{nid}"
+            sub_main_exit_map[nid] = exit_id
             main_nodes.append({
-                "id": nid,
-                "type": "sheet-call",
-                "data": {"title": nid, "nextSheet": nid},
+                "id": exit_id,
+                "type": "sheet-outputs",
+                "data": {
+                    "title": f"to_{nid}",
+                    "nextSheet": nid,
+                    "nextSheetId": nid,
+                },
                 "meta": {"position": {"x": x, "y": y}},
             })
         else:
@@ -160,11 +221,12 @@ def langgraph2flowgram(workflow: StateGraph, out_dir: str = "test_skill/diagram_
 
     # Map START/END to explicit start/end nodes in main sheet if present
     has_start = any(u == START for (u, _) in edges_main)
-    has_end = any(v == END for ((_, v)) in edges_main)
+    # Only consider END on main if any non-subgraph node connects to END
+    has_end_from_non_sub = any((u not in subgraph_nodes) and (v == END) for (u, v) in edges_main)
     if has_start:
         # Provide a visible START node in flowgram
         main_nodes.append({"id": "start_0", "type": "start", "data": {"title": "START"}, "meta": {"position": {"x": -230, "y": 150}}})
-    if has_end:
+    if has_end_from_non_sub:
         # Place END to align horizontally after the longest chain; keep same Y as START
         try:
             max_x = max((placements_main.get(nid, (0, 0))[0] for nid in node_ids_main), default=0)
@@ -173,6 +235,8 @@ def langgraph2flowgram(workflow: StateGraph, out_dir: str = "test_skill/diagram_
         end_x = max_x + 230  # one step to the right of farthest node
         main_nodes.append({"id": "end", "type": "end", "data": {"title": "END"}, "meta": {"position": {"x": end_x, "y": 150}}})
     main_edges: List[dict] = []
+    # Track subgraphs that should terminate (END) within their sheet due to main edge u->END
+    subgraphs_end_on_sheet: Set[str] = set()
     for u, v in edges_main:
         # Skip direct edges that will be represented via condition nodes
         if u in cond_pairs_main:
@@ -187,9 +251,22 @@ def langgraph2flowgram(workflow: StateGraph, out_dir: str = "test_skill/diagram_
             main_edges.append({"sourceNodeID": "start_0", "targetNodeID": v})
             continue
         if v == END:
-            main_edges.append({"sourceNodeID": u, "targetNodeID": "end"})
+            if u in subgraph_nodes:
+                # Let the subgraph handle END inside its own sheet
+                subgraphs_end_on_sheet.add(u)
+                continue
+            else:
+                main_edges.append({"sourceNodeID": u, "targetNodeID": "end"})
         else:
-            main_edges.append({"sourceNodeID": u, "targetNodeID": v})
+            # If target is a subgraph, redirect to its synthetic sheet-outputs node
+            if v in subgraph_nodes:
+                main_edges.append({"sourceNodeID": u, "targetNodeID": sub_main_exit_map.get(v, v)})
+            else:
+                main_edges.append({"sourceNodeID": u, "targetNodeID": v})
+    try:
+        logger.debug(f"[LG2FG] Main edges (post-process): {main_edges}")
+    except Exception:
+        pass
 
     # Translate LangGraph conditional edges (branches) into Flowgram condition nodes
     branches = branches_all
@@ -321,16 +398,27 @@ def langgraph2flowgram(workflow: StateGraph, out_dir: str = "test_skill/diagram_
                 else:
                     sheet_edges.append({"sourceNodeID": cond_id, "targetNodeID": tgt, "sourcePortID": key})
 
-        # If this subgraph reaches END, add an end node and wire edges to it
-        if need_end:
-            sheet_nodes.append({"id": "end", "type": "end", "data": {"title": "END"}, "meta": {"position": {"x": 0, "y": 300}}})
+        # If this subgraph reaches END (either internally or due to main u->END), add END node and wire last nodes to it
+        if need_end or (sname in subgraphs_end_on_sheet):
+            sheet_nodes.append({"id": "end", "type": "end", "data": {"title": "END"}, "meta": {"position": {"x": 400, "y": 0}}})
+            # Wire explicit internal edges to END if any
             for su, tv in sedges:
                 if tv == END:
                     sheet_edges.append({"sourceNodeID": su, "targetNodeID": "end"})
+            # Also wire last nodes (no outgoing inside subgraph) to END
+            succs: Dict[str, Set[str]] = {}
+            for su, tv in sedges:
+                if tv != END:
+                    succs.setdefault(su, set()).add(tv)
+            last_nodes = [n for n in snodes if len([s for s in succs.get(n, set()) if s in snodes]) == 0]
+            for ln in last_nodes:
+                # Avoid duplicate edge
+                if {"sourceNodeID": ln, "targetNodeID": "end"} not in sheet_edges:
+                    sheet_edges.append({"sourceNodeID": ln, "targetNodeID": "end"})
 
-        # If no END and we have a next sheet, add sheet-outputs with nextSheet field
+        # If no END (not terminating) and we have a next sheet, add sheet-outputs with nextSheet field
         next_sheet = sub_next.get(sname)
-        if not need_end and next_sheet:
+        if not (need_end or (sname in subgraphs_end_on_sheet)) and next_sheet:
             sheet_outputs_id = f"sheet_outputs_{sname}"
             sheet_nodes.append({
                 "id": sheet_outputs_id,
@@ -379,12 +467,29 @@ def test_langgraph2flowgram() -> dict:
     for nid in ("n1", "n2", "n3", "n4", "n5"):
         sg.add_node(nid, _noop)
     # Edges (no direct n2->n3/n4; those will be condition branches)
-    logger.debug('[LG2FG][TEST] wiring edges START->n1->n2, n3->n5, n4->n5, n5->END')
     sg.add_edge(START, "n1")
     sg.add_edge("n1", "n2")
     sg.add_edge("n3", "n5")
     sg.add_edge("n4", "n5")
-    sg.add_edge("n5", END)
+    # Add a subgraph node n6 with two internal nodes s1->s2
+    sg6 = StateGraph(dict)
+    sg6.add_node("s1", _noop)
+    sg6.add_node("s2", _noop)
+    sg6.add_edge("s1", "s2")
+    # Wrap as a callable runnable with a nested graph attribute for subgraph detection
+    class SubRunner:
+        def __init__(self, g): self.graph = g
+        def __call__(self, state: dict, **kwargs): return state
+    sub_runner = SubRunner(sg6)
+    sg.add_node("n6", sub_runner)  # treated as subgraph by converter
+    # Explicitly register subgraph for robust detection (RunnableCallable wrappers may hide attributes)
+    try:
+        setattr(sg, "_subgraphs", {**getattr(sg, "_subgraphs", {}), "n6": sg6})
+    except Exception:
+        sg._subgraphs = {"n6": sg6}
+    # Connect main: n5 -> n6 (subgraph) -> END
+    sg.add_edge("n5", "n6")
+    sg.add_edge("n6", END)
     # Inject a minimal branches structure for converter to render condition node at n2
     class _Br:  # simple holder for .ends
         def __init__(self, ends: dict): self.ends = ends
@@ -394,6 +499,7 @@ def test_langgraph2flowgram() -> dict:
             "else_out": _Br({"else_out": "n4"}),
         }
     }
+    logger.debug('[LG2FG][TEST] main edges:', sg.edges)
     # Export
     logger.info('[LG2FG][TEST] exporting sample graph to flowgram files')
     main_doc, bundle_doc = langgraph2flowgram(sg)
@@ -403,10 +509,24 @@ def test_langgraph2flowgram() -> dict:
         logger.debug(f"[LG2FG][TEST] main nodes={len(main_doc.get('workFlow', {}).get('nodes', []))}, sheets={len((bundle_doc or {}).get('sheets', []))}")
     except Exception:
         pass
+    # Build a simple subgraph report for the IPC response
+    try:
+        subgraphs_report = []
+        # We know we created 'n6' with sg6. Build its topology summary
+        sg6_nodes = list(getattr(sg6, 'nodes').keys())
+        sg6_edges = [(u, v) for (u, v) in getattr(sg6, 'edges')]
+        subgraphs_report.append({
+            "id": "n6",
+            "nodes": sg6_nodes,
+            "edges": sg6_edges,
+        })
+    except Exception:
+        subgraphs_report = []
     return {
         "ok": True,
         "out_dir": "test_skill/diagram_dir",
         "main_sheets_nodes": len(main_doc.get("workFlow", {}).get("nodes", [])),
         "bundle_sheets": len((bundle_doc or {}).get("sheets", [])),
+        "subgraphs": subgraphs_report,
     }
 
