@@ -5,6 +5,24 @@ from langgraph.graph import StateGraph, END, START
 from utils.logger_helper import logger_helper as logger
 
 
+# ------------------------------
+# Placement configuration (tweakable)
+# ------------------------------
+PLACEMENT_CFG = {
+    # Node dimensions and spacing
+    "node_width": 200,
+    "node_height": 120,
+    "margin": 50,                # >= 50px as requested
+    # Baseline Y for the main/longest path
+    "baseline_y": 150,
+    # Centering controls
+    "center_main_longest": True, # center middle node of main longest path at (0,0)
+    "center_sub_longest": True,  # center middle node of each sub-sheet longest path at (0,0)
+    # Branch selection preference when equal-length: prefer 'if_out' over 'else_out'
+    "prefer_if_branch": True,
+}
+
+
 # Compute the longest simple path from DAG-like edges for primary layout
 def find_longest_branch(edges: List[Tuple[str, str]], nodes: List[str]) -> List[str]:
     """Returns the longest path as a list of node ids."""
@@ -30,27 +48,151 @@ def find_longest_branch(edges: List[Tuple[str, str]], nodes: List[str]) -> List[
     return longest
 
 def place_nodes(node_ids: List[str], edge_tuples: List[Tuple[str, str]]) -> Dict[str, Tuple[int, int]]:
-    """Returns layout positions for nodes given edges.
-    Node width=200, height=120, spacing=30 -> hstep=230, vstep=150.
+    """Layered DAG placement with ≥50px margins, straight longest path baseline, and barycenter ordering.
+    - Node size: width=200, height=120
+    - Margins: 50px -> hstep=250, vstep=170
+    - Baseline Y: 150 for the main/longest path
     """
-    main_path = find_longest_branch(edge_tuples, node_ids)
-    placement = {}
-    x, y = 0, 0
-    hstep = 200 + 30
-    vstep = 120 + 30
-    # Place main path nodes horizontally
-    for node in main_path:
-        placement[node] = (x, y)
-        x += hstep
-    # Place all other nodes below, in grid
-    grid_x, grid_y = 0, vstep
-    for node in node_ids:
-        if node not in main_path:
-            placement[node] = (grid_x, grid_y)
-            grid_x += hstep
-            if grid_x > 8 * hstep:
-                grid_x = 0
-                grid_y += vstep
+    # Parameters
+    width, height = PLACEMENT_CFG.get("node_width", 200), PLACEMENT_CFG.get("node_height", 120)
+    margin = PLACEMENT_CFG.get("margin", 50)
+    hstep = width + margin  # 250
+    vstep = height + margin  # 170
+    baseline_y = PLACEMENT_CFG.get("baseline_y", 150)
+
+    nodes = list(node_ids)
+    node_set = set(nodes)
+
+    # Build adjacency and indegree, and filter edges to those within node_set
+    from collections import defaultdict, deque
+    adj: Dict[str, List[str]] = defaultdict(list)
+    indeg: Dict[str, int] = {n: 0 for n in nodes}
+    filtered_edges: List[Tuple[str, str]] = []
+    for u, v in edge_tuples:
+        if u in node_set and v in node_set:
+            filtered_edges.append((u, v))
+            adj[u].append(v)
+            indeg[v] = indeg.get(v, 0) + 1
+
+    # Detect back-edges via DFS and ignore them for layering (break cycles)
+    temp_mark, perm_mark = set(), set()
+    back_edges: Set[Tuple[str, str]] = set()
+    def dfs(u: str):
+        if u in perm_mark:
+            return
+        if u in temp_mark:
+            return
+        temp_mark.add(u)
+        for v in adj.get(u, []):
+            if v in temp_mark and (u, v) in filtered_edges:
+                back_edges.add((u, v))
+            else:
+                dfs(v)
+        temp_mark.remove(u)
+        perm_mark.add(u)
+    for n in nodes:
+        dfs(n)
+
+    dag_edges = [(u, v) for (u, v) in filtered_edges if (u, v) not in back_edges]
+
+    # Topological order (Kahn)
+    indeg_dag: Dict[str, int] = {n: 0 for n in nodes}
+    for u, v in dag_edges:
+        indeg_dag[v] += 1
+    q = deque([n for n in nodes if indeg_dag[n] == 0])
+    topo: List[str] = []
+    while q:
+        u = q.popleft()
+        topo.append(u)
+        for v in adj.get(u, []):
+            if (u, v) not in dag_edges:
+                continue
+            indeg_dag[v] -= 1
+            if indeg_dag[v] == 0:
+                q.append(v)
+    if len(topo) != len(nodes):
+        # Fallback: append any missing
+        seen = set(topo)
+        topo.extend([n for n in nodes if n not in seen])
+
+    # Longest path layering L(u) with stabilization to enforce strict increases along edges
+    layer: Dict[str, int] = {n: 0 for n in nodes}
+    for u in topo:
+        for v in adj.get(u, []):
+            if (u, v) not in dag_edges:
+                continue
+            layer[v] = max(layer.get(v, 0), layer.get(u, 0) + 1)
+    # Enforce layer[v] >= layer[u]+1 for all edges (iterate to fix any out-of-order topo remnants)
+    for _ in range(len(nodes)):
+        changed = False
+        for u, v in dag_edges:
+            need = layer[u] + 1
+            if layer[v] < need:
+                layer[v] = need
+                changed = True
+        if not changed:
+            break
+
+    # Compute main path (on DAG edges) and clamp to baseline
+    main_path = find_longest_branch(dag_edges, nodes)
+
+    # Group by layer
+    by_layer: Dict[int, List[str]] = defaultdict(list)
+    for n in nodes:
+        by_layer[layer[n]].append(n)
+
+    # Initial X positions by layer
+    x_pos: Dict[str, int] = {n: layer[n] * hstep for n in nodes}
+
+    # Ordering within layers: barycenter of predecessors' X (then id)
+    preds: Dict[str, List[str]] = defaultdict(list)
+    for u, v in dag_edges:
+        preds[v].append(u)
+    for k in sorted(by_layer.keys()):
+        arr = by_layer[k]
+        def bary(n: str) -> float:
+            ps = preds.get(n, [])
+            if not ps:
+                return -1.0
+            return sum(x_pos[p] for p in ps) / len(ps)
+        arr.sort(key=lambda n: (bary(n), n))
+        by_layer[k] = arr
+
+    # Assign Y per layer, centered around baseline; clamp main path to baseline
+    y_pos: Dict[str, int] = {}
+    for k in sorted(by_layer.keys()):
+        arr = by_layer[k]
+        # If any node from main_path is in this layer, clamp it to baseline
+        main_in_layer = [n for n in arr if n in set(main_path)]
+        # Center others around baseline with vstep spacing
+        if main_in_layer:
+            # Put main path nodes at baseline
+            for n in arr:
+                if n in set(main_path):
+                    y_pos[n] = baseline_y
+            # Spread remaining above and below
+            rem = [n for n in arr if n not in set(main_path)]
+            up = True
+            up_i, down_i = 1, 1
+            for n in rem:
+                if up:
+                    y_pos[n] = baseline_y - up_i * vstep
+                    up_i += 1
+                else:
+                    y_pos[n] = baseline_y + down_i * vstep
+                    down_i += 1
+                up = not up
+        else:
+            # No main node here; center the layer around baseline
+            m = len(arr)
+            start_offset = -((m - 1) // 2) * vstep
+            for i, n in enumerate(arr):
+                y_pos[n] = baseline_y + start_offset + i * vstep
+
+    # Build final placement
+    placement: Dict[str, Tuple[int, int]] = {}
+    for n in nodes:
+        placement[n] = (x_pos[n], y_pos[n])
     return placement
 
 
@@ -274,8 +416,8 @@ def langgraph2flowgram(workflow: StateGraph, out_dir: str = "test_skill/diagram_
         # Create a condition node per source that owns conditional edges
         cond_id = f"condition_{src}"
         sx, sy = placements_main.get(src, (0, 0))
-        # Place condition node between source and its successors
-        cond_x, cond_y = sx + (200 + 30)//2, sy
+        # Place condition node on baseline half a step to the right of source
+        cond_x, cond_y = sx + (PLACEMENT_CFG.get("node_width", 200) + PLACEMENT_CFG.get("margin", 50))//2, PLACEMENT_CFG.get("baseline_y", 150)
         main_nodes.append({
             "id": cond_id,
             "type": "condition",
@@ -298,6 +440,56 @@ def langgraph2flowgram(workflow: StateGraph, out_dir: str = "test_skill/diagram_
                 main_edges.append({"sourceNodeID": cond_id, "targetNodeID": "end", "sourcePortID": key})
             else:
                 main_edges.append({"sourceNodeID": cond_id, "targetNodeID": tgt, "sourcePortID": key})
+
+    # FINAL PASS LAYOUT for main sheet: recompute positions using the fully transformed graph
+    try:
+        main_ids = [n.get("id") for n in main_nodes]
+        main_pairs = [(e.get("sourceNodeID"), e.get("targetNodeID")) for e in main_edges]
+        relayout = place_nodes(main_ids, main_pairs)
+        for n in main_nodes:
+            nid = n.get("id")
+            xy = relayout.get(nid)
+            if xy:
+                n.setdefault("meta", {}).setdefault("position", {})
+                n["meta"]["position"] = {"x": xy[0], "y": xy[1]}
+        # Force the longest path from start_0 to be perfectly horizontal on baseline
+        try:
+            from collections import defaultdict
+            g = defaultdict(list)
+            for u, v in main_pairs:
+                g[u].append(v)
+            best_path: list[str] = []
+            def dfs(u: str, path: list[str]):
+                nonlocal best_path
+                if len(path) > len(best_path):
+                    best_path = path[:]
+                for v in g.get(u, []):
+                    if v not in path:
+                        dfs(v, path + [v])
+            if "start_0" in set(main_ids):
+                dfs("start_0", ["start_0"])
+            # Clamp baseline
+            for n in main_nodes:
+                if n.get("id") in best_path:
+                    n.setdefault("meta", {}).setdefault("position", {})
+                    n["meta"]["position"]["y"] = 150
+            # Center the middle node of longest path at (0,0)
+            if best_path:
+                mid = best_path[len(best_path)//2]
+                # find current coordinates
+                mid_node = next((nn for nn in main_nodes if nn.get("id") == mid), None)
+                if mid_node:
+                    pos = mid_node.get("meta", {}).get("position", {})
+                    cx, cy = pos.get("x", 0), pos.get("y", 0)
+                    dx, dy = -cx, -cy
+                    for nn in main_nodes:
+                        p = nn.setdefault("meta", {}).setdefault("position", {})
+                        p["x"] = (p.get("x", 0) + dx)
+                        p["y"] = (p.get("y", 0) + dy)
+        except Exception:
+            pass
+    except Exception:
+        pass
 
     # Determine next sheet mapping for subgraphs from main edges
     sub_next: Dict[str, Optional[str]] = {k: None for k in subgraph_nodes.keys()}
@@ -434,6 +626,46 @@ def langgraph2flowgram(workflow: StateGraph, out_dir: str = "test_skill/diagram_
             last_nodes = [n for n in snodes if len([s for s in succs.get(n, set()) if s in snodes]) == 0]
             for ln in last_nodes:
                 sheet_edges.append({"sourceNodeID": ln, "targetNodeID": sheet_outputs_id})
+        # FINAL PASS LAYOUT for subgraph sheet
+        try:
+            s_ids = [n.get("id") for n in sheet_nodes]
+            s_pairs = [(e.get("sourceNodeID"), e.get("targetNodeID")) for e in sheet_edges]
+            s_layout = place_nodes(s_ids, s_pairs)
+            for n in sheet_nodes:
+                nid = n.get("id")
+                xy = s_layout.get(nid)
+                if xy:
+                    n.setdefault("meta", {}).setdefault("position", {})
+                    n["meta"]["position"] = {"x": xy[0], "y": xy[1]}
+            # Center the middle node of the longest path in this sheet at (0,0)
+            from collections import defaultdict as _dd
+            g2 = _dd(list)
+            for u, v in s_pairs:
+                g2[u].append(v)
+            best2: list[str] = []
+            def _dfs2(u: str, path: list[str]):
+                nonlocal best2
+                if len(path) > len(best2):
+                    best2 = path[:]
+                for v in g2.get(u, []):
+                    if v not in path:
+                        _dfs2(v, path + [v])
+            # prefer sheet-inputs as start if present
+            start_candidates = [i for i in s_ids if i.startswith("sheet_inputs_")] or s_ids
+            _dfs2(start_candidates[0], [start_candidates[0]])
+            if best2:
+                mid2 = best2[len(best2)//2]
+                midn = next((nn for nn in sheet_nodes if nn.get("id") == mid2), None)
+                if midn:
+                    pos2 = midn.get("meta", {}).get("position", {})
+                    cx2, cy2 = pos2.get("x", 0), pos2.get("y", 0)
+                    dx2, dy2 = -cx2, -cy2
+                    for nn in sheet_nodes:
+                        p2 = nn.setdefault("meta", {}).setdefault("position", {})
+                        p2["x"] = (p2.get("x", 0) + dx2)
+                        p2["y"] = (p2.get("y", 0) + dy2)
+        except Exception:
+            pass
 
         sheets.append({"id": sname, "name": sname, "document": {"nodes": sheet_nodes, "edges": sheet_edges}})
 
