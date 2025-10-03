@@ -48,7 +48,8 @@ def find_longest_branch(edges: List[Tuple[str, str]], nodes: List[str]) -> List[
     return longest
 
 def place_nodes(node_ids: List[str], edge_tuples: List[Tuple[str, str]]) -> Dict[str, Tuple[int, int]]:
-    """Layered DAG placement with ≥50px margins, straight longest path baseline, and barycenter ordering.
+    """The Placement Algorithm: (Sugiyama-style layering, simplified)
+    Layered DAG placement with ≥50px margins, straight longest path baseline, and barycenter ordering.
     - Node size: width=200, height=120
     - Margins: 50px -> hstep=250, vstep=170
     - Baseline Y: 150 for the main/longest path
@@ -687,7 +688,7 @@ def langgraph2flowgram(workflow: StateGraph, out_dir: str = "test_skill/diagram_
 
 
 def test_langgraph2flowgram() -> dict:
-    """Build a single-sheet StateGraph with branching and export.
+    """Build a two-sheet StateGraph with branching and export.
     Topology:
       START -> n1 -> n2 -> (if_out -> n3, else_out -> n4) -> n5 -> END
     """
