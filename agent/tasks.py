@@ -1115,48 +1115,191 @@ class TaskRunner(Generic[Context]):
             ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
             logger.error(f"{ex_stat}")
 
-
-
-    # this is for chat task
-    # async def launch_scheduled_run(self, task=None):
-    def launch_scheduled_run(self, task=None):
+    def launch_unified_run(self, task2run=None, trigger_type="queue"):
+        """
+        Unified task execution loop supporting all trigger types.
+        
+        Args:
+            task2run: ManagedTask to execute (None for scheduled tasks)
+            trigger_type: "schedule" | "a2a_queue" | "chat_queue"
+        
+        This consolidates launch_scheduled_run, launch_reacted_run, and launch_interacted_run
+        into a single function with consistent behavior and proper interrupt-resume support.
+        """
+        justStarted = True
+        logger.debug(f"launch_unified_run started: trigger_type={trigger_type}, agent={self.agent.card.name}")
+        
         while not self._stop_event.is_set():
             try:
-                logger.trace("checking agent scheduled task...." + self.agent.card.name)
-                # if nothing on queue, do a quick check if any vehicle needs a ping-pong check
-                logger.trace("Checking schedule.....")
-                task2run = time_to_run(self.agent)
-                logger.trace(f"task2run: len task2run, {task2run}, {self.agent.card.name}")
-                if task2run:
-                    logger.debug("setting up scheduled task to run", task2run.name)
-                    logger.debug("scheduled task2run skill name" + task2run.skill.name)
-                    task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, task2run.id)
-
-                    logger.trace("scheduledtask2run init state" + str(task2run.metadata["state"]))
-                    logger.trace("ready to run the right task" + task2run.name)
-                    # response = await task2run.astream_run()
+                msg = None
+                
+                # 1. Get task and message based on trigger type
+                if trigger_type == "schedule":
+                    # Scheduled tasks: check if it's time to run
+                    logger.trace(f"Checking schedule for agent {self.agent.card.name}")
+                    task2run = time_to_run(self.agent)
+                    if not task2run:
+                        time.sleep(1)
+                        continue
+                    logger.debug(f"Scheduled task ready: {task2run.name}")
+                    msg = None  # Scheduled tasks don't have input messages
+                    
+                elif trigger_type in ("a2a_queue", "chat_queue"):
+                    # Queue-based tasks: wait for messages
+                    if not task2run:
+                        time.sleep(1)
+                        continue
+                    
+                    if task2run.queue.empty():
+                        time.sleep(1)
+                        continue
+                    
+                    try:
+                        msg = task2run.queue.get_nowait()
+                        logger.trace(f"{trigger_type} message received: {type(msg)}")
+                        
+                        # For chat queue, find the appropriate chatter task
+                        if trigger_type == "chat_queue":
+                            task2run = self.find_chatter_tasks()
+                            if not task2run:
+                                logger.error("No chatter task found")
+                                continue
+                    except Empty:
+                        continue
+                else:
+                    logger.error(f"Unknown trigger_type: {trigger_type}")
+                    time.sleep(1)
+                    continue
+                
+                # 2. Execute task (initial run or resume)
+                if justStarted:
+                    # Initial run
+                    logger.debug(f"Initial run: {task2run.skill.name}")
+                    task2run.metadata["state"] = prep_skills_run(
+                        task2run.skill.name, 
+                        self.agent, 
+                        task2run.id, 
+                        msg, 
+                        None
+                    )
                     response = task2run.stream_run()
+                    logger.debug(f"Initial run response: {response}")
+                    
+                else:
+                    # Resume run
+                    logger.debug(f"Resume run: {task2run.skill.name}")
+                    task2run.metadata["state"] = prep_skills_run(
+                        task2run.skill.name,
+                        self.agent,
+                        task2run.id,
+                        msg,
+                        task2run.metadata.get("state")
+                    )
+                    
+                    # Build resume payload using mapping DSL
+                    resume_payload, cp = self._build_resume_payload(task2run, msg)
+                    logger.debug(f"Resume payload: {resume_payload}")
+                    
+                    if cp:
+                        response = task2run.stream_run(
+                            Command(resume=resume_payload), 
+                            checkpoint=cp, 
+                            stream_mode="updates"
+                        )
+                    else:
+                        response = task2run.stream_run(
+                            Command(resume=resume_payload), 
+                            stream_mode="updates"
+                        )
+                    logger.debug(f"Resume run response: {response}")
+                
+                # 3. Handle response and interrupts
+                step = response.get('step') or {}
+                
+                if isinstance(step, dict) and '__interrupt__' in step:
+                    # Task interrupted - send prompt to GUI
+                    interrupt_obj = step["__interrupt__"][0]
+                    
+                    if "prompt_to_human" in interrupt_obj.value:
+                        prompt = interrupt_obj.value.get("prompt_to_human", "")
+                        
+                        # Extract chatId from message metadata
+                        chatId = None
+                        try:
+                            if msg and hasattr(msg, 'params'):
+                                chatId = msg.params.metadata.get('chatId')
+                            elif msg and isinstance(msg, dict):
+                                chatId = msg.get('params', {}).get('metadata', {}).get('chatId')
+                        except Exception:
+                            pass
+                        
+                        if chatId:
+                            self.sendChatMessageToGUI(self.agent, chatId, prompt)
+                            
+                            # Send additional UI elements if present
+                            if interrupt_obj.value.get("qa_form_to_human"):
+                                self.sendChatFormToGUI(self.agent, chatId, interrupt_obj.value["qa_form_to_human"])
+                            elif interrupt_obj.value.get("notification_to_human"):
+                                self.sendChatNotificationToGUI(self.agent, chatId, interrupt_obj.value["notification_to_human"])
+                    
+                    justStarted = False
+                else:
+                    # Task completed or no interrupt
+                    justStarted = True
+                
+                # 4. Resolve task result
+                if trigger_type == "schedule":
+                    # Scheduled tasks report to task manager
                     if response:
                         self.agent.a2a_server.task_manager.set_result(task2run.id, response)
                     else:
                         self.agent.a2a_server.task_manager.set_exception(task2run.id, RuntimeError("Task failed"))
-                else:
-                    logger.trace("schedule task not reached scheduled time yet....")
-                    logger.debug("nothing 2 run according to schedule....")
-
+                        
+                elif trigger_type in ("a2a_queue", "chat_queue"):
+                    # Queue-based tasks resolve waiters
+                    task_id = None
+                    try:
+                        if msg and hasattr(msg, 'params'):
+                            task_id = msg.params.id
+                        elif msg and isinstance(msg, dict):
+                            task_id = msg.get('params', {}).get('id') or msg.get('id')
+                    except Exception:
+                        logger.error("Failed to extract task_id from message")
+                    
+                    if task_id:
+                        self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
+                    
+                    # Mark queue task as done
+                    if task2run and task2run.queue:
+                        task2run.queue.task_done()
+                
             except Exception as e:
-                ex_stat = "ErrorLaunchScheduledRun:" + traceback.format_exc() + " " + str(e)
-                logger.error(f"{ex_stat}")
-
-            # await asyncio.sleep(1)  # the loop goes on.....
+                ex_stat = f"ErrorUnifiedRun[{trigger_type}]:" + traceback.format_exc() + " " + str(e)
+                logger.error(ex_stat)
+            
+            # Loop delay
             time.sleep(1)
 
 
-    # async def launch_reacted_run(self, task=None):
+
+    # DEPRECATED: Use launch_unified_run(trigger_type="schedule") instead
+    def launch_scheduled_run(self, task=None):
+        """DEPRECATED: This function is deprecated. Use launch_unified_run(trigger_type="schedule") instead."""
+        logger.warning("[DEPRECATED] launch_scheduled_run is deprecated. Use launch_unified_run(trigger_type='schedule') instead.")
+        self.launch_unified_run(task2run=None, trigger_type="schedule")
+
+
+    # DEPRECATED: Use launch_unified_run(trigger_type="a2a_queue") instead
     def launch_reacted_run(self, task2run=None):
+        """DEPRECATED: This function is deprecated. Use launch_unified_run(trigger_type="a2a_queue") instead."""
+        logger.warning("[DEPRECATED] launch_reacted_run is deprecated. Use launch_unified_run(trigger_type='a2a_queue') instead.")
+        self.launch_unified_run(task2run=task2run, trigger_type="a2a_queue")
+        return  # Exit early after calling unified function
+        
+        # OLD CODE BELOW (kept for reference, not executed)
         chatNotDone = True
         justStarted = True
-        while not self._stop_event.is_set():
+        while False and not self._stop_event.is_set():
             try:
                 logger.trace("checking a2a queue....", self.agent.card.name)
 
@@ -1254,15 +1397,20 @@ class TaskRunner(Generic[Context]):
             time.sleep(1)
 
 
-    # this is for chat task
-    # async def launch_interacted_run(self, task=None):
+    # DEPRECATED: Use launch_unified_run(trigger_type="chat_queue") instead
     def launch_interacted_run(self, task2run=None):
+        """DEPRECATED: This function is deprecated. Use launch_unified_run(trigger_type="chat_queue") instead."""
+        logger.warning("[DEPRECATED] launch_interacted_run is deprecated. Use launch_unified_run(trigger_type='chat_queue') instead.")
+        self.launch_unified_run(task2run=task2run, trigger_type="chat_queue")
+        return  # Exit early after calling unified function
+        
+        # OLD CODE BELOW (kept for reference, not executed)
         cached_human_responses = ["hi!", "rag prompt", "1 rag, 2 none, 3 no, 4 no", "red", "q"]
         cached_response_index = 0
         config = {"configurable": {"thread_id": str(uuid.uuid4())}}
         justStarted = True
         logger.debug("launch_interacted_run....", self.agent.card.name)
-        while not self._stop_event.is_set():
+        while False and not self._stop_event.is_set():
             try:
                 logger.debug("checking chat queue...." + self.agent.card.name)
                 thread_config = {"configurable": {"thread_id": uuid.uuid4()}}

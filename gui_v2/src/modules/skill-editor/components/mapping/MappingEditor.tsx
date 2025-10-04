@@ -1,6 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-// Lightweight front-end mapping preview engine aligned with agent/tasks_resume.py DSL
+/**
+ * Lightweight front-end mapping preview engine aligned with agent/tasks_resume.py DSL
+ * 
+ * Node-to-Node Transfer Mapping:
+ * - "from" paths use "node.*" to reference preceding node's output
+ * - "to" paths use "state.*" to write to current node's input state
+ * 
+ * Example:
+ * {
+ *   "from": ["node.result.api_response"],
+ *   "to": [{"target": "state.tool_input.data"}],
+ *   "transform": "parse_json"
+ * }
+ */
 
 type Json = Record<string, any>;
 

@@ -3,12 +3,14 @@
  * SPDX-License-Identifier: MIT
  */
 
+import React, { useMemo } from 'react';
 import { useNodeRender, FlowNodeEntity } from '@flowgram.ai/free-layout-editor';
 
 import { NodeRenderContext } from '../../context';
 import { useNodeStateSchema } from '../../../../stores/nodeStateSchemaStore';
 import NodeStatePanel from '../node-state/NodeStatePanel';
 import MappingEditor, { type MappingConfig } from '../mapping/MappingEditor';
+import SkillLevelMappingEditor, { type SkillLevelMappingConfig } from '../mapping/SkillLevelMappingEditor';
 import { IPCAPI } from '../../../../services/ipc/api';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useRuntimeStateStore } from '../../stores/runtime-state-store';
@@ -17,8 +19,16 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
   const { node } = props;
   const nodeRender = useNodeRender(node);
   const { schema, loading } = useNodeStateSchema();
-  const { skillInfo } = useSkillInfoStore();
+  const { skillInfo, setSkillInfo } = useSkillInfoStore();
   const setHasUnsavedChanges = useSkillInfoStore((s) => s.setHasUnsavedChanges);
+  
+  // Detect if this is the START node (skill-level mapping editor)
+  const isStartNode = useMemo(() => {
+    const nodeType = node.data?.type || node.type;
+    const nodeId = node.id;
+    // START node can be: type='start', type='event', or id='start'
+    return nodeType === 'start' || nodeType === 'event' || nodeId === 'start';
+  }, [node]);
   // live runtime state for this node (from backend updates)
   const runtimeEntry = useRuntimeStateStore((s) => s.byNodeId[node.id]);
   // dev: log when runtime entry changes for this node
@@ -44,7 +54,7 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
     } catch {}
   };
 
-  // Mapping Rules bindings (persist to node.data.mapping_rules)
+  // Node-to-Node Mapping Rules bindings (persist to node.data.mapping_rules)
   const getMappingRules = (): MappingConfig | null => {
     try {
       const dataAny = (node as any).data as any;
@@ -72,6 +82,31 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
       (node as any).data = next;
     } catch (e) {
       console.error('[MappingEditor] persist mapping_rules failed', e);
+    }
+  };
+  
+  // Skill-Level Mapping Rules bindings (persist to skillInfo.config.skill_mapping)
+  const getSkillLevelMappingRules = (): SkillLevelMappingConfig | null => {
+    try {
+      const cfg = skillInfo?.config?.skill_mapping;
+      if (cfg && typeof cfg === 'object') return cfg as SkillLevelMappingConfig;
+    } catch {}
+    return null;
+  };
+  const setSkillLevelMappingRules = (cfg: SkillLevelMappingConfig) => {
+    try {
+      if (!skillInfo) return;
+      setHasUnsavedChanges(true);
+      const updated = {
+        ...skillInfo,
+        config: {
+          ...(skillInfo.config || {}),
+          skill_mapping: cfg
+        }
+      };
+      setSkillInfo(updated);
+    } catch (e) {
+      console.error('[SkillLevelMapping] persist failed', e);
     }
   };
 
@@ -177,10 +212,28 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
               <div style={{ fontSize: 12, color: '#999' }}>No runtime data for this node yet. Make sure this exact node is being executed.</div>
             )}
           </div>
-          {/* Mapping rules editor */}
-          <div style={{ marginTop: 16 }}>
-            <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>Mapping Rules</div>
-            <MappingEditor value={getMappingRules()} onChange={setMappingRules} />
+          {/* Mapping rules editor - different for START node vs other nodes */}
+          <div style={{ marginTop: 16, borderTop: '1px solid #eee', paddingTop: 12 }}>
+            {isStartNode ? (
+              <>
+                <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>Skill-Level Mapping Rules</div>
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
+                  Configure event-to-state mappings and event routing for the entire skill.
+                </div>
+                <SkillLevelMappingEditor 
+                  value={getSkillLevelMappingRules()} 
+                  onChange={setSkillLevelMappingRules} 
+                />
+              </>
+            ) : (
+              <>
+                <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>Node Transfer Mapping</div>
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
+                  Maps data from preceding node(s) to this node's input state.
+                </div>
+                <MappingEditor value={getMappingRules()} onChange={setMappingRules} />
+              </>
+            )}
           </div>
         </div>
       </div>
