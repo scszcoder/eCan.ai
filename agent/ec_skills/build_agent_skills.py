@@ -3,6 +3,7 @@ import asyncio
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple, Any
+import inspect
 import json
 from agent.ec_agents.agent_utils import load_agent_skills_from_cloud
 from agent.ec_skills.ecbot_rpa.ecbot_rpa_chatter_skill import create_rpa_helper_chatter_skill, create_rpa_operator_chatter_skill, create_rpa_supervisor_chatter_skill, create_rpa_supervisor_scheduling_chatter_skill
@@ -22,6 +23,7 @@ from agent.ec_skills.extern_skills.extern_skills import user_skills_root, ensure
 from agent.ec_skills.extern_skills.inproc_loader import temp_sys_path, _site_packages
 from agent.ec_skill import EC_Skill
 from agent.ec_skills.flowgram2langgraph import flowgram2langgraph
+from app_context import AppContext
 
 async def build_agent_skills_parallel(mainwin):
     """优化的分批并行技能创建"""
@@ -251,8 +253,8 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
     """从文件构建技能，目录结构：
 
     <skills_root>/<name>_skill/
-      ├─ code_skill/         # pure Python realization（dir should include abc_skill.py）
-      └─ diagram_dir/        # Flowgram exported jsons: abc_skill.json abc_skill_bundle.json
+      ├─ code_skill/ | code_dir/   # pure Python realization（package dir contains <module>_skill.py with build_skill()）
+      └─ diagram_dir/              # Flowgram exported jsons: <name>_skill.json <name>_skill_bundle.json
 
     pick strategy：
     - if only 1 exists, just load from there
@@ -274,13 +276,33 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                     pass
             return m
 
-        def find_package_dir_in_code(code_dir: Path) -> Optional[Tuple[Path, str]]:
-            # package dir is any child containing abc_skill.py; name is folder name
+        def find_package_dir_in_code(code_dir: Path) -> Optional[Tuple[Path, Optional[str], str]]:
+            """
+            Locate a Python module for the skill inside code_dir and return where/how to import it.
+            Rules:
+            - Prefer any '*_skill.py' directly under code_dir (flat layout). In this case, return (code_dir, None, module_base)
+            - Otherwise, look for a package dir (immediate child directory) that contains '*_skill.py'. Return (pkg_dir, pkg_name, module_base)
+            """
             if not code_dir.exists():
                 return None
+            # 1) Flat layout: files directly under code_dir
+            direct_candidates = sorted([p for p in code_dir.glob("*_skill.py")])
+            if direct_candidates:
+                return code_dir, None, direct_candidates[0].stem
+
+            # 2) Package layout: child directory containing *_skill.py
             for child in code_dir.iterdir():
-                if child.is_dir() and (child / "abc_skill.py").exists():
-                    return child, child.name
+                if not child.is_dir():
+                    continue
+                # Prefer specific '*_skill.py' modules; fallback to 'abc_skill.py' for backward compat
+                candidates = sorted([p for p in child.glob("*_skill.py")])
+                if not candidates:
+                    abc = child / "abc_skill.py"
+                    if abc.exists():
+                        candidates = [abc]
+                if candidates:
+                    mod_base = candidates[0].stem  # filename without .py
+                    return child, child.name, mod_base
             return None
 
         def load_from_code(skill_root: Path, code_dir: Path) -> Optional[EC_Skill]:
@@ -288,7 +310,7 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
             if not pkg:
                 logger.warning(f"[build_agent_skills] No package with *_skill.py under {code_dir}")
                 return None
-            pkg_dir, pkg_name = pkg
+            pkg_dir, pkg_name, module_base = pkg
 
             # prepare venv under skill root
             ensure_skill_venv(skill_root, reuse_host_libs=True)
@@ -301,11 +323,41 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
             with ExitStack() as stack:
                 stack.enter_context(temp_sys_path([pkg_dir]))
                 stack.enter_context(temp_sys_path(_site_packages(venv_dir)))
-                mod = importlib.import_module(f"{pkg_name}.abc_skill")
+                # Import the discovered module. If pkg_name is None, module lives directly under code_dir.
+                if pkg_name:
+                    mod = importlib.import_module(f"{pkg_name}.{module_base}")
+                else:
+                    mod = importlib.import_module(f"{module_base}")
                 if not hasattr(mod, "build_skill"):
-                    logger.error(f"[build_agent_skills] {pkg_name}.abc_skill missing build_skill()")
+                    where = f"{pkg_name}.{module_base}" if pkg_name else module_base
+                    logger.error(f"[build_agent_skills] {where} missing build_skill()")
                     return None
-                built = mod.build_skill()
+                # Build using run_context if supported; remain backward compatible with (mainwin)
+                build_fn = getattr(mod, "build_skill")
+                ctx = None
+                try:
+                    ctx = AppContext.get_useful_context()
+                except Exception:
+                    ctx = None
+
+                try:
+                    sig = inspect.signature(build_fn)
+                    params = sig.parameters
+                    if "run_context" in params and "mainwin" in params:
+                        built = build_fn(run_context=ctx, mainwin=mainwin)
+                    elif "run_context" in params:
+                        built = build_fn(run_context=ctx)
+                    elif "mainwin" in params:
+                        built = build_fn(mainwin)
+                    else:
+                        built = build_fn()
+                except Exception as e:
+                    logger.warning(f"[build_agent_skills] build_skill signature fallback due to: {e}")
+                    # Last resort: try legacy positional mainwin
+                    try:
+                        built = build_fn(mainwin)
+                    except Exception:
+                        built = build_fn()
 
                 # Accept either EC_Skill or (dto, stategraph)
                 sk = None
@@ -409,7 +461,16 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
         def load_one_skill(skill_root: Path) -> Optional[EC_Skill]:
             if not skill_root.exists() or not skill_root.is_dir():
                 return None
-            code_dir = skill_root / "code_skill"
+            # Support both legacy 'code_skill' and new 'code_dir'
+            code_dir_legacy = skill_root / "code_skill"
+            code_dir_new = skill_root / "code_dir"
+            # Prefer whichever exists; if both exist, pick the newer one
+            if code_dir_legacy.exists() and code_dir_new.exists():
+                code_dir = code_dir_legacy if latest_mtime(code_dir_legacy) >= latest_mtime(code_dir_new) else code_dir_new
+            elif code_dir_new.exists():
+                code_dir = code_dir_new
+            else:
+                code_dir = code_dir_legacy
             diagram_dir = skill_root / "diagram_dir"
 
             code_exists = code_dir.exists()
