@@ -110,11 +110,12 @@ Skills save their mapping rules in `data_mapping.json` alongside the skill JSON 
 Skills have a `run_mode` field that controls which mapping set is used at runtime:
 
 - **`developing`**: Debug-friendly mode
+
   - Includes debug metadata mappings
   - `strict: false` - lenient error handling
   - Preserves `event.data.metadata` for debugging
-  
 - **`released`**: Production-optimized mode
+
   - Minimal metadata only
   - `strict: true` - strict validation
   - Optimized for performance
@@ -131,6 +132,7 @@ Configured in the START node editor, applies to the entire skill:
 - **Event Routing**: Routes events to appropriate task queues
 
 Example use cases:
+
 - Map chat messages to `state.attributes.human.last_message`
 - Map QA forms to `state.attributes.forms.qa_form`
 - Route `human_chat` events to chatter tasks
@@ -144,6 +146,7 @@ Configured in individual node editors, applies to node-to-node transfers:
 - Uses `state.*` paths to write to current node's input
 
 Example use cases:
+
 - Map `node.result.api_response` to `state.tool_input.data`
 - Transform JSON strings to objects with `parse_json`
 - Extract specific fields with `pick` transform
@@ -151,12 +154,14 @@ Example use cases:
 ## Defaults (preserve current behavior)
 
 **Both developing and released modes include:**
+
 - Map QA form to `state.attributes.forms.qa_form` and `resume.qa_form_to_agent`.
 - Map Notification to `state.attributes.notifications.latest` and `resume.notification_to_agent`.
 - Map Human text to `state.attributes.human.last_message` and `resume.human_text`.
 - Map `event.tag` to `state.attributes.cloud_task_id`. If checkpoint exists, it is also injected into checkpoint `values.attributes.cloud_task_id`.
 
 **Developing mode additionally includes:**
+
 - Map `event.data.metadata` to `state.attributes.debug.last_event_metadata` for debugging.
 
 ## Where it runs
@@ -164,6 +169,7 @@ Example use cases:
 ### Backend (Python)
 
 **`agent/tasks_resume.py`:**
+
 - `DEFAULT_MAPPINGS`: Separated by run_mode (`developing` / `released`)
 - `load_mapping_for_task()`: Resolves mapping rules with precedence:
   1. Node-level mapping (from `skill.config.nodes[node_name].mapping_rules`)
@@ -175,6 +181,7 @@ Example use cases:
 - `build_general_resume_payload()`: Orchestrates and injects cloud_task_id
 
 **`agent/tasks.py`:**
+
 - `launch_unified_run()`: Unified task execution supporting all trigger types
   - Replaces `launch_scheduled_run()`, `launch_reacted_run()`, `launch_interacted_run()`
   - Consistent interrupt-resume behavior across all modes
@@ -182,6 +189,7 @@ Example use cases:
 - Uses feature flag `RESUME_PAYLOAD_V2` (default on) and deep-merges `state_patch` into `task.metadata['state']`
 
 **`agent/ec_skills/build_agent_skills.py`:**
+
 - `load_from_code()`: Loads `data_mapping.json` from skill root
 - `load_from_diagram()`: Loads `data_mapping.json` and `run_mode` from skill JSON
 - Assigns to `skill.mapping_rules` for runtime use
@@ -191,26 +199,27 @@ Example use cases:
 **Skill Editor Components:**
 
 1. **`components/mapping/SkillLevelMappingEditor.tsx`** (NEW)
+
    - Edits skill-level mappings for START node
    - Separate sections for developing/released modes
    - Event routing configuration UI
-
 2. **`components/mapping/MappingEditor.tsx`**
+
    - Edits node-to-node transfer mappings
    - Used for all non-START nodes
    - Preview functionality for testing rules
-
 3. **`components/sidebar/sidebar-node-renderer.tsx`**
+
    - Detects START node vs other nodes
    - Shows appropriate mapping editor
    - Persists to `skillInfo.config.skill_mapping` (START) or `node.data.mapping_rules` (others)
-
 4. **`components/tools/save.tsx`**
+
    - Extracts skill-level mappings from START node
    - Extracts node-level mappings from other nodes
    - Generates and saves `data_mapping.json` alongside skill JSON
-
 5. **`components/tools/readonly.tsx`**
+
    - Released toggle button controls `run_mode`
    - Updates both UI `mode` and backend `run_mode`
 
@@ -221,6 +230,7 @@ Skills can customize mapping rules in two ways:
 ### 1. Via GUI (Recommended)
 
 **For Skill-Level Mappings:**
+
 1. Open the START node in the skill editor
 2. Scroll to "Skill-Level Mapping Rules" section
 3. Configure mappings for both developing and released modes
@@ -228,6 +238,7 @@ Skills can customize mapping rules in two ways:
 5. Save the skill
 
 **For Node-Level Mappings:**
+
 1. Open any non-START node in the skill editor
 2. Scroll to "Node Transfer Mapping" section
 3. Configure mappings from preceding node to current node
@@ -272,23 +283,27 @@ skill.mapping_rules = {
 ## GUI Features (Implemented)
 
 ✅ **START Node Editor:**
+
 - Skill-level mapping configuration
 - Separate sections for developing/released modes
 - Event routing configuration
 - Collapsible panels for organization
 
 ✅ **Other Node Editors:**
+
 - Node-to-node transfer mapping
 - Clear labels distinguishing from skill-level mapping
 - Help text explaining source/target paths
 
 ✅ **Mapping Editor Component:**
+
 - JSON-based rule editing
 - Preview functionality
 - Transform selection
 - Conflict policy selection
 
 ✅ **Released Toggle:**
+
 - Controls both UI mode and backend run_mode
 - Visual feedback (lock/unlock icon)
 - Toast notifications on mode change
@@ -308,6 +323,7 @@ my_skill_skill/
 ```
 
 The `data_mapping.json` file contains:
+
 - Skill-level mappings (from START node)
 - Node-level mappings (from other nodes)
 - Event routing rules
@@ -376,34 +392,36 @@ Route different event types to appropriate tasks:
 ## Testing
 
 ### Unit Tests
+
 - `tests/test_tasks_resume.py`: Covers normalization, mapping, checkpoint selection, and orchestration
 
 ### Manual Testing Checklist
 
 1. **Skill Creation:**
-   - [ ] Create new skill in editor
-   - [ ] Open START node, add skill-level mappings
-   - [ ] Open other nodes, add node-to-node mappings
-   - [ ] Toggle released mode
-   - [ ] Save and verify `data_mapping.json` is created
 
+   - [ ]  Create new skill in editor
+   - [ ]  Open START node, add skill-level mappings
+   - [ ]  Open other nodes, add node-to-node mappings
+   - [ ]  Toggle released mode
+   - [ ]  Save and verify `data_mapping.json` is created
 2. **Skill Loading:**
-   - [ ] Load saved skill
-   - [ ] Verify mappings appear in START node editor
-   - [ ] Verify mappings appear in other node editors
-   - [ ] Verify run_mode matches released toggle
 
+   - [ ]  Load saved skill
+   - [ ]  Verify mappings appear in START node editor
+   - [ ]  Verify mappings appear in other node editors
+   - [ ]  Verify run_mode matches released toggle
 3. **Runtime:**
-   - [ ] Run skill in developing mode
-   - [ ] Run skill in released mode
-   - [ ] Verify correct mappings are used
-   - [ ] Test interrupt-resume with scheduled tasks
 
+   - [ ]  Run skill in developing mode
+   - [ ]  Run skill in released mode
+   - [ ]  Verify correct mappings are used
+   - [ ]  Test interrupt-resume with scheduled tasks
 4. **Unified Launch:**
-   - [ ] Test scheduled task execution
-   - [ ] Test a2a message handling
-   - [ ] Test chat message handling
-   - [ ] Verify consistent behavior across all modes
+
+   - [ ]  Test scheduled task execution
+   - [ ]  Test a2a message handling
+   - [ ]  Test chat message handling
+   - [ ]  Verify consistent behavior across all modes
 
 ## Migration Guide
 
@@ -421,6 +439,7 @@ Existing skills without `data_mapping.json` will continue to work using default 
 If your skill sets `mapping_rules` programmatically, update the structure:
 
 **Old format:**
+
 ```python
 skill.mapping_rules = {
     "mappings": [...],
@@ -429,8 +448,9 @@ skill.mapping_rules = {
 ```
 
 **New format:**
+
 ```python
-skill.mapping_rules = {
+dskill.mapping_rules = {
     "developing": {
         "mappings": [...],
         "options": {"strict": False}
@@ -447,16 +467,19 @@ The old format is still supported for backward compatibility, but will use the s
 ## Troubleshooting
 
 **Mappings not being applied:**
+
 - Check that `data_mapping.json` exists alongside skill JSON
 - Verify `run_mode` is set correctly in skill JSON
 - Check logs for mapping load errors in `build_agent_skills.py`
 
 **Wrong mappings being used:**
+
 - Verify the released toggle matches your intended run_mode
 - Check mapping precedence: Node-level → Skill-level → Defaults
 - Use `logger.debug` to trace `load_mapping_for_task()` resolution
 
 **Scheduled tasks not resuming:**
+
 - Ensure you're using `launch_unified_run()` (old functions are deprecated)
 - Check that interrupt-resume payload is being built correctly
 - Verify checkpoint is being saved and retrieved
