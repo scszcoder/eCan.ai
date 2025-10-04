@@ -1,15 +1,13 @@
-// 知识条目类型
-export interface KnowledgeEntry {
-  id: number;
-  title: string;
-  content: string;
-  category: string;
-  tags?: string[];
-  createdAt: string;
-  updatedAt: string;
-}
+/**
+ * Knowledge 页面特有类型定义
+ * 基础类型请从 @/types/domain/knowledge 导入
+ */
 
-// 问答对类型
+// 从 domain 层导入基础类型
+export type { Knowledge } from '@/types/domain/knowledge';
+export { KnowledgeType, KnowledgeStatus } from '@/types/domain/knowledge';
+
+// 页面特有类型 - 问答对
 export interface QAPair {
   id: number;
   question: string;
@@ -20,7 +18,7 @@ export interface QAPair {
   relatedKnowledgeIds?: number[];
 }
 
-// 知识分类类型
+// 页面特有类型 - 知识分类
 export interface KnowledgeCategory {
   id: number;
   name: string;

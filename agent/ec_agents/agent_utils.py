@@ -82,7 +82,13 @@ def load_agents_from_cloud(mainwin):
             if new_agent:
                 cloud_agents.append(new_agent)
 
-        mainwin.agents = cloud_agents
+        # 只有云端有数据时才覆盖本地 agents，避免丢失本地构建的 agents
+        if cloud_agents:
+            logger.info(f"Replacing local agents with {len(cloud_agents)} cloud agents")
+            mainwin.agents = cloud_agents
+        else:
+            logger.info(f"Cloud agents empty, keeping existing {len(mainwin.agents)} local agents")
+        
         return cloud_agents
 
     except Exception as e:
@@ -336,7 +342,13 @@ def load_agent_skills_from_cloud(mainwin):
             if new_agent_skill:
                 cloud_agent_skills.append(new_agent_skill)
 
-        mainwin.agent_skills = cloud_agent_skills
+        # 只有云端有数据时才覆盖本地 skills，避免丢失本地构建的 skills
+        if cloud_agent_skills:
+            logger.info(f"Replacing local skills with {len(cloud_agent_skills)} cloud skills")
+            mainwin.agent_skills = cloud_agent_skills
+        else:
+            logger.info(f"Cloud skills empty, keeping existing {len(mainwin.agent_skills)} local skills")
+        
         return cloud_agent_skills
 
     except Exception as e:
@@ -576,7 +588,13 @@ def load_agent_tools_from_cloud(mainwin):
             if new_agent_tool:
                 cloud_agent_tools.append(new_agent_tool)
 
-        mainwin.agent_tools = cloud_agent_tools
+        # 只有云端有数据时才覆盖本地 agent_tools，避免丢失本地构建的 tools
+        if cloud_agent_tools:
+            logger.info(f"Replacing local tools with {len(cloud_agent_tools)} cloud tools")
+            mainwin.agent_tools = cloud_agent_tools
+        else:
+            logger.info(f"Cloud tools empty, keeping existing {len(mainwin.agent_tools)} local tools")
+        
         return cloud_agent_tools
 
     except Exception as e:
@@ -812,7 +830,13 @@ def load_agent_tasks_from_cloud(mainwin):
             if new_agent_task:
                 cloud_agent_tasks.append(new_agent_task)
 
-        mainwin.agent_tasks = cloud_agent_tasks
+        # 只有云端有数据时才覆盖本地 agent_tasks，避免丢失本地构建的 tasks
+        if cloud_agent_tasks:
+            logger.info(f"Replacing local tasks with {len(cloud_agent_tasks)} cloud tasks")
+            mainwin.agent_tasks = cloud_agent_tasks
+        else:
+            logger.info(f"Cloud tasks empty, keeping existing {len(mainwin.agent_tasks)} local tasks")
+        
         return cloud_agent_tasks
 
     except Exception as e:

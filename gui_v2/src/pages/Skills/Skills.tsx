@@ -1,26 +1,25 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Space } from 'antd';
+import React, { useCallback, useEffect } from 'react';
+import { Button, Space, message } from 'antd';
 import { ReloadOutlined, PlusOutlined } from '@ant-design/icons';
 import DetailLayout from '../../components/Layout/DetailLayout';
 import { useDetailView } from '../../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
-import { useAppDataStore } from '../../stores/appDataStore';
+import { useSkillStore } from '../../stores';
 import { useUserStore } from '../../stores/userStore';
-import { Skill, SkillsAPIResponseData } from './types';
 import SkillList from './components/SkillList';
 import SkillDetails from './components/SkillDetails';
-import { get_ipc_api } from '@/services/ipc_api';
 import { IPCWCClient } from '@/services/ipc/ipcWCClient';
+import { logger } from '@/utils/logger';
 
 const Skills: React.FC = () => {
     const { t } = useTranslation();
-    
-    const skills = useAppDataStore((state) => state.skills);
-    const isLoading = useAppDataStore((state) => state.isLoading);
-    const setLoading = useAppDataStore((state) => state.setLoading);
-    const setError = useAppDataStore((state) => state.setError);
-    const setSkills = useAppDataStore((state) => state.setSkills);
-    
+
+    // 使用新的 skillStore
+    const skills = useSkillStore((state) => state.items);
+    const isLoading = useSkillStore((state) => state.loading);
+    const fetchItems = useSkillStore((state) => state.fetchItems);
+    const updateItem = useSkillStore((state) => state.updateItem);
+
     const username = useUserStore((state) => state.username);
     const [isAddingNew, setIsAddingNew] = React.useState(false);
 
@@ -31,33 +30,19 @@ const Skills: React.FC = () => {
 
     const fetchSkills = useCallback(async () => {
         if (!username) {
-            console.error("Username is not available.");
+            logger.warn('[Skills] Username is not available');
             return;
         }
 
         try {
-            setLoading(true);
-            setError(null);
-            const response = await get_ipc_api().getSkills<{ skills: Skill[] }>(username, []);
-            if (response && response.success && response.data) {
-                console.log('[Skills] Fetched skills:', response.data.skills);
-                const responseData = response.data as SkillsAPIResponseData;
-                if (responseData.skills && Array.isArray(responseData.skills)) {
-                    setSkills(responseData.skills);
-                } else {
-                    console.error("Fetched skills data is not in the expected format:", response.data);
-                    setError("Fetched skills data is not in the expected format.");
-                }
-            } else {
-                setError((response as any).message || 'Failed to fetch skills.');
-            }
+            logger.info('[Skills] Fetching skills for user:', username);
+            await fetchItems(username);
+            logger.info('[Skills] Successfully fetched skills:', skills.length);
         } catch (error) {
-            console.error('Error fetching skills:', error);
-            setError((error as Error).message);
-        } finally {
-            setLoading(false);
+            logger.error('[Skills] Error fetching skills:', error);
+            message.error(t('pages.skills.fetchError') || 'Failed to fetch skills');
         }
-    }, [username, setLoading, setError, setSkills]);
+    }, [username, fetchItems, skills.length, t]);
 
     useEffect(() => {
         if (username) {
@@ -70,16 +55,23 @@ const Skills: React.FC = () => {
     }, [fetchSkills]);
 
     const handleLevelUp = (id: number) => {
-        const skill = skills.find(s => s.id === id);
-        if (skill && skill.level < 100) {
-            const updatedSkill = {
-                ...skill,
-                level: Math.min(skill.level + 5, 100),
-                lastUsed: t('pages.skills.time.justNow'),
-                usageCount: skill.usageCount + 1,
-            };
-            const updatedSkills = skills.map(s => s.id === id ? updatedSkill : s);
-            setSkills(updatedSkills);
+        const skill = skills.find(s => String(s.id) === String(id));
+        if (skill && skill.level) {
+            // 将 level 转换为数字进行比较
+            const currentLevel = typeof skill.level === 'string' ? parseInt(skill.level, 10) : skill.level;
+            if (currentLevel < 100) {
+                const newLevel = Math.min(currentLevel + 5, 100);
+                const updates = {
+                    level: typeof skill.level === 'string' ? String(newLevel) : newLevel,
+                    lastUsed: t('pages.skills.time.justNow'),
+                    usageCount: (skill.usageCount || 0) + 1,
+                };
+
+                // 更新本地状态
+                updateItem(String(id), updates as any);
+
+                logger.info('[Skills] Level up skill:', id, updates);
+            }
         }
     };
 

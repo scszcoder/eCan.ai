@@ -1,6 +1,6 @@
 import React from 'react';
 import { List } from 'antd';
-import { Vehicle } from './types';
+import type { Vehicle } from '@/stores';
 import VehicleItem from './VehicleItem';
 import SearchFilter from '../../components/Common/SearchFilter';
 import ActionButtons from '../../components/Common/ActionButtons';

@@ -1,59 +1,57 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useDetailView } from '@/hooks/useDetailView';
-import { useAppDataStore } from '@/stores/appDataStore';
+import { useTaskStore } from '@/stores';
+import { useUserStore } from '@/stores/userStore';
 import { Task } from '../types';
-import { APIResponse } from '../../../services/ipc/api';
 import { logger } from '../../../utils/logger';
-import { get_ipc_api } from '@/services/ipc_api';
+import { message } from 'antd';
 
 export const useTasks = () => {
-  const storeTasks = useAppDataStore((state) => state.tasks);
-  const setTasks = useAppDataStore((state) => state.setTasks);
+  // 使用新的 taskStore
+  const tasks = useTaskStore((state) => state.items);
+  const isLoading = useTaskStore((state) => state.loading);
+  const error = useTaskStore((state) => state.error);
+  const fetchItems = useTaskStore((state) => state.fetchItems);
+
+  const username = useUserStore((state) => state.username);
 
   const {
-    items: tasks,
-    setItems,
     selectedItem: selectedTask,
     selectItem,
     isSelected,
-  } = useDetailView<Task>([], (task) => task.id);
+  } = useDetailView<Task>(tasks, (task) => task.id);
 
   const [loading, setLoading] = useState(false);
 
   const fetchTasks = useCallback(async () => {
+    if (!username) {
+      logger.warn('[useTasks] Username is not available');
+      return;
+    }
+
     setLoading(true);
     try {
-      const api = get_ipc_api();
-      const loginInfoResponse = await api.getLastLoginInfo<{ last_login: { username: string } }>();
-
-      if (loginInfoResponse.success && loginInfoResponse.data?.last_login.username) {
-        const username = loginInfoResponse.data.last_login.username;
-        const response: APIResponse<{ tasks: Task[] }> = await api.getTasks(username, []);
-        if (response.success && response.data) {
-          console.log('[Tasks] Fetched tasks:', response.data);
-          setTasks(response.data.tasks);
-        } else {
-          logger.error('Failed to fetch tasks:', response.error);
-        }
-      } else {
-        logger.error('Failed to get user login info:', loginInfoResponse.error);
-      }
+      logger.info('[useTasks] Fetching tasks for user:', username);
+      await fetchItems(username);
+      logger.info('[useTasks] Successfully fetched tasks:', tasks.length);
     } catch (error) {
-      logger.error('An error occurred while fetching tasks:', error);
+      logger.error('[useTasks] Error fetching tasks:', error);
+      message.error('Failed to fetch tasks');
     } finally {
       setLoading(false);
     }
-  }, [setTasks]);
+  }, [username, fetchItems, tasks.length]);
 
   useEffect(() => {
     fetchTasks();
   }, [fetchTasks]);
 
+  // 显示错误信息
   useEffect(() => {
-    if (Array.isArray(storeTasks)) {
-      setItems(storeTasks);
+    if (error) {
+      message.error(error);
     }
-  }, [storeTasks, setItems]);
+  }, [error]);
 
   const handleRefresh = () => {
     fetchTasks();
@@ -64,7 +62,7 @@ export const useTasks = () => {
     selectedTask,
     selectItem,
     isSelected,
-    loading,
+    loading: loading || isLoading,
     handleRefresh,
   };
-}; 
+};

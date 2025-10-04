@@ -35,6 +35,14 @@ def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
         logger.debug(f"Get skills handler called with request: {request}")
         main_window = AppContext.get_main_window()
         skills = main_window.agent_skills
+        
+        # 添加调试日志
+        logger.info(f"[DEBUG] main_window.agent_skills type: {type(skills)}")
+        logger.info(f"[DEBUG] main_window.agent_skills length: {len(skills) if skills else 'None'}")
+        if skills and len(skills) > 0:
+            logger.info(f"[DEBUG] First skill type: {type(skills[0])}")
+            logger.info(f"[DEBUG] First skill name: {getattr(skills[0], 'name', 'NO NAME ATTR')}")
+        
         # 验证参数
         is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
@@ -46,8 +54,23 @@ def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
             )
         username = data['username']
         logger.info(f"get skills successful for user: {username}")
+        
+        # 转换为字典，添加异常处理
+        skills_dicts = []
+        for i, sk in enumerate(skills):
+            try:
+                sk_dict = sk.to_dict()
+                skills_dicts.append(sk_dict)
+                logger.debug(f"[DEBUG] Skill {i} converted: {sk_dict.get('name', 'NO NAME')}")
+            except Exception as e:
+                logger.error(f"[DEBUG] Failed to convert skill {i}: {e}")
+                import traceback
+                logger.error(f"[DEBUG] Traceback: {traceback.format_exc()}")
+        
+        logger.info(f"[DEBUG] Successfully converted {len(skills_dicts)} skills")
+        
         resultJS = {
-            'skills': [sk.to_dict() for sk in skills],
+            'skills': skills_dicts,
             'message': 'Get all successful'
         }
         resultJS_str = str(resultJS)

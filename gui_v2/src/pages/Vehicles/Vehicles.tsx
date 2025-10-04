@@ -2,25 +2,30 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { message } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { useUserStore } from '@/stores/userStore';
+import { useVehicleStore, VehicleStatus, type Vehicle } from '@/stores';
 import { useDetailView } from '@/hooks/useDetailView';
 import DetailLayout from '../../components/Layout/DetailLayout';
 import VehicleList from './VehicleList';
 import VehicleDetails from './VehicleDetails';
 import VehicleFormModal from './VehicleFormModal';
-import { Vehicle } from './types';
+import { logger } from '@/utils/logger';
 import { get_ipc_api } from '@/services/ipc_api';
 
 const Vehicles: React.FC = () => {
   const { t } = useTranslation();
   const username = useUserStore((state) => state.username) ?? '';
-  const initialVehicles: Vehicle[] = [];
+
+  // 使用新的 vehicleStore
+  const vehicles = useVehicleStore((state) => state.items);
+  const isLoading = useVehicleStore((state) => state.loading);
+  const error = useVehicleStore((state) => state.error);
+  const fetchItems = useVehicleStore((state) => state.fetchItems);
+  const updateVehicleStatus = useVehicleStore((state) => state.updateVehicleStatus);
 
   const {
     selectedItem: selectedVehicle,
-    items: vehicles,
     selectItem,
-    setItems: setVehicles
-  } = useDetailView<Vehicle>(initialVehicles);
+  } = useDetailView<Vehicle>(vehicles);
 
   const [filters, setFilters] = useState<Record<string, any>>({});
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
@@ -28,17 +33,20 @@ const Vehicles: React.FC = () => {
 
   // 获取车辆数据
   const fetchVehicles = useCallback(async () => {
-    if (!username) return;
-    const response = await get_ipc_api().getVehicles();
-    if (
-      response &&
-      response.success &&
-      response.data &&
-      Array.isArray((response.data as { vehicles: Vehicle[] }).vehicles)
-    ) {
-      setVehicles((response.data as { vehicles: Vehicle[] }).vehicles);
+    if (!username) {
+      logger.warn('[Vehicles] Username is not available');
+      return;
     }
-  }, [username, setVehicles]);
+
+    try {
+      logger.info('[Vehicles] Fetching vehicles for user:', username);
+      await fetchItems(username);
+      logger.info('[Vehicles] Successfully fetched vehicles:', vehicles.length);
+    } catch (error) {
+      logger.error('[Vehicles] Error fetching vehicles:', error);
+      message.error(t('pages.vehicles.fetchError') || 'Failed to fetch vehicles');
+    }
+  }, [username, fetchItems, vehicles.length, t]);
 
   useEffect(() => {
     fetchVehicles();
@@ -48,27 +56,33 @@ const Vehicles: React.FC = () => {
     await fetchVehicles();
   }, [fetchVehicles]);
 
-  const handleStatusChange = useCallback(async (id: number, newStatus: Vehicle['status']) => {
-    try {
-      const response = await get_ipc_api().updateVehicleStatus(id, newStatus);
-      if (response?.success) {
-        await fetchVehicles(); // 刷新列表
-      }
-    } catch (error) {
-      console.error('Failed to update vehicle status:', error);
-    }
-  }, [fetchVehicles]);
+  const handleStatusChange = useCallback(async (id: string | number, newStatus: Vehicle['status']) => {
+    if (!username) return;
 
-  const handleMaintenance = useCallback(async (id: number) => {
     try {
-      const response = await get_ipc_api().updateVehicleStatus(id, 'maintenance');
-      if (response?.success) {
-        await fetchVehicles(); // 刷新列表
-      }
+      logger.info('[Vehicles] Updating vehicle status:', id, newStatus);
+      await updateVehicleStatus(username, String(id), newStatus as VehicleStatus);
+      message.success(t('pages.vehicles.statusUpdateSuccess') || 'Status updated successfully');
+      await fetchVehicles(); // 刷新列表
     } catch (error) {
-      console.error('Failed to set vehicle to maintenance:', error);
+      logger.error('[Vehicles] Failed to update vehicle status:', error);
+      message.error(t('pages.vehicles.statusUpdateFailed') || 'Failed to update status');
     }
-  }, [fetchVehicles]);
+  }, [username, updateVehicleStatus, fetchVehicles, t]);
+
+  const handleMaintenance = useCallback(async (id: string | number) => {
+    if (!username) return;
+
+    try {
+      logger.info('[Vehicles] Setting vehicle to maintenance:', id);
+      await updateVehicleStatus(username, String(id), VehicleStatus.MAINTENANCE);
+      message.success(t('pages.vehicles.maintenanceSuccess') || 'Vehicle set to maintenance');
+      await fetchVehicles(); // 刷新列表
+    } catch (error) {
+      logger.error('[Vehicles] Failed to set vehicle to maintenance:', error);
+      message.error(t('pages.vehicles.maintenanceFailed') || 'Failed to set maintenance status');
+    }
+  }, [username, updateVehicleStatus, fetchVehicles, t]);
 
   const handleAdd = useCallback(() => {
     setIsAddModalVisible(true);

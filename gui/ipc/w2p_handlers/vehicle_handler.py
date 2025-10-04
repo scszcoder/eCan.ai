@@ -23,6 +23,15 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         main_window = AppContext.get_main_window()
         vehicles = main_window.vehicles
 
+        # 添加详细调试日志
+        logger.info(f"[DEBUG] get_vehicles called")
+        logger.info(f"[DEBUG] main_window.vehicles type: {type(vehicles)}")
+        logger.info(f"[DEBUG] main_window.vehicles count: {len(vehicles) if vehicles else 0}")
+        if vehicles and len(vehicles) > 0:
+            logger.info(f"[DEBUG] First vehicle: {vehicles[0].to_dict() if hasattr(vehicles[0], 'to_dict') else str(vehicles[0])}")
+        else:
+            logger.warning(f"[DEBUG] main_window.vehicles is empty!")
+
         logger.info(f"get vehicles successful")
         resultJS = {
             'vehicles': [v.to_dict() for v in vehicles],

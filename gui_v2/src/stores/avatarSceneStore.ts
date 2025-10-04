@@ -11,9 +11,6 @@ import {
   AgentSceneState,
   ScenesData,
   QueuedScene,
-  SceneState,
-  ScenePriority,
-  SceneEvent,
   SceneManagerConfig,
   SceneAnalytics
 } from '@/types/avatarScene';
@@ -429,19 +426,29 @@ export const useAvatarSceneStore = create<AvatarSceneStoreState>()(
         config: state.config,
         analytics: state.analytics
       }),
-      // Custom serialization for Map objects
-      serialize: (state) => {
-        return JSON.stringify({
-          ...state,
-          analytics: Array.from(state.analytics.entries())
-        });
-      },
-      deserialize: (str) => {
-        const parsed = JSON.parse(str);
-        return {
-          ...parsed,
-          analytics: new Map(parsed.analytics || [])
-        };
+      // Custom storage with Map serialization support
+      storage: {
+        getItem: (name) => {
+          const str = localStorage.getItem(name);
+          if (!str) return null;
+          const parsed = JSON.parse(str);
+          return {
+            state: {
+              ...parsed.state,
+              analytics: new Map(parsed.state.analytics || [])
+            }
+          };
+        },
+        setItem: (name, value) => {
+          const serialized = JSON.stringify({
+            state: {
+              ...value.state,
+              analytics: Array.from(value.state.analytics.entries())
+            }
+          });
+          localStorage.setItem(name, serialized);
+        },
+        removeItem: (name) => localStorage.removeItem(name)
       }
     }
   )

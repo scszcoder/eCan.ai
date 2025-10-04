@@ -6,7 +6,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useUserStore } from '@/stores/userStore';
 import { useOrgStore } from '@/stores/orgStore';
-import { useAppDataStore } from '@/stores/appDataStore';
+import { useTaskStore, useSkillStore } from '@/stores';
 import { get_ipc_api } from '@/services/ipc_api';
 
 type Gender = 'gender_options.male' | 'gender_options.female';
@@ -52,12 +52,11 @@ const AgentDetails: React.FC = () => {
   console.log('[AgentDetails] defaultOrgId from URL:', defaultOrgId);
   const { message } = App.useApp();
 
-  // Pull tasks and skills from global app data store (populated by Tasks/Skills pages)
-  // TODO: 将来迁移到专用的 taskStore 和 skillStore
-  const storeTasks = useAppDataStore((state) => state.tasks);
-  const storeSkills = useAppDataStore((state) => state.skills);
-  const setTasks = useAppDataStore((state) => state.setTasks);
-  const setSkills = useAppDataStore((state) => state.setSkills);
+  // 使用专用的 taskStore 和 skillStore
+  const storeTasks = useTaskStore((state) => state.items);
+  const storeSkills = useSkillStore((state) => state.items);
+  const setTasks = useTaskStore((state) => state.setItems);
+  const setSkills = useSkillStore((state) => state.setItems);
   
   // 获取组织数据
   const { treeOrgs, setAllOrgAgents, shouldFetchData, loading: orgLoading, setLoading: setOrgLoading, setError: setOrgError } = useOrgStore();
