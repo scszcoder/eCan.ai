@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Dropdown, Button } from 'antd';
 import type { MenuProps } from 'antd';
 import { MoreOutlined, RobotOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
 
@@ -72,7 +72,22 @@ const MenuButton = styled(Button)`
 
 const QuickActionMenu: React.FC = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const { t } = useTranslation();
+
+    // 从当前路径中提取组织ID
+    const currentOrgId = useMemo(() => {
+        const orgMatches = location.pathname.match(/organization\/([^/]+)/g);
+        if (orgMatches && orgMatches.length > 0) {
+            const lastMatch = orgMatches[orgMatches.length - 1];
+            const orgId = lastMatch.replace('organization/', '');
+            // 排除特殊的组织ID
+            if (orgId !== 'root' && orgId !== 'unassigned') {
+                return orgId;
+            }
+        }
+        return null;
+    }, [location.pathname]);
 
     // 定义菜单项 - 可以轻松扩展
     const menuItems: MenuProps['items'] = [
@@ -80,7 +95,17 @@ const QuickActionMenu: React.FC = () => {
             key: 'add-agent',
             icon: <RobotOutlined />,
             label: t('agents.addAgent', '添加代理'),
-            onClick: () => navigate('/agents/add'),
+            onClick: () => {
+                // 如果当前在组织页面，传递组织ID
+                const queryParams = new URLSearchParams();
+                if (currentOrgId) {
+                    queryParams.set('orgId', currentOrgId);
+                }
+                const queryString = queryParams.toString();
+                const targetUrl = `/agents/add${queryString ? `?${queryString}` : ''}`;
+                console.log('[QuickActionMenu] Navigating to add agent with orgId:', currentOrgId, 'URL:', targetUrl);
+                navigate(targetUrl);
+            },
         },
         // 可以在这里添加更多菜单项
         // {

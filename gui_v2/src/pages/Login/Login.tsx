@@ -167,12 +167,13 @@ const Login: React.FC = () => {
 				setLoginProgress('success');
 
 				const { token, user_info } = response.data;
+				const username = user_info?.username || values.username;
 
 				// 使用统一的用户存储管理器
 				const loginSession = {
 					token,
 					userInfo: {
-						username: user_info?.username || values.username,
+						username,
 						role: user_info?.role || values.role,
 						email: user_info?.email
 					},
@@ -381,12 +382,13 @@ const Login: React.FC = () => {
         setGoogleLoginProgress('success');
 
         const { token, user_info, message } = response.data;
+        const username = user_info.username || user_info.email;
 
         // 使用统一的用户存储管理器
         const loginSession = {
           token,
           userInfo: {
-            username: user_info.username || user_info.email,
+            username,
             role: user_info.role || selectedRole,
             email: user_info.email
           },

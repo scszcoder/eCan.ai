@@ -12,7 +12,7 @@ import { Button, Dropdown, Modal, message } from 'antd';
 import type { MenuProps } from 'antd';
 import { MessageOutlined, MoreOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import agentGifs, { logVideoSupport } from '@/assets/gifs';
 import { Agent, type AgentCard as AgentCardType } from '../types';
 import { useAgentStore } from '@/stores/agentStore';
@@ -61,14 +61,25 @@ function getAgentDescription(agent: Agent | AgentCardType): string {
 function AgentCard({ agent, onChat }: AgentCardProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const username = useUserStore((state) => state.username);
   const myTwinAgent = useAgentStore((state) => state.getMyTwinAgent());
-  
+
   // 安全获取属性
   const id = getAgentId(agent);
   const name = getAgentName(agent);
   const description = getAgentDescription(agent);
   const myTwinAgentId = myTwinAgent?.card?.id;
+
+  // 获取当前组织ID（从URL路径中提取）
+  const currentOrgId = useMemo(() => {
+    const orgMatches = location.pathname.match(/organization\/([^/]+)/g);
+    if (orgMatches && orgMatches.length > 0) {
+      const lastMatch = orgMatches[orgMatches.length - 1];
+      return lastMatch.replace('organization/', '');
+    }
+    return null;
+  }, [location.pathname]);
   
   // 使用 useMemo 获取固定的媒体 URL（基于 ID）
   const mediaUrl = useMemo<string>(() => {
@@ -102,7 +113,15 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
   // 处理编辑
   const handleEdit = () => {
     if (!id) return;
-    navigate(`/agents/details/${id}`);
+    // 传递当前组织ID作为查询参数
+    const queryParams = new URLSearchParams();
+    if (currentOrgId && currentOrgId !== 'root' && currentOrgId !== 'unassigned') {
+      queryParams.set('orgId', currentOrgId);
+    }
+    const queryString = queryParams.toString();
+    const targetUrl = `/agents/details/${id}${queryString ? `?${queryString}` : ''}`;
+    console.log('[AgentCard] Navigating to edit with orgId:', currentOrgId, 'URL:', targetUrl);
+    navigate(targetUrl);
   };
   
   // 处理删除
