@@ -1,8 +1,6 @@
 import {
-  DeleteOutlined,
   OrderedListOutlined,
   PlayCircleOutlined,
-  SettingOutlined,
   StopOutlined,
   EditOutlined,
   SaveOutlined,
@@ -14,9 +12,9 @@ import { Task } from '../types';
 import dayjs from 'dayjs';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
-import { useAppDataStore } from '@/stores/appDataStore';
+import { useSkillStore } from '@/stores';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const DEFAULT_TASK = {
   id: '',
@@ -106,8 +104,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   const [editMode, setEditMode] = React.useState(isNew);
   const [saving, setSaving] = React.useState(false);
   // skills store and fetch-on-mount if needed
-  const skills = useAppDataStore((s) => s.skills);
-  const setSkills = useAppDataStore((s) => s.setSkills);
+  const skills = useSkillStore((s) => s.items);
+  const setSkills = useSkillStore((s) => s.setItems);
 
   React.useEffect(() => {
     const api = get_ipc_api();
@@ -285,7 +283,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                 </Col>
                 <Col span={12}>
                   <Form.Item label={t('pages.tasks.triggerLabel', 'Trigger')} name="trigger">
-                    <Select options={TRIGGER_OPTIONS.map(v => ({ value: v, label: v }))} />
+                    <Select options={TRIGGER_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.trigger.${v}`, v) }))} />
                   </Form.Item>
                 </Col>
 

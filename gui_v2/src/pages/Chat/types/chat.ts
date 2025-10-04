@@ -1,86 +1,11 @@
 /**
- * This file defines the core data structures for the chat feature,
- * based on SemiDesign's Chat component standards with added application-specific fields.
+ * Chat 页面特有类型定义
+ * 基础类型（Chat、Message、Member 等）请从 @/types/domain/chat 导入
  */
 
-/**
- * Represents a file attachment in a message.
- */
-export interface Attachment {
-    uid: string;      // 附件唯一标识符
-    name: string;     // 附件名称
-    status: string;   // 附件状态（'done', 'uploading', 'error' 等）
-    url?: string;     // 附件访问链接 (支持 pyqtfile:// 协议)
-    size?: number;    // 附件大小（字节）
-    type?: string;    // 附件MIME类型
-    // 新增字段，支持 pyqtfile:// 协议
-    filePath?: string;      // 文件路径，用于 pyqtfile:// 协议
-    thumbnailUrl?: string;  // 缩略图URL（图片专用）
-    isImage?: boolean;      // 是否为图片
-    mimeType?: string;      // MIME类型
-}
-
-/**
- * 消息状态枚举
- */
-export type MessageStatus = 'loading' | 'incomplete' | 'complete' | 'error' | 'sending' | 'sent';
-
-/**
- * Represents a single message within a chat.
- */
-export interface Message {
-    role: 'user' | 'assistant' | 'system' | 'agent';
-    id: string;
-    createAt: number;
-    content: string | Content | Content[];  // 支持字符串、单个Content对象或Content数组
-    status: MessageStatus;      // 使用枚举类型
-    attachments?: Attachment[]; // 统一使用 attachments 字段，匹配后端数据结构
-
-    // 以下字段为应用内部使用，不是Semi Chat组件必需的
-    chatId?: string;
-    senderId?: string;
-    senderName?: string;
-    time?: number;
-    isRead?: boolean; // 新增，表示消息是否已读
-}
-
-/**
- * Represents a chat conversation.
- */
-export interface Chat {
-    id: string; // Unique chat identifier
-    type: 'user-system' | 'user-agent' | 'agent-agent' | 'group';
-    name: string; // Display name of the chat
-    avatar?: string; // URL for the chat's avatar
-
-    members: Member[];
-
-    messages: Message[];
-
-    // Application-specific fields for managing chat list
-    lastMsg?: string;
-    lastMsgTime?: number;
-    unread: number;
-
-    // Custom fields for additional functionality
-    pinned?: boolean;
-    muted?: boolean;
-
-    ext?: Record<string, any>; // For any extra data
-}
-
-/**
- * Represents a member in a chat.
- */
-export interface Member {
-    userId: string;
-    role: string; // 与 roleConfig key 对应
-    name: string;
-    avatar?: string;
-    status?: 'online' | 'offline' | 'busy';
-    ext?: Record<string, any>;
-    agentName?: string;
-}
+// 从 domain 层导入基础类型
+export type { Chat, Message, Member, Attachment } from '@/types/domain/chat';
+export { ChatType, MessageStatus, MemberStatus } from '@/types/domain/chat';
 
 /**
  * 表单字段接口

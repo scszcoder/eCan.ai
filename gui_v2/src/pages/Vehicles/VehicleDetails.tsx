@@ -1,15 +1,15 @@
 import React from 'react';
 import { Space, Button, Statistic } from 'antd';
 import { ClusterOutlined, CheckCircleOutlined, EnvironmentOutlined, ThunderboltOutlined, ToolOutlined, ClockCircleOutlined, PlusOutlined, HistoryOutlined } from '@ant-design/icons';
-import { Vehicle } from './types';
+import type { Vehicle } from '@/stores';
 import StatusTag from '../../components/Common/StatusTag';
 import DetailCard from '../../components/Common/DetailCard';
 import styled from '@emotion/styled';
 
 interface VehicleDetailsProps {
     vehicle?: Vehicle;
-    onStatusChange: (id: number, status: Vehicle['status']) => void;
-    onMaintenance: (id: number) => void;
+    onStatusChange: (id: string | number, status: Vehicle['status']) => void;
+    onMaintenance: (id: string | number) => void;
     t: any;
 }
 

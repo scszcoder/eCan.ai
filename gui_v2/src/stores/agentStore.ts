@@ -11,29 +11,36 @@ interface AgentsResponse {
 
 interface AgentStoreState {
   agents: Agent[];
+  items: Agent[]; // 别名，兼容标准接口
   loading: boolean;
   error: string | null;
   lastFetched: number | null;
-  
+
   // Actions
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setAgents: (agents: Agent[]) => void;
+  setItems: (items: Agent[]) => void; // 别名，兼容标准接口
   addAgent: (agent: Agent) => void;
   updateAgent: (id: string, updates: Partial<Agent>) => void;
   removeAgent: (id: string) => void;
   updateAgentOrganization: (agentId: string, orgId: string | null) => void;
-  
+
   // Selectors
   getAgentById: (id: string) => Agent | null;
   getMyTwinAgent: () => Agent | null;
   getAgentsByRank: (rank: string) => Agent[];
   getAgentsByOrganization: (organization: string) => Agent[];
-  
+
   // Data fetching
   fetchAgents: (username: string, skillIds?: string[]) => Promise<void>;
   shouldFetchAgents: () => boolean;
-  
+
+  // 兼容 SyncManager 的标准接口
+  fetchItems: (username: string, ...args: any[]) => Promise<void>;
+  shouldFetch: () => boolean;
+  clearData: () => void;
+
   // Agent management operations
   saveAgent: (username: string, agent: Agent) => Promise<void>;
   deleteAgent: (username: string, agentId: string) => Promise<void>;
@@ -44,6 +51,7 @@ export const useAgentStore = create<AgentStoreState>()(
   persist(
     (set, get) => ({
       agents: [],
+      items: [], // 别名，兼容标准接口
       loading: false,
       error: null,
       lastFetched: null,
@@ -51,24 +59,28 @@ export const useAgentStore = create<AgentStoreState>()(
       // Actions
       setLoading: (loading) => set({ loading }),
       setError: (error) => set({ error }),
-      setAgents: (agents) => set({ agents, lastFetched: Date.now() }),
+      setAgents: (agents) => set({ agents, items: agents, lastFetched: Date.now() }),
+      setItems: (items) => set({ agents: items, items: items, lastFetched: Date.now() }), // 别名，兼容标准接口
       
-      addAgent: (agent) => set((state) => ({
-        agents: [...state.agents, agent]
-      })),
+      addAgent: (agent) => set((state) => {
+        const newAgents = [...state.agents, agent];
+        return { agents: newAgents, items: newAgents };
+      }),
       
-      updateAgent: (id, updates) => set((state) => ({
-        agents: state.agents.map(agent => 
+      updateAgent: (id, updates) => set((state) => {
+        const newAgents = state.agents.map(agent => 
           agent.card?.id === id ? { ...agent, ...updates } : agent
-        )
-      })),
+        );
+        return { agents: newAgents, items: newAgents };
+      }),
       
-      removeAgent: (id) => set((state) => ({
-        agents: state.agents.filter(agent => agent.card?.id !== id)
-      })),
+      removeAgent: (id) => set((state) => {
+        const newAgents = state.agents.filter(agent => agent.card?.id !== id);
+        return { agents: newAgents, items: newAgents };
+      }),
       
-      updateAgentOrganization: (agentId, orgId) => set((state) => ({
-        agents: state.agents.map(agent => {
+      updateAgentOrganization: (agentId, orgId) => set((state) => {
+        const newAgents = state.agents.map(agent => {
           if (agent.card?.id === agentId) {
             return {
               ...agent,
@@ -76,8 +88,9 @@ export const useAgentStore = create<AgentStoreState>()(
             };
           }
           return agent;
-        })
-      })),
+        });
+        return { agents: newAgents, items: newAgents };
+      }),
 
       // Selectors
       getAgentById: (id) => {
@@ -117,7 +130,8 @@ export const useAgentStore = create<AgentStoreState>()(
             }
             
             set({ 
-              agents: agentsData, 
+              agents: agentsData,
+              items: agentsData,
               loading: false, 
               lastFetched: Date.now(),
               error: null 
@@ -191,7 +205,7 @@ export const useAgentStore = create<AgentStoreState>()(
         try {
           const api = createIPCAPI();
           const response = await api.newAgents(username, [agent]);
-          
+
           if (response && response.success) {
             // Add to local state
             get().addAgent(agent);
@@ -205,12 +219,26 @@ export const useAgentStore = create<AgentStoreState>()(
           throw error;
         }
       },
+
+      // 兼容 SyncManager 的标准接口（别名方法）
+      fetchItems: async (username: string, ...args: any[]) => {
+        return get().fetchAgents(username, args[0]);
+      },
+
+      shouldFetch: () => {
+        return get().shouldFetchAgents();
+      },
+
+      clearData: () => {
+        set({ agents: [], items: [], lastFetched: null, error: null });
+      },
     }),
     {
       name: 'agent-storage',
       // Only persist the agents data, not loading states
       partialize: (state) => ({
         agents: state.agents,
+        items: state.agents, // 持久化时同步 items
         lastFetched: state.lastFetched,
       }),
     }

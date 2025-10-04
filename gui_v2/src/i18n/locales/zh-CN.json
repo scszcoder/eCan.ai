@@ -53,6 +53,7 @@
     "select_vehicle": "选择电脑",
     "select_item": "选择{{item}}",
     "stop": "停止",
+    "unknown": "未知",
     "unknown_error": "未知错误",
     "validation_failed": "验证失败",
     "video_load_error": "视频加载错误",
@@ -64,7 +65,8 @@
     "select_supervisor": "选择主管",
     "select_subordinate": "选择下属",
     "select_task": "选择任务",
-    "select_skill": "选择技能"
+    "select_skill": "选择技能",
+    "description": "描述"
   },
   "navigation": {
     "dashboard": "仪表盘",
@@ -432,9 +434,21 @@
       "skillLevel": "技能等级",
       "skillSettings": "技能设置",
       "statusLabel": "状态",
+      "entryPercent": "入门 {{percent}}%",
+      "latestVersion": "最新版本",
+      "level": "等级",
+      "apps": "应用",
+      "limitations": "限制",
+      "price": "价格",
+      "priceModel": "价格模式",
+      "public": "公开",
+      "rentable": "可租用",
+      "members": "成员",
       "status": {
         "active": "活跃",
         "inactive": "非活跃",
+        "learning": "学习中",
+        "planned": "计划中",
         "draft": "草稿",
         "unknown": "未知"
       },
@@ -442,6 +456,7 @@
         "automation": "自动化",
         "analysis": "分析",
         "communication": "通信",
+        "general": "通用",
         "unknown": "未知"
       },
       "time": {
@@ -457,7 +472,35 @@
       "name": "名称",
       "namePlaceholder": "名称占位符",
       "refresh": "刷新",
-      "title": "标题"
+      "title": "标题",
+      "priorityLabel": "优先级",
+      "triggerLabel": "触发器",
+      "scheduleDetails": "调度详情",
+      "scheduleRepeatTypeLabel": "重复类型",
+      "priority": {
+        "none": "无",
+        "low": "低",
+        "medium": "中",
+        "high": "高",
+        "urgent": "紧急",
+        "unknown": "未知"
+      },
+      "trigger": {
+        "schedule": "定时",
+        "human chat": "人工聊天",
+        "agent message": "代理消息",
+        "unknown": "未知"
+      },
+      "states": {
+        "ready": "就绪",
+        "running": "运行中",
+        "completed": "已完成",
+        "failed": "失败",
+        "unknown": "未知"
+      },
+      "skill": {
+        "unknown": "未知技能"
+      }
     },
     "tests": {
       "argumentPlaceholder": "参数占位符",

@@ -1,13 +1,18 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, Row, Col, Statistic, Typography, Space, Tag, Alert, Skeleton } from 'antd';
 import { CarOutlined, RobotOutlined, ScheduleOutlined, ToolOutlined, SettingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useAppDataStore } from '../../stores/appDataStore';
-import { useAgentStore } from '../../stores/agentStore';
+import {
+  useAgentStore,
+  useTaskStore,
+  useSkillStore,
+  useVehicleStore,
+  storeSyncManager
+} from '../../stores';
+import { useToolStore } from '../../stores/toolStore';
 import { useUserStore } from '../../stores/userStore';
-import { get_ipc_api } from '../../services/ipc_api';
 import { logger } from '@/utils/logger';
-import { AppDataStoreHandler } from '@/stores/AppDataStoreHandler';
 
 const { Title, Text } = Typography;
 
@@ -35,51 +40,89 @@ const DataCard: React.FC<DataCardProps> = ({ title, value, icon, color, loading 
 const Dashboard: React.FC = () => {
     const { t } = useTranslation();
     const username = useUserStore((state) => state.username);
-    
-    // 从 agentStore 获取 agents 数据
-    const { agents } = useAgentStore();
-    
-    // 从 appDataStore 获取其他数据
-    const { 
-        skills, 
-        tools, 
-        tasks, 
-        vehicles, 
+    const [syncError, setSyncError] = useState<string | null>(null);
+    const [isSyncing, setIsSyncing] = useState(false);
+
+    // 从新的 stores 获取数据
+    const agents = useAgentStore((state) => state.items);
+    const agentsLoading = useAgentStore((state) => state.loading);
+
+    const skills = useSkillStore((state) => state.items);
+    const skillsLoading = useSkillStore((state) => state.loading);
+
+    const tasks = useTaskStore((state) => state.items);
+    const tasksLoading = useTaskStore((state) => state.loading);
+
+    const vehicles = useVehicleStore((state) => state.items);
+    const vehiclesLoading = useVehicleStore((state) => state.loading);
+
+    const tools = useToolStore((state) => state.tools);
+    const toolsLoading = useToolStore((state) => state.loading);
+
+    // 从 appDataStore 获取全局设置
+    const {
         settings,
-        isLoading,
-        error,
-        setLoading,
-        setError,
+        isLoading: appDataLoading,
     } = useAppDataStore();
 
-    useEffect(() => {
-        const fetchData = async () => {
-            if (!username) return;
+    // 综合 loading 状态
+    const isLoading = isSyncing || agentsLoading || skillsLoading || tasksLoading || vehiclesLoading || toolsLoading || appDataLoading;
 
-            setLoading(true);
-            setError(null);
+    useEffect(() => {
+        const syncData = async () => {
+            if (!username) {
+                logger.debug('[Dashboard] No username, skipping sync');
+                return;
+            }
+
+            logger.info('[Dashboard] Starting data synchronization...');
+            setIsSyncing(true);
+            setSyncError(null);
+
             try {
-                // await new Promise(resolve => setTimeout(resolve, 6000));
-                const appData = await get_ipc_api().getAll(username);
-                
-                // 将API返回的数据保存到store中
-                console.log('appData', appData);
-                if (appData?.data) {
-                    logger.info('Get all system data successful');
-                    AppDataStoreHandler.updateStore(appData.data as any);
-                    logger.info('system data 数据已保存到store中');
-                 } else {
-                    logger.error('Get all system data failed');
-                 }
+                // 注册所有需要同步的 stores
+                storeSyncManager.register('agent', useAgentStore);
+                storeSyncManager.register('task', useTaskStore);
+                storeSyncManager.register('skill', useSkillStore);
+                storeSyncManager.register('vehicle', useVehicleStore);
+
+                logger.info('[Dashboard] Registered stores:', storeSyncManager.getRegisteredStores());
+
+                // 统一同步所有数据
+                const results = await storeSyncManager.syncAll(username, {
+                    parallel: true,  // 并行同步，提高性能
+                    force: false,    // 使用缓存
+                    timeout: 30000,  // 30秒超时
+                });
+
+                logger.info('[Dashboard] Sync completed:', results);
+
+                // 检查是否有失败的同步
+                const failed = results.filter(r => !r.success);
+                if (failed.length > 0) {
+                    const errorMsg = `Failed to sync: ${failed.map(f => f.storeName).join(', ')}`;
+                    logger.error('[Dashboard] Sync errors:', failed);
+                    setSyncError(errorMsg);
+                } else {
+                    logger.info('[Dashboard] All stores synced successfully');
+                }
+
+                // 同步成功后的统计
+                const successCount = results.filter(r => r.success).length;
+                const totalDuration = results.reduce((sum, r) => sum + (r.duration || 0), 0);
+                logger.info(`[Dashboard] Synced ${successCount}/${results.length} stores in ${totalDuration}ms`);
+
             } catch (err) {
-                setError(err instanceof Error ? err.message : 'An unknown error occurred');
+                const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
+                logger.error('[Dashboard] Sync error:', errorMessage);
+                setSyncError(errorMessage);
             } finally {
-                setLoading(false);
+                setIsSyncing(false);
             }
         };
 
-        fetchData();
-    }, [username, setLoading, setError]);
+        syncData();
+    }, [username]);
 
     const dataCards = [
         { title: t("pages.dashboard.agentsCount"), value: (agents || []).length, icon: <RobotOutlined />, color: '#3f8600' },
@@ -90,8 +133,17 @@ const Dashboard: React.FC = () => {
         { title: t("pages.dashboard.systemStatus"), value: settings ? t("pages.dashboard.statusOnline") : t("pages.dashboard.statusOffline"), icon: <SettingOutlined />, color: settings ? '#52c41a' : '#ff4d4f' }
     ];
 
-    if (error) {
-        return <Alert message={t("pages.dashboard.errorTitle")} description={error} type="error" showIcon />;
+    if (syncError) {
+        return (
+            <Alert
+                message={t("pages.dashboard.errorTitle")}
+                description={syncError}
+                type="error"
+                showIcon
+                closable
+                onClose={() => setSyncError(null)}
+            />
+        );
     }
 
     return (
@@ -140,9 +192,9 @@ const Dashboard: React.FC = () => {
                                         {(tasks || []).slice(0, 3).map((task) => (
                                             <Tag 
                                                 key={task.id} 
-                                                color={task.state.top === 'ready' ? 'green' : 'orange'}
+                                                color={task.state?.top === 'ready' ? 'green' : 'orange'}
                                             >
-                                                {task.skill}
+                                                {task.skill || task.name || 'Unknown'}
                                             </Tag>
                                         ))}
                                         {(tasks || []).length > 3 && (

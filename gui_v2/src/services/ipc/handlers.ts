@@ -5,6 +5,13 @@
 import { IPCRequest } from './types';
 import { useAppDataStore } from '../../stores/appDataStore';
 import { useAgentStore } from '../../stores/agentStore';
+import {
+  useTaskStore,
+  useSkillStore,
+  useVehicleStore,
+  useKnowledgeStore,
+  useChatStore
+} from '../../stores';
 import { eventBus } from '@/utils/eventBus';
 import { useRunningNodeStore } from '@/modules/skill-editor/stores/running-node-store';
 import { useAvatarSceneStore } from '../../stores/avatarSceneStore';
@@ -131,34 +138,65 @@ export class IPCHandlers {
     async updateSkills(request: IPCRequest): Promise<unknown> {
         logger.info('Received update_skills request:', request.params);
         const skills = request.params as any;
-        
-        // 使用专用的 skillStore（如果存在）
-        // 暂时保留 appDataStore 直到所有组件迁移完成
-        useAppDataStore.getState().setSkills(skills);
-        
-        logger.info('Updated skills:', skills?.length || 0);
+
+        // 使用新的 skillStore
+        if (Array.isArray(skills)) {
+            useSkillStore.getState().setItems(skills);
+            logger.info('[IPC] Updated skills in skillStore:', skills.length);
+        }
+
         return { refreshed: true };
     }
 
     async updateTasks(request: IPCRequest): Promise<unknown> {
         logger.info('Received update_tasks request:', request.params);
-        useAppDataStore.getState().setTasks(request.params as any);
+        const tasks = request.params as any;
+
+        // 使用新的 taskStore
+        if (Array.isArray(tasks)) {
+            useTaskStore.getState().setItems(tasks);
+            logger.info('[IPC] Updated tasks in taskStore:', tasks.length);
+        }
+
         return { refreshed: true };
     }
 
     async updateSettings(request: IPCRequest): Promise<unknown> {
         logger.info('Received update_settings request:', request.params);
+        const settings = request.params as any;
+
+        // 更新 appDataStore 中的 settings
+        if (settings) {
+            useAppDataStore.getState().setSettings(settings);
+            logger.info('[IPC] Updated settings in appDataStore');
+        }
+
         return { refreshed: true };
     }
 
     async updateKnowledges(request: IPCRequest): Promise<unknown> {
         logger.info('Received update_knowledges request:', request.params);
-        useAppDataStore.getState().setKnowledges(request.params as any);
+        const knowledges = request.params as any;
+
+        // 使用新的 knowledgeStore
+        if (Array.isArray(knowledges)) {
+            useKnowledgeStore.getState().setItems(knowledges);
+            logger.info('[IPC] Updated knowledges in knowledgeStore:', knowledges.length);
+        }
+
         return { refreshed: true };
     }
 
     async updateChats(request: IPCRequest): Promise<{ success: boolean }> {
         logger.info('Received update_chats request:', request.params);
+        const chats = request.params as any;
+
+        // 使用新的 chatStore
+        if (Array.isArray(chats)) {
+            useChatStore.getState().setItems(chats);
+            logger.info('[IPC] Updated chats in chatStore:', chats.length);
+        }
+
         return { success: true };
     }
 

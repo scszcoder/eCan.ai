@@ -63,7 +63,9 @@
     "select_supervisor": "Select supervisors",
     "select_subordinate": "Select subordinates",
     "select_task": "Select tasks",
-    "select_skill": "Select skills"
+    "select_skill": "Select skills",
+    "unknown": "Unknown",
+    "description": "Description"
   },
   "navigation": {
     "dashboard": "Dashboard",
@@ -431,9 +433,21 @@
       "skillLevel": "Skill Level",
       "skillSettings": "Skill Settings",
       "statusLabel": "Status",
+      "entryPercent": "Entry {{percent}}%",
+      "latestVersion": "Latest Version",
+      "level": "Level",
+      "apps": "Apps",
+      "limitations": "Limitations",
+      "price": "Price",
+      "priceModel": "Price Model",
+      "public": "Public",
+      "rentable": "Rentable",
+      "members": "Members",
       "status": {
         "active": "Active",
         "inactive": "Inactive",
+        "learning": "Learning",
+        "planned": "Planned",
         "draft": "Draft",
         "unknown": "Unknown"
       },
@@ -441,6 +455,7 @@
         "automation": "Automation",
         "analysis": "Analysis",
         "communication": "Communication",
+        "general": "General",
         "unknown": "Unknown"
       },
       "time": {
@@ -456,7 +471,35 @@
       "name": "Name",
       "namePlaceholder": "Name Placeholder",
       "refresh": "Refresh",
-      "title": "Title"
+      "title": "Title",
+      "priorityLabel": "Priority",
+      "triggerLabel": "Trigger",
+      "scheduleDetails": "Schedule",
+      "scheduleRepeatTypeLabel": "Repeat Type",
+      "priority": {
+        "none": "None",
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "urgent": "Urgent",
+        "unknown": "Unknown"
+      },
+      "trigger": {
+        "schedule": "Schedule",
+        "human chat": "Human Chat",
+        "agent message": "Agent Message",
+        "unknown": "Unknown"
+      },
+      "states": {
+        "ready": "Ready",
+        "running": "Running",
+        "completed": "Completed",
+        "failed": "Failed",
+        "unknown": "Unknown"
+      },
+      "skill": {
+        "unknown": "Unknown"
+      }
     },
     "tests": {
       "argumentPlaceholder": "Argument Placeholder",

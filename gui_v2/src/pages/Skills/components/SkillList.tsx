@@ -3,7 +3,7 @@ import { List, Tag, Typography, Space, Progress, Tooltip } from 'antd';
 import { RobotOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
-import { Skill } from '../types';
+import type { Skill } from '@/stores';
 
 const { Text } = Typography;
 

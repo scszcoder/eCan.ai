@@ -34,15 +34,25 @@ def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
                 'INVALID_PARAMS',
                 error
             )
-        main_window: MainWindow = AppContext.get_main_window()
-        agents = main_window.agents
-        all_tasks = []
-        for agent in agents:
-            agent_tasks = agent.tasks
-            all_tasks.extend(agent_tasks)
-        
+
         # 获取用户名
         username = data['username']
+
+        main_window: MainWindow = AppContext.get_main_window()
+        agents = main_window.agents
+
+        # 添加详细调试日志
+        logger.info(f"[DEBUG] get_tasks called for user: {username}")
+        logger.info(f"[DEBUG] main_window.agents type: {type(agents)}")
+        logger.info(f"[DEBUG] main_window.agents count: {len(agents) if agents else 0}")
+
+        all_tasks = []
+        for agent in agents:
+            agent_tasks = agent.tasks if hasattr(agent, 'tasks') else []
+            logger.info(f"[DEBUG] Agent {getattr(agent, 'name', 'unknown')} has {len(agent_tasks)} tasks")
+            all_tasks.extend(agent_tasks)
+
+        logger.info(f"[DEBUG] Total tasks collected: {len(all_tasks)}")
 
         # 安全地序列化任务
         serialized_tasks = []

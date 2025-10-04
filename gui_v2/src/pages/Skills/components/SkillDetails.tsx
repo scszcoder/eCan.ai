@@ -1,7 +1,7 @@
 import React from 'react';
 import { Typography, Space, Button, Progress, Tooltip, Card, Tag, Form, Input, Row, Col, Checkbox, message } from 'antd';
-import { 
-    ThunderboltOutlined, 
+import {
+    ThunderboltOutlined,
     CheckCircleOutlined,
     ClockCircleOutlined,
     StarOutlined,
@@ -10,7 +10,7 @@ import {
     FileTextOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { Skill } from '../types';
+import type { Skill } from '@/stores';
 import ActionButtons from '../../../components/Common/ActionButtons';
 import { useNavigate } from 'react-router-dom';
 import { get_ipc_api } from '@/services/ipc_api';
