@@ -12,10 +12,26 @@ interface VehicleListProps {
     onFilterChange: (filters: Record<string, any>) => void;
     onSearch: (value: string) => void;
     onReset: () => void;
+    onAdd?: () => void;
+    onEdit?: () => void;
+    onDelete?: () => void;
+    onRefresh?: () => void;
     t: any;
 }
 
-const VehicleList: React.FC<VehicleListProps> = ({ vehicles, onSelect, filters, onFilterChange, onSearch, onReset, t }) => (
+const VehicleList: React.FC<VehicleListProps> = ({ 
+    vehicles, 
+    onSelect, 
+    filters, 
+    onFilterChange, 
+    onSearch, 
+    onReset, 
+    onAdd,
+    onEdit,
+    onDelete,
+    onRefresh,
+    t 
+}) => (
     <>
         <SearchFilter
             onSearch={onSearch}
@@ -43,10 +59,10 @@ const VehicleList: React.FC<VehicleListProps> = ({ vehicles, onSelect, filters, 
             placeholder={t('pages.vehicles.searchPlaceholder')}
         />
         <ActionButtons
-            onAdd={() => {}}
-            onEdit={() => {}}
-            onDelete={() => {}}
-            onRefresh={() => {}}
+            onAdd={onAdd}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onRefresh={onRefresh}
             onExport={() => {}}
             onImport={() => {}}
             onSettings={() => {}}

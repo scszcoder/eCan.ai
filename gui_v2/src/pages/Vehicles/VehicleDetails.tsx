@@ -71,7 +71,7 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
                         },
                     ]}
                 />
-                {/* 原有性能指标卡片 */}
+                {/* 性能指标卡片 */}
                 <DetailCard
                     title={t('pages.vehicles.performanceMetrics')}
                     items={[
@@ -82,9 +82,63 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
                                     value={vehicle.battery ?? 0}
                                     suffix="%"
                                     prefix={<ThunderboltOutlined />}
+                                    valueStyle={{ color: vehicle.battery && vehicle.battery < 20 ? '#cf1322' : '#3f8600' }}
                                 />
                             ),
                             icon: <ThunderboltOutlined />, 
+                        },
+                        {
+                            label: 'CPU使用率',
+                            value: (
+                                <Statistic
+                                    value={vehicle.cpuUsage ?? 0}
+                                    suffix="%"
+                                    precision={1}
+                                    valueStyle={{ color: vehicle.cpuUsage && vehicle.cpuUsage > 80 ? '#cf1322' : '#3f8600' }}
+                                />
+                            ),
+                            icon: <ClusterOutlined />, 
+                        },
+                        {
+                            label: '内存使用率',
+                            value: (
+                                <Statistic
+                                    value={vehicle.memoryUsage ?? 0}
+                                    suffix="%"
+                                    precision={1}
+                                    valueStyle={{ color: vehicle.memoryUsage && vehicle.memoryUsage > 80 ? '#cf1322' : '#3f8600' }}
+                                />
+                            ),
+                            icon: <ClusterOutlined />, 
+                        },
+                        {
+                            label: '磁盘使用率',
+                            value: (
+                                <Statistic
+                                    value={vehicle.diskUsage ?? 0}
+                                    suffix="%"
+                                    precision={1}
+                                    valueStyle={{ color: vehicle.diskUsage && vehicle.diskUsage > 90 ? '#cf1322' : '#3f8600' }}
+                                />
+                            ),
+                            icon: <ClusterOutlined />, 
+                        },
+                    ]}
+                />
+                
+                {/* 设备状态卡片 */}
+                <DetailCard
+                    title="设备状态"
+                    items={[
+                        {
+                            label: '网络状态',
+                            value: vehicle.networkStatus === 'connected' ? '已连接' : '未连接',
+                            icon: <EnvironmentOutlined />,
+                        },
+                        {
+                            label: '运行时间',
+                            value: vehicle.uptime ? `${Math.floor(vehicle.uptime / 3600)}小时` : '未知',
+                            icon: <ClockCircleOutlined />,
                         },
                         {
                             label: t('pages.vehicles.totalDistance'),
@@ -97,13 +151,25 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
                             icon: <ClusterOutlined />, 
                         },
                         {
+                            label: t('pages.vehicles.currentTask'),
+                            value: vehicle.currentTask || '无',
+                            icon: <ToolOutlined />, 
+                        },
+                    ]}
+                />
+                
+                {/* 维护信息卡片 */}
+                <DetailCard
+                    title="维护信息"
+                    items={[
+                        {
                             label: t('pages.vehicles.lastMaintenance'),
-                            value: vehicle.lastMaintenance,
+                            value: vehicle.lastMaintenance || '未记录',
                             icon: <ToolOutlined />, 
                         },
                         {
                             label: t('pages.vehicles.nextMaintenance'),
-                            value: vehicle.nextMaintenance,
+                            value: vehicle.nextMaintenance || '未安排',
                             icon: <ClockCircleOutlined />, 
                         },
                     ]}

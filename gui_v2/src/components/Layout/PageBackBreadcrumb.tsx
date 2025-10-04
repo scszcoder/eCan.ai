@@ -63,9 +63,11 @@ const agentsPathHandler: PathHandler = {
     match: (segments) => segments[0] === 'agents',
     
     generate: (_segments, path, t, navigate, context) => {
+        console.log('[PageBackBreadcrumb] Generating breadcrumb for path:', path);
         const items: BreadcrumbItem[] = [];
         const treeOrgs = context?.treeOrgs || [];
         const rootNode = treeOrgs[0];
+        console.log('[PageBackBreadcrumb] rootNode:', rootNode?.name);
         
         // 添加 Agents 根节点
         items.push({
@@ -114,14 +116,65 @@ const agentsPathHandler: PathHandler = {
             });
         }
         
-        // 如果是 details 页面
-        if (path.includes('/details/')) {
+        // 如果是 details 页面或 add 页面，尝试从URL参数获取orgId
+        if (path.includes('/details/') || path.includes('/add')) {
+            // 从URL中获取orgId参数
+            const urlParams = new URLSearchParams(window.location.search);
+            const orgIdParam = urlParams.get('orgId');
+            console.log('[PageBackBreadcrumb] URL orgId param:', orgIdParam);
+            console.log('[PageBackBreadcrumb] orgMatches:', orgMatches);
+            
+            if (orgIdParam && rootNode && !orgMatches) {
+                // 如果URL中有orgId但路径中没有organization，构建组织路径
+                const node = findTreeNodeById(rootNode, orgIdParam);
+                if (node) {
+                    // 构建从根到当前组织的完整路径
+                    const buildOrgPath = (targetNode: any, currentNode: any, pathSoFar: any[] = []): any[] | null => {
+                        if (currentNode.id === targetNode.id) {
+                            return [...pathSoFar, currentNode];
+                        }
+                        if (currentNode.children) {
+                            for (const child of currentNode.children) {
+                                const result = buildOrgPath(targetNode, child, [...pathSoFar, currentNode]);
+                                if (result) return result;
+                            }
+                        }
+                        return null;
+                    };
+                    
+                    const orgPath = buildOrgPath(node, rootNode);
+                    console.log('[PageBackBreadcrumb] Built org path:', orgPath?.map(n => n.name));
+                    if (orgPath) {
+                        // 添加组织路径的面包屑（跳过根节点，因为已经添加了）
+                        orgPath.slice(1).forEach((orgNode) => {
+                            const orgPathStr = `/agents/organization/${orgNode.id}`;
+                            console.log('[PageBackBreadcrumb] Adding org breadcrumb:', orgNode.name, orgPathStr);
+                            items.push({
+                                key: orgPathStr,
+                                title: createClickableLink(orgNode.name, orgPathStr, navigate),
+                                path: orgPathStr
+                            });
+                        });
+                    }
+                } else {
+                    console.log('[PageBackBreadcrumb] Node not found for orgId:', orgIdParam);
+                }
+            } else {
+                console.log('[PageBackBreadcrumb] Conditions not met - orgIdParam:', orgIdParam, 'rootNode:', !!rootNode, 'orgMatches:', orgMatches);
+            }
+            
+            // 添加详情/新增页面标题
             items.push({
                 key: path,
-                title: createCurrentNode(t('pages.agents.agent_details', 'Agent Details'))
+                title: createCurrentNode(
+                    path.includes('/add') 
+                        ? t('pages.agents.create_agent', 'Create Agent')
+                        : t('pages.agents.agent_details', 'Agent Details')
+                )
             });
         }
         
+        console.log('[PageBackBreadcrumb] Final breadcrumb items:', items.length);
         return items;
     }
 };

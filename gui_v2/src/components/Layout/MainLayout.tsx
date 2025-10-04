@@ -96,6 +96,8 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const onMenuClick = ({ key }: { key: string }) => navigate(key);
 
     const isSkillEditor = location.pathname.startsWith('/skill_editor');
+    // 检查是否在 agents 相关页面，只有这些页面才显示右侧快速操作菜单
+    const isAgentsPage = location.pathname.startsWith('/agents');
 
     return (
         <StyledLayout>
@@ -115,7 +117,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                     onLogout={handleLogout}
                 />
                 <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
-                    {!isSkillEditor && (
+                    {!isSkillEditor && isAgentsPage && (
                         <div style={{ 
                             display: 'flex', 
                             alignItems: 'center', 

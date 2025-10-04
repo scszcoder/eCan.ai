@@ -49,7 +49,7 @@ from common.models import BotModel, MissionModel, VehicleModel
 print(TimeUtil.formatted_now_with_ms() + " load MainGui #0 finished...")
 
 # ============================================================================
-# 4. Network Library Imports (已在标准库导入中包含)
+# 4. Network Library Imports (already included in standard library imports)
 # ============================================================================
 
 # ============================================================================
@@ -106,6 +106,7 @@ from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill
 from bot.inventories import INVENTORY
 from bot.wanChat import wanSendMessage, wanSendMessage8
 from bot.network import myname, fieldLinks, commanderIP, commanderXport, runCommanderLAN, runPlatoonLAN
+from gui.utils.system_info import get_system_info_manager, get_complete_system_info
 from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, prepRunSkill, readPSkillFile, addNameSpaceToAddress, rpaRunAllSteps, running_step_index
 from bot.labelSkill import handleExtLabelGenResults
 
@@ -208,7 +209,7 @@ class MainWindow:
         # ============================================================================
         logger.info("[MainWindow] 🚀 Phase 2: Starting background initialization...")
 
-        # 通知 IPC Registry 系统已就绪，清理缓存以确保立即生效
+        # Notify IPC Registry that system is ready, clear cache to ensure immediate effect
         self._initialization_status['fully_ready'] = True
         try:
             from gui.ipc.registry import IPCHandlerRegistry
@@ -217,9 +218,56 @@ class MainWindow:
             logger.warning(f"[MainWindow] Failed to update IPC registry cache: {cache_e}")
 
         # Start background initialization immediately
-        asyncio.create_task(self._async_background_initialization())
+        try:
+            # Try to create task in existing event loop
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._async_background_initialization())
+            logger.info("[MainWindow] ✅ Background initialization task created successfully")
+        except RuntimeError as e:
+            logger.error(f"[MainWindow] ⚠️ No running event loop for background initialization: {e}")
+            # Mark initialization complete directly to avoid frontend infinite waiting
+            self._initialization_status['async_init_complete'] = True
+            logger.info("[MainWindow] ✅ Marked async_init_complete=True due to no event loop")
 
         logger.info("[MainWindow] ✅ MainWindow basic initialization completed - background services starting")
+
+    async def _update_vehicle_metrics_async(self, vehicle):
+        """Asynchronously update vehicle performance metrics without blocking main thread"""
+        try:
+            logger.debug(f"[MainWindow] 📊 Starting async metrics update for vehicle: {vehicle.getName()}")
+            
+            # Delay briefly to let main thread complete initialization
+            await asyncio.sleep(0.5)
+            
+            # Update performance metrics in background
+            start_time = time.time()
+            vehicle.updateSystemMetrics()
+            elapsed_time = time.time() - start_time
+            
+            logger.info(f"[MainWindow] ✅ Updated performance metrics for vehicle: {vehicle.getName()} in {elapsed_time:.3f}s")
+            
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Failed to update vehicle metrics for {vehicle.getName()}: {e}")
+            import traceback
+            logger.debug(f"[MainWindow] Vehicle metrics error traceback: {traceback.format_exc()}")
+
+    def _schedule_delayed_metrics_update(self, vehicle):
+        """Schedule delayed performance monitoring update, waiting for event loop availability"""
+        try:
+            logger.debug(f"[MainWindow] 🔄 Attempting delayed metrics update for vehicle: {vehicle.getName()}")
+
+            # Try to get event loop again
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._update_vehicle_metrics_async(vehicle))
+                logger.debug(f"[MainWindow] ✅ Successfully scheduled delayed metrics update for vehicle: {vehicle.getName()}")
+            except RuntimeError as e:
+                # If event loop is still not available after delay, log as warning and continue with defaults
+                logger.warning(f"[MainWindow] ⚠️ Event loop still not available for delayed metrics update: {e}")
+                logger.info(f"[MainWindow] 📊 Vehicle {vehicle.getName()} will continue with default metrics")
+
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Failed to schedule delayed metrics update for {vehicle.getName()}: {e}")
 
     async def _async_background_initialization(self):
         """
@@ -289,9 +337,10 @@ class MainWindow:
         except Exception as e:
             logger.error(f"[MainWindow] ❌ Background initialization failed: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            logger.error(f"[MainWindow] Background initialization error traceback:\n{traceback.format_exc()}")
             # Even if background init fails, mark as complete to prevent hanging
             self._initialization_status['async_init_complete'] = True
+            logger.info("[MainWindow] ✅ Marked async_init_complete=True after background initialization failure")
 
     async def _finalize_async_initialization(self):
         """Finalize async initialization and start final background services"""
@@ -314,24 +363,45 @@ class MainWindow:
         # Start cloud sync if needed (deferred from sync phase)
         if getattr(self, '_should_start_cloud_sync', False):
             logger.info("[MainWindow] 🌐 Starting deferred cloud data sync...")
-            asyncio.create_task(self._async_sync_cloud_data())
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._async_sync_cloud_data())
+            except RuntimeError:
+                logger.error("[MainWindow] No running event loop for cloud sync, skipping")
 
         # Start final background services - wait for agents to be ready before marking fully ready
-        logger.info("[MainWindow] Starting final background services...")
-        agents_task = asyncio.create_task(self.async_agents_init())
-        asyncio.create_task(self._async_setup_browser_manager())
-        asyncio.create_task(self._async_start_lightrag())
-        self.wan_sub_task = asyncio.create_task(self._async_start_wan_chat())
-        self.llm_sub_task = asyncio.create_task(self._async_start_llm_subscription())
+        logger.info("[MainWindow] 🚀 Starting final background services...")
+        try:
+            loop = asyncio.get_running_loop()
+            agents_task = loop.create_task(self.async_agents_init())
+            loop.create_task(self._async_setup_browser_manager())
+            loop.create_task(self._async_start_lightrag())
+            self.wan_sub_task = loop.create_task(self._async_start_wan_chat())
+            self.llm_sub_task = loop.create_task(self._async_start_llm_subscription())
+            logger.info("[MainWindow] ✅ All final background service tasks created successfully")
+        except RuntimeError as e:
+            logger.error(f"[MainWindow] ⚠️ No running event loop for final background services: {e}")
+            logger.info("[MainWindow] 📋 Skipping background services - system will work with basic functionality")
+            agents_task = None
 
         # Wait for agents initialization to complete before marking system fully ready
         try:
-            await agents_task
-            logger.info("[MainWindow] ✅ Agents initialization completed")
+            if agents_task is not None:
+                logger.info("[MainWindow] ⏳ Waiting for agents initialization to complete...")
+                start_time = time.time()
+                await agents_task
+                elapsed_time = time.time() - start_time
+                logger.info(f"[MainWindow] ✅ Agents initialization completed in {elapsed_time:.3f}s")
+            else:
+                logger.warning("[MainWindow] ⚠️ No agents task to wait for - skipping agent initialization")
+                # Give system some time to stabilize
+                await asyncio.sleep(1.0)
+                logger.info("[MainWindow] 📋 System stabilization delay completed")
+            
             # # Now mark system as fully ready since agents are loaded
             # self._initialization_status['fully_ready'] = True
 
-            # # 通知 IPC Registry 系统已就绪，清理缓存以确保立即生效
+            # # Notify IPC Registry that system is ready, clear cache to ensure immediate effect
             # try:
             #     from gui.ipc.registry import IPCHandlerRegistry
             #     IPCHandlerRegistry.force_system_ready(True)
@@ -339,7 +409,7 @@ class MainWindow:
             #     logger.warning(f"[MainWindow] Failed to update IPC registry cache: {cache_e}")
 
 
-            # 通知更新 home agents 页面
+            # Notify update home agents page
             from app_context import AppContext
             web_gui = AppContext.get_web_gui()
             web_gui.get_ipc_api().update_org_agents()
@@ -350,7 +420,7 @@ class MainWindow:
             # Still mark as ready to prevent hanging, but log the issue
             # self._initialization_status['fully_ready'] = True
 
-            # # 即使失败也要通知 IPC Registry
+            # # Notify IPC Registry even if failed
             # try:
             #     from gui.ipc.registry import IPCHandlerRegistry
             #     IPCHandlerRegistry.force_system_ready(True)
@@ -476,14 +546,15 @@ class MainWindow:
         """Initialize system information and hardware details"""
         logger.info("[MainWindow] 💻 Initializing system information...")
 
-        # System information
-        system = platform.system()
-        release = platform.release()
-        version = platform.version()
-        architecture = platform.architecture()[0]
-        self.os_info = f"{system} {release} ({architecture}), Version: {version}"
-        self.platform = platform.system().lower()[0:3]
-        self.system = system
+        # Use system information manager to get complete information
+        self.system_info_manager = get_system_info_manager()
+        system_info = self.system_info_manager.get_complete_system_info()
+        
+        # Basic system information
+        self.os_info = system_info.get('os_info', 'Unknown OS')
+        self.platform = system_info.get('platform', 'unk')
+        self.system = system_info.get('system', 'Unknown')
+        self.architecture = system_info.get('architecture', '64bit')
 
         # OS short name
         if self.system == "Windows":
@@ -492,27 +563,39 @@ class MainWindow:
             self.os_short = "linux"
         elif self.system == "Darwin":
             self.os_short = "mac"
+        else:
+            self.os_short = "other"
         
-        # Hardware information
-        import psutil
-        self.cpuinfo = self._get_cpu_info_safely()
-        self.processor = self.cpuinfo.get('brand_raw', 'Unknown Processor')
-        self.cpu_cores = psutil.cpu_count(logical=False)  # Physical cores
-        self.cpu_threads = psutil.cpu_count(logical=True)  # Logical cores
-        self.cpu_speed = self.cpuinfo.get('hz_advertised_friendly', 'Unknown Speed')
+        # Processor information
+        processor_info = system_info.get('processor', {})
+        self.cpuinfo = processor_info
+        self.processor = processor_info.get('brand_raw', 'Unknown Processor')
+        self.cpu_cores = processor_info.get('count', 1)
+        self.cpu_threads = processor_info.get('threads', 1)
+        self.cpu_speed = processor_info.get('hz_advertised_friendly', 'Unknown Speed')
 
         # Memory information
-        self.virtual_memory = psutil.virtual_memory()
-        self.total_memory = self.virtual_memory.total / (1024 ** 3)  # Convert to GB
+        memory_info = system_info.get('memory', {})
+        self.total_memory = memory_info.get('total_gb', 0.0)
+        self.virtual_memory = type('VirtualMemory', (), {
+            'total': memory_info.get('total', 0),
+            'available': memory_info.get('available', 0),
+            'percent': memory_info.get('percent', 0.0),
+            'used': memory_info.get('used', 0)
+        })()
 
         # Screen information
         self.screen_size = getScreenSize()
 
-        # Machine identification
-        self.machine_name = myname
+        # Machine identification information - using system information manager
+        self.machine_name = system_info.get('machine_name', 'Unknown-Computer')
+        self.device_type = system_info.get('device_type', 'Computer')
+        self.system_arch = system_info.get('system_arch', 'unknown')
         self.commander_name = ""
 
         logger.info(f"[MainWindow] ✅ System info initialized - OS: {self.os_info}, CPU: {self.processor}, Memory: {self.total_memory:.1f}GB")
+        logger.info(f"[MainWindow] ✅ Device info - Name: {self.machine_name}, Type: {self.device_type}, Arch: {self.system_arch}")
+
 
     def _init_file_system(self):
         """Initialize file system directories and paths"""
@@ -1435,10 +1518,10 @@ class MainWindow:
             logger.info("[MainWindow] 🎯 Phase 3: Streamlined agent assembly...")
             phase3_start = time.time()
             
-            # 流水线化Agent构建和启动
+            # Pipelined Agent construction and startup
             logger.info("[MainWindow] 🔧 Starting pipelined agent initialization...")
             
-            # 检查必需的组件是否已就绪
+            # Check if required components are ready
             missing_components = []
             if not hasattr(self, 'llm') or self.llm is None:
                 missing_components.append('LLM')
@@ -1451,10 +1534,10 @@ class MainWindow:
             else:
                 logger.info(f"[MainWindow] ✅ All components ready - LLM: {type(self.llm)}, MCP Client: {self.mcp_client is not None}")
                 
-                # 启动技能构建任务（异步）
+                # Start skill building task (asynchronous)
                 skills_task = asyncio.create_task(self._build_agent_skills_optimized())
                 
-                # 等待技能构建完成
+                # Wait for skill building to complete
                 try:
                     self.agent_skills = await skills_task
                     logger.info(f"[MainWindow] ✅ Agent skills built: {len(self.agent_skills)} skills")
@@ -1464,10 +1547,10 @@ class MainWindow:
                     logger.error(f"[MainWindow] Skills building traceback: {traceback.format_exc()}")
                     self.agent_skills = []
             
-            # 环境准备（简化处理）
+            # Environment preparation (simplified handling)
             logger.info("[MainWindow] 🔧 Environment preparation completed")
             
-            # 超级并行 Agent 构建和启动
+            # Ultra-parallel Agent construction and startup
             try:
                 logger.info("[MainWindow] 🚀 Building and launching agents with ultra-parallel optimization...")
                 agents_built = await self._build_and_launch_agents_ultra_parallel()
@@ -1696,7 +1779,7 @@ class MainWindow:
             raise
 
     async def wait_for_server_async(self, agent, timeout: float = 5.0):
-        """异步等待Agent服务器启动"""
+        """Asynchronously wait for Agent server startup"""
         url = agent.get_card().url+'/ping'
         start = time.time()
         
@@ -1719,30 +1802,30 @@ class MainWindow:
         return False
 
     def wait_for_server(self, agent, timeout: float = 10.0):
-        """保留原有同步方法作为备用"""
+        """Keep original synchronous method as backup"""
         url = agent.get_card().url+'/ping'
         logger.info("agent card url:", url)
         start = time.time()
         while time.time() - start < timeout:
             try:
-                response = requests.get(url, timeout=2)  # 添加请求超时
+                response = requests.get(url, timeout=2)  # Add request timeout
                 if response.status_code == 200:
                     logger.info("✅ Server is up!")
                     return True
             except (requests.ConnectionError, requests.Timeout):
                 pass
-            time.sleep(0.5)  # 减少等待间隔
+            time.sleep(0.5)  # Reduce wait interval
         
         logger.warning(f"⚠️ Server did not start within {timeout} seconds, continuing anyway")
-        return False  # 不抛出异常，继续执行
+        return False  # Don't throw exception, continue execution
 
 
     async def launch_agents_parallel(self):
-        """并行启动所有Agent，大幅提升性能"""
+        """Launch all Agents in parallel, significantly improving performance"""
         logger.info(f"🚀 Launching {len(self.agents)} agents in parallel...")
         
         async def launch_single_agent(agent, index):
-            """启动单个Agent的异步任务"""
+            """Asynchronous task to launch a single Agent"""
             if not agent:
                 logger.warning(f"⚠️ Agent {index} is empty, skipping")
                 return False
@@ -1750,11 +1833,11 @@ class MainWindow:
             try:
                 logger.info(f"🔄 Starting agent {index}: {agent.card.name}")
                 
-                # 在线程池中启动Agent（避免阻塞）
+                # Start Agent in thread pool (avoid blocking)
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, agent.start)
                 
-                # 异步等待服务器启动（减少超时时间）
+                # Asynchronously wait for server startup (reduce timeout)
                 server_ready = await self.wait_for_server_async(agent, timeout=3.0)
                 
                 if server_ready:
@@ -1768,16 +1851,16 @@ class MainWindow:
                 logger.error(f"❌ Failed to start agent {index}: {e}")
                 return False
         
-        # 并行启动所有Agent
+        # Launch all Agents in parallel
         tasks = [
             launch_single_agent(agent, i) 
             for i, agent in enumerate(self.agents)
         ]
         
-        # 等待所有Agent启动完成
+        # Wait for all Agents to complete startup
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        # 统计结果
+        # Count results
         successful = sum(1 for r in results if r is True)
         failed = len(results) - successful
         
@@ -1785,7 +1868,7 @@ class MainWindow:
         return successful > 0
 
     def launch_agents(self):
-        """保留原有同步方法作为备用"""
+        """Keep original synchronous method as backup"""
         logger.info(f"launching agents:{len(self.agents)}")
         for agent in self.agents:
             if agent:
@@ -1889,24 +1972,24 @@ class MainWindow:
             return []
 
     async def _build_and_launch_agents_ultra_parallel(self):
-        """超级并行 Agent 构建和启动 - 真正的并行处理以最大化性能"""
+        """Ultra-parallel Agent build and launch - true parallel processing to maximize performance"""
         try:
             logger.info("[MainWindow] 🚀 Starting ultra-parallel agent build and launch...")
             start_time = time.time()
             
-            # 初始化 agents 列表
+            # Initialize agents list
             self.agents = []
             
-            # 定义需要构建的 Agent 类型（基于角色）
+            # Define Agent types to build (based on role)
             agent_configs = []
             
-            # 基础 Agent（总是需要）
+            # Basic Agent (always needed)
             agent_configs.append({
                 'name': 'My Twin',
                 'builder': 'agent.ec_agents.my_twin_agent.set_up_my_twin_agent'
             })
             
-            # 根据角色添加其他 Agent
+            # Add other Agents based on role
             if "Platoon" in self.machine_role:
                 agent_configs.extend([
                     {'name': 'Helper', 'builder': 'agent.ec_agents.ec_helper_agent.set_up_ec_helper_agent'},
@@ -1927,7 +2010,7 @@ class MainWindow:
             
             logger.info(f"[MainWindow] 📋 Ultra-parallel will build {len(agent_configs)} agents")
             
-            # 🚀 策略1: 并行构建所有 Agent
+            # 🚀 Strategy 1: Build all Agents in parallel
             build_start = time.time()
             build_tasks = [
                 self._build_single_agent_with_name_async(config['name'], config['builder'])
@@ -1937,7 +2020,7 @@ class MainWindow:
             logger.info(f"[MainWindow] 🔧 Building {len(build_tasks)} agents in parallel...")
             build_results = await asyncio.gather(*build_tasks, return_exceptions=True)
             
-            # 收集成功构建的 Agent
+            # Collect successfully built Agents
             built_agents = []
             for i, result in enumerate(build_results):
                 if isinstance(result, Exception):
@@ -1956,7 +2039,7 @@ class MainWindow:
                 logger.error("[MainWindow] ❌ No agents were successfully built")
                 return False
             
-            # 🚀 策略2: 并行启动所有构建成功的 Agent
+            # 🚀 Strategy 2: Launch all successfully built Agents in parallel
             launch_start = time.time()
             launch_tasks = [
                 self._launch_single_agent_with_name_async(name, agent)
@@ -1966,7 +2049,7 @@ class MainWindow:
             logger.info(f"[MainWindow] 🚀 Launching {len(launch_tasks)} agents in parallel...")
             launch_results = await asyncio.gather(*launch_tasks, return_exceptions=True)
             
-            # 统计启动结果
+            # Count launch results
             launched_count = 0
             for i, result in enumerate(launch_results):
                 agent_name = built_agents[i][0]
@@ -1984,8 +2067,8 @@ class MainWindow:
             logger.info(f"[MainWindow] 🎉 Parallel launch completed: {launched_count}/{len(built_agents)} agents in {launch_time:.3f}s")
             logger.info(f"[MainWindow] 🎉 Ultra-parallel process completed: {len(built_agents)} built, {launched_count} launched in {total_time:.3f}s")
             
-            # 性能对比信息
-            estimated_sequential_time = len(agent_configs) * 0.6  # 估算顺序执行时间
+            # Performance comparison information
+            estimated_sequential_time = len(agent_configs) * 0.6  # Estimate sequential execution time
             improvement = ((estimated_sequential_time - total_time) / estimated_sequential_time) * 100
             logger.info(f"[MainWindow] 📈 Performance improvement: ~{improvement:.1f}% faster than sequential")
             
@@ -1996,14 +2079,14 @@ class MainWindow:
             return False
 
     async def _build_single_agent_with_name_async(self, agent_name: str, builder_path: str):
-        """异步构建单个 Agent（返回名称和 Agent 的元组）"""
+        """Asynchronously build a single Agent (returns tuple of name and Agent)"""
         try:
-            # 动态导入构建函数
+            # Dynamically import build function
             module_path, function_name = builder_path.rsplit('.', 1)
             module = __import__(module_path, fromlist=[function_name])
             builder_func = getattr(module, function_name)
             
-            # 在线程池中执行构建（避免阻塞事件循环）
+            # Execute build in thread pool (avoid blocking event loop)
             loop = asyncio.get_event_loop()
             agent = await loop.run_in_executor(None, builder_func, self)
             
@@ -5546,18 +5629,89 @@ class MainWindow:
 
     # add vehicles based on fieldlinks.
     def checkVehicles(self):
+        import time
+        start_time = time.time()
+        
         self.showMsg("adding self as a vehicle if is Commander.....")
         existing_names = [v.getName().split(":")[0] for v in self.vehicles]
         print("existing v names:", existing_names)
         if self.machine_role == "Commander":
-            # should add this machine to vehicle list.
-            newVehicle = VEHICLE(self, self.machine_name+":"+self.os_short, self.ip)
-            newVehicle.setStatus("running_idle")
-            self.saveVehicle(newVehicle)
-            self.vehicles.append(newVehicle)
-            # Vehicle GUI model removed - vehicles managed through PlatoonManager
-            if hasattr(self, 'platoon_manager') and self.platoon_manager:
-                self.platoon_manager.add_vehicle(newVehicle)
+            # Check if this machine is already in the vehicle list
+            if self.machine_name not in existing_names:
+                # should add this machine to vehicle list.
+                newVehicle = VEHICLE(self, self.machine_name+":"+self.os_short, self.ip)
+                newVehicle.setStatus("running_idle")
+                
+                # Set complete system information
+                if hasattr(self, 'architecture'):
+                    # Get architecture from platform.architecture()[0] and convert to common format
+                    arch_mapping = {
+                        '64bit': 'x86_64' if 'intel' in self.processor.lower() or 'amd' in self.processor.lower() else 'arm64',
+                        '32bit': 'x86'
+                    }
+                    newVehicle.setArch(arch_mapping.get(self.architecture, self.architecture))
+                else:
+                    # Fallback: detect architecture
+                    import platform
+                    machine = platform.machine().lower()
+                    if machine in ['x86_64', 'amd64']:
+                        newVehicle.setArch('x86_64')
+                    elif machine in ['arm64', 'aarch64']:
+                        newVehicle.setArch('arm64')
+                    else:
+                        newVehicle.setArch(machine)
+                
+                # Set functions based on role
+                if hasattr(self, 'functions'):
+                    newVehicle.setFunctions(self.functions)
+                
+                # Set unique vehicle ID based on IP
+                ip_parts = self.ip.split('.')
+                if len(ip_parts) >= 4:
+                    newVehicle.setVid(ip_parts[-1])  # Use last octet as ID
+                else:
+                    newVehicle.setVid(str(hash(self.machine_name) % 1000))  # Fallback ID
+                
+                # Set device information and performance metrics using system info manager
+                newVehicle.setType(self.device_type)
+                newVehicle.setLocation(f"Local - {self.machine_name}")
+                newVehicle.setBattery(100)  # Desktop/laptop default to 100%
+                newVehicle.setCurrentTask("System Management")
+                
+                # Set maintenance schedule (example: next maintenance in 30 days)
+                from datetime import datetime, timedelta
+                next_maintenance = datetime.now() + timedelta(days=30)
+                newVehicle.setNextMaintenance(next_maintenance.strftime("%Y-%m-%d"))
+                
+                # Schedule async system metrics update (non-blocking)
+                try:
+                    # Try to create task in existing event loop
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(self._update_vehicle_metrics_async(newVehicle))
+                    logger.debug(f"[MainWindow] ✅ Scheduled async metrics update for vehicle: {newVehicle.getName()}")
+                except RuntimeError as e:
+                    # This is expected during startup when event loop is not running yet
+                    logger.debug(f"[MainWindow] ⏳ Event loop not running yet for vehicle metrics update: {e}")
+                    # Use QTimer for delayed execution, waiting for event loop to be available
+                    from PySide6.QtCore import QTimer
+                    timer = QTimer()
+                    timer.timeout.connect(lambda v=newVehicle: self._schedule_delayed_metrics_update(v))
+                    timer.setSingleShot(True)
+                    timer.start(2000)  # Retry after 2 seconds
+                    logger.info(f"[MainWindow] 📊 Scheduled delayed metrics update for vehicle: {newVehicle.getName()}")
+                
+                self.saveVehicle(newVehicle)
+                self.vehicles.append(newVehicle)
+                # Vehicle GUI model removed - vehicles managed through PlatoonManager
+                if hasattr(self, 'platoon_manager') and self.platoon_manager:
+                    self.platoon_manager.add_vehicle(newVehicle)
+                logger.info(f"[MainWindow] Added local machine as vehicle: {self.machine_name} (arch: {newVehicle.getArch()}, functions: {newVehicle.getFunctions()})")
+            else:
+                logger.info(f"[MainWindow] Local machine already exists in vehicle list: {self.machine_name}")
+
+        # Record performance statistics
+        end_time = time.time()
+        logger.info(f"[MainWindow] checkVehicles completed in {end_time - start_time:.3f}s")
 
         self.showMsg("adding already linked vehicles.....")
         for i in range(len(fieldLinks)):
