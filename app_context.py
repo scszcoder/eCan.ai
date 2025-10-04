@@ -199,3 +199,31 @@ class AppContext(metaclass=AppContextMeta):
         return web_gui
 
     # 你可以继续添加更多 set/get 方法
+
+    @classmethod
+    def get_useful_context(cls) -> dict:
+        """Aggregate and return a minimal, useful context for external skills.
+
+        This avoids external skills importing internal modules. The returned dict is stable and
+        contains references commonly needed by skills. Fields may be None depending on runtime mode.
+        """
+        inst = cls.get_instance()
+        try:
+            playwright_path = inst.get_playwright_browsers_path()
+        except Exception:
+            playwright_path = None
+
+        return {
+            "app": inst.app,
+            "main_window": inst.main_window,
+            "web_gui": inst.web_gui,
+            "logger": inst.logger,
+            "config": inst.config,
+            "thread_pool": inst.thread_pool,
+            "app_info": inst.app_info,
+            "main_loop": inst.main_loop,
+            "login": inst.login,
+            "playwright_browsers_path": playwright_path,
+            # Convenience aliases for existing common entry points if present
+            "mcp_client": getattr(getattr(inst.main_window, "mcp_client", None), "__class__", None) and inst.main_window.mcp_client if inst.main_window else None,
+        }
