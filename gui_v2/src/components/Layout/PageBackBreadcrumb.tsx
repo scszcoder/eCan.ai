@@ -66,6 +66,7 @@ const agentsPathHandler: PathHandler = {
         console.log('[PageBackBreadcrumb] Generating breadcrumb for path:', path);
         const items: BreadcrumbItem[] = [];
         const treeOrgs = context?.treeOrgs || [];
+        const searchParams = context?.searchParams;
         const rootNode = treeOrgs[0];
         console.log('[PageBackBreadcrumb] rootNode:', rootNode?.name);
         
@@ -119,13 +120,12 @@ const agentsPathHandler: PathHandler = {
         // 如果是 details 页面或 add 页面，尝试从URL参数获取orgId
         if (path.includes('/details/') || path.includes('/add')) {
             // 从URL中获取orgId参数
-            const urlParams = new URLSearchParams(window.location.search);
-            const orgIdParam = urlParams.get('orgId');
+            const orgIdParam = searchParams?.get('orgId');
             console.log('[PageBackBreadcrumb] URL orgId param:', orgIdParam);
             console.log('[PageBackBreadcrumb] orgMatches:', orgMatches);
-            
-            if (orgIdParam && rootNode && !orgMatches) {
-                // 如果URL中有orgId但路径中没有organization，构建组织路径
+
+            if (orgIdParam && rootNode) {
+                // 如果URL中有orgId，构建组织路径
                 const node = findTreeNodeById(rootNode, orgIdParam);
                 if (node) {
                     // 构建从根到当前组织的完整路径
@@ -141,33 +141,37 @@ const agentsPathHandler: PathHandler = {
                         }
                         return null;
                     };
-                    
+
                     const orgPath = buildOrgPath(node, rootNode);
                     console.log('[PageBackBreadcrumb] Built org path:', orgPath?.map(n => n.name));
                     if (orgPath) {
-                        // 添加组织路径的面包屑（跳过根节点，因为已经添加了）
-                        orgPath.slice(1).forEach((orgNode) => {
-                            const orgPathStr = `/agents/organization/${orgNode.id}`;
-                            console.log('[PageBackBreadcrumb] Adding org breadcrumb:', orgNode.name, orgPathStr);
-                            items.push({
-                                key: orgPathStr,
-                                title: createClickableLink(orgNode.name, orgPathStr, navigate),
-                                path: orgPathStr
+                        // 如果路径中已经有organization段，则不重复添加
+                        if (!orgMatches) {
+                            // 添加组织路径的面包屑（跳过根节点，因为已经添加了）
+                            let currentOrgPath = '/agents';
+                            orgPath.slice(1).forEach((orgNode) => {
+                                currentOrgPath += `/organization/${orgNode.id}`;
+                                console.log('[PageBackBreadcrumb] Adding org breadcrumb:', orgNode.name, currentOrgPath);
+                                items.push({
+                                    key: currentOrgPath,
+                                    title: createClickableLink(orgNode.name, currentOrgPath, navigate),
+                                    path: currentOrgPath
+                                });
                             });
-                        });
+                        }
                     }
                 } else {
                     console.log('[PageBackBreadcrumb] Node not found for orgId:', orgIdParam);
                 }
             } else {
-                console.log('[PageBackBreadcrumb] Conditions not met - orgIdParam:', orgIdParam, 'rootNode:', !!rootNode, 'orgMatches:', orgMatches);
+                console.log('[PageBackBreadcrumb] Conditions not met - orgIdParam:', orgIdParam, 'rootNode:', !!rootNode);
             }
-            
+
             // 添加详情/新增页面标题
             items.push({
                 key: path,
                 title: createCurrentNode(
-                    path.includes('/add') 
+                    path.includes('/add')
                         ? t('pages.agents.create_agent', 'Create Agent')
                         : t('pages.agents.agent_details', 'Agent Details')
                 )
@@ -231,6 +235,9 @@ const PageBackBreadcrumb: React.FC = () => {
     const { t } = useTranslation();
     const { treeOrgs } = useOrgStore(); // 在组件中获取数据
     const path = location.pathname;
+
+    // 从 location.search 获取查询参数
+    const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
     
     // 解析路径段
     const segments = path.split('/').filter(Boolean);
@@ -239,18 +246,59 @@ const PageBackBreadcrumb: React.FC = () => {
     const items = useMemo(() => {
         // 找到第一个匹配的处理器
         const handler = pathHandlers.find(h => h.match(segments, path));
-        
+
         // 准备上下文数据
         const context = {
-            treeOrgs
+            treeOrgs,
+            searchParams
         };
-        
+
         // 使用处理器生成面包屑项
         return handler ? handler.generate(segments, path, t, navigate, context) : [];
-    }, [path, segments, t, navigate, treeOrgs]);
+    }, [path, segments, t, navigate, treeOrgs, searchParams]);
     
     // 计算返回路径
     const parentPath = useMemo(() => {
+        // 如果是 details 或 add 页面，检查是否有 orgId 参数
+        if (path.includes('/details/') || path.includes('/add')) {
+            const orgIdParam = searchParams.get('orgId');
+            if (orgIdParam) {
+                // 返回到对应的组织页面
+                // 需要构建完整的组织路径
+                const rootNode = treeOrgs[0];
+                if (rootNode) {
+                    const node = findTreeNodeById(rootNode, orgIdParam);
+                    if (node) {
+                        // 构建从根到当前组织的完整路径
+                        const buildOrgPath = (targetNode: any, currentNode: any, pathSoFar: any[] = []): any[] | null => {
+                            if (currentNode.id === targetNode.id) {
+                                return [...pathSoFar, currentNode];
+                            }
+                            if (currentNode.children) {
+                                for (const child of currentNode.children) {
+                                    const result = buildOrgPath(targetNode, child, [...pathSoFar, currentNode]);
+                                    if (result) return result;
+                                }
+                            }
+                            return null;
+                        };
+
+                        const orgPath = buildOrgPath(node, rootNode);
+                        if (orgPath && orgPath.length > 1) {
+                            // 构建完整的组织路径
+                            let fullOrgPath = '/agents';
+                            orgPath.slice(1).forEach((orgNode) => {
+                                fullOrgPath += `/organization/${orgNode.id}`;
+                            });
+                            return fullOrgPath;
+                        }
+                    }
+                }
+                // 如果找不到节点，返回到 agents 根页面
+                return '/agents';
+            }
+        }
+
         // 如果是组织详情页，返回到组织列表
         if (path.includes('/organization/')) {
             const lastOrgIndex = path.lastIndexOf('/organization/');
@@ -258,7 +306,7 @@ const PageBackBreadcrumb: React.FC = () => {
         }
         // 默认返回上一级
         return '/' + segments.slice(0, -1).join('/');
-    }, [path, segments]);
+    }, [path, segments, treeOrgs, searchParams]);
     
     // 总是显示面包屑（包括根目录）
     // 只有在非根目录时显示返回按钮
@@ -290,7 +338,7 @@ const PageBackBreadcrumb: React.FC = () => {
                     style={{
                         color: 'rgba(255, 255, 255, 0.65)'
                     }}
-                    itemRender={(item, params, items, paths) => {
+                    itemRender={(item, params, items) => {
                         const isLast = params.index === items.length - 1;
                         if (isLast || !item.path) {
                             return <span style={{ color: 'rgba(255, 255, 255, 0.85)' }}>{item.title}</span>;

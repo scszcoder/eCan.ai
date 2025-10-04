@@ -6,7 +6,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useUserStore } from '@/stores/userStore';
 import { useOrgStore } from '@/stores/orgStore';
-import { useTaskStore, useSkillStore } from '@/stores';
+import { useTaskStore, useSkillStore, useVehicleStore } from '@/stores';
 import { get_ipc_api } from '@/services/ipc_api';
 
 type Gender = 'gender_options.male' | 'gender_options.female';
@@ -21,7 +21,7 @@ interface AgentDetailsForm {
   personality?: string[];
   title?: string[];
   organization?: string; // 改为单选
-  supervisors?: string[];
+  supervisors?: string; // 改为单选
   tasks?: string[];
   skills?: string[];
   vehicle?: string | null;
@@ -34,7 +34,6 @@ const knownTitles = ['title.engineer', 'title.manager', 'title.analyst', 'title.
 // We keep fallback arrays in case store is empty to avoid empty UI when no data loaded yet
 const knownTasks = ['task_001', 'task_002', 'task_003'];
 const knownSkills = ['skill_001', 'skill_002', 'skill_003'];
-const knownVehicles = ['本机', 'HostA (10.0.0.1)', 'HostB (10.0.0.2)', 'HostC (10.0.0.3)'];
 
 const AgentDetails: React.FC = () => {
   const { t } = useTranslation();
@@ -44,12 +43,31 @@ const AgentDetails: React.FC = () => {
   // 支持两种新建模式：/agents/add 和 /agents/details/new
   const isNew = id === 'new' || location.pathname === '/agents/add';
   const username = useUserStore((s: any) => s.username);
-  
+
   // 从查询参数中获取 orgId
   const searchParams = new URLSearchParams(location.search);
   const defaultOrgId = searchParams.get('orgId');
+
+  // 获取 vehicles 列表
+  const { items: vehicles, fetchItems: fetchVehicles } = useVehicleStore();
+
+  // 计算本机 vehicle ID（假设本机是 hostname 为 localhost 或 name 包含 "本机" 的）
+  const localVehicleId = useMemo(() => {
+    if (!vehicles || vehicles.length === 0) return null;
+    // 优先查找 hostname 为 localhost 的
+    const localVehicle = vehicles.find((v: any) =>
+      v.hostname === 'localhost' ||
+      v.name?.includes('本机') ||
+      v.ip === '127.0.0.1' ||
+      v.ip === '0.0.0.0'
+    );
+    return localVehicle?.id || vehicles[0]?.id || null;
+  }, [vehicles]);
+
   console.log('[AgentDetails] URL search params:', location.search);
   console.log('[AgentDetails] defaultOrgId from URL:', defaultOrgId);
+  console.log('[AgentDetails] Vehicles:', vehicles);
+  console.log('[AgentDetails] Local vehicle ID:', localVehicleId);
   const { message } = App.useApp();
 
   // 使用专用的 taskStore 和 skillStore
@@ -59,7 +77,7 @@ const AgentDetails: React.FC = () => {
   const setSkills = useSkillStore((state) => state.setItems);
   
   // 获取组织数据
-  const { treeOrgs, setAllOrgAgents, shouldFetchData, loading: orgLoading, setLoading: setOrgLoading, setError: setOrgError } = useOrgStore();
+  const { treeOrgs, setAllOrgAgents, shouldFetchData, setLoading: setOrgLoading, setError: setOrgError } = useOrgStore();
 
   // Build options for selects. ListEditor expects string[] options.
   // For tasks, use task.skill; for skills, use skill.name.
@@ -79,7 +97,7 @@ const AgentDetails: React.FC = () => {
     return unique.length > 0 ? unique : knownSkills;
   }, [storeSkills]);
 
-  // 构建组织树形数据供TreeSelect使用
+  // 构建组织树形数据供TreeSelect使用（避免循环引用）
   const organizationTreeData = useMemo(() => {
     const buildTreeData = (node: any, parentPath: string = ''): any => {
       if (!node) return null;
@@ -87,6 +105,7 @@ const AgentDetails: React.FC = () => {
       // 构建当前节点的完整路径
       const currentPath = parentPath ? `${parentPath} / ${node.name}` : node.name;
       
+      // 只提取必要的字段，避免循环引用
       const treeNode: any = {
         title: node.name, // 树形结构只显示节点名
         value: node.id,
@@ -94,15 +113,32 @@ const AgentDetails: React.FC = () => {
         fullPath: currentPath, // 存储完整路径，用于选中后显示
       };
       
+      // 递归处理子节点，只传递必要的数据
       if (node.children && Array.isArray(node.children) && node.children.length > 0) {
-        treeNode.children = node.children.map((child: any) => buildTreeData(child, currentPath)).filter(Boolean);
+        treeNode.children = node.children
+          .map((child: any) => {
+            // 为每个子节点创建简化的对象，只包含必要字段
+            const simplifiedChild = {
+              id: child.id,
+              name: child.name,
+              children: child.children
+            };
+            return buildTreeData(simplifiedChild, currentPath);
+          })
+          .filter(Boolean);
       }
       
       return treeNode;
     };
 
     if (treeOrgs && treeOrgs.length > 0) {
-      const data = [buildTreeData(treeOrgs[0])].filter(Boolean);
+      // 创建根节点的简化版本
+      const rootNode = {
+        id: treeOrgs[0].id,
+        name: treeOrgs[0].name,
+        children: treeOrgs[0].children
+      };
+      const data = [buildTreeData(rootNode)].filter(Boolean);
       console.log('[AgentDetails] Organization tree data:', data);
       return data;
     }
@@ -112,6 +148,15 @@ const AgentDetails: React.FC = () => {
 
   // 获取当前层级及以上的所有agents（用于上级选择）
   const [supervisorTreeData, setSupervisorTreeData] = useState<any[]>([]);
+
+  // 获取 vehicles 列表
+  useEffect(() => {
+    if (username) {
+      fetchVehicles(username).catch((error: any) => {
+        console.error('[AgentDetails] Failed to fetch vehicles:', error);
+      });
+    }
+  }, [username, fetchVehicles]);
 
   // 获取组织名称的辅助函数
   const getOrgName = useCallback((orgId: string) => {
@@ -195,8 +240,8 @@ const AgentDetails: React.FC = () => {
   const [form] = Form.useForm<AgentDetailsForm>();
   const [editMode, setEditMode] = useState(isNew);
   const [loading, setLoading] = useState(false);
-  const [agentData, setAgentData] = useState<any>(null);
-  const [selectedOrgId, setSelectedOrgId] = useState<string | undefined>(undefined);
+  // 初始化 selectedOrgId 为 defaultOrgId（如果存在）
+  const [selectedOrgId, setSelectedOrgId] = useState<string | undefined>(defaultOrgId || undefined);
   
   // 确定页面模式：view（查看）、edit（编辑）、create（新增）
   const pageMode = useMemo(() => {
@@ -215,9 +260,10 @@ const AgentDetails: React.FC = () => {
         // 即使使用缓存数据，也要确保新建模式下设置默认组织
         if (isNew && defaultOrgId) {
           const currentOrg = form.getFieldValue('organization');
-          if (!currentOrg) {
+          if (!currentOrg || currentOrg !== defaultOrgId) {
             console.log('[AgentDetails] Setting default org from cache:', defaultOrgId);
             form.setFieldsValue({ organization: defaultOrgId });
+            setSelectedOrgId(defaultOrgId);
           }
         }
         return;
@@ -232,11 +278,16 @@ const AgentDetails: React.FC = () => {
         if (response?.success && response.data?.orgs) {
           console.log('[AgentDetails] Org data loaded successfully:', response.data);
           setAllOrgAgents(response.data);
-          
+
           // 数据加载完成后，如果是新建模式且有默认组织，设置默认值
           if (isNew && defaultOrgId) {
             console.log('[AgentDetails] Setting default org after load:', defaultOrgId);
-            form.setFieldsValue({ organization: defaultOrgId });
+            // 使用 setTimeout 确保在组织树数据更新后再设置表单值
+            setTimeout(() => {
+              form.setFieldsValue({ organization: defaultOrgId });
+              setSelectedOrgId(defaultOrgId);
+              console.log('[AgentDetails] Default org set successfully');
+            }, 100);
           }
         } else {
           console.error('[AgentDetails] Failed to load org data:', response);
@@ -265,18 +316,19 @@ const AgentDetails: React.FC = () => {
   useEffect(() => {
     const fetchAgentData = async () => {
       if (isNew || !id || !username) return;
-      
+
       try {
         setLoading(true);
         const api = get_ipc_api();
         const response = await api.getAgents(username, [id]) as any;
-        
+
         if (response?.success && response.data?.agents && Array.isArray(response.data.agents) && response.data.agents.length > 0) {
           const agent = response.data.agents[0];
-          setAgentData(agent);
-          
+
           // 更新表单数据
-          const orgId = agent.organization || '';
+          // 优先使用 agent 自身的 organization，如果没有则使用 URL 参数中的 defaultOrgId
+          const orgId = agent.organization || defaultOrgId || '';
+          console.log('[AgentDetails] Setting organization - agent.organization:', agent.organization, 'defaultOrgId:', defaultOrgId, 'final orgId:', orgId);
           form.setFieldsValue({
             id: agent.card?.id || agent.id,
             agent_id: agent.card?.id || agent.id,
@@ -287,10 +339,10 @@ const AgentDetails: React.FC = () => {
             personality: agent.personalities || [],
             title: agent.title || [],
             organization: orgId,
-            supervisors: agent.supervisors || [],
+            supervisors: Array.isArray(agent.supervisors) && agent.supervisors.length > 0 ? agent.supervisors[0] : '', // 改为单选，取第一个
             tasks: agent.tasks || [],
             skills: agent.skills || [],
-            vehicle: agent.vehicle || '本机',
+            vehicle: agent.vehicle || localVehicleId || '',
             metadata: agent.metadata ? JSON.stringify(agent.metadata, null, 2) : ''
           });
           // 设置选中的组织ID以显示完整路径
@@ -305,46 +357,72 @@ const AgentDetails: React.FC = () => {
         setLoading(false);
       }
     };
-    
-    fetchAgentData();
-  }, [id, isNew, username, form, message, t]);
 
-  // 使用 useMemo 来初始化表单值（仅用于新建模式）
-  const initialValues: AgentDetailsForm = useMemo(() => {
-    if (isNew) {
-      return {
-        id: '',
-        agent_id: '',
-        name: '',
-        gender: 'gender_options.male' as Gender,
-        birthday: dayjs(), // 默认当前日期
-        owner: username || t('common.owner') || 'owner',
-        personality: [],
-        title: [],
-        organization: defaultOrgId || '', // 设置默认组织（单选）
-        supervisors: [],
-        tasks: [],
-        skills: [],
-        vehicle: '本机',
-        metadata: ''
-      };
-    }
-    return {};
-  }, [isNew, username, t, defaultOrgId]);
+    fetchAgentData();
+  }, [id, isNew, username, form, message, t, defaultOrgId]);
+
+  // 不再使用 initialValues，改为在 useEffect 中逐个设置字段，避免循环引用警告
 
   // 使用 useEffect 来设置初始表单值（仅新建模式）
   useEffect(() => {
     if (isNew) {
-      console.log('[AgentDetails] Setting initial values for new agent:', initialValues);
+      console.log('[AgentDetails] Setting initial values for new agent');
       console.log('[AgentDetails] defaultOrgId:', defaultOrgId);
-      form.setFieldsValue(initialValues);
-      setEditMode(true);
-      // 设置选中的组织
-      if (defaultOrgId) {
-        setSelectedOrgId(defaultOrgId);
+      console.log('[AgentDetails] organizationTreeData available:', organizationTreeData.length > 0);
+
+      // 只有在组织树数据加载完成后才设置表单值
+      if (organizationTreeData.length > 0) {
+        // 使用 setTimeout 延迟设置，确保在下一个事件循环中执行
+        const timeoutId = setTimeout(() => {
+          try {
+            // 创建完全独立的初始值对象，避免任何可能的引用
+            const initialValues: Partial<AgentDetailsForm> = {
+              id: '',
+              agent_id: '',
+              name: '',
+              gender: 'gender_options.male' as Gender,
+              birthday: dayjs(),
+              owner: username || t('common.owner') || 'owner',
+              personality: [], // 新数组
+              title: [], // 新数组
+              organization: defaultOrgId || '',
+              supervisors: '',
+              tasks: [], // 新数组
+              skills: [], // 新数组
+              vehicle: localVehicleId || '',
+              metadata: ''
+            };
+
+            // 使用 setFieldsValue 一次性设置所有值
+            form.setFieldsValue(initialValues);
+            setEditMode(true);
+
+            // 设置选中的组织
+            if (defaultOrgId) {
+              console.log('[AgentDetails] Setting selectedOrgId to:', defaultOrgId);
+              setSelectedOrgId(defaultOrgId);
+            }
+          } catch (error) {
+            console.error('[AgentDetails] Error setting initial values:', error);
+          }
+        }, 0);
+
+        // 清理函数
+        return () => clearTimeout(timeoutId);
       }
     }
-  }, [form, initialValues, isNew, defaultOrgId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, isNew, defaultOrgId, organizationTreeData.length, username, localVehicleId]);
+
+  // 监听 defaultOrgId 变化，确保 selectedOrgId 同步更新
+  useEffect(() => {
+    if (isNew && defaultOrgId && selectedOrgId !== defaultOrgId && organizationTreeData.length > 0) {
+      console.log('[AgentDetails] Syncing selectedOrgId with defaultOrgId:', defaultOrgId);
+      setSelectedOrgId(defaultOrgId);
+      // 同时更新表单字段
+      form.setFieldValue('organization', defaultOrgId);
+    }
+  }, [defaultOrgId, isNew, selectedOrgId, organizationTreeData.length, form]);
 
   // 获取上级候选数据（当前组织及父级组织的agents）
   useEffect(() => {
@@ -362,9 +440,11 @@ const AgentDetails: React.FC = () => {
         
         const currentOrgIds = [currentOrgId]; // 转为数组以兼容后续逻辑
         
-        // 查找组织节点并返回从根到目标节点的路径
-        const findOrgPath = (node: any, targetId: string, path: any[] = []): any[] | null => {
-          const currentPath = [...path, node];
+        // 查找组织节点并返回从根到目标节点的路径（只返回 id 和 name，避免循环引用）
+        const findOrgPath = (node: any, targetId: string, path: Array<{id: string, name: string}> = []): Array<{id: string, name: string}> | null => {
+          const simplifiedNode = { id: node.id, name: node.name };
+          const currentPath = [...path, simplifiedNode];
+          
           if (node.id === targetId) return currentPath;
           
           if (node.children && Array.isArray(node.children)) {
@@ -376,23 +456,38 @@ const AgentDetails: React.FC = () => {
           return null;
         };
         
+        // 根据组织 ID 获取完整的组织节点（从原始 treeOrgs 中查找）
+        const getOrgNodeById = (root: any, orgId: string): any => {
+          if (root.id === orgId) return root;
+          if (root.children && Array.isArray(root.children)) {
+            for (const child of root.children) {
+              const found = getOrgNodeById(child, orgId);
+              if (found) return found;
+            }
+          }
+          return null;
+        };
+        
         // 构建上级选择的树形数据（按组织分组）
-        const buildAgentTree = (orgNode: any): any => {
+        const buildAgentTree = (orgId: string, orgName: string): any => {
+          // 从原始树中获取组织节点
+          const orgNode = getOrgNodeById(treeOrgs[0], orgId);
           const agents = orgNode?.agents || [];
-          
+
           if (agents.length === 0) return null;
-          
+
+          // 只提取必要的字段，避免循环引用
           const agentNodes = agents.map((agent: any) => ({
             title: agent.name || agent.id,
             value: agent.id,
-            key: `agent-${agent.id}`,
+            key: agent.id,
             isLeaf: true,
           }));
-          
+
           return {
-            title: orgNode?.name || orgNode.id,
-            value: `org-${orgNode.id}`,
-            key: `org-${orgNode.id}`,
+            title: orgName,
+            value: `org-${orgId}`,
+            key: `org-${orgId}`,
             selectable: false,
             children: agentNodes,
           };
@@ -409,11 +504,11 @@ const AgentDetails: React.FC = () => {
             console.log(`[AgentDetails] Org path for ${orgId}:`, orgPath.map(n => n.name));
             
             // 为路径上的每个组织构建agent树（从根到当前节点）
-            for (const orgNode of orgPath) {
+            for (const simplifiedOrg of orgPath) {
               // 避免重复添加
-              if (!processedOrgIds.has(orgNode.id)) {
-                processedOrgIds.add(orgNode.id);
-                const tree = buildAgentTree(orgNode);
+              if (!processedOrgIds.has(simplifiedOrg.id)) {
+                processedOrgIds.add(simplifiedOrg.id);
+                const tree = buildAgentTree(simplifiedOrg.id, simplifiedOrg.name);
                 if (tree) {
                   treeData.push(tree);
                 }
@@ -430,7 +525,8 @@ const AgentDetails: React.FC = () => {
     };
     
     fetchAgentsForSupervisor();
-  }, [form, defaultOrgId, treeOrgs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, defaultOrgId, treeOrgs.length]);
 
   // 多选标签编辑器 - 使用 Select mode="tags" 实现友好交互
   const TagsEditor: React.FC<{
@@ -440,7 +536,9 @@ const AgentDetails: React.FC = () => {
     disabled?: boolean;
     placeholder?: string;
     isOrgField?: boolean;
-  }> = ({ value, onChange, options, disabled, placeholder, isOrgField }) => {
+    'aria-label'?: string;
+    id?: string;
+  }> = ({ value, onChange, options, disabled, placeholder, isOrgField, 'aria-label': ariaLabel, id }) => {
     // 获取显示文本
     const getDisplayText = useCallback((val: string) => {
       return isOrgField ? getOrgName(val) : (t(val) || val);
@@ -448,6 +546,7 @@ const AgentDetails: React.FC = () => {
 
     return (
       <Select
+        id={id}
         mode="tags"
         style={{ width: '100%' }}
         placeholder={placeholder}
@@ -458,6 +557,7 @@ const AgentDetails: React.FC = () => {
         showSearch
         allowClear
         tokenSeparators={[',']}
+        aria-label={ariaLabel}
         tagRender={(props) => {
           const { value: tagValue, closable, onClose } = props;
           return (
@@ -493,6 +593,8 @@ const AgentDetails: React.FC = () => {
         ...values,
         birthday: values.birthday ? (values.birthday as Dayjs).toISOString() : null,
         metadata: values.metadata,
+        // 将 supervisors 从单个值转换为数组（后端期望数组格式）
+        supervisors: values.supervisors ? [values.supervisors] : [],
       };
       setLoading(true);
       const api = get_ipc_api();
@@ -518,7 +620,20 @@ const AgentDetails: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: 16, height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+    <>
+      <style>{`
+        .resizable-textarea .ant-input {
+          resize: vertical !important;
+          min-height: 200px !important;
+          overflow: auto !important;
+        }
+        .resizable-textarea textarea {
+          resize: vertical !important;
+          min-height: 200px !important;
+          overflow: auto !important;
+        }
+      `}</style>
+      <div style={{ padding: 16, height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div style={{ marginBottom: 16 }}>
           <span style={{ fontSize: 18, fontWeight: 600 }}>
             {pageTitle}
@@ -530,45 +645,87 @@ const AgentDetails: React.FC = () => {
           </span>
         </div>
 
-      <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} styles={{ body: { padding: 16, height: '100%', overflow: 'hidden' } }}>
-        <div style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
-          <Form form={form} layout="vertical" style={{ maxWidth: '100%' }}>
+        <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} styles={{ body: { padding: 16, height: '100%', overflow: 'hidden' } }}>
+          <div style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
+          <Form 
+            form={form} 
+            layout="vertical" 
+            style={{ maxWidth: '100%' }}
+            autoComplete="off"
+            role="form"
+            aria-label={t('pages.agents.form_label') || 'Agent Details Form'}
+          >
             <Row gutter={[16, 16]} style={{ margin: 0 }}>
               {/* ID 和 Agent ID：新增时不显示，查看/编辑时只读 */}
               {!isNew && (
                 <>
                   <Col span={12}>
-                    <Form.Item name="id" label={t('common.id') || 'ID'}>
-                      <Input readOnly />
+                    <Form.Item name="id" label={t('common.id') || 'ID'} htmlFor="agent-id">
+                      <Input 
+                        id="agent-id"
+                        readOnly 
+                        autoComplete="off"
+                        aria-label={t('common.id') || 'ID'}
+                      />
                     </Form.Item>
                   </Col>
                   <Col span={12}>
-                    <Form.Item name="agent_id" label={t('pages.agents.agent_id') || 'Agent ID'}>
-                      <Input readOnly />
+                    <Form.Item name="agent_id" label={t('pages.agents.agent_id') || 'Agent ID'} htmlFor="agent-agent-id">
+                      <Input 
+                        id="agent-agent-id"
+                        readOnly 
+                        autoComplete="off"
+                        aria-label={t('pages.agents.agent_id') || 'Agent ID'}
+                      />
                     </Form.Item>
                   </Col>
                 </>
               )}
 
               <Col span={12}>
-                <Form.Item name="name" label={t('common.name') || 'Name'} rules={[{ required: true, message: t('common.please_input_name') || 'Please input name' }]}>
-                  <Input placeholder={t('common.name') || 'Name'} disabled={!editMode} />
+                <Form.Item name="name" label={t('common.name') || 'Name'} rules={[{ required: true, message: t('common.please_input_name') || 'Please input name' }]} htmlFor="agent-name">
+                  <Input 
+                    id="agent-name"
+                    placeholder={t('common.name') || 'Name'} 
+                    disabled={!editMode}
+                    autoComplete="name"
+                    aria-label={t('common.name') || 'Name'}
+                    aria-required="true"
+                  />
                 </Form.Item>
               </Col>
               <Col span={12}>
-                <Form.Item name="owner" label={t('common.owner') || 'Owner'}>
+                <Form.Item name="owner" label={t('common.owner') || 'Owner'} htmlFor="agent-owner">
                   {/* Owner: 新增时可以修改，编辑时只读 */}
-                  <Input placeholder={t('common.owner') || 'Owner'} disabled={pageMode !== 'create'} />
+                  <Input 
+                    id="agent-owner"
+                    placeholder={t('common.owner') || 'Owner'} 
+                    disabled={pageMode !== 'create'}
+                    autoComplete="username"
+                    aria-label={t('common.owner') || 'Owner'}
+                  />
                 </Form.Item>
               </Col>
 
               <Col span={12}>
-                <Form.Item name="gender" label={t('common.gender') || 'Gender'}>
-                  <Radio.Group disabled={!editMode}>
-                    <Radio value="gender_options.male">{t('common.gender_options.male') || 'Male'}</Radio>
-                    <Radio value="gender_options.female">{t('common.gender_options.female') || 'Female'}</Radio>
-                  </Radio.Group>
-                </Form.Item>
+                <div style={{ marginBottom: '24px' }}>
+                  <div style={{ 
+                    marginBottom: '8px',
+                    color: '#ffffff',
+                    fontSize: '14px',
+                    lineHeight: '1.5715'
+                  }}>
+                    {t('common.gender') || 'Gender'}
+                  </div>
+                  <Form.Item name="gender" style={{ marginBottom: 0 }}>
+                    <Radio.Group 
+                      disabled={!editMode}
+                    >
+                      <Radio value="gender_options.male">{t('common.gender_options.male') || 'Male'}</Radio>
+                      <Radio value="gender_options.female">{t('common.gender_options.female') || 'Female'}</Radio>
+                    </Radio.Group>
+                  </Form.Item>
+                </div>
               </Col>
               <Col span={12}>
                 <Form.Item name="birthday" label={t('common.birthday') || 'Birthday'}>
@@ -577,6 +734,7 @@ const AgentDetails: React.FC = () => {
                     disabled={!editMode}
                     getPopupContainer={() => document.body}
                     placement="bottomLeft"
+                    aria-label={t('common.birthday') || 'Birthday'}
                   />
                 </Form.Item>
               </Col>
@@ -590,6 +748,7 @@ const AgentDetails: React.FC = () => {
                     options={knownPersonalities}
                     disabled={!editMode}
                     placeholder={t('common.select_personality') || 'Select personality traits'}
+                    aria-label={t('pages.agents.personality') || 'Personality'}
                   />
                 </Form.Item>
               </Col>
@@ -603,6 +762,7 @@ const AgentDetails: React.FC = () => {
                     options={knownTitles}
                     disabled={!editMode}
                     placeholder={t('common.select_title') || 'Select titles'}
+                    aria-label={t('pages.agents.title') || 'Title'}
                   />
                 </Form.Item>
               </Col>
@@ -623,6 +783,8 @@ const AgentDetails: React.FC = () => {
                     showSearch
                     treeNodeFilterProp="title"
                     getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
+                    aria-label={t('pages.agents.organization') || 'Organization'}
+                    aria-required="true"
                     onChange={(value) => {
                       setSelectedOrgId(value as string);
                     }}
@@ -637,21 +799,19 @@ const AgentDetails: React.FC = () => {
               </Col>
 
               <Col span={24}>
-                <Form.Item 
-                  name="supervisors" 
-                  label={t('pages.agents.supervisors') || 'Supervisors'}
+                <Form.Item
+                  name="supervisors"
+                  label={t('pages.agents.supervisors') || 'Supervisor'}
                 >
                   <TreeSelect
                     treeData={supervisorTreeData}
                     disabled={!editMode}
-                    placeholder={t('common.select_supervisor') || 'Select supervisors'}
-                    treeCheckable
-                    showCheckedStrategy={TreeSelect.SHOW_CHILD}
+                    placeholder={t('common.select_supervisor') || 'Select supervisor'}
                     style={{ width: '100%' }}
-                    maxTagCount="responsive"
                     treeDefaultExpandAll
                     allowClear
                     getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
+                    aria-label={t('pages.agents.supervisors') || 'Supervisor'}
                   />
                 </Form.Item>
               </Col>
@@ -665,6 +825,7 @@ const AgentDetails: React.FC = () => {
                     options={taskOptions}
                     disabled={!editMode}
                     placeholder={t('common.select_task') || 'Select tasks'}
+                    aria-label={t('pages.agents.tasks') || 'Tasks'}
                   />
                 </Form.Item>
               </Col>
@@ -678,6 +839,7 @@ const AgentDetails: React.FC = () => {
                     options={skillOptions}
                     disabled={!editMode}
                     placeholder={t('common.select_skill') || 'Select skills'}
+                    aria-label={t('pages.agents.skills') || 'Skills'}
                   />
                 </Form.Item>
               </Col>
@@ -688,16 +850,27 @@ const AgentDetails: React.FC = () => {
                     disabled={!editMode}
                     allowClear
                     placeholder={t('common.select_vehicle') || 'Select vehicle'}
-                    options={knownVehicles.map(v => ({ value: v, label: v }))}
+                    options={vehicles.map((v: any) => ({
+                      value: v.id,
+                      label: `${v.name || v.id}${v.ip ? ` (${v.ip})` : ''}`
+                    }))}
                     getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
-
+                    aria-label={t('pages.agents.vehicle') || 'Vehicle'}
                   />
                 </Form.Item>
               </Col>
 
               <Col span={24}>
-                <Form.Item name="metadata" label={t('pages.agents.metadata') || 'Metadata'}>
-                  <Input.TextArea rows={6} style={{ resize: 'both' }} disabled={!editMode} />
+                <Form.Item name="metadata" label={t('pages.agents.metadata') || 'Metadata'} htmlFor="agent-metadata">
+                  <Input.TextArea 
+                    id="agent-metadata"
+                    rows={10}
+                    disabled={!editMode}
+                    autoComplete="off"
+                    aria-label={t('pages.agents.metadata') || 'Metadata'}
+                    className="resizable-textarea"
+                    style={{ minHeight: '150px', resize: 'vertical' }}
+                  />
                 </Form.Item>
               </Col>
 
@@ -741,10 +914,10 @@ const AgentDetails: React.FC = () => {
                                 personality: agent.personalities || [],
                                 title: agent.title || [],
                                 organization: orgId,
-                                supervisors: agent.supervisors || [],
+                                supervisors: Array.isArray(agent.supervisors) && agent.supervisors.length > 0 ? agent.supervisors[0] : '', // 改为单选，取第一个
                                 tasks: agent.tasks || [],
                                 skills: agent.skills || [],
-                                vehicle: agent.vehicle || '本机',
+                                vehicle: agent.vehicle || localVehicleId || '',
                                 metadata: agent.metadata ? JSON.stringify(agent.metadata, null, 2) : ''
                               });
                               // 设置选中的组织ID
@@ -766,9 +939,10 @@ const AgentDetails: React.FC = () => {
               </Col>
             </Row>
           </Form>
-        </div>
+          </div>
         </Card>
       </div>
+    </>
   );
 };
 

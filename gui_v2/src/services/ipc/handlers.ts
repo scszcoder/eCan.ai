@@ -5,6 +5,7 @@
 import { IPCRequest } from './types';
 import { useAppDataStore } from '../../stores/appDataStore';
 import { useAgentStore } from '../../stores/agentStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import {
   useTaskStore,
   useSkillStore,
@@ -165,10 +166,10 @@ export class IPCHandlers {
         logger.info('Received update_settings request:', request.params);
         const settings = request.params as any;
 
-        // 更新 appDataStore 中的 settings
+        // 更新 settingsStore 中的应用级settings（application-level configuration）
         if (settings) {
-            useAppDataStore.getState().setSettings(settings);
-            logger.info('[IPC] Updated settings in appDataStore');
+            useSettingsStore.getState().setSettings(settings);
+            logger.info('[IPC] Updated application settings in settingsStore');
         }
 
         return { refreshed: true };
