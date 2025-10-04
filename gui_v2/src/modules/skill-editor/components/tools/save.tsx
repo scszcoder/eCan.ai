@@ -189,12 +189,59 @@ export const Save = ({ disabled }: SaveProps) => {
         console.warn('[Save] mapping_rules promotion skipped', e);
       }
 
-      // 4. Create the updated skillInfo object, merging config nodes
+      // 4. Build data_mapping.json structure
+      const dataMappingJson: any = {
+        developing: { mappings: [], options: { strict: false, apply_order: 'top_down' } },
+        released: { mappings: [], options: { strict: true, apply_order: 'top_down' } },
+        node_transfers: {},
+        event_routing: {}
+      };
+
+      try {
+        // Extract skill-level mappings from START node (stored in config.skill_mapping)
+        const skillMapping = (skillInfo as any)?.config?.skill_mapping;
+        if (skillMapping) {
+          if (skillMapping.developing) {
+            dataMappingJson.developing = skillMapping.developing;
+          }
+          if (skillMapping.released) {
+            dataMappingJson.released = skillMapping.released;
+          }
+          if (skillMapping.event_routing) {
+            dataMappingJson.event_routing = skillMapping.event_routing;
+          }
+        }
+        
+        // Extract node-to-node transfer mappings from other nodes (skip START node)
+        for (const n of diagram.nodes || []) {
+          const nodeData = n?.data || {};
+          const nodeName = nodeData.name || n.id;
+          const nodeType = nodeData.type || n.type;
+          const nodeId = n.id;
+          
+          // Skip START node (already handled above)
+          if (nodeType === 'start' || nodeType === 'event' || nodeId === 'start') {
+            continue;
+          }
+          
+          // If this node has mapping rules, add to node_transfers
+          if (nodeData.mapping_rules) {
+            dataMappingJson.node_transfers[nodeName] = nodeData.mapping_rules;
+          }
+        }
+        
+        console.log('[Save] Generated data_mapping.json:', dataMappingJson);
+      } catch (e) {
+        console.warn('[Save] data_mapping.json generation failed', e);
+      }
+
+      // 5. Create the updated skillInfo object, merging config nodes
       const updatedSkillInfo = {
         ...skillInfo,
         workFlow: diagram,
         lastModified: new Date().toISOString(),
         mode: (skillInfo as any)?.mode ?? 'development',
+        run_mode: (skillInfo as any)?.run_mode ?? 'developing',  // Include backend runtime mode
         config: {
           ...(skillInfo as any)?.config,
           nodes: {
@@ -248,6 +295,50 @@ export const Save = ({ disabled }: SaveProps) => {
 
         console.log('[SKILL_IO][FRONTEND][MAIN_SAVE_DONE]');
         try { Toast.success({ content: 'Skill saved.' }); } catch {}
+
+        // Save data_mapping.json alongside skill JSON
+        try {
+          const finalFilePath = saveResult.filePath || effectivePath;
+          if (finalFilePath) {
+            // Determine mapping file path: replace _skill.json with _data_mapping.json
+            let mappingPath = finalFilePath;
+            if (/_skill\.json$/i.test(mappingPath)) {
+              mappingPath = mappingPath.replace(/_skill\.json$/i, '_data_mapping.json');
+            } else if (/\.json$/i.test(mappingPath)) {
+              mappingPath = mappingPath.replace(/\.json$/i, '_data_mapping.json');
+            } else {
+              mappingPath = `${mappingPath}_data_mapping.json`;
+            }
+            
+            const mappingJsonString = JSON.stringify(dataMappingJson, null, 2);
+            console.log('[SKILL_IO][MAPPING_SAVE_ATTEMPT]', { path: mappingPath });
+            
+            // Try IPC save first
+            try {
+              const { IPCAPI } = await import('../../../../services/ipc/api');
+              const ipcApi = IPCAPI.getInstance();
+              const writeResponse = await ipcApi.writeSkillFile(mappingPath, mappingJsonString);
+              if (writeResponse.success) {
+                console.log('[SKILL_IO][MAPPING_SAVE_OK]', mappingPath);
+              } else {
+                console.warn('[SKILL_IO][MAPPING_SAVE_ERROR]', writeResponse.error);
+              }
+            } catch (err) {
+              console.warn('[SKILL_IO][MAPPING_IPC_ERROR]', err);
+              // Web fallback: download
+              const blob = new Blob([mappingJsonString], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = mappingPath.split('/').pop()?.split('\\').pop() || 'data_mapping.json';
+              a.click();
+              URL.revokeObjectURL(url);
+              console.log('[SKILL_IO][MAPPING_SAVE_OK_DOWNLOAD]', a.download);
+            }
+          }
+        } catch (e) {
+          console.warn('[Save] data_mapping.json save failed', e);
+        }
 
         // Also persist the multi-sheet bundle alongside the skill JSON (no extra prompts)
         try {
@@ -326,11 +417,43 @@ export const SaveAs = ({ disabled }: SaveProps) => {
         }
       });
 
+      // Build data_mapping.json structure (same as Save)
+      const dataMappingJson: any = {
+        developing: { mappings: [], options: { strict: false, apply_order: 'top_down' } },
+        released: { mappings: [], options: { strict: true, apply_order: 'top_down' } },
+        node_transfers: {},
+        event_routing: {}
+      };
+
+      try {
+        const skillMapping = (skillInfo as any)?.config?.skill_mapping;
+        if (skillMapping) {
+          if (skillMapping.developing) dataMappingJson.developing = skillMapping.developing;
+          if (skillMapping.released) dataMappingJson.released = skillMapping.released;
+          if (skillMapping.event_routing) dataMappingJson.event_routing = skillMapping.event_routing;
+        }
+        
+        for (const n of diagram.nodes || []) {
+          const nodeData = n?.data || {};
+          const nodeName = nodeData.name || n.id;
+          const nodeType = nodeData.type || n.type;
+          const nodeId = n.id;
+          
+          if (nodeType === 'start' || nodeType === 'event' || nodeId === 'start') continue;
+          if (nodeData.mapping_rules) {
+            dataMappingJson.node_transfers[nodeName] = nodeData.mapping_rules;
+          }
+        }
+      } catch (e) {
+        console.warn('[SaveAs] data_mapping.json generation failed', e);
+      }
+
       const updatedSkillInfo: SkillInfo = {
         ...skillInfo,
         workFlow: diagram,
         lastModified: new Date().toISOString(),
         mode: (skillInfo as any)?.mode ?? 'development',
+        run_mode: (skillInfo as any)?.run_mode ?? 'developing',  // Include backend runtime mode
       } as SkillInfo;
 
       const saveResult = await saveFile(updatedSkillInfo, username || undefined, null);
@@ -344,6 +467,44 @@ export const SaveAs = ({ disabled }: SaveProps) => {
 
         console.log('[SKILL_IO][FRONTEND][MAIN_SAVEAS_DONE]');
         try { Toast.success({ content: 'Skill saved as new file.' }); } catch {}
+
+        // Save data_mapping.json alongside skill JSON
+        try {
+          const finalFilePath = saveResult.filePath || '';
+          if (finalFilePath) {
+            let mappingPath = finalFilePath;
+            if (/_skill\.json$/i.test(mappingPath)) {
+              mappingPath = mappingPath.replace(/_skill\.json$/i, '_data_mapping.json');
+            } else if (/\.json$/i.test(mappingPath)) {
+              mappingPath = mappingPath.replace(/\.json$/i, '_data_mapping.json');
+            } else {
+              mappingPath = `${mappingPath}_data_mapping.json`;
+            }
+            
+            const mappingJsonString = JSON.stringify(dataMappingJson, null, 2);
+            console.log('[SKILL_IO][MAPPING_SAVEAS_ATTEMPT]', { path: mappingPath });
+            
+            try {
+              const { IPCAPI } = await import('../../../../services/ipc/api');
+              const ipcApi = IPCAPI.getInstance();
+              const writeResponse = await ipcApi.writeSkillFile(mappingPath, mappingJsonString);
+              if (writeResponse.success) {
+                console.log('[SKILL_IO][MAPPING_SAVEAS_OK]', mappingPath);
+              }
+            } catch (err) {
+              console.warn('[SKILL_IO][MAPPING_SAVEAS_IPC_ERROR]', err);
+              const blob = new Blob([mappingJsonString], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = mappingPath.split('/').pop()?.split('\\').pop() || 'data_mapping.json';
+              a.click();
+              URL.revokeObjectURL(url);
+            }
+          }
+        } catch (e) {
+          console.warn('[SaveAs] data_mapping.json save failed', e);
+        }
 
         try {
           saveActiveSheetDoc(diagram);

@@ -308,9 +308,10 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                 built = mod.build_skill()
 
                 # Accept either EC_Skill or (dto, stategraph)
+                sk = None
                 if isinstance(built, EC_Skill):
-                    return built
-                if isinstance(built, tuple) and len(built) == 2:
+                    sk = built
+                elif isinstance(built, tuple) and len(built) == 2:
                     dto, sg = built
                     try:
                         sk = EC_Skill()
@@ -318,12 +319,26 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                         sk.description = getattr(dto, "description", "")
                         sk.config = getattr(dto, "config", {}) or {}
                         sk.set_work_flow(sg)
-                        return sk
                     except Exception as e:
                         logger.error(f"[build_agent_skills] Failed to wrap tuple into EC_Skill: {e}")
                         return None
-                logger.error("[build_agent_skills] build_skill() returned unsupported type")
-                return None
+                else:
+                    logger.error("[build_agent_skills] build_skill() returned unsupported type")
+                    return None
+                
+                # Load mapping rules from data_mapping.json
+                if sk:
+                    mapping_file = skill_root / "data_mapping.json"
+                    if mapping_file.exists():
+                        try:
+                            with mapping_file.open("r", encoding="utf-8") as mf:
+                                mapping_data = json.load(mf)
+                                sk.mapping_rules = mapping_data
+                                logger.info(f"[build_agent_skills] Loaded mapping rules for {sk.name}")
+                        except Exception as e:
+                            logger.warning(f"[build_agent_skills] Failed to load mapping rules: {e}")
+                
+                return sk
 
         def load_from_diagram(diagram_dir: Path) -> Optional[EC_Skill]:
             # Expect files <name>_skill.json and optional <name>_skill_bundle.json under diagram_dir
@@ -353,7 +368,7 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
 
                 sk = EC_Skill()
                 sk.name = name
-                # Try to set description/config if present in core_dict
+                # Try to set description/config/run_mode if present in core_dict
                 try:
                     sk.description = core_dict.get("description", "") or sk.description
                 except Exception:
@@ -364,7 +379,28 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                         sk.config = cfg
                 except Exception:
                     pass
+                try:
+                    run_mode = core_dict.get("run_mode")
+                    if run_mode in ("developing", "released"):
+                        sk.run_mode = run_mode
+                except Exception:
+                    pass
                 sk.set_work_flow(workflow)
+                
+                # Load mapping rules from data_mapping.json (check both diagram_dir and parent skill_root)
+                mapping_file = diagram_dir / "data_mapping.json"
+                if not mapping_file.exists():
+                    mapping_file = skill_root / "data_mapping.json"
+                
+                if mapping_file.exists():
+                    try:
+                        with mapping_file.open("r", encoding="utf-8") as mf:
+                            mapping_data = json.load(mf)
+                            sk.mapping_rules = mapping_data
+                            logger.info(f"[build_agent_skills] Loaded mapping rules for {sk.name}")
+                    except Exception as e:
+                        logger.warning(f"[build_agent_skills] Failed to load mapping rules: {e}")
+                
                 return sk
             except Exception as e:
                 logger.error(f"[build_agent_skills] Diagram load failed at {diagram_dir}: {e}")

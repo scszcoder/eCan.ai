@@ -11,7 +11,8 @@ export interface SkillInfo {
   version: string;
   lastModified: string;
   workFlow: FlowDocumentJSON;
-  mode?: 'development' | 'released';
+  mode?: 'development' | 'released';  // UI editor state (editable vs readonly)
+  run_mode?: 'developing' | 'released';  // Backend runtime mode (for mapping rules selection)
   // Optional per-skill config. We use this to promote node.data.mapping_rules
   // into a runtime-friendly location consumed by the agent backend.
   config?: {
@@ -19,6 +20,7 @@ export interface SkillInfo {
       mapping_rules?: any;
       [key: string]: any;
     }>;
+    skill_mapping?: any;  // Skill-level mapping rules from START node
     [key: string]: any;
   };
 }

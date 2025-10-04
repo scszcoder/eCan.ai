@@ -264,44 +264,95 @@ def inject_attributes_into_checkpoint(cp: Any, attrs: Dict[str, Any]) -> None:
 
 # ---------- Mapping rules ----------
 DEFAULT_MAPPINGS: Dict[str, Any] = {
-    "mappings": [
-        {
-            "from": ["event.data.qa_form_to_agent", "event.data.qa_form"],
-            "to": [
-                {"target": "state.attributes.forms.qa_form"},
-                {"target": "resume.qa_form_to_agent"}
-            ],
-            "on_conflict": "merge_deep"
-        },
-        {
-            "from": ["event.data.notification_to_agent", "event.data.notification"],
-            "to": [
-                {"target": "state.attributes.notifications.latest"},
-                {"target": "resume.notification_to_agent"}
-            ],
-            "on_conflict": "merge_deep"
-        },
-        {
-            "from": ["event.data.human_text"],
-            "to": [
-                {"target": "state.attributes.human.last_message"},
-                {"target": "resume.human_text"}
-            ],
-            "transform": "to_string",
-            "on_conflict": "overwrite"
-        },
-        {
-            "from": ["event.tag"],
-            "to": [
-                {"target": "state.attributes.cloud_task_id"}
-            ],
-            "on_conflict": "overwrite"
+    "developing": {
+        "mappings": [
+            {
+                "from": ["event.data.qa_form_to_agent", "event.data.qa_form"],
+                "to": [
+                    {"target": "state.attributes.forms.qa_form"},
+                    {"target": "resume.qa_form_to_agent"}
+                ],
+                "on_conflict": "merge_deep"
+            },
+            {
+                "from": ["event.data.notification_to_agent", "event.data.notification"],
+                "to": [
+                    {"target": "state.attributes.notifications.latest"},
+                    {"target": "resume.notification_to_agent"}
+                ],
+                "on_conflict": "merge_deep"
+            },
+            {
+                "from": ["event.data.human_text"],
+                "to": [
+                    {"target": "state.attributes.human.last_message"},
+                    {"target": "resume.human_text"}
+                ],
+                "transform": "to_string",
+                "on_conflict": "overwrite"
+            },
+            {
+                "from": ["event.tag"],
+                "to": [
+                    {"target": "state.attributes.cloud_task_id"}
+                ],
+                "on_conflict": "overwrite"
+            },
+            # Development-specific: preserve debug metadata
+            {
+                "from": ["event.data.metadata"],
+                "to": [
+                    {"target": "state.attributes.debug.last_event_metadata"}
+                ],
+                "on_conflict": "overwrite"
+            }
+        ],
+        "options": {
+            "strict": False,
+            "default_on_missing": None,
+            "apply_order": "top_down"
         }
-    ],
-    "options": {
-        "strict": False,
-        "default_on_missing": None,
-        "apply_order": "top_down"
+    },
+    "released": {
+        "mappings": [
+            {
+                "from": ["event.data.qa_form_to_agent", "event.data.qa_form"],
+                "to": [
+                    {"target": "state.attributes.forms.qa_form"},
+                    {"target": "resume.qa_form_to_agent"}
+                ],
+                "on_conflict": "merge_deep"
+            },
+            {
+                "from": ["event.data.notification_to_agent", "event.data.notification"],
+                "to": [
+                    {"target": "state.attributes.notifications.latest"},
+                    {"target": "resume.notification_to_agent"}
+                ],
+                "on_conflict": "merge_deep"
+            },
+            {
+                "from": ["event.data.human_text"],
+                "to": [
+                    {"target": "state.attributes.human.last_message"},
+                    {"target": "resume.human_text"}
+                ],
+                "transform": "to_string",
+                "on_conflict": "overwrite"
+            },
+            {
+                "from": ["event.tag"],
+                "to": [
+                    {"target": "state.attributes.cloud_task_id"}
+                ],
+                "on_conflict": "overwrite"
+            }
+        ],
+        "options": {
+            "strict": True,
+            "default_on_missing": None,
+            "apply_order": "top_down"
+        }
     }
 }
 
@@ -486,13 +537,15 @@ def build_node_transfer_patch(node_id: str, state_snapshot: Json, node_transfer_
 
 def load_mapping_for_task(task: Any) -> Dict[str, Any]:
     """Resolve mapping rules with precedence:
-    1) Node-level mapping: task.skill.config.nodes[<this_node.name>].mapping_rules
-    2) Skill-level mapping: task.skill.mapping_rules
-    3) Defaults
+    1) Node-level mapping: task.skill.config.nodes[<this_node.name>].mapping_rules (node-to-node transfer)
+    2) Skill-level mapping: task.skill.mapping_rules[<run_mode>] (event-to-state mapping)
+    3) Defaults[<run_mode>]
     """
     try:
         skill = getattr(task, "skill", None)
-        # 1) Node-level mapping
+        run_mode = getattr(skill, "run_mode", "released") if skill else "released"
+        
+        # 1) Node-level mapping (node-to-node transfer rules)
         try:
             state = (task.metadata or {}).get("state") or {}
             this_node = state.get("this_node") or {}
@@ -504,13 +557,21 @@ def load_mapping_for_task(task: Any) -> Dict[str, Any]:
                     return node_rules
         except Exception:
             pass
-        # 2) Skill-level mapping
+        
+        # 2) Skill-level mapping for current run_mode
         if skill and hasattr(skill, "mapping_rules") and isinstance(skill.mapping_rules, dict):
-            return skill.mapping_rules
+            # Check if mapping_rules has run_mode keys (developing/released)
+            mode_rules = skill.mapping_rules.get(run_mode)
+            if isinstance(mode_rules, dict):
+                return mode_rules
+            # Fallback: if mapping_rules doesn't have run_mode structure, return as-is (backward compat)
+            if "mappings" in skill.mapping_rules:
+                return skill.mapping_rules
     except Exception:
         pass
-    # 3) Defaults
-    return DEFAULT_MAPPINGS
+    
+    # 3) Defaults for run_mode
+    return DEFAULT_MAPPINGS.get(run_mode, DEFAULT_MAPPINGS.get("released", {}))
 
 
 def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:

@@ -30,8 +30,15 @@ export const Readonly = () => {
   const toggleMode = useCallback(() => {
     if (!skillInfo) return;
     const nextMode = skillInfo.mode === 'released' ? 'development' : 'released';
-    // Update store
-    setSkillInfo({ ...skillInfo, mode: nextMode });
+    const nextRunMode = nextMode === 'released' ? 'released' : 'developing';
+    
+    // Update store with BOTH mode (UI state) and run_mode (backend runtime)
+    setSkillInfo({ 
+      ...skillInfo, 
+      mode: nextMode,
+      run_mode: nextRunMode
+    });
+    
     // Reflect in editor (defer)
     setTimeout(() => {
       playground.config.readonly = nextMode === 'released';
