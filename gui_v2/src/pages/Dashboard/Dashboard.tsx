@@ -2,10 +2,10 @@ import React, { useEffect } from 'react';
 import { Card, Row, Col, Statistic, Typography, Space, Tag, Alert, Skeleton } from 'antd';
 import { CarOutlined, RobotOutlined, ScheduleOutlined, ToolOutlined, SettingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { useAppDataStore, AppData } from '../../stores/appDataStore';
+import { useAppDataStore } from '../../stores/appDataStore';
+import { useAgentStore } from '../../stores/agentStore';
 import { useUserStore } from '../../stores/userStore';
 import { get_ipc_api } from '../../services/ipc_api';
-import { APIResponse } from '../../services/ipc/api';
 import { logger } from '@/utils/logger';
 import { AppDataStoreHandler } from '@/stores/AppDataStoreHandler';
 
@@ -35,8 +35,12 @@ const DataCard: React.FC<DataCardProps> = ({ title, value, icon, color, loading 
 const Dashboard: React.FC = () => {
     const { t } = useTranslation();
     const username = useUserStore((state) => state.username);
+    
+    // 从 agentStore 获取 agents 数据
+    const { agents } = useAgentStore();
+    
+    // 从 appDataStore 获取其他数据
     const { 
-        agents, 
         skills, 
         tools, 
         tasks, 
@@ -114,9 +118,9 @@ const Dashboard: React.FC = () => {
                                 <div style={{ marginTop: '16px' }}>
                                     <Text strong>{t("pages.dashboard.activeAgents")}</Text>
                                     <Space wrap style={{ marginTop: '8px' }}>
-                                        {(agents || []).slice(0, 5).map((agent) => (
-                                            <Tag key={agent.card.id} color="blue">
-                                                {agent.card.name}
+                                        {(agents || []).slice(0, 5).map((agent: any) => (
+                                            <Tag key={agent.card?.id || agent.id} color="blue">
+                                                {agent.card?.name || agent.name}
                                             </Tag>
                                         ))}
                                         {(agents || []).length > 5 && (

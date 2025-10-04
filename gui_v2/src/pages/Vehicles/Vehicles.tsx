@@ -1,31 +1,30 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
-import DetailLayout from '../../components/Layout/DetailLayout';
-import { useDetailView } from '../../hooks/useDetailView';
+import { message } from 'antd';
 import { useTranslation } from 'react-i18next';
-import { useUserStore } from '../../stores/userStore';
-import { Vehicle } from './types';
+import { useUserStore } from '@/stores/userStore';
+import { useDetailView } from '@/hooks/useDetailView';
+import DetailLayout from '../../components/Layout/DetailLayout';
 import VehicleList from './VehicleList';
 import VehicleDetails from './VehicleDetails';
+import VehicleFormModal from './VehicleFormModal';
+import { Vehicle } from './types';
 import { get_ipc_api } from '@/services/ipc_api';
 
 const Vehicles: React.FC = () => {
   const { t } = useTranslation();
   const username = useUserStore((state) => state.username) ?? '';
-
-  // 初始数据仅用于本地演示，实际数据从API获取
   const initialVehicles: Vehicle[] = [];
 
   const {
     selectedItem: selectedVehicle,
     items: vehicles,
     selectItem,
-    updateItem,
     setItems: setVehicles
   } = useDetailView<Vehicle>(initialVehicles);
 
   const [filters, setFilters] = useState<Record<string, any>>({});
+  const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
 
   // 获取车辆数据
   const fetchVehicles = useCallback(async () => {
@@ -49,31 +48,94 @@ const Vehicles: React.FC = () => {
     await fetchVehicles();
   }, [fetchVehicles]);
 
-  const handleStatusChange = useCallback((id: number, newStatus: Vehicle['status']) => {
-    updateItem(id, {
-      status: newStatus,
-      location:
-        newStatus === 'maintenance'
-          ? t('pages.vehicles.maintenanceBay')
-          : newStatus === 'offline'
-          ? t('pages.vehicles.chargingStation')
-          : t('pages.vehicles.zoneA'),
-    });
-  }, [updateItem, t]);
-
-  const handleMaintenance = useCallback((id: number) => {
-    const vehicle = vehicles.find(v => v.id === id);
-    if (vehicle) {
-      updateItem(id, {
-        status: 'maintenance',
-        location: t('pages.vehicles.maintenanceBay'),
-        lastMaintenance: t('pages.vehicles.lastMaintenance', { time: t('pages.schedule.justNow') }),
-        nextMaintenance: t('pages.vehicles.nextMaintenance', { time: t('pages.schedule.twoWeeksFromNow') }),
-      });
+  const handleStatusChange = useCallback(async (id: number, newStatus: Vehicle['status']) => {
+    try {
+      const response = await get_ipc_api().updateVehicleStatus(id, newStatus);
+      if (response?.success) {
+        await fetchVehicles(); // 刷新列表
+      }
+    } catch (error) {
+      console.error('Failed to update vehicle status:', error);
     }
-  }, [vehicles, updateItem, t]);
+  }, [fetchVehicles]);
 
-  const handleSearch = (value: string) => {
+  const handleMaintenance = useCallback(async (id: number) => {
+    try {
+      const response = await get_ipc_api().updateVehicleStatus(id, 'maintenance');
+      if (response?.success) {
+        await fetchVehicles(); // 刷新列表
+      }
+    } catch (error) {
+      console.error('Failed to set vehicle to maintenance:', error);
+    }
+  }, [fetchVehicles]);
+
+  const handleAdd = useCallback(() => {
+    setIsAddModalVisible(true);
+  }, []);
+
+  const handleEdit = useCallback(() => {
+    if (selectedVehicle) {
+      setIsEditModalVisible(true);
+    }
+  }, [selectedVehicle]);
+
+  const handleAddSubmit = useCallback(async (values: any) => {
+    try {
+      const response = await get_ipc_api().addVehicle(values);
+      if (response?.success) {
+        message.success(t('pages.vehicles.addSuccess'));
+        setIsAddModalVisible(false);
+        await fetchVehicles();
+      } else {
+        message.error(t('pages.vehicles.addFailed'));
+      }
+    } catch (error) {
+      console.error('Failed to add vehicle:', error);
+      message.error(t('pages.vehicles.addFailed'));
+    }
+  }, [fetchVehicles, t]);
+
+  const handleEditSubmit = useCallback(async (values: any) => {
+    if (!selectedVehicle) return;
+    
+    try {
+      const response = await get_ipc_api().updateVehicle(selectedVehicle.id, values);
+      if (response?.success) {
+        message.success(t('pages.vehicles.updateSuccess'));
+        setIsEditModalVisible(false);
+        await fetchVehicles();
+      } else {
+        message.error(t('pages.vehicles.updateFailed'));
+      }
+    } catch (error) {
+      console.error('Failed to update vehicle:', error);
+      message.error(t('pages.vehicles.updateFailed'));
+    }
+  }, [selectedVehicle, fetchVehicles, t]);
+
+  const handleDelete = useCallback(async () => {
+    if (!selectedVehicle) return;
+    
+    // 确认删除
+    if (!window.confirm(t('pages.vehicles.confirmDelete', { name: selectedVehicle.name }))) {
+      return;
+    }
+
+    try {
+      const response = await get_ipc_api().deleteVehicle(selectedVehicle.id);
+      if (response?.success) {
+        await fetchVehicles(); // 刷新列表
+      } else {
+        alert(t('pages.vehicles.deleteFailed'));
+      }
+    } catch (error) {
+      console.error('Failed to delete vehicle:', error);
+      alert(t('pages.vehicles.deleteFailed'));
+    }
+  }, [selectedVehicle, fetchVehicles, t]);
+
+  const handleSearch = (_value: string) => {
     // TODO: 实现搜索逻辑
   };
 
@@ -85,42 +147,54 @@ const Vehicles: React.FC = () => {
     setFilters({});
   };
 
-  const listTitle = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-      <span>{t('pages.vehicles.title')}</span>
-      <Button
-        type="text"
-        icon={<ReloadOutlined style={{ color: 'white' }} />}
-        onClick={handleRefresh}
-        title={t('pages.vehicles.refresh')}
-      />
-    </div>
-  );
-
   return (
-    <DetailLayout
-      listTitle={listTitle}
-      detailsTitle={t('pages.vehicles.vehicleInformation')}
-      listContent={
-        <VehicleList
-          vehicles={vehicles}
-          onSelect={selectItem}
-          filters={filters}
-          onFilterChange={handleFilterChange}
-          onSearch={handleSearch}
-          onReset={handleReset}
-          t={t}
-        />
-      }
-      detailsContent={
-        <VehicleDetails
-          vehicle={selectedVehicle ?? undefined}
-          onStatusChange={handleStatusChange}
-          onMaintenance={handleMaintenance}
-          t={t}
-        />
-      }
-    />
+    <>
+      <DetailLayout
+        listTitle={t('pages.vehicles.title')}
+        detailsTitle={t('pages.vehicles.vehicleInformation')}
+        listContent={
+          <VehicleList
+            vehicles={vehicles}
+            onSelect={selectItem}
+            filters={filters}
+            onFilterChange={handleFilterChange}
+            onSearch={handleSearch}
+            onReset={handleReset}
+            onAdd={handleAdd}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            onRefresh={handleRefresh}
+            t={t}
+          />
+        }
+        detailsContent={
+          <VehicleDetails
+            vehicle={selectedVehicle ?? undefined}
+            onStatusChange={handleStatusChange}
+            onMaintenance={handleMaintenance}
+            t={t}
+          />
+        }
+      />
+      
+      {/* 添加 Vehicle 对话框 */}
+      <VehicleFormModal
+        visible={isAddModalVisible}
+        vehicle={null}
+        onOk={handleAddSubmit}
+        onCancel={() => setIsAddModalVisible(false)}
+        t={t}
+      />
+      
+      {/* 编辑 Vehicle 对话框 */}
+      <VehicleFormModal
+        visible={isEditModalVisible}
+        vehicle={selectedVehicle}
+        onOk={handleEditSubmit}
+        onCancel={() => setIsEditModalVisible(false)}
+        t={t}
+      />
+    </>
   );
 };
 

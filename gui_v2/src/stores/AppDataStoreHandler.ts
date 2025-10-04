@@ -1,4 +1,5 @@
-import { AppData, useAppDataStore } from './appDataStore';
+import { useAppDataStore } from './appDataStore';
+import { useAgentStore } from './agentStore';
 import { logger } from '../utils/logger';
 
 /**
@@ -11,7 +12,7 @@ export class AppDataStoreHandler {
      * 此方法会逐一检查数据对象中的每个字段，并调用对应的 setter 更新 store。
      * @param data - 从 API 返回的 SystemData 对象。
      */
-    public static updateStore(data: AppData): void {
+    public static updateStore(data: any): void {
         if (!data) {
             logger.error('AppDataStoreHandler received null or undefined data.');
             return;
@@ -20,7 +21,6 @@ export class AppDataStoreHandler {
         console.debug('AppDataStoreHandler: Updating store with new data.', data);
 
         const { 
-            setAgents, 
             setTasks, 
             setSkills, 
             setKnowledges, 
@@ -30,7 +30,9 @@ export class AppDataStoreHandler {
             setSettings
         } = useAppDataStore.getState();
 
+        // 使用专用的 agentStore 处理 agents 数据
         if (data.agents && Array.isArray(data.agents)) {
+            const { setAgents } = useAgentStore.getState();
             setAgents(data.agents);
         }
         if (data.tasks && Array.isArray(data.tasks)) {

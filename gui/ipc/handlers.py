@@ -10,14 +10,16 @@ from .registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper as logger
 import traceback
 from app_context import AppContext
-from agent.ec_skills.dev_utils.skill_dev_utils import (
-    run_dev_skill,
-    cancel_run_dev_skill,
-    pause_run_dev_skill,
-    resume_run_dev_skill,
-    step_run_dev_skill,
-    set_bps_dev_skill,
-)
+
+# Lazy import to avoid slow startup - only import when actually needed
+# from agent.ec_skills.dev_utils.skill_dev_utils import (
+#     run_dev_skill,
+#     cancel_run_dev_skill,
+#     pause_run_dev_skill,
+#     resume_run_dev_skill,
+#     step_run_dev_skill,
+#     set_bps_dev_skill,
+# )
 import asyncio
 
 
@@ -194,6 +196,9 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
     try:
         logger.debug(f"Get start skill run handler called with request: {request}")
 
+        # Lazy import to avoid slow startup
+        from agent.ec_skills.dev_utils.skill_dev_utils import run_dev_skill
+
         main_window = AppContext.get_main_window()
         # Prefer params['skill'] (sent by FE) over legacy request.meta key
         skill_src = "params.skill" if isinstance(params, dict) and params.get("skill") is not None else "meta.skill_flowgram"
@@ -235,6 +240,9 @@ def handle_cancel_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCRe
     try:
         logger.debug(f"Get cancel skill run called with request: {request}")
 
+        # Lazy import to avoid slow startup
+        from agent.ec_skills.dev_utils.skill_dev_utils import cancel_run_dev_skill
+
         main_window = AppContext.get_main_window()
         results = cancel_run_dev_skill(main_window)
         return create_success_response(request, {
@@ -263,6 +271,9 @@ def handle_pause_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCRes
     """
     try:
         logger.debug(f"Get pause skill run request: {request}")
+
+        # Lazy import to avoid slow startup
+        from agent.ec_skills.dev_utils.skill_dev_utils import pause_run_dev_skill
 
         main_window = AppContext.get_main_window()
         results = pause_run_dev_skill(main_window)
@@ -293,6 +304,9 @@ def handle_resume_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCRe
     try:
         logger.debug(f"Get resume skill run called with request: {request}")
 
+        # Lazy import to avoid slow startup
+        from agent.ec_skills.dev_utils.skill_dev_utils import resume_run_dev_skill
+
         main_window = AppContext.get_main_window()
         results = resume_run_dev_skill(main_window)
         return create_success_response(request, {
@@ -322,6 +336,9 @@ def handle_step_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResp
     try:
         logger.debug(f"Get single step skill run called with request: {request}")
 
+        # Lazy import to avoid slow startup
+        from agent.ec_skills.dev_utils.skill_dev_utils import step_run_dev_skill
+
         main_window = AppContext.get_main_window()
         results = step_run_dev_skill(main_window)
         return create_success_response(request, {
@@ -350,6 +367,9 @@ def handle_set_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -> 
     """
     try:
         logger.debug(f"Get setting skill breakpoints with request: {request}")
+
+        # Lazy import to avoid slow startup
+        from agent.ec_skills.dev_utils.skill_dev_utils import set_bps_dev_skill
 
         main_window = AppContext.get_main_window()
         owner = params["username"]

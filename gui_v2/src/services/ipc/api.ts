@@ -194,6 +194,30 @@ export class IPCAPI {
         return this.executeRequest<T>('get_vehicles', { });
     }
 
+    public async updateVehicleStatus<T>(vehicle_id: number, status: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('update_vehicle_status', { vehicle_id, status });
+    }
+
+    public async addVehicle<T>(vehicle: any): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('add_vehicle', vehicle);
+    }
+
+    public async updateVehicle<T>(vehicle_id: number, updates: any): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('update_vehicle', { vehicle_id, ...updates });
+    }
+
+    public async deleteVehicle<T>(vehicle_id: number): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('delete_vehicle', { vehicle_id });
+    }
+
+    public async assignBotToVehicle<T>(bot_id: string, vehicle_id: number): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('assign_bot_to_vehicle', { bot_id, vehicle_id });
+    }
+
+    public async removeBotFromVehicle<T>(bot_id: string, vehicle_id: number): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('remove_bot_from_vehicle', { bot_id, vehicle_id });
+    }
+
     public async getSchedules<T>(): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_schedules', { });
     }

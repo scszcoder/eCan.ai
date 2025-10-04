@@ -415,12 +415,18 @@ const OrgNavigator: React.FC = () => {
         tooltip={t('pages.agents.add_agent') || 'Add Agent'}
         onClick={() => {
           // 传递当前组织ID作为查询参数
+          console.log('[OrgNavigator] Add button clicked, actualOrgId:', actualOrgId);
           const queryParams = new URLSearchParams();
           if (actualOrgId && actualOrgId !== 'root' && actualOrgId !== UNASSIGNED_NODE_ID) {
+            console.log('[OrgNavigator] Setting orgId query param:', actualOrgId);
             queryParams.set('orgId', actualOrgId);
+          } else {
+            console.log('[OrgNavigator] Not setting orgId - actualOrgId:', actualOrgId, 'UNASSIGNED:', UNASSIGNED_NODE_ID);
           }
           const queryString = queryParams.toString();
-          navigate(`/agents/add${queryString ? `?${queryString}` : ''}`);
+          const targetUrl = `/agents/add${queryString ? `?${queryString}` : ''}`;
+          console.log('[OrgNavigator] Navigating to:', targetUrl);
+          navigate(targetUrl);
         }}
       />
     </div>
