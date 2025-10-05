@@ -1,6 +1,6 @@
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Any, Dict
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QApplication
@@ -201,11 +201,17 @@ class AppContext(metaclass=AppContextMeta):
     # 你可以继续添加更多 set/get 方法
 
     @classmethod
-    def get_useful_context(cls) -> dict:
-        """Aggregate and return a minimal, useful context for external skills.
+    def get_useful_context(cls) -> "RunContext":
+        """Return a lazy, namespaced context for external skills.
 
-        This avoids external skills importing internal modules. The returned dict is stable and
-        contains references commonly needed by skills. Fields may be None depending on runtime mode.
+        Skills should call namespaces on demand, e.g.:
+            core = run_context.core()
+            graph = run_context.graph()
+            llm = run_context.llm()
+            mcp = run_context.mcp()
+            log = run_context.log()
+
+        This avoids heavy imports at module import time and limits the exposed surface.
         """
         inst = cls.get_instance()
         try:
@@ -213,17 +219,146 @@ class AppContext(metaclass=AppContextMeta):
         except Exception:
             playwright_path = None
 
-        return {
-            "app": inst.app,
-            "main_window": inst.main_window,
-            "web_gui": inst.web_gui,
-            "logger": inst.logger,
-            "config": inst.config,
-            "thread_pool": inst.thread_pool,
-            "app_info": inst.app_info,
-            "main_loop": inst.main_loop,
-            "login": inst.login,
-            "playwright_browsers_path": playwright_path,
-            # Convenience aliases for existing common entry points if present
-            "mcp_client": getattr(getattr(inst.main_window, "mcp_client", None), "__class__", None) and inst.main_window.mcp_client if inst.main_window else None,
-        }
+        return RunContext(
+            app=inst.app,
+            main_window=inst.main_window,
+            web_gui=inst.web_gui,
+            logger=inst.logger,
+            config=inst.config,
+            thread_pool=inst.thread_pool,
+            app_info=inst.app_info,
+            main_loop=inst.main_loop,
+            login=inst.login,
+            playwright_browsers_path=playwright_path,
+            mcp_client=(inst.main_window.mcp_client if getattr(inst.main_window, "mcp_client", None) is not None else None) if inst.main_window else None,
+        )
+
+
+class RunContext:
+    """Lazy, namespaced context exposed to external skills.
+
+    Namespaces (methods): core(), graph(), llm(), mcp(), log()
+    Metadata and common instances are available as attributes.
+    """
+
+    def __init__(
+        self,
+        *,
+        app: Any = None,
+        main_window: Any = None,
+        web_gui: Any = None,
+        logger: Any = None,
+        config: Any = None,
+        thread_pool: Any = None,
+        app_info: Any = None,
+        main_loop: Any = None,
+        login: Any = None,
+        playwright_browsers_path: Optional[str] = None,
+        mcp_client: Any = None,
+    ) -> None:
+        self.app = app
+        self.main_window = main_window
+        self.web_gui = web_gui
+        self.logger = logger
+        self.config = config
+        self.thread_pool = thread_pool
+        self.app_info = app_info
+        self.main_loop = main_loop
+        self.login = login
+        self.playwright_browsers_path = playwright_browsers_path
+        self.mcp_client = mcp_client
+        self._cache: Dict[str, Dict[str, Any]] = {}
+        self._api_version = "ecan_context_v1"
+
+    # Dict-like helpers for convenience (optional)
+    def __getitem__(self, key: str) -> Any:
+        # Allow run_context["core"] to return the core namespace
+        if key == "core":
+            return self.core()
+        if key == "graph":
+            return self.graph()
+        if key == "llm":
+            return self.llm()
+        if key == "mcp":
+            return self.mcp()
+        if key == "log":
+            return self.log()
+        # Allow access to attributes like app, logger, etc.
+        return getattr(self, key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        try:
+            return self.__getitem__(key)
+        except Exception:
+            return default
+
+    @property
+    def api_version(self) -> str:
+        return self._api_version
+
+    # Namespaces
+    def core(self) -> Dict[str, Any]:
+        if "core" not in self._cache:
+            from agent.ec_skill import EC_Skill, WorkFlowContext, NodeState, node_builder, node_wrapper
+            try:
+                from agent.ec_skills.dev_defs import BreakpointManager
+            except Exception:
+                # Fallback if not available
+                class BreakpointManager:  # type: ignore
+                    pass
+            self._cache["core"] = {
+                "EC_Skill": EC_Skill,
+                "WorkFlowContext": WorkFlowContext,
+                "NodeState": NodeState,
+                "node_builder": node_builder,
+                "node_wrapper": node_wrapper,
+                "BreakpointManager": BreakpointManager,
+                "api_version": self._api_version,
+            }
+        return self._cache["core"]
+
+    def graph(self) -> Dict[str, Any]:
+        if "graph" not in self._cache:
+            from langgraph.graph import StateGraph
+            from langgraph.constants import END
+            from langgraph.runtime import Runtime
+            from langgraph.store.base import BaseStore
+            from langgraph.errors import GraphInterrupt
+            from langgraph.types import interrupt
+            self._cache["graph"] = {
+                "StateGraph": StateGraph,
+                "END": END,
+                "Runtime": Runtime,
+                "BaseStore": BaseStore,
+                "GraphInterrupt": GraphInterrupt,
+                "interrupt": interrupt,
+            }
+        return self._cache["graph"]
+
+    def llm(self) -> Dict[str, Any]:
+        if "llm" not in self._cache:
+            from agent.ec_skills.llm_hooks.llm_hooks import llm_node_with_raw_files
+            from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync, try_parse_json
+            self._cache["llm"] = {
+                "llm_node_with_raw_files": llm_node_with_raw_files,
+                "run_async_in_sync": run_async_in_sync,
+                "try_parse_json": try_parse_json,
+            }
+        return self._cache["llm"]
+
+    def mcp(self) -> Dict[str, Any]:
+        if "mcp" not in self._cache:
+            from agent.mcp.local_client import mcp_call_tool
+            self._cache["mcp"] = {
+                "mcp_call_tool": mcp_call_tool,
+            }
+        return self._cache["mcp"]
+
+    def log(self) -> Dict[str, Any]:
+        if "log" not in self._cache:
+            from utils.logger_helper import logger_helper as logger, get_traceback
+            self._cache["log"] = {
+                "logger": logger,
+                "get_traceback": get_traceback,
+            }
+        return self._cache["log"]

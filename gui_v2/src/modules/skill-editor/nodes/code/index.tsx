@@ -20,9 +20,8 @@ def main(state, *, runtime, store):
   print("in myfunc0.........",state)
   time.sleep(5)
   print("myfunc0 woke now, outa here.....")
-  state["result"] = "myfun0 success"
-  return {"status": "myfunc0 succeeded!!!"
-}`;
+  state["result"] = {"status": "myfunc0 succeeded!!!"}
+  return state`;
 
 export const CodeNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.Code,
