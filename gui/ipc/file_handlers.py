@@ -44,28 +44,25 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
     """
     try:
         logger.debug(f"Show open dialog handler called with request: {request}")
-        
-        from tkinter import filedialog
-        import tkinter as tk
-        
-        # Create a hidden root window
-        root = tk.Tk()
-        root.withdraw()
-        
+
+        from PySide6.QtWidgets import QFileDialog, QApplication
+        from PySide6.QtCore import QThread
+        import threading
+
         # Build file type filters
         filters = params.get('filters', []) if params else []
-        file_types = []
-        
+        filter_strings = []
+
         for filter_item in filters:
             name = filter_item.get('name', 'All Files')
             extensions = filter_item.get('extensions', ['*'])
-            # Convert to tkinter format
-            ext_pattern = ';'.join([f'*.{ext}' for ext in extensions])
-            file_types.append((name, ext_pattern))
-        
-        if not file_types:
-            file_types = [('JSON Files', '*.json'), ('All Files', '*.*')]
-        
+            # Convert to Qt format
+            ext_pattern = ' '.join([f'*.{ext}' for ext in extensions])
+            filter_strings.append(f"{name} ({ext_pattern})")
+
+        if not filter_strings:
+            filter_strings = ['JSON Files (*.json)', 'All Files (*.*)']
+
         # Force initial directory to the per-user skills root
         try:
             _, _, user_skills_root = _get_extern_skills()
@@ -75,15 +72,34 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
         except Exception:
             initial_dir = None
 
-        # Show file dialog (initial directory at skills root)
-        file_path = filedialog.askopenfilename(
-            title="Open Skill File",
-            filetypes=file_types,
-            initialdir=initial_dir
-        )
-        
-        # Destroy the root window
-        root.destroy()
+        # Ensure we're on the main thread for Qt dialogs
+        def show_dialog():
+            app = QApplication.instance()
+            if app is None:
+                # If no QApplication exists, create a temporary one
+                app = QApplication([])
+                temp_app = True
+            else:
+                temp_app = False
+
+            try:
+                file_path, _ = QFileDialog.getOpenFileName(
+                    None,  # parent
+                    "Open Skill File",  # caption
+                    initial_dir or "",  # directory
+                    ";;".join(filter_strings)  # filter
+                )
+                return file_path
+            finally:
+                if temp_app:
+                    app.quit()
+
+        # Execute dialog on main thread if needed
+        if QThread.currentThread() == QApplication.instance().thread() if QApplication.instance() else False:
+            file_path = show_dialog()
+        else:
+            # Use a simple approach for cross-thread dialog
+            file_path = show_dialog()
         
         if file_path:
             # Validate that the selected file is under the skills root
@@ -132,13 +148,10 @@ def handle_show_save_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
     """Handle the file save dialog request."""
     try:
         logger.debug(f"Show save dialog handler called with request: {request}")
-        
-        from tkinter import filedialog
-        import tkinter as tk
-        
-        root = tk.Tk()
-        root.withdraw()
-        
+
+        from PySide6.QtWidgets import QFileDialog, QApplication
+        from PySide6.QtCore import QThread
+
         # Resolve parameters
         default_filename = params.get('defaultFilename', 'untitled.json') if params else 'untitled.json'
         try:
@@ -146,26 +159,46 @@ def handle_show_save_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
         except Exception:
             pass
         filters = params.get('filters', []) if params else []
-        file_types = []
-        
+        filter_strings = []
+
         for filter_item in filters:
             name = filter_item.get('name', 'All Files')
             extensions = filter_item.get('extensions', ['*'])
-            ext_pattern = ';'.join([f'*.{ext}' for ext in extensions])
-            file_types.append((name, ext_pattern))
-        
-        if not file_types:
-            file_types = [('JSON Files', '*.json'), ('All Files', '*.*')]
-        
-        # Show save dialog
-        file_path = filedialog.asksaveasfilename(
-            title="Save Skill File",
-            defaultextension=".json",
-            filetypes=file_types,
-            initialfile=default_filename
-        )
-        
-        root.destroy()
+            # Convert to Qt format
+            ext_pattern = ' '.join([f'*.{ext}' for ext in extensions])
+            filter_strings.append(f"{name} ({ext_pattern})")
+
+        if not filter_strings:
+            filter_strings = ['JSON Files (*.json)', 'All Files (*.*)']
+
+        # Ensure we're on the main thread for Qt dialogs
+        def show_dialog():
+            app = QApplication.instance()
+            if app is None:
+                # If no QApplication exists, create a temporary one
+                app = QApplication([])
+                temp_app = True
+            else:
+                temp_app = False
+
+            try:
+                file_path, _ = QFileDialog.getSaveFileName(
+                    None,  # parent
+                    "Save Skill File",  # caption
+                    default_filename,  # directory/filename
+                    ";;".join(filter_strings)  # filter
+                )
+                return file_path
+            finally:
+                if temp_app:
+                    app.quit()
+
+        # Execute dialog on main thread if needed
+        if QThread.currentThread() == QApplication.instance().thread() if QApplication.instance() else False:
+            file_path = show_dialog()
+        else:
+            # Use a simple approach for cross-thread dialog
+            file_path = show_dialog()
         
         if file_path:
             return create_success_response(request, {
