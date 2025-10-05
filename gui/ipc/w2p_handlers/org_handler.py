@@ -333,8 +333,18 @@ def handle_bind_agent_to_org(request: IPCRequest, params: Optional[list[Any]]) -
         
         # Bind agent to org
         result = ec_org_ctrl.bind_agent_to_org(agent_id, organization_id)
-        
+
         if result.get("success"):
+            # Update memory: set org_id for the agent in main_window.agents
+            main_window = AppContext.get_main_window()
+            if main_window and hasattr(main_window, 'agents'):
+                for agent in main_window.agents:
+                    if hasattr(agent, 'card') and hasattr(agent.card, 'id') and agent.card.id == agent_id:
+                        if hasattr(agent.card, 'org_id'):
+                            agent.card.org_id = organization_id
+                            logger.info(f"[organizations_handler] Updated agent {agent_id} org_id to {organization_id} in memory")
+                        break
+
             logger.info(f"[organizations_handler] Successfully bound agent {agent_id} to organization {organization_id}")
             return create_success_response(request, {
                 'message': 'Agent bound to organization successfully'
@@ -353,17 +363,17 @@ def handle_bind_agent_to_org(request: IPCRequest, params: Optional[list[Any]]) -
 def handle_unbind_agent_from_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
     """
     Unbind an agent from its organization
-    
+
     Args:
         request: IPC request object
         params: Request parameters with agent ID
-    
+
     Returns:
         IPCResponse: Response with success status
     """
     try:
         logger.debug(f"[organizations_handler] unbind_agent_from_organization called with request: {request}")
-        
+
         # Validate required parameters
         is_valid, data, error = validate_params(request.get('params'), ['username', 'agent_id'])
         if not is_valid:
@@ -377,16 +387,26 @@ def handle_unbind_agent_from_org(request: IPCRequest, params: Optional[list[Any]
 
         username = data['username']
         agent_id = data['agent_id']
-        
+
         logger.info(f"[organizations_handler] Unbinding agent {agent_id} from organization, user: {username}")
-        
+
         # Get org manager
         ec_org_ctrl = get_ec_org_ctrl()
-        
+
         # Unbind agent from org
         result = ec_org_ctrl.unbind_agent_from_org(agent_id)
-        
+
         if result.get("success"):
+            # Update memory: set org_id to None for the agent in main_window.agents
+            main_window = AppContext.get_main_window()
+            if main_window and hasattr(main_window, 'agents'):
+                for agent in main_window.agents:
+                    if hasattr(agent, 'card') and hasattr(agent.card, 'id') and agent.card.id == agent_id:
+                        if hasattr(agent.card, 'org_id'):
+                            agent.card.org_id = None
+                            logger.info(f"[organizations_handler] Updated agent {agent_id} org_id to None in memory")
+                        break
+
             logger.info(f"[organizations_handler] Successfully unbound agent {agent_id} from organization")
             return create_success_response(request, {
                 'message': 'Agent unbound from organization successfully'
@@ -394,7 +414,7 @@ def handle_unbind_agent_from_org(request: IPCRequest, params: Optional[list[Any]
         else:
             logger.error(f"[organizations_handler] Failed to unbind agent from organization: {result.get('error')}")
             return create_error_response(request, 'UNBIND_AGENT_FAILED', result.get('error', 'Unknown error'))
-            
+
     except Exception as e:
         logger.error(f"[organizations_handler] Error in unbind_agent_from_organization: {e}")
         logger.error(traceback.format_exc())

@@ -526,16 +526,27 @@ class EC_OrgCtrl:
         try:
             logger.info(f"[EC_OrgCtrl] Unbinding agent {agent_id} from organization")
 
-            # Update agent to remove organization
+            # 1. Update agent to remove organization
             update_data = {"org_id": None}
             result = self.agent_service.update_agent(agent_id, update_data)
 
-            if result.get("success"):
-                logger.info(f"[EC_OrgCtrl] Agent {agent_id} unbound from organization successfully")
-            else:
-                logger.error(f"[EC_OrgCtrl] Failed to unbind agent from organization: {result.get('error')}")
+            if not result.get("success"):
+                logger.error(f"[EC_OrgCtrl] Failed to update agent org_id: {result.get('error')}")
+                return result
 
-            return result
+            # 2. Update agent-org relationship status to inactive
+            rel_result = self.agent_service.deactivate_agent_org_relations(agent_id)
+
+            if not rel_result.get("success"):
+                logger.error(f"[EC_OrgCtrl] Failed to deactivate agent-org relations: {rel_result.get('error')}")
+                return rel_result
+
+            logger.info(f"[EC_OrgCtrl] Agent {agent_id} unbound from organization successfully")
+            return {
+                "success": True,
+                "data": None,
+                "error": None
+            }
 
         except Exception as e:
             logger.error(f"[EC_OrgCtrl] Failed to unbind agent from organization: {e}")

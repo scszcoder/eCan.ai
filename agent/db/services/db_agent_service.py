@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import and_, or_, func
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import re
 from utils.logger_helper import logger_helper as logger
 
@@ -987,5 +987,44 @@ class DBAgentService(BaseService):
             return {
                 "success": False,
                 "data": [],
+                "error": str(e)
+            }
+
+    def deactivate_agent_org_relations(self, agent_id: str) -> Dict[str, Any]:
+        """
+        Deactivate all agent-organization relationships for an agent
+
+        Args:
+            agent_id (str): Agent ID
+
+        Returns:
+            dict: Standard response with success status
+        """
+        try:
+            with self.session_scope() as session:
+                # Update all active relationships to inactive
+                updated_count = session.query(DBAgentOrgRel).filter(
+                    DBAgentOrgRel.agent_id == agent_id,
+                    DBAgentOrgRel.status == 'active'
+                ).update({
+                    'status': 'inactive',
+                    'leave_date': datetime.now(timezone.utc),
+                    'updated_at': datetime.now(timezone.utc)
+                })
+
+                session.flush()
+
+                logger.info(f"[DBAgentService] Deactivated {updated_count} agent-org relationships for agent {agent_id}")
+
+                return {
+                    "success": True,
+                    "data": {"updated_count": updated_count},
+                    "error": None
+                }
+        except SQLAlchemyError as e:
+            logger.error(f"[DBAgentService] Failed to deactivate agent-org relations: {e}")
+            return {
+                "success": False,
+                "data": None,
                 "error": str(e)
             }

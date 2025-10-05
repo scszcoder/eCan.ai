@@ -103,14 +103,28 @@ const AgentList: React.FC<AgentListProps> = ({
             >
               <List.Item.Meta
                 avatar={
-                  <Avatar 
-                    src={agent.avatar} 
+                  <Avatar
+                    src={agent.avatar}
                     icon={<UserOutlined />}
                     size="large"
                   />
                 }
                 title={agent.name}
-                description={agent.description || '-'}
+                description={
+                  agent.description ? (
+                    <div
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        maxWidth: '100%'
+                      }}
+                      title={agent.description}
+                    >
+                      {agent.description}
+                    </div>
+                  ) : undefined
+                }
               />
             </List.Item>
           )}

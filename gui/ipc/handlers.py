@@ -691,10 +691,11 @@ def handle_get_initialization_progress(request: IPCRequest, params: Optional[Any
         IPCResponse: JSON response with initialization progress
     """
     try:
-        logger.debug(f"Get initialization progress handler called with request: {request}")
+        # logger.debug(f"Get initialization progress handler called with request: {request}")
 
         main_window = AppContext.get_main_window()
         if main_window is None:
+            logger.info("MainWindow not yet created")
             # MainWindow not yet created
             return create_success_response(request, {
                 'ui_ready': False,
