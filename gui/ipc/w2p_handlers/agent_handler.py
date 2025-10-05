@@ -232,7 +232,10 @@ def handle_save_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCR
         logger.debug(f"[agent_handler] Save agents handler called with request: {request}")
 
         # Validate required parameters
-        data = validate_params(request, ['username', 'agents'])
+        is_valid, data, error = validate_params(request.get('params'), ['username', 'agents'])
+        if not is_valid:
+            logger.warning(f"[agent_handler] Invalid parameters for save agents: {error}")
+            return create_error_response(request, 'INVALID_PARAMS', error)
         username = data['username']
         agents_data = data['agents']
 
@@ -356,9 +359,18 @@ def handle_new_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         logger.debug(f"[agent_handler] Create agents handler called with request: {request}")
 
         # Validate required parameters
-        data = validate_params(request, ['username', 'agents'])
-        username = data['username']
+        is_valid, data, error = validate_params(request.get('params'), ['agents'])
+        if not is_valid:
+            logger.warning(f"[agent_handler] Invalid parameters for new agents: {error}")
+            return create_error_response(request, 'INVALID_PARAMS', error)
+
+        # Get username from params or from first agent's owner field
+        username = data.get('username')
         agents_data = data['agents']
+
+        if not username and agents_data:
+            # Try to get username from first agent's owner field
+            username = agents_data[0].get('owner', 'unknown')
 
         logger.info(f"[agent_handler] Creating {len(agents_data)} agents for user: {username}")
 
@@ -367,42 +379,44 @@ def handle_new_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
             logger.error(f"[agent_handler] MainWindow not available for user: {username}")
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'MainWindow not available')
 
-        # Process each agent
-        created_count = 0
-        errors = []
+        # Get database service
+        if not main_window.ec_db_mgr:
+            logger.error(f"[agent_handler] Database manager not available")
+            return create_error_response(request, 'DB_ERROR', 'Database manager not available')
 
-        for agent_data in agents_data:
-            try:
-                # Handle organization migration: if organizations list exists, use first one as organization_id
-                if 'organizations' in agent_data and agent_data['organizations'] and not agent_data.get('organization_id'):
-                    agent_data['organization_id'] = agent_data['organizations'][0]
+        agent_service = main_window.ec_db_mgr.agent_service
+        if not agent_service:
+            logger.error(f"[agent_handler] Agent service not available")
+            return create_error_response(request, 'DB_ERROR', 'Agent service not available')
 
-                # Create new agent using existing agent creation logic
-                # This is a simplified version - in a real implementation, you'd use the proper agent creation flow
-                logger.info(f"[agent_handler] Creating new agent with data: {agent_data.get('name', 'Unknown')}")
-                created_count += 1
+        # Call service layer to create agents in batch
+        result = agent_service.create_agents_batch(agents_data, username)
 
-            except Exception as e:
-                error_msg = f"Error creating agent: {str(e)}"
-                logger.error(f"[agent_handler] {error_msg}")
-                errors.append(error_msg)
+        created_count = result['created_count']
+        errors = result['errors']
+        created_agents = result['agents']
 
         if errors:
             logger.warning(f"[agent_handler] Created {created_count} agents with {len(errors)} errors")
-            return create_error_response(request, 'PARTIAL_CREATE_ERROR', f"Created {created_count} agents with errors: {'; '.join(errors)}")
+            return create_error_response(
+                request,
+                'PARTIAL_CREATE_ERROR',
+                f"Created {created_count} agents with errors: {'; '.join(errors)}"
+            )
         else:
             logger.info(f"[agent_handler] Successfully created {created_count} agents for user: {username}")
-            return create_success_response(request, {
-                'message': f'Successfully created {created_count} agents'
-            })
+            return create_success_response(
+                request,
+                {
+                    'message': f'Successfully created {created_count} agents',
+                    'created_count': created_count,
+                    'agents': created_agents
+                }
+            )
 
     except Exception as e:
         logger.error(f"[agent_handler] Error in create agents handler: {e} {traceback.format_exc()}")
-        return create_error_response(
-            request,
-            'LOGIN_ERROR',
-            f"Error during create agents: {str(e)}"
-        )
+        return create_error_response(request, 'CREATE_AGENTS_ERROR', f"Error during create agents: {str(e)}")
 
 
 @IPCHandlerRegistry.handler('get_all_org_agents')

@@ -3,7 +3,7 @@ Association table models for many-to-many relationships.
 
 This module contains all association tables that define relationships between entities:
 - DBAgentOrgRel: Agent-Organization relationship
-- DBAgentSkillRel: Agent-Skill relationship  
+- DBAgentSkillRel: Agent-Skill relationship
 - DBAgentTaskRel: Agent-Task execution relationship
 - DBSkillToolRel: Skill-Tool dependency relationship
 - DBAgentSkillKnowledgeRel: Skill-Knowledge dependency relationship
@@ -13,7 +13,8 @@ This module contains all association tables that define relationships between en
 from sqlalchemy import Column, String, Integer, Boolean, ForeignKey, Text, DateTime, JSON, Float, UniqueConstraint
 from sqlalchemy.orm import relationship
 from .base_model import BaseModel, TimestampMixin
-from datetime import datetime
+from datetime import datetime, timezone
+import uuid
 
 
 class DBAgentOrgRel(BaseModel, TimestampMixin):
@@ -21,7 +22,7 @@ class DBAgentOrgRel(BaseModel, TimestampMixin):
     __tablename__ = 'agent_org_rels'
 
     # Primary key
-    id = Column(String(64), primary_key=True)
+    id = Column(String(64), primary_key=True, default=lambda: f"rel_ao_{uuid.uuid4().hex[:16]}")
 
     # Foreign keys
     agent_id = Column(String(64), ForeignKey('agents.id'), nullable=False)
@@ -30,7 +31,7 @@ class DBAgentOrgRel(BaseModel, TimestampMixin):
     # Association metadata
     role = Column(String(64), default='member')          # member, manager, admin, owner
     status = Column(String(32), default='active')        # active, inactive, suspended
-    join_date = Column(DateTime, default=datetime.utcnow)
+    join_date = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     leave_date = Column(DateTime, nullable=True)
 
     # Permissions and access
@@ -62,7 +63,7 @@ class DBAgentSkillRel(BaseModel, TimestampMixin):
     __tablename__ = 'agent_skill_rels'
 
     # Primary key
-    id = Column(String(64), primary_key=True)
+    id = Column(String(64), primary_key=True, default=lambda: f"rel_as_{uuid.uuid4().hex[:16]}")
 
     # Foreign keys
     agent_id = Column(String(64), ForeignKey('agents.id'), nullable=False)
@@ -108,7 +109,7 @@ class DBAgentTaskRel(BaseModel, TimestampMixin):
     __tablename__ = 'agent_task_rels'
 
     # Primary key
-    id = Column(String(64), primary_key=True)
+    id = Column(String(64), primary_key=True, default=lambda: f"rel_at_{uuid.uuid4().hex[:16]}")
 
     # Foreign keys
     agent_id = Column(String(64), ForeignKey('agents.id'), nullable=False)
@@ -184,7 +185,7 @@ class DBSkillToolRel(BaseModel, TimestampMixin):
     __tablename__ = 'agent_skill_tool_rels'
 
     # Primary key
-    id = Column(String(64), primary_key=True)
+    id = Column(String(64), primary_key=True, default=lambda: f"rel_st_{uuid.uuid4().hex[:16]}")
 
     # Foreign keys
     skill_id = Column(String(64), ForeignKey('agent_skills.id'), nullable=False)
@@ -232,7 +233,7 @@ class DBAgentSkillKnowledgeRel(BaseModel, TimestampMixin):
     __tablename__ = 'agent_skill_knowledge_rels'
 
     # Primary key
-    id = Column(String(64), primary_key=True)
+    id = Column(String(64), primary_key=True, default=lambda: f"rel_sk_{uuid.uuid4().hex[:16]}")
 
     # Foreign keys
     skill_id = Column(String(64), ForeignKey('agent_skills.id'), nullable=False)
@@ -280,7 +281,7 @@ class DBAgentTaskSkillRel(BaseModel, TimestampMixin):
     __tablename__ = 'agent_task_skill_rels'
 
     # Primary key
-    id = Column(String(64), primary_key=True)
+    id = Column(String(64), primary_key=True, default=lambda: f"rel_ts_{uuid.uuid4().hex[:16]}")
 
     # Foreign keys
     task_id = Column(String(64), ForeignKey('agent_tasks.id'), nullable=False)
