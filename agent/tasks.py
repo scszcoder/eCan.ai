@@ -22,13 +22,15 @@ from datetime import datetime, timedelta
 from calendar import monthrange
 from langgraph.types import interrupt
 from app_context import AppContext
-from utils.logger_helper import logger_helper as logger
 # from agent.chats.tests.test_notifications import *
 from langgraph.types import Interrupt
 from agent.ec_skills.dev_defs import BreakpointManager
+from utils.logger_helper import logger_helper as logger
+
 from utils.logger_helper import get_traceback
 from langgraph.errors import NodeInterrupt
-from agent.tasks_resume import build_general_resume_payload, build_node_transfer_patch
+from agent.tasks_resume import build_general_resume_payload, build_node_transfer_patch, normalize_event
+from enum import Enum
 
 # self.REPEAT_TYPES = ["none", "by seconds", "by minutes", "by hours", "by days", "by weeks", "by months", "by years"]
 # self.WEEK_DAY_TYPES = ["M", "Tu", "W", "Th", "F", "Sa", "Su"]
@@ -690,24 +692,76 @@ class TaskRunner(Generic[Context]):
 
         self._stop_event = asyncio.Event()
         TaskRunnerRegistry.register(self)
-        work_queue = agent.get_work_msg_queue()
-        chat_queue = agent.get_chat_msg_queue()
-        # this is pretty much an event handler look up table
-        self.event_handler_queues = {"work": work_queue, "a2a": chat_queue, "human_chat": chat_queue}
+        # Note: legacy fixed global queues (chat_queue/a2a_queue/work_queue) removed.
+        # Routing should be done by mapping rules to a specific ManagedTask's own queue.
 
     def update_event_handler(self, event_type="", event_queue=None):
-        if not self.event_handler_queues.get("human_chat", None):
-            chat_queue = self.agent.get_chat_msg_queue()
-            if chat_queue:
-                self.event_handler_queues["a2a"] = chat_queue
+        # Deprecated: kept for backward API compatibility; no-op.
+        return
 
-        if not self.event_handler_queues.get("work", None):
-            work_queue = self.agent.get_work_msg_queue()
 
-        if event_type:
-            if event_queue:
-                self.event_handler_queues[event_type] = event_queue
+    def _resolve_event_routing(self, event_type: str, request: Any) -> Optional["ManagedTask"]:
+        """Use skill mapping DSL (event_routing) to choose a target task.
 
+        Strategy:
+        - Normalize the incoming request to an `event` envelope.
+        - Iterate agent tasks; for each task's skill, check mapping_rules.event_routing for this event type.
+        - Evaluate `task_selector` against the task (supports: id:, name:, name_contains:).
+        - Return the first matching ManagedTask. No global queues.
+        """
+        try:
+            event = normalize_event(request)
+            etype = event.get("type") or event_type
+        except Exception:
+            etype = event_type
+
+        # First, try task-specific routing based on each task's skill mapping_rules
+        try:
+            for t in getattr(self.agent, "tasks", []) or []:
+                if not t or not getattr(t, "skill", None):
+                    continue
+                skill = t.skill
+                rules = getattr(skill, "mapping_rules", None)
+                if not isinstance(rules, dict):
+                    continue
+                # event_routing can be at top-level; also tolerate run_mode nesting
+                event_routing = rules.get("event_routing")
+                if not isinstance(event_routing, dict):
+                    run_mode = getattr(skill, "run_mode", None)
+                    if run_mode and isinstance(rules.get(run_mode), dict):
+                        event_routing = rules.get(run_mode, {}).get("event_routing")
+                if not isinstance(event_routing, dict):
+                    continue
+
+                rule = event_routing.get(etype)
+                if not isinstance(rule, dict):
+                    continue
+
+                selector = rule.get("task_selector") or ""
+                sel_ok = False
+                try:
+                    if selector.startswith("id:"):
+                        sel_ok = t.id == selector.split(":", 1)[1]
+                    elif selector.startswith("name:"):
+                        sel_ok = (t.name or "") == selector.split(":", 1)[1]
+                    elif selector.startswith("name_contains:"):
+                        sel_ok = selector.split(":", 1)[1].lower() in (t.name or "").lower()
+                    else:
+                        # No selector or unknown format -> treat as match for this task
+                        sel_ok = True
+                except Exception:
+                    sel_ok = False
+
+                if not sel_ok:
+                    continue
+
+                # Return the matching task; caller will use its queue
+                return t
+        except Exception:
+            pass
+
+        # No match
+        return None
 
 
     def stop(self):
@@ -1103,14 +1157,18 @@ class TaskRunner(Generic[Context]):
 
     def sync_task_wait_in_line(self, event_type, request):
         try:
-            logger.debug("sync task waiting in line.....", event_type, self.agent.card.name, self.event_handler_queues, request)
-            # await self.a2a_msg_queue.put(request)
-            event_queue = self.event_handler_queues.get(event_type, None)
-            if event_queue:
-                event_queue.put_nowait(request)
-                logger.debug("task now in line....")
-            else:
-                logger.error("event queue NOT FOUND for event type: " + event_type)
+            logger.debug("sync task waiting in line.....", event_type, self.agent.card.name, request)
+            # Prefer mapping-DSL-based event routing to a specific task's queue
+            target_task = self._resolve_event_routing(event_type, request)
+            if target_task and getattr(target_task, "queue", None):
+                try:
+                    target_task.queue.put_nowait(request)
+                    logger.debug(f"task now in line for task={target_task.name} ({target_task.id})")
+                    return
+                except Exception:
+                    logger.debug("failed to enqueue on task queue")
+            # No routing match
+            logger.error("No target task found for event type: " + str(event_type))
         except Exception as e:
             ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
             logger.error(f"{ex_stat}")

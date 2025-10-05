@@ -11,7 +11,7 @@ from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.ec_agents.create_agent_tasks import create_ec_procurement_chat_task, create_ec_procurement_work_task
 from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
 from utils.logger_helper import logger_helper as logger
-
+from utils.str_utils import all_substrings
 from agent.tasks import Repeat_Types
 import traceback
 import socket
@@ -26,25 +26,22 @@ def set_up_ec_procurement_agent(mainwin):
         agent_skills = mainwin.agent_skills
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-        worker_skill = next((sk for sk in agent_skills if "search digi-key" in sk.name), None)
-        if worker_skill:
-            logger.info("ec_procurement skill:", worker_skill.name)
-        else:
-            logger.error("ec_procurement skill not found!")
-        chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecan.ai search parts and components web site"),None)
-        if chatter_skill:
-            logger.info("ec_procurement chatter skill:", chatter_skill.name)
-        else:
-            logger.error("ec_procurement chatter skill not found!")
+        print("set_up_ec_procurement_agent", [sk.name for sk in agent_skills])
+        worker_skill = next((sk for sk in agent_skills if all_substrings(["search","digikey"], sk.name) and "chat" not in sk.name), None)
+        chatter_skill = next((sk for sk in agent_skills if all_substrings(["search","digikey","chatter"], sk.name)),None)
+
 
         # 确保只有有效的技能被添加到skills列表中
         valid_skills = []
         if worker_skill:
             valid_skills.append(worker_skill)
+            logger.info("ec_procurement worker skill:", worker_skill.name)
         else:
             logger.error("ec_procurement worker skill not found!")
+
         if chatter_skill:
             valid_skills.append(chatter_skill)
+            logger.info("ec_procurement chatter skill:", chatter_skill.name)
         else:
             logger.error("ec_procurement chatter skill not found!")
         
@@ -68,6 +65,7 @@ def set_up_ec_procurement_agent(mainwin):
         worker_task = create_ec_procurement_work_task(mainwin)
         browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
         produrement_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=valid_skills, tasks=[chatter_task, worker_task])
+        logger.info("ec_procurement agent ready to go!")
 
     except Exception as e:
         # Get the traceback information

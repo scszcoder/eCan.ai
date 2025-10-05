@@ -9,7 +9,7 @@ from typing import Any
 from agent.ec_skill import EC_Skill, NodeState, WorkFlowContext, node_wrapper, node_builder
 from agent.ec_skills.llm_hooks.llm_hooks import llm_node_with_raw_files
 from utils.logger_helper import logger_helper as logger
-from bot.Logger import get_traceback
+from utils.logger_helper import get_traceback
 from agent.mcp.local_client import mcp_call_tool
 from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync, try_parse_json
 from agent.agent_service import get_agent_by_id

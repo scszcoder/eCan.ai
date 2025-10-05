@@ -40,22 +40,22 @@ async def build_agent_skills_parallel(mainwin):
     
     # 第二批：RPA技能（中等复杂度）
     rpa_skills = [
-        ("rpa_helper", create_rpa_helper_skill),
-        ("rpa_helper_chatter", create_rpa_helper_chatter_skill),
-        ("rpa_operator", create_rpa_operator_skill),
-        ("rpa_operator_chatter", create_rpa_operator_chatter_skill),
+        # ("rpa_helper", create_rpa_helper_skill),
+        # ("rpa_helper_chatter", create_rpa_helper_chatter_skill),
+        # ("rpa_operator", create_rpa_operator_skill),
+        # ("rpa_operator_chatter", create_rpa_operator_chatter_skill),
     ]
     
     # 第三批：高级RPA和搜索技能（较复杂）
     advanced_skills = [
-        ("rpa_supervisor_scheduling", create_rpa_supervisor_scheduling_skill),
-        ("rpa_supervisor_scheduling_chatter", create_rpa_supervisor_scheduling_chatter_skill),
-        ("rpa_supervisor", create_rpa_supervisor_skill),
-        ("rpa_supervisor_chatter", create_rpa_supervisor_chatter_skill),
-        ("search_1688", create_search_1688_skill),
-        ("search_digi_key", create_search_digi_key_skill),
-        ("search_parts", create_search_parts_skill),
-        ("search_parts_chatter", create_search_parts_chatter_skill),
+        # ("rpa_supervisor_scheduling", create_rpa_supervisor_scheduling_skill),
+        # ("rpa_supervisor_scheduling_chatter", create_rpa_supervisor_scheduling_chatter_skill),
+        # ("rpa_supervisor", create_rpa_supervisor_skill),
+        # ("rpa_supervisor_chatter", create_rpa_supervisor_chatter_skill),
+        # ("search_1688", create_search_1688_skill),
+        # ("search_digi_key", create_search_digi_key_skill),
+        # ("search_parts", create_search_parts_skill),
+        # ("search_parts_chatter", create_search_parts_chatter_skill),
     ]
 
     start_time = time.time()
@@ -112,18 +112,20 @@ async def _create_skills_batch(mainwin, skill_creators, max_concurrent=4):
             except Exception as e:
                 logger.error(f"[build_agent_skills] ❌ Failed to create {skill_name}: {e}")
                 return None
-    
-    # 创建所有任务
-    tasks = [
-        create_single_skill(skill_name, creator_func) 
-        for skill_name, creator_func in skill_creators
-    ]
-    
-    # 并行执行，但限制并发数
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    
-    # 过滤出有效的技能
-    skills = [result for result in results if result is not None and not isinstance(result, Exception)]
+    if skill_creators:
+        # 创建所有任务
+        tasks = [
+            create_single_skill(skill_name, creator_func)
+            for skill_name, creator_func in skill_creators
+        ]
+
+        # 并行执行，但限制并发数
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 过滤出有效的技能
+        skills = [result for result in results if result is not None and not isinstance(result, Exception)]
+    else:
+        skills = []
     return skills
 
 async def build_agent_skills(mainwin, skill_path=""):
@@ -233,17 +235,17 @@ async def _build_local_skills_async(mainwin, skill_path=""):
     """异步构建本地技能"""
     try:
         logger.info(f"[build_agent_skills] 🔧 Building local skills. Tool schemas: {len(tool_schemas)}, {skill_path}")
-        
-        if not skill_path:
-            # 并行创建所有本地技能
-            local_skills = await build_agent_skills_parallel(mainwin)
-            return local_skills
-        else:
-            # 从文件构建技能
-            return await asyncio.get_event_loop().run_in_executor(
-                None, build_agent_skills_from_files, mainwin, skill_path
-            )
-            
+
+        local_skills = []
+        local_skills = await build_agent_skills_parallel(mainwin)
+
+        # 从文件构建技能
+        local_extern_skills = await asyncio.get_event_loop().run_in_executor(
+            None, build_agent_skills_from_files, mainwin, skill_path
+        )
+        local_skills.extend(local_extern_skills)
+
+        return local_skills
     except Exception as e:
         logger.error(f"[build_agent_skills] ❌ Local build error: {e}")
         return []

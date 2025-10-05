@@ -183,18 +183,22 @@ def ensure_skill_venv(skill_dir: Path, *, reuse_host_libs: bool = True):
     In development environment:
         - Create local venv if not exists
         - Install dependencies from requirements.txt
-    
     Args:
         skill_dir: Path to skill directory
         reuse_host_libs: Whether to use system site packages (dev environment only)
     """
+    # Determine requirements file path once to avoid UnboundLocalError in different branches
+    # Support both legacy and new layouts
+    req_candidates = [
+        skill_dir / "requirements.txt",
+        skill_dir / "code_dir" / "requirements.txt",
+        skill_dir / "code_skill" / "requirements.txt",
+    ]
+    req = next((p for p in req_candidates if p.exists()), None)
     # In PyInstaller environment, skip venv creation
     if IS_FROZEN:
         logger.info(f"[ExternSkills] Running in PyInstaller environment, skipping venv creation for {skill_dir.name}")
-        
-        # Check if skill has requirements.txt
-        req = skill_dir / "requirements.txt"
-        if req.exists():
+        if req and req.exists():
             logger.warning(f"[ExternSkills] Skill {skill_dir.name} has requirements.txt but running in packaged environment")
             logger.warning(f"[ExternSkills] Dependencies should be pre-packaged. File: {req}")
             
@@ -207,7 +211,7 @@ def ensure_skill_venv(skill_dir: Path, *, reuse_host_libs: bool = True):
             except Exception as e:
                 logger.error(f"[ExternSkills] Error reading requirements.txt: {e}")
         return  # Skip venv creation in packaged environment
-    
+
     # Development environment: create venv and install dependencies
     logger.info(f"[ExternSkills] Setting up development venv for skill: {skill_dir.name}")
     
@@ -226,7 +230,7 @@ def ensure_skill_venv(skill_dir: Path, *, reuse_host_libs: bool = True):
         logger.info(f"[ExternSkills] Venv already exists at: {venv_dir}")
     
     # Install dependencies from requirements.txt
-    if req.exists():
+    if req and req.exists():
         logger.info(f"[ExternSkills] Installing dependencies from: {req}")
         try:
             py, pip = _venv_paths(venv_dir)
