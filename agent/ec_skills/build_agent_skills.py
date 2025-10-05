@@ -232,7 +232,7 @@ async def _load_skills_from_cloud_async(mainwin):
 async def _build_local_skills_async(mainwin, skill_path=""):
     """异步构建本地技能"""
     try:
-        logger.info(f"[build_agent_skills] 🔧 Building local skills. Tool schemas: {len(tool_schemas)}")
+        logger.info(f"[build_agent_skills] 🔧 Building local skills. Tool schemas: {len(tool_schemas)}, {skill_path}")
         
         if not skill_path:
             # 并行创建所有本地技能
@@ -262,7 +262,7 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
     """
     try:
         skills: List[object] = []
-
+        logger.debug("build_agent_skills_from_files", mainwin, skill_path)
         def latest_mtime(path: Path) -> float:
             if not path.exists():
                 return -1.0
