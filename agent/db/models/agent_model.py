@@ -10,14 +10,15 @@ from sqlalchemy import Column, String, Integer, Boolean, ForeignKey, Text, DateT
 from sqlalchemy.orm import relationship
 from .base_model import BaseModel, TimestampMixin, ExtensibleMixin
 from datetime import datetime
+import uuid
 
 
 class DBAgent(BaseModel, TimestampMixin, ExtensibleMixin):
     """Database model for agents with standard design"""
     __tablename__ = 'agents'
 
-    # Primary key
-    id = Column(String(64), primary_key=True)
+    # Primary key with auto-generation
+    id = Column(String(64), primary_key=True, default=lambda: f"agent_{uuid.uuid4().hex[:16]}")
 
     # Basic agent information
     name = Column(String(128), nullable=False)
@@ -32,26 +33,21 @@ class DBAgent(BaseModel, TimestampMixin, ExtensibleMixin):
 
     # Agent hierarchy and relationships
     supervisor_id = Column(String(64), ForeignKey('agents.id'), nullable=True)
-    # Note: subordinate_ids and peer_ids removed - use relationships instead
 
     # Agent characteristics
     personality_traits = Column(JSON)  # List[str] - personality traits
     capabilities = Column(JSON)        # List[str] - agent capabilities
-    # Note: skills field removed - use agent_skills relationship instead
 
     # Agent configuration
     status = Column(String(32), default='active')    # active, inactive, suspended
     version = Column(String(64))                     # agent version
     url = Column(String(512))                        # agent endpoint URL
 
-    # Metadata and settings
-    settings = Column(JSON)  # flexible settings storage
+    # Extra data - flexible JSON storage for additional data
+    extra_data = Column(JSON)
 
     # Relationships
     supervisor = relationship("DBAgent", remote_side=[id], backref="subordinates")
-
-    # Association relationships (using new association models)
-    # Note: These will be accessed through the association models for rich relationship data
 
     def to_dict(self, deep=False):
         """Convert model instance to dictionary"""

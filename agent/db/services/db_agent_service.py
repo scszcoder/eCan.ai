@@ -21,6 +21,7 @@ from sqlalchemy import and_, or_, func
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import re
+from utils.logger_helper import logger_helper as logger
 
 
 class DBAgentService(BaseService):
@@ -114,6 +115,210 @@ class DBAgentService(BaseService):
     def add_agent(self, data):
         """Add a new agent"""
         return self._add(DBAgent, data)
+
+    def create_agent_from_data(self, agent_data: Dict[str, Any], username: str) -> Dict[str, Any]:
+        """
+        Create a new agent from frontend data
+
+        Args:
+            agent_data: Agent data from frontend with structure:
+                {
+                    'name': str,
+                    'description': str,  # agent description text
+                    'extra_data': str,  # additional notes/extra data
+                    'gender': str,  # 'gender_options.male' etc
+                    'birthday': str,
+                    'title': list or str,
+                    'personality_traits': list,  # personality traits
+                    'supervisor_id': str,  # single supervisor ID
+                    'org_id': str,  # organization ID
+                    'tasks': list,  # [task_id, ...]
+                    'skills': list,  # [skill_id, ...]
+                    'vehicle_id': str,  # vehicle_id - stored in extra_data.default_vehicle_id
+                }
+            username: Username of the agent owner
+
+        Returns:
+            dict: Result with success status, created agent data, and error if any
+                {
+                    'success': bool,
+                    'id': str,
+                    'data': dict,  # Complete agent data including auto-generated fields
+                    'error': str or None
+                }
+
+        Note:
+            - Frontend 'description' (text) maps to DBAgent.description (Text field)
+            - Frontend 'extra_data' (text) is stored in DBAgent.extra_data.notes (JSON field)
+            - vehicle_id is stored in DBAgent.extra_data.default_vehicle_id (JSON field)
+            - vehicle_id is also used in task associations (DBAgentTaskRel.vehicle_id)
+            - DBAgent.extra_data (JSON) stores structured data like vehicle_id, notes, preferences, etc.
+        """
+        try:
+            # Extract and process agent data
+            agent_name = agent_data.get('name', '').strip()
+            if not agent_name:
+                return {
+                    'success': False,
+                    'id': None,
+                    'data': None,
+                    'error': 'Agent name is required'
+                }
+
+            # Process gender field
+            gender = agent_data.get('gender', '').replace('gender_options.', '')
+
+            # Process title field (can be list or string)
+            title_data = agent_data.get('title', [])
+            title = ','.join(title_data) if isinstance(title_data, list) else str(title_data) if title_data else ''
+            supervisor_id = agent_data.get('supervisor_id') or None
+            personality_traits = agent_data.get('personality_traits', [])
+            description = agent_data.get('description', '')
+            frontend_extra_data = agent_data.get('extra_data', '')
+
+            # Extract relationship IDs
+            org_id = agent_data.get('org_id', '')
+            task_ids = agent_data.get('tasks', [])
+            skill_ids = agent_data.get('skills', [])
+            vehicle_id = agent_data.get('vehicle_id', '')
+
+            # Build extra_data JSON from frontend data
+            extra_data = {}
+            # Store default vehicle in extra_data if provided
+            if vehicle_id:
+                extra_data['default_vehicle_id'] = vehicle_id
+            # Store additional notes/extra_data from frontend
+            if frontend_extra_data:
+                extra_data['notes'] = frontend_extra_data
+
+            # Create DBAgent model object (ID will be auto-generated)
+            db_agent = DBAgent(
+                name=agent_name,
+                owner=username,
+                description=description,  # description text from frontend
+                gender=gender,
+                birthday=agent_data.get('birthday', ''),
+                title=title,
+                personality_traits=personality_traits,
+                supervisor_id=supervisor_id,
+                status='active',
+                extra_data=extra_data  # JSON data including vehicle_id and notes
+            )
+
+            # Save agent and create relationships in a transaction
+            with self.session_scope() as session:
+                # Add and flush agent to get ID
+                session.add(db_agent)
+                session.flush()
+
+                created_agent_id = db_agent.id
+
+                # Create organization relationship if org_id provided
+                if org_id:
+                    org_rel = DBAgentOrgRel(
+                        agent_id=created_agent_id,
+                        org_id=org_id,
+                        role='member',
+                        status='active'
+                    )
+                    session.add(org_rel)
+
+                # Create skill relationships
+                for skill_id in skill_ids:
+                    if skill_id:
+                        skill_rel = DBAgentSkillRel(
+                            agent_id=created_agent_id,
+                            skill_id=skill_id,
+                            proficiency_level='beginner',
+                            status='active'
+                        )
+                        session.add(skill_rel)
+
+                # Create task relationships (with vehicle)
+                for task_id in task_ids:
+                    if task_id and vehicle_id:
+                        task_rel = DBAgentTaskRel(
+                            agent_id=created_agent_id,
+                            task_id=task_id,
+                            vehicle_id=vehicle_id,
+                            status='pending',
+                            priority='medium'
+                        )
+                        session.add(task_rel)
+
+                session.flush()
+
+                # Get the created agent data
+                created_agent_data = db_agent.to_dict()
+
+            return {
+                'success': True,
+                'id': created_agent_id,
+                'data': created_agent_data,
+                'error': None
+            }
+
+        except SQLAlchemyError as e:
+            return {
+                'success': False,
+                'id': None,
+                'data': None,
+                'error': f'Database error: {str(e)}'
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'id': None,
+                'data': None,
+                'error': f'Error creating agent: {str(e)}'
+            }
+
+    def create_agents_batch(self, agents_data: List[Dict[str, Any]], username: str) -> Dict[str, Any]:
+        """
+        Create multiple agents in batch
+
+        Args:
+            agents_data: List of agent data from frontend
+            username: Username of the agent owner
+
+        Returns:
+            dict: Result with success status, created agents, and errors
+                {
+                    'success': bool,
+                    'created_count': int,
+                    'agents': List[dict],  # List of created agents
+                    'errors': List[str]    # List of error messages
+                }
+        """
+        created_agents = []
+        errors = []
+
+        for agent_data in agents_data:
+            agent_name = agent_data.get('name', 'Unknown')
+            try:
+                result = self.create_agent_from_data(agent_data, username)
+
+                if result['success']:
+                    created_agents.append({
+                        'id': result['id'],
+                        'name': agent_name,
+                        'data': result['data']
+                    })
+                else:
+                    error_msg = result.get('error', 'Unknown error')
+                    errors.append(f"Failed to create agent {agent_name}: {error_msg}")
+                    logger.error(f"Failed to create agent {agent_name}: {error_msg}")
+
+            except Exception as e:
+                logger.error(f"Error creating agent {agent_name}: {e}")
+                errors.append(f"Error creating agent {agent_name}: {str(e)}")
+
+        return {
+            'success': len(errors) == 0,
+            'created_count': len(created_agents),
+            'agents': created_agents,
+            'errors': errors
+        }
 
     def delete_agent(self, agent_id):
         """Delete an agent"""

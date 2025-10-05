@@ -57,8 +57,8 @@
     "validation_failed": "Validation Failed",
     "video_load_error": "Video Load Error",
     "quick_add": "Quick Add",
-    "select_personality": "Select personality traits",
-    "select_title": "Select titles",
+    "select_personality": "Select or enter personality traits",
+    "select_title": "Select or enter titles",
     "select_organization": "Select organizations",
     "select_supervisor": "Select supervisors",
     "select_subordinate": "Select subordinates",
@@ -66,6 +66,30 @@
     "select_skill": "Select skills",
     "unknown": "Unknown",
     "description": "Description"
+  },
+  "personality": {
+    "friendly": "Friendly",
+    "analytical": "Analytical",
+    "creative": "Creative",
+    "efficient": "Efficient",
+    "empathetic": "Empathetic",
+    "patient": "Patient",
+    "detail_oriented": "Detail-oriented",
+    "proactive": "Proactive",
+    "collaborative": "Collaborative",
+    "innovative": "Innovative"
+  },
+  "title": {
+    "engineer": "Engineer",
+    "manager": "Manager",
+    "analyst": "Analyst",
+    "designer": "Designer",
+    "operator": "Operator",
+    "developer": "Developer",
+    "architect": "Architect",
+    "consultant": "Consultant",
+    "specialist": "Specialist",
+    "coordinator": "Coordinator"
   },
   "navigation": {
     "dashboard": "Dashboard",
@@ -97,7 +121,10 @@
       "error_fetching": "Error_fetching",
       "fetch_failed": "Fetch_failed",
       "fetched_agents": "Fetched_agents",
-      "metadata": "Metadata",
+      "description": "Description",
+      "description_placeholder": "Enter agent description",
+      "extra_data": "Extra Data / Notes",
+      "extra_data_placeholder": "Enter additional notes or extra data",
       "organization": "Organization",
       "organizations": "Organizations",
       "personality": "Personality",
@@ -112,6 +139,7 @@
       "title": "Title",
       "updated_data_from_api": "Updated_data_from_api",
       "vehicle": "Vehicle",
+      "form_label": "Agent Details Form",
       "unassigned_agents": "Unassigned Agents",
       "unassigned_agents_desc": "Agents without organization assignment",
       "load_failed": "Failed to load organizations",
@@ -840,26 +868,5 @@
     "commander": "Commander",
     "platoon": "Platoon",
     "staff_office": "Staff Office"
-  },
-  "personality": {
-    "friendly": "Friendly",
-    "analytical": "Analytical",
-    "creative": "Creative",
-    "efficient": "Efficient",
-    "empathetic": "Empathetic"
-  },
-  "title": {
-    "engineer": "Engineer",
-    "manager": "Manager",
-    "analyst": "Analyst",
-    "designer": "Designer",
-    "operator": "Operator"
-  },
-  "organization": {
-    "rd": "R&D Department",
-    "sales": "Sales Department",
-    "marketing": "Marketing Department",
-    "hr": "HR Department",
-    "ops": "Operations Department"
   }
 }

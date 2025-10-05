@@ -18,18 +18,45 @@ interface AgentDetailsForm {
   gender?: Gender;
   birthday?: Dayjs | null;
   owner?: string;
-  personality?: string[];
+  personality_traits?: string[];
   title?: string[];
-  organization?: string; // 改为单选
-  supervisors?: string; // 改为单选
+  org_id?: string; // 组织ID（单选）
+  supervisor_id?: string; // 上级ID（单选）
   tasks?: string[];
   skills?: string[];
-  vehicle?: string | null;
-  metadata?: string;
+  vehicle_id?: string | null;
+  description?: string; // Agent描述
+  extra_data?: string; // 额外数据/备注
 }
 
-const knownPersonalities = ['personality.friendly', 'personality.analytical', 'personality.creative', 'personality.efficient', 'personality.empathetic'];
-const knownTitles = ['title.engineer', 'title.manager', 'title.analyst', 'title.designer', 'title.operator'];
+// 预定义的性格特征选项（使用国际化 key）
+const knownPersonalities = [
+  'personality.friendly',
+  'personality.analytical',
+  'personality.creative',
+  'personality.efficient',
+  'personality.empathetic',
+  'personality.patient',
+  'personality.detail_oriented',
+  'personality.proactive',
+  'personality.collaborative',
+  'personality.innovative'
+];
+
+// 预定义的职称选项（使用国际化 key）
+const knownTitles = [
+  'title.engineer',
+  'title.manager',
+  'title.analyst',
+  'title.designer',
+  'title.operator',
+  'title.developer',
+  'title.architect',
+  'title.consultant',
+  'title.specialist',
+  'title.coordinator'
+];
+
 // Tasks and skills will be sourced from global store to link with Tasks/Skills pages
 // We keep fallback arrays in case store is empty to avoid empty UI when no data loaded yet
 const knownTasks = ['task_001', 'task_002', 'task_003'];
@@ -64,10 +91,6 @@ const AgentDetails: React.FC = () => {
     return localVehicle?.id || vehicles[0]?.id || null;
   }, [vehicles]);
 
-  console.log('[AgentDetails] URL search params:', location.search);
-  console.log('[AgentDetails] defaultOrgId from URL:', defaultOrgId);
-  console.log('[AgentDetails] Vehicles:', vehicles);
-  console.log('[AgentDetails] Local vehicle ID:', localVehicleId);
   const { message } = App.useApp();
 
   // 使用专用的 taskStore 和 skillStore
@@ -139,10 +162,8 @@ const AgentDetails: React.FC = () => {
         children: treeOrgs[0].children
       };
       const data = [buildTreeData(rootNode)].filter(Boolean);
-      console.log('[AgentDetails] Organization tree data:', data);
       return data;
     }
-    console.log('[AgentDetails] No organization tree data available');
     return [];
   }, [treeOrgs]);
 
@@ -256,37 +277,31 @@ const AgentDetails: React.FC = () => {
       
       // 如果已有数据且不需要刷新，则跳过
       if (treeOrgs && treeOrgs.length > 0 && !shouldFetchData()) {
-        console.log('[AgentDetails] Using cached org data');
         // 即使使用缓存数据，也要确保新建模式下设置默认组织
         if (isNew && defaultOrgId) {
-          const currentOrg = form.getFieldValue('organization');
+          const currentOrg = form.getFieldValue('org_id');
           if (!currentOrg || currentOrg !== defaultOrgId) {
-            console.log('[AgentDetails] Setting default org from cache:', defaultOrgId);
-            form.setFieldsValue({ organization: defaultOrgId });
+            form.setFieldsValue({ org_id: defaultOrgId });
             setSelectedOrgId(defaultOrgId);
           }
         }
         return;
       }
-      
+
       try {
         setOrgLoading(true);
-        console.log('[AgentDetails] Loading org data...');
         const api = get_ipc_api();
         const response = await api.getAllOrgAgents(username) as any;
-        
+
         if (response?.success && response.data?.orgs) {
-          console.log('[AgentDetails] Org data loaded successfully:', response.data);
           setAllOrgAgents(response.data);
 
           // 数据加载完成后，如果是新建模式且有默认组织，设置默认值
           if (isNew && defaultOrgId) {
-            console.log('[AgentDetails] Setting default org after load:', defaultOrgId);
             // 使用 setTimeout 确保在组织树数据更新后再设置表单值
             setTimeout(() => {
-              form.setFieldsValue({ organization: defaultOrgId });
+              form.setFieldsValue({ org_id: defaultOrgId });
               setSelectedOrgId(defaultOrgId);
-              console.log('[AgentDetails] Default org set successfully');
             }, 100);
           }
         } else {
@@ -326,9 +341,8 @@ const AgentDetails: React.FC = () => {
           const agent = response.data.agents[0];
 
           // 更新表单数据
-          // 优先使用 agent 自身的 organization，如果没有则使用 URL 参数中的 defaultOrgId
-          const orgId = agent.organization || defaultOrgId || '';
-          console.log('[AgentDetails] Setting organization - agent.organization:', agent.organization, 'defaultOrgId:', defaultOrgId, 'final orgId:', orgId);
+          // 优先使用 agent 自身的 org_id，如果没有则使用 URL 参数中的 defaultOrgId
+          const orgId = agent.org_id || agent.organization || defaultOrgId || '';
           form.setFieldsValue({
             id: agent.card?.id || agent.id,
             agent_id: agent.card?.id || agent.id,
@@ -336,14 +350,15 @@ const AgentDetails: React.FC = () => {
             gender: agent.gender || 'gender_options.male',
             birthday: agent.birthday ? dayjs(agent.birthday) : null,
             owner: agent.owner || username,
-            personality: agent.personalities || [],
+            personality_traits: agent.personality_traits || agent.personalities || [],
             title: agent.title || [],
-            organization: orgId,
-            supervisors: Array.isArray(agent.supervisors) && agent.supervisors.length > 0 ? agent.supervisors[0] : '', // 改为单选，取第一个
+            org_id: orgId,
+            supervisor_id: agent.supervisor_id || (Array.isArray(agent.supervisors) && agent.supervisors.length > 0 ? agent.supervisors[0] : ''),
             tasks: agent.tasks || [],
             skills: agent.skills || [],
-            vehicle: agent.vehicle || localVehicleId || '',
-            metadata: agent.metadata ? JSON.stringify(agent.metadata, null, 2) : ''
+            vehicle_id: agent.vehicle_id || agent.vehicle || localVehicleId || '',
+            description: agent.description || '',
+            extra_data: agent.extra_data || agent.metadata || ''  // 兼容旧字段 metadata
           });
           // 设置选中的组织ID以显示完整路径
           if (orgId) {
@@ -366,10 +381,6 @@ const AgentDetails: React.FC = () => {
   // 使用 useEffect 来设置初始表单值（仅新建模式）
   useEffect(() => {
     if (isNew) {
-      console.log('[AgentDetails] Setting initial values for new agent');
-      console.log('[AgentDetails] defaultOrgId:', defaultOrgId);
-      console.log('[AgentDetails] organizationTreeData available:', organizationTreeData.length > 0);
-
       // 只有在组织树数据加载完成后才设置表单值
       if (organizationTreeData.length > 0) {
         // 使用 setTimeout 延迟设置，确保在下一个事件循环中执行
@@ -383,14 +394,15 @@ const AgentDetails: React.FC = () => {
               gender: 'gender_options.male' as Gender,
               birthday: dayjs(),
               owner: username || t('common.owner') || 'owner',
-              personality: [], // 新数组
+              personality_traits: [], // 新数组
               title: [], // 新数组
-              organization: defaultOrgId || '',
-              supervisors: '',
+              org_id: defaultOrgId || '',
+              supervisor_id: '',
               tasks: [], // 新数组
               skills: [], // 新数组
-              vehicle: localVehicleId || '',
-              metadata: ''
+              vehicle_id: localVehicleId || '',
+              description: '',
+              extra_data: ''
             };
 
             // 使用 setFieldsValue 一次性设置所有值
@@ -399,7 +411,6 @@ const AgentDetails: React.FC = () => {
 
             // 设置选中的组织
             if (defaultOrgId) {
-              console.log('[AgentDetails] Setting selectedOrgId to:', defaultOrgId);
               setSelectedOrgId(defaultOrgId);
             }
           } catch (error) {
@@ -417,10 +428,9 @@ const AgentDetails: React.FC = () => {
   // 监听 defaultOrgId 变化，确保 selectedOrgId 同步更新
   useEffect(() => {
     if (isNew && defaultOrgId && selectedOrgId !== defaultOrgId && organizationTreeData.length > 0) {
-      console.log('[AgentDetails] Syncing selectedOrgId with defaultOrgId:', defaultOrgId);
       setSelectedOrgId(defaultOrgId);
       // 同时更新表单字段
-      form.setFieldValue('organization', defaultOrgId);
+      form.setFieldValue('org_id', defaultOrgId);
     }
   }, [defaultOrgId, isNew, selectedOrgId, organizationTreeData.length, form]);
 
@@ -431,7 +441,7 @@ const AgentDetails: React.FC = () => {
       
       try {
         // 获取当前选中组织的agents
-        const currentOrgId = form.getFieldValue('organization') || defaultOrgId;
+        const currentOrgId = form.getFieldValue('org_id') || defaultOrgId;
         
         if (!currentOrgId) {
           setSupervisorTreeData([]);
@@ -499,10 +509,8 @@ const AgentDetails: React.FC = () => {
         // 对每个选中的组织，获取其到根节点的路径（包含所有父级组织）
         for (const orgId of currentOrgIds) {
           const orgPath = findOrgPath(treeOrgs[0], orgId);
-          
+
           if (orgPath) {
-            console.log(`[AgentDetails] Org path for ${orgId}:`, orgPath.map(n => n.name));
-            
             // 为路径上的每个组织构建agent树（从根到当前节点）
             for (const simplifiedOrg of orgPath) {
               // 避免重复添加
@@ -516,8 +524,7 @@ const AgentDetails: React.FC = () => {
             }
           }
         }
-        
-        console.log('[AgentDetails] Supervisor tree data:', treeData);
+
         setSupervisorTreeData(treeData);
       } catch (e) {
         console.error('Failed to fetch agents for supervisor selection:', e);
@@ -529,6 +536,7 @@ const AgentDetails: React.FC = () => {
   }, [form, defaultOrgId, treeOrgs.length]);
 
   // 多选标签编辑器 - 使用 Select mode="tags" 实现友好交互
+  // 支持预定义选项（国际化）和用户自定义输入
   const TagsEditor: React.FC<{
     value?: string[];
     onChange?: (value: string[]) => void;
@@ -540,9 +548,67 @@ const AgentDetails: React.FC = () => {
     id?: string;
   }> = ({ value, onChange, options, disabled, placeholder, isOrgField, 'aria-label': ariaLabel, id }) => {
     // 获取显示文本
+    // 如果是预定义选项（如 personality.friendly），显示国际化翻译
+    // 如果是用户自定义输入，直接显示原文
     const getDisplayText = useCallback((val: string) => {
-      return isOrgField ? getOrgName(val) : (t(val) || val);
+      if (!val) return '';
+
+      if (isOrgField) {
+        return getOrgName(val);
+      }
+
+      // 检查是否是预定义的国际化 key（包含 . 的格式）
+      if (val.includes('.')) {
+        const translated = t(val);
+
+        // 如果翻译成功（翻译结果不等于原 key），返回翻译
+        if (translated && translated !== val) {
+          return translated;
+        }
+        // 如果翻译失败，返回 key 的最后一部分作为后备（如 friendly）
+        const parts = val.split('.');
+        return parts[parts.length - 1];
+      }
+
+      // 否则直接返回原值（用户自定义输入）
+      return val;
     }, [isOrgField, getOrgName, t]);
+
+    // 使用 useMemo 缓存选项，避免重复计算
+    const selectOptions = useMemo(() => {
+      return options.map(opt => {
+        const displayText = getDisplayText(opt);
+        return {
+          label: displayText,  // 下拉列表中显示的文本（翻译后）
+          value: opt,          // 实际存储的值（国际化 key）
+          key: opt             // 唯一标识
+        };
+      });
+    }, [options, getDisplayText]);
+
+    // 处理选择变化 - 当用户选择预定义选项时，存储国际化 key；自定义输入时，存储原文
+    const handleChange = useCallback((newValue: string[]) => {
+      if (!onChange) return;
+
+      // 处理每个值：检查是否是翻译文本，如果是则转换回国际化 key
+      const processedValues = newValue.map(val => {
+        // 检查是否已经是国际化 key
+        if (val.includes('.')) {
+          return val;
+        }
+
+        // 检查是否是翻译文本，需要转换回国际化 key
+        const matchedOption = selectOptions.find(opt => opt.label === val);
+        if (matchedOption) {
+          return matchedOption.value;
+        }
+
+        // 否则是用户自定义输入，直接返回
+        return val;
+      });
+
+      onChange(processedValues);
+    }, [onChange, selectOptions]);
 
     return (
       <Select
@@ -551,35 +617,51 @@ const AgentDetails: React.FC = () => {
         style={{ width: '100%' }}
         placeholder={placeholder}
         value={value}
-        onChange={onChange}
+        onChange={handleChange}
         disabled={disabled}
         maxTagCount="responsive"
         showSearch
         allowClear
         tokenSeparators={[',']}
         aria-label={ariaLabel}
+        // 下拉框定位 - 避免遮挡输入框
+        popupMatchSelectWidth={false}
+        listHeight={400}
+        placement="bottomLeft"
+        // 标签渲染
         tagRender={(props) => {
           const { value: tagValue, closable, onClose } = props;
+          const displayText = getDisplayText(tagValue as string);
+          // 判断是否是预定义选项（有翻译）还是自定义输入
+          const isCustom = tagValue && typeof tagValue === 'string' && !tagValue.includes('.');
+
           return (
             <Tag
-              color="blue"
+              color={isCustom ? 'green' : 'blue'}  // 自定义输入用绿色，预定义用蓝色
               closable={closable && !disabled}
               onClose={onClose}
               style={{ marginRight: 3 }}
             >
-              {getDisplayText(tagValue as string)}
+              {displayText}
             </Tag>
           );
         }}
-        options={options.map(opt => ({
-          label: getDisplayText(opt),
-          value: opt
-        }))}
-        getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
+        // 下拉选项配置 - 使用缓存的选项
+        options={selectOptions}
+        // 不使用 getPopupContainer，让下拉框自然定位，避免遮挡
+        // 过滤选项 - 支持模糊搜索
         filterOption={(input, option) => {
-          const displayText = getDisplayText(option?.value as string);
-          return displayText.toLowerCase().includes(input.toLowerCase());
+          if (!input) return true;  // 没有输入时显示所有选项
+          if (!option) return false;
+          const displayText = (option.label as string || '').toLowerCase();
+          const inputLower = input.toLowerCase();
+          // 支持模糊匹配
+          return displayText.includes(inputLower);
         }}
+        // 不显示下拉箭头，更像输入框
+        suffixIcon={null}
+        // 自动获取焦点时不自动打开下拉框
+        open={undefined}
       />
     );
   };
@@ -592,9 +674,7 @@ const AgentDetails: React.FC = () => {
       const payload = {
         ...values,
         birthday: values.birthday ? (values.birthday as Dayjs).toISOString() : null,
-        metadata: values.metadata,
-        // 将 supervisors 从单个值转换为数组（后端期望数组格式）
-        supervisors: values.supervisors ? [values.supervisors] : [],
+        // 字段名已统一，不需要转换
       };
       setLoading(true);
       const api = get_ipc_api();
@@ -740,8 +820,8 @@ const AgentDetails: React.FC = () => {
               </Col>
 
               <Col span={24}>
-                <Form.Item 
-                  name="personality" 
+                <Form.Item
+                  name="personality_traits"
                   label={t('pages.agents.personality') || 'Personality'}
                 >
                   <TagsEditor
@@ -768,8 +848,8 @@ const AgentDetails: React.FC = () => {
               </Col>
 
               <Col span={24}>
-                <Form.Item 
-                  name="organization" 
+                <Form.Item
+                  name="org_id"
                   label={t('pages.agents.organization') || 'Organization'}
                   rules={[{ required: true, message: t('common.please_select_organization') || 'Please select organization' }]}
                 >
@@ -800,7 +880,7 @@ const AgentDetails: React.FC = () => {
 
               <Col span={24}>
                 <Form.Item
-                  name="supervisors"
+                  name="supervisor_id"
                   label={t('pages.agents.supervisors') || 'Supervisor'}
                 >
                   <TreeSelect
@@ -845,7 +925,7 @@ const AgentDetails: React.FC = () => {
               </Col>
 
               <Col span={24}>
-                <Form.Item name="vehicle" label={t('pages.agents.vehicle') || 'Vehicle'}>
+                <Form.Item name="vehicle_id" label={t('pages.agents.vehicle') || 'Vehicle'}>
                   <Select
                     disabled={!editMode}
                     allowClear
@@ -861,15 +941,31 @@ const AgentDetails: React.FC = () => {
               </Col>
 
               <Col span={24}>
-                <Form.Item name="metadata" label={t('pages.agents.metadata') || 'Metadata'} htmlFor="agent-metadata">
-                  <Input.TextArea 
-                    id="agent-metadata"
-                    rows={10}
+                <Form.Item name="description" label={t('pages.agents.description') || 'Description'} htmlFor="agent-description">
+                  <Input.TextArea
+                    id="agent-description"
+                    rows={4}
                     disabled={!editMode}
                     autoComplete="off"
-                    aria-label={t('pages.agents.metadata') || 'Metadata'}
+                    placeholder={t('pages.agents.description_placeholder') || 'Enter agent description'}
+                    aria-label={t('pages.agents.description') || 'Description'}
                     className="resizable-textarea"
-                    style={{ minHeight: '150px', resize: 'vertical' }}
+                    style={{ minHeight: '100px', resize: 'vertical' }}
+                  />
+                </Form.Item>
+              </Col>
+
+              <Col span={24}>
+                <Form.Item name="extra_data" label={t('pages.agents.extra_data') || 'Extra Data / Notes'} htmlFor="agent-extra-data">
+                  <Input.TextArea
+                    id="agent-extra-data"
+                    rows={6}
+                    disabled={!editMode}
+                    autoComplete="off"
+                    placeholder={t('pages.agents.extra_data_placeholder') || 'Enter additional notes or extra data'}
+                    aria-label={t('pages.agents.extra_data') || 'Extra Data'}
+                    className="resizable-textarea"
+                    style={{ minHeight: '120px', resize: 'vertical' }}
                   />
                 </Form.Item>
               </Col>
@@ -903,7 +999,7 @@ const AgentDetails: React.FC = () => {
                           api.getAgents(username, [id]).then((response: any) => {
                             if (response?.success && response.data?.agents?.[0]) {
                               const agent = response.data.agents[0];
-                              const orgId = agent.organization || '';
+                              const orgId = agent.org_id || agent.organization || '';
                               form.setFieldsValue({
                                 id: agent.card?.id || agent.id,
                                 agent_id: agent.card?.id || agent.id,
@@ -911,14 +1007,15 @@ const AgentDetails: React.FC = () => {
                                 gender: agent.gender || 'gender_options.male',
                                 birthday: agent.birthday ? dayjs(agent.birthday) : null,
                                 owner: agent.owner || username,
-                                personality: agent.personalities || [],
+                                personality_traits: agent.personality_traits || agent.personalities || [],
                                 title: agent.title || [],
-                                organization: orgId,
-                                supervisors: Array.isArray(agent.supervisors) && agent.supervisors.length > 0 ? agent.supervisors[0] : '', // 改为单选，取第一个
+                                org_id: orgId,
+                                supervisor_id: agent.supervisor_id || (Array.isArray(agent.supervisors) && agent.supervisors.length > 0 ? agent.supervisors[0] : ''),
                                 tasks: agent.tasks || [],
                                 skills: agent.skills || [],
-                                vehicle: agent.vehicle || localVehicleId || '',
-                                metadata: agent.metadata ? JSON.stringify(agent.metadata, null, 2) : ''
+                                vehicle_id: agent.vehicle_id || agent.vehicle || localVehicleId || '',
+                                description: agent.description || '',
+                                extra_data: agent.extra_data || agent.metadata || ''  // 兼容旧字段 metadata
                               });
                               // 设置选中的组织ID
                               if (orgId) {

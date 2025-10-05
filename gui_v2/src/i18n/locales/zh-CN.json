@@ -58,8 +58,8 @@
     "validation_failed": "验证失败",
     "video_load_error": "视频加载错误",
     "quick_add": "快速添加",
-    "select_personality": "选择个性特征",
-    "select_title": "选择职称",
+    "select_personality": "选择或输入性格特征",
+    "select_title": "选择或输入职称",
     "select_organization": "选择组织",
     "please_select_organization": "请选择组织",
     "select_supervisor": "选择主管",
@@ -67,6 +67,30 @@
     "select_task": "选择任务",
     "select_skill": "选择技能",
     "description": "描述"
+  },
+  "personality": {
+    "friendly": "友好",
+    "analytical": "善于分析",
+    "creative": "富有创造力",
+    "efficient": "高效",
+    "empathetic": "善解人意",
+    "patient": "耐心",
+    "detail_oriented": "注重细节",
+    "proactive": "积极主动",
+    "collaborative": "善于协作",
+    "innovative": "创新"
+  },
+  "title": {
+    "engineer": "工程师",
+    "manager": "经理",
+    "analyst": "分析师",
+    "designer": "设计师",
+    "operator": "操作员",
+    "developer": "开发人员",
+    "architect": "架构师",
+    "consultant": "顾问",
+    "specialist": "专家",
+    "coordinator": "协调员"
   },
   "navigation": {
     "dashboard": "仪表盘",
@@ -98,7 +122,10 @@
       "error_fetching": "获取错误",
       "fetch_failed": "获取失败",
       "fetched_agents": "已获取代理",
-      "metadata": "元数据",
+      "description": "描述",
+      "description_placeholder": "请输入代理描述",
+      "extra_data": "额外数据/备注",
+      "extra_data_placeholder": "请输入额外的备注或数据",
       "organization": "组织",
       "organizations": "组织",
       "personality": "个性",
@@ -113,6 +140,7 @@
       "title": "职称",
       "updated_data_from_api": "从API更新数据",
       "vehicle": "电脑",
+      "form_label": "代理详情表单",
       "unassigned_agents": "未分配代理",
       "unassigned_agents_desc": "没有归属组织的代理",
       "load_failed": "组织数据加载失败",
@@ -841,26 +869,5 @@
     "commander": "指挥官",
     "platoon": "排",
     "staff_office": "参谋办公室"
-  },
-  "personality": {
-    "friendly": "友好的",
-    "analytical": "分析型",
-    "creative": "创造性",
-    "efficient": "高效的",
-    "empathetic": "有同理心的"
-  },
-  "title": {
-    "engineer": "工程师",
-    "manager": "经理",
-    "analyst": "分析师",
-    "designer": "设计师",
-    "operator": "操作员"
-  },
-  "organization": {
-    "rd": "研发部",
-    "sales": "销售部",
-    "marketing": "市场部",
-    "hr": "人力资源部",
-    "ops": "运营部"
   }
 }

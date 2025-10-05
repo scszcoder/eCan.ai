@@ -66,9 +66,10 @@ class MigrationManager:
         # 根据版本号推断文件名模式
         version_patterns = {
             "1.0.1": "migration_001_to_101",
-            "2.0.0": "migration_101_to_200", 
+            "2.0.0": "migration_101_to_200",
             "3.0.0": "migration_200_to_300",
-            "3.0.1": "migration_300_to_301"
+            "3.0.1": "migration_300_to_301",
+            "3.0.2": "migration_301_to_302"
         }
         
         module_name = version_patterns.get(version)
