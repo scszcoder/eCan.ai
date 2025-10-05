@@ -716,6 +716,7 @@
       },
       "tooltip": {
         "chat": "Chat",
+        "details": "View Details",
         "unbind": "Unbind"
       },
       "tree": {

@@ -717,6 +717,7 @@
       },
       "tooltip": {
         "chat": "与代理聊天",
+        "details": "查看详情",
         "unbind": "解绑代理"
       },
       "tree": {
