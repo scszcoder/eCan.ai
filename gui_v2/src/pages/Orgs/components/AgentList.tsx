@@ -4,8 +4,9 @@
 
 import React from 'react';
 import { Button, Typography, List, Avatar, Tooltip, Popconfirm, Empty } from 'antd';
-import { PlusOutlined, TeamOutlined, UserOutlined, MessageOutlined, DisconnectOutlined } from '@ant-design/icons';
+import { PlusOutlined, TeamOutlined, UserOutlined, MessageOutlined, DisconnectOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import type { Agent } from '../types';
 
 const { Title } = Typography;
@@ -26,6 +27,12 @@ const AgentList: React.FC<AgentListProps> = ({
   title,
 }) => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+
+  // 跳转到 Agent 详情页（编辑页面）
+  const handleViewDetails = (agentId: string) => {
+    navigate(`/agents/details/${agentId}`);
+  };
 
   return (
     <div>
@@ -69,6 +76,13 @@ const AgentList: React.FC<AgentListProps> = ({
                     type="text"
                     icon={<MessageOutlined />}
                     onClick={() => onChatWithAgent(agent)}
+                  />
+                </Tooltip>,
+                <Tooltip title={t('pages.org.tooltip.details')} key="details">
+                  <Button
+                    type="text"
+                    icon={<InfoCircleOutlined />}
+                    onClick={() => handleViewDetails(agent.id)}
                   />
                 </Tooltip>,
                 <Tooltip title={t('pages.org.tooltip.unbind')} key="unbind">

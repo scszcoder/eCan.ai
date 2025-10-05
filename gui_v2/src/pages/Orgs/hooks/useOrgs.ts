@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { App } from 'antd';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { get_ipc_api } from '../../../services/ipc_api';
 import { userStorageManager } from '../../../services/storage/UserStorageManager';
 import type { Org, OrgFormData } from '../types';
@@ -29,6 +30,7 @@ interface UIState {
 export const useOrgs = () => {
   const { t } = useTranslation();
   const { message } = App.useApp();
+  const navigate = useNavigate();
   const username = userStorageManager.getUsername();
   
   // 数据状态 - 稳定的引用
@@ -92,7 +94,8 @@ export const useOrgs = () => {
     updateDataState({ loading: true });
     try {
       const api = get_ipc_api();
-      const response = await api.getOrgAgents(username, orgId, true);
+      // 修改为 false，只加载当前组织的 agents，不包含子组织
+      const response = await api.getOrgAgents(username, orgId, false);
 
       if (response.success && response.data) {
         const agents = (response.data as any).agents || [];
@@ -274,13 +277,13 @@ export const useOrgs = () => {
 
   const chatWithAgent = useCallback((agent: any) => {
     try {
-      const chatUrl = `/chat?agent=${encodeURIComponent(agent.id)}&name=${encodeURIComponent(agent.name)}`;
-      window.location.href = chatUrl;
+      // 应用内路由跳转到 /chat 页面（聊天框），并传递 agentId 参数
+      navigate(`/chat?agentId=${encodeURIComponent(agent.id)}`);
     } catch (error) {
       console.error('Error navigating to chat:', error);
       message.error(t('pages.org.messages.chatFailed'));
     }
-  }, [t]);
+  }, [navigate, message, t]);
 
   // 初始化数据加载
   useEffect(() => {
