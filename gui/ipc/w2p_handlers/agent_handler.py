@@ -192,21 +192,44 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         # 获取用户名
         username = data['username']
         logger.info(f"[agent_handler] get agents request for user: {username}")
-        
+
         main_window = AppContext.get_main_window()
         if main_window is None:
             logger.warning(f"[agent_handler] MainWindow not available for user: {username} - user may have logged out")
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'User session not available - please login again')
-        else:
-            agents = getattr(main_window, 'agents', []) or []
-            logger.info(f"[agent_handler] Successfully retrieved {len(agents)} agents for user: {username}")
 
-        resultJS = {
-            'agents': [agent.to_dict() for agent in agents],
-            'message': 'Get all successful'
-        }
-        logger.trace('[agent_handler] get agents resultJS:' + str(resultJS))
-        return create_success_response(request, resultJS)
+        # Get agents from database instead of memory
+        # This ensures we get all agents including newly created ones
+        if not main_window.ec_db_mgr or not main_window.ec_db_mgr.agent_service:
+            logger.error(f"[agent_handler] Database service not available")
+            return create_error_response(request, 'DB_ERROR', 'Database service not available')
+
+        agent_service = main_window.ec_db_mgr.agent_service
+
+        try:
+            # Query all agents from database
+            with agent_service.session_scope() as session:
+                from agent.db.models.agent_model import DBAgent
+                db_agents = session.query(DBAgent).filter(DBAgent.owner == username).all()
+                agents_data = [agent.to_dict() for agent in db_agents]
+                logger.info(f"[agent_handler] Successfully retrieved {len(agents_data)} agents from database for user: {username}")
+
+                resultJS = {
+                    'agents': agents_data,
+                    'message': 'Get all successful'
+                }
+                logger.trace('[agent_handler] get agents resultJS:' + str(resultJS))
+                return create_success_response(request, resultJS)
+        except Exception as e:
+            logger.error(f"[agent_handler] Error querying agents from database: {e}")
+            # Fallback to memory agents
+            agents = getattr(main_window, 'agents', []) or []
+            logger.info(f"[agent_handler] Fallback to memory: retrieved {len(agents)} agents")
+            resultJS = {
+                'agents': [agent.to_dict() for agent in agents],
+                'message': 'Get all successful (from memory)'
+            }
+            return create_success_response(request, resultJS)
 
     except Exception as e:
         logger.error(f"[agent_handler] Error in get agents handler: {e} {traceback.format_exc()}")
@@ -396,6 +419,16 @@ def handle_new_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         errors = result['errors']
         created_agents = result['agents']
 
+        # Note: We don't add created agents to main_window.agents here because:
+        # 1. main_window.agents contains EC_Agent objects which require complex initialization
+        # 2. EC_Agent requires mainwin, skill_llm, and other dependencies
+        # 3. The agents are already in the database and will be loaded on next app restart
+        # 4. For immediate access, frontend should query the database directly via get_org_agents
+
+        logger.info(f"[agent_handler] Created {created_count} agents in database. "
+                   f"Note: These agents will be available in memory after app restart, "
+                   f"or can be queried from database immediately.")
+
         if errors:
             logger.warning(f"[agent_handler] Created {created_count} agents with {len(errors)} errors")
             return create_error_response(
@@ -480,9 +513,9 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
         
         # Debug: log organization structure
         if organizations:
-            logger.info("[agent_handler] Organization details:")
-            for org in organizations:
-                logger.info(f"  - Org: {org.get('name', 'Unknown')} (id: {org.get('id')}, parent_id: {org.get('parent_id')})")
+            logger.info("[agent_handler] Organization details length:", len(organizations))
+            # for org in organizations:
+            #     logger.info(f"  - Org: {org.get('name', 'Unknown')} (id: {org.get('id')}, parent_id: {org.get('parent_id')})")
         else:
             logger.error("[agent_handler] No organizations found in database!")
             logger.error(f"[agent_handler] Database query result: success={org_result.get('success')}, data={org_result.get('data')}, error={org_result.get('error')}")

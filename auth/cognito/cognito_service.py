@@ -1,5 +1,6 @@
 import boto3
 from botocore.exceptions import ClientError
+from botocore.config import Config
 
 
 import requests
@@ -8,6 +9,7 @@ from jose.exceptions import JOSEError
 
 from utils.logger_helper import logger_helper as logger
 from auth.auth_config import AuthConfig
+from auth.performance_config import perf_config
 
 class CognitoService:
 
@@ -17,7 +19,27 @@ class CognitoService:
 
     def _get_cognito_client(self):
         if not self.cognito_client:
-            self.cognito_client = boto3.client('cognito-idp', region_name=AuthConfig.COGNITO.REGION)
+            # Get timeout settings from performance configuration
+            cognito_config = perf_config.get_cognito_config()
+
+            # Configure timeouts and connection pool for performance optimization
+            config = Config(
+                read_timeout=cognito_config['read_timeout'],
+                connect_timeout=cognito_config['connect_timeout'],
+                retries={'max_attempts': cognito_config['max_attempts']},
+                max_pool_connections=cognito_config['max_pool_connections']
+            )
+            self.cognito_client = boto3.client(
+                'cognito-idp',
+                region_name=AuthConfig.COGNITO.REGION,
+                config=config
+            )
+
+            if perf_config.should_log_timing():
+                logger.info(f"Cognito client configured: connect_timeout={cognito_config['connect_timeout']}s, "
+                          f"read_timeout={cognito_config['read_timeout']}s, "
+                          f"max_attempts={cognito_config['max_attempts']}, "
+                          f"connection_pool={cognito_config['max_pool_connections']}")
 
         return self.cognito_client
 
@@ -95,8 +117,15 @@ class CognitoService:
             return {'success': False, 'error': e.response['Error']['Code']}
 
     def login(self, username, password):
+        import time
+        start_time = time.time()
+
         try:
+            if perf_config.should_log_timing():
+                logger.info(f"Starting Cognito authentication: {username}")
+
             client = self._get_cognito_client()
+
             response = client.initiate_auth(
                 ClientId=AuthConfig.COGNITO.CLIENT_ID,
                 AuthFlow='USER_PASSWORD_AUTH',
@@ -105,9 +134,30 @@ class CognitoService:
                     'PASSWORD': password
                 }
             )
+
+            elapsed_time = time.time() - start_time
+
+            # Log success
+            if perf_config.should_log_timing():
+                logger.info(f"Cognito authentication successful: {username}, elapsed: {elapsed_time:.2f}s")
+
+            # Performance alert
+            alert_threshold = perf_config.get_alert_threshold()
+            if elapsed_time > alert_threshold:
+                logger.warning(f"⚠️ Cognito authentication took too long: {elapsed_time:.2f}s > {alert_threshold}s, "
+                             f"user: {username}")
+
             return {'success': True, 'data': response['AuthenticationResult']}
+
         except ClientError as e:
-            return {'success': False, 'error': e.response['Error']['Code']}
+            elapsed_time = time.time() - start_time
+            error_code = e.response['Error']['Code']
+            logger.error(f"Cognito authentication failed: {username}, error: {error_code}, elapsed: {elapsed_time:.2f}s")
+            return {'success': False, 'error': error_code}
+        except Exception as e:
+            elapsed_time = time.time() - start_time
+            logger.error(f"Cognito authentication exception: {username}, exception: {str(e)}, elapsed: {elapsed_time:.2f}s")
+            return {'success': False, 'error': f'Authentication exception: {str(e)}'}
 
 
     def get_google_login_url(self, redirect_uri, pkce_params: dict | None = None):

@@ -206,14 +206,41 @@ class Login:
         return display_names.get(login_type, login_type.value)
     
     async def _handle_username_password_auth(self, request: LoginRequest) -> Dict[str, Any]:
-        """Handle username/password authentication"""
-        loop = asyncio.get_event_loop()
-        auth_future = loop.run_in_executor(
-            None, 
-            self.auth_manager.login, 
-            request.username, request.password, request.role
-        )
-        return await auth_future
+        """Handle username/password authentication with timeout and progress"""
+        import time
+        from auth.performance_config import perf_config
+
+        start_time = time.time()
+        auth_config = perf_config.get_auth_flow_config()
+        timeout = auth_config['total_timeout']
+
+        try:
+            # Update progress: start authentication
+            self._update_progress(15, "Connecting to authentication server...")
+
+            loop = asyncio.get_event_loop()
+            auth_future = loop.run_in_executor(
+                None,
+                self.auth_manager.login,
+                request.username, request.password, request.role
+            )
+
+            # Use configured timeout
+            result = await asyncio.wait_for(auth_future, timeout=timeout)
+
+            elapsed_time = time.time() - start_time
+            if perf_config.should_log_timing():
+                logger.info(f"Username/password authentication completed, elapsed: {elapsed_time:.2f}s")
+            return result
+
+        except asyncio.TimeoutError:
+            elapsed_time = time.time() - start_time
+            logger.error(f"Authentication timeout: {request.username}, timeout threshold: {timeout}s, actual elapsed: {elapsed_time:.2f}s")
+            return {'success': False, 'error': f'Authentication timeout ({timeout}s), please check network connection'}
+        except Exception as e:
+            elapsed_time = time.time() - start_time
+            logger.error(f"Authentication exception: {request.username}, exception: {str(e)}, elapsed: {elapsed_time:.2f}s")
+            return {'success': False, 'error': f'Authentication failed: {str(e)}'}
     
     async def _handle_google_oauth_auth(self, request: LoginRequest) -> Dict[str, Any]:
         """Handle Google OAuth authentication"""

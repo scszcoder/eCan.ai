@@ -1676,57 +1676,6 @@ class MainWindow:
             logger.warning(f"[MainWindow] ⚠️ MCP tools failed: {e}, using empty list")
             return []
 
-    async def _initialize_agent_components_async(self):
-        """Asynchronously initialize Agent components - improved parallel strategy"""
-        logger.info("🤖 Initializing agent components...")
-        
-        try:
-            # Step 1: Build Agent Skills (most time-consuming)
-            logger.info("🔧 Building agent skills...")
-            self.agent_skills = await self._build_agent_skills_optimized()
-            logger.info(f"✅ Built {len(self.agent_skills)} agent skills")
-            
-            # Step 2: Initialize other components in parallel (these components are independent of each other)
-            logger.info("🔄 Parallel initialization of other components...")
-            tasks = [
-                self._create_agent_tasks_async(),
-                self._obtain_agent_tools_async(),
-                self._build_agent_knowledges_async()
-            ]
-            
-            # Wait for all tasks to complete
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Process results
-            tasks_result, tools_result, knowledges_result = results
-            
-            if isinstance(tasks_result, Exception):
-                logger.warning(f"⚠️ Agent tasks initialization failed: {tasks_result}")
-                self.agent_tasks = []
-            else:
-                self.agent_tasks = tasks_result
-                logger.info(f"✅ Created {len(self.agent_tasks)} agent tasks")
-            
-            if isinstance(tools_result, Exception):
-                logger.warning(f"⚠️ Agent tools initialization failed: {tools_result}")
-                self.agent_tools = []
-            else:
-                self.agent_tools = tools_result
-                logger.info(f"✅ Obtained {len(self.agent_tools)} agent tools")
-            
-            if isinstance(knowledges_result, Exception):
-                logger.warning(f"⚠️ Agent knowledges initialization failed: {knowledges_result}")
-                self.agent_knowledges = []
-            else:
-                self.agent_knowledges = knowledges_result
-                logger.info(f"✅ Built {len(self.agent_knowledges)} agent knowledges")
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ Agent components initialization failed: {e}")
-            raise
-
     async def _build_agent_skills_optimized(self):
         """Optimized parallel agent skills building"""
         logger.info("[MainWindow] 🔧 Building agent skills in parallel...")
@@ -1749,33 +1698,33 @@ class MainWindow:
         """Asynchronously create Agent Tasks"""
         try:
             from agent.ec_agents.create_agent_tasks import create_agent_tasks
-            logger.debug("📝 Creating agent tasks...")
+            logger.debug("[MainWindow] 📝 Creating agent tasks...")
             tasks = create_agent_tasks(self)
             return tasks
         except Exception as e:
-            logger.error(f"❌ Failed to create agent tasks: {e}")
+            logger.error(f"[MainWindow] ❌ Failed to create agent tasks: {e}")
             raise
 
     async def _obtain_agent_tools_async(self):
         """Asynchronously obtain Agent Tools"""
         try:
             from agent.ec_agents.obtain_agent_tools import obtain_agent_tools
-            logger.debug("🛠️ Obtaining agent tools...")
+            logger.debug("[MainWindow] 🛠️ Obtaining agent tools...")
             tools = obtain_agent_tools(self)
             return tools
         except Exception as e:
-            logger.error(f"❌ Failed to obtain agent tools: {e}")
+            logger.error(f"[MainWindow] ❌ Failed to obtain agent tools: {e}")
             raise
 
     async def _build_agent_knowledges_async(self):
         """Asynchronously build Agent Knowledges"""
         try:
             from agent.ec_agents.build_agent_knowledges import build_agent_knowledges
-            logger.debug("📚 Building agent knowledges...")
+            logger.debug("[MainWindow] 📚 Building agent knowledges...")
             knowledges = build_agent_knowledges(self)
             return knowledges
         except Exception as e:
-            logger.error(f"❌ Failed to build agent knowledges: {e}")
+            logger.error(f"[MainWindow] ❌ Failed to build agent knowledges: {e}")
             raise
 
     async def wait_for_server_async(self, agent, timeout: float = 5.0):
@@ -1796,98 +1745,10 @@ class MainWindow:
                         pass
                     await asyncio.sleep(0.5)
         except Exception as e:
-            logger.error(f"Error checking server {url}: {e}")
+            logger.error(f"[MainWindow] Error checking server {url}: {e}")
         
-        logger.warning(f"⚠️ Server did not start within {timeout} seconds, continuing anyway")
+        logger.warning(f"[MainWindow] ⚠️ Server did not start within {timeout} seconds, continuing anyway")
         return False
-
-    def wait_for_server(self, agent, timeout: float = 10.0):
-        """Keep original synchronous method as backup"""
-        url = agent.get_card().url+'/ping'
-        logger.info("agent card url:", url)
-        start = time.time()
-        while time.time() - start < timeout:
-            try:
-                response = requests.get(url, timeout=2)  # Add request timeout
-                if response.status_code == 200:
-                    logger.info("✅ Server is up!")
-                    return True
-            except (requests.ConnectionError, requests.Timeout):
-                pass
-            time.sleep(0.5)  # Reduce wait interval
-        
-        logger.warning(f"⚠️ Server did not start within {timeout} seconds, continuing anyway")
-        return False  # Don't throw exception, continue execution
-
-
-    async def launch_agents_parallel(self):
-        """Launch all Agents in parallel, significantly improving performance"""
-        logger.info(f"🚀 Launching {len(self.agents)} agents in parallel...")
-        
-        async def launch_single_agent(agent, index):
-            """Asynchronous task to launch a single Agent"""
-            if not agent:
-                logger.warning(f"⚠️ Agent {index} is empty, skipping")
-                return False
-            
-            try:
-                logger.info(f"🔄 Starting agent {index}: {agent.card.name}")
-                
-                # Start Agent in thread pool (avoid blocking)
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, agent.start)
-                
-                # Asynchronously wait for server startup (reduce timeout)
-                server_ready = await self.wait_for_server_async(agent, timeout=3.0)
-                
-                if server_ready:
-                    logger.info(f"✅ Agent {index} started successfully")
-                else:
-                    logger.warning(f"⚠️ Agent {index} started but server check failed")
-                
-                return True
-                
-            except Exception as e:
-                logger.error(f"❌ Failed to start agent {index}: {e}")
-                return False
-        
-        # Launch all Agents in parallel
-        tasks = [
-            launch_single_agent(agent, i) 
-            for i, agent in enumerate(self.agents)
-        ]
-        
-        # Wait for all Agents to complete startup
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Count results
-        successful = sum(1 for r in results if r is True)
-        failed = len(results) - successful
-        
-        logger.info(f"🎉 Agent launch completed: {successful} successful, {failed} failed")
-        return successful > 0
-
-    def launch_agents(self):
-        """Keep original synchronous method as backup"""
-        logger.info(f"launching agents:{len(self.agents)}")
-        for agent in self.agents:
-            if agent:
-                logger.info("KICKING OFF AGENT.....")
-                agent.start()
-                logger.info("checking a2a server status....")
-                self.wait_for_server(agent)
-                logger.info("AGENT STARTED.....")
-            else:
-                logger.info("WARNING EMPTY AGENT .....")
-
-    async def test_a2a(self):
-        # let supervisor agent sends a message to agent
-        supervisor = next((ag for ag in self.agents if "Helper" not in ag.card.name), None)
-        if supervisor:
-            logger.info("found supervisor:", supervisor.card.name)
-            await supervisor.request_local_help()
-        else:
-            logger.info("Warning, supervisor not found...")
 
     def get_free_agent_ports(self, n):
         """
@@ -1918,7 +1779,7 @@ class MainWindow:
             free_ports = [port for port in all_ports if port not in used_ports]
             
             if len(free_ports) < n:
-                raise RuntimeError(f"Only {len(free_ports)} free ports available, but {n} requested.")
+                raise RuntimeError(f"[MainWindow] Only {len(free_ports)} free ports available, but {n} requested.")
             
             return free_ports[:n]
 

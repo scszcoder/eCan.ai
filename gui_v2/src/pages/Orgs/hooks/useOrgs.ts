@@ -119,19 +119,26 @@ export const useOrgs = () => {
       const api = get_ipc_api();
       const allAgentsResponse = await api.getAgents(username, []);
 
+      console.log('[loadAvailableAgents] allAgentsResponse:', allAgentsResponse);
+
       if (!allAgentsResponse.success || !allAgentsResponse.data) {
         message.error(t('pages.org.messages.loadFailed'));
         return;
       }
 
       const allAgents = (allAgentsResponse.data as any).agents || [];
+      console.log('[loadAvailableAgents] allAgents count:', allAgents.length);
+      console.log('[loadAvailableAgents] allAgents:', allAgents);
+
       let boundAgentIds: string[] = [];
 
       if (selectedOrgId) {
         const boundAgentsResponse = await api.getOrgAgents(username, selectedOrgId, false);
+        console.log('[loadAvailableAgents] boundAgentsResponse:', boundAgentsResponse);
         if (boundAgentsResponse.success && boundAgentsResponse.data) {
           const boundAgents = (boundAgentsResponse.data as any).agents || [];
           boundAgentIds = boundAgents.map((agent: any) => agent.id);
+          console.log('[loadAvailableAgents] boundAgentIds:', boundAgentIds);
         }
       }
 
@@ -141,6 +148,9 @@ export const useOrgs = () => {
           ...agent,
           isBound: boundAgentIds.includes(agent.id)
         }));
+
+      console.log('[loadAvailableAgents] agentsWithStatus count:', agentsWithStatus.length);
+      console.log('[loadAvailableAgents] agentsWithStatus:', agentsWithStatus);
 
       updateDataState({ availableAgents: agentsWithStatus });
     } catch (error) {
@@ -183,7 +193,30 @@ export const useOrgs = () => {
       const response = await api.updateOrg(username, id, data.name, data.description);
       if (response.success) {
         message.success(t('pages.org.messages.updateSuccess'));
-        loadOrgs();
+        // 重新加载组织树
+        await loadOrgs();
+        // 如果当前选中的组织是被编辑的组织，需要更新选中组织的信息
+        const currentSelectedOrg = dataStateRef.current.selectedOrg;
+        if (currentSelectedOrg && currentSelectedOrg.id === id) {
+          // 从更新后的组织树中找到对应的组织
+          const findOrgById = (orgs: Org[], targetId: string): Org | null => {
+            for (const org of orgs) {
+              if (org.id === targetId) return org;
+              if (org.children) {
+                const found = findOrgById(org.children, targetId);
+                if (found) return found;
+              }
+            }
+            return null;
+          };
+          // 等待 loadOrgs 完成后再查找
+          setTimeout(() => {
+            const updatedOrg = findOrgById(dataStateRef.current.orgs, id);
+            if (updatedOrg) {
+              updateDataState({ selectedOrg: updatedOrg });
+            }
+          }, 100);
+        }
         updateUIState({ modalVisible: false });
       } else {
         message.error(response.error?.message || t('pages.org.messages.updateFailed'));
@@ -192,7 +225,7 @@ export const useOrgs = () => {
       console.error('Error updating org:', error);
       message.error(t('pages.org.messages.updateFailed'));
     }
-  }, [username, t, loadOrgs, updateUIState]);
+  }, [username, t, loadOrgs, updateUIState, updateDataState]);
 
   const deleteOrg = useCallback(async (id: string) => {
     if (!username) return;
