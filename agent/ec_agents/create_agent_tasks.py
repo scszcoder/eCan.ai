@@ -43,7 +43,7 @@ def create_my_twin_chat_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         chatter_task = ManagedTask(
             id=task_id,
-            name="chat:Human Chatter Task",
+            name="chat:Human Chatter Relay Task",
             description="Represent human to chat with others",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -298,7 +298,7 @@ def create_ec_procurement_chat_task(mainwin):
     agent_skills = mainwin.agent_skills
     agent_tasks = mainwin.agent_tasks
 
-    chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecan.ai search parts and components web site"), None)
+    chatter_skill = next((sk for sk in agent_skills if sk.name == "search_digikey_chatter"), None)
     chatter_task = next((task for task in agent_tasks if task.name == "chat:eCan.ai Procurement Chatter Task"), None)
     logger.debug("ec_procurement chatter skill name:", chatter_skill.name if chatter_skill else "None")
     logger.debug("ec_procurement chatter skill:", chatter_skill)

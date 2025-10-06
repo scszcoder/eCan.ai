@@ -717,15 +717,21 @@ class TaskRunner(Generic[Context]):
 
         # First, try task-specific routing based on each task's skill mapping_rules
         try:
+            print(f"this agent has # tasks: {len(getattr(self.agent, "tasks", []))}")
             for t in getattr(self.agent, "tasks", []) or []:
+                print("task:", t.name)
                 if not t or not getattr(t, "skill", None):
                     continue
                 skill = t.skill
+                print("task required skill:", skill.name)
                 rules = getattr(skill, "mapping_rules", None)
+                print("mapping rules:", rules)
                 if not isinstance(rules, dict):
                     continue
                 # event_routing can be at top-level; also tolerate run_mode nesting
                 event_routing = rules.get("event_routing")
+                print("event_routing:", etype, event_routing)
+
                 if not isinstance(event_routing, dict):
                     run_mode = getattr(skill, "run_mode", None)
                     if run_mode and isinstance(rules.get(run_mode), dict):
@@ -745,11 +751,12 @@ class TaskRunner(Generic[Context]):
                     elif selector.startswith("name:"):
                         sel_ok = (t.name or "") == selector.split(":", 1)[1]
                     elif selector.startswith("name_contains:"):
+                        print("selector:", selector, event_type, t.name)
                         sel_ok = selector.split(":", 1)[1].lower() in (t.name or "").lower()
                     else:
                         # No selector or unknown format -> treat as match for this task
                         sel_ok = True
-                except Exception:
+                except Exception as e:
                     sel_ok = False
 
                 if not sel_ok:
@@ -757,7 +764,9 @@ class TaskRunner(Generic[Context]):
 
                 # Return the matching task; caller will use its queue
                 return t
-        except Exception:
+        except Exception as e:
+            err_msg = get_traceback(e, "ErrorResolveEventRouting")
+            logger.error(err_msg)
             pass
 
         # No match
@@ -1234,7 +1243,7 @@ class TaskRunner(Generic[Context]):
                     # Initial run
                     logger.debug(f"Initial run: {task2run.skill.name}")
                     task2run.metadata["state"] = prep_skills_run(
-                        task2run.skill.name, 
+                        task2run.skill,
                         self.agent, 
                         task2run.id, 
                         msg, 
@@ -1246,13 +1255,7 @@ class TaskRunner(Generic[Context]):
                 else:
                     # Resume run
                     logger.debug(f"Resume run: {task2run.skill.name}")
-                    task2run.metadata["state"] = prep_skills_run(
-                        task2run.skill.name,
-                        self.agent,
-                        task2run.id,
-                        msg,
-                        task2run.metadata.get("state")
-                    )
+                    # On resume, keep existing state; DSL mapping will provide a state_patch via resume payload
                     
                     # Build resume payload using mapping DSL
                     resume_payload, cp = self._build_resume_payload(task2run, msg)
