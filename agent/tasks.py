@@ -717,7 +717,7 @@ class TaskRunner(Generic[Context]):
 
         # First, try task-specific routing based on each task's skill mapping_rules
         try:
-            print(f"this agent has # tasks: {len(getattr(self.agent, "tasks", []))}")
+            print(f"this agent has # tasks: {len(getattr(self.agent, 'tasks', []))}")
             for t in getattr(self.agent, "tasks", []) or []:
                 print("task:", t.name)
                 if not t or not getattr(t, "skill", None):

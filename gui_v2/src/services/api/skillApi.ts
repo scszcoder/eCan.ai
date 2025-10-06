@@ -32,7 +32,7 @@ export class SkillAPI implements ResourceAPI<Skill> {
 
       const response = await this.api.getSkills(username, skillIds);
 
-      logger.debug('[SkillAPI] Raw response:', JSON.stringify(response, null, 2));
+      // logger.debug('[SkillAPI] Raw response:', JSON.stringify(response, null, 2));
 
       if (response && response.success && response.data) {
         // 处理不同的响应格式
