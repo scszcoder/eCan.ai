@@ -308,6 +308,7 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
             return None
 
         def load_from_code(skill_root: Path, code_dir: Path) -> Optional[EC_Skill]:
+            print("loading from code:", skill_root, "...", code_dir)
             pkg = find_package_dir_in_code(code_dir)
             if not pkg:
                 logger.warning(f"[build_agent_skills] No package with *_skill.py under {code_dir}")
@@ -336,6 +337,7 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                     return None
                 # Build using run_context if supported; remain backward compatible with (mainwin)
                 build_fn = getattr(mod, "build_skill")
+                print("build_skill function found!!!")
                 ctx = None
                 try:
                     ctx = AppContext.get_useful_context()
@@ -346,12 +348,16 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                     sig = inspect.signature(build_fn)
                     params = sig.parameters
                     if "run_context" in params and "mainwin" in params:
+                        print("build with ctx and mainwin.....")
                         built = build_fn(run_context=ctx, mainwin=mainwin)
                     elif "run_context" in params:
+                        print("build with ctx.....")
                         built = build_fn(run_context=ctx)
                     elif "mainwin" in params:
+                        print("build with mainwin.....")
                         built = build_fn(mainwin)
                     else:
+                        print("build with .....")
                         built = build_fn()
                 except Exception as e:
                     logger.warning(f"[build_agent_skills] build_skill signature fallback due to: {e}")
@@ -361,9 +367,11 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                     except Exception:
                         built = build_fn()
 
+                print("just built....", built)
                 # Accept either EC_Skill or (dto, stategraph)
                 sk = None
                 if isinstance(built, EC_Skill):
+                    print("built is EC_Skill")
                     sk = built
                 elif isinstance(built, tuple) and len(built) == 2:
                     dto, sg = built
@@ -373,13 +381,15 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                         sk.description = getattr(dto, "description", "")
                         sk.config = getattr(dto, "config", {}) or {}
                         sk.set_work_flow(sg)
+                        logger.debug(f"Just built skill from code: {sk.name}")
                     except Exception as e:
                         logger.error(f"[build_agent_skills] Failed to wrap tuple into EC_Skill: {e}")
                         return None
                 else:
                     logger.error("[build_agent_skills] build_skill() returned unsupported type")
                     return None
-                
+
+                print("sk ready?", sk)
                 # Load mapping rules from data_mapping.json
                 if sk:
                     mapping_file = skill_root / "data_mapping.json"

@@ -56,6 +56,108 @@ class State(TypedDict):
     resolved: bool
     input: str
 
+DEFAULT_MAPPING_RULE = {
+  "developing": {
+    "mappings": [
+      {
+        "from": ["event.data.qa_form_to_agent", "event.data.qa_form"],
+        "to": [
+          {"target": "state.attributes.forms.qa_form"},
+          {"target": "resume.qa_form_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+      },
+      {
+        "from": ["event.data.notification_to_agent", "event.data.notification"],
+        "to": [
+          {"target": "state.attributes.notifications.latest"},
+          {"target": "resume.notification_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+      },
+      {
+        "from": ["event.data.human_text"],
+        "to": [
+          {"target": "state.attributes.human.last_message"},
+          {"target": "resume.human_text"}
+        ],
+        "transform": "to_string",
+        "on_conflict": "overwrite"
+      },
+      {
+        "from": ["event.tag"],
+        "to": [
+          {"target": "state.attributes.cloud_task_id"}
+        ],
+        "on_conflict": "overwrite"
+      },
+      {
+        "from": ["event.data.metadata"],
+        "to": [
+          {"target": "state.attributes.debug.last_event_metadata"}
+        ],
+        "on_conflict": "overwrite"
+      }
+    ],
+    "options": {
+      "strict": False,
+      "default_on_missing": None,
+      "apply_order": "top_down"
+    }
+  },
+  "released": {
+    "mappings": [
+      {
+        "from": ["event.data.qa_form_to_agent", "event.data.qa_form"],
+        "to": [
+          {"target": "state.attributes.forms.qa_form"},
+          {"target": "resume.qa_form_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+      },
+      {
+        "from": ["event.data.notification_to_agent", "event.data.notification"],
+        "to": [
+          {"target": "state.attributes.notifications.latest"},
+          {"target": "resume.notification_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+      },
+      {
+        "from": ["event.data.human_text"],
+        "to": [
+          {"target": "state.attributes.human.last_message"},
+          {"target": "resume.human_text"}
+        ],
+        "transform": "to_string",
+        "on_conflict": "overwrite"
+      },
+      {
+        "from": ["event.tag"],
+        "to": [
+          {"target": "state.attributes.cloud_task_id"}
+        ],
+        "on_conflict": "overwrite"
+      }
+    ],
+    "options": {
+      "strict": True,
+      "default_on_missing": None,
+      "apply_order": "top_down"
+    }
+  },
+  "node_transfers": {},
+  "event_routing": {
+    "human_chat": {"task_selector": "name_contains:chatter", "queue": ""},
+    "a2a": {"task_selector": "name_contains:chatter", "queue": ""},
+    "api_response": {"task_selector": "id:11111", "queue": ""},
+    "web_hook": {"task_selector": "id:11111", "queue": ""},
+    "cloud_websocket": {"task_selector": "id:11111", "queue": ""},
+    "web_sse": {"task_selector": "name:abc", "queue": ""}
+  }
+}
+
+
 class EC_Skill(AgentSkill):
     """Holds a compiled LangGraph runnable and metadata."""
 
@@ -77,7 +179,7 @@ class EC_Skill(AgentSkill):
     path: str = ""
     run_mode: str = "released"      # has to be either "development" or "released"
     # Optional: per-skill mapping rules for resume/state mapping DSL
-    mapping_rules: dict | None = None
+    mapping_rules: dict | None = DEFAULT_MAPPING_RULE
 
     tags: List[str] | None = None
     examples: List[str] | None = None

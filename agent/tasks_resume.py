@@ -105,7 +105,7 @@ def _to_string(v: Any) -> str:
 
 # ---------- Event normalization ----------
 
-def normalize_event(msg: Any) -> Dict[str, Any]:
+def normalize_event(event_type: str, msg: Any) -> Dict[str, Any]:
     """Normalize heterogeneous incoming message into a unified event envelope."""
     event: Dict[str, Any] = {
         "type": None,
@@ -146,7 +146,10 @@ def normalize_event(msg: Any) -> Dict[str, Any]:
                 "chatId": metadata.get("chatId"),
                 "msgId": metadata.get("msgId"),
             })
-        event["type"] = _infer_event_type(mtype)
+        if event_type:
+            event["type"] = event_type
+        else:
+            event["type"] = _infer_event_type(mtype)
         event["source"] = _infer_event_source(metadata)
 
         # Extract primary data
