@@ -7,7 +7,6 @@ This external skill is self-contained: all node functions and helpers are define
 from typing import Any
 
 from agent.ec_skill import EC_Skill, NodeState, WorkFlowContext, node_wrapper, node_builder
-from agent.ec_skills.llm_hooks.llm_hooks import llm_node_with_raw_files
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from agent.mcp.local_client import mcp_call_tool
@@ -33,6 +32,15 @@ from .helpers import (
     pend_for_human_input_node as h_pend_for_human_input_node,
     pend_for_human_fill_FOM_node as h_pend_for_human_fill_FOM_node,
     pend_for_human_fill_specs_node as h_pend_for_human_fill_specs_node,
+    examine_filled_specs_node as h_examine_filled_specs_node,
+    confirm_FOM_node as h_confirm_FOM_node,
+    local_sort_search_results_node as h_local_sort_search_results_node,
+    re_rank_search_results_node as h_re_rank_search_results_node,
+)
+
+from .digikey_nodes import (
+    llm_node_with_raw_files as h_llm_node_with_raw_files,
+    pend_for_human_input_node as h_pend_for_human_input_node,
     examine_filled_specs_node as h_examine_filled_specs_node,
     confirm_FOM_node as h_confirm_FOM_node,
     query_component_specs_node as h_query_component_specs_node,
@@ -720,9 +728,9 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
         bp_manager = BreakpointManager()
 
         # Chat lane
-        wf.add_node("chat", node_builder(llm_node_with_raw_files, "chat", THIS_SKILL_NAME, OWNER, bp_manager))
+        wf.add_node("chat", node_builder(h_llm_node_with_raw_files, "chat", THIS_SKILL_NAME, OWNER, bp_manager))
         wf.add_node("pend_for_next_human_msg", node_builder(h_pend_for_human_input_node, "pend_for_next_human_msg", THIS_SKILL_NAME, OWNER, bp_manager))
-        wf.add_node("more_analysis_app", node_builder(llm_node_with_raw_files, "more_analysis_app", THIS_SKILL_NAME, OWNER, bp_manager))
+        wf.add_node("more_analysis_app", node_builder(h_llm_node_with_raw_files, "more_analysis_app", THIS_SKILL_NAME, OWNER, bp_manager))
         wf.add_conditional_edges("chat", h_chat_or_work, ["pend_for_next_human_msg", "more_analysis_app"])
         wf.add_edge("pend_for_next_human_msg", "chat")
 

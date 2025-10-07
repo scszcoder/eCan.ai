@@ -1,8 +1,9 @@
+import json
 from typing import Any, Dict, Optional
 from agent.ec_skill import NodeState
 from utils.logger_helper import logger_helper as logger
-
 from utils.logger_helper import get_traceback
+from agent.ec_skill import FileAttachment
 
 
 from agent.tasks_resume import (
@@ -25,54 +26,106 @@ def _deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
 
 def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, Any]] = None) -> NodeState:
     """Provide a NodeState-shaped baseline for a new run."""
-    if not isinstance(msg, dict):
-        msg_parts = msg.params.message.parts
-        attachments = []
-        msg_txt = ""
-        for part in msg_parts:
-            if part.type == "text":
-                msg_txt = part.text
-            elif part.type == "file":
-                attachments.append({"filename": part.file.name, "file_url": part.file.uri, "mime_type": part.file.mimeType,
+    print(f"type of msg {type(msg)}")
+    try:
+        if not isinstance(msg, dict):
+            print("incoming msg: ", msg)
+            params = getattr(msg, "params", None)
+            attachments = []
+            msg_txt = ""
+            if params:
+                msg_parts = msg.params.message.parts
+                for part in msg_parts:
+                    if part.type == "text":
+                        msg_txt = part.text
+                    elif part.type == "file":
+                        attachments.append({"filename": part.file.name, "file_url": part.file.uri, "mime_type": part.file.mimeType,
                                     "file_data": part.file.bytes})
+            chat_id = msg.params.metadata["params"]["chatId"]
+            form = msg.params.metadata.get("form", {})
+            method = getattr(msg, "method", "")
+            human = False
+            msg_id = getattr(msg, "id", "")
+            form = {}
+        else:
+            logger.info("incoming dict msg: "+json.dumps(msg, indent=2))
+            if "params" in msg:
+                print("hello???")
+                if "content" in msg["params"]:
+                    print("prep response message", msg)
+                    msg_txt = msg['params']['content']
+                    print("prep task with message text:", msg_txt)
+                    atts = []
+                    if msg['params']['attachments']:
+                        for att in msg['params']['attachments']:
+                            atts.append(FileAttachment(name=att['name'], type=att['type'], url=att['url'], data=""))
 
-        chat_id = msg.params.metadata["chatId"]
-        msg_id = msg.id
-    else:
-        chat_id = ""
-        msg_id = ""
-        msg_txt = ""
-        attachments = []
+                    chat_id = msg['params']['chatId']
+                    msg_id = msg['id']
+                    human = msg['params']['human']
+                    params = msg['params']
+                    method = msg["method"]
+                    if msg["method"] == "form_submit":
+                        form = msg["params"].get("formData", {})
+                    else:
+                        form = {}
+                else:
+                    msg_id = ""
+                    msg_txt = ""
+                    attachments = []
+                    human = False
+                    params = {}
+                    method = ""
+                    form = {}
+                    chat_id = ""
+            else:
+                logger.info("non paramms....")
+                chat_id = ""
+                msg_id = ""
+                msg_txt = ""
+                attachments = []
+                human = False
+                params = {}
+                method = ""
+                form = {}
 
-    base: NodeState = {
-        "input": "",
-        "attachments": [],
-        "prompts": [],
-        "prompt_refs": {},
-        "formatted_prompts": [],
-        "messages": [agent.card.id, chat_id, msg_id, task_id, msg_txt],
-        "threads": [],
-        "this_node": "",
-        "attributes": {},
-        "result": {},
-        "tool_name": "",
-        "tool_input": {},
-        "tool_result": {},
-        "http_response": {},
-        "cli_input": {},
-        "cli_results": {},
-        "error": "",
-        "retries": 0,
-        "condition": False,
-        "condition_vars": {},
-        "loop_end_vars": {},
-        "case": "",
-        "goals": [],
-        "breakpoint": False,
-        "metadata": {},
-    }
-    if isinstance(current_state, dict):
-        base = _deep_merge(base, existing)  # type: ignore[arg-type]
+        base: NodeState = {
+            "input": "",
+            "attachments": [],
+            "prompts": [],
+            "prompt_refs": {},
+            "formatted_prompts": [],
+            "messages": [agent.card.id, chat_id, msg_id, task_id, msg_txt],
+            "threads": [],
+            "this_node": "",
+            "attributes": {"human": human, "method": method, "params": params},
+            "result": {},
+            "tool_name": "",
+            "tool_input": {},
+            "tool_result": {},
+            "http_response": {},
+            "cli_input": {},
+            "cli_results": {},
+            "error": "",
+            "retries": 0,
+            "condition": False,
+            "condition_vars": {},
+            "loop_end_vars": {},
+            "case": "",
+            "goals": [],
+            "breakpoint": False,
+            "metadata": {"form": form},
+        }
+        if isinstance(current_state, dict):
+            logger.debug("deep merging current state")
+            base = _deep_merge(base, existing)  # type: ignore[arg-type]
+
+        logger.debug("base node state:", base)
+        return base
+    except Exception as e:
+        err_msg = get_traceback(e, "ErrorNodeStateBaseline")
+        logger.error(f"{err_msg}")
+        base = None
     return base
 
 
@@ -100,6 +153,12 @@ def _resolve_start_mapping(skill) -> Dict[str, Any]:
     return DEFAULT_MAPPINGS.get("released", {}) if getattr(skill, "run_mode", None) is None else DEFAULT_MAPPINGS.get(skill.run_mode, DEFAULT_MAPPINGS.get("released", {}))
 
 
+# possible message types:
+# 1. IPCRequest - from GUI front-end
+# 2. SendTaskRequest
+# 3. dict
+# 4. websocket - event
+# 5. mcp tool call results --
 def prep_skills_run(skill, agent, task_id, msg=None, current_state=None):
     """Initialize the graph state for a skill run using DSP mapping rules.
 
@@ -113,9 +172,11 @@ def prep_skills_run(skill, agent, task_id, msg=None, current_state=None):
 
         # 2) Resolve START-node mapping
         mapping = _resolve_start_mapping(skill)
+        logger.debug("mapping: ", mapping)
 
         # 3) Normalize incoming message to event envelope (type inferred)
         event = normalize_event("", msg)
+        logger.debug("normalized event: ", event)
 
         # 4) Apply mapping to produce state patch (ignore resume output for init)
         _resume, state_patch = build_resume_from_mapping(event=event, state=node_state, node_output=None, mapping=mapping)

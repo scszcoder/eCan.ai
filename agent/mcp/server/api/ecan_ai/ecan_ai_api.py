@@ -174,7 +174,7 @@ def api_ecan_ai_get_nodes_prompts(mainwin, nodes):
         session = mainwin.session
         token = mainwin.get_auth_token()
 
-        wan_api_endpoint = mainwin.wan_api_endpoint
+        wan_api_endpoint = mainwin.getWanApiEndpoint()
         logger.debug("wan api endpoint:", wan_api_endpoint)
         response = send_get_nodes_prompts_request_to_cloud(session, token, nodes, wan_api_endpoint)
         logger.debug("api_ecan_ai_get_nodes_prompts: respnose:", response)
@@ -223,7 +223,7 @@ def api_ecan_ai_ocr_read_screen(mainwin, nodes):
         session = mainwin.session
         token = mainwin.get_auth_token()
 
-        wan_api_endpoint = mainwin.wan_api_endpoint
+        wan_api_endpoint = mainwin.getWanApiEndpoint()
         logger.debug("wan api endpoint:", wan_api_endpoint)
         response = send_get_nodes_prompts_request_to_cloud(session, token, nodes, wan_api_endpoint)
         logger.debug("api_ecan_ai_get_nodes_prompts: respnose:", response)

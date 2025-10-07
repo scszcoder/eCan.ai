@@ -55,6 +55,25 @@ def extract_and_validate_chat_args(params: dict) -> dict:
     }
 
 # ===================== 主处理器 =====================
+# serialized IPCRequest
+# {
+#     "id": "3739721e-8205-4174-abb7-bd1223bea161",
+#     "type": "request",
+#     "method": "send_chat",
+#     "params": {
+#         "chatId": "chat-804150",
+#         "senderId": "4864a82d505d4c89b965d848ea832c56",
+#         "role": "user",
+#         "content": "f",
+#         "createAt": "1759801807448",
+#         "senderName": "My Twin Agent",
+#         "status": "complete",
+#         "attachments": [],
+#         "token": "df9bf922126d4b0d94f96e230c583bd7",
+#         "human": True
+#     },
+#     "timestamp": 1759801807469
+# }
 @IPCHandlerRegistry.background_handler('send_chat')
 def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
     """
@@ -74,9 +93,9 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
             echo_and_push_message_async(chatId, chat_args)
         else:
             # 懒加载重的导入
-            from agent.chats.chat_utils import a2a_send_chat
+            from agent.chats.chat_utils import gui_a2a_send_chat
             request['params']['human'] = True
-            a2a_send_chat(main_window, request)
+            gui_a2a_send_chat(main_window, request)
         return create_success_response(request, result)
     except Exception as e:
         logger.error(f"Error in handle_send_chat: {e}", exc_info=True)
@@ -571,9 +590,9 @@ def handle_chat_form_submit(request: IPCRequest, params: Optional[dict]) -> IPCR
             form_submit_req =IPCRequest(id="", type='request', method="form_submit", params=params, meta={}, timestamp=params["createAt"] )
             logger.debug("a2a_send_chat form submit:", form_submit_req)
             # 懒加载重的导入
-            from agent.chats.chat_utils import a2a_send_chat
+            from agent.chats.chat_utils import gui_a2a_send_chat
             request['params']['human'] = True
-            a2a_send_chat(main_window, form_submit_req)
+            gui_a2a_send_chat(main_window, form_submit_req)
 
             return create_success_response(request, result.get('data'))
         else:
