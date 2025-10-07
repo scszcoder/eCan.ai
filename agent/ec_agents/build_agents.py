@@ -23,11 +23,11 @@ def build_agents(main_win):
                 all_agents.append(set_up_ec_rpa_operator_agent(main_win))
                 all_agents.append(set_up_ec_tester_agent(main_win))
             else:
-                print("building non-platoon agents")
+                logger.info("building non-platoon agents")
                 all_agents.append(set_up_ec_helper_agent(main_win))
                 # self.agents.append(set_up_ec_rpa_supervisor_agent(self))
                 if "ONLY" not in main_win.machine_role:
-                    print("building commander agents")
+                    logger.info("building commander agents")
                     # self.agents.append(set_up_ec_rpa_operator_agent(self))
                     all_agents.append(set_up_ec_procurement_agent(main_win))
                     all_agents.append(set_up_ec_tester_agent(main_win))

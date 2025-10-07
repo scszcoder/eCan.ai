@@ -30,13 +30,20 @@ const DEFAULT_TASK = {
     end_date_time: undefined as any,
     time_out: 3600,
   },
-  objectives: '',
-  required_skills: [] as string[],
   metadata: {},
 };
 
 const PRIORITY_OPTIONS = ['none', 'low', 'medium', 'high', 'urgent'];
-const TRIGGER_OPTIONS = ['schedule', 'human chat', 'agent message'];
+const TRIGGER_OPTIONS = [
+  'schedule',
+  'human chat',
+  'agent message',
+  'chat_queue',
+  'a2a_queue',
+  'manual',
+  'interaction',
+  'message',
+];
 const REPEAT_OPTIONS = [
   'none',
   'by seconds',
@@ -61,8 +68,6 @@ type ExtendedTask = Task & {
   owner?: string;
   description?: string;
   latest_version?: string;
-  objectives?: string;
-  required_skills?: string[];
   metadata_text?: string; // stringified metadata for editing
 };
 
@@ -130,14 +135,24 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   React.useEffect(() => {
     if (task) {
       const metaStr = (task as any).metadata ? JSON.stringify((task as any).metadata, null, 2) : '';
-      const requiredSkills = (task as any).required_skills
-        || (task as any).metadata?.required_skills
-        || [];
-      form.setFieldsValue({
+
+      // 使用 name 字段，如果不存在则使用 skill 字段作为后备
+      const taskName = (task as any).name || (task as any).skill || '';
+
+      // 使用 description 字段，如果不存在则使用 metadata 中的描述作为后备
+      const taskDescription = (task as any).description
+        || (task as any).metadata?.description
+        || '';
+
+      // 确保所有字段都正确设置
+      const formValues = {
         ...(task as any),
-        required_skills: requiredSkills,
+        name: taskName,  // 使用 name 或 skill
+        description: taskDescription,  // 使用 description 或其他后备字段
         metadata_text: metaStr,
-      });
+      };
+
+      form.setFieldsValue(formValues);
     } else {
       form.resetFields();
       setEditMode(false);
@@ -170,23 +185,17 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           repeat_type: (values as any).schedule?.repeat_type || 'none',
           repeat_number: (values as any).schedule?.repeat_number || 1,
           repeat_unit: (values as any).schedule?.repeat_unit || 'hours',
-          start_date_time: (values as any).schedule?.start_date_time ? 
-            (values as any).schedule.start_date_time.toISOString() : 
+          start_date_time: (values as any).schedule?.start_date_time ?
+            (values as any).schedule.start_date_time.toISOString() :
             new Date().toISOString(),
-          end_date_time: (values as any).schedule?.end_date_time ? 
-            (values as any).schedule.end_date_time.toISOString() : 
+          end_date_time: (values as any).schedule?.end_date_time ?
+            (values as any).schedule.end_date_time.toISOString() :
             null,
           time_out: (values as any).schedule?.time_out || 3600,
         },
-        objectives: (values as any).objectives || '',
-        required_skills: (values as any).required_skills || [],
-        metadata: (values as any).metadata_text ? 
+        metadata: (values as any).metadata_text ?
           JSON.parse((values as any).metadata_text) : {},
       };
-      // Keep required_skills mirrored in metadata for compatibility
-      if (payload && typeof payload.metadata === 'object') {
-        payload.metadata.required_skills = payload.required_skills;
-      }
 
       setSaving(true);
       const api = get_ipc_api();
@@ -215,17 +224,24 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       <Form
         form={form}
         layout="vertical"
-        initialValues={task || DEFAULT_TASK}
         onFinish={handleSave}
       >
         <Space direction="vertical" style={{ width: '100%' }} size="large">
           <Card>
             <Space direction="vertical" style={{ width: '100%' }} size="middle">
-              <Space align="start">
+              <Space align="start" style={{ width: '100%' }}>
                 <Avatar size={64} icon={<OrderedListOutlined />} />
-                <div style={{ flex: 1 }}>
-                  <Form.Item name="name" label={t('pages.tasks.name')} rules={[{ required: true }]}>
-                    <Input placeholder={t('pages.tasks.namePlaceholder')} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Form.Item
+                    name="name"
+                    label={t('pages.tasks.name')}
+                    rules={[{ required: true }]}
+                    style={{ marginBottom: 8 }}
+                  >
+                    <Input
+                      placeholder={t('pages.tasks.namePlaceholder')}
+                      disabled={!editMode && !isNew}
+                    />
                   </Form.Item>
                   {!isNew && <Text type="secondary">ID: {(task as any).id}</Text>}
                 </div>
@@ -254,18 +270,29 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                 </Col>
                 <Col span={24}>
                   <Form.Item label={t('common.description', 'Description')} name="description">
-                    <Input.TextArea rows={3} />
+                    <Input.TextArea
+                      rows={3}
+                      autoSize={false}
+                      style={{ minHeight: '72px', resize: 'vertical' }}
+                      disabled={!editMode && !isNew}
+                    />
                   </Form.Item>
                 </Col>
                 <Col span={24}>
-                  <Form.Item label={t('pages.tasks.requiredSkills', 'Required Skills')} name="required_skills">
-                    <Select
-                      mode="multiple"
-                      allowClear
-                      placeholder={t('pages.tasks.requiredSkillsPlaceholder', 'Select required skills')}
-                      options={(skills || []).map((s: any) => ({ value: s.name, label: s.name }))}
-                      disabled={false}
-                    />
+                  <Form.Item label={t('pages.tasks.skill', 'Skill')} name="skill">
+                    {editMode || isNew ? (
+                      <Select
+                        allowClear
+                        showSearch
+                        placeholder={t('pages.tasks.skillPlaceholder', 'Select a skill')}
+                        options={(skills || []).map((s: any) => ({ value: s.name, label: s.name }))}
+                        filterOption={(input, option) =>
+                          (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                        }
+                      />
+                    ) : (
+                      <Input readOnly />
+                    )}
                   </Form.Item>
                 </Col>
                 <Col span={12}>
@@ -292,7 +319,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                     <Row gutter={[16, 8]}>
                       <Col span={8}>
                         <Form.Item label={t('pages.tasks.scheduleRepeatTypeLabel', 'Repeat Type')} name={["schedule", "repeat_type"]}>
-                          <Select options={REPEAT_OPTIONS.map(v => ({ value: v, label: v }))} />
+                          <Select options={REPEAT_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))} />
                         </Form.Item>
                       </Col>
                       <Col span={8}>
@@ -302,7 +329,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                       </Col>
                       <Col span={8}>
                         <Form.Item label={t('pages.tasks.scheduleRepeatUnitLabel', 'Repeat Unit')} name={["schedule", "repeat_unit"]}>
-                          <Select options={REPEAT_OPTIONS.filter(v => v !== 'none').map(v => ({ value: v, label: v }))} />
+                          <Select options={REPEAT_OPTIONS.filter(v => v !== 'none').map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))} />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
@@ -325,13 +352,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                 </Col>
 
                 <Col span={24}>
-                  <Form.Item label={t('pages.tasks.objectives', 'Objectives')} name="objectives">
-                    <Input.TextArea rows={4} placeholder={t('pages.tasks.objectivesPlaceholder', 'Describe the task objectives in detail')} />
-                  </Form.Item>
-                </Col>
-                <Col span={24}>
-                  <Form.Item 
-                    label={t('pages.tasks.metadata', 'Metadata (JSON)')} 
+                  <Form.Item
+                    label={t('pages.tasks.metadata', 'Metadata (JSON)')}
                     name="metadata_text"
                     rules={[{
                       validator: (_, value) => {
@@ -345,9 +367,10 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                       }
                     }]}
                   >
-                    <Input.TextArea 
-                      rows={4} 
-                      style={{ fontFamily: 'monospace' }}
+                    <Input.TextArea
+                      rows={5}
+                      autoSize={false}
+                      style={{ fontFamily: 'monospace', minHeight: '120px', resize: 'vertical' }}
                       placeholder={JSON.stringify({ key: 'value' }, null, 2)}
                     />
                   </Form.Item>
