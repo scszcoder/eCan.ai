@@ -586,6 +586,9 @@ def load_mapping_for_task(task: Any) -> Dict[str, Any]:
     # 3) Defaults for run_mode
     return DEFAULT_MAPPINGS.get(run_mode, DEFAULT_MAPPINGS.get("released", {}))
 
+def get_current_state(task):
+    current_state = (task.metadata or {}).get("state") or {}
+    return current_state
 
 def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
     """
@@ -593,7 +596,12 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
     Returns: (resume_payload, checkpoint, state_patch)
     """
     event = normalize_event(msg)
-    cp = select_checkpoint(task, event.get("tag"))
+    if "i_tag" in event:
+        e_tag = event["i_tag"]
+    else:
+        e_tag = event["tag"]
+
+    cp = select_checkpoint(task, e_tag)
 
     mapping = load_mapping_for_task(task)
     current_state = (task.metadata or {}).get("state") or {}

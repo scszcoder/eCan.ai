@@ -77,6 +77,10 @@ class Chat(BaseModel, ExtensibleMixin):
     def get_member_count(self) -> int:
         """Get the number of members in this chat."""
         return len(self.members) if self.members else 0
+
+    def get_members(self) -> int:
+        """Get the number of members in this chat."""
+        return self.members if self.members else []
     
     def get_message_count(self) -> int:
         """Get the number of messages in this chat."""

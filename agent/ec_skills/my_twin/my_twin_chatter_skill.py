@@ -49,6 +49,7 @@ def parrot(state: NodeState) -> NodeState:
                 card = params.metadata["params"]["content"].get("card", "")
                 code = params.metadata["params"]["content"].get("code", "")
                 form = params.metadata["params"]["content"].get("form", "")
+                i_tag = params.metadata["params"]["content"].get("i_tag", "")
                 notification = params.metadata["params"]["content"].get("notification", "")
                 role = params.message.role
                 senderId = params.metadata["params"]["senderId"]
@@ -57,10 +58,12 @@ def parrot(state: NodeState) -> NodeState:
                 status = params.metadata["params"]["status"]
                 ext = params.metadata["params"]["ext"]
             else:
+                logger.warning("strange... shold we be here???")
                 dtype = params["metadata"]["dtype"]
                 card = params["metadata"]["card"]
                 code = params["metadata"]["code"]
                 form = params["metadata"]["form"]
+                i_tag = params["metadata"]["i_tag"]
                 notification = params["metadata"]["notification"]
                 role = params["role"]
                 senderId = params["senderId"]
@@ -76,6 +79,7 @@ def parrot(state: NodeState) -> NodeState:
                     "card": card,
                     "code": code,
                     "form": form,
+                    "i_tag": i_tag,
                     "notification": notification,
                 },
                 "role": role,
@@ -118,6 +122,7 @@ def parrot(state: NodeState) -> NodeState:
 #         "senderName": "My Twin Agent",
 #         "status": "complete",
 #         "attachments": [],
+#         "i_tag": "",
 #         "token": "df9bf922126d4b0d94f96e230c583bd7",
 #         "human": True
 #     },
