@@ -17,8 +17,6 @@ const Vehicles: React.FC = () => {
 
   // 使用新的 vehicleStore
   const vehicles = useVehicleStore((state) => state.items);
-  const isLoading = useVehicleStore((state) => state.loading);
-  const error = useVehicleStore((state) => state.error);
   const fetchItems = useVehicleStore((state) => state.fetchItems);
   const forceRefresh = useVehicleStore((state) => state.forceRefresh);
   const updateVehicleStatus = useVehicleStore((state) => state.updateVehicleStatus);
@@ -113,9 +111,11 @@ const Vehicles: React.FC = () => {
 
   const handleEditSubmit = useCallback(async (values: any) => {
     if (!selectedVehicle) return;
-    
+
     try {
-      const response = await get_ipc_api().updateVehicle(selectedVehicle.id, values);
+      // Convert string id to number if needed
+      const vehicleId = typeof selectedVehicle.id === 'string' ? parseInt(selectedVehicle.id) : selectedVehicle.id;
+      const response = await get_ipc_api().updateVehicle(vehicleId, values);
       if (response?.success) {
         message.success(t('pages.vehicles.updateSuccess'));
         setIsEditModalVisible(false);
@@ -131,14 +131,16 @@ const Vehicles: React.FC = () => {
 
   const handleDelete = useCallback(async () => {
     if (!selectedVehicle) return;
-    
+
     // 确认删除
     if (!window.confirm(t('pages.vehicles.confirmDelete', { name: selectedVehicle.name }))) {
       return;
     }
 
     try {
-      const response = await get_ipc_api().deleteVehicle(selectedVehicle.id);
+      // Convert string id to number if needed
+      const vehicleId = typeof selectedVehicle.id === 'string' ? parseInt(selectedVehicle.id) : selectedVehicle.id;
+      const response = await get_ipc_api().deleteVehicle(vehicleId);
       if (response?.success) {
         await fetchVehicles(); // 刷新列表
       } else {

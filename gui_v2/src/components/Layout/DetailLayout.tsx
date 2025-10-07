@@ -23,7 +23,7 @@ const ListCard = styled(Card)`
         max-height: 100%;
         display: flex;
         flex-direction: column;
-        padding: 0;
+        padding: 0 !important;
     }
     .ant-card-head-title {
         color: white;
@@ -44,7 +44,7 @@ const DetailsCard = styled(Card)`
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        padding: 0;
+        padding: 0 !important;
     }
     .ant-card-head-title {
         color: white;

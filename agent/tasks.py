@@ -104,6 +104,7 @@ class ManagedTask(Task):
     priority: Optional[Priority_Types] = None
     last_run_datetime: Optional[datetime] = None
     already_run_flag: bool = False
+    description: str
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
     # model_config = ConfigDict(ignored_types=('langgraph.types.Command',), arbitrary_types_allowed=True)
@@ -135,10 +136,25 @@ class ManagedTask(Task):
         # Safely serialize checkpoint_nodes - filter out non-serializable objects
         safe_checkpoint_nodes = self._make_serializable(self.checkpoint_nodes) if self.checkpoint_nodes else None
 
+        # Safely get skill name
+        skill_name = None
+        if self.skill:
+            skill_name = getattr(self.skill, 'name', None)
+            if not skill_name:
+                # If skill object doesn't have a name attribute, try to get string representation
+                skill_str = str(self.skill)
+                # Avoid using generic object representation
+                if not skill_str.startswith('<'):
+                    skill_name = skill_str
+                else:
+                    logger.warning(f"Task {self.name} has skill object without name attribute: {type(self.skill)}")
+
         taskJS = {
             "id": self.id,
             "runId": self.run_id,
-            "skill": self.skill.name,
+            "name": self.name,
+            "description": self.description,
+            "skill": skill_name,
             "metadata": self.metadata,
             "state": safe_state,
             "resume_from": self.resume_from,

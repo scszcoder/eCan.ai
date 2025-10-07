@@ -1,74 +1,188 @@
-import { Avatar, List, Space, Tag, Typography, theme } from 'antd';
-import { CodeOutlined, OrderedListOutlined } from '@ant-design/icons';
+import React, { useState, useMemo } from 'react';
+import { Empty, Spin } from 'antd';
+import { InboxOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import styled from 'styled-components';
-import React from 'react';
+import styled from '@emotion/styled';
 import { Task } from '../types';
+import { TaskCard } from './TaskCard';
+import { TaskFilters, TaskFilterOptions } from './TaskFilters';
 
-const { Text } = Typography;
+const ListContainer = styled.div`
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+`;
 
-const TaskItem = styled.div<{
-  $isActive: boolean;
-  $activeBg: string;
-  $hoverBg: string;
-  $borderRadius: number;
-}>`
-  padding: 12px;
-  margin: 4px 8px;
-  border-radius: ${(props) => props.$borderRadius}px;
-  cursor: pointer;
-  background-color: ${(props) => (props.$isActive ? props.$activeBg : 'transparent')};
-  &:hover {
-    background-color: ${(props) => props.$hoverBg};
+const TasksScrollArea = styled.div`
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 4px;
+
+    &:hover {
+      background: var(--scrollbar-thumb-hover);
+    }
   }
 `;
 
-const getStatusColor = (state: string) => {
-  if (state === 'ready') return 'green';
-  if (state === 'running') return 'blue';
-  return 'default';
-};
+const EmptyContainer = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 300px;
+`;
 
 interface TaskListProps {
   tasks: Task[];
+  loading?: boolean;
   onSelectItem: (task: Task) => void;
   isSelected: (task: Task) => boolean;
+  onRun?: (task: Task) => void;
+  onPause?: (task: Task) => void;
+  onCancel?: (task: Task) => void;
 }
 
-export const TaskList: React.FC<TaskListProps> = ({ tasks, onSelectItem, isSelected }) => {
+// 优先级排序权重
+const PRIORITY_ORDER: Record<string, number> = {
+  ASAP: 5,
+  asap: 5,
+  URGENT: 4,
+  urgent: 4,
+  HIGH: 3,
+  high: 3,
+  MID: 2,
+  mid: 2,
+  medium: 2,
+  LOW: 1,
+  low: 1,
+  none: 0,
+};
+
+export const TaskList: React.FC<TaskListProps> = ({
+  tasks,
+  loading = false,
+  onSelectItem,
+  isSelected,
+  onRun,
+  onPause,
+  onCancel,
+}) => {
   const { t } = useTranslation();
-  const { token } = theme.useToken();
+  const [filters, setFilters] = useState<TaskFilterOptions>({
+    sortBy: 'priority',
+  });
+
+  // 筛选和排序任务
+  const filteredAndSortedTasks = useMemo(() => {
+    let result = [...tasks];
+
+    // 搜索过滤
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase();
+      result = result.filter(task =>
+        (task.skill?.toLowerCase().includes(searchLower)) ||
+        (task.id?.toLowerCase().includes(searchLower))
+      );
+    }
+
+    // 状态过滤
+    if (filters.status) {
+      result = result.filter(task => {
+        const status = task.state?.top || task.status;
+        return status === filters.status;
+      });
+    }
+
+    // 优先级过滤
+    if (filters.priority) {
+      result = result.filter(task => task.priority === filters.priority);
+    }
+
+    // 触发方式过滤
+    if (filters.trigger) {
+      result = result.filter(task => task.trigger === filters.trigger);
+    }
+
+    // 排序
+    result.sort((a, b) => {
+      switch (filters.sortBy) {
+        case 'priority': {
+          const priorityA = PRIORITY_ORDER[a.priority || 'none'] || 0;
+          const priorityB = PRIORITY_ORDER[b.priority || 'none'] || 0;
+          return priorityB - priorityA; // 高优先级在前
+        }
+        case 'lastRun': {
+          const timeA = a.last_run_datetime ? new Date(a.last_run_datetime).getTime() : 0;
+          const timeB = b.last_run_datetime ? new Date(b.last_run_datetime).getTime() : 0;
+          return timeB - timeA; // 最近运行的在前
+        }
+        case 'name': {
+          const nameA = a.skill || '';
+          const nameB = b.skill || '';
+          return nameA.localeCompare(nameB);
+        }
+        case 'status': {
+          const statusA = a.state?.top || a.status || '';
+          const statusB = b.state?.top || b.status || '';
+          return statusA.localeCompare(statusB);
+        }
+        default:
+          return 0;
+      }
+    });
+
+    return result;
+  }, [tasks, filters]);
+
+  if (loading) {
+    return (
+      <EmptyContainer>
+        <Spin size="large">
+          <div style={{ padding: 50 }} />
+        </Spin>
+      </EmptyContainer>
+    );
+  }
 
   return (
-    <List
-      dataSource={tasks}
-      renderItem={(task) => (
-        <TaskItem
-          onClick={() => onSelectItem(task)}
-          $isActive={isSelected(task)}
-          $activeBg={token.colorPrimaryBg}
-          $hoverBg={token.colorBgTextHover}
-          $borderRadius={token.borderRadiusLG}
-        >
-          <Space direction="vertical" style={{ width: '100%' }}>
-            <Space>
-              <Avatar icon={<OrderedListOutlined />} />
-              <Text strong>{t('pages.tasks.skill.' + (task.skill || 'unknown'), task.skill || t('common.unknown', 'Unknown'))}</Text>
-            </Space>
-            <Space>
-              <Tag color={getStatusColor(task.state?.top || 'unknown')}>
-                {t('pages.tasks.states.' + (task.state?.top || 'unknown'), task.state?.top || t('common.unknown', 'Unknown'))}
-              </Tag>
-              <Tag icon={<CodeOutlined />}>
-                {t('pages.tasks.trigger.' + (task.trigger || 'unknown'), task.trigger || t('common.unknown', 'Unknown'))}
-              </Tag>
-              <Tag>
-                {t('pages.tasks.priority.' + (task.priority || 'unknown'), task.priority || t('common.unknown', 'Unknown'))}
-              </Tag>
-            </Space>
-          </Space>
-        </TaskItem>
-      )}
-    />
+    <ListContainer>
+      <TaskFilters filters={filters} onChange={setFilters} />
+
+      <TasksScrollArea>
+        {filteredAndSortedTasks.length === 0 ? (
+          <EmptyContainer>
+            <Empty
+              image={<InboxOutlined style={{ fontSize: 64, color: '#BFBFBF' }} />}
+              description={t('pages.tasks.noTasks', '暂无任务')}
+            />
+          </EmptyContainer>
+        ) : (
+          filteredAndSortedTasks.map((task) => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              isSelected={isSelected(task)}
+              onSelect={onSelectItem}
+              onRun={onRun}
+              onPause={onPause}
+              onCancel={onCancel}
+            />
+          ))
+        )}
+      </TasksScrollArea>
+    </ListContainer>
   );
-}; 
+};
