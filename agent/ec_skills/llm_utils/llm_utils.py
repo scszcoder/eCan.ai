@@ -376,32 +376,51 @@ def send_response_back(state: NodeState) -> NodeState:
 
         print("standard_post_llm_hook send_response_back:", state)
         chat_id = state["messages"][1]
+        msg_type = "text"
         msg_id = str(uuid.uuid4()),
         # send self a message to trigger the real component search work-flow
+
+        # The goal here is facilitate fomulating the message to be as close to this format as possible:
+        # frontend_message = {
+        #                 "content": {
+        #                     "type": dtype,
+        #                     "text": state["messages"][-1],
+        #                     "card": card,
+        #                     "code": code,
+        #                     "form": form,
+        #                     "notification": notification,
+        #                 },
+        #                 "role": role,
+        #                 "senderId": senderId,
+        #                 "createAt": createAt,
+        #                 "senderName": senderName,
+        #                 "status": status,
+        #                 "ext": ext,
+        #             }
+        # as this is the format the GUI will take and display.
         agent_response_message = {
             "id": str(uuid.uuid4()),
-            "chat": {
-                "input": state["result"]["llm_result"],
-                "attachments": [],
-                "messages": [self_agent.card.id, chat_id, msg_id, "", state["result"]["llm_result"]],
-            },
-            "params": {
-                "content": state["result"]["llm_result"],
-                "attachments": state["attachments"],
-                "metadata": {
-                    "type": "text", # "text", "code", "form", "notification", "card
-                    "card": {},
-                    "code": {},
-                    "form": {},
-                    "notification": {},
-                },
-                "role": "",
-                "senderId": f"{agent_id}",
-                "createAt": int(time.time() * 1000),
-                "senderName": f"{self_agent.card.name}",
-                "status": "success",
-                "ext": "",
-                "human": False
+            "attributes": {
+                "params": {
+                    "content": {
+                        "type": msg_type, # "text", "code", "form", "notification", "card
+                        "text": state["result"]["llm_result"]["casual_chat_response"],
+                        "dtype": msg_type,
+                        "card": {},
+                        "code": {},
+                        "form": {},
+                        "notification": {},
+                    },
+                    "attachments": state["attachments"],
+                    "role": "",
+                    "chatId": f"{chat_id}",
+                    "senderId": f"{agent_id}",
+                    "createAt": int(time.time() * 1000),
+                    "senderName": f"{self_agent.card.name}",
+                    "status": "success",
+                    "ext": "",
+                    "human": False
+                }
             }
         }
         print("sending response msg back to twin:", agent_response_message)

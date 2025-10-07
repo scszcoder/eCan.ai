@@ -28,7 +28,7 @@ import base64
 import asyncio
 import time
 
-from agent.chats.chat_utils import a2a_send_chat
+from agent.chats.chat_utils import gui_a2a_send_chat
 from agent.ec_skills.file_utils.file_utils import extract_file_text
 from bot.Logger import *
 from agent.ec_skill import *

@@ -20,6 +20,7 @@ def prep_search_parts_chatter_skill(agent, task_id, msg, current_state=None):
                                     "file_data": part.file.bytes})
 
         chat_id = msg.params.metadata["chatId"]
+        form = msg.params.metadata.get("form", {})
         msg_id = msg.id
     else:
         chat_id = ""

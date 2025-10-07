@@ -352,6 +352,8 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         attempts = 0
         last_exc = None
         result = None
+        print("node_builder called on::", node_fn)
+        runtime.context["this_node"] = {"name": node_name, "skill_name": skill_name, "owner": owner}
 
         # Utility: produce a JSON/checkpoint safe view of state (whitelist fields, avoid cycles)
         def _prune_result(res: Any) -> Any:
@@ -455,7 +457,6 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                 state["attributes"]["__this_node__"] = {"name": node_name, "skill_name": skill_name, "owner": owner}
                 
                 # Execute the actual node function
-                runtime.context["this_node"] = {"name": node_name}
                 result = node_fn(state, runtime=runtime, store=store)
                 break  # success - exit retry loop
                 
