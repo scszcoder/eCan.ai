@@ -8946,7 +8946,7 @@ class MainWindow:
             if ticks % 8 == 0:
                 self.showMsg(f"Access Internet Here with Websocket...")
 
-            if ticks % 15 == 0:
+            if ticks % 180 == 0:
                 self.showMsg(f"report vehicle status")
 
                 # update vehicles status to local disk, this is done either on platoon or commander

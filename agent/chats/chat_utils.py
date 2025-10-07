@@ -86,8 +86,8 @@ request['params'] = {
 #     'timestamp': 1751052867161
 # }
 
-def a2a_send_chat(mainwin, req):
-    logger.debug("[chat_utils] a2a_send_chat:", req)
+def gui_a2a_send_chat(mainwin, req):
+    logger.debug("[chat_utils] gui_a2a_send_chat:", type(req), req)
     agents = mainwin.agents
     twin_agent: EC_Agent = next((ag for ag in agents if ag.card.name == "My Twin Agent"), None)
     db_chat_service: DBChatService = mainwin.db_chat_service

@@ -105,76 +105,84 @@ def _to_string(v: Any) -> str:
 
 # ---------- Event normalization ----------
 
-def normalize_event(event_type: str, msg: Any) -> Dict[str, Any]:
+def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[str, Any]:
     """Normalize heterogeneous incoming message into a unified event envelope."""
+    if event_type == "":
+        if isinstance(msg, dict):
+            event_type = msg.get("method", "")
+        else:
+            event_type = msg.method
+
     event: Dict[str, Any] = {
-        "type": None,
-        "source": None,
-        "tag": None,
-        "timestamp": None,
-        "data": {},
-        "context": {},
+        "type": event_type,
+        "source": src,
+        "tag": tag,
+        "timestamp": "",
+        "data": msg,
+        "context": ctx,
     }
-    try:
-        # Accept dict or pydantic-like object with .params
-        if hasattr(msg, "params"):
-            p = msg.params
-            message = getattr(p, "message", None)
-            metadata = getattr(p, "metadata", {}) or {}
-            event["context"] = {
-                "id": getattr(p, "id", None),
-                "sessionId": getattr(p, "sessionId", None),
-            }
-        elif isinstance(msg, dict):
-            message = msg.get("params", {}).get("message") or msg.get("message")
-            metadata = msg.get("params", {}).get("metadata", {}) or msg.get("metadata", {}) or {}
-            event["context"] = {
-                "id": _safe_get(msg, "params.id") or msg.get("id"),
-                "sessionId": _safe_get(msg, "params.sessionId"),
-            }
-        else:
-            message, metadata = None, {}
-
-        # Type/source/tag
-        mtype = None
-        if isinstance(metadata, dict):
-            mtype = metadata.get("mtype")
-            event["tag"] = metadata.get("i_tag") or metadata.get("tag")
-            event["timestamp"] = metadata.get("timestamp")
-            # carry over convenient fields
-            event["context"].update({
-                "chatId": metadata.get("chatId"),
-                "msgId": metadata.get("msgId"),
-            })
-        if event_type:
-            event["type"] = event_type
-        else:
-            event["type"] = _infer_event_type(mtype)
-        event["source"] = _infer_event_source(metadata)
-
-        # Extract primary data
-        event_data: Dict[str, Any] = {}
-        # message.parts[] text → human_text
-        human_text = _extract_text_from_message(message)
-        if human_text:
-            event_data["human_text"] = human_text
-        # known payloads
-        if isinstance(metadata, dict):
-            for k in ("qa_form_to_agent", "qa_form"):
-                if k in metadata:
-                    event_data["qa_form_to_agent"] = metadata[k]
-                    break
-            for k in ("notification_to_agent", "notification"):
-                if k in metadata:
-                    event_data["notification_to_agent"] = metadata[k]
-                    break
-            # include full metadata for advanced mapping
-            event_data["metadata"] = metadata
-        event["data"] = event_data
-        return event
-    except Exception as e:
-        logger.debug(f"normalize_event error: {e}")
-        return event
+    return event
+    # try:
+    #     # Accept dict or pydantic-like object with .params
+    #     if hasattr(msg, "params"):
+    #         p = msg.params
+    #         message = getattr(p, "message", None)
+    #         metadata = getattr(p, "metadata", {}) or {}
+    #         event["context"] = {
+    #             "id": getattr(p, "id", None),
+    #             "sessionId": getattr(p, "sessionId", None),
+    #         }
+    #     elif isinstance(msg, dict):
+    #         message = msg.get("params", {}).get("message") or msg.get("message")
+    #         metadata = msg.get("params", {}).get("metadata", {}) or msg.get("metadata", {}) or {}
+    #         event["context"] = {
+    #             "id": _safe_get(msg, "params.id") or msg.get("id"),
+    #             "sessionId": _safe_get(msg, "params.sessionId"),
+    #         }
+    #     else:
+    #         message, metadata = None, {}
+    #
+    #     # Type/source/tag
+    #     mtype = None
+    #     if isinstance(metadata, dict):
+    #         mtype = metadata.get("mtype")
+    #         event["tag"] = metadata.get("i_tag") or metadata.get("tag")
+    #         event["timestamp"] = metadata.get("timestamp")
+    #         # carry over convenient fields
+    #         event["context"].update({
+    #             "chatId": metadata.get("chatId"),
+    #             "msgId": metadata.get("msgId"),
+    #         })
+    #     if event_type:
+    #         event["type"] = event_type
+    #     else:
+    #         event["type"] = _infer_event_type(mtype)
+    #     event["source"] = _infer_event_source(metadata)
+    #
+    #     # Extract primary data
+    #     event_data: Dict[str, Any] = {}
+    #     # message.parts[] text → human_text
+    #     human_text = _extract_text_from_message(message)
+    #     if human_text:
+    #         event_data["human_text"] = human_text
+    #     # known payloads
+    #     if isinstance(metadata, dict):
+    #         for k in ("qa_form_to_agent", "qa_form"):
+    #             if k in metadata:
+    #                 event_data["qa_form_to_agent"] = metadata[k]
+    #                 break
+    #         for k in ("notification_to_agent", "notification"):
+    #             if k in metadata:
+    #                 event_data["notification_to_agent"] = metadata[k]
+    #                 break
+    #         # include full metadata for advanced mapping
+    #         event_data["metadata"] = metadata
+    #     event["data"] = event_data
+    #     print("[normalized_event]:", event)
+    #     return event
+    # except Exception as e:
+    #     logger.debug(f"normalize_event error: {e}")
+    #     return event
 
 
 def _infer_event_type(mtype: Optional[str]) -> str:
@@ -455,7 +463,7 @@ def build_resume_from_mapping(event: Json, state: Json, node_output: Optional[Js
     opts = mapping.get("options", {}) if isinstance(mapping, dict) else {}
     default_on_missing = opts.get("default_on_missing", None)
     rules = mapping.get("mappings", []) if isinstance(mapping, dict) else []
-
+    logger.debug(f"[build_resume_from_mapping][mapping] rules: {rules}")
     for rule in rules:
         from_list = rule.get("from") or []
         to_list = rule.get("to") or []
@@ -469,7 +477,9 @@ def build_resume_from_mapping(event: Json, state: Json, node_output: Optional[Js
             except Exception:
                 pass
             continue
+
         value = _apply_transform(value, transform)
+        logger.debug(f"[mapping] source value found: {value}")
 
         for target in to_list:
             tpath = target.get("target")

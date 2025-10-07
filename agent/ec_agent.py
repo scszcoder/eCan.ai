@@ -379,9 +379,16 @@ class EC_Agent(Agent):
 			a2a_end_point = recipient_agent.get_card().url + "/a2a/"
 			logger.info("[ec_agent] a2a end point: ", a2a_end_point)
 			self.a2a_client.set_recipient(url=a2a_end_point)
-			msg_parts = [TextPart(type="text", text=message['chat']['input'])]
-			if message['chat']['attachments']:
-				for attachment in message['chat']['attachments']:
+			if isinstance(message['attributes']['params']['content'], str):
+				msg_text = message['attributes']['params']['content']
+			elif isinstance(message['attributes']['params']['content'], dict):
+				msg_text = message['attributes']['params']['content']['text']
+			else:
+				msg_text = message['attributes']['params']['content']['text']
+			msg_parts = [TextPart(type="text", text=msg_text)]
+
+			if message['attributes']['params']['attachments']:
+				for attachment in message['attributes']['params']['attachments']:
 					file_data = attachment['data']
 					if isinstance(file_data, bytes):
 						file_data = base64.b64encode(file_data).decode('utf-8')
@@ -394,56 +401,24 @@ class EC_Agent(Agent):
 
 			chat_msg = Message(role="user", parts=msg_parts, metadata={"mtype": "send_chat"})
 
-			if "attributes" in message["chat"]:
-				msgId = message['chat']['messages'][2],
-				chatId = message['chat']["attributes"]["params"]["chatId"],
-				senderId = message['chat']["attributes"]["params"]["senderId"],
-				createAt = message['chat']["attributes"]["params"]["createAt"],
-				senderName = message['chat']["attributes"]["params"]["senderName"],
-				status = message['chat']["attributes"]["params"]["status"],
-				ext = ""
-				dtype = "text"
-				card = {}
-				code = {}
-				form = {}
-				notification = {}
+			if "id" in message:
+				sess_id = message["id"]
 			else:
-				msgId = message['chat']['messages'][2],
-				chatId = message['chat']['messages'][1][0],
-				senderId = message["params"]["senderId"],
-				createAt = message["params"]["createAt"],
-				senderName = message["params"]["senderName"],
-				status = message["params"]["status"],
-				ext = message["params"].get("ext", "")
-				dtype = message["params"]["metadata"]["dtype"]
-				card = message["params"]["metadata"]["card"]
-				code = message["params"]["metadata"]["code"]
-				form = message["params"]["metadata"]["form"]
-				notification = message["params"]["metadata"]["notification"]
+				sess_id = message['messages'][3]
 
 			payload = TaskSendParams(
 				id="0001",
-				sessionId= message['chat']['messages'][3],
-				message =chat_msg,
-				acceptedOutputModes = ["text", "json", "image/png"],
-				pushNotification = None,
-				historyLength = None,
-				metadata = {
-					"mtype": "send_chat",
-					"dtype": dtype,
-					"msgId": msgId,
-					"chatId": chatId,
-					"senderId": senderId,
-					"createAt": createAt,
-					"senderName": senderName,
-					"status": status,
-					"card": card,
-					"code": code,
-					"form": form,
-					"notification": notification,
-					"ext": ""
+				sessionId=sess_id,
+				message=chat_msg,
+				acceptedOutputModes=["text", "json", "image/png"],
+				pushNotification=None,
+				historyLength=0,
+				metadata={
+					"params": message['attributes']["params"]
 				}
 			)
+
+
 			logger.info("[ec_agent] client payload:", payload)
 			# response = await self.a2a_client.send_task(payload)
 			response = self.a2a_client.sync_send_task(payload.model_dump())

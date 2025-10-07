@@ -23,12 +23,20 @@
     "key_name": "NA",
     "key_value": null
 },
+"step 15":
+{
+    "type": "Call Extern",
+    "file": "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1], 'icon_attention_area':[0, 0, 1, 1], 'attention_targets':['@all']}\nprint('scrn_options', scrn_options)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
 "step 0":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
     "template": "",
-    "options": "",
+    "options": "scrn_options",
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "all_reviews",
@@ -80,12 +88,20 @@
     ],
     "post_wait": 0
 },
+"step 15":
+{
+    "type": "Call Extern",
+    "file": "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1], 'icon_attention_area':[0, 0, 1, 1], 'attention_targets':['New Profile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
 "step 0":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
     "template": "",
-    "options": "",
+    "options": "scrn_options",
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "all_reviews",
@@ -137,12 +153,20 @@
     ],
     "post_wait": 0
 },
+"step 15":
+{
+    "type": "Call Extern",
+    "file": "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1], 'icon_attention_area':[0, 0, 1, 1], 'attention_targets':['New Profile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
 "step 0":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
     "template": "",
-    "options": "",
+    "options": "scrn_options",
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "all_reviews",
