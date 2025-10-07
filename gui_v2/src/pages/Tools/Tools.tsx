@@ -16,7 +16,7 @@ const Tools: React.FC = () => {
   const { t } = useTranslation();
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const username = useUserStore((state) => state.username);
-  const { tools, loading, fetchTools } = useToolStore();
+  const { tools, loading, fetchTools, forceRefresh } = useToolStore();
 
   // Debug: log raw tools payload including schemas
   useEffect(() => {
@@ -59,10 +59,9 @@ const Tools: React.FC = () => {
 
   const handleRefresh = useCallback(async () => {
     if (username) {
-      console.log('[Tools] Manual refresh triggered');
-      await fetchTools(username);
+      await forceRefresh(username);
     }
-  }, [username, fetchTools]);
+  }, [username, forceRefresh]);
 
   const listTitle = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

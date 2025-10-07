@@ -35,7 +35,8 @@ export interface BaseStoreState<T extends BaseResource> {
   // 数据获取
   fetchItems: (username: string, ...args: any[]) => Promise<void>;
   shouldFetch: () => boolean;
-  
+  forceRefresh: (username: string, ...args: any[]) => Promise<void>;
+
   // 状态管理
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
