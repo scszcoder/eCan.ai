@@ -364,7 +364,28 @@ def get_standard_prompt(state:NodeState) -> NodeState:
     formatted_prompt = langchain_prompt.format_messages(boss_name=boss, input=state["input"])
     return formatted_prompt
 
+def _deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively merge dict b into dict a and return a new dict."""
+    out = dict(a)
+    for k, v in b.items():
+        if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
 
+def find_opposite_agent(self_agent, chat_id):
+    mainwin = self_agent.mainwin
+    this_chat = mainwin.db_chat_service.get_chat_by_id(chat_id)
+    members = this_chat.get_members()
+    # for now, let's just assume 1-1 chat, find first chat member not myself.
+    oppsite_member = next((ag for ag in members if ag.userId != self_agent.card.id), None)
+    if oppsite_member:
+        opposite_side = get_agent_by_id(oppsite_member.userId)
+    else:
+        logger.error("No chat mate found for chat:", chat_id)
+        opposite_side = None
+    return opposite_side
 
 def send_response_back(state: NodeState) -> NodeState:
     try:
@@ -372,10 +393,10 @@ def send_response_back(state: NodeState) -> NodeState:
         # _ensure_context(runtime.context)
         self_agent = get_agent_by_id(agent_id)
         mainwin = self_agent.mainwin
-        twin_agent = next((ag for ag in mainwin.agents if "twin" in ag.card.name.lower()), None)
 
         print("standard_post_llm_hook send_response_back:", state)
         chat_id = state["messages"][1]
+        opposite_agent = find_opposite_agent(self_agent, chat_id)
         msg_type = "text"
         msg_id = str(uuid.uuid4()),
         # send self a message to trigger the real component search work-flow
@@ -386,6 +407,7 @@ def send_response_back(state: NodeState) -> NodeState:
         #                     "type": dtype,
         #                     "text": state["messages"][-1],
         #                     "card": card,
+        #                     "i_tag": i_tag,
         #                     "code": code,
         #                     "form": form,
         #                     "notification": notification,
@@ -405,6 +427,7 @@ def send_response_back(state: NodeState) -> NodeState:
                     "content": {
                         "type": msg_type, # "text", "code", "form", "notification", "card
                         "text": state["result"]["llm_result"]["casual_chat_response"],
+                        "i_tag": state["attributes"]["params"]["i_tag"],
                         "dtype": msg_type,
                         "card": {},
                         "code": {},
@@ -424,7 +447,7 @@ def send_response_back(state: NodeState) -> NodeState:
             }
         }
         print("sending response msg back to twin:", agent_response_message)
-        send_result = self_agent.a2a_send_chat_message(twin_agent, agent_response_message)
+        send_result = self_agent.a2a_send_chat_message(opposite_agent, agent_response_message)
         # state.result = result
         return send_result
     except Exception as e:

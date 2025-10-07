@@ -32,6 +32,7 @@ export function createChatApi(apiInstance: IPCAPI) {
             senderName?: string;
             time?: string;
             ext?: any;
+            i_tag?: string;
             attachments?: Attachment[];
         }): Promise<APIResponse<T>> {
             return apiInstance['executeRequest']('send_chat', message);

@@ -5,7 +5,7 @@ from utils.logger_helper import get_traceback
 from agent.agent_service import get_agent_by_id
 from agent.ec_skills.search_parts.pre_llm_hooks import *
 from agent.ec_skills.search_parts.post_llm_hooks import *
-from agent.ec_skills.llm_utils.llm_utils import send_response_back
+from agent.ec_skills.llm_utils.llm_utils import send_response_back, _deep_merge
 
 
 
@@ -43,6 +43,8 @@ def standard_post_llm_func(askid, node_name, state, response):
         raw_content = response.content if hasattr(response, 'content') else str(response)
         print("standard_post_llm_func Raw llm response content:", raw_content)  # Debug log
 
+        # as a good convention LLM should always return structured data rather than pure string text
+        # we should always ask LLM to return {"message": "your message here", "meta_data": dict}
         # Clean up the response
         if is_json_parsable(raw_content):
             result = json.loads(raw_content)
@@ -78,8 +80,11 @@ def standard_post_llm_func(askid, node_name, state, response):
 
 def standard_post_llm_hook(askid, node_name, agent, state, response):
     try:
-        send_result = send_response_back(state)
-        logger.debug(f"standard_post_llm_hook: {send_result}")
+        # we really shouldn't send the reponse back here, instead we should update state and other node takes care of what to do with the results.
+        post_hook_result = None
+        state["metadata"] = _deep_merge(state["metadata"], response["llm_result"].get("meta_data", {}))
+        state["messages"].append(f"llm:{response["llm_result"].get('message', '')}")
+        logger.debug(f"standard_post_llm_hook: {post_hook_result}")
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPostLLMHook")
         logger.debug(err_trace)

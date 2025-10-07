@@ -16,6 +16,7 @@ import { useMessages } from './hooks/useMessages';
 import { notificationManager } from './managers/NotificationManager';
 import type { ChatNotificationItem } from './managers/NotificationManager';
 import { getDisplayMsg } from './utils/displayMsg';
+import { iTagManager } from './managers/ITagManager';
 
 // 工具函数：尝试将字符串解析为对象
 function parseMaybeJson(str: any): any {
@@ -616,6 +617,7 @@ const ChatPage: React.FC = () => {
                 createAt: String(Date.now()),
                 senderName,
                 status: 'complete',
+                i_tag: iTagManager.getLatest(activeChatId) || undefined,
                 attachments: safeAttachments as any
             };
             
