@@ -754,7 +754,7 @@ class DBChatService(BaseService):
 
     def push_message_to_chat(self, chatId, msg: dict):
         """Push message to chat and frontend."""
-        logger.debug("[db_chat_service] push message to front", msg)
+        logger.debug("[db_chat_service] push message to front", chatId, msg)
         content = msg.get('content')
         createAt = msg.get('createAt')
 
@@ -765,7 +765,7 @@ class DBChatService(BaseService):
         web_gui = AppContext.get_web_gui()
         # Push actual data after database write
         if db_result and isinstance(db_result, dict) and 'data' in db_result:
-            logger.debug("[db_chat_service] push chat message content:", db_result['data'])
+            logger.debug("[db_chat_service] push chat message content:", chatId, db_result['data'])
             web_gui.get_ipc_api().push_chat_message(chatId, db_result['data'])
         else:
             logger.error(f"[db_chat_service] message insert db failed{chatId}, {msg.get('id')}")
