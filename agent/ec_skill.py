@@ -161,7 +161,7 @@ DEFAULT_MAPPING_RULE = {
 class EC_Skill(AgentSkill):
     """Holds a compiled LangGraph runnable and metadata."""
 
-    id: str = str(uuid.uuid4())
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     askid: int = 0
     work_flow: StateGraph = StateGraph(State)        # {"app_name": "app_context", ....} "ecbot" being the internal rpa runs.
     diagram: dict = {}

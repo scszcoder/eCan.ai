@@ -1,5 +1,5 @@
 import React from 'react';
-import { Typography, Space, Button, Progress, Tooltip, Card, Tag, Form, Input, Row, Col, Checkbox, message, Select, Divider, Tabs } from 'antd';
+import { Typography, Space, Button, Progress, Tooltip, Card, Tag, Form, Input, Row, Col, Checkbox, message, Select, Tabs } from 'antd';
 import type { TabsProps } from 'antd';
 import {
     ThunderboltOutlined,
@@ -13,11 +13,10 @@ import {
     CodeOutlined,
     AppstoreOutlined,
     TagsOutlined,
-    ExperimentOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import type { Skill, SkillLevel, SkillRunMode, SkillNeedInput } from '@/types/domain/skill';
-import ActionButtons from '../../../components/Common/ActionButtons';
+import type { Skill, SkillRunMode, SkillNeedInput } from '@/types/domain/skill';
+
 import { useNavigate } from 'react-router-dom';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
@@ -521,93 +520,155 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
     ];
 
     return (
-        <div style={{ maxHeight: '100%', overflow: 'auto' }}>
-            <Space direction="vertical" style={{ width: '100%' }}>
-                <Title level={4}  style={{ color: 'white' }}>{name || t('pages.skills.newSkill', 'New Skill')}</Title>
-                <Text  style={{ color: 'white' }}>{description}</Text>
-                <Space>
-                    <Tag color={getStatusColor(status as any)}>
-                        <CheckCircleOutlined /> {t('pages.skills.statusLabel', '状态')}: {t(`pages.skills.status.${status || 'unknown'}`, (status as any) || t('common.unknown', '未知'))}
-                    </Tag>
-                    <Tag color="blue">
-                        <ThunderboltOutlined /> {t('pages.skills.category')}: {t(`pages.skills.categories.${category || 'unknown'}`, (category as any) || t('common.unknown', '未知'))}
-                    </Tag>
-                </Space>
-                <Space>
-                    <Tag style={{color: 'white'}}>
-                        <ClockCircleOutlined /> {t('pages.skills.lastUsed')}: {(skill as any)?.lastUsed || '-'}
-                    </Tag>
-                    <Tag style={{color: 'white'}}>
-                        <StarOutlined /> {t('pages.skills.usageCount')}: {(skill as any)?.usageCount ?? 0}
-                    </Tag>
-                </Space>
-                <Card>
-                    <Space direction="vertical" style={{ width: '100%' }}>
-                        <Text strong style={{ color: 'white' }}>{t('pages.skills.skillLevel')}</Text>
-                        <Progress
-                            percent={levelVal}
-                            status={(status as any) === 'learning' ? 'active' : 'normal'}
-                        />
-                        <Text type="secondary"  style={{ color: 'white' }}>
-                            {levelVal === 100
-                                ? t('pages.skills.mastered')
-                                : t('pages.skills.entryPercent', { percent: levelVal })}
-                        </Text>
+        <div style={{ maxHeight: '100%', overflow: 'auto', padding: '8px' }}>
+            <Space direction="vertical" style={{ width: '100%' }} size="large">
+                {/* Header Card */}
+                <Card
+                    style={{
+                        background: 'linear-gradient(135deg, rgba(24, 144, 255, 0.1) 0%, rgba(24, 144, 255, 0.05) 100%)',
+                        border: '1px solid rgba(24, 144, 255, 0.2)'
+                    }}
+                >
+                    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div style={{ flex: 1 }}>
+                                <Title level={3} style={{ color: 'white', margin: 0, marginBottom: 8 }}>
+                                    {name || t('pages.skills.newSkill', 'New Skill')}
+                                </Title>
+                                <Text style={{ color: 'rgba(255, 255, 255, 0.85)', fontSize: 14 }}>
+                                    {description || t('pages.skills.noDescription', 'No description available')}
+                                </Text>
+                            </div>
+                            {!isNew && (
+                                <Space>
+                                    <Button
+                                        type="primary"
+                                        icon={<ThunderboltOutlined />}
+                                        onClick={() => skill && onLevelUp((skill as any).id)}
+                                        disabled={!skill || (skill as any).level === 100}
+                                        size="large"
+                                    >
+                                        {t('pages.skills.levelUp')}
+                                    </Button>
+                                    {!editMode ? (
+                                        <Button
+                                            icon={<EditOutlined />}
+                                            onClick={handleEdit}
+                                            size="large"
+                                        >
+                                            {t('pages.skills.editSkill')}
+                                        </Button>
+                                    ) : (
+                                        <Space>
+                                            <Button type="primary" onClick={handleSave} size="large">
+                                                {t('common.save', 'Save')}
+                                            </Button>
+                                            <Button onClick={() => {
+                                                form.resetFields();
+                                                setEditMode(false);
+                                            }} size="large">
+                                                {t('common.cancel', 'Cancel')}
+                                            </Button>
+                                        </Space>
+                                    )}
+                                </Space>
+                            )}
+                            {isNew && (
+                                <Space>
+                                    <Button type="primary" onClick={handleSave} size="large">
+                                        {t('common.create', 'Create')}
+                                    </Button>
+                                    <Button onClick={() => {
+                                        form.resetFields();
+                                        if (onCancel) onCancel();
+                                    }} size="large">
+                                        {t('common.cancel', 'Cancel')}
+                                    </Button>
+                                </Space>
+                            )}
+                        </div>
+
+                        <Space wrap size="small">
+                            <Tag color={getStatusColor(status as any)} style={{ padding: '4px 12px', fontSize: 13 }}>
+                                <CheckCircleOutlined /> {String(t(`pages.skills.status.${status || 'unknown'}`, (status as any) || t('common.unknown', '未知')))}
+                            </Tag>
+                            <Tag color="blue" style={{ padding: '4px 12px', fontSize: 13 }}>
+                                <ThunderboltOutlined /> {String(t(`pages.skills.categories.${category || 'unknown'}`, (category as any) || t('common.unknown', '未知')))}
+                            </Tag>
+                            {!isNew && (
+                                <>
+                                    <Tag style={{ color: 'white', padding: '4px 12px', fontSize: 13 }}>
+                                        <ClockCircleOutlined /> {(skill as any)?.lastUsed || t('pages.skills.neverUsed', 'Never used')}
+                                    </Tag>
+                                    <Tag style={{ color: 'white', padding: '4px 12px', fontSize: 13 }}>
+                                        <StarOutlined /> {(skill as any)?.usageCount ?? 0} {t('pages.skills.uses', 'uses')}
+                                    </Tag>
+                                </>
+                            )}
+                        </Space>
                     </Space>
                 </Card>
-                {/* Details form with tabs */}
-                <Card>
+
+                {/* Progress Card */}
+                {!isNew && (
+                    <Card
+                        title={
+                            <Space>
+                                <ThunderboltOutlined style={{ color: '#1890ff' }} />
+                                <span style={{ color: 'white' }}>{t('pages.skills.skillLevel')}</span>
+                            </Space>
+                        }
+                    >
+                        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                            <Progress
+                                percent={levelVal}
+                                status={(status as any) === 'learning' ? 'active' : 'normal'}
+                                strokeColor={{
+                                    '0%': '#1890ff',
+                                    '100%': '#52c41a',
+                                }}
+                                size={['100%', 12]}
+                            />
+                            <Text style={{ color: 'rgba(255, 255, 255, 0.85)', fontSize: 14 }}>
+                                {levelVal === 100
+                                    ? `🎉 ${t('pages.skills.mastered', 'Mastered!')}`
+                                    : t('pages.skills.progressMessage', `Keep practicing to reach mastery! (${levelVal}%)`)}
+                            </Text>
+                        </Space>
+                    </Card>
+                )}
+
+                {/* Details Form Card */}
+                <Card
+                    title={
+                        <Space>
+                            <SettingOutlined style={{ color: '#1890ff' }} />
+                            <span style={{ color: 'white' }}>{t('pages.skills.details', 'Skill Details')}</span>
+                        </Space>
+                    }
+                >
                     <Form form={form} layout="vertical" disabled={!editMode}>
-                        <Tabs defaultActiveKey="basic" items={tabItems} />
+                        <Tabs
+                            defaultActiveKey="basic"
+                            items={tabItems}
+                            tabBarStyle={{ color: 'white' }}
+                        />
                     </Form>
                 </Card>
-                {/* Buttons moved to bottom */}
-                <Space>
-                    <Button
-                        type="primary"
-                        icon={<ThunderboltOutlined />}
-                        onClick={() => skill && onLevelUp((skill as any).id)}
-                        disabled={!skill || (skill as any).level === 100}
-                    >
-                        {t('pages.skills.levelUp')}
-                    </Button>
-                    <Button icon={<EditOutlined />} onClick={handleEdit} disabled={editMode}>
-                        {t('pages.skills.editSkill')}
-                    </Button>
-                    {editMode && (
-                        <>
-                            <Button type="primary" onClick={handleSave}>
-                                {isNew ? t('common.create', 'Create') : t('common.save', 'Save')}
+
+                {/* Action Buttons - Only show if not in edit mode */}
+                {!editMode && !isNew && (
+                    <Card>
+                        <Space wrap>
+                            <Button icon={<HistoryOutlined />}>
+                                {t('pages.skills.viewHistory')}
                             </Button>
-                            <Button onClick={() => {
-                                form.resetFields();
-                                setEditMode(false);
-                                if (isNew && onCancel) onCancel();
-                            }}>
-                                {t('common.cancel', 'Cancel')}
+                            <Button onClick={onRefresh}>
+                                {t('pages.skills.refresh')}
                             </Button>
-                        </>
-                    )}
-                    <Button icon={<HistoryOutlined />}>
-                        {t('pages.skills.viewHistory')}
-                    </Button>
-                </Space>
-                <ActionButtons
-                    onAdd={() => {}}
-                    onEdit={handleEdit}
-                    onDelete={() => {}}
-                    onRefresh={onRefresh}
-                    onExport={() => {}}
-                    onImport={() => {}}
-                    onSettings={() => {}}
-                    addText={t('pages.skills.addSkill')}
-                    editText={t('pages.skills.editSkill')}
-                    deleteText={t('pages.skills.deleteSkill')}
-                    refreshText={t('pages.skills.refreshSkills')}
-                    exportText={t('pages.skills.exportSkills')}
-                    importText={t('pages.skills.importSkills')}
-                    settingsText={t('pages.skills.skillSettings')}
-                />
+                        </Space>
+                    </Card>
+                )}
             </Space>
         </div>
     );

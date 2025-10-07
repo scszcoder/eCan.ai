@@ -32,25 +32,17 @@ export class SkillAPI implements ResourceAPI<Skill> {
 
       const response = await this.api.getSkills(username, skillIds);
 
-      // logger.debug('[SkillAPI] Raw response:', JSON.stringify(response, null, 2));
-
       if (response && response.success && response.data) {
         // 处理不同的响应格式
         let skills: Skill[] = [];
 
-        logger.debug('[SkillAPI] response.data type:', typeof response.data);
-        logger.debug('[SkillAPI] response.data is Array:', Array.isArray(response.data));
-        logger.debug('[SkillAPI] response.data has skills:', response.data && typeof response.data === 'object' && 'skills' in response.data);
-
         if (Array.isArray(response.data)) {
           skills = response.data;
-          logger.debug('[SkillAPI] Using response.data as array');
         } else if (response.data && typeof response.data === 'object' && 'skills' in response.data) {
           skills = (response.data as any).skills || [];
-          logger.debug('[SkillAPI] Using response.data.skills, count:', skills.length);
         }
 
-        logger.debug('[SkillAPI] Successfully fetched skills:', skills.length);
+        logger.info('[SkillAPI] Successfully fetched skills:', skills.length);
 
         return {
           success: true,

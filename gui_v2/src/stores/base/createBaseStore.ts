@@ -91,27 +91,24 @@ export function createResourceStore<T extends BaseResource>(
     // 数据获取
     fetchItems: async (username: string, ...args: any[]) => {
       const state = get();
-      
+
       // 检查是否需要重新获取
       if (!state.shouldFetch()) {
-        logger.debug(`[${name}Store] Using cached data`);
         return;
       }
-      
+
       set({ loading: true, error: null });
-      
+
       try {
-        logger.info(`[${name}Store] Fetching items for user: ${username}`);
         const response = await apiService.getAll(username, ...args);
-        
+
         if (response && response.success && response.data) {
-          set({ 
-            items: response.data, 
-            loading: false, 
+          set({
+            items: response.data,
+            loading: false,
             lastFetched: Date.now(),
-            error: null 
+            error: null
           });
-          logger.info(`[${name}Store] Successfully fetched ${response.data.length} items`);
         } else {
           throw new Error(response.error?.message || `Failed to fetch ${name}s`);
         }
@@ -126,33 +123,31 @@ export function createResourceStore<T extends BaseResource>(
     shouldFetch: () => {
       const lastFetched = get().lastFetched;
       if (!lastFetched) {
-        logger.debug(`[${name}Store] No data fetched yet, should fetch`);
         return true;
       }
-      
+
       const now = Date.now();
       const diff = now - lastFetched;
-      const shouldFetch = diff > cacheDuration;
-      
-      if (shouldFetch) {
-        logger.debug(`[${name}Store] Cache expired (${diff}ms > ${cacheDuration}ms), should fetch`);
-      }
-      
-      return shouldFetch;
+      return diff > cacheDuration;
     },
-    
+
+    // 强制刷新数据（忽略缓存）
+    forceRefresh: async (username: string, ...args: any[]) => {
+      set({ lastFetched: null });
+      await get().fetchItems(username, ...args);
+    },
+
     // 状态管理
     setLoading: (loading: boolean) => set({ loading }),
-    
+
     setError: (error: string | null) => set({ error, loading: false }),
-    
+
     clearData: () => {
-      logger.info(`[${name}Store] Clearing all data`);
-      set({ 
-        items: [], 
-        loading: false, 
-        error: null, 
-        lastFetched: null 
+      set({
+        items: [],
+        loading: false,
+        error: null,
+        lastFetched: null
       });
     },
   });
@@ -237,28 +232,24 @@ export function createExtendedResourceStore<
       
       // 基础 CRUD 操作
       setItems: (items: T[]) => {
-        logger.debug(`[${name}Store] Setting ${items.length} items`);
         set({ items, lastFetched: Date.now(), error: null });
       },
-      
+
       addItem: (item: T) => {
-        logger.debug(`[${name}Store] Adding item:`, item.id);
         set((state: BaseStoreState<T>) => ({
           items: [...state.items, item]
         }));
       },
-      
+
       updateItem: (id: string, updates: Partial<T>) => {
-        logger.debug(`[${name}Store] Updating item:`, id);
         set((state: BaseStoreState<T>) => ({
-          items: state.items.map(item => 
+          items: state.items.map(item =>
             item.id === id ? { ...item, ...updates } : item
           )
         }));
       },
-      
+
       removeItem: (id: string) => {
-        logger.debug(`[${name}Store] Removing item:`, id);
         set((state: BaseStoreState<T>) => ({
           items: state.items.filter(item => item.id !== id)
         }));
@@ -277,33 +268,24 @@ export function createExtendedResourceStore<
       // 数据获取
       fetchItems: async (username: string, ...args: any[]) => {
         const state = get();
-        
+
         // 检查是否需要重新获取
-        // 如果有缓存数据但是空数组，强制刷新
-        const hasEmptyCache = state.items && state.items.length === 0 && state.lastFetched;
-        if (!state.shouldFetch() && !hasEmptyCache) {
-          logger.debug(`[${name}Store] Using cached data`);
+        if (!state.shouldFetch()) {
           return;
         }
-        
-        if (hasEmptyCache) {
-          logger.debug(`[${name}Store] Empty cache detected, forcing refresh`);
-        }
-        
+
         set({ loading: true, error: null });
-        
+
         try {
-          logger.info(`[${name}Store] Fetching items for user: ${username}`);
           const response = await apiService.getAll(username, ...args);
-          
+
           if (response && response.success && response.data) {
-            set({ 
-              items: response.data, 
-              loading: false, 
+            set({
+              items: response.data,
+              loading: false,
               lastFetched: Date.now(),
-              error: null 
+              error: null
             });
-            logger.info(`[${name}Store] Successfully fetched ${response.data.length} items`);
           } else {
             throw new Error(response.error?.message || `Failed to fetch ${name}s`);
           }
@@ -314,37 +296,35 @@ export function createExtendedResourceStore<
           throw error;
         }
       },
-      
+
       shouldFetch: () => {
         const lastFetched = get().lastFetched;
         if (!lastFetched) {
-          logger.debug(`[${name}Store] No data fetched yet, should fetch`);
           return true;
         }
-        
+
         const now = Date.now();
         const diff = now - lastFetched;
-        const shouldFetch = diff > cacheDuration;
-        
-        if (shouldFetch) {
-          logger.debug(`[${name}Store] Cache expired (${diff}ms > ${cacheDuration}ms), should fetch`);
-        }
-        
-        return shouldFetch;
+        return diff > cacheDuration;
       },
-      
+
+      // 强制刷新数据（忽略缓存）
+      forceRefresh: async (username: string, ...args: any[]) => {
+        set({ lastFetched: null });
+        await get().fetchItems(username, ...args);
+      },
+
       // 状态管理
       setLoading: (loading: boolean) => set({ loading }),
-      
+
       setError: (error: string | null) => set({ error, loading: false }),
-      
+
       clearData: () => {
-        logger.info(`[${name}Store] Clearing all data`);
-        set({ 
-          items: [], 
-          loading: false, 
-          error: null, 
-          lastFetched: null 
+        set({
+          items: [],
+          loading: false,
+          error: null,
+          lastFetched: null
         });
       },
     };
