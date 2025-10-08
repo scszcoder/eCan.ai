@@ -1,7 +1,7 @@
 """
 WebEngine core module for handling Web engine related functionality
 """
-from PySide6.QtWidgets import (QMainWindow)
+from PySide6.QtWidgets import (QMainWindow, QApplication)
 
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings, QWebEnginePage, QWebEngineScript
@@ -14,6 +14,7 @@ from gui.ipc.api import IPCAPI
 from typing import Optional, Callable, Any, Dict, Union
 from pathlib import Path
 import os
+import sys
 import shutil
 
 
@@ -79,35 +80,102 @@ class WebEngineView(QWebEngineView):
     title_changed = Signal(str)  # Title change signal
     url_changed = Signal(str)    # URL change signal
 
-    # Default WebEngine settings
+    # Default WebEngine settings (Qt API level)
+    # Note: Qt WebEngine has built-in support for most features
+    # Command line args are only needed for VM-specific GPU issues
     DEFAULT_SETTINGS: Dict[QWebEngineSettings.WebAttribute, bool] = {
+        # File and network access
         QWebEngineSettings.LocalContentCanAccessFileUrls: True,
         QWebEngineSettings.LocalContentCanAccessRemoteUrls: True,
-        QWebEngineSettings.JavascriptEnabled: True,
-        QWebEngineSettings.LocalStorageEnabled: True,
         QWebEngineSettings.AllowRunningInsecureContent: True,
         QWebEngineSettings.AllowGeolocationOnInsecureOrigins: True,
+
+        # JavaScript capabilities
+        QWebEngineSettings.JavascriptEnabled: True,
+        QWebEngineSettings.JavascriptCanOpenWindows: True,
+        QWebEngineSettings.JavascriptCanAccessClipboard: True,
+        QWebEngineSettings.JavascriptCanPaste: True,
+
+        # Storage and caching
+        QWebEngineSettings.LocalStorageEnabled: True,
+
+        # Media and plugins
         QWebEngineSettings.PluginsEnabled: True,
+        QWebEngineSettings.AutoLoadImages: True,
+
+        # Display and interaction
         QWebEngineSettings.FullScreenSupportEnabled: True,
         QWebEngineSettings.ScreenCaptureEnabled: True,
-        QWebEngineSettings.WebGLEnabled: True,
         QWebEngineSettings.ScrollAnimatorEnabled: True,
-        QWebEngineSettings.ErrorPageEnabled: True,
         QWebEngineSettings.FocusOnNavigationEnabled: True,
-        QWebEngineSettings.JavascriptCanOpenWindows: True,  # Allow JS to open new windows
-        QWebEngineSettings.JavascriptCanAccessClipboard: True,  # Allow JS to access clipboard
-        QWebEngineSettings.AutoLoadImages: True,  # Auto load images
-        QWebEngineSettings.JavascriptCanPaste: True,  # Allow JS to paste
-        QWebEngineSettings.Accelerated2dCanvasEnabled: True,  # Enable 2D Canvas hardware acceleration
-        QWebEngineSettings.WebGLEnabled: True,  # Enable WebGL
+
+        # Graphics acceleration (Qt built-in support)
+        QWebEngineSettings.Accelerated2dCanvasEnabled: True,  # Qt WebEngine built-in
+        QWebEngineSettings.WebGLEnabled: True,                # Qt WebEngine built-in
+
+        # Error handling
+        QWebEngineSettings.ErrorPageEnabled: True,
     }
-    
+
+    # Class-level flag to track if WebEngine args have been configured
+    _webengine_args_configured = False
+
+    @classmethod
+    def configure_webengine_args(cls):
+        """
+        Configure Qt WebEngine (Chromium) command line arguments.
+
+        IMPORTANT: Only use command line arguments for settings that CANNOT be controlled
+        via QWebEngineSettings API. Most features should be configured through DEFAULT_SETTINGS.
+
+        Command line arguments are only needed for:
+        1. GPU/Hardware acceleration control (especially for VM environments)
+        2. Chromium-specific features not exposed in Qt API
+        3. Engine-level debugging and logging
+
+        This should be called before creating the first WebEngineView instance.
+        """
+        if cls._webengine_args_configured:
+            logger.debug("WebEngine arguments already configured, skipping")
+            return
+
+        logger.info("Configuring WebEngine (Chromium) command line arguments...")
+
+        # ONLY include arguments that CANNOT be set via QWebEngineSettings
+        webengine_args = [
+            # === GPU Control (NOT available in QWebEngineSettings) ===
+            # These are critical for VM environments where GPU may be blacklisted
+            '--ignore-gpu-blocklist',            # Ignore GPU driver blacklist (REQUIRED for VMs)
+            '--disable-gpu-sandbox',             # Disable GPU process sandbox (helps in VMs)
+
+            # === Debugging (NOT available in QWebEngineSettings) ===
+            # Uncomment for debugging GPU/WebGL issues
+            # '--enable-logging',
+            # '--log-level=0',
+        ]
+
+        # CRITICAL: Use environment variable to pass arguments to Chromium
+        # This is the ONLY reliable way to pass arguments in PySide6/Qt WebEngine
+        flags_str = ' '.join(webengine_args)
+        os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = flags_str
+
+        # Also add to sys.argv as fallback (though environment variable is more reliable)
+        sys.argv.extend(webengine_args)
+
+        logger.info(f"✅ Added {len(webengine_args)} Chromium command line arguments (VM-specific)")
+        logger.info(f"   QTWEBENGINE_CHROMIUM_FLAGS={flags_str}")
+        logger.debug(f"WebEngine args: {webengine_args}")
+
+        cls._webengine_args_configured = True
+
     def __init__(self, parent: Optional[QMainWindow] = None):
         try:
             logger.info("Starting WebEngineView initialization...")
 
+            # Configure WebEngine arguments before first instantiation
+            WebEngineView.configure_webengine_args()
+
             # Ensure QApplication is properly initialized before WebEngine
-            from PySide6.QtWidgets import QApplication
             app = QApplication.instance()
             if not app:
                 logger.error("QApplication not found during WebEngine initialization")
