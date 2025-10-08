@@ -6,7 +6,7 @@
 import { createIPCAPI } from '../ipc/api';
 import type { IPCAPI } from '../ipc/api';
 import { ResourceAPI, APIResponse } from '../../stores/base/types';
-import { Skill, CreateSkillInput, UpdateSkillInput } from '../../types/domain/skill';
+import { Skill } from '../../types/domain/skill';
 import { logger } from '../../utils/logger';
 
 /**
@@ -111,18 +111,24 @@ export class SkillAPI implements ResourceAPI<Skill> {
     try {
       logger.debug('[SkillAPI] Creating new skill:', skill.name);
       
-      const response = await this.api.saveSkill(username, skill);
-      
+      // If no id, call newSkill to let backend generate one; otherwise saveSkill (upsert)
+      const response = skill.id
+        ? await this.api.saveSkill(username, skill)
+        : await this.api.newSkill(username, skill);
+
       if (response && response.success) {
-        logger.debug('[SkillAPI] Successfully created skill');
-        
+        logger.debug('[SkillAPI] Successfully created/saved skill');
+
+        // Prefer backend returned data if available (may contain generated id)
+        const createdData = (response as any).data as Skill | undefined;
+        const resultSkill = createdData ?? skill;
+
         return {
           success: true,
-          data: skill,
+          data: resultSkill,
         };
-      } else {
-        throw new Error(response.error?.message || 'Failed to create skill');
       }
+      throw new Error(response?.error?.message || 'Failed to create skill');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       logger.error('[SkillAPI] Error creating skill:', errorMessage);

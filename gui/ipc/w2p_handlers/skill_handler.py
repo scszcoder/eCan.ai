@@ -1,5 +1,5 @@
 import traceback
-from typing import TYPE_CHECKING, Any, Optional, Dict
+from typing import TYPE_CHECKING, Any, Optional, Dict, Tuple
 from app_context import AppContext
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
@@ -18,32 +18,25 @@ IPCHandlerRegistry.add_to_whitelist('setup_sim_step')
 IPCHandlerRegistry.add_to_whitelist('step_sim')
 IPCHandlerRegistry.add_to_whitelist('test_langgraph2flowgram')
 
+
 @IPCHandlerRegistry.handler('get_skills')
 def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理登录请求
+    """Get skills list, supports dual data sources: local database + cloud data
 
-    验证用户凭据并返回访问令牌。
+    On startup, prioritizes reading from local database, builds test skills in memory,
+    then requests cloud data. If cloud data exists, it overwrites local data and updates database.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        request: IPC request object
+        params: Request parameters, must contain 'username' field
 
     Returns:
-        str: JSON 格式的响应消息
+        JSON formatted response message
     """
     try:
         logger.debug(f"Get skills handler called with request: {request}")
-        main_window = AppContext.get_main_window()
-        skills = main_window.agent_skills
-        
-        # 添加调试日志
-        logger.info(f"[DEBUG] main_window.agent_skills type: {type(skills)}")
-        logger.info(f"[DEBUG] main_window.agent_skills length: {len(skills) if skills else 'None'}")
-        if skills and len(skills) > 0:
-            logger.info(f"[DEBUG] First skill type: {type(skills[0])}")
-            logger.info(f"[DEBUG] First skill name: {getattr(skills[0], 'name', 'NO NAME ATTR')}")
-        
-        # 验证参数
+
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
             logger.warning(f"Invalid parameters for get skills: {error}")
@@ -53,56 +46,71 @@ def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
                 error
             )
         username = data['username']
-        logger.info(f"get skills successful for user: {username}")
-        
-        # 转换为字典，添加异常处理
-        skills_dicts = []
-        for i, sk in enumerate(skills):
-            try:
-                sk_dict = sk.to_dict()
-                skills_dicts.append(sk_dict)
-                logger.debug(f"[DEBUG] Skill {i} converted: {sk_dict.get('name', 'NO NAME')}")
-            except Exception as e:
-                logger.error(f"[DEBUG] Failed to convert skill {i}: {e}")
-                import traceback
-                logger.error(f"[DEBUG] Traceback: {traceback.format_exc()}")
-        
-        logger.info(f"[DEBUG] Successfully converted {len(skills_dicts)} skills")
-        
-        resultJS = {
-            'skills': skills_dicts,
-            'message': 'Get all successful'
-        }
-        resultJS_str = str(resultJS)
-        truncated_resultJS = resultJS_str[:800] + "..." if len(resultJS_str) > 500 else resultJS_str
-        logger.debug('get skills resultJS:' + str(truncated_resultJS))
-        return create_success_response(request, resultJS)
+        logger.info(f"Getting skills for user: {username}")
+
+        # Read skill data directly from memory (build_agent_skills has completed all data integration)
+        try:
+            main_window = AppContext.get_main_window()
+            memory_skills = main_window.agent_skills or []
+            logger.info(f"Found {len(memory_skills)} skills in memory (mainwin.agent_skills)")
+
+            # Convert memory skills to dictionary format
+            skills_dicts = []
+            for i, sk in enumerate(memory_skills):
+                try:
+                    sk_dict = sk.to_dict()
+                    # Ensure necessary fields exist
+                    sk_dict['owner'] = username
+                    if 'id' not in sk_dict:
+                        sk_dict['id'] = f"skill_{i}"
+                    skills_dicts.append(sk_dict)
+                    logger.debug(f"Converted skill: {sk_dict.get('name', 'NO NAME')}")
+                except Exception as e:
+                    logger.error(f"Failed to convert skill {i}: {e}")
+
+            logger.info(f"Returning {len(skills_dicts)} skills to frontend")
+
+            resultJS = {
+                'skills': skills_dicts,
+                'message': 'Get skills successful',
+                'source': 'memory'
+            }
+            return create_success_response(request, resultJS)
+
+        except Exception as e:
+            logger.error(f"Failed to get skills from memory: {e}")
+            # Return empty list as fallback
+            return create_success_response(request, {
+                'skills': [],
+                'message': 'No skills available',
+                'source': 'empty'
+            })
 
     except Exception as e:
         logger.error(f"Error in get skills handler: {e} {traceback.format_exc()}")
         return create_error_response(
             request,
-            'LOGIN_ERROR',
+            'GET_SKILLS_ERROR',
             f"Error during get skills: {str(e)}"
         )
     
 @IPCHandlerRegistry.handler('save_skills')
 def handle_save_skills(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
-    """处理登录请求
+    """Handle save skills request
 
-    验证用户凭据并返回访问令牌。
+    Validate user credentials and return access token.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        request: IPC request object
+        params: Request parameters, must contain 'username' and 'password' fields
 
     Returns:
-        str: JSON 格式的响应消息
+        JSON formatted response message
     """
     try:
         logger.debug(f"Save skills handler called with request: {request}")
         logger.debug("save skills:" + str(params))
-        # 验证参数
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
             logger.warning(f"Invalid parameters for save skills: {error}")
@@ -112,7 +120,7 @@ def handle_save_skills(request: IPCRequest, params: Optional[list[Any]]) -> IPCR
                 error
             )
 
-        # 获取用户名和密码
+        # Get username and password
         username = data['username']
 
 
@@ -132,59 +140,99 @@ def handle_save_skills(request: IPCRequest, params: Optional[list[Any]]) -> IPCR
 
 @IPCHandlerRegistry.handler('save_skill')
 def handle_save_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理保存skill流程图
-
-    验证用户凭据并返回访问令牌。
+    """Handle saving skill workflow to local database
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'skill_info' 字段 skill_info就是json数据，其中diagram为其流程图的json表达
+        request: IPC request object
+        params: Request parameters, must contain 'username' and 'skill_info' fields
 
     Returns:
-        str: JSON 格式的响应消息
+        JSON formatted response message
     """
     try:
         logger.debug(f"Save skill handler called with request: {request}")
-        # 验证参数
+
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['username', 'skill_info'])
         if not is_valid:
             logger.warning(f"Invalid parameters for save skill: {error}")
+            return create_error_response(request, 'INVALID_PARAMS', error)
+
+        username = data['username']
+        skill_info = data['skill_info']
+        skill_id = skill_info.get('id')
+
+        if not skill_id:
+            return create_error_response(request, 'INVALID_PARAMS', 'Skill ID is required for save operation')
+
+        logger.info(f"Saving skill for user: {username}, skill_id: {skill_id}")
+
+        # Get database service
+        skill_service = _get_skill_service()
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
+
+        # Prepare skill data
+        skill_data = _prepare_skill_data(skill_info, username, skill_id)
+
+        # Check if skill exists
+        existing_skill = skill_service.get_skill_by_id(skill_id)
+
+        if existing_skill.get('success') and existing_skill.get('data'):
+            # Update existing skill
+            logger.info(f"Updating existing skill: {skill_id}")
+            result = skill_service.update_skill(skill_id, skill_data)
+        else:
+            # Create new skill
+            logger.info(f"Creating new skill: {skill_id}")
+            result = skill_service.add_skill(skill_data)
+
+        if result.get('success'):
+            # Get the actual skill_id from database response (in case it was generated)
+            actual_skill_id = result.get('id', skill_id)
+            logger.info(f"Skill saved successfully: {skill_data['name']} (ID: {actual_skill_id})")
+
+            # Update memory
+            _update_skill_in_memory(actual_skill_id, skill_data)
+
+            # Create clean response
+            clean_skill_data = _create_clean_skill_response(actual_skill_id, skill_data)
+
+            return create_success_response(request, {
+                'message': 'Save skill successful',
+                'skill_id': actual_skill_id,
+                'data': clean_skill_data
+            })
+        else:
+            logger.error(f"Failed to save skill: {result.get('error')}")
             return create_error_response(
                 request,
-                'INVALID_PARAMS',
-                error
+                'SAVE_SKILL_ERROR',
+                f"Failed to save skill: {result.get('error')}"
             )
 
-        # 获取用户名和密码
-        username = data['username']
-        logger.info(f"save skill successful for user: {username}")
-        logger.info(f"skill_info: {data['skill_info']}")
-
-        return create_success_response(request, {
-            'message': 'Save skill successful'
-        })
-
     except Exception as e:
-        logger.error(f"Error in save skills handler: {e}")
+        logger.error(f"Error in save skill handler: {e} {traceback.format_exc()}")
         return create_error_response(
             request,
-            'LOGIN_ERROR',
-            f"Error during save skills: {str(e)}"
+            'SAVE_SKILL_ERROR',
+            f"Error during save skill: {str(e)}"
         )
     
 
 @IPCHandlerRegistry.handler('run_skill')
 def handle_run_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理保存skill流程图
+    """Handle run skill workflow
 
-    验证用户凭据并返回访问令牌。
+    Validate user credentials and return access token.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'skill' 字段 skill就是json数据，其中diagram为其流程图的json表达
+        request: IPC request object
+        params: Request parameters, must contain 'username' and 'skill' fields
+               skill is JSON data where diagram is the flowchart JSON representation
 
     Returns:
-        str: JSON 格式的响应消息
+        JSON formatted response message
     """
     try:
         logger.debug(f"Get run skill handler called with request: {request}")
@@ -192,8 +240,8 @@ def handle_run_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
         user = request["params"]["username"]
         skill_info = request["params"]["skill"]
         login: Login = AppContext.login
-        
-        # 懒加载重的导入
+
+        # Lazy import of heavy module
         from agent.ec_skills.dev_utils.skill_dev_utils import run_dev_skill
         results = run_dev_skill(login.main_win, skill_info)
 
@@ -212,23 +260,101 @@ def handle_run_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
 
 
 
-@IPCHandlerRegistry.handler('new_skills')
-def handle_new_skills(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
-    """处理登录请求
-
-    验证用户凭据并返回访问令牌。
+@IPCHandlerRegistry.handler('new_skill')
+def handle_new_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle creating new skill and saving to local database
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        request: IPC request object
+        params: Request parameters, must contain 'username' and 'skill_info' fields
 
     Returns:
-        str: JSON 格式的响应消息
+        JSON formatted response message
+    """
+    try:
+        logger.debug(f"Create new skill handler called with request: {request}")
+
+        # Validate parameters
+        is_valid, data, error = validate_params(params, ['username', 'skill_info'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for create skill: {error}")
+            return create_error_response(request, 'INVALID_PARAMS', error)
+
+        username = data['username']
+        skill_info = data['skill_info']
+
+        logger.info(f"Creating new skill for user: {username}")
+
+        # Get database service
+        skill_service = _get_skill_service()
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
+
+        # Prepare skill data (without ID - let database generate it)
+        skill_data = _prepare_skill_data(skill_info, username, skill_id=None)
+
+        # Create new skill in database
+        logger.info(f"Creating new skill: {skill_data['name']}")
+        result = skill_service.add_skill(skill_data)
+
+        if result.get('success'):
+            # Get the database-generated skill ID
+            skill_id = result.get('id')
+            if not skill_id:
+                logger.error("Database did not return skill ID after creation")
+                return create_error_response(
+                    request,
+                    'CREATE_SKILL_ERROR',
+                    'Database did not return skill ID'
+                )
+
+            logger.info(f"Skill created successfully: {skill_data['name']} (ID: {skill_id})")
+
+            # Update memory
+            _update_skill_in_memory(skill_id, skill_data)
+
+            # Create clean response
+            clean_skill_data = _create_clean_skill_response(skill_id, skill_data)
+
+            return create_success_response(request, {
+                'message': 'Create skill successful',
+                'skill_id': skill_id,
+                'data': clean_skill_data
+            })
+        else:
+            logger.error(f"Failed to create skill: {result.get('error')}")
+            return create_error_response(
+                request,
+                'CREATE_SKILL_ERROR',
+                f"Failed to create skill: {result.get('error')}"
+            )
+
+    except Exception as e:
+        logger.error(f"Error in create skill handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'CREATE_SKILL_ERROR',
+            f"Error during create skill: {str(e)}"
+        )
+
+
+@IPCHandlerRegistry.handler('new_skills')
+def handle_new_skills(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
+    """Handle create new skills request
+
+    Validate user credentials and return access token.
+
+    Args:
+        request: IPC request object
+        params: Request parameters, must contain 'username' and 'password' fields
+
+    Returns:
+        JSON formatted response message
     """
     try:
         logger.debug(f"Create skills handler called with request: {request}")
         logger.debug("create skills:" + str(params))
-        # 验证参数
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
             logger.warning(f"Invalid parameters for create skills: {error}")
@@ -238,7 +364,7 @@ def handle_new_skills(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                 error
             )
 
-        # 获取用户名和密码
+        # Get username and password
         username = data['username']
 
 
@@ -260,21 +386,21 @@ def handle_new_skills(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
 
 @IPCHandlerRegistry.handler('delete_skills')
 def handle_delete_skills(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
-    """处理登录请求
+    """Handle delete skills request
 
-    验证用户凭据并返回访问令牌。
+    Validate user credentials and return access token.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        request: IPC request object
+        params: Request parameters, must contain 'username' and 'password' fields
 
     Returns:
-        str: JSON 格式的响应消息
+        JSON formatted response message
     """
     try:
         logger.debug(f"Delete skills handler called with request: {request}")
         logger.debug("delete skills:" + str(params))
-        # 验证参数
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
             logger.warning(f"Invalid parameters for delete skills: {error}")
@@ -284,7 +410,7 @@ def handle_delete_skills(request: IPCRequest, params: Optional[list[Any]]) -> IP
                 error
             )
 
-        # 获取用户名和密码
+        # Get username and password
         username = data['username']
 
 
@@ -525,3 +651,135 @@ def handle_test_langgraph2flowgram(request: IPCRequest, params: Optional[Dict[st
     except Exception as e:
         logger.error(f"Error in test_langgraph2flowgram: {e} {traceback.format_exc()}")
         return create_error_response(request, 'TEST_LG2FG_ERROR', str(e))
+
+
+# ============================================================================
+# Helper Functions for Skill Management
+# ============================================================================
+
+def _get_skill_service():
+    """Get skill service from mainwin (uses correct user-specific database path)
+
+    Returns:
+        skill_service: Database skill service instance, or None if not available
+    """
+    main_window = AppContext.get_main_window()
+    if main_window and hasattr(main_window, 'ec_db_mgr'):
+        return main_window.ec_db_mgr.skill_service
+    else:
+        logger.error("[skill_handler] mainwin.ec_db_mgr not available - cannot access database")
+        return None
+
+
+def _prepare_skill_data(skill_info: Dict[str, Any], username: str, skill_id: Optional[str] = None) -> Dict[str, Any]:
+    """Prepare skill data for database storage
+
+    Args:
+        skill_info: Raw skill information from frontend
+        username: Owner username
+        skill_id: Optional skill ID (if None, will be generated by database)
+
+    Returns:
+        Dict containing prepared skill data
+    """
+    skill_data = {
+        'name': skill_info.get('name', skill_info.get('skillName', 'Unnamed Skill')),
+        'owner': username,
+        'description': skill_info.get('description', ''),
+        'version': skill_info.get('version', '1.0.0'),
+        'path': skill_info.get('path', ''),
+        'level': skill_info.get('level', 'entry'),
+        'config': skill_info.get('config', {}),
+        'tags': skill_info.get('tags', []),
+        'examples': skill_info.get('examples', []),
+        'inputModes': skill_info.get('inputModes', []),
+        'outputModes': skill_info.get('outputModes', []),
+        'apps': skill_info.get('apps', []),
+        'limitations': skill_info.get('limitations', []),
+        'price': skill_info.get('price', 0),
+        'price_model': skill_info.get('price_model', ''),
+        'public': skill_info.get('public', False),
+        'rentable': skill_info.get('rentable', False),
+    }
+
+    # Only add ID if provided (for updates)
+    if skill_id:
+        skill_data['id'] = skill_id
+
+    return skill_data
+
+
+def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any]) -> bool:
+    """Update or add skill in mainwin.agent_skills memory
+
+    Args:
+        skill_id: Skill ID
+        skill_data: Skill data dictionary
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        main_window = AppContext.get_main_window()
+        if not main_window or not hasattr(main_window, 'agent_skills'):
+            logger.warning("[skill_handler] mainwin.agent_skills not available")
+            return False
+
+        from agent.ec_skill import EC_Skill
+
+        # Check if skill already exists in memory
+        existing_index = None
+        for i, skill in enumerate(main_window.agent_skills or []):
+            if hasattr(skill, 'id') and skill.id == skill_id:
+                existing_index = i
+                break
+
+        # Create skill object
+        skill_obj = EC_Skill()
+        skill_obj.id = skill_id
+        skill_obj.name = skill_data['name']
+        skill_obj.owner = skill_data['owner']
+        skill_obj.description = skill_data['description']
+        skill_obj.version = skill_data['version']
+        skill_obj.config = skill_data.get('config', {})
+        skill_obj.level = skill_data.get('level', 'entry')
+
+        if existing_index is not None:
+            # Update existing skill
+            main_window.agent_skills[existing_index] = skill_obj
+            logger.info(f"[skill_handler] Updated skill in memory: {skill_data['name']}")
+        else:
+            # Add new skill
+            if main_window.agent_skills is None:
+                main_window.agent_skills = []
+            main_window.agent_skills.append(skill_obj)
+            logger.info(f"[skill_handler] Added new skill to memory: {skill_data['name']}")
+
+        return True
+
+    except Exception as e:
+        logger.warning(f"[skill_handler] Failed to update mainwin.agent_skills: {e}")
+        return False
+
+
+def _create_clean_skill_response(skill_id: str, skill_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Create clean skill data for response (avoid circular references)
+
+    Args:
+        skill_id: Skill ID
+        skill_data: Skill data dictionary
+
+    Returns:
+        Dict containing clean skill data
+    """
+    return {
+        'id': skill_id,
+        'name': skill_data['name'],
+        'owner': skill_data['owner'],
+        'description': skill_data['description'],
+        'version': skill_data['version'],
+        'level': skill_data['level'],
+        'public': skill_data.get('public', False),
+        'rentable': skill_data.get('rentable', False),
+        'price': skill_data.get('price', 0)
+    }

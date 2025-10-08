@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 import type { Skill, SkillRunMode, SkillNeedInput } from '@/types/domain/skill';
 
 import { useNavigate } from 'react-router-dom';
+import { useSkillStore } from '@/stores';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
 import { IPCWCClient } from '@/services/ipc/ipcWCClient';
@@ -120,6 +121,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
     const { t } = useTranslation();
     const navigate = useNavigate();
     const username = useUserStore((s) => s.username) || '';
+    const addItem = useSkillStore((s) => s.addItem);
+    const updateItem = useSkillStore((s) => s.updateItem);
 
     const [form] = Form.useForm<ExtendedSkill>();
     const [editMode, setEditMode] = React.useState(isNew);
@@ -243,6 +246,25 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                 ? await api.newSkill(username, payload as any)
                 : await api.saveSkill(username, payload as any);
             if (resp.success) {
+                // Merge returned id/data for immediate UI update
+                const returned = (resp.data as any) || {};
+                const newId = returned.skill_id || returned.id || payload.id;
+                const merged: any = { ...payload };
+                if (newId) merged.id = newId;
+
+                try {
+                    if (isNew) {
+                        // Add to local store for immediate feedback
+                        addItem(merged as any);
+                        // reflect id in form
+                        form.setFieldValue('id', merged.id);
+                    } else if (merged.id) {
+                        updateItem(String(merged.id), merged as any);
+                    }
+                } catch (e) {
+                    console.warn('Failed to update store:', e);
+                }
+
                 message.success(t('common.saved', 'Saved'));
                 setEditMode(false);
                 if (onSave) onSave();
@@ -286,11 +308,13 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                             <Input readOnly />
                         </StyledFormItem>
                     </Col>
-                    <Col span={12}>
-                        <StyledFormItem label="Ask ID" name="askid">
-                            <Input readOnly />
-                        </StyledFormItem>
-                    </Col>
+                    {(!isNew && (skill as any)?.askid && String((skill as any).askid) !== String((skill as any).id)) && (
+                        <Col span={12}>
+                            <StyledFormItem label="DB ID" name="askid">
+                                <Input readOnly />
+                            </StyledFormItem>
+                        </Col>
+                    )}
                     <Col span={12}>
                         <StyledFormItem label={t('common.name', 'Name')} name="name" rules={[{ required: true }]}>
                             <Input placeholder={t('pages.skills.namePlaceholder', 'Enter skill name')} />

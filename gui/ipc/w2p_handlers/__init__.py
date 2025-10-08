@@ -9,5 +9,6 @@ for loader, name, is_pkg in pkgutil.walk_packages(__path__):
 try:
     from . import node_state_schema_handler  # noqa: F401
     from . import agent_handler  # noqa: F401 - 确保 agent_handler 被导入
+    from . import skill_handler  # noqa: F401 - 确保 skill_handler 被导入（new_skill/save_skill）
 except Exception:
     pass
