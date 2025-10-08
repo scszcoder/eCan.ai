@@ -82,8 +82,9 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
     try:
         # we really shouldn't send the reponse back here, instead we should update state and other node takes care of what to do with the results.
         post_hook_result = None
+        state["result"] = response
         state["metadata"] = _deep_merge(state["metadata"], response["llm_result"].get("meta_data", {}))
-        state["messages"].append(f"llm:{response["llm_result"].get('message', '')}")
+        state["messages"].append(f"llm:{response["llm_result"].get('casual_chat_response', '')}")
         logger.debug(f"standard_post_llm_hook: {post_hook_result}")
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPostLLMHook")
@@ -170,12 +171,12 @@ def run_post_llm_hook(node_name, agent, state, response):
         this_skill = next((sk for sk in mainwin.agent_skills if sk.name == skill_name), None)
         askid = this_skill.askid
         # first run standard stuff, then then the individual func for a specific skill node.
-        state["result"] = standard_post_llm_func(askid, node_name, state, response)
+        parsed_response = standard_post_llm_func(askid, node_name, state, response)
 
-        print("post llm hook  name:", node_name, askid, state["result"])
+        print("post llm hook  name:", node_name, askid, parsed_response)
         # Try exact match first
         if node_name in POST_LLM_HOOKS_TABLE:
-            return POST_LLM_HOOKS_TABLE[node_name](askid, node_name, agent, state, response)
+            return POST_LLM_HOOKS_TABLE[node_name](askid, node_name, agent, state, parsed_response)
         # Fallback to case-insensitive lookup
         lower_map = {k.lower(): v for k, v in POST_LLM_HOOKS_TABLE.items()}
         key_lower = node_name.lower() if isinstance(node_name, str) else node_name
@@ -229,7 +230,7 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         print("chat node: LLM response:", response)
         # Parse the response
         run_post_llm_hook(full_node_name, agent, state, response)
-        print("llm_node_with_raw_file exiting.....", state)
+        print("llm_node_with_raw_file finished.....", state)
         return state
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPreLLMHook")

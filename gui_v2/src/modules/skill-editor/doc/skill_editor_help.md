@@ -226,7 +226,7 @@ Start emits initial values; End collects and displays final outputs.
 
 ### Pend For Event
 
-- This node generates an interrupt and break out of the workflow (critical to create i_tag field/attribute under interrupt object, in our case, this is automatically done using node name as the tag),
+- This node generates an interrupt and break out of the workflow (critical to create i_tag field/attribute under interrupt object, in our case, this is automatically done using node name as the tag, however this doesn't have to be the case, you can tag it to anything you like),
 - will resume until designated event occurs.
 - Example: timer based wait (expiration event), human/agent in the loop (human/agent feedback received event), time consuming API calling(call back received event), pub/sub websocket (push message received event), web sse (server send event received event)
 - Note: it is critical to have event orginator carry the i_tag, so that when event occurs, it carries the exact i_tag associated with the interrupted noded that's pending for this event, and we can therefore resume from where we were left off.
