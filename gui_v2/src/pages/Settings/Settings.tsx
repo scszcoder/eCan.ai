@@ -2,12 +2,27 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, Form, Select, Switch, Button, App, Input, Row, Col } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
+import styled from '@emotion/styled';
 
 import { useUserStore } from '../../stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 
 import type { Settings } from './types';
 import { LLMManagement } from './components';
+import { StyledFormItem, StyledCard, FormContainer, ButtonContainer, buttonStyle } from '@/components/Common/StyledForm';
+
+const SettingsContainer = styled.div`
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+`;
+
+const SettingsContent = styled.div`
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+`;
 
 const initialSettings: Settings = {
   schedule_mode: 'auto',
@@ -171,19 +186,20 @@ const Settings: React.FC = () => {
   }, [username, loadSettings]);
 
   return (
-    <div style={{ padding: '20px' }}>
-      <Card
-        title={t('common.settings')}
-        extra={
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={handleReload}
-            loading={loading}
-          >
-            {t('common.reload')}
-          </Button>
-        }
-      >
+    <SettingsContainer>
+      <SettingsContent>
+        <Card
+          title={t('common.settings')}
+          extra={
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={handleReload}
+              loading={loading}
+            >
+              {t('common.reload')}
+            </Button>
+          }
+        >
         <Form
           key={formKey}
           form={form}
@@ -201,17 +217,17 @@ const Settings: React.FC = () => {
           >
             <Row gutter={[16, 4]}>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="debug_mode"
                   label={t('pages.settings.debug_mode')}
                   valuePropName="checked"
                   style={{ marginBottom: '8px' }}
                 >
                   <Switch size="small" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="schedule_mode"
                   label={t('pages.settings.schedule_mode')}
                   style={{ marginBottom: '8px' }}
@@ -221,7 +237,7 @@ const Settings: React.FC = () => {
                     <Select.Option value="manual">Manual</Select.Option>
                     <Select.Option value="test">Test</Select.Option>
                   </Select>
-                </Form.Item>
+                </StyledFormItem>
               </Col>
             </Row>
           </Card>
@@ -235,25 +251,25 @@ const Settings: React.FC = () => {
           >
             <Row gutter={[16, 4]}>
               <Col span={8}>
-                <Form.Item
+                <StyledFormItem
                   name="default_wifi"
                   label={t('pages.settings.default_wifi')}
                   style={{ marginBottom: '8px' }}
                 >
                   <Input size="small" placeholder="Enter default WiFi" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={8}>
-                <Form.Item
+                <StyledFormItem
                   name="default_printer"
                   label={t('pages.settings.default_printer')}
                   style={{ marginBottom: '8px' }}
                 >
                   <Input size="small" placeholder="Enter default printer" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={8}>
-                <Form.Item
+                <StyledFormItem
                   name="display_resolution"
                   label={t('pages.settings.display_resolution')}
                   style={{ marginBottom: '8px' }}
@@ -263,7 +279,7 @@ const Settings: React.FC = () => {
                     <Select.Option value="D2560X1440">2560x1440</Select.Option>
                     <Select.Option value="D3840X2160">3840x2160</Select.Option>
                   </Select>
-                </Form.Item>
+                </StyledFormItem>
               </Col>
             </Row>
           </Card>
@@ -277,7 +293,7 @@ const Settings: React.FC = () => {
           >
             <Row gutter={[16, 4]}>
               <Col span={8}>
-                <Form.Item
+                <StyledFormItem
                   name="img_engine"
                   label={t('pages.settings.img_engine')}
                   style={{ marginBottom: '8px' }}
@@ -286,10 +302,10 @@ const Settings: React.FC = () => {
                     <Select.Option value="lan">LAN</Select.Option>
                     <Select.Option value="wan">WAN</Select.Option>
                   </Select>
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={8}>
-                <Form.Item
+                <StyledFormItem
                   name="schedule_engine"
                   label={t('pages.settings.schedule_engine')}
                   style={{ marginBottom: '8px' }}
@@ -298,16 +314,16 @@ const Settings: React.FC = () => {
                     <Select.Option value="lan">LAN</Select.Option>
                     <Select.Option value="wan">WAN</Select.Option>
                   </Select>
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={8}>
-                <Form.Item
+                <StyledFormItem
                   name="local_server_port"
                   label={t('pages.settings.local_server_port')}
                   style={{ marginBottom: '8px' }}
                 >
                   <Input size="small" placeholder="Enter local server port" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
             </Row>
           </Card>
@@ -321,58 +337,58 @@ const Settings: React.FC = () => {
           >
             <Row gutter={[16, 4]}>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="default_webdriver_path"
                   label={t('pages.settings.default_webdriver_path')}
                   style={{ marginBottom: '6px' }}
                 >
                   <Input size="small" placeholder="Enter webdriver path" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="build_dom_tree_script_path"
                   label={t('pages.settings.build_dom_tree_script_path')}
                   style={{ marginBottom: '6px' }}
                 >
                   <Input size="small" placeholder="Enter DOM tree script path" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="browser_use_file_system_path"
                   label={t('pages.settings.browser_use_file_system_path')}
                   style={{ marginBottom: '6px' }}
                 >
                   <Input size="small" placeholder="Enter browser file system path" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="new_orders_dir"
                   label={t('pages.settings.new_orders_dir')}
                   style={{ marginBottom: '6px' }}
                 >
                   <Input size="small" placeholder="Enter new orders directory" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="new_orders_path"
                   label={t('pages.settings.new_orders_path')}
                   style={{ marginBottom: '6px' }}
                 >
                   <Input size="small" placeholder="Enter new orders path" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="new_bots_file_path"
                   label={t('pages.settings.new_bots_file_path')}
                   style={{ marginBottom: '6px' }}
                 >
                   <Input size="small" placeholder="Enter new bots file path" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
             </Row>
           </Card>
@@ -386,40 +402,40 @@ const Settings: React.FC = () => {
           >
             <Row gutter={[16, 4]}>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="local_user_db_host"
                   label={t('pages.settings.local_user_db_host')}
                   style={{ marginBottom: '8px' }}
                 >
                   <Input size="small" placeholder="Enter user DB host" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="local_user_db_port"
                   label={t('pages.settings.local_user_db_port')}
                   style={{ marginBottom: '8px' }}
                 >
                   <Input size="small" placeholder="Enter user DB port" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="local_agent_db_host"
                   label={t('pages.settings.local_agent_db_host')}
                   style={{ marginBottom: '8px' }}
                 >
                   <Input size="small" placeholder="Enter agent DB host" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="local_agent_db_port"
                   label={t('pages.settings.local_agent_db_port')}
                   style={{ marginBottom: '8px' }}
                 >
                   <Input size="small" placeholder="Enter agent DB port" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
             </Row>
           </Card>
@@ -433,40 +449,40 @@ const Settings: React.FC = () => {
           >
             <Row gutter={[16, 4]}>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="lan_api_endpoint"
                   label={t('pages.settings.lan_api_endpoint')}
                   style={{ marginBottom: '8px' }}
                 >
                   <Input size="small" placeholder="Enter LAN API endpoint" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="wan_api_endpoint"
                   label={t('pages.settings.wan_api_endpoint')}
                   style={{ marginBottom: '8px' }}
                 >
                   <Input size="small" placeholder="Enter WAN API endpoint" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="ws_api_endpoint"
                   label={t('pages.settings.ws_api_endpoint')}
                   style={{ marginBottom: '8px' }}
                 >
                   <Input size="small" placeholder="Enter WebSocket API endpoint" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="wan_api_key"
                   label={t('pages.settings.wan_api_key')}
                   style={{ marginBottom: '8px' }}
                 >
                   <Input.Password size="small" placeholder="Enter WAN API key" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
             </Row>
           </Card>
@@ -480,40 +496,40 @@ const Settings: React.FC = () => {
           >
             <Row gutter={[16, 4]}>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="last_bots_file"
                   label={t('pages.settings.last_bots_file')}
                   style={{ marginBottom: '8px' }}
                 >
                   <Input size="small" placeholder="Enter last bots file" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="last_order_file"
                   label={t('pages.settings.last_order_file')}
                   style={{ marginBottom: '8px' }}
                 >
                   <Input size="small" placeholder="Enter last order file" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="gui_flowgram_schema"
                   label={t('pages.settings.gui_flowgram_schema')}
                   style={{ marginBottom: '8px' }}
                 >
                   <Input size="small" placeholder="Enter GUI flowgram schema" />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
               <Col span={12}>
-                <Form.Item
+                <StyledFormItem
                   name="default_llm"
                   label={t('pages.settings.default_llm')}
                   style={{ marginBottom: '8px' }}
                 >
                   <Input size="small" placeholder="Default LLM (managed by LLM Management below)" disabled />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
             </Row>
           </Card>
@@ -529,7 +545,7 @@ const Settings: React.FC = () => {
 
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item
+              <StyledFormItem
                 name="local_agent_ports"
                 label={t('pages.settings.local_agent_ports')}
                 tooltip="Comma-separated port numbers (e.g., 3600,3800)"
@@ -542,29 +558,29 @@ const Settings: React.FC = () => {
                     form.setFieldValue('local_agent_ports', ports);
                   }}
                 />
-              </Form.Item>
+              </StyledFormItem>
             </Col>
             <Col span={12}>
-              <Form.Item
+              <StyledFormItem
                 name="last_bots_file_time"
                 label={t('pages.settings.last_bots_file_time')}
               >
                 <Input type="number" placeholder="Last bots file timestamp" />
-              </Form.Item>
+              </StyledFormItem>
             </Col>
           </Row>
 
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item
+              <StyledFormItem
                 name="last_order_file_time"
                 label={t('pages.settings.last_order_file_time')}
               >
                 <Input type="number" placeholder="Last order file timestamp" />
-              </Form.Item>
+              </StyledFormItem>
             </Col>
             <Col span={12}>
-              <Form.Item
+              <StyledFormItem
                 name="mids_forced_to_run"
                 label={t('pages.settings.mids_forced_to_run')}
                 tooltip="JSON array format (e.g., [1,2,3])"
@@ -588,26 +604,27 @@ const Settings: React.FC = () => {
                     }
                   }}
                 />
-              </Form.Item>
+              </StyledFormItem>
             </Col>
           </Row>
 
-          <Form.Item>
+          <StyledFormItem>
             <Button type="primary" htmlType="submit" loading={loading}>
               {t('common.save')}
             </Button>
-          </Form.Item>
+          </StyledFormItem>
         </Form>
       </Card>
 
-      {/* 🎯 New independent LLM management component */}
-      <LLMManagement
-        username={username}
-        defaultLLM={settingsData?.default_llm || ''}
-        settingsLoaded={settingsLoaded}
-        onDefaultLLMChange={handleDefaultLLMChange}
-      />
-    </div>
+        {/* 🎯 New independent LLM management component */}
+        <LLMManagement
+          username={username}
+          defaultLLM={settingsData?.default_llm || ''}
+          settingsLoaded={settingsLoaded}
+          onDefaultLLMChange={handleDefaultLLMChange}
+        />
+      </SettingsContent>
+    </SettingsContainer>
   );
 };
 

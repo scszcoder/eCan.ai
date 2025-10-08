@@ -242,6 +242,7 @@ const Console: React.FC = () => {
             <Space direction="vertical" style={{ width: '100%' }}>
                 <DetailCard
                     title={t('pages.console.vehicleInformation')}
+                    columns={2}
                     items={[
                         {
                             label: t('pages.console.name'),
@@ -267,6 +268,7 @@ const Console: React.FC = () => {
                 />
                 <DetailCard
                     title={t('pages.console.performanceMetrics')}
+                    columns={2}
                     items={[
                         {
                             label: t('pages.console.batteryLevel'),

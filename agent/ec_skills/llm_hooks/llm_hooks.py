@@ -84,7 +84,7 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
         post_hook_result = None
         state["result"] = response
         state["metadata"] = _deep_merge(state["metadata"], response["llm_result"].get("meta_data", {}))
-        state["messages"].append(f"llm:{response["llm_result"].get('casual_chat_response', '')}")
+        state["messages"].append(f"llm:{response['llm_result'].get('casual_chat_response', '')}")
         logger.debug(f"standard_post_llm_hook: {post_hook_result}")
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPostLLMHook")

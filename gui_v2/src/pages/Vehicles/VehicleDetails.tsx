@@ -17,7 +17,8 @@ const DetailContent = styled.div`
   width: 100%;
   height: 100%;
   overflow-y: auto;
-  padding: 16px;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.2);
 `;
 
 const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange, onMaintenance, t }) => {
@@ -26,10 +27,11 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
     }
     return (
         <DetailContent>
-            <Space direction="vertical" style={{ width: '100%' }}>
+            <Space direction="vertical" style={{ width: '100%' }} size={24}>
                 {/* 新增：基础信息卡片 */}
                 <DetailCard
                     title={t('pages.vehicles.basicInfo')}
+                    columns={2}
                     items={[
                         { label: 'ID', value: vehicle.id },
                         { label: 'IP', value: vehicle.ip },
@@ -48,16 +50,17 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
                 {/* 原有车辆信息卡片 */}
                 <DetailCard
                     title={t('pages.vehicles.vehicleInformation')}
+                    columns={2}
                     items={[
                         {
                             label: t('pages.vehicles.name'),
                             value: vehicle.name,
-                            icon: <ClusterOutlined />, 
+                            icon: <ClusterOutlined />,
                         },
                         {
                             label: t('pages.vehicles.type'),
                             value: vehicle.type,
-                            icon: <ClusterOutlined />, 
+                            icon: <ClusterOutlined />,
                         },
                         {
                             label: t('pages.vehicles.statusLabel'),
@@ -67,13 +70,14 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
                         {
                             label: t('pages.vehicles.location'),
                             value: vehicle.location,
-                            icon: <EnvironmentOutlined />, 
+                            icon: <EnvironmentOutlined />,
                         },
                     ]}
                 />
                 {/* 性能指标卡片 */}
                 <DetailCard
                     title={t('pages.vehicles.performanceMetrics')}
+                    columns={2}
                     items={[
                         {
                             label: t('pages.vehicles.batteryLevel'),
@@ -85,7 +89,7 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
                                     valueStyle={{ color: vehicle.battery && vehicle.battery < 20 ? '#cf1322' : '#3f8600' }}
                                 />
                             ),
-                            icon: <ThunderboltOutlined />, 
+                            icon: <ThunderboltOutlined />,
                         },
                         {
                             label: 'CPU使用率',
@@ -97,7 +101,7 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
                                     valueStyle={{ color: vehicle.cpuUsage && vehicle.cpuUsage > 80 ? '#cf1322' : '#3f8600' }}
                                 />
                             ),
-                            icon: <ClusterOutlined />, 
+                            icon: <ClusterOutlined />,
                         },
                         {
                             label: '内存使用率',
@@ -109,7 +113,7 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
                                     valueStyle={{ color: vehicle.memoryUsage && vehicle.memoryUsage > 80 ? '#cf1322' : '#3f8600' }}
                                 />
                             ),
-                            icon: <ClusterOutlined />, 
+                            icon: <ClusterOutlined />,
                         },
                         {
                             label: '磁盘使用率',
@@ -121,7 +125,7 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
                                     valueStyle={{ color: vehicle.diskUsage && vehicle.diskUsage > 90 ? '#cf1322' : '#3f8600' }}
                                 />
                             ),
-                            icon: <ClusterOutlined />, 
+                            icon: <ClusterOutlined />,
                         },
                     ]}
                 />
@@ -129,6 +133,7 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
                 {/* 设备状态卡片 */}
                 <DetailCard
                     title="设备状态"
+                    columns={2}
                     items={[
                         {
                             label: '网络状态',
@@ -148,12 +153,12 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
                                     suffix="km"
                                 />
                             ),
-                            icon: <ClusterOutlined />, 
+                            icon: <ClusterOutlined />,
                         },
                         {
                             label: t('pages.vehicles.currentTask'),
                             value: vehicle.currentTask || '无',
-                            icon: <ToolOutlined />, 
+                            icon: <ToolOutlined />,
                         },
                     ]}
                 />

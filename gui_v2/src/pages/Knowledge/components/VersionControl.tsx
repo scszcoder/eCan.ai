@@ -123,12 +123,13 @@ const VersionControl: React.FC<VersionControlProps> = ({
       <div style={{ display: 'flex', gap: 16 }}>
         <div style={{ flex: 1 }}>
           <Card title={`版本 ${compareVersion.version} (${compareVersion.createdAt})`} size="small">
-            <div style={{ 
-              padding: 16, 
-              backgroundColor: '#f5f5f5', 
+            <div style={{
+              padding: 16,
+              backgroundColor: '#f5f5f5',
               borderRadius: 6,
               maxHeight: 400,
-              overflow: 'auto'
+              overflowX: 'hidden',
+              overflowY: 'auto'
             }}>
               <Paragraph>{compareVersion.content}</Paragraph>
             </div>
@@ -136,12 +137,13 @@ const VersionControl: React.FC<VersionControlProps> = ({
         </div>
         <div style={{ flex: 1 }}>
           <Card title={`当前版本 ${currentVersion.version} (${currentVersion.createdAt})`} size="small">
-            <div style={{ 
-              padding: 16, 
-              backgroundColor: '#f5f5f5', 
+            <div style={{
+              padding: 16,
+              backgroundColor: '#f5f5f5',
               borderRadius: 6,
               maxHeight: 400,
-              overflow: 'auto'
+              overflowX: 'hidden',
+              overflowY: 'auto'
             }}>
               <Paragraph>{currentVersion.content}</Paragraph>
             </div>
@@ -279,12 +281,13 @@ const VersionControl: React.FC<VersionControlProps> = ({
                   <Paragraph>{selectedVersion.description}</Paragraph>
                 </div>
                 <Divider />
-                <div style={{ 
-                  padding: 16, 
-                  backgroundColor: '#f8f9fa', 
+                <div style={{
+                  padding: 16,
+                  backgroundColor: '#f8f9fa',
                   borderRadius: 6,
                   maxHeight: 400,
-                  overflow: 'auto'
+                  overflowX: 'hidden',
+                  overflowY: 'auto'
                 }}>
                   <Paragraph>{selectedVersion.content}</Paragraph>
                 </div>

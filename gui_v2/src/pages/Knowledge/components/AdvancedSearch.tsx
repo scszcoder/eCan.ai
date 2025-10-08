@@ -440,7 +440,7 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
             </Title>
           </div>
 
-          <div style={{ maxHeight: 600, overflow: 'auto' }}>
+          <div style={{ maxHeight: 600, overflowX: 'hidden', overflowY: 'auto' }}>
             {searchResults.map((result) => (
               <Card 
                 key={result.id} 
