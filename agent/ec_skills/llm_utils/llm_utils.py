@@ -352,6 +352,7 @@ def _fallback_llm_selection(country):
 
 
 def get_standard_prompt(state:NodeState) -> NodeState:
+    logger.debug("get_standard_prompt===>", state)
     boss = "Guest User"
     standard_prompt_template = [
                 ("system", """
