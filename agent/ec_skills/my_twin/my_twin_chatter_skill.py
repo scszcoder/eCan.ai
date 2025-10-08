@@ -143,14 +143,14 @@ def parrot(state: NodeState) -> NodeState:
 #
 TWIN_CHATTER_MAPPING_RULES = [
           {
-            "from": ["event.data.params", "event.data.metadata.params"],
+            "from": ["event.data.params", "event.data.params.metadata.params"],
             "to": [
               {"target": "state.attributes.params"}
             ],
             "on_conflict": "overwrite"
           },
           {
-            "from": ["event.data.method", "event.data.metadata.method"],
+            "from": ["event.data.method", "event.data.params.metadata.method"],
             "to": [
               {"target": "state.attributes.method"}
             ],

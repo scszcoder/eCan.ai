@@ -21,13 +21,14 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state):
         # mm_content = prep_multi_modal_content(state, runtime)
 
         state["prompts"] = nodes_prompts[0]
-        print("state prompts:", state["prompts"])
+        print("state prompts:", state["input"], nodes_prompts)
+        print("standard_pre_llm_hook current stete:", state)
         langchain_prompt = ChatPromptTemplate.from_messages(state["prompts"])
-        formatted_prompt = langchain_prompt.format_messages(boss_name = "Guest User", human_input=state["input"])
+        formatted_prompt = langchain_prompt.format_messages(boss_name = "Guest User", human_input=state["messages"][-1])
         print("state:", state)
         state["formatted_prompts"].append(formatted_prompt)
 
-        logger.debug(f"standard_pre_llm_hook: {full_node_name} prompts: {nodes_prompts}")
+        logger.debug(f"standard_pre_llm_hook: {full_node_name} prompts: {formatted_prompt}")
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPreLLMHook")
         logger.debug(err_trace)
