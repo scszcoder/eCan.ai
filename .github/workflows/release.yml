@@ -863,18 +863,220 @@ jobs:
 
 
 
-  # Create Release
-  create-release:
+  # Upload to AWS S3
+  upload-to-s3:
     needs: [validate-tag, build-windows, build-macos]
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
-      startsWith(github.ref, 'refs/tags/v') &&
       (
         (github.event.inputs.platform == 'windows' && needs.build-windows.result == 'success') ||
         (github.event.inputs.platform == 'macos' && needs.build-macos.result == 'success') ||
         (github.event.inputs.platform == 'all' && needs.build-windows.result == 'success' && needs.build-macos.result == 'success') ||
         (github.event.inputs.platform == null && needs.build-windows.result == 'success' && needs.build-macos.result == 'success')
       )
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || 'NOT_SET' }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY || 'NOT_SET' }}
+      AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+      S3_BUCKET: ${{ secrets.S3_BUCKET || 'NOT_SET' }}
+      S3_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'releases' }}
+    outputs:
+      s3_base_url: ${{ steps.upload.outputs.s3_base_url }}
+
+    steps:
+    - name: Check AWS credentials
+      run: |
+        echo "=== Checking AWS S3 Configuration ==="
+        if [ "$AWS_ACCESS_KEY_ID" != "NOT_SET" ] && [ "$AWS_SECRET_ACCESS_KEY" != "NOT_SET" ] && [ "$S3_BUCKET" != "NOT_SET" ]; then
+          echo "AWS credentials: Available"
+          echo "S3 bucket: $S3_BUCKET"
+          echo "AWS region: $AWS_REGION"
+          echo "S3 base path: $S3_BASE_PATH"
+          echo "S3 upload: Enabled"
+        else
+          echo "AWS credentials: Not available"
+          echo "S3 upload: Disabled"
+          echo "Note: Set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and S3_BUCKET secrets to enable S3 upload"
+          exit 1
+        fi
+
+    - name: Download Windows artifacts
+      if: |
+        github.event.inputs.platform == 'windows' ||
+        github.event.inputs.platform == 'all' ||
+        github.event.inputs.platform == null
+      uses: actions/download-artifact@v4
+      with:
+        name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
+        path: windows-artifacts
+
+    - name: Download macOS amd64 artifacts
+      if: |
+        (github.event.inputs.platform == 'macos' ||
+         github.event.inputs.platform == 'all' ||
+         github.event.inputs.platform == null) &&
+        (github.event.inputs.arch == 'amd64' ||
+         github.event.inputs.arch == 'all' ||
+         github.event.inputs.arch == null)
+      uses: actions/download-artifact@v4
+      with:
+        name: eCan-macOS-amd64-${{ needs.validate-tag.outputs.version }}
+        path: macos-artifacts
+      continue-on-error: true
+
+    - name: Download macOS aarch64 artifacts
+      if: |
+        (github.event.inputs.platform == 'macos' ||
+         github.event.inputs.platform == 'all' ||
+         github.event.inputs.platform == null) &&
+        (github.event.inputs.arch == 'aarch64' ||
+         github.event.inputs.arch == 'all' ||
+         github.event.inputs.arch == null)
+      uses: actions/download-artifact@v4
+      with:
+        name: eCan-macOS-aarch64-${{ needs.validate-tag.outputs.version }}
+        path: macos-artifacts
+      continue-on-error: true
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Upload artifacts to S3
+      id: upload
+      run: |
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        S3_VERSION_PATH="${S3_BASE_PATH}/v${VERSION}"
+        
+        echo "=== Uploading artifacts to S3 ==="
+        echo "S3 bucket: $S3_BUCKET"
+        echo "S3 path: $S3_VERSION_PATH"
+        
+        # Create organized directory structure
+        mkdir -p upload/{windows,macos,checksums}
+        
+        # Copy Windows artifacts
+        if [ -d "windows-artifacts" ]; then
+          echo "Copying Windows artifacts..."
+          cp windows-artifacts/*.exe upload/windows/ 2>/dev/null || true
+          cp windows-artifacts/*.msi upload/windows/ 2>/dev/null || true
+        fi
+        
+        # Copy macOS artifacts
+        if [ -d "macos-artifacts" ]; then
+          echo "Copying macOS artifacts..."
+          cp macos-artifacts/*.pkg upload/macos/ 2>/dev/null || true
+          cp macos-artifacts/*.zip upload/macos/ 2>/dev/null || true
+        fi
+        
+        # Generate SHA256 checksums
+        echo "=== Generating checksums ==="
+        cd upload
+        find . -type f \( -name "*.exe" -o -name "*.msi" -o -name "*.pkg" -o -name "*.zip" \) -exec sha256sum {} \; > checksums/SHA256SUMS
+        cat checksums/SHA256SUMS
+        cd ..
+        
+        # Upload to S3 (bucket policy controls public access)
+        echo "=== Uploading to S3 ==="
+        aws s3 sync upload/ s3://${S3_BUCKET}/${S3_VERSION_PATH}/ \
+          --cache-control "max-age=31536000" \
+          --metadata "version=${VERSION}"
+        
+        # Upload to latest directory (for easy access to latest version)
+        echo "=== Updating latest version ==="
+        aws s3 sync upload/ s3://${S3_BUCKET}/${S3_BASE_PATH}/latest/ \
+          --cache-control "max-age=300" \
+          --metadata "version=${VERSION}"
+        
+        # Set output for S3 base URL
+        S3_BASE_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_VERSION_PATH}"
+        echo "s3_base_url=${S3_BASE_URL}" >> $GITHUB_OUTPUT
+        
+        echo "=== Upload completed ==="
+        echo ""
+        echo "S3 Upload Successful!"
+        echo ""
+        echo "Download URLs:"
+        echo "================================================================"
+        echo ""
+        echo "Base URL:"
+        echo "   ${S3_BASE_URL}"
+        echo ""
+        echo "Windows Installers:"
+        echo "   ${S3_BASE_URL}/windows/eCan-${VERSION}-windows-amd64-Setup.exe"
+        echo "   ${S3_BASE_URL}/windows/eCan-${VERSION}-windows-amd64.exe"
+        echo ""
+        echo "macOS Installers:"
+        echo "   ${S3_BASE_URL}/macos/eCan-${VERSION}-macos-amd64.pkg"
+        echo "   ${S3_BASE_URL}/macos/eCan-${VERSION}-macos-aarch64.pkg"
+        echo ""
+        echo "Checksums:"
+        echo "   ${S3_BASE_URL}/checksums/SHA256SUMS"
+        echo ""
+        echo "Version Metadata:"
+        echo "   ${S3_BASE_URL}/version-metadata.json"
+        echo ""
+        echo "================================================================"
+
+    - name: Create version metadata
+      run: |
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        S3_VERSION_PATH="${S3_BASE_PATH}/v${VERSION}"
+        
+        # Create metadata JSON
+        cat > version-metadata.json <<EOF
+        {
+          "version": "${VERSION}",
+          "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+          "tag": "v${VERSION}",
+          "is_branch": ${{ needs.validate-tag.outputs.is-branch }},
+          "ref_name": "${{ needs.validate-tag.outputs.ref-name }}",
+          "s3_base_url": "${{ steps.upload.outputs.s3_base_url }}",
+          "files": {
+            "windows": [],
+            "macos": []
+          }
+        }
+        EOF
+        
+        # Add Windows files to metadata
+        if [ -d "upload/windows" ]; then
+          for file in upload/windows/*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file")
+              jq ".files.windows += [{\"name\": \"$filename\", \"size\": $size, \"url\": \"${{ steps.upload.outputs.s3_base_url }}/windows/$filename\"}]" version-metadata.json > tmp.json && mv tmp.json version-metadata.json
+            fi
+          done
+        fi
+        
+        # Add macOS files to metadata
+        if [ -d "upload/macos" ]; then
+          for file in upload/macos/*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file")
+              jq ".files.macos += [{\"name\": \"$filename\", \"size\": $size, \"url\": \"${{ steps.upload.outputs.s3_base_url }}/macos/$filename\"}]" version-metadata.json > tmp.json && mv tmp.json version-metadata.json
+            fi
+          done
+        fi
+        
+        # Upload metadata to S3
+        aws s3 cp version-metadata.json s3://${S3_BUCKET}/${S3_VERSION_PATH}/version-metadata.json \
+          --content-type "application/json"
+        
+        echo "Version metadata uploaded to: ${{ steps.upload.outputs.s3_base_url }}/version-metadata.json"
+
+  # Create Release (optional, for GitHub releases)
+  create-release:
+    needs: [validate-tag, upload-to-s3]
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
 
     steps:
@@ -946,25 +1148,30 @@ jobs:
           
           This is the latest version of eCan AI Assistant with new features and improvements.
           
-          ##  Download Links
+          ##  Download Links (AWS S3)
+          
+          **Primary Download Location**: [AWS S3](${{ needs.upload-to-s3.outputs.s3_base_url }})
           
           ### Windows Users
-          - **Installer**: `eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe` (Recommended)
-          - **Portable**: `eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe`
+          - **Installer**: [${{ needs.upload-to-s3.outputs.s3_base_url }}/windows/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe](${{ needs.upload-to-s3.outputs.s3_base_url }}/windows/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe) (Recommended)
+          - **Portable**: [${{ needs.upload-to-s3.outputs.s3_base_url }}/windows/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe](${{ needs.upload-to-s3.outputs.s3_base_url }}/windows/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe)
           
           ### macOS Users
-          - **PKG Installer**: `eCan-${{ needs.validate-tag.outputs.version }}-macos-*.pkg` (Recommended)
-          - **ZIP Archive**: `eCan-${{ needs.validate-tag.outputs.version }}-macos-*.zip`
+          - **PKG Installer (Intel)**: [${{ needs.upload-to-s3.outputs.s3_base_url }}/macos/eCan-${{ needs.validate-tag.outputs.version }}-macos-amd64.pkg](${{ needs.upload-to-s3.outputs.s3_base_url }}/macos/eCan-${{ needs.validate-tag.outputs.version }}-macos-amd64.pkg)
+          - **PKG Installer (Apple Silicon)**: [${{ needs.upload-to-s3.outputs.s3_base_url }}/macos/eCan-${{ needs.validate-tag.outputs.version }}-macos-aarch64.pkg](${{ needs.upload-to-s3.outputs.s3_base_url }}/macos/eCan-${{ needs.validate-tag.outputs.version }}-macos-aarch64.pkg)
+          
+          ### Checksums
+          - **SHA256SUMS**: [${{ needs.upload-to-s3.outputs.s3_base_url }}/checksums/SHA256SUMS](${{ needs.upload-to-s3.outputs.s3_base_url }}/checksums/SHA256SUMS)
           
           ##  Installation Instructions
           
           ### Windows
-          1. Download the `eCan-*-Setup.exe` installer
+          1. Download the `eCan-*-Setup.exe` installer from S3
           2. Run the installer and follow the prompts to complete installation
           3. Launch the application from Start Menu or desktop shortcut
           
           ### macOS
-          1. Download the `.pkg` installer package
+          1. Download the `.pkg` installer package from S3
           2. Double-click the package and follow the prompts to complete installation
           3. Launch eCan from the Applications folder
           
@@ -982,12 +1189,13 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Generate and publish appcast after Release is created (ensures final URLs and sizes)
+  # Generate and publish appcast using S3 URLs
   publish-appcast:
-    needs: [validate-tag, create-release]
+    needs: [validate-tag, upload-to-s3]
     runs-on: ubuntu-latest
     env:
       ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY || 'NOT_SET' }}
+      S3_BASE_URL: ${{ needs.upload-to-s3.outputs.s3_base_url }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -1003,6 +1211,7 @@ jobs:
           else
             echo "ED25519_PRIVATE_KEY: Not available - Appcast generation disabled"
           fi
+          echo "S3 Base URL: ${S3_BASE_URL}"
 
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
@@ -1050,13 +1259,14 @@ jobs:
           python - <<'PY'
           import os, glob
           from build_system.generate_appcast import main
+          s3_base_url = os.environ.get('S3_BASE_URL', '')
           assets = []
           for pat in ('macos-artifacts/*amd64*.pkg','macos-artifacts/*amd64*.zip','macos-artifacts/*x86_64*.pkg','macos-artifacts/*x86_64*.zip','macos-artifacts/*x64*.pkg','macos-artifacts/*x64*.zip'):
               for p in glob.glob(pat):
                   name = os.path.basename(p)
-                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
+                  url = f"{s3_base_url}/macos/{name}"
                   size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
+                  assets.append({'name': name, 'browser_download_url': url, 'size': size, 'local_path': p})
           release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
           main(release, platform_filter='macos', arch_filter='amd64', output_path='dist/appcast/appcast-macos-amd64.xml')
           PY
@@ -1070,13 +1280,14 @@ jobs:
           python - <<'PY'
           import os, glob
           from build_system.generate_appcast import main
+          s3_base_url = os.environ.get('S3_BASE_URL', '')
           assets = []
           for pat in ('macos-artifacts/*aarch64*.pkg','macos-artifacts/*aarch64*.zip','macos-artifacts/*arm64*.pkg','macos-artifacts/*arm64*.zip'):
               for p in glob.glob(pat):
                   name = os.path.basename(p)
-                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
+                  url = f"{s3_base_url}/macos/{name}"
                   size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
+                  assets.append({'name': name, 'browser_download_url': url, 'size': size, 'local_path': p})
           release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
           main(release, platform_filter='macos', arch_filter='aarch64', output_path='dist/appcast/appcast-macos-aarch64.xml')
           PY
@@ -1090,6 +1301,7 @@ jobs:
           python - <<'PY'
           import os, glob
           from build_system.generate_appcast import main
+          s3_base_url = os.environ.get('S3_BASE_URL', '')
           assets = []
           for pat in (
               'windows-artifacts/*amd64*.exe',
@@ -1101,9 +1313,9 @@ jobs:
           ):
               for p in glob.glob(pat):
                   name = os.path.basename(p)
-                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
+                  url = f"{s3_base_url}/windows/{name}"
                   size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
+                  assets.append({'name': name, 'browser_download_url': url, 'size': size, 'local_path': p})
           release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
           main(release, platform_filter='windows', arch_filter='amd64', output_path='dist/appcast/appcast-windows-amd64.xml')
           PY
@@ -1120,6 +1332,7 @@ jobs:
           python - <<'PY'
           import os, glob
           from build_system.generate_appcast import main
+          s3_base_url = os.environ.get('S3_BASE_URL', '')
           assets = []
           for pat in (
               'macos-artifacts/*.pkg',
@@ -1127,9 +1340,9 @@ jobs:
           ):
               for p in glob.glob(pat):
                   name = os.path.basename(p)
-                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
+                  url = f"{s3_base_url}/macos/{name}"
                   size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
+                  assets.append({'name': name, 'browser_download_url': url, 'size': size, 'local_path': p})
           release = {
               'tag_name': f"v${{ needs.validate-tag.outputs.version }}",
               'assets': assets,
@@ -1148,6 +1361,7 @@ jobs:
           python - <<'PY'
           import os, glob
           from build_system.generate_appcast import main
+          s3_base_url = os.environ.get('S3_BASE_URL', '')
           assets = []
           for pat in (
               'windows-artifacts/*.exe',
@@ -1155,9 +1369,9 @@ jobs:
           ):
               for p in glob.glob(pat):
                   name = os.path.basename(p)
-                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
+                  url = f"{s3_base_url}/windows/{name}"
                   size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
+                  assets.append({'name': name, 'browser_download_url': url, 'size': size, 'local_path': p})
           release = {
               'tag_name': f"v${{ needs.validate-tag.outputs.version }}",
               'assets': assets,
@@ -1174,6 +1388,31 @@ jobs:
           for f in dist/appcast/*.xml; do
             if [ ! -s "$f" ]; then echo "Removing empty feed: $f"; rm -f "$f"; fi
           done
+
+      - name: Upload appcasts to S3
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && hashFiles('dist/appcast/*.xml') != '' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          if [ "$AWS_ACCESS_KEY_ID" != "" ] && [ "$S3_BUCKET" != "" ]; then
+            echo "=== Uploading appcasts to S3 ==="
+            aws s3 sync dist/appcast/ s3://${S3_BUCKET}/appcast/ \
+              --cache-control "max-age=300" \
+              --content-type "application/xml" \
+              --exclude "*" \
+              --include "*.xml"
+            echo "Appcasts uploaded to S3"
+            echo "S3 Appcast URLs:"
+            for f in dist/appcast/*.xml; do
+              filename=$(basename "$f")
+              echo "  https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/${filename}"
+            done
+          else
+            echo "S3 credentials not configured, skipping S3 upload"
+          fi
 
       - name: Publish appcasts to gh-pages
         if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && hashFiles('dist/appcast/*.xml') != '' }}
@@ -1205,28 +1444,50 @@ jobs:
 
       - name: Show appcast URLs
         if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
         run: |
-          echo "Appcast (macOS aggregate):  https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos.xml"
-          echo "Appcast (Windows aggregate): https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-windows.xml"
-          echo "Appcast (macOS amd64):      https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos-amd64.xml"
-          echo "Appcast (macOS aarch64):    https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos-aarch64.xml"
-          echo "Appcast (Windows amd64):    https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-windows-amd64.xml"
+          echo "=== Appcast URLs ==="
+          echo ""
+          echo "GitHub Pages (Primary):"
+          echo "  macOS (aggregate):  https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos.xml"
+          echo "  Windows (aggregate): https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-windows.xml"
+          echo "  macOS (amd64):      https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos-amd64.xml"
+          echo "  macOS (aarch64):    https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos-aarch64.xml"
+          echo "  Windows (amd64):    https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-windows-amd64.xml"
+          echo ""
+          if [ -n "$S3_BUCKET" ]; then
+            echo "AWS S3 (Alternative):"
+            echo "  macOS (aggregate):  https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos.xml"
+            echo "  Windows (aggregate): https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-windows.xml"
+            echo "  macOS (amd64):      https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos-amd64.xml"
+            echo "  macOS (aarch64):    https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos-aarch64.xml"
+            echo "  Windows (amd64):    https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-windows-amd64.xml"
+          fi
+          echo ""
           echo "Note: Windows only supports amd64 architecture"
 
       - name: Final status summary
+        env:
+          S3_BASE_URL: ${{ needs.upload-to-s3.outputs.s3_base_url }}
         run: |
-          echo "=== Final Build Status Summary ==="
-          echo "Build completed successfully!"
           echo ""
-          echo "Environment Variables Status:"
-          echo "  ED25519_PRIVATE_KEY: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && 'Available' || 'Not Available' }}"
+          echo "================================================================"
+          echo "Build and Release Completed!"
+          echo "================================================================"
           echo ""
-          if [ "${ED25519_PRIVATE_KEY}" != "NOT_SET" ]; then
-            echo "Appcast generation: Enabled"
-            echo "OTA updates: Available"
-          else
-            echo "Appcast generation: Disabled (ED25519_PRIVATE_KEY not set)"
-            echo "OTA updates: Not available"
-            echo ""
-            echo "To enable OTA updates, set the ED25519_PRIVATE_KEY secret in your repository settings."
+          echo "Version: ${{ needs.validate-tag.outputs.version }}"
+          echo ""
+          echo "Status Check:"
+          echo "  - ED25519_PRIVATE_KEY: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && 'Configured' || 'Not Configured' }}"
+          echo "  - Appcast Generation: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && 'Enabled' || 'Disabled' }}"
+          echo "  - OTA Updates: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && 'Available' || 'Not Available' }}"
+          echo ""
+          if [ -n "${S3_BASE_URL}" ]; then
+            echo "Download URLs:"
+            echo "  S3: ${S3_BASE_URL}"
+            echo "  GitHub Pages: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos.xml"
           fi
+          echo ""
+          echo "================================================================"
