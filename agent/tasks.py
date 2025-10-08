@@ -25,6 +25,7 @@ from app_context import AppContext
 # from agent.chats.tests.test_notifications import *
 from langgraph.types import Interrupt
 from agent.ec_skills.dev_defs import BreakpointManager
+from agent.ec_skills.llm_utils.llm_utils import send_response_back
 from utils.logger_helper import logger_helper as logger
 
 from utils.logger_helper import get_traceback
@@ -312,7 +313,7 @@ class ManagedTask(Task):
 
             # Pass through any additional kwargs to astream
             step = {}
-
+            current_checkpoint = None
             for step in agen:
                 # print("synced Step output:", step)
 
@@ -349,7 +350,11 @@ class ManagedTask(Task):
                 self.status.state = TaskState.COMPLETED
                 print("task completed...")
 
-            run_result = {"success": success, "step": step}
+            if not current_checkpoint:
+                # record exit state
+                current_checkpoint = self.skill.runnable.get_state(config=effective_config)
+
+            run_result = {"success": success, "step": step, "cp": current_checkpoint}
             print("synced stream_run result:", run_result)
             return run_result
 
@@ -411,7 +416,7 @@ class ManagedTask(Task):
 
             # Pass through any additional kwargs to astream
             step = {}
-
+            current_checkpoint = None
             async for step in agen:
                 print("async Step output:", step)
                 await self.pause_event.wait()
@@ -438,7 +443,11 @@ class ManagedTask(Task):
                 self.status.state = TaskState.COMPLETED
                 print("task completed...")
 
-            run_result = {"success": success, "step": step}
+            if not current_checkpoint:
+                # record exit state
+                current_checkpoint = self.skill.runnable.get_state(config=effective_config)
+
+            run_result = {"success": success, "step": step, "cp": current_checkpoint}
             print("astream_run result:", run_result)
             return run_result
 
@@ -1227,7 +1236,7 @@ class TaskRunner(Generic[Context]):
                     logger.debug(f"Scheduled task ready: {task2run.name}")
                     msg = None  # Scheduled tasks don't have input messages
                     
-                elif trigger_type in ("a2a_queue", "chat_queue"):
+                elif trigger_type in ("a2a_queue", "chat_queue", "message"):
                     # Queue-based tasks: wait for messages
                     if not task2run:
                         time.sleep(1)
@@ -1276,7 +1285,9 @@ class TaskRunner(Generic[Context]):
                     # Build resume payload using mapping DSL
                     resume_payload, cp = self._build_resume_payload(task2run, msg)
                     logger.debug(f"Resume payload: {resume_payload}")
-                    
+
+                    # note langgraph could have multiple interrupted nodes, checkpoint is
+                    # critical for picking up exactly where it's left off.
                     if cp:
                         response = task2run.stream_run(
                             Command(resume=resume_payload), 
@@ -1291,37 +1302,43 @@ class TaskRunner(Generic[Context]):
                     logger.debug(f"Resume run response: {response}")
                 
                 # 3. Handle response and interrupts
+                # by the time we get here, we should have either
+                # A) the langgraph workflow is finished.
+                #  or
+                # B) we hit an interrupt.
                 step = response.get('step') or {}
+                logger.debug(f"Current Step: {step}")
+                current_state = response.get('cp')
                 
                 if isinstance(step, dict) and '__interrupt__' in step:
                     # Task interrupted - send prompt to GUI
                     interrupt_obj = step["__interrupt__"][0]
-                    
+
+                    # if interrupted due to human in loop or other agent in loop
                     if "prompt_to_human" in interrupt_obj.value:
                         prompt = interrupt_obj.value.get("prompt_to_human", "")
+                        recipient_agent = msg.params.metadata.get('recipient_agent')
+                    elif "prompt_to_agent" in interrupt_obj.value:
+                        prompt = interrupt_obj.value.get("prompt_to_agent", "")
+                        recipient_agent = msg.params.metadata.get('recipient_agent')
                         
-                        # Extract chatId from message metadata
-                        chatId = None
-                        try:
-                            if msg and hasattr(msg, 'params'):
-                                chatId = msg.params.metadata.get('chatId')
-                            elif msg and isinstance(msg, dict):
-                                chatId = msg.get('params', {}).get('metadata', {}).get('chatId')
-                        except Exception:
-                            pass
-                        
-                        if chatId:
-                            self.sendChatMessageToGUI(self.agent, chatId, prompt)
-                            
-                            # Send additional UI elements if present
-                            if interrupt_obj.value.get("qa_form_to_human"):
-                                self.sendChatFormToGUI(self.agent, chatId, interrupt_obj.value["qa_form_to_human"])
-                            elif interrupt_obj.value.get("notification_to_human"):
-                                self.sendChatNotificationToGUI(self.agent, chatId, interrupt_obj.value["notification_to_human"])
-                    
+                    # Extract chatId from message metadata
+                    chatId = None
+                    try:
+                        if msg and hasattr(msg, 'params'):
+                            chatId = msg.params.metadata.get('chatId')
+                        elif msg and isinstance(msg, dict):
+                            chatId = msg.get('params', {}).get('metadata', {}).get('chatId')
+                    except Exception:
+                        pass
+
+                    if chatId:
+                        # re-org data to be sent chatId, interrupt_obj.value["qa_form_to_human"])
+                        # self.sendChatMessageToGUI(self.agent, chatId, prompt)
+                        send_response_back(current_state)
                     justStarted = False
                 else:
-                    # Task completed or no interrupt
+                    # Task completed, we flag it as justStarted for the next run.
                     justStarted = True
                 
                 # 4. Resolve task result
@@ -1363,7 +1380,7 @@ class TaskRunner(Generic[Context]):
     def launch_scheduled_run(self, task=None):
         """DEPRECATED: This function is deprecated. Use launch_unified_run(trigger_type="schedule") instead."""
         logger.warning("[DEPRECATED] launch_scheduled_run is deprecated. Use launch_unified_run(trigger_type='schedule') instead.")
-        self.launch_unified_run(task2run=None, trigger_type="schedule")
+        self.launch_unified_run(task2run=task, trigger_type="schedule")
 
 
     # DEPRECATED: Use launch_unified_run(trigger_type="a2a_queue") instead

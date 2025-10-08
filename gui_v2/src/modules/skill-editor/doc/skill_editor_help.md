@@ -7,13 +7,8 @@ Welcome to the Skill Editor. This guide explains the core features and how to us
 ## Table of Contents
 
 - [Introduction](#introduction)
-- [Nodes](#nodes)
-  - [Start/End](#startend)
-  - [Code](#code)
-  - [LLM](#llm)
-  - [HTTP](#http)
-  - [Condition / Loop / Group](#condition--loop--group)
 - [Editor Basics](#editor-basics)
+
   - [Toolbar](#toolbar)
   - [Add/Remov/Edit/Duplicate Nodes](#addremoveditduplicate-nodes)
   - [Adding/Removing/Re-route Edges](#addingremovingre-route-edges)
@@ -22,6 +17,7 @@ Welcome to the Skill Editor. This guide explains the core features and how to us
   - [Multi-Sheet (Naming Convention）](#multi-sheet-naming-convention)
   - [Saving & Loading](#saving--loading)
 - [Cross-Sheet References](#cross-sheet-references)
+
   - [Define a sheet interface](#define-a-sheet-interface)
   - [Insert a Sheet Call](#insert-a-sheet-call)
   - [Map inputs and outputs](#map-inputs-and-outputs)
@@ -29,15 +25,27 @@ Welcome to the Skill Editor. This guide explains the core features and how to us
   - [Save/Load multi-sheet bundles](#saveload-multi-sheet-bundles)
   - [Troubleshooting](#troubleshooting)
 - [Run And Debug](#run-and-debug)
+
   - [Breakpoints](#breakpoints)
   - [Controlled Run: Pause / Step / Resume / Stop](#controlled-run-pause--step--resume--stop)
 - [Version Controll With Git](#version-controll-with-git)
+
   - [Git with eCan.ai's cloud service](#git-with-ecanais-cloud-service)
   - [Git locally](#git-locally)
 - [Test Run](#test-run)
+
   - [Inputs](#inputs)
   - [Outputs](#outputs)
 - [Shortcuts](#shortcuts)
+- [Nodes](#nodes)
+
+  - [Start/End](#startend)
+  - [Code](#code)
+  - [LLM](#llm)
+  - [HTTP](#http)
+  - [Condition / Loop / Group](#condition--loop--group)
+  - [MCP Tool Call](#mcp-tool-call)
+  - [Pend For Event](#pend-for-event)
 - [Reference](#reference)
 - [FAQ](#faq)
 
@@ -46,39 +54,6 @@ Welcome to the Skill Editor. This guide explains the core features and how to us
 ## Introduction
 
 The Skill Editor lets you build flows by placing nodes on a canvas and connecting them. Each node performs a specific task (e.g., run code, call an LLM, request HTTP APIs). Use the sidebar to configure the selected node.
-
----
-
-## Nodes
-
-### Start/End
-
-Start emits initial values; End collects and displays final outputs.
-
-### Code
-
-- Edit code inline with Monaco editor.
-- Language selector supports Python, JavaScript, and TypeScript.
-- "Reset to template" restores a starter snippet for the selected language.
-- "Load File" allows importing code from local files.
-
-### LLM
-
-- Choose a Model Provider and Model Name from dropdowns.
-- Provider/Model options are loaded from a model store; defaults are used if none are provided.
-
-### HTTP
-
-- Configure method, URL, headers, params, body, timeout.
-- API Key field is available for passing credentials.
-
-### Condition / Loop / Group
-
-- Condition routes based on predicates.
-- Loop iterates over arrays and runs nested blocks.
-- Group organizes related nodes.
-
----
 
 ## Editor Basics
 
@@ -207,8 +182,54 @@ Multi-sheet flows let you organize logic across multiple canvases (sheets). Use 
 - Ctrl/Cmd + Z: Undo
 - Ctrl/Cmd + Y: Redo
 - Mouse wheel: Zoom
+-
 
 ---
+
+## Nodes
+
+### Start/End
+
+Start emits initial values; End collects and displays final outputs.
+
+### Code
+
+- Edit code inline with Monaco editor.
+- Language selector supports Python, JavaScript, and TypeScript.
+- "Reset to template" restores a starter snippet for the selected language.
+- "Load File" allows importing code from local files.
+
+### LLM
+
+- Choose a Model Provider and Model Name from dropdowns.
+- Provider/Model options are loaded from a model store; defaults are used if none are provided.
+- Note: as a good convention, LLM should always return structured data rather than pure string text, we should always ask LLM to return *{"message": "your message here", "meta_data": dict}* as this our standard LLM result post processing code assumes. This will make inter-node data passing so much easier.
+
+### HTTP
+
+- Configure method, URL, headers, params, body, timeout.
+- API Key field is available for passing credentials.
+- Standard post http API call handling will put result in node state's *http_response* field.
+
+### Condition / Loop / Group
+
+- Condition routes based on predicates.
+- Loop iterates over arrays and runs nested blocks.
+- Group organizes related nodes.
+
+### MCP Tool Call
+
+- This node will invoke a MCP tool call.
+- Node state's tool_input field should be populated for tool call input.
+- Raw mcp tool call always returns data in mcp's own TextContent data structure, it contains "*type*", "*text*", and "*meta*" , or alternatively *ImageContent* or *AudioContent* where "*data*" and "*mimeType*" are in place of "*text*", "*data*" is in base64-encoded string format
+- Standard post tool call handling will put result in node state's tool_result field.
+
+### Pend For Event
+
+- This node generates an interrupt and break out of the workflow (critical to create i_tag field/attribute under interrupt object, in our case, this is automatically done using node name as the tag),
+- will resume until designated event occurs.
+- Example: timer based wait (expiration event), human/agent in the loop (human/agent feedback received event), time consuming API calling(call back received event), pub/sub websocket (push message received event), web sse (server send event received event)
+- Note: it is critical to have event orginator carry the i_tag, so that when event occurs, it carries the exact i_tag associated with the interrupted noded that's pending for this event, and we can therefore resume from where we were left off.
 
 ## Reference
 

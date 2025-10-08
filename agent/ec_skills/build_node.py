@@ -615,7 +615,7 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
     return full_node_callable
 
-
+# pre-requisite: tool_name is in config_metadata, tool_input is in state and conform the tool input schema (strictly, it will be type checked)
 def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     """
     Builds a callable function for a node that calls an MCP tool.
