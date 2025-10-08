@@ -1,8 +1,7 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Space, message } from 'antd';
 import { ReloadOutlined, PlusOutlined } from '@ant-design/icons';
 import DetailLayout from '../../components/Layout/DetailLayout';
-import { useDetailView } from '../../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
 import { useSkillStore } from '../../stores';
 import { useUserStore } from '../../stores/userStore';
@@ -10,6 +9,8 @@ import SkillList from './components/SkillList';
 import SkillDetails from './components/SkillDetails';
 import { IPCWCClient } from '@/services/ipc/ipcWCClient';
 import { logger } from '@/utils/logger';
+import type { Skill } from '@/stores';
+import './Skills.css';
 
 const Skills: React.FC = () => {
     const { t } = useTranslation();
@@ -18,31 +19,29 @@ const Skills: React.FC = () => {
     const skills = useSkillStore((state) => state.items);
     const isLoading = useSkillStore((state) => state.loading);
     const fetchItems = useSkillStore((state) => state.fetchItems);
+    const forceRefresh = useSkillStore((state) => state.forceRefresh);
     const updateItem = useSkillStore((state) => state.updateItem);
 
     const username = useUserStore((state) => state.username);
     const [isAddingNew, setIsAddingNew] = React.useState(false);
 
-    const {
-        selectedItem: selectedSkill,
-        selectItem,
-    } = useDetailView(skills);
+    // 直接管理选中状态
+    const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
+
+    const selectItem = useCallback((skill: Skill) => {
+        setSelectedSkill(skill);
+    }, []);
 
     const fetchSkills = useCallback(async () => {
-        if (!username) {
-            logger.warn('[Skills] Username is not available');
-            return;
-        }
+        if (!username) return;
 
         try {
-            logger.info('[Skills] Fetching skills for user:', username);
             await fetchItems(username);
-            logger.info('[Skills] Successfully fetched skills:', skills.length);
         } catch (error) {
             logger.error('[Skills] Error fetching skills:', error);
             message.error(t('pages.skills.fetchError') || 'Failed to fetch skills');
         }
-    }, [username, fetchItems, skills.length, t]);
+    }, [username, fetchItems, t]);
 
     useEffect(() => {
         if (username) {
@@ -51,8 +50,15 @@ const Skills: React.FC = () => {
     }, [username, fetchSkills]);
 
     const handleRefresh = useCallback(async () => {
-        await fetchSkills();
-    }, [fetchSkills]);
+        if (!username) return;
+
+        try {
+            await forceRefresh(username);
+        } catch (error) {
+            logger.error('[Skills] Error refreshing skills:', error);
+            message.error(t('pages.skills.fetchError') || 'Failed to refresh skills');
+        }
+    }, [username, forceRefresh, t]);
 
     const handleLevelUp = (id: number) => {
         const skill = skills.find(s => String(s.id) === String(id));
@@ -122,10 +128,11 @@ const Skills: React.FC = () => {
             listTitle={listTitle}
             detailsTitle={t('pages.skills.details')}
             listContent={
-                <SkillList 
-                    skills={skills} 
-                    loading={isLoading} 
-                    onSelectSkill={selectItem} 
+                <SkillList
+                    skills={skills}
+                    loading={isLoading}
+                    onSelectSkill={selectItem}
+                    selectedSkillId={selectedSkill ? String(selectedSkill.id) : undefined}
                 />
             }
             detailsContent={

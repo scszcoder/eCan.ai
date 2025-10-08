@@ -107,17 +107,17 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
             children: [
                 {
                     key: 'theme-light',
-                    label: t('pages.settings.theme.light'),
+                    label: t('pages.settings.themeLight'),
                     onClick: () => handleThemeChange('light'),
                 },
                 {
                     key: 'theme-dark',
-                    label: t('pages.settings.theme.dark'),
+                    label: t('pages.settings.themeDark'),
                     onClick: () => handleThemeChange('dark'),
                 },
                 {
                     key: 'theme-system',
-                    label: t('pages.settings.theme.system'),
+                    label: t('pages.settings.themeSystem'),
                     onClick: () => handleThemeChange('system'),
                 },
             ],

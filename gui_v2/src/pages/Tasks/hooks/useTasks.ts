@@ -12,6 +12,7 @@ export const useTasks = () => {
   const isLoading = useTaskStore((state) => state.loading);
   const error = useTaskStore((state) => state.error);
   const fetchItems = useTaskStore((state) => state.fetchItems);
+  const forceRefresh = useTaskStore((state) => state.forceRefresh);
 
   const username = useUserStore((state) => state.username);
 
@@ -24,23 +25,18 @@ export const useTasks = () => {
   const [loading, setLoading] = useState(false);
 
   const fetchTasks = useCallback(async () => {
-    if (!username) {
-      logger.warn('[useTasks] Username is not available');
-      return;
-    }
+    if (!username) return;
 
     setLoading(true);
     try {
-      logger.info('[useTasks] Fetching tasks for user:', username);
       await fetchItems(username);
-      logger.info('[useTasks] Successfully fetched tasks:', tasks.length);
     } catch (error) {
       logger.error('[useTasks] Error fetching tasks:', error);
       message.error('Failed to fetch tasks');
     } finally {
       setLoading(false);
     }
-  }, [username, fetchItems, tasks.length]);
+  }, [username, fetchItems]);
 
   useEffect(() => {
     fetchTasks();
@@ -53,9 +49,19 @@ export const useTasks = () => {
     }
   }, [error]);
 
-  const handleRefresh = () => {
-    fetchTasks();
-  };
+  const handleRefresh = useCallback(async () => {
+    if (!username) return;
+
+    setLoading(true);
+    try {
+      await forceRefresh(username);
+    } catch (error) {
+      logger.error('[useTasks] Error refreshing tasks:', error);
+      message.error('Failed to refresh tasks');
+    } finally {
+      setLoading(false);
+    }
+  }, [username, forceRefresh]);
 
   return {
     tasks,
