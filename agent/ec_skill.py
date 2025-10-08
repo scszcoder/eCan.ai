@@ -40,10 +40,11 @@ import socket
 from urllib.parse import urlparse
 
 import operator
-from utils.logger_helper import logger_helper as logger
+from utils.logger_helper import logger_helper as logger, get_traceback
 from agent.mcp.config import mcp_messages_url
 from agent.ec_skills.dev_defs import BreakpointManager
 from langgraph.types import Interrupt, interrupt
+from langgraph.errors import GraphInterrupt
 
 # ---------------------------------------------------------------------------
 # ── 1.  Typed State for LangGraph ───────────────────────────────────────────
@@ -357,17 +358,18 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
 
         # Utility: produce a JSON/checkpoint safe view of state (whitelist fields, avoid cycles)
         def _prune_result(res: Any) -> Any:
-            if isinstance(res, dict):
-                forbidden = {
-                    "input","attachments","prompts","formatted_prompts","messages","threads","metadata",
-                    "attributes","result","tool_input","tool_result","error","retries","condition","case","goals"
-                }
-                # keep only non-forbidden keys from result
-                return {k: _prune_result(v) for k, v in res.items() if k not in forbidden}
-            elif isinstance(res, list):
-                return [_prune_result(v) for v in res]
-            else:
-                return res
+            # if isinstance(res, dict):
+            #     forbidden = {
+            #         "input","attachments","prompts","formatted_prompts","messages","threads","metadata",
+            #         "attributes","result","tool_input","tool_result","error","retries","condition","case","goals"
+            #     }
+            #     # keep only non-forbidden keys from result
+            #     return {k: _prune_result(v) for k, v in res.items() if k not in forbidden}
+            # elif isinstance(res, list):
+            #     return [_prune_result(v) for v in res]
+            # else:
+            #     return res
+            return res
 
         def _safe_state_view(st: dict) -> dict:
             whitelist = [
@@ -461,9 +463,14 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                 break  # success - exit retry loop
                 
             except Exception as e:
+                # Do not treat intended graph interrupt as an error: no retry, no warning
+                if isinstance(e, GraphInterrupt):
+                    raise e
+
                 attempts += 1
                 last_exc = e
-                logger.warning(f"[{node_name}] failed (attempt {attempts}/{retries}): {e}")
+                err_msg = get_traceback(e, "ErrorNode")
+                logger.warning(f"[{node_name}] failed (attempt {attempts}/{retries}): {err_msg}")
                 if attempts < retries:
                     delay = base_delay * (2 ** (attempts - 1)) + random.uniform(0, jitter)
                     time.sleep(delay)
@@ -472,15 +479,15 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
             raise last_exc
 
         # Process the result to ensure it's a valid dictionary for state update
-        if isinstance(result, list):
-            # Handle cases where debugging injects an Interrupt object
-            dict_result = next((item for item in result if isinstance(item, dict)), None)
-            state["result"] = _prune_result(dict_result or {})
-        elif isinstance(result, dict):
-            state["result"] = _prune_result(result)
-        else:
-            # If the result is not a dict (e.g., None), return an empty dict to prevent errors
-            state["result"] = result
+        # if isinstance(result, list):
+        #     # Handle cases where debugging injects an Interrupt object
+        #     dict_result = next((item for item in result if isinstance(item, dict)), None)
+        #     state["result"] = _prune_result(dict_result or {})
+        # elif isinstance(result, dict):
+        #     state["result"] = _prune_result(result)
+        # else:
+        #     # If the result is not a dict (e.g., None), return an empty dict to prevent errors
+        #     state["result"] = result
 
         # Final sanitation to avoid self-referential recursion in checkpoints
         try:

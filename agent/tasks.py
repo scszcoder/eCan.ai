@@ -338,6 +338,7 @@ class ManagedTask(Task):
 
                         # Get checkpoint from LangGraph state since raw Interrupt object doesn't have it
                         current_checkpoint = self.skill.runnable.get_state(config=effective_config)
+                        current_checkpoint.values["attributes"]["i_tag"] = i_tag
                         print("current checkpoint:", current_checkpoint)
                         self.add_checkpoint_node({"tag": i_tag, "checkpoint": current_checkpoint})
 
@@ -1315,27 +1316,20 @@ class TaskRunner(Generic[Context]):
                     interrupt_obj = step["__interrupt__"][0]
 
                     # if interrupted due to human in loop or other agent in loop
-                    if "prompt_to_human" in interrupt_obj.value:
-                        prompt = interrupt_obj.value.get("prompt_to_human", "")
-                        recipient_agent = msg.params.metadata.get('recipient_agent')
-                    elif "prompt_to_agent" in interrupt_obj.value:
-                        prompt = interrupt_obj.value.get("prompt_to_agent", "")
-                        recipient_agent = msg.params.metadata.get('recipient_agent')
-                        
-                    # Extract chatId from message metadata
-                    chatId = None
-                    try:
-                        if msg and hasattr(msg, 'params'):
-                            chatId = msg.params.metadata.get('chatId')
-                        elif msg and isinstance(msg, dict):
-                            chatId = msg.get('params', {}).get('metadata', {}).get('chatId')
-                    except Exception:
-                        pass
-
-                    if chatId:
-                        # re-org data to be sent chatId, interrupt_obj.value["qa_form_to_human"])
-                        # self.sendChatMessageToGUI(self.agent, chatId, prompt)
-                        send_response_back(current_state)
+                    if "prompt_to_human" in interrupt_obj.value or "prompt_to_agent" in interrupt_obj.value:
+                        # Extract chatId from message metadata
+                        print("prompt_to_human:", interrupt_obj.value["prompt_to_human"], "<<<")
+                        print("current state:", current_state)
+                        try:
+                            chatId = current_state.values.get("messages")[1]
+                        except Exception:
+                            chatId = ""
+                            pass
+                        print("chatId:", chatId, "<<<")
+                        if chatId:
+                            # re-org data to be sent chatId, interrupt_obj.value["qa_form_to_human"])
+                            # the assumption is message to be sent is already placed properly in the state.
+                            send_response_back(current_state.values)
                     justStarted = False
                 else:
                     # Task completed, we flag it as justStarted for the next run.
