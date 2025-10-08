@@ -80,7 +80,8 @@ const VirtualList = <T extends any>({
       ref={containerRef}
       style={{
         height: containerHeight,
-        overflow: 'auto',
+        overflowX: 'hidden',
+        overflowY: 'auto',
         position: 'relative',
       }}
       onScroll={handleScroll}

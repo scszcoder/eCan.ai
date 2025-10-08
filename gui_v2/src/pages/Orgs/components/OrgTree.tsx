@@ -83,7 +83,8 @@ const OrgTree: React.FC<OrgTreeProps> = ({
           </Tooltip>
         </div>
       }
-      style={{ height: '100%' }}
+      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+      styles={{ body: { flex: 1, overflowX: 'hidden', overflowY: 'auto', padding: '16px' } }}
     >
       <Spin spinning={loading}>
         <Tree

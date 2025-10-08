@@ -26,7 +26,8 @@ const TableMain = styled.div`
 const TableContent = styled.div`
   flex: 3;
   padding: 20px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
 `;
 
 const QueryArea = styled.div`

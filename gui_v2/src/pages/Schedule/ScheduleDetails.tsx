@@ -1,10 +1,19 @@
 import React from 'react';
-import { Space, Tag, Typography } from 'antd';
+import { Space, Typography } from 'antd';
 import { useTranslation } from 'react-i18next';
 import type { TaskSchedule } from './Schedule.types';
 import DetailCard from '../../components/Common/DetailCard';
+import styled from '@emotion/styled';
 
 const { Text } = Typography;
+
+const DetailContainer = styled.div`
+    width: 100%;
+    max-height: 100%;
+    overflow-y: auto;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.2);
+`;
 
 interface ScheduleDetailsProps {
     schedule: TaskSchedule | null;
@@ -13,12 +22,18 @@ interface ScheduleDetailsProps {
 const ScheduleDetails: React.FC<ScheduleDetailsProps> = ({ schedule }) => {
     const { t } = useTranslation();
     if (!schedule) {
-        return <Text type="secondary">{t('pages.schedule.selectSchedule')}</Text>;
+        return (
+            <DetailContainer>
+                <Text type="secondary">{t('pages.schedule.selectSchedule')}</Text>
+            </DetailContainer>
+        );
     }
     return (
-        <Space direction="vertical" style={{ width: '100%', maxHeight: '100%', overflowY: 'auto' }}>
+        <DetailContainer>
+            <Space direction="vertical" style={{ width: '100%' }} size={24}>
             <DetailCard
                 title={t('pages.schedule.scheduleInformation')}
+                columns={2}
                 items={[
                     {
                         label: t('pages.schedule.repeatType'),
@@ -76,13 +91,15 @@ const ScheduleDetails: React.FC<ScheduleDetailsProps> = ({ schedule }) => {
             {schedule.custom_fields && (
                 <DetailCard
                     title={t('pages.schedule.customFields')}
+                    columns={2}
                     items={Object.entries(schedule.custom_fields).map(([key, value]) => ({
                         label: key,
                         value: String(value),
                     }))}
                 />
             )}
-        </Space>
+            </Space>
+        </DetailContainer>
     );
 };
 

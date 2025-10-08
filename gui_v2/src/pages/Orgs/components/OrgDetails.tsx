@@ -9,8 +9,9 @@ import { useTranslation } from 'react-i18next';
 import type { Org, Agent } from '../types';
 import { ORG_STATUSES, ORG_TYPES } from '../constants';
 import AgentList from './AgentList';
+import DetailCard from '../../../components/Common/DetailCard';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 interface OrgDetailsProps {
   org: Org | null;
@@ -35,7 +36,7 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
 
   if (!org) {
     return (
-      <Card style={{ flex: 1, textAlign: 'center', padding: '60px 20px' }}>
+      <Card style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Text type="secondary">{t('pages.org.placeholder.selectOrg')}</Text>
       </Card>
     );
@@ -51,6 +52,44 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
 
   const statusConfig = getStatusConfig(org.status);
   const typeConfig = getTypeConfig(org.org_type);
+
+  // 准备 DetailCard 的数据
+  const orgInfoItems = [
+    {
+      label: t('pages.org.form.name'),
+      value: org.name,
+    },
+    {
+      label: t('pages.org.form.type'),
+      value: t(typeConfig.key),
+    },
+    {
+      label: t('pages.org.form.description'),
+      value: org.description || '-',
+    },
+    {
+      label: t('pages.org.form.level'),
+      value: org.level,
+    },
+    {
+      label: t('pages.org.form.status'),
+      value: (
+        <Tag color={statusConfig.color}>
+          {t(statusConfig.key)}
+        </Tag>
+      ),
+    },
+    ...(org.children && org.children.length > 0 ? [{
+      label: t('pages.org.form.childDepartments'),
+      value: org.children.length,
+    }] : []),
+    {
+      label: t('pages.org.form.created'),
+      value: org.created_at
+        ? new Date(org.created_at).toLocaleDateString()
+        : '-',
+    },
+  ];
 
   return (
     <Card
@@ -97,70 +136,36 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
           </Space>
         </div>
       }
-      style={{ flex: 1 }}
+      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+      styles={{ body: { flex: 1, overflowX: 'hidden', overflowY: 'auto', padding: '16px' } }}
     >
-      <div>
-        {/* Org Info */}
-        <div style={{ marginBottom: 24 }}>
-          <Title level={4}>{t('pages.org.info.title')}</Title>
-          <Space direction="vertical" style={{ width: '100%' }}>
-            <div>
-              <Text strong>{t('pages.org.form.name')}:</Text> {org.name}
-            </div>
-            <div>
-              <Text strong>{t('pages.org.form.description')}:</Text> {org.description || '-'}
-            </div>
-            <div>
-              <Text strong>{t('pages.org.form.type')}:</Text> {t(typeConfig.key)}
-            </div>
-            <div>
-              <Text strong>{t('pages.org.form.level')}:</Text> {org.level}
-            </div>
-            <div>
-              <Text strong>{t('pages.org.form.status')}:</Text>
-              <Tag color={statusConfig.color} style={{ marginLeft: 8 }}>
-                {t(statusConfig.key)}
-              </Tag>
-            </div>
-            {/* Show child nodes count for non-leaf nodes */}
-            {org.children && org.children.length > 0 && (
-              <div>
-                <Text strong>{t('pages.org.form.childDepartments')}:</Text> {org.children.length}
-              </div>
-            )}
-            <div>
-              <Text strong>{t('pages.org.form.created')}:</Text> {
-                org.created_at
-                  ? new Date(org.created_at).toLocaleDateString()
-                  : '-'
-              }
-            </div>
-          </Space>
-        </div>
+      {/* Org Info */}
+      <DetailCard
+        title={t('pages.org.info.title')}
+        columns={2}
+        items={orgInfoItems}
+      />
 
-        {/* Agents Section */}
-        <div>
-          {/* 非叶子节点显示子节点数量和所有叶子节点的Agent */}
-          {org.children && org.children.length > 0 ? (
-            <div>
-              <AgentList
-                agents={agents}
-                onBindAgents={onBindAgents}
-                onUnbindAgent={onUnbindAgent}
-                onChatWithAgent={onChatWithAgent}
-                title={t('pages.org.agents.allLeafAgents') || '所有子部门的代理'}
-              />
-            </div>
-          ) : (
-            /* 叶子节点显示绑定的Agent */
-            <AgentList
-              agents={agents}
-              onBindAgents={onBindAgents}
-              onUnbindAgent={onUnbindAgent}
-              onChatWithAgent={onChatWithAgent}
-            />
-          )}
-        </div>
+      {/* Agents Section */}
+      <div style={{ marginTop: 16 }}>
+        {/* 非叶子节点显示子节点数量和所有叶子节点的Agent */}
+        {org.children && org.children.length > 0 ? (
+          <AgentList
+            agents={agents}
+            onBindAgents={onBindAgents}
+            onUnbindAgent={onUnbindAgent}
+            onChatWithAgent={onChatWithAgent}
+            title={t('pages.org.agents.allLeafAgents') || '所有子部门的代理'}
+          />
+        ) : (
+          /* 叶子节点显示绑定的Agent */
+          <AgentList
+            agents={agents}
+            onBindAgents={onBindAgents}
+            onUnbindAgent={onUnbindAgent}
+            onChatWithAgent={onChatWithAgent}
+          />
+        )}
       </div>
     </Card>
   );

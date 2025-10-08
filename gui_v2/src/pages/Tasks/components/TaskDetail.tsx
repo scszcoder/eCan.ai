@@ -5,7 +5,7 @@ import {
   EditOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
-import { Avatar, Button, Card, Space, Typography, Form, Input, Row, Col, Select, DatePicker, message } from 'antd';
+import { Avatar, Button, Space, Typography, Form, Input, Row, Col, Select, DatePicker, message } from 'antd';
 import { useTranslation } from 'react-i18next';
 import React from 'react';
 import { Task } from '../types';
@@ -13,6 +13,14 @@ import dayjs from 'dayjs';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
 import { useSkillStore } from '@/stores';
+import {
+  StyledFormItem,
+  StyledCard,
+  FormContainer,
+  ButtonContainer,
+  buttonStyle,
+  primaryButtonStyle
+} from '@/components/Common/StyledForm';
 
 const { Text } = Typography;
 
@@ -220,19 +228,27 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   };
 
   return (
-    <div style={{ maxHeight: '100%', overflow: 'auto', padding: '16px' }}>
+    <FormContainer>
       <Form
         form={form}
         layout="vertical"
         onFinish={handleSave}
+        disabled={!editMode && !isNew}
       >
-        <Space direction="vertical" style={{ width: '100%' }} size="large">
-          <Card>
-            <Space direction="vertical" style={{ width: '100%' }} size="middle">
-              <Space align="start" style={{ width: '100%' }}>
-                <Avatar size={64} icon={<OrderedListOutlined />} />
+        <Space direction="vertical" style={{ width: '100%' }} size={24}>
+          <StyledCard>
+            <Space direction="vertical" style={{ width: '100%' }} size={24}>
+              <Space align="start" style={{ width: '100%', marginBottom: '8px' }}>
+                <Avatar
+                  size={72}
+                  icon={<OrderedListOutlined />}
+                  style={{
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)'
+                  }}
+                />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <Form.Item
+                  <StyledFormItem
                     name="name"
                     label={t('pages.tasks.name')}
                     rules={[{ required: true }]}
@@ -240,50 +256,49 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                   >
                     <Input
                       placeholder={t('pages.tasks.namePlaceholder')}
-                      disabled={!editMode && !isNew}
+                      size="large"
                     />
-                  </Form.Item>
-                  {!isNew && <Text type="secondary">ID: {(task as any).id}</Text>}
+                  </StyledFormItem>
+                  {!isNew && <Text type="secondary" style={{ fontSize: '13px' }}>ID: {(task as any).id}</Text>}
                 </div>
               </Space>
 
-              <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+              <Row gutter={[24, 0]} style={{ marginTop: '16px' }}>
                 <Col span={12}>
-                  <Form.Item label={t('common.id', 'ID')} name="id">
+                  <StyledFormItem label={t('common.id', 'ID')} name="id">
                     <Input readOnly />
-                  </Form.Item>
+                  </StyledFormItem>
                 </Col>
                 <Col span={12}>
-                  <Form.Item label={t('pages.tasks.ataskId', 'ATask ID')} name="ataskid">
+                  <StyledFormItem label={t('pages.tasks.ataskId', 'ATask ID')} name="ataskid">
                     <Input readOnly />
-                  </Form.Item>
+                  </StyledFormItem>
                 </Col>
                 <Col span={12}>
-                  <Form.Item label={t('common.owner', 'Owner')} name="owner">
+                  <StyledFormItem label={t('common.owner', 'Owner')} name="owner">
                     <Input readOnly />
-                  </Form.Item>
+                  </StyledFormItem>
                 </Col>
                 <Col span={12}>
-                  <Form.Item label={t('pages.tasks.latestVersion', 'Latest Version')} name="latest_version">
+                  <StyledFormItem label={t('pages.tasks.latestVersion', 'Latest Version')} name="latest_version">
                     <Input readOnly />
-                  </Form.Item>
+                  </StyledFormItem>
                 </Col>
                 <Col span={24}>
-                  <Form.Item label={t('common.description', 'Description')} name="description">
+                  <StyledFormItem label={t('common.description', 'Description')} name="description">
                     <Input.TextArea
-                      rows={3}
-                      autoSize={false}
-                      style={{ minHeight: '72px', resize: 'vertical' }}
-                      disabled={!editMode && !isNew}
+                      rows={4}
+                      placeholder={t('pages.tasks.descriptionPlaceholder', 'Enter task description...')}
                     />
-                  </Form.Item>
+                  </StyledFormItem>
                 </Col>
                 <Col span={24}>
-                  <Form.Item label={t('pages.tasks.skill', 'Skill')} name="skill">
+                  <StyledFormItem label={t('pages.tasks.skill', 'Skill')} name="skill">
                     {editMode || isNew ? (
                       <Select
                         allowClear
                         showSearch
+                        size="large"
                         placeholder={t('pages.tasks.skillPlaceholder', 'Select a skill')}
                         options={(skills || []).map((s: any) => ({ value: s.name, label: s.name }))}
                         filterOption={(input, option) =>
@@ -293,12 +308,13 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                     ) : (
                       <Input readOnly />
                     )}
-                  </Form.Item>
+                  </StyledFormItem>
                 </Col>
                 <Col span={12}>
-                  <Form.Item label={t('pages.tasks.priorityLabel', 'Priority')} name="priority">
+                  <StyledFormItem label={t('pages.tasks.priorityLabel', 'Priority')} name="priority">
                     <Select
                       allowClear
+                      size="large"
                       onChange={(value) => {
                         if (value === null || value === undefined) {
                           form.setFieldsValue({ priority: 'none' });
@@ -306,53 +322,87 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                       }}
                       options={PRIORITY_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.priority.${v}`, v) }))}
                     />
-                  </Form.Item>
+                  </StyledFormItem>
                 </Col>
                 <Col span={12}>
-                  <Form.Item label={t('pages.tasks.triggerLabel', 'Trigger')} name="trigger">
-                    <Select options={TRIGGER_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.trigger.${v}`, v) }))} />
-                  </Form.Item>
+                  <StyledFormItem label={t('pages.tasks.triggerLabel', 'Trigger')} name="trigger">
+                    <Select
+                      size="large"
+                      options={TRIGGER_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.trigger.${v}`, v) }))}
+                    />
+                  </StyledFormItem>
                 </Col>
 
                 <Col span={24}>
-                  <Card size="small" title={t('pages.tasks.scheduleDetails', 'Schedule')}>
-                    <Row gutter={[16, 8]}>
+                  <StyledCard
+                    size="small"
+                    title={t('pages.tasks.scheduleDetails', 'Schedule')}
+                    style={{
+                      marginTop: '16px',
+                      background: 'rgba(64, 169, 255, 0.05)',
+                      borderColor: 'rgba(64, 169, 255, 0.2)'
+                    }}
+                  >
+                    <Row gutter={[24, 0]}>
                       <Col span={8}>
-                        <Form.Item label={t('pages.tasks.scheduleRepeatTypeLabel', 'Repeat Type')} name={["schedule", "repeat_type"]}>
-                          <Select options={REPEAT_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))} />
-                        </Form.Item>
+                        <StyledFormItem label={t('pages.tasks.scheduleRepeatTypeLabel', 'Repeat Type')} name={["schedule", "repeat_type"]}>
+                          <Select
+                            size="large"
+                            options={REPEAT_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))}
+                          />
+                        </StyledFormItem>
                       </Col>
                       <Col span={8}>
-                        <Form.Item label={t('pages.tasks.scheduleRepeatNumberLabel', 'Repeat Number')} name={["schedule", "repeat_number"]}>
-                          <Input type="number" min={1} />
-                        </Form.Item>
+                        <StyledFormItem label={t('pages.tasks.scheduleRepeatNumberLabel', 'Repeat Number')} name={["schedule", "repeat_number"]}>
+                          <Input
+                            size="large"
+                            type="number"
+                            min={1}
+                          />
+                        </StyledFormItem>
                       </Col>
                       <Col span={8}>
-                        <Form.Item label={t('pages.tasks.scheduleRepeatUnitLabel', 'Repeat Unit')} name={["schedule", "repeat_unit"]}>
-                          <Select options={REPEAT_OPTIONS.filter(v => v !== 'none').map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))} />
-                        </Form.Item>
+                        <StyledFormItem label={t('pages.tasks.scheduleRepeatUnitLabel', 'Repeat Unit')} name={["schedule", "repeat_unit"]}>
+                          <Select
+                            size="large"
+                            options={REPEAT_OPTIONS.filter(v => v !== 'none').map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))}
+                          />
+                        </StyledFormItem>
                       </Col>
                       <Col span={12}>
-                        <Form.Item label={t('pages.tasks.scheduleStartTimeLabel', 'Start Date Time')} name={["schedule", "start_date_time"]}>
-                          <DatePicker showTime style={{ width: '100%' }} />
-                        </Form.Item>
+                        <StyledFormItem label={t('pages.tasks.scheduleStartTimeLabel', 'Start Date Time')} name={["schedule", "start_date_time"]}>
+                          <DatePicker
+                            size="large"
+                            showTime
+                            style={{ width: '100%' }}
+                          />
+                        </StyledFormItem>
                       </Col>
                       <Col span={12}>
-                        <Form.Item label={t('pages.tasks.scheduleEndTimeLabel', 'End Date Time (Optional)')} name={["schedule", "end_date_time"]}>
-                          <DatePicker showTime style={{ width: '100%' }} />
-                        </Form.Item>
+                        <StyledFormItem label={t('pages.tasks.scheduleEndTimeLabel', 'End Date Time (Optional)')} name={["schedule", "end_date_time"]}>
+                          <DatePicker
+                            size="large"
+                            showTime
+                            style={{ width: '100%' }}
+                          />
+                        </StyledFormItem>
                       </Col>
                       <Col span={12}>
-                        <Form.Item label={t('pages.tasks.scheduleTimeoutLabel', 'Timeout (seconds)')} name={["schedule", "time_out"]}>
-                          <Input type="number" min={60} step={60} />
-                        </Form.Item>
+                        <StyledFormItem label={t('pages.tasks.scheduleTimeoutLabel', 'Timeout (seconds)')} name={["schedule", "time_out"]}>
+                          <Input
+                            size="large"
+                            type="number"
+                            min={60}
+                            step={60}
+                          />
+                        </StyledFormItem>
                       </Col>
                     </Row>
-                  </Card>
+                  </StyledCard>
                 </Col>
 
                 <Col span={24}>
-                  <Form.Item
+                  <StyledFormItem
                     label={t('pages.tasks.metadata', 'Metadata (JSON)')}
                     name="metadata_text"
                     rules={[{
@@ -368,56 +418,76 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                     }]}
                   >
                     <Input.TextArea
-                      rows={5}
-                      autoSize={false}
-                      style={{ fontFamily: 'monospace', minHeight: '120px', resize: 'vertical' }}
+                      rows={8}
                       placeholder={JSON.stringify({ key: 'value' }, null, 2)}
+                      style={{
+                        fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+                        fontSize: '13px',
+                        lineHeight: '1.6'
+                      }}
                     />
-                  </Form.Item>
+                  </StyledFormItem>
                 </Col>
               </Row>
             </Space>
-          </Card>
+          </StyledCard>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-            <Button type="primary" icon={<PlayCircleOutlined />} disabled={isNew || editMode}>
+          <ButtonContainer>
+            <Button
+              type="primary"
+              icon={<PlayCircleOutlined />}
+              disabled={isNew || editMode}
+              size="large"
+              style={buttonStyle}
+            >
               {t('common.run')}
             </Button>
-            <Button danger icon={<StopOutlined />} disabled={isNew || editMode}>
+            <Button
+              danger
+              icon={<StopOutlined />}
+              disabled={isNew || editMode}
+              size="large"
+              style={buttonStyle}
+            >
               {t('common.stop')}
             </Button>
             {!editMode && !isNew && (
-              <Button 
-                type="primary" 
-                onClick={handleEdit} 
+              <Button
+                type="primary"
+                onClick={handleEdit}
                 icon={<EditOutlined />}
+                size="large"
+                style={buttonStyle}
               >
                 {t('common.edit')}
               </Button>
             )}
             {editMode && (
               <>
-                <Button 
-                  type="primary" 
-                  htmlType="submit" 
-                  icon={<SaveOutlined />} 
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  icon={<SaveOutlined />}
                   loading={saving}
                   disabled={saving}
+                  size="large"
+                  style={primaryButtonStyle}
                 >
                   {isNew ? t('common.create') : t('common.save')}
                 </Button>
-                <Button 
-                  onClick={handleCancel} 
-                  style={{ marginLeft: 8 }} 
+                <Button
+                  onClick={handleCancel}
                   disabled={saving}
+                  size="large"
+                  style={buttonStyle}
                 >
                   {t('common.cancel')}
                 </Button>
               </>
             )}
-          </div>
+          </ButtonContainer>
         </Space>
       </Form>
-    </div>
+    </FormContainer>
   );
 };
