@@ -376,12 +376,17 @@ def _deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
 
 def find_opposite_agent(self_agent, chat_id):
     mainwin = self_agent.mainwin
-    this_chat = mainwin.db_chat_service.get_chat_by_id(chat_id)
-    members = this_chat.get_members()
+    this_chat = mainwin.db_chat_service.get_chat_by_id(chat_id, True)
+    print("found chat:", this_chat)
+
+    members = this_chat["data"].get("members", [])
+    print("chat members:", members)
+    print("me id:", self_agent.card.id)
     # for now, let's just assume 1-1 chat, find first chat member not myself.
-    oppsite_member = next((ag for ag in members if ag.userId != self_agent.card.id), None)
+    oppsite_member = next((ag for ag in members if ag["userId"] != self_agent.card.id), None)
     if oppsite_member:
-        opposite_side = get_agent_by_id(oppsite_member.userId)
+        opposite_side = get_agent_by_id(oppsite_member["userId"])
+        print("found opposite side agent:", opposite_side.card.name)
     else:
         logger.error("No chat mate found for chat:", chat_id)
         opposite_side = None
@@ -398,7 +403,22 @@ def send_response_back(state: NodeState) -> NodeState:
         chat_id = state["messages"][1]
         opposite_agent = find_opposite_agent(self_agent, chat_id)
         msg_type = "text"
-        msg_id = str(uuid.uuid4()),
+        qa_form = state["metadata"].get("qa_form", {})
+        notification = state["metadata"].get("notification", {})
+        if qa_form :
+            msg_type = "form"
+        elif notification:
+            msg_type = "notification"
+
+        if state["attributes"].get("i_tag", ""):
+            i_tag = state["attributes"].get("i_tag", "")
+        else:
+            if isinstance(state["attributes"].get("params"), dict):
+                i_tag = state["attributes"].get("params", {}).get("i_tag", "")
+            else:
+                i_tag = ""
+
+        msg_id = str(uuid.uuid4())
         # send self a message to trigger the real component search work-flow
 
         # The goal here is facilitate fomulating the message to be as close to this format as possible:
@@ -426,18 +446,19 @@ def send_response_back(state: NodeState) -> NodeState:
                 "params": {
                     "content": {
                         "type": msg_type, # "text", "code", "form", "notification", "card
-                        "text": state["result"]["llm_result"]["casual_chat_response"],
-                        "i_tag": state["attributes"]["params"]["i_tag"],
+                        "text": state["result"].get("llm_result", {}).get("casual_chat_response", ""),
+                        "i_tag": i_tag,
                         "dtype": msg_type,
                         "card": {},
                         "code": {},
-                        "form": {},
-                        "notification": {},
+                        "form": qa_form,
+                        "notification": notification,
                     },
                     "attachments": state["attachments"],
                     "role": "",
                     "chatId": f"{chat_id}",
                     "senderId": f"{agent_id}",
+                    "i_tag": i_tag,
                     "createAt": int(time.time() * 1000),
                     "senderName": f"{self_agent.card.name}",
                     "status": "success",
