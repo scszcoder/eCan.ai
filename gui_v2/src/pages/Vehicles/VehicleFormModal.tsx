@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Modal, Form, Input, Select, Switch } from 'antd';
 import { Vehicle } from './types';
+import { StyledFormItem } from '@/components/Common/StyledForm';
 
 const { TextArea } = Input;
 
@@ -77,7 +78,7 @@ const VehicleFormModal: React.FC<VehicleFormModalProps> = ({
                 layout="vertical"
                 autoComplete="off"
             >
-                <Form.Item
+                <StyledFormItem
                     name="name"
                     label={t('pages.vehicles.name')}
                     rules={[
@@ -86,9 +87,9 @@ const VehicleFormModal: React.FC<VehicleFormModalProps> = ({
                     ]}
                 >
                     <Input placeholder={t('pages.vehicles.namePlaceholder')} />
-                </Form.Item>
+                </StyledFormItem>
 
-                <Form.Item
+                <StyledFormItem
                     name="ip"
                     label={t('pages.vehicles.ipAddress')}
                     rules={[
@@ -100,9 +101,9 @@ const VehicleFormModal: React.FC<VehicleFormModalProps> = ({
                     ]}
                 >
                     <Input placeholder="192.168.1.100" />
-                </Form.Item>
+                </StyledFormItem>
 
-                <Form.Item
+                <StyledFormItem
                     name="os"
                     label={t('pages.vehicles.operatingSystem')}
                     rules={[{ required: true, message: t('pages.vehicles.osRequired') }]}
@@ -112,9 +113,9 @@ const VehicleFormModal: React.FC<VehicleFormModalProps> = ({
                         <Select.Option value="win">Windows</Select.Option>
                         <Select.Option value="linux">Linux</Select.Option>
                     </Select>
-                </Form.Item>
+                </StyledFormItem>
 
-                <Form.Item
+                <StyledFormItem
                     name="arch"
                     label={t('pages.vehicles.architecture')}
                 >
@@ -123,9 +124,9 @@ const VehicleFormModal: React.FC<VehicleFormModalProps> = ({
                         <Select.Option value="arm64">ARM64 (Apple Silicon)</Select.Option>
                         <Select.Option value="amd64">AMD64</Select.Option>
                     </Select>
-                </Form.Item>
+                </StyledFormItem>
 
-                <Form.Item
+                <StyledFormItem
                     name="status"
                     label={t('pages.vehicles.statusLabel')}
                 >
@@ -134,9 +135,9 @@ const VehicleFormModal: React.FC<VehicleFormModalProps> = ({
                         <Select.Option value="offline">{t('pages.vehicles.status.offline')}</Select.Option>
                         <Select.Option value="maintenance">{t('pages.vehicles.status.maintenance')}</Select.Option>
                     </Select>
-                </Form.Item>
+                </StyledFormItem>
 
-                <Form.Item
+                <StyledFormItem
                     name="functions"
                     label={t('pages.vehicles.functions')}
                 >
@@ -144,15 +145,15 @@ const VehicleFormModal: React.FC<VehicleFormModalProps> = ({
                         rows={3}
                         placeholder={t('pages.vehicles.functionsPlaceholder')}
                     />
-                </Form.Item>
+                </StyledFormItem>
 
-                <Form.Item
+                <StyledFormItem
                     name="test_disabled"
                     label={t('pages.vehicles.testDisabled')}
                     valuePropName="checked"
                 >
                     <Switch />
-                </Form.Item>
+                </StyledFormItem>
             </Form>
         </Modal>
     );

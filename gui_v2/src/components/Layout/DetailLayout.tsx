@@ -19,7 +19,8 @@ const ListCard = styled(Card)`
     .ant-card-body {
         flex: 1 1 0;
         min-height: 0;
-        overflow: auto;
+        overflow-x: hidden;
+        overflow-y: auto;
         max-height: 100%;
         display: flex;
         flex-direction: column;

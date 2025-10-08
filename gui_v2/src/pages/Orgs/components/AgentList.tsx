@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { Button, Typography, List, Avatar, Tooltip, Popconfirm, Empty } from 'antd';
+import { Button, Typography, List, Avatar, Tooltip, Popconfirm, Empty, Card } from 'antd';
 import { PlusOutlined, TeamOutlined, UserOutlined, MessageOutlined, DisconnectOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -35,31 +35,30 @@ const AgentList: React.FC<AgentListProps> = ({
   };
 
   return (
-    <div>
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 16
-      }}>
-        <Title level={4}>
-          <TeamOutlined /> {title || t('pages.org.agents.title')} ({agents.length})
-        </Title>
-        <Tooltip
-          title={t('pages.org.actions.bind')}
-          mouseEnterDelay={0.5}
-          mouseLeaveDelay={0.1}
-          placement="bottom"
-        >
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={onBindAgents}
-            shape="circle"
-          />
-        </Tooltip>
-      </div>
-
+    <Card
+      title={
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <span>
+            <TeamOutlined /> {title || t('pages.org.agents.title')} ({agents.length})
+          </span>
+          <Tooltip
+            title={t('pages.org.actions.bind')}
+            mouseEnterDelay={0.5}
+            mouseLeaveDelay={0.1}
+            placement="bottom"
+          >
+            <Button
+              type="primary"
+              size="small"
+              icon={<PlusOutlined />}
+              onClick={onBindAgents}
+              shape="circle"
+            />
+          </Tooltip>
+        </div>
+      }
+      size="small"
+    >
       {agents.length === 0 ? (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -74,6 +73,7 @@ const AgentList: React.FC<AgentListProps> = ({
                 <Tooltip title={t('pages.org.tooltip.chat')} key="chat">
                   <Button
                     type="text"
+                    size="small"
                     icon={<MessageOutlined />}
                     onClick={() => onChatWithAgent(agent)}
                   />
@@ -81,6 +81,7 @@ const AgentList: React.FC<AgentListProps> = ({
                 <Tooltip title={t('pages.org.tooltip.details')} key="details">
                   <Button
                     type="text"
+                    size="small"
                     icon={<InfoCircleOutlined />}
                     onClick={() => handleViewDetails(agent.id)}
                   />
@@ -94,6 +95,7 @@ const AgentList: React.FC<AgentListProps> = ({
                   >
                     <Button
                       type="text"
+                      size="small"
                       danger
                       icon={<DisconnectOutlined />}
                     />
@@ -106,7 +108,6 @@ const AgentList: React.FC<AgentListProps> = ({
                   <Avatar
                     src={agent.avatar}
                     icon={<UserOutlined />}
-                    size="large"
                   />
                 }
                 title={agent.name}
@@ -130,7 +131,7 @@ const AgentList: React.FC<AgentListProps> = ({
           )}
         />
       )}
-    </div>
+    </Card>
   );
 };
 

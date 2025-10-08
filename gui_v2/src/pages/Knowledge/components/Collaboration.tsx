@@ -394,7 +394,8 @@ const Collaboration: React.FC<CollaborationProps> = ({
             boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
             zIndex: 1000,
             maxHeight: 200,
-            overflow: 'auto'
+            overflowX: 'hidden',
+            overflowY: 'auto'
           }}>
             {users.map(user => (
               <div
