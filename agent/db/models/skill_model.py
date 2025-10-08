@@ -5,6 +5,7 @@ This module contains database models for skill management:
 - DBAgentSkill: Agent skill model
 """
 
+import uuid
 from sqlalchemy import Column, String, Integer, Boolean, Text, JSON, BigInteger
 from .base_model import BaseModel, TimestampMixin, ExtensibleMixin
 
@@ -13,8 +14,8 @@ class DBAgentSkill(BaseModel, TimestampMixin, ExtensibleMixin):
     """Database model for agent skills"""
     __tablename__ = 'agent_skills'
 
-    # 重写 id 字段以保持与老表的兼容性
-    id = Column(String(64), primary_key=True)
+    # ID field with auto-generation
+    id = Column(String(64), primary_key=True, default=lambda: f"skill_{uuid.uuid4().hex[:16]}")
     askid = Column(BigInteger, default=0)
     name = Column(String(128), nullable=False)
     owner = Column(String(128), nullable=False)

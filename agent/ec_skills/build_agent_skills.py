@@ -1,6 +1,7 @@
 import traceback
 import asyncio
 import time
+import uuid
 from pathlib import Path
 from typing import List, Optional, Tuple, Any
 import inspect
@@ -26,27 +27,27 @@ from agent.ec_skills.flowgram2langgraph import flowgram2langgraph
 from app_context import AppContext
 
 async def build_agent_skills_parallel(mainwin):
-    """优化的分批并行技能创建"""
+    """Optimized batch parallel skill creation"""
     logger.info("[build_agent_skills] Building skills with optimized batching...")
 
-    # 按优先级和依赖关系分组技能
-    # 第一批：核心技能（快速创建）
+    # Group skills by priority and dependencies
+    # Batch 1: Core skills (fast creation)
     core_skills = [
         ("my_twin_chatter", create_my_twin_chatter_skill),
         ("self_test", create_self_test_skill),
         ("self_test_chatter", create_self_test_chatter_skill),
         ("test_dev", create_test_dev_skill)
     ]
-    
-    # 第二批：RPA技能（中等复杂度）
+
+    # Batch 2: RPA skills (medium complexity)
     rpa_skills = [
         # ("rpa_helper", create_rpa_helper_skill),
         # ("rpa_helper_chatter", create_rpa_helper_chatter_skill),
         # ("rpa_operator", create_rpa_operator_skill),
         # ("rpa_operator_chatter", create_rpa_operator_chatter_skill),
     ]
-    
-    # 第三批：高级RPA和搜索技能（较复杂）
+
+    # Batch 3: Advanced RPA and search skills (more complex)
     advanced_skills = [
         # ("rpa_supervisor_scheduling", create_rpa_supervisor_scheduling_skill),
         # ("rpa_supervisor_scheduling_chatter", create_rpa_supervisor_scheduling_chatter_skill),
@@ -63,24 +64,24 @@ async def build_agent_skills_parallel(mainwin):
     logger.info(f"[build_agent_skills] Starting optimized creation of {total_skills} skills in 3 batches...")
 
     all_skills = []
-    
-    # 批次1：核心技能（并发度4）
+
+    # Batch 1: Core skills (concurrency=4)
     logger.info(f"[build_agent_skills] Batch 1: Creating {len(core_skills)} core skills...")
     batch1_start = time.time()
     batch1_results = await _create_skills_batch(mainwin, core_skills, max_concurrent=4)
     all_skills.extend(batch1_results)
     batch1_time = time.time() - batch1_start
     logger.info(f"[build_agent_skills] Batch 1 completed in {batch1_time:.3f}s")
-    
-    # 批次2：RPA技能（并发度3，避免资源竞争）
+
+    # Batch 2: RPA skills (concurrency=3, avoid resource contention)
     logger.info(f"[build_agent_skills] Batch 2: Creating {len(rpa_skills)} RPA skills...")
     batch2_start = time.time()
     batch2_results = await _create_skills_batch(mainwin, rpa_skills, max_concurrent=3)
     all_skills.extend(batch2_results)
     batch2_time = time.time() - batch2_start
     logger.info(f"[build_agent_skills] Batch 2 completed in {batch2_time:.3f}s")
-    
-    # 批次3：高级技能（并发度2，避免过载）
+
+    # Batch 3: Advanced skills (concurrency=2, avoid overload)
     logger.info(f"[build_agent_skills] Batch 3: Creating {len(advanced_skills)} advanced skills...")
     batch3_start = time.time()
     batch3_results = await _create_skills_batch(mainwin, advanced_skills, max_concurrent=2)
@@ -91,14 +92,14 @@ async def build_agent_skills_parallel(mainwin):
     total_time = time.time() - start_time
     logger.info(f"[build_agent_skills] Optimized parallel creation completed in {total_time:.3f}s")
     logger.info(f"[build_agent_skills] Successfully created {len(all_skills)}/{total_skills} skills")
-    
+
     return all_skills
 
 
 async def _create_skills_batch(mainwin, skill_creators, max_concurrent=4):
-    """创建一批技能，控制并发数"""
+    """Create a batch of skills with controlled concurrency"""
     semaphore = asyncio.Semaphore(max_concurrent)
-    
+
     async def create_single_skill(skill_name, creator_func):
         async with semaphore:
             try:
@@ -113,93 +114,134 @@ async def _create_skills_batch(mainwin, skill_creators, max_concurrent=4):
                 logger.error(f"[build_agent_skills] ❌ Failed to create {skill_name}: {e}")
                 return None
     if skill_creators:
-        # 创建所有任务
+        # Create all tasks
         tasks = [
             create_single_skill(skill_name, creator_func)
             for skill_name, creator_func in skill_creators
         ]
 
-        # 并行执行，但限制并发数
+        # Execute in parallel with concurrency limit
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # 过滤出有效的技能
+        # Filter out valid skills
         skills = [result for result in results if result is not None and not isinstance(result, Exception)]
     else:
         skills = []
     return skills
 
 async def build_agent_skills(mainwin, skill_path=""):
-    """构建 Agent Skills - 超级并行优化版本"""
+    """Build Agent Skills - supports local database + cloud data + local code triple data sources
+
+    Data flow:
+    1. Parallel loading: local database + cloud data
+    2. Wait for both to complete, cloud data takes priority and overwrites local database
+    3. Add locally built skills from code
+    4. Merge all data and update mainwindow.agent_skills memory
+    """
     try:
-        logger.info("[build_agent_skills] Starting ultra-parallel skill building...")
+        logger.info("[build_agent_skills] Starting skill building with DB+Cloud+Local integration...")
         start_time = time.time()
-        
-        # 🚀 并行策略：同时启动云端查询和本地构建
+
+        # Step 1: Start parallel loading from local database and cloud
+        logger.info("[build_agent_skills] Step 1: Parallel loading DB and Cloud...")
+        db_task = asyncio.create_task(_load_skills_from_database_async(mainwin))
         cloud_task = asyncio.create_task(_load_skills_from_cloud_async(mainwin))
-        local_task = asyncio.create_task(_build_local_skills_async(mainwin, skill_path))
-        
-        # 等待任一任务完成，优先使用云端结果
-        done, pending = await asyncio.wait(
-            [cloud_task, local_task], 
-            return_when=asyncio.FIRST_COMPLETED,
-            timeout=3.0  # 3秒超时保护
-        )
-        
-        skills = []
-        cloud_success = False
-        
-        # 检查云端任务结果
-        if cloud_task in done:
+
+        # Step 2: Wait for both database and cloud to complete (with timeout)
+        logger.info("[build_agent_skills] Step 2: Waiting for DB and Cloud...")
+        db_skills = []
+        cloud_skills = []
+
+        try:
+            # Wait for database task
+            db_skills = await asyncio.wait_for(db_task, timeout=3.0)
+            logger.info(f"[build_agent_skills] ✅ Loaded {len(db_skills)} skills from database")
+        except asyncio.TimeoutError:
+            logger.warning("[build_agent_skills] ⏰ Database timeout")
+        except Exception as e:
+            logger.error(f"[build_agent_skills] ❌ Database failed: {e}")
+
+        try:
+            # Wait for cloud task
+            cloud_skills = await asyncio.wait_for(cloud_task, timeout=5.0)
+            logger.info(f"[build_agent_skills] ✅ Loaded {len(cloud_skills or [])} skills from cloud")
+        except asyncio.TimeoutError:
+            logger.warning("[build_agent_skills] ⏰ Cloud timeout")
+        except Exception as e:
+            logger.error(f"[build_agent_skills] ❌ Cloud failed: {e}")
+
+        # Step 3: Check cloud data, if available overwrite local database (async non-blocking)
+        final_db_skills = []
+        if cloud_skills and len(cloud_skills) > 0:
+            logger.info(f"[build_agent_skills] Step 3: Cloud data available, using cloud skills...")
+
+            # Cloud data overwrites local database (background async execution, non-blocking)
+            asyncio.create_task(_update_database_with_cloud_skills(cloud_skills, mainwin))
+            logger.info(f"[build_agent_skills] 🔄 Database update started in background (non-blocking)")
+
+            # Use cloud data as final database skills
+            final_db_skills = cloud_skills
+            logger.info(f"[build_agent_skills] ✅ Using {len(cloud_skills)} cloud skills")
+        else:
+            # No cloud data, use local database data
+            logger.info(f"[build_agent_skills] Step 3: No cloud data, using database skills...")
+            final_db_skills = db_skills
+
+        # Step 4: Convert database skills to skill objects
+        logger.info("[build_agent_skills] Step 4: Converting DB skills to objects...")
+        logger.info(f"[build_agent_skills] DB skills to convert: {len(final_db_skills)}")
+        memory_skills = []
+        for i, db_skill in enumerate(final_db_skills):
             try:
-                cloud_skills = await cloud_task
-                if cloud_skills and len(cloud_skills) > 0:
-                    skills = cloud_skills
-                    cloud_success = True
-                    logger.info(f"[build_agent_skills] ✅ Using {len(skills)} cloud skills")
-                    
-                    # 取消本地构建任务
-                    if local_task in pending:
-                        local_task.cancel()
-                        logger.info("[build_agent_skills] 🚫 Cancelled local build (cloud success)")
+                logger.debug(f"[build_agent_skills] Converting DB skill {i+1}/{len(final_db_skills)}: {db_skill.get('name', 'unknown')}")
+                skill_obj = _convert_db_skill_to_object(db_skill)
+                if skill_obj:
+                    memory_skills.append(skill_obj)
+                    logger.debug(f"[build_agent_skills] ✅ Successfully converted: {skill_obj.name}")
                 else:
-                    logger.info("[build_agent_skills] ⚠️ Cloud returned empty, waiting for local...")
+                    logger.warning(f"[build_agent_skills] ⚠️ Conversion returned None for: {db_skill.get('name', 'unknown')}")
             except Exception as e:
-                logger.warning(f"[build_agent_skills] ⚠️ Cloud task failed: {e}")
-        
-        # 如果云端失败或为空，使用本地构建结果
-        if not cloud_success:
-            if local_task in done:
-                try:
-                    local_skills = await local_task
-                    skills = local_skills or []
-                    logger.info(f"[build_agent_skills] ✅ Using {len(skills)} local skills")
-                except Exception as e:
-                    logger.error(f"[build_agent_skills] ❌ Local task failed: {e}")
-            elif local_task in pending:
-                try:
-                    # 等待本地构建完成
-                    logger.info("[build_agent_skills] ⏳ Waiting for local build completion...")
-                    local_skills = await local_task
-                    skills = local_skills or []
-                    logger.info(f"[build_agent_skills] ✅ Using {len(skills)} local skills")
-                except Exception as e:
-                    logger.error(f"[build_agent_skills] ❌ Local build failed: {e}")
-        
-        # 清理未完成的任务
-        for task in pending:
-            if not task.cancelled():
-                task.cancel()
-        
-        # 过滤掉None对象
-        skills = [skill for skill in skills if skill is not None]
-        
-        # 记录最终结果
+                logger.error(f"[build_agent_skills] ❌ Failed to convert skill {db_skill.get('name', 'unknown')}: {e}")
+                logger.error(f"[build_agent_skills] Traceback: {traceback.format_exc()}")
+
+        logger.info(f"[build_agent_skills] ✅ Converted {len(memory_skills)} DB skills to objects")
+
+        # Step 5: Build local code skills
+        logger.info("[build_agent_skills] Step 5: Building local code skills...")
+        try:
+            local_code_skills = await _build_local_skills_async(mainwin, skill_path)
+            logger.info(f"[build_agent_skills] ✅ Built {len(local_code_skills or [])} local code skills")
+        except Exception as e:
+            logger.error(f"[build_agent_skills] ❌ Local build failed: {e}")
+            local_code_skills = []
+
+        # Step 6: Merge all skill data
+        logger.info("[build_agent_skills] Step 6: Merging all skills...")
+        all_skills = []
+
+        # First add database/cloud skills
+        all_skills.extend(memory_skills)
+
+        # Then add locally built skills from code
+        if local_code_skills:
+            all_skills.extend(local_code_skills)
+
+        # Filter out None objects
+        all_skills = [skill for skill in all_skills if skill is not None]
+
+        # Step 7: Update mainwindow.agent_skills memory
+        logger.info("[build_agent_skills] Step 7: Updating mainwindow.agent_skills...")
+        mainwin.agent_skills = all_skills
+
+        # Log final results
         total_time = time.time() - start_time
-        skill_names = [s.name for s in skills] if skills else []
-        logger.info(f"[build_agent_skills] 🎉 Ultra-parallel build completed in {total_time:.3f}s")
-        logger.info(f"[build_agent_skills] Final result: {len(skills)} skills {skill_names}")
-        
-        return skills
+        skill_names = [s.name for s in all_skills] if all_skills else []
+        logger.info(f"[build_agent_skills] 🎉 Complete! Total: {len(all_skills)} skills in {total_time:.3f}s")
+        logger.info(f"[build_agent_skills] - DB/Cloud skills: {len(memory_skills)}")
+        logger.info(f"[build_agent_skills] - Local code skills: {len(local_code_skills or [])}")
+        logger.info(f"[build_agent_skills] - Skill names: {skill_names}")
+
+        return all_skills
 
     except Exception as e:
         logger.error(f"[build_agent_skills] Error: {e}")
@@ -207,39 +249,161 @@ async def build_agent_skills(mainwin, skill_path=""):
         return []
 
 
+async def _load_skills_from_database_async(mainwin):
+    """Asynchronously load skill data from local database"""
+    try:
+        logger.info("[build_agent_skills] Loading skills from database...")
+
+        # Get current user from mainwin
+        username = getattr(mainwin, 'user', 'default_user') if mainwin else 'default_user'
+        logger.info(f"[build_agent_skills] Querying skills for user: {username}")
+
+        # Get database service from mainwin (uses correct user-specific database path)
+        if mainwin and hasattr(mainwin, 'ec_db_mgr'):
+            skill_service = mainwin.ec_db_mgr.skill_service
+            logger.info(f"[build_agent_skills] Using database from mainwin.ec_db_mgr")
+        else:
+            # Fallback: create new ECDBMgr (will use current directory)
+            logger.warning("[build_agent_skills] mainwin.ec_db_mgr not available, using fallback ECDBMgr")
+            from agent.db import ECDBMgr
+            db_mgr = ECDBMgr()
+            skill_service = db_mgr.skill_service
+
+        skills_result = skill_service.get_skills_by_owner(username)
+        if skills_result.get('success'):
+            db_skills = skills_result.get('data', [])
+            logger.info(f"[build_agent_skills] Found {len(db_skills)} skills in database for user: {username}")
+            return db_skills
+        else:
+            logger.warning(f"[build_agent_skills] Failed to get skills from database: {skills_result.get('error')}")
+            return []
+
+    except Exception as e:
+        logger.error(f"[build_agent_skills] Error loading from database: {e}")
+        return []
+
+def _convert_db_skill_to_object(db_skill):
+    """Convert database skill data to skill object"""
+    try:
+        # Create EC_Skill object
+        skill_obj = EC_Skill()
+
+        # Set basic attributes
+        skill_obj.id = db_skill.get('id', str(uuid.uuid4()))
+        skill_obj.name = db_skill.get('name', 'Unknown Skill')
+        skill_obj.description = db_skill.get('description', '')
+        skill_obj.version = db_skill.get('version', '1.0.0')
+        skill_obj.owner = db_skill.get('owner', '')
+        skill_obj.config = db_skill.get('config', {})
+        skill_obj.level = db_skill.get('level', 'entry')
+
+        # Set other optional attributes
+        if 'tags' in db_skill:
+            skill_obj.tags = db_skill.get('tags', [])
+        if 'ui_info' in db_skill:
+            skill_obj.ui_info = db_skill.get('ui_info', {})
+        if 'objectives' in db_skill:
+            skill_obj.objectives = db_skill.get('objectives', [])
+        if 'need_inputs' in db_skill:
+            skill_obj.need_inputs = db_skill.get('need_inputs', [])
+
+        logger.debug(f"[build_agent_skills] Converted DB skill: {skill_obj.name}")
+        return skill_obj
+
+    except Exception as e:
+        logger.error(f"[build_agent_skills] Error converting DB skill: {e}")
+        logger.error(f"[build_agent_skills] Traceback: {traceback.format_exc()}")
+        return None
+
+async def _update_database_with_cloud_skills(cloud_skills, mainwin):
+    """Update local database with cloud skill data"""
+    try:
+        logger.info(f"[build_agent_skills] Updating database with {len(cloud_skills)} cloud skills...")
+
+        # Get current user from mainwin
+        username = getattr(mainwin, 'user', 'default_user') if mainwin else 'default_user'
+
+        # Get database service from mainwin (uses correct user-specific database path)
+        if mainwin and hasattr(mainwin, 'ec_db_mgr'):
+            skill_service = mainwin.ec_db_mgr.skill_service
+        else:
+            # Fallback: create new ECDBMgr (will use current directory)
+            logger.warning("[build_agent_skills] mainwin.ec_db_mgr not available, using fallback ECDBMgr")
+            from agent.db import ECDBMgr
+            db_mgr = ECDBMgr()
+            skill_service = db_mgr.skill_service
+
+        updated_count = 0
+        for cloud_skill in cloud_skills:
+            try:
+                # Convert cloud skill object to database format
+                skill_data = {
+                    'id': getattr(cloud_skill, 'id', f'cloud_skill_{updated_count}'),
+                    'name': getattr(cloud_skill, 'name', 'Cloud Skill'),
+                    'owner': username,
+                    'description': getattr(cloud_skill, 'description', ''),
+                    'version': getattr(cloud_skill, 'version', '1.0.0'),
+                    'config': getattr(cloud_skill, 'config', {}),
+                    'tags': getattr(cloud_skill, 'tags', []),
+                    'public': getattr(cloud_skill, 'public', False),
+                    'rentable': getattr(cloud_skill, 'rentable', False),
+                    'price': getattr(cloud_skill, 'price', 0),
+                }
+
+                # Check if already exists
+                existing = skill_service.get_skill_by_id(skill_data['id'])
+                if existing.get('success') and existing.get('data'):
+                    # Update existing skill
+                    result = skill_service.update_skill(skill_data['id'], skill_data)
+                else:
+                    # Add new skill
+                    result = skill_service.add_skill(skill_data)
+
+                if result.get('success'):
+                    updated_count += 1
+                    logger.debug(f"[build_agent_skills] Updated DB with cloud skill: {skill_data['name']}")
+                else:
+                    logger.warning(f"[build_agent_skills] Failed to update DB with skill {skill_data['name']}: {result.get('error')}")
+
+            except Exception as e:
+                logger.error(f"[build_agent_skills] Error updating skill in DB: {e}")
+
+        logger.info(f"[build_agent_skills] Successfully updated {updated_count}/{len(cloud_skills)} skills in database")
+
+    except Exception as e:
+        logger.error(f"[build_agent_skills] Error updating database with cloud skills: {e}")
+
 async def _load_skills_from_cloud_async(mainwin):
-    """异步加载云端技能（带超时保护）"""
+    """Asynchronously load cloud skills (timeout controlled externally)"""
     try:
         logger.info("[build_agent_skills] 🌐 Loading skills from cloud...")
-        
-        # 使用超时保护，避免长时间等待
-        cloud_skills = await asyncio.wait_for(
-            asyncio.get_event_loop().run_in_executor(
-                None, load_agent_skills_from_cloud, mainwin
-            ),
-            timeout=2.0  # 2秒超时
+
+        # Execute synchronous cloud loading function in thread pool
+        cloud_skills = await asyncio.get_event_loop().run_in_executor(
+            None, load_agent_skills_from_cloud, mainwin
         )
-        
-        logger.info(f"[build_agent_skills] 🌐 Cloud returned {len(cloud_skills)} skills")
-        return cloud_skills
-        
-    except asyncio.TimeoutError:
-        logger.warning("[build_agent_skills] ⏰ Cloud loading timed out (2s)")
-        return []
+
+        if cloud_skills:
+            logger.info(f"[build_agent_skills] 🌐 Cloud returned {len(cloud_skills)} skills")
+        else:
+            logger.info("[build_agent_skills] 🌐 Cloud returned no skills")
+
+        return cloud_skills or []
+
     except Exception as e:
         logger.warning(f"[build_agent_skills] ⚠️ Cloud loading failed: {e}")
         return []
 
 
 async def _build_local_skills_async(mainwin, skill_path=""):
-    """异步构建本地技能"""
+    """Asynchronously build local skills"""
     try:
         logger.info(f"[build_agent_skills] 🔧 Building local skills. Tool schemas: {len(tool_schemas)}, {skill_path}")
 
         local_skills = []
         local_skills = await build_agent_skills_parallel(mainwin)
 
-        # 从文件构建技能
+        # Build skills from files
         local_extern_skills = await asyncio.get_event_loop().run_in_executor(
             None, build_agent_skills_from_files, mainwin, skill_path
         )
@@ -252,13 +416,13 @@ async def _build_local_skills_async(mainwin, skill_path=""):
 
 
 def build_agent_skills_from_files(mainwin, skill_path: str = ""):
-    """从文件构建技能，目录结构：
+    """Build skills from files, directory structure:
 
     <skills_root>/<name>_skill/
-      ├─ code_skill/ | code_dir/   # pure Python realization（package dir contains <module>_skill.py with build_skill()）
+      ├─ code_skill/ | code_dir/   # pure Python realization (package dir contains <module>_skill.py with build_skill())
       └─ diagram_dir/              # Flowgram exported jsons: <name>_skill.json <name>_skill_bundle.json
 
-    pick strategy：
+    pick strategy:
     - if only 1 exists, just load from there
     - if both exist, pick the one with most recent modification date
     """
@@ -513,7 +677,7 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
             root.mkdir(parents=True, exist_ok=True)
             logger.info(f"[build_agent_skills] Scanning skills under: {root}")
             for entry in sorted(root.iterdir()):
-                # expect entries named <name>_skill
+                # Expect entries named <name>_skill
                 if entry.is_dir() and entry.name.endswith("_skill"):
                     sk = load_one_skill(entry)
                     if sk is not None:
