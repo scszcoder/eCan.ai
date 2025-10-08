@@ -1,12 +1,15 @@
-import { Button, Spin, Typography, Space } from 'antd';
+import { Button, Typography, Space, message } from 'antd';
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import React from 'react';
+import React, { useCallback } from 'react';
 
 import DetailLayout from '@/components/Layout/DetailLayout';
 import { TaskList } from './components/TaskList';
 import { TaskDetail } from './components/TaskDetail';
 import { useTasks } from './hooks/useTasks';
+import { Task } from './types';
+import { get_ipc_api } from '@/services/ipc_api';
+import { useUserStore } from '@/stores/userStore';
 
 const { Text } = Typography;
 
@@ -14,6 +17,7 @@ const Tasks: React.FC = () => {
   const { t } = useTranslation();
   const { tasks, selectedTask, selectItem, isSelected, loading, handleRefresh } = useTasks();
   const [isAddingNew, setIsAddingNew] = React.useState(false);
+  const username = useUserStore((state) => state.username);
 
   const listTitle = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -31,7 +35,6 @@ const Tasks: React.FC = () => {
           icon={<PlusOutlined />}
           onClick={() => {
             setIsAddingNew(true);
-            // Do not select an empty object; let details render a clean new form
           }}
           title={t('pages.tasks.add')}
         />
@@ -41,17 +44,91 @@ const Tasks: React.FC = () => {
 
   const handleTaskSave = () => {
     setIsAddingNew(false);
-    handleRefresh(); // Refresh the task list after adding
+    handleRefresh();
   };
+
+  // 运行任务
+  const handleRunTask = useCallback(async (task: Task) => {
+    if (!username) {
+      message.error('用户未登录');
+      return;
+    }
+
+    try {
+      const api = get_ipc_api();
+      const response = await api.runTask(username, task.id);
+      if (response?.success) {
+        message.success('任务已开始运行');
+        handleRefresh();
+      } else {
+        message.error('运行任务失败');
+      }
+    } catch (error) {
+      console.error('Failed to run task:', error);
+      message.error('运行任务失败');
+    }
+  }, [username, handleRefresh]);
+
+  // 暂停任务
+  const handlePauseTask = useCallback(async (task: Task) => {
+    if (!username) {
+      message.error('用户未登录');
+      return;
+    }
+
+    try {
+      const api = get_ipc_api();
+      const response = await api.pauseTask(username, task.id);
+      if (response?.success) {
+        message.success('任务已暂停');
+        handleRefresh();
+      } else {
+        message.error('暂停任务失败');
+      }
+    } catch (error) {
+      console.error('Failed to pause task:', error);
+      message.error('暂停任务失败');
+    }
+  }, [username, handleRefresh]);
+
+  // 取消任务
+  const handleCancelTask = useCallback(async (task: Task) => {
+    if (!username) {
+      message.error('用户未登录');
+      return;
+    }
+
+    try {
+      const api = get_ipc_api();
+      const response = await api.cancelTask(username, task.id);
+      if (response?.success) {
+        message.success('任务已取消');
+        handleRefresh();
+      } else {
+        message.error('取消任务失败');
+      }
+    } catch (error) {
+      console.error('Failed to cancel task:', error);
+      message.error('取消任务失败');
+    }
+  }, [username, handleRefresh]);
+
+
 
   return (
     <DetailLayout
       listTitle={listTitle}
       detailsTitle={t('pages.tasks.details')}
       listContent={
-        <Spin spinning={loading}>
-          <TaskList tasks={tasks} onSelectItem={selectItem} isSelected={isSelected} />
-        </Spin>
+        <TaskList
+          tasks={tasks}
+          loading={loading}
+          onSelectItem={selectItem}
+          isSelected={isSelected}
+          onRun={handleRunTask}
+          onPause={handlePauseTask}
+          onCancel={handleCancelTask}
+        />
       }
       detailsContent={
         selectedTask || isAddingNew ? (

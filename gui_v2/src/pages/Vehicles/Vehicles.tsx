@@ -17,9 +17,8 @@ const Vehicles: React.FC = () => {
 
   // 使用新的 vehicleStore
   const vehicles = useVehicleStore((state) => state.items);
-  const isLoading = useVehicleStore((state) => state.loading);
-  const error = useVehicleStore((state) => state.error);
   const fetchItems = useVehicleStore((state) => state.fetchItems);
+  const forceRefresh = useVehicleStore((state) => state.forceRefresh);
   const updateVehicleStatus = useVehicleStore((state) => state.updateVehicleStatus);
 
   const {
@@ -33,34 +32,35 @@ const Vehicles: React.FC = () => {
 
   // 获取车辆数据
   const fetchVehicles = useCallback(async () => {
-    if (!username) {
-      logger.warn('[Vehicles] Username is not available');
-      return;
-    }
+    if (!username) return;
 
     try {
-      logger.info('[Vehicles] Fetching vehicles for user:', username);
       await fetchItems(username);
-      logger.info('[Vehicles] Successfully fetched vehicles:', vehicles.length);
     } catch (error) {
       logger.error('[Vehicles] Error fetching vehicles:', error);
       message.error(t('pages.vehicles.fetchError') || 'Failed to fetch vehicles');
     }
-  }, [username, fetchItems, vehicles.length, t]);
+  }, [username, fetchItems, t]);
 
   useEffect(() => {
     fetchVehicles();
   }, [fetchVehicles]);
 
   const handleRefresh = useCallback(async () => {
-    await fetchVehicles();
-  }, [fetchVehicles]);
+    if (!username) return;
+
+    try {
+      await forceRefresh(username);
+    } catch (error) {
+      logger.error('[Vehicles] Error refreshing vehicles:', error);
+      message.error(t('pages.vehicles.fetchError') || 'Failed to refresh vehicles');
+    }
+  }, [username, forceRefresh, t]);
 
   const handleStatusChange = useCallback(async (id: string | number, newStatus: Vehicle['status']) => {
     if (!username) return;
 
     try {
-      logger.info('[Vehicles] Updating vehicle status:', id, newStatus);
       await updateVehicleStatus(username, String(id), newStatus as VehicleStatus);
       message.success(t('pages.vehicles.statusUpdateSuccess') || 'Status updated successfully');
       await fetchVehicles(); // 刷新列表
@@ -74,7 +74,6 @@ const Vehicles: React.FC = () => {
     if (!username) return;
 
     try {
-      logger.info('[Vehicles] Setting vehicle to maintenance:', id);
       await updateVehicleStatus(username, String(id), VehicleStatus.MAINTENANCE);
       message.success(t('pages.vehicles.maintenanceSuccess') || 'Vehicle set to maintenance');
       await fetchVehicles(); // 刷新列表
@@ -112,9 +111,11 @@ const Vehicles: React.FC = () => {
 
   const handleEditSubmit = useCallback(async (values: any) => {
     if (!selectedVehicle) return;
-    
+
     try {
-      const response = await get_ipc_api().updateVehicle(selectedVehicle.id, values);
+      // Convert string id to number if needed
+      const vehicleId = typeof selectedVehicle.id === 'string' ? parseInt(selectedVehicle.id) : selectedVehicle.id;
+      const response = await get_ipc_api().updateVehicle(vehicleId, values);
       if (response?.success) {
         message.success(t('pages.vehicles.updateSuccess'));
         setIsEditModalVisible(false);
@@ -130,14 +131,16 @@ const Vehicles: React.FC = () => {
 
   const handleDelete = useCallback(async () => {
     if (!selectedVehicle) return;
-    
+
     // 确认删除
     if (!window.confirm(t('pages.vehicles.confirmDelete', { name: selectedVehicle.name }))) {
       return;
     }
 
     try {
-      const response = await get_ipc_api().deleteVehicle(selectedVehicle.id);
+      // Convert string id to number if needed
+      const vehicleId = typeof selectedVehicle.id === 'string' ? parseInt(selectedVehicle.id) : selectedVehicle.id;
+      const response = await get_ipc_api().deleteVehicle(vehicleId);
       if (response?.success) {
         await fetchVehicles(); // 刷新列表
       } else {

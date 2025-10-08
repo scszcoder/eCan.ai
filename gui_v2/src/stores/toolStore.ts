@@ -10,7 +10,9 @@ interface ToolStoreState {
   tools: Tool[];
   loading: boolean;
   error: string | null;
+  lastFetched: number | null;
   fetchTools: (username: string) => Promise<void>;
+  forceRefresh: (username: string) => Promise<void>;
   clearTools: () => void;
 }
 
@@ -18,33 +20,23 @@ export const useToolStore = create<ToolStoreState>((set, get) => ({
   tools: [],
   loading: false,
   error: null,
+  lastFetched: null,
   fetchTools: async (username: string) => {
+    // Check cache
+    const { lastFetched } = get();
+    const now = Date.now();
+    const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+    if (lastFetched && now - lastFetched < CACHE_DURATION) {
+      return; // Use cached data
+    }
+
     set({ loading: true, error: null });
     try {
       const response: APIResponse<{ tools: Tool[] }> = await IPCAPI.getInstance().getTools(username, []);
       if (response && response.success && response.data && Array.isArray(response.data.tools)) {
         const incoming = response.data.tools;
-        console.log('[TOOLS_SCHEMA][STORE] fetched tools count =', incoming.length);
-        // Debug a sample to ensure schemas exist
-        if (incoming.length > 0) {
-          const sample = incoming[0] as any;
-          console.log('[TOOLS_SCHEMA][STORE] sample tool keys:', Object.keys(sample));
-          console.log('[TOOLS_SCHEMA][STORE] sample inputSchema:', sample?.inputSchema);
-        }
-        // Avoid overwriting with empty list if we already have data (race protection)
-        const current = get().tools || [];
-        if (incoming.length === 0 && current.length > 0) {
-          console.warn('[TOOLS_SCHEMA][STORE] Incoming tools is empty; preserving existing tools to avoid losing schemas');
-          set({ loading: false });
-          return;
-        }
-        set({ tools: incoming, loading: false });
-        try {
-          console.log('[TOOLS_SCHEMA][STORE] tools set in store, count =', incoming.length);
-          if (incoming.length > 0) {
-            console.log('[TOOLS_SCHEMA][STORE] first tool inputSchema after set:', (incoming[0] as any)?.inputSchema);
-          }
-        } catch {}
+        set({ tools: incoming, loading: false, lastFetched: Date.now() });
       } else {
         throw new Error(response?.error?.message || 'Failed to fetch tools');
       }
@@ -53,7 +45,11 @@ export const useToolStore = create<ToolStoreState>((set, get) => ({
       set({ error: errorMessage, loading: false });
     }
   },
+  forceRefresh: async (username: string) => {
+    set({ lastFetched: null });
+    await get().fetchTools(username);
+  },
   clearTools: () => {
-    set({ tools: [], loading: false, error: null });
+    set({ tools: [], loading: false, error: null, lastFetched: null });
   },
 }));
