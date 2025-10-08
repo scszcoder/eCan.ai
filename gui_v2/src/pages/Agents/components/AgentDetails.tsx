@@ -8,6 +8,7 @@ import { useUserStore } from '@/stores/userStore';
 import { useOrgStore } from '@/stores/orgStore';
 import { useTaskStore, useSkillStore, useVehicleStore } from '@/stores';
 import { get_ipc_api } from '@/services/ipc_api';
+import { StyledFormItem } from '@/components/Common/StyledForm';
 
 type Gender = 'gender_options.male' | 'gender_options.female';
 
@@ -713,8 +714,8 @@ const AgentDetails: React.FC = () => {
           overflow: auto !important;
         }
       `}</style>
-      <div style={{ padding: 16, height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ marginBottom: 16 }}>
+      <div style={{ padding: 12, height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ marginBottom: 12 }}>
           <span style={{ fontSize: 18, fontWeight: 600 }}>
             {pageTitle}
             {isNew && defaultOrgId && (
@@ -725,90 +726,83 @@ const AgentDetails: React.FC = () => {
           </span>
         </div>
 
-        <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} styles={{ body: { padding: 16, height: '100%', overflow: 'hidden' } }}>
-          <div style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
-          <Form 
-            form={form} 
-            layout="vertical" 
+        <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} styles={{ body: { padding: 12, height: '100%', overflow: 'hidden' } }}>
+          <div style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', paddingRight: 8 }}>
+          <Form
+            form={form}
+            layout="vertical"
             style={{ maxWidth: '100%' }}
             autoComplete="off"
             role="form"
             aria-label={t('pages.agents.form_label') || 'Agent Details Form'}
           >
-            <Row gutter={[16, 16]} style={{ margin: 0 }}>
-              {/* ID 和 Agent ID：新增时不显示，查看/编辑时只读 */}
+            <Row gutter={[12, 0]} style={{ margin: 0 }}>
+              {/* 第一行：ID（只在编辑时显示）和 Name */}
               {!isNew && (
-                <>
-                  <Col span={12}>
-                    <Form.Item name="id" label={t('common.id') || 'ID'} htmlFor="agent-id">
-                      <Input 
-                        id="agent-id"
-                        readOnly 
-                        autoComplete="off"
-                        aria-label={t('common.id') || 'ID'}
-                      />
-                    </Form.Item>
-                  </Col>
-                  <Col span={12}>
-                    <Form.Item name="agent_id" label={t('pages.agents.agent_id') || 'Agent ID'} htmlFor="agent-agent-id">
-                      <Input 
-                        id="agent-agent-id"
-                        readOnly 
-                        autoComplete="off"
-                        aria-label={t('pages.agents.agent_id') || 'Agent ID'}
-                      />
-                    </Form.Item>
-                  </Col>
-                </>
+                <Col span={12}>
+                  <StyledFormItem name="agent_id" label={t('pages.agents.agent_id') || 'Agent ID'} htmlFor="agent-agent-id">
+                    <Input
+                      id="agent-agent-id"
+                      readOnly
+                      autoComplete="off"
+                      aria-label={t('pages.agents.agent_id') || 'Agent ID'}
+                    />
+                  </StyledFormItem>
+                </Col>
               )}
-
-              <Col span={12}>
-                <Form.Item name="name" label={t('common.name') || 'Name'} rules={[{ required: true, message: t('common.please_input_name') || 'Please input name' }]} htmlFor="agent-name">
-                  <Input 
+              <Col span={isNew ? 24 : 12}>
+                <StyledFormItem name="name" label={t('common.name') || 'Name'} rules={[{ required: true, message: t('common.please_input_name') || 'Please input name' }]} htmlFor="agent-name">
+                  <Input
                     id="agent-name"
-                    placeholder={t('common.name') || 'Name'} 
+                    placeholder={t('common.name') || 'Name'}
                     disabled={!editMode}
                     autoComplete="name"
                     aria-label={t('common.name') || 'Name'}
                     aria-required="true"
                   />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
+
+              {/* 第二行：描述（提前到前面） */}
+              <Col span={24}>
+                <StyledFormItem name="description" label={t('pages.agents.description') || 'Description'} htmlFor="agent-description">
+                  <Input.TextArea
+                    id="agent-description"
+                    rows={3}
+                    disabled={!editMode}
+                    autoComplete="off"
+                    placeholder={t('pages.agents.description_placeholder') || 'Enter agent description'}
+                    aria-label={t('pages.agents.description') || 'Description'}
+                    className="resizable-textarea"
+                    style={{ minHeight: '80px', resize: 'vertical' }}
+                  />
+                </StyledFormItem>
+              </Col>
+
+              {/* 第三行：Owner 和 Gender */}
               <Col span={12}>
-                <Form.Item name="owner" label={t('common.owner') || 'Owner'} htmlFor="agent-owner">
-                  {/* Owner: 新增时可以修改，编辑时只读 */}
-                  <Input 
+                <StyledFormItem name="owner" label={t('common.owner') || 'Owner'} htmlFor="agent-owner">
+                  <Input
                     id="agent-owner"
-                    placeholder={t('common.owner') || 'Owner'} 
+                    placeholder={t('common.owner') || 'Owner'}
                     disabled={pageMode !== 'create'}
                     autoComplete="username"
                     aria-label={t('common.owner') || 'Owner'}
                   />
-                </Form.Item>
+                </StyledFormItem>
+              </Col>
+              <Col span={12}>
+                <StyledFormItem name="gender" label={t('common.gender') || 'Gender'}>
+                  <Radio.Group disabled={!editMode}>
+                    <Radio value="gender_options.male">{t('common.gender_options.male') || 'Male'}</Radio>
+                    <Radio value="gender_options.female">{t('common.gender_options.female') || 'Female'}</Radio>
+                  </Radio.Group>
+                </StyledFormItem>
               </Col>
 
+              {/* 第四行：Birthday 和 Vehicle */}
               <Col span={12}>
-                <div style={{ marginBottom: '24px' }}>
-                  <div style={{ 
-                    marginBottom: '8px',
-                    color: '#ffffff',
-                    fontSize: '14px',
-                    lineHeight: '1.5715'
-                  }}>
-                    {t('common.gender') || 'Gender'}
-                  </div>
-                  <Form.Item name="gender" style={{ marginBottom: 0 }}>
-                    <Radio.Group 
-                      disabled={!editMode}
-                    >
-                      <Radio value="gender_options.male">{t('common.gender_options.male') || 'Male'}</Radio>
-                      <Radio value="gender_options.female">{t('common.gender_options.female') || 'Female'}</Radio>
-                    </Radio.Group>
-                  </Form.Item>
-                </div>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="birthday" label={t('common.birthday') || 'Birthday'}>
+                <StyledFormItem name="birthday" label={t('common.birthday') || 'Birthday'}>
                   <DatePicker
                     style={{ width: '100%' }}
                     disabled={!editMode}
@@ -816,39 +810,27 @@ const AgentDetails: React.FC = () => {
                     placement="bottomLeft"
                     aria-label={t('common.birthday') || 'Birthday'}
                   />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
-
-              <Col span={24}>
-                <Form.Item
-                  name="personality_traits"
-                  label={t('pages.agents.personality') || 'Personality'}
-                >
-                  <TagsEditor
-                    options={knownPersonalities}
+              <Col span={12}>
+                <StyledFormItem name="vehicle_id" label={t('pages.agents.vehicle') || 'Vehicle'}>
+                  <Select
                     disabled={!editMode}
-                    placeholder={t('common.select_personality') || 'Select personality traits'}
-                    aria-label={t('pages.agents.personality') || 'Personality'}
+                    allowClear
+                    placeholder={t('common.select_vehicle') || 'Select vehicle'}
+                    options={vehicles.map((v: any) => ({
+                      value: v.id,
+                      label: `${v.name || v.id}${v.ip ? ` (${v.ip})` : ''}`
+                    }))}
+                    getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
+                    aria-label={t('pages.agents.vehicle') || 'Vehicle'}
                   />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
 
-              <Col span={24}>
-                <Form.Item 
-                  name="title" 
-                  label={t('pages.agents.title') || 'Title'}
-                >
-                  <TagsEditor
-                    options={knownTitles}
-                    disabled={!editMode}
-                    placeholder={t('common.select_title') || 'Select titles'}
-                    aria-label={t('pages.agents.title') || 'Title'}
-                  />
-                </Form.Item>
-              </Col>
-
-              <Col span={24}>
-                <Form.Item
+              {/* 第五行：Organization 和 Supervisor */}
+              <Col span={12}>
+                <StyledFormItem
                   name="org_id"
                   label={t('pages.agents.organization') || 'Organization'}
                   rules={[{ required: true, message: t('common.please_select_organization') || 'Please select organization' }]}
@@ -869,17 +851,10 @@ const AgentDetails: React.FC = () => {
                       setSelectedOrgId(value as string);
                     }}
                   />
-                </Form.Item>
-                {/* 显示选中组织的完整路径 */}
-                {selectedOrgId && (
-                  <div style={{ marginTop: -16, marginBottom: 16, fontSize: 12, color: '#666' }}>
-                    完整路径：{getOrgFullPath(selectedOrgId)}
-                  </div>
-                )}
+                </StyledFormItem>
               </Col>
-
-              <Col span={24}>
-                <Form.Item
+              <Col span={12}>
+                <StyledFormItem
                   name="supervisor_id"
                   label={t('pages.agents.supervisors') || 'Supervisor'}
                 >
@@ -893,12 +868,41 @@ const AgentDetails: React.FC = () => {
                     getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
                     aria-label={t('pages.agents.supervisors') || 'Supervisor'}
                   />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
 
-              <Col span={24}>
-                <Form.Item 
-                  name="tasks" 
+              {/* 第六行：Personality 和 Title */}
+              <Col span={12}>
+                <StyledFormItem
+                  name="personality_traits"
+                  label={t('pages.agents.personality') || 'Personality'}
+                >
+                  <TagsEditor
+                    options={knownPersonalities}
+                    disabled={!editMode}
+                    placeholder={t('common.select_personality') || 'Select personality traits'}
+                    aria-label={t('pages.agents.personality') || 'Personality'}
+                  />
+                </StyledFormItem>
+              </Col>
+              <Col span={12}>
+                <StyledFormItem
+                  name="title"
+                  label={t('pages.agents.title') || 'Title'}
+                >
+                  <TagsEditor
+                    options={knownTitles}
+                    disabled={!editMode}
+                    placeholder={t('common.select_title') || 'Select titles'}
+                    aria-label={t('pages.agents.title') || 'Title'}
+                  />
+                </StyledFormItem>
+              </Col>
+
+              {/* 第七行：Tasks 和 Skills */}
+              <Col span={12}>
+                <StyledFormItem
+                  name="tasks"
                   label={t('pages.agents.tasks') || 'Tasks'}
                 >
                   <TagsEditor
@@ -907,12 +911,11 @@ const AgentDetails: React.FC = () => {
                     placeholder={t('common.select_task') || 'Select tasks'}
                     aria-label={t('pages.agents.tasks') || 'Tasks'}
                   />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
-
-              <Col span={24}>
-                <Form.Item 
-                  name="skills" 
+              <Col span={12}>
+                <StyledFormItem
+                  name="skills"
                   label={t('pages.agents.skills') || 'Skills'}
                 >
                   <TagsEditor
@@ -921,58 +924,28 @@ const AgentDetails: React.FC = () => {
                     placeholder={t('common.select_skill') || 'Select skills'}
                     aria-label={t('pages.agents.skills') || 'Skills'}
                   />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
 
+              {/* 第八行：Extra Data */}
               <Col span={24}>
-                <Form.Item name="vehicle_id" label={t('pages.agents.vehicle') || 'Vehicle'}>
-                  <Select
-                    disabled={!editMode}
-                    allowClear
-                    placeholder={t('common.select_vehicle') || 'Select vehicle'}
-                    options={vehicles.map((v: any) => ({
-                      value: v.id,
-                      label: `${v.name || v.id}${v.ip ? ` (${v.ip})` : ''}`
-                    }))}
-                    getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
-                    aria-label={t('pages.agents.vehicle') || 'Vehicle'}
-                  />
-                </Form.Item>
-              </Col>
-
-              <Col span={24}>
-                <Form.Item name="description" label={t('pages.agents.description') || 'Description'} htmlFor="agent-description">
-                  <Input.TextArea
-                    id="agent-description"
-                    rows={4}
-                    disabled={!editMode}
-                    autoComplete="off"
-                    placeholder={t('pages.agents.description_placeholder') || 'Enter agent description'}
-                    aria-label={t('pages.agents.description') || 'Description'}
-                    className="resizable-textarea"
-                    style={{ minHeight: '100px', resize: 'vertical' }}
-                  />
-                </Form.Item>
-              </Col>
-
-              <Col span={24}>
-                <Form.Item name="extra_data" label={t('pages.agents.extra_data') || 'Extra Data / Notes'} htmlFor="agent-extra-data">
+                <StyledFormItem name="extra_data" label={t('pages.agents.extra_data') || 'Extra Data / Notes'} htmlFor="agent-extra-data">
                   <Input.TextArea
                     id="agent-extra-data"
-                    rows={6}
+                    rows={4}
                     disabled={!editMode}
                     autoComplete="off"
                     placeholder={t('pages.agents.extra_data_placeholder') || 'Enter additional notes or extra data'}
                     aria-label={t('pages.agents.extra_data') || 'Extra Data'}
                     className="resizable-textarea"
-                    style={{ minHeight: '120px', resize: 'vertical' }}
+                    style={{ minHeight: '100px', resize: 'vertical' }}
                   />
-                </Form.Item>
+                </StyledFormItem>
               </Col>
 
               {/* 按钮区域 - 放在表单内部 */}
               <Col span={24}>
-                <Divider style={{ margin: '16px 0' }} />
+                <Divider style={{ margin: '12px 0 8px 0' }} />
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
                   {/* 新增模式：只显示保存按钮 */}
                   {pageMode === 'create' && (

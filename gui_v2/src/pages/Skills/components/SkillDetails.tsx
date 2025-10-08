@@ -21,6 +21,7 @@ import { useNavigate } from 'react-router-dom';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
 import { IPCWCClient } from '@/services/ipc/ipcWCClient';
+import { StyledFormItem, StyledCard, FormContainer, ButtonContainer, buttonStyle, primaryButtonStyle } from '@/components/Common/StyledForm';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -279,66 +280,66 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
             key: 'basic',
             label: <span><SettingOutlined /> {t('pages.skills.tabs.basic', '基础信息')}</span>,
             children: (
-                <Row gutter={[16, 8]}>
+                <Row gutter={[24, 0]}>
                     <Col span={12}>
-                        <Form.Item label="ID" name="id">
+                        <StyledFormItem label="ID" name="id">
                             <Input readOnly />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={12}>
-                        <Form.Item label="Ask ID" name="askid">
+                        <StyledFormItem label="Ask ID" name="askid">
                             <Input readOnly />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={12}>
-                        <Form.Item label={t('common.name', 'Name')} name="name" rules={[{ required: true }]}>
+                        <StyledFormItem label={t('common.name', 'Name')} name="name" rules={[{ required: true }]}>
                             <Input placeholder={t('pages.skills.namePlaceholder', 'Enter skill name')} />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={12}>
-                        <Form.Item label={t('common.owner', 'Owner')} name="owner">
+                        <StyledFormItem label={t('common.owner', 'Owner')} name="owner">
                             <Input readOnly />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={24}>
-                        <Form.Item label={t('common.description', 'Description')} name="description">
+                        <StyledFormItem label={t('common.description', 'Description')} name="description">
                             <TextArea
                                 rows={4}
                                 placeholder={t('pages.skills.descriptionPlaceholder', 'Enter skill description')}
                             />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={8}>
-                        <Form.Item label={t('pages.skills.version', 'Version')} name="version" rules={[{ required: true }]}>
+                        <StyledFormItem label={t('pages.skills.version', 'Version')} name="version" rules={[{ required: true }]}>
                             <Input placeholder="0.0.0" />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={8}>
-                        <Form.Item label={t('pages.skills.level', 'Level')} name="level">
+                        <StyledFormItem label={t('pages.skills.level', 'Level')} name="level">
                             <Select>
                                 <Select.Option value="entry">{t('pages.skills.levels.entry', 'Entry')}</Select.Option>
                                 <Select.Option value="intermediate">{t('pages.skills.levels.intermediate', 'Intermediate')}</Select.Option>
                                 <Select.Option value="advanced">{t('pages.skills.levels.advanced', 'Advanced')}</Select.Option>
                             </Select>
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={8}>
-                        <Form.Item label={t('pages.skills.runMode', 'Run Mode')} name="run_mode">
+                        <StyledFormItem label={t('pages.skills.runMode', 'Run Mode')} name="run_mode">
                             <Select>
                                 <Select.Option value="development">{t('pages.skills.runModes.development', 'Development')}</Select.Option>
                                 <Select.Option value="released">{t('pages.skills.runModes.released', 'Released')}</Select.Option>
                             </Select>
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={24}>
-                        <Form.Item label={t('pages.skills.path', 'Path')} name="path" htmlFor="skill-path-input">
+                        <StyledFormItem label={t('pages.skills.path', 'Path')} name="path" htmlFor="skill-path-input">
                             <Space.Compact style={{ width: '100%' }}>
                                 <Input id="skill-path-input" readOnly placeholder={t('pages.skills.pathPlaceholder', 'Skill file path')} />
                                 <Tooltip title={t('pages.skills.openEditor', 'Open in Editor')}>
                                     <Button icon={<FileTextOutlined />} onClick={goToEditor} />
                                 </Tooltip>
                             </Space.Compact>
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                 </Row>
             ),
@@ -347,9 +348,9 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
             key: 'config',
             label: <span><CodeOutlined /> {t('pages.skills.tabs.config', '配置')}</span>,
             children: (
-                <Row gutter={[16, 8]}>
+                <Row gutter={[24, 0]}>
                     <Col span={24}>
-                        <Form.Item
+                        <StyledFormItem
                             label={t('pages.skills.config', 'Config (JSON)')}
                             name="config_json"
                             help={t('pages.skills.configHelp', 'Enter valid JSON configuration')}
@@ -357,12 +358,12 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                             <TextArea
                                 rows={8}
                                 placeholder='{"key": "value"}'
-                                style={{ fontFamily: 'monospace' }}
+                                style={{ fontFamily: 'monospace', fontSize: '13px', lineHeight: '1.6' }}
                             />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={24}>
-                        <Form.Item
+                        <StyledFormItem
                             label={t('pages.skills.mappingRules', 'Mapping Rules (JSON)')}
                             name="mapping_rules_json"
                             help={t('pages.skills.mappingRulesHelp', 'State mapping rules for resume/event handling')}
@@ -370,9 +371,9 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                             <TextArea
                                 rows={8}
                                 placeholder='{"developing": {"mappings": [...]}}'
-                                style={{ fontFamily: 'monospace' }}
+                                style={{ fontFamily: 'monospace', fontSize: '13px', lineHeight: '1.6' }}
                             />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                 </Row>
             ),
@@ -381,9 +382,9 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
             key: 'metadata',
             label: <span><TagsOutlined /> {t('pages.skills.tabs.metadata', '元数据')}</span>,
             children: (
-                <Row gutter={[16, 8]}>
+                <Row gutter={[24, 0]}>
                     <Col span={24}>
-                        <Form.Item
+                        <StyledFormItem
                             label={t('pages.skills.tags', 'Tags (JSON Array)')}
                             name="tags_json"
                             help={t('pages.skills.tagsHelp', 'e.g., ["tag1", "tag2"]')}
@@ -393,10 +394,10 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                                 placeholder='["automation", "data-processing"]'
                                 style={{ fontFamily: 'monospace' }}
                             />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={24}>
-                        <Form.Item
+                        <StyledFormItem
                             label={t('pages.skills.examples', 'Examples (JSON Array)')}
                             name="examples_json"
                             help={t('pages.skills.examplesHelp', 'Usage examples')}
@@ -406,10 +407,10 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                                 placeholder='["Example 1", "Example 2"]'
                                 style={{ fontFamily: 'monospace' }}
                             />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={12}>
-                        <Form.Item
+                        <StyledFormItem
                             label={t('pages.skills.inputModes', 'Input Modes (JSON Array)')}
                             name="inputModes_json"
                         >
@@ -418,10 +419,10 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                                 placeholder='["text", "file"]'
                                 style={{ fontFamily: 'monospace' }}
                             />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={12}>
-                        <Form.Item
+                        <StyledFormItem
                             label={t('pages.skills.outputModes', 'Output Modes (JSON Array)')}
                             name="outputModes_json"
                         >
@@ -430,10 +431,10 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                                 placeholder='["text", "json"]'
                                 style={{ fontFamily: 'monospace' }}
                             />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={24}>
-                        <Form.Item
+                        <StyledFormItem
                             label={t('pages.skills.objectives', 'Objectives (JSON Array)')}
                             name="objectives_json"
                             help={t('pages.skills.objectivesHelp', 'Skill objectives/goals')}
@@ -443,10 +444,10 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                                 placeholder='["Objective 1", "Objective 2"]'
                                 style={{ fontFamily: 'monospace' }}
                             />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={24}>
-                        <Form.Item
+                        <StyledFormItem
                             label={t('pages.skills.needInputs', 'Required Inputs (JSON Array)')}
                             name="need_inputs_json"
                             help={t('pages.skills.needInputsHelp', 'Input parameters required by this skill')}
@@ -456,7 +457,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                                 placeholder='[{"name": "param1", "type": "string", "required": true}]'
                                 style={{ fontFamily: 'monospace' }}
                             />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                 </Row>
             ),
@@ -465,9 +466,9 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
             key: 'extended',
             label: <span><AppstoreOutlined /> {t('pages.skills.tabs.extended', '扩展')}</span>,
             children: (
-                <Row gutter={[16, 8]}>
+                <Row gutter={[24, 0]}>
                     <Col span={24}>
-                        <Form.Item
+                        <StyledFormItem
                             label={t('pages.skills.apps', 'Apps (JSON)')}
                             name="apps_json"
                             help={t('pages.skills.appsHelp', 'Related applications')}
@@ -477,10 +478,10 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                                 placeholder='[{"name": "app1", "version": "1.0"}]'
                                 style={{ fontFamily: 'monospace' }}
                             />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={24}>
-                        <Form.Item
+                        <StyledFormItem
                             label={t('pages.skills.limitations', 'Limitations (JSON)')}
                             name="limitations_json"
                             help={t('pages.skills.limitationsHelp', 'Known limitations')}
@@ -490,29 +491,29 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                                 placeholder='["Limitation 1", "Limitation 2"]'
                                 style={{ fontFamily: 'monospace' }}
                             />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={8}>
-                        <Form.Item label={t('pages.skills.price', 'Price')} name="price">
+                        <StyledFormItem label={t('pages.skills.price', 'Price')} name="price">
                             <Input type="number" min={0} placeholder="0" />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={8}>
-                        <Form.Item label={t('pages.skills.priceModel', 'Price Model')} name="price_model">
+                        <StyledFormItem label={t('pages.skills.priceModel', 'Price Model')} name="price_model">
                             <Input placeholder={t('pages.skills.priceModelPlaceholder', 'e.g., per-use, subscription')} />
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                     <Col span={8}>
-                        <Form.Item label=" " style={{ marginTop: '30px' }}>
+                        <StyledFormItem label=" " style={{ marginTop: '30px' }}>
                             <Space size={24}>
-                                <Form.Item name="public" valuePropName="checked" noStyle>
+                                <StyledFormItem name="public" valuePropName="checked" noStyle>
                                     <Checkbox>{t('pages.skills.public', 'Public')}</Checkbox>
-                                </Form.Item>
-                                <Form.Item name="rentable" valuePropName="checked" noStyle>
+                                </StyledFormItem>
+                                <StyledFormItem name="rentable" valuePropName="checked" noStyle>
                                     <Checkbox>{t('pages.skills.rentable', 'Rentable')}</Checkbox>
-                                </Form.Item>
+                                </StyledFormItem>
                             </Space>
-                        </Form.Item>
+                        </StyledFormItem>
                     </Col>
                 </Row>
             ),
@@ -520,10 +521,10 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
     ];
 
     return (
-        <div style={{ maxHeight: '100%', overflow: 'auto', padding: '8px' }}>
-            <Space direction="vertical" style={{ width: '100%' }} size="large">
+        <FormContainer>
+            <Space direction="vertical" style={{ width: '100%' }} size={24}>
                 {/* Header Card */}
-                <Card
+                <StyledCard
                     style={{
                         background: 'linear-gradient(135deg, rgba(24, 144, 255, 0.1) 0%, rgba(24, 144, 255, 0.05) 100%)',
                         border: '1px solid rgba(24, 144, 255, 0.2)'
@@ -547,6 +548,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                                         onClick={() => skill && onLevelUp((skill as any).id)}
                                         disabled={!skill || (skill as any).level === 100}
                                         size="large"
+                                        style={buttonStyle}
                                     >
                                         {t('pages.skills.levelUp')}
                                     </Button>
@@ -555,18 +557,19 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                                             icon={<EditOutlined />}
                                             onClick={handleEdit}
                                             size="large"
+                                            style={buttonStyle}
                                         >
                                             {t('pages.skills.editSkill')}
                                         </Button>
                                     ) : (
                                         <Space>
-                                            <Button type="primary" onClick={handleSave} size="large">
+                                            <Button type="primary" onClick={handleSave} size="large" style={primaryButtonStyle}>
                                                 {t('common.save', 'Save')}
                                             </Button>
                                             <Button onClick={() => {
                                                 form.resetFields();
                                                 setEditMode(false);
-                                            }} size="large">
+                                            }} size="large" style={buttonStyle}>
                                                 {t('common.cancel', 'Cancel')}
                                             </Button>
                                         </Space>
@@ -575,13 +578,13 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                             )}
                             {isNew && (
                                 <Space>
-                                    <Button type="primary" onClick={handleSave} size="large">
+                                    <Button type="primary" onClick={handleSave} size="large" style={primaryButtonStyle}>
                                         {t('common.create', 'Create')}
                                     </Button>
                                     <Button onClick={() => {
                                         form.resetFields();
                                         if (onCancel) onCancel();
-                                    }} size="large">
+                                    }} size="large" style={buttonStyle}>
                                         {t('common.cancel', 'Cancel')}
                                     </Button>
                                 </Space>
@@ -607,7 +610,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                             )}
                         </Space>
                     </Space>
-                </Card>
+                </StyledCard>
 
                 {/* Progress Card */}
                 {!isNew && (
@@ -619,7 +622,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                             </Space>
                         }
                     >
-                        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                        <Space direction="vertical" style={{ width: '100%', padding: '0 8px' }} size="middle">
                             <Progress
                                 percent={levelVal}
                                 status={(status as any) === 'learning' ? 'active' : 'normal'}
@@ -629,7 +632,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                                 }}
                                 size={['100%', 12]}
                             />
-                            <Text style={{ color: 'rgba(255, 255, 255, 0.85)', fontSize: 14 }}>
+                            <Text style={{ color: 'rgba(255, 255, 255, 0.85)', fontSize: 14, paddingLeft: '4px' }}>
                                 {levelVal === 100
                                     ? `🎉 ${t('pages.skills.mastered', 'Mastered!')}`
                                     : t('pages.skills.progressMessage', `Keep practicing to reach mastery! (${levelVal}%)`)}
@@ -639,7 +642,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                 )}
 
                 {/* Details Form Card */}
-                <Card
+                <StyledCard
                     title={
                         <Space>
                             <SettingOutlined style={{ color: '#1890ff' }} />
@@ -654,23 +657,21 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                             tabBarStyle={{ color: 'white' }}
                         />
                     </Form>
-                </Card>
+                </StyledCard>
 
                 {/* Action Buttons - Only show if not in edit mode */}
                 {!editMode && !isNew && (
-                    <Card>
-                        <Space wrap>
-                            <Button icon={<HistoryOutlined />}>
-                                {t('pages.skills.viewHistory')}
-                            </Button>
-                            <Button onClick={onRefresh}>
-                                {t('pages.skills.refresh')}
-                            </Button>
-                        </Space>
-                    </Card>
+                    <ButtonContainer>
+                        <Button icon={<HistoryOutlined />} size="large" style={buttonStyle}>
+                            {t('pages.skills.viewHistory')}
+                        </Button>
+                        <Button onClick={onRefresh} size="large" style={buttonStyle}>
+                            {t('pages.skills.refresh')}
+                        </Button>
+                    </ButtonContainer>
                 )}
             </Space>
-        </div>
+        </FormContainer>
     );
 };
 

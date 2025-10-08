@@ -106,21 +106,8 @@ const Orgs: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: '24px', height: '100vh' }}>
-      {/* 页面标题 */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'flex-start',
-        alignItems: 'center',
-        marginBottom: '16px'
-      }}>
-        <Title level={2} style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <ApartmentOutlined />
-          {t('pages.org.title', '组织管理')}
-        </Title>
-      </div>
-
-      <Row gutter={[16, 16]} style={{ height: 'calc(100% - 80px)' }}>
+    <div style={{ padding: '16px', height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Row gutter={[16, 16]} style={{ flex: 1, minHeight: 0 }}>
         {/* Org Tree */}
         <Col span={8} style={{ height: '100%' }}>
           <OrgTree

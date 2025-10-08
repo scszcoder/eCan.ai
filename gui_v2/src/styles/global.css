@@ -337,8 +337,8 @@ html, body {
     transform: translateY(-1px) !important;
 }
 
-/* 输入框样式 */
-.ant-input {
+/* 输入框样式（排除 textarea） */
+.ant-input:not(textarea) {
     background-color: var(--bg-tertiary) !important;
     border: 1px solid var(--border-color) !important;
     border-radius: 6px !important;
@@ -348,8 +348,8 @@ html, body {
     transition: var(--transition-fast) !important;
 }
 
-.ant-input:hover,
-.ant-input:focus {
+.ant-input:not(textarea):hover,
+.ant-input:not(textarea):focus {
     border-color: var(--primary-color) !important;
     box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
 }
