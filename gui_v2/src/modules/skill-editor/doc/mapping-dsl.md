@@ -7,7 +7,7 @@ This document describes the declarative mapping rules used to project data from 
 The mapping DSL system provides two levels of data mapping:
 
 1. **Skill-Level Mapping**: Event-to-state mapping and event routing (configured in START node)
-2. **Node-Level Mapping**: Node-to-node transfer mapping (configured in individual nodes)
+2. **Node-Level Mapping**: State-to-state transfer mapping (configured in individual nodes)
 
 Both levels support run_mode separation (`developing` vs `released`) for different runtime behaviors.
 
@@ -28,7 +28,7 @@ Both levels support run_mode separation (`developing` vs `released`) for differe
   - `event.timestamp`: optional
   - `event.data`: payload incl. `human_text`, `qa_form_to_agent|qa_form`, `notification_to_agent|notification`, `metadata`
   - `event.context`: ids like `id`, `sessionId`, `chatId`, `msgId`
-- `node`: current node output (optional usage)
+- [Deprecated] `node`: current node output (no longer used in node-level mappings)
 - `state`: current state (read-only for rules)
 
 ## Targets
@@ -139,11 +139,10 @@ Example use cases:
 
 ### 2. Node-Level Mapping (Other Nodes)
 
-Configured in individual node editors, applies to node-to-node transfers:
+Configured in individual node editors, applies to state-to-state transfers:
 
-- **Node-to-Node Transfer**: Maps preceding node output to current node input
-- Uses `node.*` paths to reference preceding node's output
-- Uses `state.*` paths to write to current node's input
+- **State-to-State Transfer**: Maps values from the current state snapshot (which already contains preceding node outputs) into the current node's state fields
+- Use `state.*` for both sources and targets
 
 Example use cases:
 
@@ -353,15 +352,15 @@ Map incoming chat messages to state:
 }
 ```
 
-### Example 2: Node-to-Node Transfer
+### Example 2: Node-Level State-to-State Transfer
 
-Map API response from previous node to current node's input:
+Map API response (already present in state) into current node's tool_input:
 
 ```json
 {
   "mappings": [
     {
-      "from": ["node.result.api_response"],
+      "from": ["state.result.api_response"],
       "to": [{"target": "state.tool_input.data"}],
       "transform": "parse_json",
       "on_conflict": "overwrite"
