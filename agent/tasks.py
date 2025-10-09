@@ -276,6 +276,15 @@ class ManagedTask(Task):
             }
             self.metadata["config"] = effective_config
 
+        # If a checkpoint is provided as a kwarg, move it into config where LangGraph expects it
+        if "checkpoint" in kwargs:
+            try:
+                effective_config["checkpoint"] = kwargs.pop("checkpoint")
+            except Exception:
+                # ensure config is a dict
+                effective_config = dict(effective_config or {})
+                effective_config["checkpoint"] = kwargs.pop("checkpoint")
+
         if context is None:
             context = {
                 "id": str(uuid.uuid4()),
@@ -292,15 +301,16 @@ class ManagedTask(Task):
         if isinstance(in_msg, Command):
             # in_args = self.metadata.get("state", {})
             # agen = self.skill.runnable.stream(in_args, config=effective_config, context=context, **kwargs)
+            print("effective config before resume:", effective_config)
             agen = self.skill.runnable.stream(in_msg, config=effective_config, context=context, **kwargs)
         else:
             in_args = self.metadata.get("state", {})
             print("in_args:", in_args)
             agen = self.skill.runnable.stream(in_args, config=effective_config, context=context, **kwargs)
         try:
-            print("stream running skill:", self.skill.name, in_msg)
-            print("stream_run config:", effective_config)
-            print("current langgraph run time state2:", self.skill.runnable.get_state(config=effective_config))
+            logger.debug("stream running skill:", self.skill.name, in_msg)
+            logger.debug("stream_run config:", effective_config)
+            logger.debug("current langgraph run time state2:", self.skill.runnable.get_state(config=effective_config))
             # Set up default config if not provided
 
             # Handle Command objects
@@ -745,7 +755,7 @@ class TaskRunner(Generic[Context]):
         try:
             print(f"this agent has # tasks: {len(getattr(self.agent, 'tasks', []))}")
             for t in getattr(self.agent, "tasks", []) or []:
-                print("task:", t.name)
+                print("task:", t.name, t.skill)
                 if not t or not getattr(t, "skill", None):
                     continue
                 skill = t.skill
@@ -1103,7 +1113,7 @@ class TaskRunner(Generic[Context]):
         except Exception:
             return ""
 
-    def _build_resume_payload(self, task, msg) -> dict:
+    def _build_resume_payload(self, task, msg) -> Tuple[Dict[str, Any], Any]:
         """Build a resume payload from incoming chat/task message.
         Uses general-purpose mapping when RESUME_PAYLOAD_V2 is enabled; otherwise falls back to legacy behavior.
         """
@@ -1126,13 +1136,90 @@ class TaskRunner(Generic[Context]):
                                     else:
                                         out[k] = v
                                 return out
+                            logger.debug("state before deep merge===>", cur_state)
+                            logger.debug("patch before deep merge===>", state_patch)
+
+                            # Preserve append semantics for list-like fields before deep-merge
+                            try:
+                                sp = dict(state_patch) if isinstance(state_patch, dict) else {}
+                                cur = dict(cur_state) if isinstance(cur_state, dict) else {}
+                                if "messages" in sp:
+                                    sp_msgs = sp.pop("messages")
+                                    if isinstance(sp_msgs, list):
+                                        if isinstance(cur.get("messages"), list):
+                                            cur_msgs = list(cur["messages"]) + list(sp_msgs)
+                                        else:
+                                            cur_msgs = list(sp_msgs)
+                                    else:
+                                        if isinstance(cur.get("messages"), list):
+                                            cur_msgs = list(cur["messages"]) + [sp_msgs]
+                                        else:
+                                            cur_msgs = [sp_msgs]
+                                    cur["messages"] = cur_msgs
+                                    cur_state = cur
+                                    state_patch = sp
+                            except Exception:
+                                pass
+
                             merged = _deep_merge(cur_state, state_patch)
+                            logger.debug("state after deep merge===>", merged)
+                            state_patch["messages"] = merged["messages"]
+                            # this is really useless as langgraph resume will not be taking this state.....
                             task.metadata["state"] = merged
+                            # Safely update checkpoint values without relying on specific LangGraph versions
+                            try:
+                                updated = False
+                                if hasattr(resume_cp, "values"):
+                                    vals = getattr(resume_cp, "values")
+                                    if isinstance(vals, dict):
+                                        try:
+                                            vals.clear()
+                                            vals.update(merged)
+                                            updated = True
+                                        except Exception:
+                                            updated = False
+                                elif isinstance(resume_cp, dict):
+                                    resume_cp["values"] = merged
+                                    updated = True
+
+                                if not updated:
+                                    # Try reconstructing a new checkpoint object if supported
+                                    try:
+                                        from langgraph.checkpoint.base import StateSnapshot  # type: ignore
+                                        try:
+                                            dumped = resume_cp.model_dump(mode="python")  # pydantic v2
+                                        except Exception:
+                                            try:
+                                                dumped = resume_cp.dict()  # pydantic v1
+                                            except Exception:
+                                                dumped = {}
+                                        if isinstance(dumped, dict):
+                                            dumped["values"] = merged
+                                            resume_cp = StateSnapshot(**dumped)
+                                            updated = True
+                                    except Exception as _ie:
+                                        logger.debug(f"_build_resume_payload: cannot reconstruct StateSnapshot: {_ie}")
+
+                                if not updated:
+                                    logger.debug("_build_resume_payload: checkpoint values not updated due to unexpected type/immutability")
+                            except Exception as _e:
+                                err_msg = get_traceback(_e, "ErrorBuildResumePayloadV2")
+                                logger.debug(f"_build_resume_payload: failed to set merged values on checkpoint: {err_msg}")
+
+                            logger.debug("_build_resume_payload resume cp===>", resume_cp)
+                    # Always include state_patch in resume payload so nodes can merge it on resume
+                    try:
+                        if isinstance(resume_payload, dict) and isinstance(state_patch, dict):
+                            resume_payload["_state_patch"] = state_patch
+                    except Exception:
+                        pass
                 except Exception as e:
-                    logger.debug(f"_build_resume_payload v2 state merge error: {e}")
+                    err_msg = get_traceback(e, "ErrorBuildResumePayloadV2")
+                    logger.debug(f"_build_resume_payload v2 state merge error: {err_msg}")
                 return resume_payload, resume_cp
         except Exception as e:
-            logger.debug(f"_build_resume_payload v2 failed, falling back to legacy: {e}")
+            err_msg = get_traceback(e, "ErrorBuildResumePayloadV2")
+            logger.debug(f"_build_resume_payload v2 failed, falling back to legacy: {err_msg}")
 
         # Legacy behavior (current implementation)
         try:
@@ -1186,6 +1273,7 @@ class TaskRunner(Generic[Context]):
                     logger.debug(f"_build_resume_payload: could not inject cloud_task_id into checkpoint: {e}")
             else:
                 resume_cp = None
+
             return payload, resume_cp
         except Exception:
             return {"human_text": ""}, None
@@ -1203,7 +1291,7 @@ class TaskRunner(Generic[Context]):
                 except Exception:
                     logger.debug("failed to enqueue on task queue")
             # No routing match
-            logger.error("No target task found for event type: " + str(event_type))
+            logger.error("No target task found for event type: " + str(event_type), target_task)
         except Exception as e:
             ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
             logger.error(f"{ex_stat}")
@@ -1280,12 +1368,13 @@ class TaskRunner(Generic[Context]):
                     
                 else:
                     # Resume run
-                    logger.debug(f"Resume run: {task2run.skill.name}")
+                    logger.debug(f"Resume run: {task2run.skill.name}", msg)
                     # On resume, keep existing state; DSL mapping will provide a state_patch via resume payload
                     
                     # Build resume payload using mapping DSL
                     resume_payload, cp = self._build_resume_payload(task2run, msg)
                     logger.debug(f"Resume payload: {resume_payload}")
+                    print(f"current cp: ", cp)
 
                     # note langgraph could have multiple interrupted nodes, checkpoint is
                     # critical for picking up exactly where it's left off.
