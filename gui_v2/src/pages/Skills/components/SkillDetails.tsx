@@ -1,5 +1,5 @@
 import React from 'react';
-import { Typography, Space, Button, Progress, Tooltip, Card, Tag, Form, Input, Row, Col, Checkbox, message, Select, Tabs } from 'antd';
+import { Typography, Space, Button, Progress, Tooltip, Card, Tag, Form, Input, Row, Col, Checkbox, message, Select, Tabs, Modal } from 'antd';
 import type { TabsProps } from 'antd';
 import {
     ThunderboltOutlined,
@@ -13,6 +13,8 @@ import {
     CodeOutlined,
     AppstoreOutlined,
     TagsOutlined,
+    DeleteOutlined,
+    ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { Skill, SkillRunMode, SkillNeedInput } from '@/types/domain/skill';
@@ -47,6 +49,7 @@ interface SkillDetailsProps {
     onRefresh: () => void;
     onSave?: () => void;
     onCancel?: () => void;
+    onDelete?: () => void;
 }
 
 /**
@@ -117,7 +120,7 @@ const fromJsonString = (value: string): any => {
     }
 };
 
-const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLevelUp, onRefresh, onSave, onCancel }) => {
+const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLevelUp, onRefresh, onSave, onCancel, onDelete }) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const username = useUserStore((s) => s.username) || '';
@@ -283,6 +286,44 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
     const goToEditor = () => {
         if (!skill) return;
         navigate('/skill_editor', { state: { skillId: (skill as any).id } });
+    };
+
+    const handleDelete = () => {
+        if (!skill || !username) return;
+
+        Modal.confirm({
+            title: t('pages.skills.deleteConfirmTitle', 'Delete Skill'),
+            icon: <ExclamationCircleOutlined />,
+            content: t('pages.skills.deleteConfirmMessage', `Are you sure you want to delete "${(skill as any)?.name}"? This action cannot be undone.`),
+            okText: t('common.delete', 'Delete'),
+            okType: 'danger',
+            cancelText: t('common.cancel', 'Cancel'),
+            onOk: async () => {
+                try {
+                    const api = get_ipc_api();
+                    const resp = await api.deleteAgentSkill(username, String((skill as any).id));
+                    
+                    if (resp.success) {
+                        message.success(t('pages.skills.deleteSuccess', 'Skill deleted successfully'));
+                        // Remove from store
+                        const removeItem = useSkillStore.getState().removeItem;
+                        removeItem(String((skill as any).id));
+                        // Call onDelete callback to close detail page
+                        if (onDelete) {
+                            onDelete();
+                        } else {
+                            // Fallback to refresh if no onDelete callback
+                            onRefresh();
+                        }
+                    } else {
+                        message.error(resp.error?.message || t('pages.skills.deleteError', 'Failed to delete skill'));
+                    }
+                } catch (error) {
+                    console.error('[SkillDetails] Delete error:', error);
+                    message.error(t('pages.skills.deleteError', 'Failed to delete skill'));
+                }
+            },
+        });
     };
 
     if (!skill && !isNew) {
@@ -642,25 +683,97 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                         title={
                             <Space>
                                 <ThunderboltOutlined style={{ color: '#1890ff' }} />
-                                <span style={{ color: 'white' }}>{t('pages.skills.skillLevel')}</span>
+                                <span style={{ color: 'white' }}>{t('pages.skills.proficiencyLevel', 'Proficiency Level')}</span>
                             </Space>
                         }
+                        style={{ background: 'linear-gradient(135deg, rgba(24, 144, 255, 0.05) 0%, rgba(24, 144, 255, 0.02) 100%)' }}
                     >
-                        <Space direction="vertical" style={{ width: '100%', padding: '0 8px' }} size="middle">
-                            <Progress
-                                percent={levelVal}
-                                status={(status as any) === 'learning' ? 'active' : 'normal'}
-                                strokeColor={{
-                                    '0%': '#1890ff',
-                                    '100%': '#52c41a',
-                                }}
-                                size={['100%', 12]}
-                            />
-                            <Text style={{ color: 'rgba(255, 255, 255, 0.85)', fontSize: 14, paddingLeft: '4px' }}>
-                                {levelVal === 100
-                                    ? `🎉 ${t('pages.skills.mastered', 'Mastered!')}`
-                                    : t('pages.skills.progressMessage', `Keep practicing to reach mastery! (${levelVal}%)`)}
-                            </Text>
+                        <Space direction="vertical" style={{ width: '100%' }} size="large">
+                            {/* Level Display */}
+                            <div style={{ 
+                                display: 'flex', 
+                                justifyContent: 'space-between', 
+                                alignItems: 'center',
+                                padding: '16px',
+                                background: 'rgba(255, 255, 255, 0.03)',
+                                borderRadius: '12px',
+                                border: '1px solid rgba(255, 255, 255, 0.05)'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                                    <span style={{ 
+                                        fontSize: '40px', 
+                                        fontWeight: 800, 
+                                        background: 'linear-gradient(135deg, #1890ff 0%, #52c41a 100%)',
+                                        WebkitBackgroundClip: 'text',
+                                        WebkitTextFillColor: 'transparent',
+                                        fontFamily: 'monospace'
+                                    }}>
+                                        {isNaN(levelVal) ? 0 : levelVal}
+                                    </span>
+                                    <span style={{ fontSize: '18px', color: 'rgba(255, 255, 255, 0.45)', fontWeight: 500 }}>
+                                        %
+                                    </span>
+                                </div>
+                                <div style={{ 
+                                    padding: '6px 16px', 
+                                    borderRadius: '16px',
+                                    background: (isNaN(levelVal) ? 0 : levelVal) === 100 
+                                        ? 'linear-gradient(135deg, #52c41a 0%, #73d13d 100%)'
+                                        : (isNaN(levelVal) ? 0 : levelVal) >= 75
+                                        ? 'linear-gradient(135deg, #1890ff 0%, #40a9ff 100%)'
+                                        : (isNaN(levelVal) ? 0 : levelVal) >= 50
+                                        ? 'linear-gradient(135deg, #faad14 0%, #ffc53d 100%)'
+                                        : 'linear-gradient(135deg, #8c8c8c 0%, #bfbfbf 100%)',
+                                    color: 'white',
+                                    fontSize: '13px',
+                                    fontWeight: 600,
+                                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)'
+                                }}>
+                                    {(isNaN(levelVal) ? 0 : levelVal) === 100 
+                                        ? t('pages.skills.levelExpert', 'Expert')
+                                        : (isNaN(levelVal) ? 0 : levelVal) >= 75
+                                        ? t('pages.skills.levelAdvanced', 'Advanced')
+                                        : (isNaN(levelVal) ? 0 : levelVal) >= 50
+                                        ? t('pages.skills.levelIntermediate', 'Intermediate')
+                                        : t('pages.skills.levelBeginner', 'Beginner')}
+                                </div>
+                            </div>
+
+                            {/* Progress Bar */}
+                            <div>
+                                <Progress
+                                    percent={isNaN(levelVal) ? 0 : levelVal}
+                                    status={(status as any) === 'learning' ? 'active' : 'normal'}
+                                    strokeColor={{
+                                        '0%': '#1890ff',
+                                        '50%': '#40a9ff',
+                                        '100%': '#52c41a',
+                                    }}
+                                    trailColor="rgba(255, 255, 255, 0.08)"
+                                    size={['100%', 12]}
+                                    showInfo={false}
+                                    strokeLinecap="round"
+                                />
+                            </div>
+
+                            {/* Message */}
+                            <div style={{ 
+                                textAlign: 'center', 
+                                padding: '12px',
+                                background: 'rgba(255, 255, 255, 0.02)',
+                                borderRadius: '8px',
+                                borderLeft: '3px solid #1890ff'
+                            }}>
+                                <Text style={{ color: 'rgba(255, 255, 255, 0.75)', fontSize: 14, lineHeight: '1.6' }}>
+                                    {(isNaN(levelVal) ? 0 : levelVal) === 100
+                                        ? `🎉 ${t('pages.skills.messageMastered', 'Mastered! You are an expert!')}`
+                                        : (isNaN(levelVal) ? 0 : levelVal) >= 75
+                                        ? `🚀 ${t('pages.skills.messageAlmostThere', 'Almost there! Keep going!')}`
+                                        : (isNaN(levelVal) ? 0 : levelVal) >= 50
+                                        ? `💪 ${t('pages.skills.messageGoodProgress', 'Good progress! Keep practicing!')}`
+                                        : `🌱 ${t('pages.skills.messageKeepLearning', 'Keep learning to improve!')}`}
+                                </Text>
+                            </div>
                         </Space>
                     </Card>
                 )}
@@ -691,6 +804,15 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                         </Button>
                         <Button onClick={onRefresh} size="large" style={buttonStyle}>
                             {t('pages.skills.refresh')}
+                        </Button>
+                        <Button 
+                            icon={<DeleteOutlined />} 
+                            danger 
+                            size="large" 
+                            onClick={handleDelete}
+                            style={buttonStyle}
+                        >
+                            {t('common.delete', 'Delete')}
                         </Button>
                     </ButtonContainer>
                 )}

@@ -2,8 +2,10 @@ import {
   EditOutlined,
   SaveOutlined,
   CloseOutlined,
+  DeleteOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
-import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App } from 'antd';
+import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App, Modal } from 'antd';
 import { useTranslation } from 'react-i18next';
 import React from 'react';
 import { Task } from '../types';
@@ -67,6 +69,7 @@ interface TaskDetailProps {
   isNew?: boolean;
   onSave?: () => void;
   onCancel?: () => void;
+  onDelete?: () => void;
 }
 
 type ExtendedTask = Task & {
@@ -91,7 +94,7 @@ const toDayjs = (date: string | Date | null | undefined) => {
   return d.isValid() ? d : undefined;
 };
 
-export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as any, isNew = false, onSave, onCancel }) => {
+export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as any, isNew = false, onSave, onCancel, onDelete }) => {
   const { message } = App.useApp();
 
   // Pre-process the task data to ensure dates are valid Dayjs objects or undefined
@@ -235,8 +238,40 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     }
   };
 
-  // Removed: handleDelete, handleDuplicate, handleRun, handleStop
-  // TaskDetail now only supports view and edit operations
+  const handleDelete = () => {
+    if (!task || isNew) return;
+
+    Modal.confirm({
+      title: t('pages.tasks.deleteConfirmTitle', 'Delete Task'),
+      icon: <ExclamationCircleOutlined />,
+      content: t('pages.tasks.deleteConfirmMessage', `Are you sure you want to delete "${(task as any)?.name}"? This action cannot be undone.`),
+      okText: t('common.delete', 'Delete'),
+      okType: 'danger',
+      cancelText: t('common.cancel', 'Cancel'),
+      onOk: async () => {
+        try {
+          const api = get_ipc_api();
+          const resp = await api.deleteAgentTask(username, String((task as any).id));
+          
+          if (resp.success) {
+            message.success(t('pages.tasks.deleteSuccess', 'Task deleted successfully'));
+            // Call onDelete callback to close detail page
+            if (onDelete) {
+              onDelete();
+            } else if (onSave) {
+              // Fallback to onSave if no onDelete callback
+              onSave();
+            }
+          } else {
+            message.error(resp.error?.message || t('pages.tasks.deleteError', 'Failed to delete task'));
+          }
+        } catch (error) {
+          console.error('[TaskDetail] Delete error:', error);
+          message.error(t('pages.tasks.deleteError', 'Failed to delete task'));
+        }
+      },
+    });
+  };
 
   // If no task is selected, show empty state
   if (!task && !isNew) {
@@ -536,18 +571,30 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
               </>
             )}
 
-            {/* 查看模式：只显示编辑按钮 */}
-            {!editMode && !isNew && (
-              <Button
-                type="primary"
-                onClick={handleEdit}
-                icon={<EditOutlined />}
-                size="large"
-                style={primaryButtonStyle}
-                disabled={false}
-              >
-                {t('common.edit')}
-              </Button>
+            {/* 查看模式：显示编辑和删除按钮 */}
+            {!editMode && !isNew && task && (
+              <>
+                <Button
+                  type="primary"
+                  onClick={handleEdit}
+                  icon={<EditOutlined />}
+                  size="large"
+                  style={primaryButtonStyle}
+                  disabled={false}
+                >
+                  {t('common.edit')}
+                </Button>
+                <Button
+                  danger
+                  onClick={handleDelete}
+                  icon={<DeleteOutlined />}
+                  size="large"
+                  style={buttonStyle}
+                  disabled={false}
+                >
+                  {t('common.delete', 'Delete')}
+                </Button>
+              </>
             )}
           </ButtonContainer>
         </Space>

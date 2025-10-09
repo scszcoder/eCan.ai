@@ -347,18 +347,6 @@ class DBOrgService(BaseService):
                 "error": str(e)
             }
 
-    def delete_org(self, org_id: str) -> Dict[str, Any]:
-        """
-        Delete an organization (alias for delete_organization)
-        
-        Args:
-            org_id (str): Organization ID
-            
-        Returns:
-            dict: Standard response with success status
-        """
-        return self.delete_organization(org_id)
-
     def _build_tree_node(self, org: DBAgentOrg) -> Dict[str, Any]:
         """
         Build a tree node from organization model

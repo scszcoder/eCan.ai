@@ -113,26 +113,20 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
                 shape="circle"
               />
             </Tooltip>
-            <Popconfirm
-              title={t('pages.org.confirm.delete')}
-              onConfirm={() => onDelete(org.id)}
-              okText={t('common.confirm')}
-              cancelText={t('common.cancel')}
+            <Tooltip
+              title={t('pages.org.actions.delete')}
+              mouseEnterDelay={0.5}
+              mouseLeaveDelay={0.1}
+              placement="bottom"
             >
-              <Tooltip
-                title={t('pages.org.actions.delete')}
-                mouseEnterDelay={0.5}
-                mouseLeaveDelay={0.1}
-                placement="bottom"
-              >
-                <Button
-                  size="small"
-                  danger
-                  icon={<DeleteOutlined />}
-                  shape="circle"
-                />
-              </Tooltip>
-            </Popconfirm>
+              <Button
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                shape="circle"
+                onClick={() => onDelete(org.id)}
+              />
+            </Tooltip>
           </Space>
         </div>
       }
