@@ -447,7 +447,7 @@ def send_response_back(state: NodeState) -> NodeState:
                 "params": {
                     "content": {
                         "type": msg_type, # "text", "code", "form", "notification", "card
-                        "text": state["result"].get("llm_result", {}).get("casual_chat_response", ""),
+                        "text": state["result"].get("llm_result", {}).get("next_prompt", ""),
                         "i_tag": i_tag,
                         "dtype": msg_type,
                         "card": {},

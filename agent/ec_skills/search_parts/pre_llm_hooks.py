@@ -71,7 +71,7 @@ def pre_pend_for_next_human_msg_hook(askid, node_name, agent, state, response):
     try:
         # Extract content from AIMessage if needed
         llm_output = state["result"]["llm_result"]
-        response = state["result"]["llm_result"]["casual_chat_response"]
+        response = state["result"]["llm_result"]["next_prompt"]
 
         state["job_related"] = state["result"]["job_related"]
         state["result"]["llm_result"] = response

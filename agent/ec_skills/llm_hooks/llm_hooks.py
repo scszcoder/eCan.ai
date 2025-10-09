@@ -24,9 +24,36 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state):
         print("state prompts:", state["input"], nodes_prompts)
         print("standard_pre_llm_hook current stete:", state)
         langchain_prompt = ChatPromptTemplate.from_messages(state["prompts"])
-        formatted_prompt = langchain_prompt.format_messages(boss_name = "Guest User", human_input=state["messages"][-1])
+
+        # Collect variables required by the prompt template
+        try:
+            required_vars = set(getattr(langchain_prompt, "input_variables", []))
+        except Exception:
+            required_vars = set()
+
+        logger.debug("prompt required_vars:",required_vars)
+        # Build variable map from state["prompt_refs"] and sensible defaults
+        refs = state.get("prompt_refs", {}) or {}
+        var_values = {}
+        for var in required_vars:
+            if var in refs:
+                var_values[var] = refs[var]
+            elif var == "human_input":
+                var_values[var] = state["messages"][-1] if isinstance(state.get("messages"), list) and state["messages"] else ""
+            elif var == "boss_name":
+                var_values[var] = "Guest User"
+            else:
+                # default empty if not found
+                var_values[var] = ""
+        logger.debug("pre ll hook vars:", var_values)
+
+        formatted_prompt = langchain_prompt.format_messages(**var_values)
         print("state:", state)
+        # Ensure list exists
+        if not isinstance(state.get("formatted_prompts"), list):
+            state["formatted_prompts"] = []
         state["formatted_prompts"].append(formatted_prompt)
+        logger.debug("pre ll hook formatted_prompt:",formatted_prompt)
 
         logger.debug(f"standard_pre_llm_hook: {full_node_name} prompts: {formatted_prompt}")
     except Exception as e:
@@ -84,8 +111,9 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
         # we really shouldn't send the reponse back here, instead we should update state and other node takes care of what to do with the results.
         post_hook_result = None
         state["result"] = response
+        print("post llm hook input response:", type(response), response)
         state["metadata"] = _deep_merge(state["metadata"], response["llm_result"].get("meta_data", {}))
-        state["messages"].append(f"llm:{response['llm_result'].get('casual_chat_response', '')}")
+        state["messages"].append(f"llm:{response['llm_result'].get('next_prompt', '')}")
         logger.debug(f"standard_post_llm_hook: {post_hook_result}")
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPostLLMHook")
@@ -174,7 +202,7 @@ def run_post_llm_hook(node_name, agent, state, response):
         # first run standard stuff, then then the individual func for a specific skill node.
         parsed_response = standard_post_llm_func(askid, node_name, state, response)
 
-        print("post llm hook  name:", node_name, askid, parsed_response)
+        print("post llm hook  name:", node_name, askid, type(parsed_response), parsed_response)
         # Try exact match first
         if node_name in POST_LLM_HOOKS_TABLE:
             return POST_LLM_HOOKS_TABLE[node_name](askid, node_name, agent, state, parsed_response)
@@ -184,7 +212,7 @@ def run_post_llm_hook(node_name, agent, state, response):
         if key_lower in lower_map:
             return POST_LLM_HOOKS_TABLE[node_name](askid, node_name, agent, state, response)
 
-        return standard_post_llm_hook(askid, node_name, agent, state, response)
+        return standard_post_llm_hook(askid, node_name, agent, state, parsed_response)
 
         # Not found: raise informative error listing available keys
         # available = ", ".join(sorted(POST_LLM_HOOKS_TABLE.keys()))
