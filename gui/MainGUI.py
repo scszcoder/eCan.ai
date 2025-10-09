@@ -1535,18 +1535,32 @@ class MainWindow:
                 logger.info(f"[MainWindow] ✅ All components ready - LLM: {type(self.llm)}, MCP Client: {self.mcp_client is not None}")
                 
                 # Start skill building task (asynchronous)
-                skills_task = asyncio.create_task(self._build_agent_skills_optimized())
+                agent_skills_task = asyncio.create_task(self._build_agent_skills_async())
                 
                 # Wait for skill building to complete
                 try:
-                    self.agent_skills = await skills_task
+                    self.agent_skills = await agent_skills_task
                     logger.info(f"[MainWindow] ✅ Agent skills built: {len(self.agent_skills)} skills")
                 except Exception as e:
                     logger.warning(f"[MainWindow] ⚠️ Agent skills building failed: {e}")
                     import traceback
                     logger.error(f"[MainWindow] Skills building traceback: {traceback.format_exc()}")
                     self.agent_skills = []
-            
+
+                # Start agent task building (asynchronous, parallel with skills)
+                logger.info("[MainWindow] 📝 Building agent tasks...")
+                agent_tasks_task = asyncio.create_task(self._build_agent_tasks_async())
+
+                # Wait for agent task building to complete
+                try:
+                    self.agent_tasks = await agent_tasks_task
+                    logger.info(f"[MainWindow] ✅ Agent tasks built: {len(self.agent_tasks)} agent tasks")
+                except Exception as e:
+                    logger.warning(f"[MainWindow] ⚠️ Agent tasks building failed: {e}")
+                    import traceback
+                    logger.error(f"[MainWindow] Agent tasks building traceback: {traceback.format_exc()}")
+                    self.agent_tasks = []
+
             # Environment preparation (simplified handling)
             logger.info("[MainWindow] 🔧 Environment preparation completed")
             
@@ -1557,9 +1571,71 @@ class MainWindow:
                 
                 if agents_built:
                     logger.info(f"[MainWindow] ✅ Successfully built and launched {len(self.agents)} agents")
+
+                    # TODO: Merge agent.tasks from built agents into mainwin.agent_tasks
+                    # This step will be deprecated in the future
+                    try:
+                        logger.info("[MainWindow] 📝 Merging agent.tasks from built agents...")
+                        merged_count = 0
+                        skipped_count = 0
+
+                        # Build a set of existing task identifiers for fast lookup
+                        existing_task_ids = set()
+                        existing_task_names = set()
+                        for existing_task in self.agent_tasks:
+                            task_id = getattr(existing_task, 'id', None)
+                            task_name = getattr(existing_task, 'name', None)
+                            if task_id:
+                                existing_task_ids.add(task_id)
+                            if task_name:
+                                existing_task_names.add(task_name)
+
+                        logger.debug(f"[MainWindow] Existing tasks: {len(existing_task_ids)} with IDs, {len(existing_task_names)} with names")
+
+                        # Merge agent tasks with deduplication
+                        for agent in self.agents:
+                            if hasattr(agent, 'tasks') and agent.tasks:
+                                agent_name = getattr(agent, 'name', 'Unknown')
+                                logger.debug(f"[MainWindow] Processing {len(agent.tasks)} tasks from agent: {agent_name}")
+
+                                for agent_task in agent.tasks:
+                                    task_id = getattr(agent_task, 'id', None)
+                                    task_name = getattr(agent_task, 'name', None)
+
+                                    # Check for duplicates by ID (primary) or name (fallback)
+                                    is_duplicate = False
+                                    if task_id and task_id in existing_task_ids:
+                                        is_duplicate = True
+                                        logger.debug(f"[MainWindow] Skipping duplicate task by ID: {task_id}")
+                                    elif task_name and task_name in existing_task_names:
+                                        is_duplicate = True
+                                        logger.debug(f"[MainWindow] Skipping duplicate task by name: {task_name}")
+
+                                    if not is_duplicate:
+                                        # Add to memory
+                                        self.agent_tasks.append(agent_task)
+
+                                        # Update tracking sets
+                                        if task_id:
+                                            existing_task_ids.add(task_id)
+                                        if task_name:
+                                            existing_task_names.add(task_name)
+
+                                        merged_count += 1
+                                        logger.debug(f"[MainWindow] Merged task: {task_name or task_id}")
+                                    else:
+                                        skipped_count += 1
+
+                        logger.info(f"[MainWindow] ✅ Merged {merged_count} agent tasks from built agents")
+                        logger.info(f"[MainWindow] ⏭️  Skipped {skipped_count} duplicate agent tasks")
+                        logger.info(f"[MainWindow] 📊 Total agent tasks in memory: {len(self.agent_tasks)}")
+                    except Exception as merge_error:
+                        logger.warning(f"[MainWindow] ⚠️ Failed to merge agent.tasks: {merge_error}")
+                        import traceback
+                        logger.debug(f"[MainWindow] Merge error traceback: {traceback.format_exc()}")
                 else:
                     logger.warning("[MainWindow] ⚠️ Agent ultra-parallel process completed with issues")
-                    
+
             except Exception as e:
                 logger.error(f"[MainWindow] ❌ Agent ultra-parallel process failed: {e}")
                 agents_built = False
@@ -1676,34 +1752,41 @@ class MainWindow:
             logger.warning(f"[MainWindow] ⚠️ MCP tools failed: {e}, using empty list")
             return []
 
-    async def _build_agent_skills_optimized(self):
+    async def _build_agent_skills_async(self):
         """Optimized parallel agent skills building"""
         logger.info("[MainWindow] 🔧 Building agent skills in parallel...")
-        
+
         try:
             # Use the async build_agent_skills function directly
             from agent.ec_skills.build_agent_skills import build_agent_skills
             skills = await build_agent_skills(self)
-            
+
             logger.info(f"[MainWindow] ✅ Built {len(skills)} agent skills")
             return skills or []
-            
+
         except Exception as e:
             logger.warning(f"[MainWindow] ⚠️ Agent skills building failed: {e}")
             import traceback
             logger.debug(f"[MainWindow] Skills building traceback: {traceback.format_exc()}")
             return []
 
-    async def _create_agent_tasks_async(self):
-        """Asynchronously create Agent Tasks"""
+    async def _build_agent_tasks_async(self):
+        """Optimized parallel agent tasks building"""
+        logger.info("[MainWindow] 📝 Building agent tasks in parallel...")
+
         try:
-            from agent.ec_agents.create_agent_tasks import create_agent_tasks
-            logger.debug("[MainWindow] 📝 Creating agent tasks...")
-            tasks = create_agent_tasks(self)
-            return tasks
+            # Use the async build_agent_tasks function directly
+            from agent.ec_agents.create_agent_tasks import build_agent_tasks
+            agent_tasks = await build_agent_tasks(self)
+
+            logger.info(f"[MainWindow] ✅ Built {len(agent_tasks)} agent tasks")
+            return agent_tasks or []
+
         except Exception as e:
-            logger.error(f"[MainWindow] ❌ Failed to create agent tasks: {e}")
-            raise
+            logger.warning(f"[MainWindow] ⚠️ Agent tasks building failed: {e}")
+            import traceback
+            logger.debug(f"[MainWindow] Agent tasks building traceback: {traceback.format_exc()}")
+            return []
 
     async def _obtain_agent_tools_async(self):
         """Asynchronously obtain Agent Tools"""

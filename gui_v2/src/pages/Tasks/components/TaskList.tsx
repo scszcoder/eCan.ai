@@ -50,9 +50,6 @@ interface TaskListProps {
   loading?: boolean;
   onSelectItem: (task: Task) => void;
   isSelected: (task: Task) => boolean;
-  onRun?: (task: Task) => void;
-  onPause?: (task: Task) => void;
-  onCancel?: (task: Task) => void;
 }
 
 // 优先级排序权重
@@ -76,9 +73,6 @@ export const TaskList: React.FC<TaskListProps> = ({
   loading = false,
   onSelectItem,
   isSelected,
-  onRun,
-  onPause,
-  onCancel,
 }) => {
   const { t } = useTranslation();
   const [filters, setFilters] = useState<TaskFilterOptions>({
@@ -176,9 +170,6 @@ export const TaskList: React.FC<TaskListProps> = ({
               task={task}
               isSelected={isSelected(task)}
               onSelect={onSelectItem}
-              onRun={onRun}
-              onPause={onPause}
-              onCancel={onCancel}
             />
           ))
         )}

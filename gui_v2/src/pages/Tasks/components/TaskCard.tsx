@@ -1,9 +1,6 @@
 import React from 'react';
-import { Tag, Button, Progress, Space } from 'antd';
+import { Tag, Progress, Space } from 'antd';
 import {
-  PlayCircleOutlined,
-  PauseCircleOutlined,
-  StopOutlined,
   ClockCircleOutlined,
   ThunderboltOutlined,
   CalendarOutlined,
@@ -12,6 +9,7 @@ import {
   CheckCircleOutlined,
   SyncOutlined,
   ExclamationCircleOutlined,
+  StopOutlined,
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
@@ -288,18 +286,12 @@ interface TaskCardProps {
   task: Task;
   isSelected: boolean;
   onSelect: (task: Task) => void;
-  onRun?: (task: Task) => void;
-  onPause?: (task: Task) => void;
-  onCancel?: (task: Task) => void;
 }
 
 export const TaskCard: React.FC<TaskCardProps> = ({
   task,
   isSelected,
   onSelect,
-  onRun,
-  onPause,
-  onCancel,
 }) => {
   const { t } = useTranslation();
 
@@ -346,10 +338,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   const isRunning = status === 'WORKING' || status === 'running';
   const progress = isRunning ? 60 : 0; // TODO: 从实际数据获取
 
-  // 判断可执行的操作
-  const canRun = status === 'SUBMITTED' || status === 'ready' || status === 'COMPLETED' || status === 'CANCELED';
-  const canPause = isRunning;
-  const canCancel = isRunning || status === 'INPUT_REQUIRED';
+  // Task operations are handled in TaskDetail component
 
   return (
     <TaskItem
@@ -365,7 +354,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 
           {/* 任务信息 */}
           <TaskMeta>
-            <TaskTitle>{task.skill || t('pages.tasks.untitledTask', '未命名任务')}</TaskTitle>
+            <TaskTitle>{task.name || t('pages.tasks.untitledTask', '未命名任务')}</TaskTitle>
             <Space size={6} wrap>
               <Tag
                 icon={statusConfig.icon}
@@ -421,39 +410,6 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           <ClockCircleOutlined />
           <span>{lastRunTime}</span>
         </StatItem>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }} onClick={(e) => e.stopPropagation()}>
-          {canRun && (
-            <Button
-              type="text"
-              size="small"
-              icon={<PlayCircleOutlined />}
-              onClick={() => onRun?.(task)}
-            >
-              {t('common.run', '运行')}
-            </Button>
-          )}
-          {canPause && (
-            <Button
-              type="text"
-              size="small"
-              icon={<PauseCircleOutlined />}
-              onClick={() => onPause?.(task)}
-            >
-              {t('common.pause', '暂停')}
-            </Button>
-          )}
-          {canCancel && (
-            <Button
-              type="text"
-              size="small"
-              danger
-              icon={<StopOutlined />}
-              onClick={() => onCancel?.(task)}
-            >
-              {t('common.cancel', '取消')}
-            </Button>
-          )}
-        </div>
       </TaskStats>
     </TaskItem>
   );

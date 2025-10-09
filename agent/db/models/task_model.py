@@ -5,6 +5,7 @@ This module contains database models for agent task management:
 - DBAgentTask: Agent task model
 """
 
+import uuid
 from sqlalchemy import Column, String, Integer, Boolean, ForeignKey, Text, DateTime, JSON, Float
 from sqlalchemy.orm import relationship
 from .base_model import BaseModel, TimestampMixin, ExtensibleMixin
@@ -14,8 +15,8 @@ class DBAgentTask(BaseModel, TimestampMixin, ExtensibleMixin):
     """Database model for agent tasks with standard design"""
     __tablename__ = 'agent_tasks'
 
-    # Primary key
-    id = Column(String(64), primary_key=True)
+    # Primary key with auto-generation
+    id = Column(String(64), primary_key=True, default=lambda: f"task_{uuid.uuid4().hex[:16]}")
 
     # Basic task information
     name = Column(String(128), nullable=False)
