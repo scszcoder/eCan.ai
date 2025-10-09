@@ -32,12 +32,24 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state):
             required_vars = set()
 
         logger.debug("prompt required_vars:",required_vars)
-        # Build variable map from state["prompt_refs"] and sensible defaults
+        # Build variable map from state["prompt_refs"], prior LLM results, and sensible defaults
         refs = state.get("prompt_refs", {}) or {}
+        # Prefer singular 'result' per NodeState; also check 'results' if present for robustness
+        llm_res = {}
+        try:
+            if isinstance(state.get("result"), dict):
+                rr = state["result"].get("llm_result")
+                if isinstance(rr, dict):
+                    llm_res = rr
+        except Exception:
+            pass
+
         var_values = {}
         for var in required_vars:
             if var in refs:
                 var_values[var] = refs[var]
+            elif var in llm_res:
+                var_values[var] = llm_res[var]
             elif var == "human_input":
                 var_values[var] = state["messages"][-1] if isinstance(state.get("messages"), list) and state["messages"] else ""
             elif var == "boss_name":
