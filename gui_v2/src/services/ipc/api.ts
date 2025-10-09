@@ -336,6 +336,10 @@ export class IPCAPI {
         return this.executeRequest<void>('new_agent_skill', {username, skill_info});
     }
 
+    public async deleteAgentSkill(username: string, skill_id: string): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('delete_agent_skill', {username, skill_id});
+    }
+
     public async runSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
         return this.executeRequest<void>('run_skill', {username, skill});
     }
@@ -486,8 +490,8 @@ export class IPCAPI {
         return this.executeRequest<T>('update_org', { username, organization_id: org_id, name, description, parent_id });
     }
 
-    public async deleteOrg<T>(username: string, org_id: string): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('delete_org', { username, organization_id: org_id });
+    public async deleteOrg<T>(username: string, org_id: string, force: boolean = false): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('delete_org', { username, organization_id: org_id, force });
     }
 
     public async getOrgAgents<T>(username: string, org_id: string, include_descendants?: boolean): Promise<APIResponse<T>> {

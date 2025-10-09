@@ -124,6 +124,12 @@ const Skills: React.FC = () => {
         handleRefresh();
     };
 
+    const handleSkillDelete = () => {
+        // 删除后清空选中状态，关闭详情页
+        setSelectedSkill(null);
+        handleRefresh();
+    };
+
     return (
         <DetailLayout
             listTitle={listTitle}
@@ -145,6 +151,7 @@ const Skills: React.FC = () => {
                         onRefresh={handleRefresh}
                         onSave={handleSkillSave}
                         onCancel={() => setIsAddingNew(false)}
+                        onDelete={handleSkillDelete}
                     />
                 ) : undefined
             }
