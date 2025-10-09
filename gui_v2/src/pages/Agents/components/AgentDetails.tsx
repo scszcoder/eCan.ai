@@ -248,7 +248,7 @@ const AgentDetails: React.FC = () => {
             if (res?.success && res.data?.tasks) setTasks(res.data.tasks as any);
           }
           if (!storeSkills || storeSkills.length === 0) {
-            const res2 = await api.getSkills<{ skills: any[] }>(uname, []);
+            const res2 = await api.getAgentSkills<{ skills: any[] }>(uname, []);
             if (res2?.success && res2.data?.skills) setSkills(res2.data.skills as any);
           }
         }

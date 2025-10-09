@@ -243,8 +243,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
 
             const api = get_ipc_api();
             const resp = isNew
-                ? await api.newSkill(username, payload as any)
-                : await api.saveSkill(username, payload as any);
+                ? await api.newAgentSkill(username, payload as any)
+                : await api.saveAgentSkill(username, payload as any);
             if (resp.success) {
                 // Merge returned id/data for immediate UI update
                 const returned = (resp.data as any) || {};

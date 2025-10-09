@@ -130,7 +130,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           if (loginInfo?.success) uname = loginInfo.data?.last_login?.username || '';
         }
         if (uname && (!skills || skills.length === 0)) {
-          const res = await api.getSkills<{ skills: any[] }>(uname, []);
+          const res = await api.getAgentSkills<{ skills: any[] }>(uname, []);
           if (res?.success && res.data?.skills) setSkills(res.data.skills as any);
         }
       } catch (e) {

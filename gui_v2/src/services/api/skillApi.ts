@@ -30,7 +30,7 @@ export class SkillAPI implements ResourceAPI<Skill> {
     try {
       logger.debug('[SkillAPI] Fetching all skills for user:', username);
 
-      const response = await this.api.getSkills(username, skillIds);
+      const response = await this.api.getAgentSkills(username, skillIds);
 
       if (response && response.success && response.data) {
         // 处理不同的响应格式
@@ -111,10 +111,10 @@ export class SkillAPI implements ResourceAPI<Skill> {
     try {
       logger.debug('[SkillAPI] Creating new skill:', skill.name);
       
-      // If no id, call newSkill to let backend generate one; otherwise saveSkill (upsert)
+      // If no id, call newAgentSkill to let backend generate one; otherwise saveAgentSkill (upsert)
       const response = skill.id
-        ? await this.api.saveSkill(username, skill)
-        : await this.api.newSkill(username, skill);
+        ? await this.api.saveAgentSkill(username, skill)
+        : await this.api.newAgentSkill(username, skill);
 
       if (response && response.success) {
         logger.debug('[SkillAPI] Successfully created/saved skill');
@@ -159,7 +159,7 @@ export class SkillAPI implements ResourceAPI<Skill> {
       
       const updatedSkill = { ...skillResponse.data, ...updates };
       
-      const response = await this.api.saveSkills(username, [updatedSkill]);
+      const response = await this.api.saveAgentSkill(username, updatedSkill);
       
       if (response && response.success) {
         logger.debug('[SkillAPI] Successfully updated skill');
