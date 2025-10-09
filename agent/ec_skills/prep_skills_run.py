@@ -167,40 +167,67 @@ def prep_skills_run(skill, agent, task_id, msg=None, current_state=None):
     - Deep-merges the patch into a baseline initial state and returns it.
     """
     try:
+
         # 1) Baseline NodeState
         node_state = _node_state_baseline(agent, task_id, msg, current_state=current_state if isinstance(current_state, dict) else None)
+        logger.debug("[prep_skills_run] initial node state: ", node_state)
 
         # 2) Resolve START-node mapping
         mapping = _resolve_start_mapping(skill)
-        logger.debug("mapping: ", mapping)
+        logger.debug("[prep_skills_run] mapping: ", mapping)
 
         # 3) Normalize incoming message to event envelope (type inferred)
+        logger.debug("[prep_skills_run] incoming message: ", msg)
         event = normalize_event("", msg)
-        logger.debug("normalized event: ", event)
+        logger.debug("[prep_skills_run] normalized event: ", event)
 
         # 4) Apply mapping to produce state patch (ignore resume output for init)
         _resume, state_patch = build_resume_from_mapping(event=event, state=node_state, node_output=None, mapping=mapping)
-
+        logger.debug("[prep_skills_run] resume: ", _resume)
+        logger.debug("[prep_skills_run] state_patch: ", state_patch)
         # 5) Merge mapping outputs into NodeState fields
         # Write to known sections if present in patch
         if isinstance(state_patch, dict):
+            # Preserve append semantics for list-like fields produced by mapping
+            if "messages" in state_patch:
+                sp_msgs = state_patch.pop("messages")
+                try:
+                    if isinstance(sp_msgs, list):
+                        if isinstance(node_state.get("messages"), list):
+                            node_state["messages"].extend(sp_msgs)
+                        else:
+                            node_state["messages"] = list(sp_msgs)
+                    else:
+                        # coerce scalar into list and append
+                        if isinstance(node_state.get("messages"), list):
+                            node_state["messages"].append(sp_msgs)
+                        else:
+                            node_state["messages"] = [sp_msgs]
+                except Exception:
+                    # fallback to overwrite if anything goes wrong
+                    node_state["messages"] = sp_msgs
             # attributes/metadata/tool_input are primary targets from DSP
             attrs = state_patch.get("attributes")
             if isinstance(attrs, dict):
+                print("deep merging node state attributes....")
                 node_state["attributes"] = _deep_merge(node_state.get("attributes", {}), attrs)
             md = state_patch.get("metadata")
             if isinstance(md, dict):
+                print("deep merging node state metadata....")
                 node_state["metadata"] = _deep_merge(node_state.get("metadata", {}), md)
             tin = state_patch.get("tool_input")
             if isinstance(tin, dict):
+                print("deep merging node state tool_input....")
                 node_state["tool_input"] = _deep_merge(node_state.get("tool_input", {}), tin)
             # Merge any other top-level fields conservatively
             other = {k: v for k, v in state_patch.items() if k not in ("attributes", "metadata", "tool_input")}
             if other:
+                print("deep merging node state other....")
                 node_state = _deep_merge(node_state, other)  # type: ignore[assignment]
     except Exception as e:
         err_msg = get_traceback(e, "ErrorPrepSkillsRun")
         logger.error(f"{e}")
         node_state = None
 
+    print("deep merged node state....", node_state)
     return node_state
