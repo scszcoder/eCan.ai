@@ -28,11 +28,23 @@ def handle_get_schedules(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         for agent in agents:
             all_tasks.extend(agent.tasks)
 
+        # Build schedules with task information
+        schedules_with_task_info = []
+        for task in all_tasks:
+            if task.schedule:
+                schedule_data = task.schedule.model_dump(mode='json')
+                # Add task information to schedule
+                schedule_data['taskId'] = task.id
+                schedule_data['taskName'] = task.name
+                schedules_with_task_info.append(schedule_data)
+            else:
+                schedules_with_task_info.append(None)
+
         resultJS = {
-            'schedules': [task.schedule.model_dump(mode='json') if task.schedule else None for task in all_tasks],
+            'schedules': schedules_with_task_info,
             'message': 'Get all successful'
         }
-        logger.debug('get schedules resultJS:' + str(resultJS))
+        logger.debug(f'get schedules resultJS: {len(schedules_with_task_info)} schedules with task info')
         return create_success_response(request, resultJS)
 
     except Exception as e:

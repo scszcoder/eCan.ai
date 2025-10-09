@@ -9,4 +9,7 @@ export interface TaskSchedule {
   week_days?: Array<'M' | 'Tu' | 'W' | 'Th' | 'F' | 'SA' | 'SU'>;
   months?: Array<'Jan' | 'Feb' | 'Mar' | 'Apr' | 'May' | 'Jun' | 'Jul' | 'Aug' | 'Sep' | 'Oct' | 'Nov' | 'Dec'>;
   custom_fields?: Record<string, any>;
+  // Task information
+  taskId?: string;
+  taskName?: string;
 } 

@@ -244,7 +244,7 @@ const AgentDetails: React.FC = () => {
         }
         if (uname) {
           if (!storeTasks || storeTasks.length === 0) {
-            const res = await api.getTasks<{ tasks: any[] }>(uname, []);
+            const res = await api.getAgentTasks<{ tasks: any[] }>(uname, []);
             if (res?.success && res.data?.tasks) setTasks(res.data.tasks as any);
           }
           if (!storeSkills || storeSkills.length === 0) {
@@ -424,7 +424,7 @@ const AgentDetails: React.FC = () => {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form, isNew, defaultOrgId, organizationTreeData.length, username, localVehicleId]);
+  }, [isNew, defaultOrgId, organizationTreeData.length, username, localVehicleId]);
 
   // 监听 defaultOrgId 变化，确保 selectedOrgId 同步更新
   useEffect(() => {
@@ -433,7 +433,8 @@ const AgentDetails: React.FC = () => {
       // 同时更新表单字段
       form.setFieldValue('org_id', defaultOrgId);
     }
-  }, [defaultOrgId, isNew, selectedOrgId, organizationTreeData.length, form]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultOrgId, isNew, selectedOrgId, organizationTreeData.length]);
 
   // 获取上级候选数据（当前组织及父级组织的agents）
   useEffect(() => {
@@ -793,7 +794,7 @@ const AgentDetails: React.FC = () => {
               </Col>
               <Col span={12}>
                 <StyledFormItem name="gender" label={t('common.gender') || 'Gender'}>
-                  <Radio.Group disabled={!editMode}>
+                  <Radio.Group disabled={!editMode} aria-label={t('common.gender') || 'Gender'}>
                     <Radio value="gender_options.male">{t('common.gender_options.male') || 'Male'}</Radio>
                     <Radio value="gender_options.female">{t('common.gender_options.female') || 'Female'}</Radio>
                   </Radio.Group>
@@ -802,8 +803,9 @@ const AgentDetails: React.FC = () => {
 
               {/* 第四行：Birthday 和 Vehicle */}
               <Col span={12}>
-                <StyledFormItem name="birthday" label={t('common.birthday') || 'Birthday'}>
+                <StyledFormItem name="birthday" label={t('common.birthday') || 'Birthday'} htmlFor="agent-birthday">
                   <DatePicker
+                    id="agent-birthday"
                     style={{ width: '100%' }}
                     disabled={!editMode}
                     getPopupContainer={() => document.body}
@@ -813,8 +815,9 @@ const AgentDetails: React.FC = () => {
                 </StyledFormItem>
               </Col>
               <Col span={12}>
-                <StyledFormItem name="vehicle_id" label={t('pages.agents.vehicle') || 'Vehicle'}>
+                <StyledFormItem name="vehicle_id" label={t('pages.agents.vehicle') || 'Vehicle'} htmlFor="agent-vehicle">
                   <Select
+                    id="agent-vehicle"
                     disabled={!editMode}
                     allowClear
                     placeholder={t('common.select_vehicle') || 'Select vehicle'}
@@ -834,8 +837,10 @@ const AgentDetails: React.FC = () => {
                   name="org_id"
                   label={t('pages.agents.organization') || 'Organization'}
                   rules={[{ required: true, message: t('common.please_select_organization') || 'Please select organization' }]}
+                  htmlFor="agent-organization"
                 >
                   <TreeSelect
+                    id="agent-organization"
                     treeData={organizationTreeData}
                     disabled={!editMode}
                     placeholder={t('common.select_organization') || 'Select organization'}
@@ -857,8 +862,10 @@ const AgentDetails: React.FC = () => {
                 <StyledFormItem
                   name="supervisor_id"
                   label={t('pages.agents.supervisors') || 'Supervisor'}
+                  htmlFor="agent-supervisor"
                 >
                   <TreeSelect
+                    id="agent-supervisor"
                     treeData={supervisorTreeData}
                     disabled={!editMode}
                     placeholder={t('common.select_supervisor') || 'Select supervisor'}
@@ -876,8 +883,10 @@ const AgentDetails: React.FC = () => {
                 <StyledFormItem
                   name="personality_traits"
                   label={t('pages.agents.personality') || 'Personality'}
+                  htmlFor="agent-personality"
                 >
                   <TagsEditor
+                    id="agent-personality"
                     options={knownPersonalities}
                     disabled={!editMode}
                     placeholder={t('common.select_personality') || 'Select personality traits'}
@@ -889,8 +898,10 @@ const AgentDetails: React.FC = () => {
                 <StyledFormItem
                   name="title"
                   label={t('pages.agents.title') || 'Title'}
+                  htmlFor="agent-title"
                 >
                   <TagsEditor
+                    id="agent-title"
                     options={knownTitles}
                     disabled={!editMode}
                     placeholder={t('common.select_title') || 'Select titles'}
@@ -904,8 +915,10 @@ const AgentDetails: React.FC = () => {
                 <StyledFormItem
                   name="tasks"
                   label={t('pages.agents.tasks') || 'Tasks'}
+                  htmlFor="agent-tasks"
                 >
                   <TagsEditor
+                    id="agent-tasks"
                     options={taskOptions}
                     disabled={!editMode}
                     placeholder={t('common.select_task') || 'Select tasks'}
@@ -917,8 +930,10 @@ const AgentDetails: React.FC = () => {
                 <StyledFormItem
                   name="skills"
                   label={t('pages.agents.skills') || 'Skills'}
+                  htmlFor="agent-skills"
                 >
                   <TagsEditor
+                    id="agent-skills"
                     options={skillOptions}
                     disabled={!editMode}
                     placeholder={t('common.select_skill') || 'Select skills'}

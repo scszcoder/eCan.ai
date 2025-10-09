@@ -1,11 +1,9 @@
 import {
-  OrderedListOutlined,
-  PlayCircleOutlined,
-  StopOutlined,
   EditOutlined,
   SaveOutlined,
+  CloseOutlined,
 } from '@ant-design/icons';
-import { Avatar, Button, Space, Typography, Form, Input, Row, Col, Select, DatePicker, message } from 'antd';
+import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App } from 'antd';
 import { useTranslation } from 'react-i18next';
 import React from 'react';
 import { Task } from '../types';
@@ -22,7 +20,8 @@ import {
   primaryButtonStyle
 } from '@/components/Common/StyledForm';
 
-const { Text } = Typography;
+// Typography components (currently unused but available for future use)
+// const { Text, Title } = Typography;
 
 const DEFAULT_TASK = {
   id: '',
@@ -93,6 +92,7 @@ const toDayjs = (date: string | Date | null | undefined) => {
 };
 
 export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as any, isNew = false, onSave, onCancel }) => {
+  const { message } = App.useApp();
 
   // Pre-process the task data to ensure dates are valid Dayjs objects or undefined
   const task = React.useMemo(() => {
@@ -175,20 +175,28 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     }
   };
 
-  const handleEdit = () => setEditMode(true);
+  const handleEdit = () => {
+    console.log('[TaskDetail] Edit button clicked, setting editMode to true');
+    setEditMode(true);
+  };
+
+  // Debug: Monitor editMode changes
+  React.useEffect(() => {
+    console.log('[TaskDetail] editMode changed:', editMode, 'isNew:', isNew, 'formDisabled:', !editMode && !isNew);
+  }, [editMode, isNew]);
 
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
       const payload: any = {
         id: (values as any).id,
-        ataskid: (values as any).ataskid || undefined,
         name: (values as any).name || t('pages.tasks.newTaskName', 'New Task'),
         owner: username,
         description: (values as any).description || '',
         latest_version: (values as any).latest_version || '1.0.0',
         priority: (values as any).priority || 'medium',
         trigger: (values as any).trigger || 'manual',
+        skill: (values as any).skill || '',
         schedule: {
           repeat_type: (values as any).schedule?.repeat_type || 'none',
           repeat_number: (values as any).schedule?.repeat_number || 1,
@@ -208,8 +216,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       setSaving(true);
       const api = get_ipc_api();
       const response = isNew
-        ? await api.newTasks(username, [payload])
-        : await api.saveTasks(username, [payload]);
+        ? await api.newAgentTask(username, payload)
+        : await api.saveAgentTask(username, payload);
       
       if (response.success) {
         message.success(t(isNew ? 'common.createSuccess' : 'common.saveSuccess'));
@@ -227,6 +235,26 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     }
   };
 
+  // Removed: handleDelete, handleDuplicate, handleRun, handleStop
+  // TaskDetail now only supports view and edit operations
+
+  // If no task is selected, show empty state
+  if (!task && !isNew) {
+    return (
+      <FormContainer>
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center', 
+          height: '100%',
+          color: '#999'
+        }}>
+          {t('pages.tasks.selectTask', '请选择一个任务')}
+        </div>
+      </FormContainer>
+    );
+  }
+
   return (
     <FormContainer>
       <Form
@@ -238,81 +266,40 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         <Space direction="vertical" style={{ width: '100%' }} size={24}>
           <StyledCard>
             <Space direction="vertical" style={{ width: '100%' }} size={24}>
-              <Space align="start" style={{ width: '100%', marginBottom: '8px' }}>
-                <Avatar
-                  size={72}
-                  icon={<OrderedListOutlined />}
-                  style={{
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)'
-                  }}
-                />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <StyledFormItem
-                    name="name"
-                    label={t('pages.tasks.name')}
-                    rules={[{ required: true }]}
-                    style={{ marginBottom: 8 }}
-                  >
-                    <Input
-                      placeholder={t('pages.tasks.namePlaceholder')}
-                      size="large"
-                    />
-                  </StyledFormItem>
-                  {!isNew && <Text type="secondary" style={{ fontSize: '13px' }}>ID: {(task as any).id}</Text>}
-                </div>
-              </Space>
+              <div style={{ marginBottom: '16px' }}>
+                <StyledFormItem
+                  name="name"
+                  label={t('pages.tasks.name')}
+                  rules={[{ required: true }]}
+                  style={{ marginBottom: 0 }}
+                >
+                  <Input
+                    placeholder={t('pages.tasks.namePlaceholder')}
+                    size="large"
+                  />
+                </StyledFormItem>
+              </div>
 
               <Row gutter={[24, 0]} style={{ marginTop: '16px' }}>
                 <Col span={12}>
-                  <StyledFormItem label={t('common.id', 'ID')} name="id">
-                    <Input readOnly />
+                  <StyledFormItem label={t('pages.tasks.taskId', '任务 ID')} name="id" htmlFor="task-id">
+                    <Input id="task-id" readOnly aria-label={t('pages.tasks.taskId', '任务 ID')} />
                   </StyledFormItem>
                 </Col>
                 <Col span={12}>
-                  <StyledFormItem label={t('pages.tasks.ataskId', 'ATask ID')} name="ataskid">
-                    <Input readOnly />
+                  <StyledFormItem label={t('pages.tasks.latestVersion', 'Latest Version')} name="latest_version" htmlFor="task-version">
+                    <Input id="task-version" readOnly aria-label={t('pages.tasks.latestVersion', 'Latest Version')} />
                   </StyledFormItem>
                 </Col>
                 <Col span={12}>
-                  <StyledFormItem label={t('common.owner', 'Owner')} name="owner">
-                    <Input readOnly />
+                  <StyledFormItem label={t('common.owner', 'Owner')} name="owner" htmlFor="task-owner">
+                    <Input id="task-owner" readOnly aria-label={t('common.owner', 'Owner')} />
                   </StyledFormItem>
                 </Col>
                 <Col span={12}>
-                  <StyledFormItem label={t('pages.tasks.latestVersion', 'Latest Version')} name="latest_version">
-                    <Input readOnly />
-                  </StyledFormItem>
-                </Col>
-                <Col span={24}>
-                  <StyledFormItem label={t('common.description', 'Description')} name="description">
-                    <Input.TextArea
-                      rows={4}
-                      placeholder={t('pages.tasks.descriptionPlaceholder', 'Enter task description...')}
-                    />
-                  </StyledFormItem>
-                </Col>
-                <Col span={24}>
-                  <StyledFormItem label={t('pages.tasks.skill', 'Skill')} name="skill">
-                    {editMode || isNew ? (
-                      <Select
-                        allowClear
-                        showSearch
-                        size="large"
-                        placeholder={t('pages.tasks.skillPlaceholder', 'Select a skill')}
-                        options={(skills || []).map((s: any) => ({ value: s.name, label: s.name }))}
-                        filterOption={(input, option) =>
-                          (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                        }
-                      />
-                    ) : (
-                      <Input readOnly />
-                    )}
-                  </StyledFormItem>
-                </Col>
-                <Col span={12}>
-                  <StyledFormItem label={t('pages.tasks.priorityLabel', 'Priority')} name="priority">
+                  <StyledFormItem label={t('pages.tasks.priorityLabel', 'Priority')} name="priority" htmlFor="task-priority">
                     <Select
+                      id="task-priority"
                       allowClear
                       size="large"
                       onChange={(value) => {
@@ -321,15 +308,48 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                         }
                       }}
                       options={PRIORITY_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.priority.${v}`, v) }))}
+                      aria-label={t('pages.tasks.priorityLabel', 'Priority')}
                     />
                   </StyledFormItem>
                 </Col>
                 <Col span={12}>
-                  <StyledFormItem label={t('pages.tasks.triggerLabel', 'Trigger')} name="trigger">
+                  <StyledFormItem label={t('pages.tasks.triggerLabel', 'Trigger')} name="trigger" htmlFor="task-trigger">
                     <Select
+                      id="task-trigger"
                       size="large"
                       options={TRIGGER_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.trigger.${v}`, v) }))}
+                      aria-label={t('pages.tasks.triggerLabel', 'Trigger')}
                     />
+                  </StyledFormItem>
+                </Col>
+                <Col span={24}>
+                  <StyledFormItem label={t('common.description', 'Description')} name="description" htmlFor="task-description">
+                    <Input.TextArea
+                      id="task-description"
+                      rows={4}
+                      placeholder={t('pages.tasks.descriptionPlaceholder', 'Enter task description...')}
+                      aria-label={t('common.description', 'Description')}
+                    />
+                  </StyledFormItem>
+                </Col>
+                <Col span={24}>
+                  <StyledFormItem label={t('pages.tasks.skill', 'Skill')} name="skill" htmlFor="task-skill">
+                    {editMode || isNew ? (
+                      <Select
+                        id="task-skill"
+                        allowClear
+                        showSearch
+                        size="large"
+                        placeholder={t('pages.tasks.skillPlaceholder', 'Select a skill')}
+                        options={(skills || []).map((s: any) => ({ value: s.name, label: s.name }))}
+                        filterOption={(input, option) =>
+                          (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                        }
+                        aria-label={t('pages.tasks.skill', 'Skill')}
+                      />
+                    ) : (
+                      <Input id="task-skill" readOnly aria-label={t('pages.tasks.skill', 'Skill')} />
+                    )}
                   </StyledFormItem>
                 </Col>
 
@@ -343,59 +363,116 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                       borderColor: 'rgba(64, 169, 255, 0.2)'
                     }}
                   >
-                    <Row gutter={[24, 0]}>
-                      <Col span={8}>
-                        <StyledFormItem label={t('pages.tasks.scheduleRepeatTypeLabel', 'Repeat Type')} name={["schedule", "repeat_type"]}>
-                          <Select
-                            size="large"
-                            options={REPEAT_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))}
-                          />
-                        </StyledFormItem>
+                    <Row gutter={[16, 16]}>
+                      {/* Repeat Settings Row */}
+                      <Col span={24}>
+                        <div style={{ 
+                          padding: '12px', 
+                          background: 'rgba(255, 255, 255, 0.02)', 
+                          borderRadius: '8px',
+                          border: '1px solid rgba(255, 255, 255, 0.05)'
+                        }}>
+                          <div style={{ 
+                            marginBottom: '12px', 
+                            fontSize: '13px', 
+                            fontWeight: 500, 
+                            color: 'rgba(255, 255, 255, 0.65)',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px'
+                          }}>
+                            {t('pages.tasks.repeatSettings', '重复设置')}
+                          </div>
+                          <Row gutter={[12, 12]}>
+                            <Col span={8}>
+                              <StyledFormItem label={t('pages.tasks.scheduleRepeatTypeLabel', 'Repeat Type')} name={["schedule", "repeat_type"]} htmlFor="task-repeat-type">
+                                <Select
+                                  id="task-repeat-type"
+                                  size="large"
+                                  options={REPEAT_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))}
+                                  aria-label={t('pages.tasks.scheduleRepeatTypeLabel', 'Repeat Type')}
+                                />
+                              </StyledFormItem>
+                            </Col>
+                            <Col span={8}>
+                              <StyledFormItem label={t('pages.tasks.scheduleRepeatNumberLabel', 'Repeat Number')} name={["schedule", "repeat_number"]} htmlFor="task-repeat-number">
+                                <Input
+                                  id="task-repeat-number"
+                                  size="large"
+                                  type="number"
+                                  min={1}
+                                  aria-label={t('pages.tasks.scheduleRepeatNumberLabel', 'Repeat Number')}
+                                />
+                              </StyledFormItem>
+                            </Col>
+                            <Col span={8}>
+                              <StyledFormItem label={t('pages.tasks.scheduleRepeatUnitLabel', 'Repeat Unit')} name={["schedule", "repeat_unit"]} htmlFor="task-repeat-unit">
+                                <Select
+                                  id="task-repeat-unit"
+                                  size="large"
+                                  options={REPEAT_OPTIONS.filter(v => v !== 'none').map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))}
+                                  aria-label={t('pages.tasks.scheduleRepeatUnitLabel', 'Repeat Unit')}
+                                />
+                              </StyledFormItem>
+                            </Col>
+                          </Row>
+                        </div>
                       </Col>
-                      <Col span={8}>
-                        <StyledFormItem label={t('pages.tasks.scheduleRepeatNumberLabel', 'Repeat Number')} name={["schedule", "repeat_number"]}>
-                          <Input
-                            size="large"
-                            type="number"
-                            min={1}
-                          />
-                        </StyledFormItem>
-                      </Col>
-                      <Col span={8}>
-                        <StyledFormItem label={t('pages.tasks.scheduleRepeatUnitLabel', 'Repeat Unit')} name={["schedule", "repeat_unit"]}>
-                          <Select
-                            size="large"
-                            options={REPEAT_OPTIONS.filter(v => v !== 'none').map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))}
-                          />
-                        </StyledFormItem>
-                      </Col>
-                      <Col span={12}>
-                        <StyledFormItem label={t('pages.tasks.scheduleStartTimeLabel', 'Start Date Time')} name={["schedule", "start_date_time"]}>
-                          <DatePicker
-                            size="large"
-                            showTime
-                            style={{ width: '100%' }}
-                          />
-                        </StyledFormItem>
-                      </Col>
-                      <Col span={12}>
-                        <StyledFormItem label={t('pages.tasks.scheduleEndTimeLabel', 'End Date Time (Optional)')} name={["schedule", "end_date_time"]}>
-                          <DatePicker
-                            size="large"
-                            showTime
-                            style={{ width: '100%' }}
-                          />
-                        </StyledFormItem>
-                      </Col>
-                      <Col span={12}>
-                        <StyledFormItem label={t('pages.tasks.scheduleTimeoutLabel', 'Timeout (seconds)')} name={["schedule", "time_out"]}>
-                          <Input
-                            size="large"
-                            type="number"
-                            min={60}
-                            step={60}
-                          />
-                        </StyledFormItem>
+
+                      {/* Time Settings Row */}
+                      <Col span={24}>
+                        <div style={{ 
+                          padding: '12px', 
+                          background: 'rgba(255, 255, 255, 0.02)', 
+                          borderRadius: '8px',
+                          border: '1px solid rgba(255, 255, 255, 0.05)'
+                        }}>
+                          <div style={{ 
+                            marginBottom: '12px', 
+                            fontSize: '13px', 
+                            fontWeight: 500, 
+                            color: 'rgba(255, 255, 255, 0.65)',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px'
+                          }}>
+                            {t('pages.tasks.timeSettings', '时间设置')}
+                          </div>
+                          <Row gutter={[12, 12]}>
+                            <Col span={12}>
+                              <StyledFormItem label={t('pages.tasks.scheduleStartTimeLabel', 'Start Date Time')} name={["schedule", "start_date_time"]} htmlFor="task-start-time">
+                                <DatePicker
+                                  id="task-start-time"
+                                  size="large"
+                                  showTime
+                                  style={{ width: '100%' }}
+                                  aria-label={t('pages.tasks.scheduleStartTimeLabel', 'Start Date Time')}
+                                />
+                              </StyledFormItem>
+                            </Col>
+                            <Col span={12}>
+                              <StyledFormItem label={t('pages.tasks.scheduleEndTimeLabel', 'End Date Time (Optional)')} name={["schedule", "end_date_time"]} htmlFor="task-end-time">
+                                <DatePicker
+                                  id="task-end-time"
+                                  size="large"
+                                  showTime
+                                  style={{ width: '100%' }}
+                                  aria-label={t('pages.tasks.scheduleEndTimeLabel', 'End Date Time (Optional)')}
+                                />
+                              </StyledFormItem>
+                            </Col>
+                            <Col span={12}>
+                              <StyledFormItem label={t('pages.tasks.scheduleTimeoutLabel', 'Timeout (seconds)')} name={["schedule", "time_out"]} htmlFor="task-timeout">
+                                <Input
+                                  id="task-timeout"
+                                  size="large"
+                                  type="number"
+                                  min={60}
+                                  step={60}
+                                  aria-label={t('pages.tasks.scheduleTimeoutLabel', 'Timeout (seconds)')}
+                                />
+                              </StyledFormItem>
+                            </Col>
+                          </Row>
+                        </div>
                       </Col>
                     </Row>
                   </StyledCard>
@@ -433,35 +510,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           </StyledCard>
 
           <ButtonContainer>
-            <Button
-              type="primary"
-              icon={<PlayCircleOutlined />}
-              disabled={isNew || editMode}
-              size="large"
-              style={buttonStyle}
-            >
-              {t('common.run')}
-            </Button>
-            <Button
-              danger
-              icon={<StopOutlined />}
-              disabled={isNew || editMode}
-              size="large"
-              style={buttonStyle}
-            >
-              {t('common.stop')}
-            </Button>
-            {!editMode && !isNew && (
-              <Button
-                type="primary"
-                onClick={handleEdit}
-                icon={<EditOutlined />}
-                size="large"
-                style={buttonStyle}
-              >
-                {t('common.edit')}
-              </Button>
-            )}
+            {/* 编辑模式：显示保存和取消按钮 */}
             {editMode && (
               <>
                 <Button
@@ -473,17 +522,32 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                   size="large"
                   style={primaryButtonStyle}
                 >
-                  {isNew ? t('common.create') : t('common.save')}
+                  {t('common.save')}
                 </Button>
                 <Button
                   onClick={handleCancel}
                   disabled={saving}
+                  icon={<CloseOutlined />}
                   size="large"
                   style={buttonStyle}
                 >
                   {t('common.cancel')}
                 </Button>
               </>
+            )}
+
+            {/* 查看模式：只显示编辑按钮 */}
+            {!editMode && !isNew && (
+              <Button
+                type="primary"
+                onClick={handleEdit}
+                icon={<EditOutlined />}
+                size="large"
+                style={primaryButtonStyle}
+                disabled={false}
+              >
+                {t('common.edit')}
+              </Button>
             )}
           </ButtonContainer>
         </Space>

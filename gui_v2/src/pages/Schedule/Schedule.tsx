@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { Button, Tooltip } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import ScheduleList from './ScheduleList';
 import ScheduleDetails from './ScheduleDetails';
 import DetailLayout from '../../components/Layout/DetailLayout';
@@ -44,13 +46,37 @@ const Schedule: React.FC = () => {
         setFilters({});
     };
 
+    const handleRefresh = () => {
+        setLoading(true);
+        get_ipc_api().getSchedules<any>().then((res: { success: boolean; data?: any }) => {
+            if (res.success && res.data) {
+                setItems(res.data.schedules as unknown as TaskSchedule[]);
+            }
+            setLoading(false);
+        });
+    };
+
     if (loading) {
         return <div style={{ textAlign: 'center', padding: 48 }}>{t('common.loading') || '加载中...'}</div>;
     }
 
+    const listTitle = (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+            <span>{t('pages.schedule.title')}</span>
+            <Tooltip title={t('pages.schedule.refresh', '刷新')}>
+                <Button
+                    type="default"
+                    icon={<ReloadOutlined />}
+                    onClick={handleRefresh}
+                    loading={loading}
+                />
+            </Tooltip>
+        </div>
+    );
+
     return (
         <DetailLayout
-            listTitle={t('pages.schedule.title')}
+            listTitle={listTitle}
             detailsTitle={t('pages.schedule.scheduleDetails')}
             listContent={
                 <ScheduleList

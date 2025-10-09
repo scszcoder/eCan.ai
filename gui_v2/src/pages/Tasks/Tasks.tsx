@@ -1,7 +1,8 @@
 import { Button, Typography, Space, message } from 'antd';
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import DetailLayout from '@/components/Layout/DetailLayout';
 import { TaskList } from './components/TaskList';
@@ -18,6 +19,20 @@ const Tasks: React.FC = () => {
   const { tasks, selectedTask, selectItem, isSelected, loading, handleRefresh } = useTasks();
   const [isAddingNew, setIsAddingNew] = React.useState(false);
   const username = useUserStore((state) => state.username);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Handle taskId from URL parameter
+  useEffect(() => {
+    const taskId = searchParams.get('taskId');
+    if (taskId && tasks.length > 0) {
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+        selectItem(task);
+        // Clear the URL parameter after selecting
+        setSearchParams({});
+      }
+    }
+  }, [searchParams, tasks, selectItem, setSearchParams]);
 
   const listTitle = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
