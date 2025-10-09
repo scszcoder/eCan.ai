@@ -121,11 +121,6 @@ export async function saveFile(dataToSave: SkillInfo, username?: string, current
       }
     }
     
-    // Also save to backend if username is provided
-    if (username) {
-      await get_ipc_api().saveSkill(username, dataToSave);
-    }
-    
     return { success: true };
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {

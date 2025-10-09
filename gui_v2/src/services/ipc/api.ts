@@ -182,8 +182,8 @@ export class IPCAPI {
         return this.executeRequest<T>('get_agents', { username, skill_ids });
     }
 
-    public async getSkills<T>(username: string,skill_ids: string[]): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_skills', { username, skill_ids });
+    public async getAgentSkills<T>(username: string,skill_ids: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_agent_skills', { username, skill_ids });
     }
 
     public async getAgentTasks<T>(username: string, agent_task_ids: string[]): Promise<APIResponse<T>> {
@@ -328,20 +328,12 @@ export class IPCAPI {
         return this.executeRequest<void>('delete_agent_task', {username, task_id: agent_task_id});
     }
 
-    public async saveSkills<T>(username: string, skills: T[]): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('save_skills', {username, skills});
+    public async saveAgentSkill<T>(username: string, skill_info: T): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('save_agent_skill', {username, skill_info});
     }
 
-    public async saveSkill<T>(username: string, skill_info: T): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('save_skill', {username, skill_info});
-    }
-
-    public async newSkill<T>(username: string, skill_info: T): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('new_skill', {username, skill_info});
-    }
-
-    public async deleteSkills<T>(username: string, skills: T[]): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('delete_skills', {username, skills});
+    public async newAgentSkill<T>(username: string, skill_info: T): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('new_agent_skill', {username, skill_info});
     }
 
     public async runSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
