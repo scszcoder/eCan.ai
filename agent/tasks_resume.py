@@ -603,21 +603,35 @@ def build_node_transfer_patch(node_id: str, state_snapshot: Json, node_transfer_
         mapping = node_transfer_rules.get(node_id)
         if not isinstance(mapping, dict):
             return {}
-        # Node output: prefer explicit 'result' from state snapshot; tolerate variations.
-        node_output = {}
+        # Backward compatibility: rewrite legacy node.* sources to state.result.*
         try:
-            if isinstance(state_snapshot, dict):
-                node_output = state_snapshot.get("result") or {}
+            rules = mapping.get("mappings") if isinstance(mapping, dict) else None
+            if isinstance(rules, list):
+                rewritten = False
+                for rule in rules:
+                    from_list = rule.get("from") if isinstance(rule, dict) else None
+                    if isinstance(from_list, list):
+                        new_list = []
+                        for src in from_list:
+                            if isinstance(src, str) and src.startswith("node."):
+                                # node.foo.bar -> state.result.foo.bar
+                                new_list.append("state.result." + src[len("node."):])
+                                rewritten = True
+                            else:
+                                new_list.append(src)
+                        rule["from"] = new_list
+                if rewritten:
+                    mapping = {**mapping, "mappings": rules}
         except Exception:
-            node_output = {}
+            pass
+
         # Reuse the existing mapping engine. For per-node transfer, we have no external event,
-        # so pass an empty event; allow rules to use `node.*` and `state.*` sources.
+        # and sources are expected to be state.* only now.
         print("build_node_transfer_patch......node_id", node_id)
         print("build_node_transfer_patch......state_snapshot", state_snapshot)
-        print("build_node_transfer_patch......node_output", node_output)
         print("build_node_transfer_patch......mapping", mapping)
 
-        resume_patch, state_patch = build_resume_from_mapping(event={}, state=state_snapshot or {}, node_output=node_output, mapping=mapping)
+        resume_patch, state_patch = build_resume_from_mapping(event={}, state=state_snapshot or {}, node_output=None, mapping=mapping)
         # We only need the state patch here; resume_patch can be ignored or used for telemetry.
         return state_patch or {}
     except Exception as e:
