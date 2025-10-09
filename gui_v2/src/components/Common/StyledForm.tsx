@@ -6,10 +6,10 @@ import { Form, Card } from 'antd';
  * 解决 label 和输入框间距太近、输入框边框不明显的问题
  */
 export const StyledFormItem = styled(Form.Item)`
-  margin-bottom: 24px !important;
-  
+  margin-bottom: 16px !important;
+
   .ant-form-item-label {
-    padding-bottom: 12px !important;
+    padding-bottom: 8px !important;
     
     > label {
       font-size: 14px;
@@ -29,9 +29,9 @@ export const StyledFormItem = styled(Form.Item)`
   .ant-input-number-input,
   .ant-picker,
   .ant-select-selector {
-    min-height: 44px !important;
+    min-height: 38px !important;
     border: 1.5px solid rgba(255, 255, 255, 0.15) !important;
-    border-radius: 8px !important;
+    border-radius: 6px !important;
     background: rgba(255, 255, 255, 0.05) !important;
     transition: all 0.3s ease !important;
 
@@ -64,7 +64,7 @@ export const StyledFormItem = styled(Form.Item)`
   /* TextArea 容器样式 */
   .ant-input-textarea {
     border: 1.5px solid rgba(255, 255, 255, 0.15) !important;
-    border-radius: 8px !important;
+    border-radius: 6px !important;
     background: rgba(255, 255, 255, 0.05) !important;
     transition: all 0.3s ease !important;
 

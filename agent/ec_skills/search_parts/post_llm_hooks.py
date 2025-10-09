@@ -11,7 +11,7 @@ def post_llm_hook(state: NodeState) -> NodeState:
 def post_chat_hook(askid, node_name, agent, state, response):
     try:
         llm_output = state["result"]["llm_result"]
-        response = llm_output["casual_chat_response"]
+        response = llm_output["next_prompt"]
 
         state["attributes"]["work_related"] = llm_output["work_related"]
         state["result"]["llm_result"] = response
@@ -87,7 +87,7 @@ def post_pend_for_next_human_msg_hook(askid, node_name, agent, state, response):
     try:
         # Extract content from AIMessage if needed
         llm_output = state["result"]["llm_result"]
-        response = state["result"]["llm_result"]["casual_chat_response"]
+        response = state["result"]["llm_result"]["next_prompt"]
 
         state["job_related"] = state["result"]["job_related"]
         state["result"]["llm_result"] = response

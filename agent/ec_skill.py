@@ -353,7 +353,7 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         attempts = 0
         last_exc = None
         result = None
-        print("node_builder called on::", node_fn)
+        logger.debug("node_builder called on::", node_fn)
         runtime.context["this_node"] = {"name": node_name, "skill_name": skill_name, "owner": owner}
 
         # Utility: produce a JSON/checkpoint safe view of state (whitelist fields, avoid cycles)
