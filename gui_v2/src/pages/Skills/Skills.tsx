@@ -49,6 +49,7 @@ const Skills: React.FC = () => {
         }
     }, [username, fetchSkills]);
 
+
     const handleRefresh = useCallback(async () => {
         if (!username) return;
 

@@ -34,11 +34,59 @@ def _safe_get(d: Any, path: str, default: Any = None) -> Any:
     if d is None:
         return default
     cur = d
+
+    def _to_dict(obj: Any) -> Any:
+        """Best-effort convert common container/DTO types to a dict for traversal."""
+        try:
+            # Pydantic v2
+            if hasattr(obj, "model_dump") and callable(getattr(obj, "model_dump")):
+                return obj.model_dump(mode="python")
+        except Exception:
+            pass
+        try:
+            # Pydantic v1
+            if hasattr(obj, "dict") and callable(getattr(obj, "dict")):
+                return obj.dict()
+        except Exception:
+            pass
+        try:
+            # Generic objects
+            if hasattr(obj, "__dict__"):
+                return vars(obj)
+        except Exception:
+            pass
+        return obj
+
     for part in path.split("."):
-        if isinstance(cur, dict) and part in cur:
-            cur = cur[part]
-        else:
+        if cur is None:
             return default
+
+        # 1) Direct dict access
+        if isinstance(cur, dict):
+            if part in cur:
+                cur = cur[part]
+                continue
+            else:
+                return default
+
+        # 2) Attribute access on objects (e.g., Pydantic models)
+        if hasattr(cur, part):
+            try:
+                cur = getattr(cur, part)
+                continue
+            except Exception:
+                # Fall through to dict-conversion attempts
+                pass
+
+        # 3) Try converting object to dict-like and access again
+        converted = _to_dict(cur)
+        if isinstance(converted, dict) and part in converted:
+            cur = converted[part]
+            continue
+
+        # If still not found, give up
+        return default
+
     return cur
 
 
@@ -75,9 +123,31 @@ def _write(obj: Dict[str, Any], path: str, value: Any, on_conflict: str = "overw
             else:
                 parent[leaf].update(value)
             return
-        if on_conflict == "append" and isinstance(parent[leaf], list) and isinstance(value, list):
-            parent[leaf] += value
+        if on_conflict == "append":
+            existing = parent[leaf]
+            # If the existing target is a list, append scalar or extend with list
+            if isinstance(existing, list):
+                if isinstance(value, list):
+                    parent[leaf] += value
+                else:
+                    parent[leaf].append(value)
+                return
+            # If the existing target is a string and value is string, concatenate
+            if isinstance(existing, str) and isinstance(value, str):
+                parent[leaf] = existing + value
+                return
+            # Otherwise, fall through to overwrite for unsupported types
+    else:
+        # Leaf missing or None: honor append by initializing appropriately
+        print("leaf missing or None", parent, leaf)
+        if on_conflict == "append":
+            if isinstance(value, list):
+                parent[leaf] = list(value)
+            else:
+                # Initialize as a list to capture appended scalar values
+                parent[leaf] = [value]
             return
+    # Default behavior: overwrite
     parent[leaf] = value
 
 
@@ -458,6 +528,8 @@ def build_resume_from_mapping(event: Json, state: Json, node_output: Optional[Js
     - node_output: last node's output (if any)
     - mapping: mapping rules object ({ mappings:[...], options:{...} })
     """
+
+    print("build_resume_from_mapping mapping===>", mapping)
     resume: Json = {}
     state_patch: Json = {}
     opts = mapping.get("options", {}) if isinstance(mapping, dict) else {}
@@ -509,6 +581,8 @@ def build_resume_from_mapping(event: Json, state: Json, node_output: Optional[Js
         "tag": event.get("tag"),
         "timestamp": event.get("timestamp"),
     })
+
+    print("state after mapping:", state_patch)
     return resume, state_patch
 
 
@@ -538,6 +612,11 @@ def build_node_transfer_patch(node_id: str, state_snapshot: Json, node_transfer_
             node_output = {}
         # Reuse the existing mapping engine. For per-node transfer, we have no external event,
         # so pass an empty event; allow rules to use `node.*` and `state.*` sources.
+        print("build_node_transfer_patch......node_id", node_id)
+        print("build_node_transfer_patch......state_snapshot", state_snapshot)
+        print("build_node_transfer_patch......node_output", node_output)
+        print("build_node_transfer_patch......mapping", mapping)
+
         resume_patch, state_patch = build_resume_from_mapping(event={}, state=state_snapshot or {}, node_output=node_output, mapping=mapping)
         # We only need the state patch here; resume_patch can be ignored or used for telemetry.
         return state_patch or {}
@@ -564,6 +643,7 @@ def load_mapping_for_task(task: Any) -> Dict[str, Any]:
             this_node = state.get("this_node") or {}
             node_name = this_node.get("name")
             if skill and isinstance(skill, object) and hasattr(skill, "config") and isinstance(skill.config, dict):
+                print("getting node level rules:", skill.config)
                 node_cfg = (skill.config.get("nodes") or {}).get(node_name) if node_name else None
                 node_rules = node_cfg.get("mapping_rules") if isinstance(node_cfg, dict) else None
                 if isinstance(node_rules, dict):
@@ -574,6 +654,7 @@ def load_mapping_for_task(task: Any) -> Dict[str, Any]:
         # 2) Skill-level mapping for current run_mode
         if skill and hasattr(skill, "mapping_rules") and isinstance(skill.mapping_rules, dict):
             # Check if mapping_rules has run_mode keys (developing/released)
+            print("getting skill level mapping:", skill.id, skill.name, skill.mapping_rules)
             mode_rules = skill.mapping_rules.get(run_mode)
             if isinstance(mode_rules, dict):
                 return mode_rules
@@ -595,18 +676,24 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
     Orchestrate general-purpose resume payload creation.
     Returns: (resume_payload, checkpoint, state_patch)
     """
-    event = normalize_event(msg)
+    i_tag = msg.params.metadata["params"]["i_tag"]
+    event_type = msg.method
+    print("found i_tag from raw msg::", i_tag)
+    event = normalize_event(event_type, msg, tag=i_tag)
     if "i_tag" in event:
         e_tag = event["i_tag"]
     else:
         e_tag = event["tag"]
-
+    logger.debug("build resume load, normalized event>>>>", event)
     cp = select_checkpoint(task, e_tag)
 
     mapping = load_mapping_for_task(task)
     current_state = (task.metadata or {}).get("state") or {}
+    logger.debug("build resume load, current_state>>>>", current_state)
     resume_payload, state_patch = build_resume_from_mapping(event, current_state, node_output=None, mapping=mapping)
 
+    logger.debug("build_general_resume_payload===>", resume_payload)
+    logger.debug("state_patch===>", state_patch)
     # Preserve existing behavior: inject cloud_task_id into checkpoint attributes, and mirror into state attributes
     cloud_task_id = event.get("tag")
     if cp and cloud_task_id:
