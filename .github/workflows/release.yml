@@ -867,6 +867,7 @@ jobs:
   upload-to-s3:
     needs: [validate-tag, build-windows, build-macos]
     if: |
+      always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (
         (github.event.inputs.platform == 'windows' && needs.build-windows.result == 'success') ||
@@ -894,6 +895,27 @@ jobs:
           echo "AWS region: $AWS_REGION"
           echo "S3 base path: $S3_BASE_PATH"
           echo "S3 upload: Enabled"
+          
+          # Verify credentials
+          echo ""
+          echo "=== Verifying AWS Identity ==="
+          if aws sts get-caller-identity; then
+            echo "AWS credentials are valid"
+          else
+            echo "ERROR: AWS credentials are invalid"
+            exit 1
+          fi
+          
+          # Test S3 access
+          echo ""
+          echo "=== Testing S3 Access ==="
+          if aws s3 ls s3://${S3_BUCKET}/ > /dev/null 2>&1; then
+            echo "S3 bucket access: OK"
+          else
+            echo "ERROR: Cannot access S3 bucket"
+            echo "This usually means the IAM user lacks s3:ListBucket permission"
+            exit 1
+          fi
         else
           echo "AWS credentials: Not available"
           echo "S3 upload: Disabled"
