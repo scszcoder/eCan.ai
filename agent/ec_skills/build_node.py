@@ -37,7 +37,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         A callable function that takes a state dictionary and returns the updated state.
     """
     # Extract configuration from metadata with sensible defaults (tolerant to missing keys)
-    print("building llm node:", config_metadata)
+    logger.debug("building llm node:", config_metadata)
     inputs = (config_metadata or {}).get("inputsValues", {}) or {}
     # Prefer explicit provider; infer from apiHost if absent
     raw_provider = None
@@ -162,7 +162,7 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
     This function is responsible for dynamically loading or executing the code and returning
     a callable that can be used as a node in the graph.
     """
-    print("building basic node", config_metadata)
+    logger.debug("building basic node", config_metadata)
     # Safely extract inline script content; tolerate missing keys and fall back to no-op
     try:
         code_source = (config_metadata or {}).get('script', {}).get('content')
@@ -241,7 +241,7 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         A sync or async callable function that takes a state dictionary.
     """
     # Extract configuration (support legacy `{http: {...}}` and new flowgram schema)
-    print("building api node...", config_metadata)
+    logger.debug("building api node...", config_metadata)
     cfg_http = config_metadata.get("http") if isinstance(config_metadata, dict) else None
     if isinstance(cfg_http, dict):
         api_endpoint = cfg_http.get('apiUrl') or cfg_http.get('url') or ""
@@ -628,6 +628,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         A callable function that takes a state dictionary.
     """
     # Accept multiple shapes from GUI/legacy formats
+    logger.debug("building mcp tool node", config_metadata)
     tool_name = None
     try:
         tool_name = (config_metadata.get('tool_name')
@@ -683,6 +684,7 @@ def build_condition_node(config_metadata: dict, node_name: str, skill_name: str,
     """Conditions are handled by graph's conditional edges.
     Return a no-op callable to keep the graph executable when visited.
     """
+    logger.debug("building condition node", config_metadata)
     def _noop(state: dict, *, runtime=None, store=None, **kwargs):
         return state
     # Wrap to inherit common context/retry behavior
@@ -691,6 +693,7 @@ def build_condition_node(config_metadata: dict, node_name: str, skill_name: str,
 
 def build_loop_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     """Loops are translated structurally by the compiler; runtime callable is a no-op."""
+    logger.debug("building loop node", config_metadata)
     def _noop(state: dict, *, runtime=None, store=None, **kwargs):
         return state
     return node_builder(_noop, node_name, skill_name, owner, bp_manager)
@@ -703,6 +706,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
       - prompt: optional string to present to human/agent
       - tag: optional business tag; defaults to node_name
     """
+    logger.debug("building pend event node:", config_metadata)
     prompt = (config_metadata or {}).get("prompt") or "Action required to continue."
     tag = (config_metadata or {}).get("tag") or node_name
 
@@ -720,6 +724,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
 
 def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     """Chat node sends messages via TaskRunner GUI methods."""
+    logger.debug("building chat node:", config_metadata)
     role = ((config_metadata or {}).get("role") or "assistant").lower()
     msg_tpl = (config_metadata or {}).get("message") or ""
     wait_for_reply = bool((config_metadata or {}).get("wait_for_reply", False))
@@ -768,6 +773,7 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
 
 def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     """RAG node with optional LIGHTRAG API."""
+    logger.debug("building rag node:", config_metadata)
     query_path = (config_metadata or {}).get("query_path") or "attributes.query"
     def _rag(state: dict, *, runtime=None, store=None, **kwargs):
         # Resolve dotted path from state
@@ -811,6 +817,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
       - wait_for_done: whether to interrupt when external completion is needed
       - model: optional LLM model for browser-use (env fallback supported)
     """
+    logger.debug("building browser automation node:", config_metadata)
     provider = ((config_metadata or {}).get("provider") or "browser-use").lower()
     action = (config_metadata or {}).get("action") or "open_page"
     params = (config_metadata or {}).get("params") or {}

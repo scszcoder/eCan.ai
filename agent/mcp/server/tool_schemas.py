@@ -1476,24 +1476,12 @@ def build_agent_mcp_tools_schemas():
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["image", "icons", "options", "end_point"],
+                    "required": ["win_title_keyword"],
                     "properties": {
-                        "image": {
+                        "win_title_keyword": {
                             "type": "string",
-                            "description": "the full path of the image file",
-                        },
-                        "icons": {
-                            "type": "string",
-                            "description": "comma separated list of the full path of the icon files",
-                        },
-                        "metadata": {
-                            "type": "object",
-                            "description": "json data to make the api call for effective, for random image data, just leave this as {}.",
-                        },
-                        "end_point": {
-                            "type": "string",
-                            "description": "either local/lan/wan, local means the algorithm runs on this host, lan means the algorithm runs on a remote computer within the LAN, wan means the algorithm runs on a remote computer on the internet, outside of the LAN",
-                        },
+                            "description": "do OCR on the window whose window title with the keyword",
+                        }
                     },
                 }
             }

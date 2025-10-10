@@ -2097,12 +2097,13 @@ def testGetManagerMissions(mwin):
 
 
 def testSyncPrivateCloudImageAPI(parent):
-    api_key = "c3f8fa3f021fc96172414456ab96df1ecbfcf900a8d3a59a78e8ac9b3867df80"
+    api_key = "cf13091533f6d99e653b2e1db33f879b53d389cd4dcf82e0e22b0dd33876aeac"
     # x_api_key = scramble_api_key(api_key)
     print("TESTING Private Cloud IMG API....", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     # Ensure ECB_HOME is set
-    ecb_home = os.getenv("ECB_HOME")
+    ecb_home = os.getenv("ECAN_AI_HOME")
+    print("ecb_home:", ecb_home)
     if not ecb_home:
         raise ValueError("Environment variable ECB_HOME is not set!")
 
@@ -2110,7 +2111,7 @@ def testSyncPrivateCloudImageAPI(parent):
 
     # Construct file path
     img_file_name = os.path.join(ecb_home,
-                                 "runlogs/20240606/b85m702/win_file_local_op/skills/open_save_as/images/scrnsongc_yahoo_1717735671.png")
+                                 "runlogs/20240610/b85m702/win_ads_amz_home/skills/browse_search/images/scrnsongc_yahoo_1718067737.png")
 
     # Construct request payload
     request = [{
@@ -2121,11 +2122,11 @@ def testSyncPrivateCloudImageAPI(parent):
         "domain": "local",
         "page": "op",
         "layout": "",
-        "skill": "open_save_as",
+        "skill": "browse_search",
         "csk": os.path.join(ecb_home,
-                            "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.csk"),
+                            "resource/skills/public/win_ads_amz_home/browse_search/scripts/browse_search.csk"),
         "psk": os.path.join(ecb_home,
-                            "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.psk"),
+                            "resource/skills/public/win_ads_amz_home/browse_search/scripts/browse_search.psk"),
         "lastMove": "top",
         "options": json.dumps({"txt_attention_area": [0, 0, 1920, 1080], "attention_targets": ["@all"], "display_resolution": "D1920X1080"}),
         # Use valid JSON string
@@ -2146,7 +2147,7 @@ def testSyncPrivateCloudImageAPI(parent):
     host_ip = "47.120.48.82"
     endpoint = f"http://{host_ip}:8848/graphql/reqScreenTxtRead"
 
-    print("endpoint:", endpoint)
+    print("endpoint:", endpoint, img_file_name)
 
     # Ensure file exists before sending
     if not os.path.exists(img_file_name):
@@ -2158,27 +2159,107 @@ def testSyncPrivateCloudImageAPI(parent):
 
         # Prepare the multipart request
         with open(img_file_name, "rb") as img_file:
-            files = {
-                "file": (os.path.basename(img_file_name), img_file, "image/png"),
-            }
+            # files = {
+            #     "file": (os.path.basename(img_file_name), img_file, "image/png"),
+            # }
+            files = [
+                ("files", (os.path.basename(img_file_name), img_file, "image/png"))
+            ]
             payload = {
                 "data": json.dumps(data)  # Send JSON as a string
             }
 
-            print("Sending HTTP request...")
+            print("Sending HTTP request...", files)
             headers = {
                 "x-api-key": api_key
             }
+
+            print("headers:", headers)
             # Send the POST request
             response = requests.post(endpoint, headers=headers, files=files, data=payload, timeout=60)
 
             # Print response
             print("Response:", response.status_code, response.text)
             print("RETURNED FROM Private Cloud IMG API....", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            return response
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return e
+
+
+def test_ocr():
+    print("start time stamp1: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'))
+    api_key = "cf13091533f6d99e653b2e1db33f879b53d389cd4dcf82e0e22b0dd33876aeac"
+    # host_ip = "127.0.0.1"
+    host_ip = "47.120.48.82"
+    endpoint = f"http://{host_ip}:8848/graphql/reqScreenTxtRead"
+    ecb_home = "/home/scjetson/pyprj/milan_client"
+    ecb_home = "C:/Users/songc/PycharmProjects/eCan.ai"
+
+    # test case (select one image path)
+    img_file_name = os.path.join(ecb_home, "runlogs/20240606/b85m702/win_ads_local_load/skills/batch_import/images/scrnsongc_yahoo_1741552343.png")
+
+    img_file_name = os.path.join(ecb_home,
+                                 "runlogs/20240610/b85m702/win_ads_amz_home/skills/browse_search/images/scrnsongc_yahoo_1718067737.png")
+
+    # Construct request payload
+    request = [{
+        "mid": 702,
+        "bid": 85,
+        "os": "win",
+        "app": "file",
+        "domain": "local",
+        "page": "op",
+        "layout": "",
+        "skill": "browse_search",
+        "csk": os.path.join(ecb_home,
+                            "resource/skills/public/win_ads_amz_home/browse_search/scripts/browse_search.csk"),
+        "psk": os.path.join(ecb_home,
+                            "resource/skills/public/win_ads_amz_home/browse_search/scripts/browse_search.psk"),
+        "lastMove": "top",
+        "options": json.dumps({"txt_attention_area": [0, 0, 1920, 1080], "attention_targets": ["@all"],
+                               "display_resolution": "D1920X1080"}),
+        # Use valid JSON string
+        "theme": "light",
+        "imageFile": img_file_name,
+        "factor": "{}"
+    }]
+
+    data = {
+        "inScrn": request,
+        "requester": "songc@yahoo.com",
+        "host": "DESKTOP-DLLV0",
+        "type": "reqScreenTxtRead",
+        "query_type": "Query"
+    }
+
+    try:
+        with open(img_file_name, "rb") as img_file:
+            files = [
+                ("files", (os.path.basename(img_file_name), img_file, "image/png"))
+            ]
+
+            payload = {"data": json.dumps(data)}
+
+            headers = {"x-api-key": api_key}
+            print("about to call remote ocr api:", endpoint, headers)
+            response = requests.post(endpoint, headers=headers, files=files, data=payload, timeout=60)
+            print(response)
+            # original behavior: print parsed JSON response (local client expected)
+            try:
+                print("response:", response.json())
+            except Exception:
+                print("response text (non-json):", response.status_code, response.text)
+            print("end time stamp1: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'))
+
+        print("start time stamp2: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'))
 
     except Exception as e:
         print(f"Unexpected error: {e}")
-
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        if traceback_info:
+            ex_stat = "ErrorTestApi:" + traceback.format_exc() + " " + str(e)
+            print(ex_stat)
 
 def testLongLLMTask(mwin, setup):
     from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_rerank_results
@@ -2328,13 +2409,19 @@ def testLongLLMTask(mwin, setup):
     response = ecan_ai_api_rerank_results(mwin, setup)
     print("testLongLLMTask response:", response)
 
+def testReadScreen(mwin):
+    return testSyncPrivateCloudImageAPI(mwin)
+    # return test_ocr()
 
 def run_default_tests(mwin, test_setup=None):
     print("run_default_tests with setup:", test_setup)
     results = None
     # results = testLongLLMTask(mwin, test_setup)
-    f2l_test = Flowgram2LangGraphTests()
-    f2l_test.test_multi_sheet_with_condition_in_sub_sheet()
+    # f2l_test = Flowgram2LangGraphTests()
+    # f2l_test.test_multi_sheet_with_condition_in_sub_sheet()
+
+    results = testReadScreen(mwin)
+    print("unit test results:", results)
     return results
 
 print(TimeUtil.formatted_now_with_ms() + "loading unittests finished...")

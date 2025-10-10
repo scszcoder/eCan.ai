@@ -265,3 +265,6 @@ def api_ecan_ai_ocr_read_screen(mainwin, nodes):
         logger.error(err_trace)
         usable_prompts = []
     return usable_prompts
+
+
+
