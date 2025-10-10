@@ -1,0 +1,11 @@
+export const labelColorDarkTheme = '#e2e2e2';
+export const labelColorLightTheme = '#222222';
+export const nodeBorderColor = '#333333';
+export const nodeBorderColorSelected = '#1e90ff';
+export const nodeColorDisabled = '#c9ced6';
+export const edgeColorDarkTheme = '#999999';
+export const edgeColorHighlightedDarkTheme = '#66ccff';
+export const edgeColorHighlightedLightTheme = '#0077cc';
+export const minNodeSize = 4;
+export const maxNodeSize = 18;
+export const controlButtonVariant: 'ghost' | 'default' = 'ghost';
