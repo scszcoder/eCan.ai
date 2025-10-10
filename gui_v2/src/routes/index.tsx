@@ -18,6 +18,7 @@ const Tools = React.lazy(() => import('../pages/Tools/Tools'));
 const Settings = React.lazy(() => import('../pages/Settings/Settings'));
 const Console = React.lazy(() => import('../pages/Console/Console'));
 const KnowledgePlatform = React.lazy(() => import('../pages/Knowledge/index'));
+const KnowledgePorted = React.lazy(() => import('../pages/Knowledge/LightRAGPorted'));
 const Tests = React.lazy(() => import('../pages/Tests/Tests'));
 const OrgNavigator = React.lazy(() => import('../pages/Agents/OrgNavigator'));
 const AgentDetails = React.lazy(() => import('../pages/Agents/components/AgentDetails'));
@@ -148,6 +149,10 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'knowledge',
                 element: <LazyWrapper><KnowledgePlatform /></LazyWrapper>,
+            },
+            {
+                path: 'knowledge-ported',
+                element: <LazyWrapper><KnowledgePorted /></LazyWrapper>,
             },
             {
                 path: 'tests',

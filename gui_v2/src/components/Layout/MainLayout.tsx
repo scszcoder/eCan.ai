@@ -81,7 +81,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         { key: '/schedule', icon: <CalendarOutlined />, label: t('menu.schedule') },
         { key: '/vehicles', icon: <CarOutlined />, label: t('menu.vehicles') },
         { key: '/tools', icon: <ToolOutlined />, label: t('menu.tools') },
-        { key: '/knowledge', icon: <ReadOutlined />, label: t('menu.knowledge') },
+        { key: '/knowledge-ported', icon: <ReadOutlined />, label: t('menu.knowledge') },
         { key: '/orgs', icon: <ApartmentOutlined />, label: t('menu.organizations') },
         { key: '/settings', icon: <SettingOutlined />, label: t('menu.settings') },
         { key: '/dashboard', icon: <DashboardOutlined />, label: t('menu.dashboard') },
