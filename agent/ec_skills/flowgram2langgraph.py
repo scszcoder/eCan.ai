@@ -176,6 +176,31 @@ def make_condition_selector(node_id: str, node_data: dict, port_map: dict):
 
     ordered = sorted(conditions, key=lambda c: _ctype(c.get("key", "")))
 
+    def _resolve_port_for_key(key: str, port_map: dict) -> str | None:
+        """Resolve the correct port id for a given condition key when names differ.
+        Prefer exact match; fallback by semantic prefix (if/elif/else) to common port ids like 'if_out'.
+        """
+        if key in port_map:
+            return key
+        k = str(key)
+        ports = list(port_map.keys())
+        # Prefer explicit *_out forms if present
+        if k.startswith("if_"):
+            if "if_out" in port_map: return "if_out"
+            # fallback to any port starting with 'if'
+            for p in ports:
+                if str(p).startswith("if"): return p
+        if k.startswith("elif_"):
+            if "elif_out" in port_map: return "elif_out"
+            for p in ports:
+                if str(p).startswith("elif"): return p
+        if k.startswith("else_"):
+            if "else_out" in port_map: return "else_out"
+            for p in ports:
+                if str(p).startswith("else"): return p
+        # Last resort: first available
+        return ports[0] if ports else None
+
     def selector(state: dict):
         # Evaluate IF/ELIF; default to ELSE if present; otherwise None
         for cond in ordered:
@@ -206,17 +231,16 @@ def make_condition_selector(node_id: str, node_data: dict, port_map: dict):
                 matched = False
 
             if matched:
-                # Return the port id that matches this condition key
-                if key in port_map:
-                    return key
-                # Some diagrams might use sourcePortID equal to the key; fall back to first mapping
-                return list(port_map.keys())[0] if port_map else None
+                # Resolve to appropriate port id even when key != sourcePortID
+                return _resolve_port_for_key(key, port_map)
 
         # No IF/ELIF matched: pick ELSE if present
         else_key = next((c.get("key") for c in ordered if str(c.get("key", "")).startswith("else_")), None)
-        if else_key and else_key in port_map:
-            return else_key
-        # Fallback: second mapping or first available
+        if else_key:
+            rp = _resolve_port_for_key(else_key, port_map)
+            if rp:
+                return rp
+        # Fallback: keep previous heuristic
         keys = list(port_map.keys())
         if len(keys) > 1:
             return keys[1]
@@ -315,17 +339,189 @@ def flowgram2langgraph(flow: dict, bundle_json: dict | None = None):
         if not isinstance(flow, dict):
             raise ValueError("flow must be a dict")
         logger.debug(f"flowgram raw: {flow}")
-        # Optionally attach bundle (multi-sheet)
+        # If bundle is provided by caller, attach for reference (v2 may already have preprocessed)
         if bundle_json is not None:
             flow["bundle"] = bundle_json
 
-        # Minimal safe return to keep v1 syntax/runtime-safe while v2 is used.
-        # NOTE: v2 is currently the active converter in dev runs.
-        skill_under_dev = None
+        # Resolve the working workflow schema (flat nodes/edges expected)
+        wf = flow.get("workFlow") or {}
+        if (not wf) and bundle_json and isinstance(bundle_json, dict):
+            # Fallback: take the first sheet's document
+            try:
+                sheets = bundle_json.get("sheets") or []
+                if sheets:
+                    doc = sheets[0].get("document") or {}
+                    if isinstance(doc, dict) and "nodes" in doc and "edges" in doc:
+                        wf = doc
+            except Exception:
+                wf = {}
+
+        nodes = (wf.get("nodes") or []) if isinstance(wf, dict) else []
+        edges = (wf.get("edges") or []) if isinstance(wf, dict) else []
+
+        # Detect virtual start/end node IDs that may only exist in top-level flow['nodes']
+        top_nodes = flow.get("nodes") or []
+        start_ids = set()
+        end_ids = set()
+        try:
+            # From workFlow.nodes
+            for n in nodes:
+                nid = str(n.get("id"))
+                ntype = (n.get("type") or "")
+                if ntype == "start" or nid.startswith("start"):
+                    start_ids.add(nid)
+                if ntype == "end" or nid.startswith("end"):
+                    end_ids.add(nid)
+            # From top-level nodes
+            for n in top_nodes:
+                nid = str(n.get("id"))
+                ntype = (n.get("type") or "")
+                if ntype == "start" or nid.startswith("start"):
+                    start_ids.add(nid)
+                if ntype == "end" or nid.startswith("end"):
+                    end_ids.add(nid)
+        except Exception:
+            pass
+
+        # Prepare LangGraph
+        skill_name = str(flow.get("skillName") or flow.get("name") or "skill")
+        owner = str(flow.get("owner") or flow.get("createdBy") or "")
+        bp_mgr = None  # BreakpointManager is optional at compile time
+
+        workflow = StateGraph(NodeState)
+
+        # Helper to sanitize node ids for LangGraph (avoid special chars like ':')
+        def sid(x: str) -> str:
+            try:
+                return str(x).replace(":", "__")
+            except Exception:
+                return str(x)
+
+        # Index nodes and types
+        id_to_node = {}
+        id_to_type = {}
+        for n in nodes:
+            try:
+                nid = str(n.get("id"))
+            except Exception:
+                continue
+            id_to_node[nid] = n
+            ntype = (n.get("type") or "code")
+            id_to_type[nid] = ntype
+
+        # Build and add graph nodes (skip virtual start/end)
+        for nid, n in id_to_node.items():
+            ntype = id_to_type.get(nid, "code")
+            if ntype in ("start", "end", "sheet-inputs", "sheet_inputs"):
+                continue
+
+            node_data = n.get("data", {})
+            # Normalize MCP tool config from GUI schema if needed
+            if ntype == "mcp" and isinstance(node_data, dict):
+                try:
+                    tn = (node_data.get("tool_name")
+                          or node_data.get("toolName")
+                          or (((node_data.get("inputsValues") or {}).get("tool_name") or {}).get("content"))
+                          or (((node_data.get("inputsValues") or {}).get("toolName") or {}).get("content")))
+                    if not tn:
+                        callable_name = (((node_data.get("data") or {}).get("callable") or {}).get("name"))
+                        if callable_name:
+                            node_data["tool_name"] = callable_name
+                except Exception:
+                    pass
+            builder_func = function_registry.get(ntype, _default_noop_builder)
+            # Create runtime callable via builder
+            raw_callable = builder_func(node_data, nid, skill_name, owner, bp_mgr)
+            # Wrap with node_builder to add retries/context/breakpoints
+            node_callable = node_builder(raw_callable, nid, skill_name, owner, bp_mgr)
+            workflow.add_node(sid(nid), node_callable)
+
+            # If loop/group provides nested blocks, add those into the same graph namespace (best-effort)
+            try:
+                if ntype in ["loop", "group"] and (n.get("blocks") or n.get("edges")):
+                    nested_edges = n.get("edges", [])
+                    process_blocks(workflow, n.get("blocks") or [], {}, {}, skill_name, owner, bp_mgr, nested_edges, parent_gid="", edges_debug=None, cond_edges_debug=None)
+            except Exception as _e:
+                logger.debug(f"process_blocks skipped for node {nid}: {_e}")
+
+        # Build edges
+        # 1) Handle condition nodes via add_conditional_edges
+        condition_ids = {nid for nid, t in id_to_type.items() if t == "condition"}
+        for cid in condition_ids:
+            gid = sid(cid)
+            cnode = id_to_node.get(cid, {})
+            outgoing = [e for e in edges if str(e.get("sourceNodeID")) == cid]
+            if not outgoing:
+                continue
+            port_map = {}
+            for e in outgoing:
+                port = e.get("sourcePortID")
+                tgt = str(e.get("targetNodeID"))
+                if not port:
+                    continue
+                if id_to_type.get(tgt) == "end" or tgt == "end" or tgt in end_ids or str(tgt).startswith("end"):
+                    port_map[port] = END
+                else:
+                    port_map[port] = sid(tgt)
+            if port_map:
+                selector = make_condition_selector(gid, cnode.get("data", {}) or {}, port_map)
+                workflow.add_conditional_edges(gid, selector, path_map=port_map)
+
+        # 2) Add normal edges (skip those emitted by condition handling)
+        for e in edges:
+            try:
+                src = str(e.get("sourceNodeID"))
+                tgt = str(e.get("targetNodeID"))
+            except Exception:
+                continue
+
+            # Skip edges originating from condition nodes (already handled)
+            if src in condition_ids:
+                continue
+
+            # Resolve START/END (support ids like 'start_0' present only in top-level nodes)
+            if src == "start" or id_to_type.get(src) == "start" or src in start_ids or str(src).startswith("start"):
+                u = START
+            else:
+                u = sid(src)
+
+            if tgt == "end" or id_to_type.get(tgt) == "end" or tgt in end_ids or str(tgt).startswith("end"):
+                v = END
+            else:
+                v = sid(tgt)
+
+            # Only add edges where both endpoints exist or are START/END
+            try:
+                workflow.add_edge(u, v)
+            except Exception as _e:
+                logger.debug(f"edge add skipped {src}->{tgt}: {_e}")
+
+        # Collect breakpoint-enabled node IDs
         breakpoints: list[str] = []
-        return skill_under_dev, breakpoints
+        try:
+            for n in nodes:
+                nid = None
+                try:
+                    nid = str(n.get("id"))
+                except Exception:
+                    nid = None
+                if not nid:
+                    continue
+                d = n.get("data") or {}
+                has_bp = False
+                try:
+                    has_bp = (d.get("breakpoint") is True) or (n.get("breakpoint") is True)
+                except Exception:
+                    has_bp = False
+                if has_bp:
+                    breakpoints.append(nid)
+        except Exception as _e:
+            logger.debug(f"breakpoints collection failed: {_e}")
+
+        return workflow, breakpoints
     except Exception as e_flat:
-        logger.error(f"v1 flowgram2langgraph error: {e_flat}")
+        err_msg = get_traceback(e_flat, "ErrorFlowgram2LangGraphV1")
+        logger.error(f"{err_msg}")
         return None, []
 
 

@@ -45,7 +45,8 @@ from agent.mcp.config import mcp_messages_url
 from agent.ec_skills.dev_defs import BreakpointManager
 from langgraph.types import Interrupt, interrupt
 from langgraph.errors import GraphInterrupt
-
+from utils.logger_helper import logger_helper as logger, get_traceback
+from agent.tasks_resume import build_node_transfer_patch
 # ---------------------------------------------------------------------------
 # ── 1.  Typed State for LangGraph ───────────────────────────────────────────
 # ---------------------------------------------------------------------------
@@ -356,6 +357,59 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         logger.debug("node_builder called on::", node_fn)
         runtime.context["this_node"] = {"name": node_name, "skill_name": skill_name, "owner": owner}
 
+        # Apply node-level state->state mapping (if provided in state)
+        try:
+            # Look for per-node mapping rules in state:
+            # Prefer attributes.node_transfer_rules[node_name], fallback to state.node_transfer_rules
+            node_rules_map = None
+            attrs = state.get("attributes") if isinstance(state, dict) else None
+            if isinstance(attrs, dict):
+                node_rules_map = attrs.get("node_transfer_rules")
+            if node_rules_map is None and isinstance(state, dict):
+                node_rules_map = state.get("node_transfer_rules")
+
+            rules_for_node = None
+            if isinstance(node_rules_map, dict):
+                if node_name in node_rules_map and isinstance(node_rules_map[node_name], dict):
+                    rules_for_node = node_rules_map[node_name]
+                elif "mappings" in node_rules_map:
+                    # Treat as mapping spec for this node
+                    rules_for_node = node_rules_map
+
+            if isinstance(rules_for_node, dict) and rules_for_node.get("mappings"):
+                patch = build_node_transfer_patch(node_name, state, {node_name: rules_for_node})
+
+                def _deep_merge(a: dict, b: dict) -> dict:
+                    out = dict(a)
+                    for k, v in b.items():
+                        if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+                            out[k] = _deep_merge(out[k], v)
+                        else:
+                            out[k] = v
+                    return out
+
+                if isinstance(patch, dict) and patch:
+                    # Deep-merge common sections
+                    for sec in ("attributes", "metadata", "tool_input"):
+                        if sec in patch:
+                            base = state.get(sec) if isinstance(state.get(sec), dict) else {}
+                            state[sec] = _deep_merge(base, patch[sec])
+                    # Handle other keys conservatively
+                    for k, v in patch.items():
+                        if k in ("attributes", "metadata", "tool_input"):
+                            continue
+                        if k == "messages" and isinstance(v, list):
+                            if isinstance(state.get("messages"), list):
+                                state["messages"].extend(v)
+                            else:
+                                state["messages"] = list(v)
+                        else:
+                            state[k] = v
+                logger.debug(f"[node_builder] applied node transfer mapping for {node_name}")
+        except Exception as _e:
+            err_msg = get_traceback(_e, "ErrorNodeBuilderWrapper")
+            logger.debug(f"[node_builder] node transfer mapping skipped/failed at {node_name}: {err_msg}")
+
         # Utility: produce a JSON/checkpoint safe view of state (whitelist fields, avoid cycles)
         def _prune_result(res: Any) -> Any:
             # if isinstance(res, dict):
@@ -421,13 +475,17 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                 elif isinstance(state.get("result"), dict) and state["result"].get("result") is state:
                     logger.warning(f"Detected nested self-reference in state.result at {node_name}; trimming")
                     state["result"].pop("result", None)
-            except Exception:
+            except Exception as e:
+                err_msg = get_traceback(e, "ErrorNodeBuilderWrapper")
+                logger.error(f"Error sanitizing state.result at {node_name}: {err_msg}")
                 pass
             # Support one-shot skip using runtime.context (controlled by the task loop)
             skip_list = []
             try:
                 skip_list = runtime.context.get("skip_bp_once", [])
-            except Exception:
+            except Exception as e:
+                err_msg = get_traceback(e, "ErrorNodeBuilderWrapper")
+                logger.error(f"Error build skip list at {node_name}: {err_msg}")
                 skip_list = []
 
             if isinstance(skip_list, (list, tuple)) and node_name in skip_list:
@@ -502,7 +560,7 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         except Exception:
             pass
 
-        print("returning state...", state)
+        logger.debug("[node_builder]returning state...", state)
         return state
     # The node_builder itself returns the wrapper function
     return wrapper

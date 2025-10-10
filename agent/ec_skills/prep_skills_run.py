@@ -172,6 +172,17 @@ def prep_skills_run(skill, agent, task_id, msg=None, current_state=None):
         node_state = _node_state_baseline(agent, task_id, msg, current_state=current_state if isinstance(current_state, dict) else None)
         logger.debug("[prep_skills_run] initial node state: ", node_state)
 
+        # 1a) Inject node-level mapping rules from the skill's data_mapping.json
+        try:
+            rules = getattr(skill, "mapping_rules", {}) or {}
+            node_transfers = rules.get("node_transfers", {}) if isinstance(rules, dict) else {}
+            if not isinstance(node_state.get("attributes"), dict):
+                node_state["attributes"] = {}
+            node_state["attributes"]["node_transfer_rules"] = node_transfers if isinstance(node_transfers, dict) else {}
+            logger.debug("[prep_skills_run] injected node_transfer_rules keys: ", list((node_transfers or {}).keys()))
+        except Exception as _e:
+            logger.debug("[prep_skills_run] skipping node_transfer_rules inject due to error: " + str(_e))
+
         # 2) Resolve START-node mapping
         mapping = _resolve_start_mapping(skill)
         logger.debug("[prep_skills_run] mapping: ", mapping)
