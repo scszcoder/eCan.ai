@@ -29,7 +29,7 @@ interface UIState {
 
 export const useOrgs = () => {
   const { t } = useTranslation();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const username = userStorageManager.getUsername();
   
@@ -227,25 +227,67 @@ export const useOrgs = () => {
     }
   }, [username, t, loadOrgs, updateUIState, updateDataState]);
 
-  const deleteOrg = useCallback(async (id: string) => {
+  const deleteOrg = useCallback(async (id: string, force: boolean = false) => {
     if (!username) return;
-    try {
-      const api = get_ipc_api();
-      const response = await api.deleteOrg(username, id);
-      if (response.success) {
-        message.success(t('pages.org.messages.deleteSuccess'));
-        loadOrgs();
-        if (dataStateRef.current.selectedOrg?.id === id) {
-          updateDataState({ selectedOrg: null, orgAgents: [] });
-        }
-      } else {
-        message.error(response.error?.message || t('pages.org.messages.deleteFailed'));
-      }
-    } catch (error) {
-      console.error('Error deleting org:', error);
-      message.error(t('pages.org.messages.deleteFailed'));
+    
+    // 如果不是强制删除，先显示确认对话框
+    if (!force) {
+      modal.confirm({
+        title: t('pages.org.confirm.delete', 'Delete Organization'),
+        content: t('pages.org.confirm.deleteMessage', 'Are you sure you want to delete this organization?'),
+        okText: t('common.delete', 'Delete'),
+        okType: 'danger',
+        cancelText: t('common.cancel', 'Cancel'),
+        centered: true,
+        onOk: async () => {
+          // 执行实际删除
+          await performDelete(id, false);
+        },
+      });
+      return;
     }
-  }, [username, t, loadOrgs, updateDataState]);
+    
+    // 强制删除直接执行
+    await performDelete(id, true);
+    
+    async function performDelete(orgId: string, forceDelete: boolean) {
+      if (!username) return;
+      try {
+        const api = get_ipc_api();
+        const response = await api.deleteOrg(username, orgId, forceDelete);
+        if (response.success) {
+          message.success(t('pages.org.messages.deleteSuccess'));
+          loadOrgs();
+          if (dataStateRef.current.selectedOrg?.id === orgId) {
+            updateDataState({ selectedOrg: null, orgAgents: [] });
+          }
+        } else {
+          const errorMsg = response.error?.message || '';
+          // 检查是否是因为有agents导致删除失败
+          if (errorMsg.includes('agents') && errorMsg.includes('force')) {
+            // 询问用户是否强制删除
+            modal.confirm({
+              title: t('pages.org.messages.deleteConfirmTitle', 'Force Delete Organization'),
+              content: t('pages.org.messages.deleteConfirmWithAgents', 'This organization contains agents. Do you want to force delete it? All agents will be moved to the parent organization or become orphaned.'),
+              okText: t('common.delete', 'Delete'),
+              okType: 'danger',
+              cancelText: t('common.cancel', 'Cancel'),
+              centered: true,
+              onOk: async () => {
+                // 强制删除
+                await deleteOrg(orgId, true);
+              },
+            });
+          } else {
+            message.error(errorMsg || t('pages.org.messages.deleteFailed'));
+          }
+        }
+      } catch (error) {
+        console.error('Error deleting org:', error);
+        message.error(t('pages.org.messages.deleteFailed'));
+      }
+    }
+  }, [username, t, loadOrgs, updateDataState, modal]);
 
   const bindAgents = useCallback(async (agentIds: string[]) => {
     const selectedOrg = dataStateRef.current.selectedOrg;

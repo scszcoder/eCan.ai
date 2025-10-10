@@ -1,8 +1,7 @@
 import React from 'react';
-import { List, Tag, Typography, Space, Progress, Tooltip, Empty, Badge, Card } from 'antd';
+import { List, Tag, Typography, Space, Empty } from 'antd';
 import {
     RobotOutlined,
-    ThunderboltOutlined,
     ClockCircleOutlined,
     StarOutlined,
     CheckCircleOutlined,
@@ -16,15 +15,16 @@ import type { Skill } from '@/stores';
 const { Text } = Typography;
 
 const SkillItem = styled.div`
-    padding: 14px 16px;
+    padding: 12px;
     cursor: pointer;
-    transition: all 0.2s ease;
-    background: rgba(255, 255, 255, 0.02);
-    border-radius: 8px;
-    margin: 6px 0;
-    border: 1.5px solid rgba(255, 255, 255, 0.08);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    margin: 8px 0;
+    border: 1px solid rgba(255, 255, 255, 0.05);
     position: relative;
     overflow: hidden;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 
     &::before {
         content: '';
@@ -32,38 +32,45 @@ const SkillItem = styled.div`
         left: 0;
         top: 0;
         height: 100%;
-        width: 3px;
+        width: 4px;
         background: transparent;
-        transition: all 0.2s ease;
+        transition: all 0.3s ease;
     }
 
     &:hover {
-        background: rgba(255, 255, 255, 0.04);
-        border-color: rgba(64, 169, 255, 0.3);
-        transform: translateX(2px);
+        background: var(--bg-tertiary);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+        border-color: rgba(255, 255, 255, 0.1);
 
         &::before {
-            background: rgba(64, 169, 255, 0.6);
+            width: 3px;
+            background: var(--primary-color);
         }
     }
 
     &.selected {
-        background: rgba(64, 169, 255, 0.08);
-        border: 1.5px solid rgba(64, 169, 255, 0.5);
+        background: linear-gradient(135deg, rgba(24, 144, 255, 0.15) 0%, rgba(24, 144, 255, 0.05) 100%);
+        border: 1px solid rgba(24, 144, 255, 0.4);
+        box-shadow: 0 2px 8px rgba(24, 144, 255, 0.2);
 
         &::before {
-            background: #40a9ff;
-            width: 3px;
+            background: var(--primary-color);
         }
 
         &:hover {
-            background: rgba(64, 169, 255, 0.12);
-            border-color: rgba(64, 169, 255, 0.7);
+            background: linear-gradient(135deg, rgba(24, 144, 255, 0.2) 0%, rgba(24, 144, 255, 0.08) 100%);
+            border-color: rgba(24, 144, 255, 0.6);
+            box-shadow: 0 4px 16px rgba(24, 144, 255, 0.3);
+
+            &::before {
+                width: 4px;
+            }
         }
     }
 
     .ant-typography {
-        color: rgba(255, 255, 255, 0.95);
+        color: var(--text-primary);
     }
 
     .ant-tag {
@@ -85,17 +92,17 @@ const SkillHeader = styled.div`
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
 `;
 
 const SkillIcon = styled.div<{ status?: string }>`
-    width: 44px;
-    height: 44px;
+    width: 40px;
+    height: 40px;
     border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 22px;
+    font-size: 20px;
     background: ${props => {
         switch (props.status) {
             case 'active': return 'linear-gradient(135deg, #52c41a 0%, #73d13d 100%)';
@@ -105,7 +112,7 @@ const SkillIcon = styled.div<{ status?: string }>`
         }
     }};
     color: white;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     flex-shrink: 0;
 `;
 
@@ -114,16 +121,16 @@ const SkillMeta = styled.div`
     flex-direction: column;
     gap: 6px;
     flex: 1;
-    margin-left: 14px;
+    margin-left: 12px;
     min-width: 0;
 `;
 
-const SkillName = styled(Text)`
+const SkillName = styled.div`
     font-size: 15px;
     font-weight: 600;
     display: block;
-    margin-bottom: 2px;
-    color: rgba(255, 255, 255, 0.95);
+    margin-bottom: 4px;
+    color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -132,30 +139,34 @@ const SkillName = styled(Text)`
 const SkillStats = styled.div`
     display: flex;
     align-items: center;
-    gap: 16px;
-    margin-top: 10px;
-    padding-top: 10px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    gap: 12px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color);
 `;
 
 const StatItem = styled.div`
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.55);
+    color: var(--text-secondary);
 
     .anticon {
-        font-size: 13px;
-        color: rgba(64, 169, 255, 0.7);
+        font-size: 14px;
     }
 `;
 
 const SkillProgress = styled.div`
     margin-top: 10px;
 
-    .ant-progress-bg {
-        height: 6px !important;
+    @keyframes pulse {
+        0%, 100% {
+            opacity: 1;
+        }
+        50% {
+            opacity: 0.8;
+        }
     }
 `;
 
@@ -261,17 +272,42 @@ const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, s
                         </SkillHeader>
 
                         <SkillProgress>
-                            <Progress
-                                percent={levelValue}
-                                size="small"
-                                status={skill.status === 'learning' ? 'active' : 'normal'}
-                                strokeColor={{
-                                    '0%': '#1890ff',
-                                    '100%': '#52c41a',
-                                }}
-                                showInfo={true}
-                                format={percent => `${percent}%`}
-                            />
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                <span style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.45)' }}>
+                                    {t('pages.skills.proficiency', 'Proficiency')}
+                                </span>
+                                <span style={{ 
+                                    fontSize: '13px', 
+                                    color: '#1890ff', 
+                                    fontWeight: 700,
+                                    fontFamily: 'monospace'
+                                }}>
+                                    {isNaN(levelValue) ? 0 : levelValue}%
+                                </span>
+                            </div>
+                            {/* Gradient Progress Bar */}
+                            <div style={{ 
+                                width: '100%', 
+                                height: '8px', 
+                                background: 'rgba(255, 255, 255, 0.08)',
+                                borderRadius: '4px',
+                                overflow: 'hidden',
+                                position: 'relative'
+                            }}>
+                                <div style={{
+                                    width: `${isNaN(levelValue) ? 0 : levelValue}%`,
+                                    height: '100%',
+                                    background: 'linear-gradient(90deg, #1890ff 0%, #40a9ff 50%, #52c41a 100%)',
+                                    borderRadius: '4px',
+                                    transition: 'width 0.3s ease',
+                                    boxShadow: skill.status === 'learning' 
+                                        ? '0 0 8px rgba(24, 144, 255, 0.6)' 
+                                        : 'none',
+                                    animation: skill.status === 'learning' 
+                                        ? 'pulse 2s ease-in-out infinite' 
+                                        : 'none'
+                                }} />
+                            </div>
                         </SkillProgress>
 
                         {((skill as any).usageCount !== undefined || (skill as any).lastUsed) && (
