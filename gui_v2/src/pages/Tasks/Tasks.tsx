@@ -62,6 +62,12 @@ const Tasks: React.FC = () => {
     handleRefresh();
   };
 
+  const handleTaskDelete = () => {
+    // 删除后清空选中状态，关闭详情页
+    selectItem(null as any);
+    handleRefresh();
+  };
+
   // 运行任务
   const handleRunTask = useCallback(async (task: Task) => {
     if (!username) {
@@ -152,6 +158,7 @@ const Tasks: React.FC = () => {
             isNew={isAddingNew}
             onSave={handleTaskSave}
             onCancel={() => setIsAddingNew(false)}
+            onDelete={handleTaskDelete}
           />
         ) : null
       }

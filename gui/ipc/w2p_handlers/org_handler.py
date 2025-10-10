@@ -218,14 +218,15 @@ def handle_delete_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
 
         username = data['username']
         organization_id = data['organization_id']
+        force = data.get('force', False)  # 获取force参数，默认为False
         
-        logger.info(f"[organizations_handler] Deleting organization {organization_id} for user: {username}")
+        logger.info(f"[organizations_handler] Deleting organization {organization_id} for user: {username}, force: {force}")
         
         # Get org manager
         ec_org_ctrl = get_ec_org_ctrl()
         
-        # Delete org
-        result = ec_org_ctrl.delete_org(organization_id)
+        # Delete org with force option
+        result = ec_org_ctrl.delete_org(organization_id, force=force)
         
         if result.get("success"):
             logger.info(f"[organizations_handler] Successfully deleted organization {organization_id}")

@@ -253,6 +253,77 @@ def handle_new_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]
         )
 
 
+@IPCHandlerRegistry.handler('delete_agent_skill')
+def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle deleting agent skill from database and memory
+
+    Args:
+        request: IPC request object
+        params: Request parameters, must contain 'username' and 'skill_id' fields
+
+    Returns:
+        JSON formatted response message
+    """
+    try:
+        logger.debug(f"Delete skill handler called with request: {request}")
+
+        # Validate parameters
+        is_valid, data, error = validate_params(params, ['username', 'skill_id'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for delete skill: {error}")
+            return create_error_response(request, 'INVALID_PARAMS', error)
+
+        username = data['username']
+        skill_id = data['skill_id']
+
+        logger.info(f"Deleting agent skill for user: {username}, skill_id: {skill_id}")
+
+        # Get database service
+        skill_service = _get_skill_service()
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
+
+        # Delete from database
+        result = skill_service.delete_skill(skill_id)
+
+        if result.get('success'):
+            logger.info(f"Skill deleted successfully from database: {skill_id}")
+
+            # Remove from memory
+            try:
+                main_window = AppContext.get_main_window()
+                if main_window and hasattr(main_window, 'agent_skills'):
+                    original_count = len(main_window.agent_skills or [])
+                    main_window.agent_skills = [
+                        skill for skill in (main_window.agent_skills or [])
+                        if not (hasattr(skill, 'id') and skill.id == skill_id)
+                    ]
+                    new_count = len(main_window.agent_skills)
+                    logger.info(f"[skill_handler] Removed skill from memory: {skill_id} (count: {original_count} → {new_count})")
+            except Exception as e:
+                logger.warning(f"[skill_handler] Failed to remove skill from memory: {e}")
+
+            return create_success_response(request, {
+                'message': 'Delete agent skill successful',
+                'skill_id': skill_id
+            })
+        else:
+            logger.error(f"Failed to delete agent skill: {result.get('error')}")
+            return create_error_response(
+                request,
+                'DELETE_SKILL_ERROR',
+                f"Failed to delete agent skill: {result.get('error')}"
+            )
+
+    except Exception as e:
+        logger.error(f"Error in delete skill handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'DELETE_SKILL_ERROR',
+            f"Error during delete skill: {str(e)}"
+        )
+
+
 # ============================================================================
 # Helper Functions for Skill Management
 # ============================================================================
