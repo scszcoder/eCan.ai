@@ -106,7 +106,7 @@ export interface OrgFormData {
 }
 
 export interface AgentBindingFormData {
-  agent_ids: string[];
+  agent_id: string;  // 改为单选，只绑定一个代理
 }
 
 // Tree component types

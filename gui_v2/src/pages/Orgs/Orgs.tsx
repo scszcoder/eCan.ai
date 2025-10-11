@@ -90,7 +90,7 @@ const Orgs: React.FC = () => {
   };
 
   const handleAgentBindingModalOk = async (values: AgentBindingFormData) => {
-    await actions.bindAgents(values.agent_ids);
+    await actions.bindAgents([values.agent_id]);  // 将单个 agent_id 转换为数组
   };
 
   const handleAgentBindingModalCancel = () => {
