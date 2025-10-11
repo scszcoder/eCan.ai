@@ -800,7 +800,8 @@
       "direct_agents_desc": "Direct agents of this organization",
       "confirm": {
         "delete": "Delete Organization",
-        "deleteMessage": "Are you sure you want to delete this organization?"
+        "deleteMessage": "Are you sure you want to delete this organization?",
+        "unbind": "Confirm to unbind this agent?"
       },
       "details": {
         "title": "Organization Details"
@@ -846,7 +847,8 @@
       "modal": {
         "bind": {
           "selectAgents": "Select Agents",
-          "title": "Bind Agents"
+          "title": "Bind Agents",
+          "selectAgent": "Select Agent"
         },
         "create": {
           "title": "Create Organization"

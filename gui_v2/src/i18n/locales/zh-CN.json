@@ -807,7 +807,8 @@
       "direct_agents_desc": "该组织的直属代理",
       "confirm": {
         "delete": "删除组织",
-        "deleteMessage": "确定要删除此组织吗？"
+        "deleteMessage": "确定要删除此组织吗？",
+        "unbind": "确认解绑此代理？"
       },
       "details": {
         "title": "组织详情"
@@ -853,7 +854,8 @@
       "modal": {
         "bind": {
           "selectAgents": "选择代理",
-          "title": "绑定代理"
+          "title": "绑定代理",
+          "selectAgent": "选择代理"
         },
         "create": {
           "title": "创建组织"

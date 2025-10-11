@@ -834,9 +834,9 @@ class DBAgentService(BaseService):
         try:
             with self.session_scope() as s:
                 # Check if association already exists
-                existing = s.query(AgentOrgAssociation).filter(
-                    and_(AgentOrgAssociation.agent_id == agent_id,
-                         AgentOrgAssociation.org_id == org_id)
+                existing = s.query(DBAgentOrgRel).filter(
+                    and_(DBAgentOrgRel.agent_id == agent_id,
+                         DBAgentOrgRel.org_id == org_id)
                 ).first()
                 
                 if existing:
@@ -849,7 +849,7 @@ class DBAgentService(BaseService):
                     return {"success": True, "data": existing.to_dict(), "error": None}
                 
                 # Create new association
-                association = AgentOrgAssociation(
+                association = DBAgentOrgRel(
                     agent_id=agent_id,
                     org_id=org_id,
                     role=role,
@@ -869,9 +869,9 @@ class DBAgentService(BaseService):
         try:
             with self.session_scope() as s:
                 # Check if association already exists
-                existing = s.query(AgentSkillAssociation).filter(
-                    and_(AgentSkillAssociation.agent_id == agent_id,
-                         AgentSkillAssociation.skill_id == skill_id)
+                existing = s.query(DBAgentSkillRel).filter(
+                    and_(DBAgentSkillRel.agent_id == agent_id,
+                         DBAgentSkillRel.skill_id == skill_id)
                 ).first()
                 
                 if existing:
@@ -883,7 +883,7 @@ class DBAgentService(BaseService):
                     return {"success": True, "data": existing.to_dict(), "error": None}
                 
                 # Create new association
-                association = AgentSkillAssociation(
+                association = DBAgentSkillRel(
                     agent_id=agent_id,
                     skill_id=skill_id,
                     proficiency_level=proficiency_level,
@@ -902,10 +902,10 @@ class DBAgentService(BaseService):
         try:
             with self.session_scope() as s:
                 # Check for existing running task for same agent-task combination
-                existing_running = s.query(AgentTaskAssociation).filter(
-                    and_(AgentTaskAssociation.agent_id == agent_id,
-                         AgentTaskAssociation.task_id == task_id,
-                         AgentTaskAssociation.status == 'running')
+                existing_running = s.query(DBAgentTaskRel).filter(
+                    and_(DBAgentTaskRel.agent_id == agent_id,
+                         DBAgentTaskRel.task_id == task_id,
+                         DBAgentTaskRel.status == 'running')
                 ).first()
                 
                 if existing_running:
@@ -913,7 +913,7 @@ class DBAgentService(BaseService):
                            "error": f"Task {task_id} is already running on agent {agent_id}"}
                 
                 # Create new task assignment
-                association = AgentTaskAssociation(
+                association = DBAgentTaskRel(
                     agent_id=agent_id,
                     task_id=task_id,
                     vehicle_id=vehicle_id,
@@ -930,8 +930,8 @@ class DBAgentService(BaseService):
         """Get all organizations an agent belongs to"""
         try:
             with self.session_scope() as s:
-                associations = s.query(AgentOrgAssociation).filter(
-                    AgentOrgAssociation.agent_id == agent_id
+                associations = s.query(DBAgentOrgRel).filter(
+                    DBAgentOrgRel.agent_id == agent_id
                 ).all()
                 return {"success": True, "data": [assoc.to_dict() for assoc in associations], "error": None}
         except Exception as e:
@@ -941,11 +941,11 @@ class DBAgentService(BaseService):
         """Get all skills assigned to an agent"""
         try:
             with self.session_scope() as s:
-                query = s.query(AgentSkillAssociation).filter(
-                    AgentSkillAssociation.agent_id == agent_id
+                query = s.query(DBAgentSkillRel).filter(
+                    DBAgentSkillRel.agent_id == agent_id
                 )
                 if status:
-                    query = query.filter(AgentSkillAssociation.status == status)
+                    query = query.filter(DBAgentSkillRel.status == status)
                 associations = query.all()
                 return {"success": True, "data": [assoc.to_dict() for assoc in associations], "error": None}
         except Exception as e:
@@ -955,12 +955,12 @@ class DBAgentService(BaseService):
         """Get all tasks assigned to an agent"""
         try:
             with self.session_scope() as s:
-                query = s.query(AgentTaskAssociation).filter(
-                    AgentTaskAssociation.agent_id == agent_id
+                query = s.query(DBAgentTaskRel).filter(
+                    DBAgentTaskRel.agent_id == agent_id
                 )
                 if status:
-                    query = query.filter(AgentTaskAssociation.status == status)
-                associations = query.order_by(AgentTaskAssociation.created_at.desc()).all()
+                    query = query.filter(DBAgentTaskRel.status == status)
+                associations = query.order_by(DBAgentTaskRel.created_at.desc()).all()
                 return {"success": True, "data": [assoc.to_dict() for assoc in associations], "error": None}
         except Exception as e:
             return {"success": False, "data": [], "error": str(e)}
@@ -975,10 +975,10 @@ class DBAgentService(BaseService):
         """Update the status of a task execution"""
         try:
             with self.session_scope() as s:
-                association = s.query(AgentTaskAssociation).filter(
-                    and_(AgentTaskAssociation.agent_id == agent_id,
-                         AgentTaskAssociation.task_id == task_id,
-                         AgentTaskAssociation.vehicle_id == vehicle_id)
+                association = s.query(DBAgentTaskRel).filter(
+                    and_(DBAgentTaskRel.agent_id == agent_id,
+                         DBAgentTaskRel.task_id == task_id,
+                         DBAgentTaskRel.vehicle_id == vehicle_id)
                 ).first()
                 
                 if association:
@@ -1008,30 +1008,30 @@ class DBAgentService(BaseService):
                     return {"success": False, "data": {}, "error": "Agent not found"}
                 
                 # Count organizations
-                org_count = s.query(AgentOrgAssociation).filter(
-                    and_(AgentOrgAssociation.agent_id == agent_id,
-                         AgentOrgAssociation.status == 'active')
+                org_count = s.query(DBAgentOrgRel).filter(
+                    and_(DBAgentOrgRel.agent_id == agent_id,
+                         DBAgentOrgRel.status == 'active')
                 ).count()
                 
                 # Count skills
-                skill_count = s.query(AgentSkillAssociation).filter(
-                    and_(AgentSkillAssociation.agent_id == agent_id,
-                         AgentSkillAssociation.status == 'active')
+                skill_count = s.query(DBAgentSkillRel).filter(
+                    and_(DBAgentSkillRel.agent_id == agent_id,
+                         DBAgentSkillRel.status == 'active')
                 ).count()
                 
                 # Count tasks
-                total_tasks = s.query(AgentTaskAssociation).filter(
-                    AgentTaskAssociation.agent_id == agent_id
+                total_tasks = s.query(DBAgentTaskRel).filter(
+                    DBAgentTaskRel.agent_id == agent_id
                 ).count()
                 
-                running_tasks = s.query(AgentTaskAssociation).filter(
-                    and_(AgentTaskAssociation.agent_id == agent_id,
-                         AgentTaskAssociation.status == 'running')
+                running_tasks = s.query(DBAgentTaskRel).filter(
+                    and_(DBAgentTaskRel.agent_id == agent_id,
+                         DBAgentTaskRel.status == 'running')
                 ).count()
                 
-                completed_tasks = s.query(AgentTaskAssociation).filter(
-                    and_(AgentTaskAssociation.agent_id == agent_id,
-                         AgentTaskAssociation.status == 'completed')
+                completed_tasks = s.query(DBAgentTaskRel).filter(
+                    and_(DBAgentTaskRel.agent_id == agent_id,
+                         DBAgentTaskRel.status == 'completed')
                 ).count()
                 
                 stats = {

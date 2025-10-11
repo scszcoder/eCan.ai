@@ -72,13 +72,12 @@ const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
     >
       <Form form={form} layout="vertical" preserve={false}>
         <Form.Item
-          label={t('pages.org.modal.bind.selectAgents')}
-          name="agent_ids"
+          label={t('pages.org.modal.bind.selectAgent')}
+          name="agent_id"
           rules={agentIdsRules}
         >
           <Select
-            mode="multiple"
-            placeholder={t('pages.org.modal.bind.selectAgents')}
+            placeholder={t('pages.org.modal.bind.selectAgent')}
             optionLabelProp="label"
             style={{ width: '100%' }}
             optionFilterProp="children"

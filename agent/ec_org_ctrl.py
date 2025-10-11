@@ -489,8 +489,8 @@ class EC_OrgCtrl:
                 }
 
             # Verify agent exists
-            agent_result = self.agent_service.get_agent_by_id(agent_id)
-            if not agent_result.get("success"):
+            agent_result = self.agent_service.query_agents(id=agent_id)
+            if not agent_result.get("success") or not agent_result.get("data"):
                 return {
                     "success": False,
                     "error": f"Agent not found: {agent_id}"
