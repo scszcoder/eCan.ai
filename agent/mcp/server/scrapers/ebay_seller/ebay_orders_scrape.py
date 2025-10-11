@@ -1,0 +1,224 @@
+import os
+from datetime import datetime
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
+from utils.logger_helper import logger_helper as logger
+from utils.logger_helper import get_traceback
+from agent.mcp.server.utils.print_utils import save_page_pdf_via_cdp, ensure_download_dir
+
+# Placeholder mode: when no live order/label UI is available, we can generate a
+# simple HTML label page and save it via CDP as a real PDF. Toggle as needed.
+EBAY_PLACEHOLDER_MODE = True
+
+
+def scrape_ebay_orders(web_driver):
+    try:
+        #open ebay seller orders website
+        scrape_status = web_driver.get("https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT")
+
+        html_file_name= 'ebayOrders'+ str(int(datetime.now().timestamp()))+'.html'
+        print('hf_name:', html_file_name)
+        
+        # Initialize wait and ensure logged in
+        wait = WebDriverWait(web_driver, 30)
+        _ = ensure_logged_in_ebay(web_driver, wait)
+
+        # Attempt to click 'Purchase shipping label' on current page
+        clicks = click_purchase_label_for_unshipped_on_page(web_driver, wait, max_clicks=1)
+        labels_dir = os.path.join(os.path.expanduser("~"), "eCanLabels")
+        target_pdf = os.path.join(labels_dir, f"ebay_label_{int(datetime.now().timestamp())}.pdf")
+
+        if clicks > 0 and wait_for_purchase_label_ui(web_driver, timeout=30):
+            # Save actual label page via CDP
+            save_current_label_pdf(web_driver, target_pdf)
+        else:
+            logger.debug("No live label UI detected; considering placeholder generation.")
+            if EBAY_PLACEHOLDER_MODE:
+                # Produce a placeholder label PDF so downstream flows can be tested.
+                placeholder_meta = {
+                    "order_id": "EBAY-PLACEHOLDER-ORDER",
+                    "buyer": "John Doe",
+                    "address": [
+                        "123 Placeholder St",
+                        "Suite 100",
+                        "Somecity, ST 99999",
+                        "United States",
+                    ],
+                    "sku": "SKU-PLACEHOLDER",
+                    "quantity": "1",
+                }
+                ok = generate_placeholder_label_pdf(web_driver, target_pdf, placeholder_meta)
+                if not ok:
+                    logger.debug("Failed to generate placeholder label PDF.")
+
+    except Exception as e:
+        err_msg = get_traceback(e, "ErrorScrapeEBayOrders")
+        logger.debug(err_msg)
+        return err_msg
+
+
+def ensure_logged_in_ebay(driver, wait: WebDriverWait, timeout: int = 30) -> bool:
+    """Basic login detection for eBay Seller Hub.
+    Returns True if orders grid or a logged-in specific element is present; False if redirected to sign-in.
+    """
+    try:
+        url = driver.current_url or ""
+        if any(x in url for x in ["signin", "passport", "auth"]):
+            return False
+
+        def condition(d):
+            try:
+                # Orders grid or any row
+                if d.find_elements(By.CSS_SELECTOR, '[data-testid="orders"]') or d.find_elements(By.CSS_SELECTOR, 'table') or d.find_elements(By.CSS_SELECTOR, 'header.gh-header'):
+                    return True
+                # Sign in form markers
+                if d.find_elements(By.CSS_SELECTOR, 'form#signin-form') or d.find_elements(By.CSS_SELECTOR, 'input#userid'):
+                    return False
+            except Exception:
+                pass
+            return None
+
+        result = wait.until(lambda d: condition(d) is not None and condition(d))
+        return bool(result)
+    except TimeoutException:
+        return False
+    except Exception:
+        return False
+
+
+def click_purchase_label_for_unshipped_on_page(driver, wait: WebDriverWait, max_clicks: int = 1) -> int:
+    """On the Awaiting Shipment page, find unshipped orders and click 'Purchase shipping label'.
+    Returns number of clicks performed (usually 0 or 1 as it navigates away).
+    """
+    clicks = 0
+    try:
+        # Heuristic: find any button/link with visible text 'Purchase shipping label'
+        # Search within potential order rows/containers first to reduce false positives
+        candidates = driver.find_elements(
+            By.XPATH,
+            "(" 
+            "  //button[translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')="
+            "        'purchase shipping label']"
+            " | //a[translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')="
+            "        'purchase shipping label']"
+            " | //button[.//span[translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')="
+            "        'purchase shipping label']]"
+            " | //a[.//span[translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')="
+            "        'purchase shipping label']]"
+            ")"
+        )
+        for el in candidates:
+            if clicks >= max_clicks:
+                break
+            try:
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", el)
+                driver.execute_script("arguments[0].click();", el)
+                clicks += 1
+                break
+            except Exception:
+                continue
+    except Exception as e:
+        logger.debug(f"Error clicking Purchase shipping label: {e}")
+    return clicks
+
+
+def wait_for_purchase_label_ui(driver, timeout: int = 20) -> bool:
+    """Wait until the eBay print/label UI is ready.
+    Signals: URL contains 'print' or 'label', or a heading 'Print documents', or a download link with id 'download-document'.
+    """
+    try:
+        w = WebDriverWait(driver, timeout)
+        return w.until(
+            EC.any_of(
+                EC.url_contains("print"),
+                EC.url_contains("label"),
+                EC.presence_of_element_located((By.XPATH, "//*[normalize-space(.)='Print documents']")),
+                EC.presence_of_element_located((By.CSS_SELECTOR, "#download-document"))
+            )
+        ) is not None
+    except Exception:
+        return False
+
+
+def save_current_label_pdf(driver, output_path: str) -> bool:
+    """Cross-platform save of the current page as PDF via CDP.
+    Ensure parent dir exists, then call printToPDF.
+    """
+    if not output_path:
+        return False
+    if not ensure_download_dir(output_path):
+        logger.debug(f"Could not ensure directory for: {output_path}")
+    ok = save_page_pdf_via_cdp(driver, output_path, options={
+        "printBackground": True,
+    })
+    if not ok:
+        logger.debug("CDP printToPDF failed to save PDF (eBay).")
+    return ok
+
+
+def _build_placeholder_label_html(meta: dict) -> str:
+    order_id = meta.get("order_id", "EBAY-PLACEHOLDER-ORDER")
+    buyer = meta.get("buyer", "")
+    address_lines = meta.get("address", [])
+    sku = meta.get("sku", "")
+    qty = meta.get("quantity", "")
+    today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    addr_html = "<br/>".join(address_lines)
+    return f"""
+    <!doctype html>
+    <html>
+    <head>
+      <meta charset='utf-8' />
+      <title>eBay Placeholder Label</title>
+      <style>
+        body {{ font-family: Arial, sans-serif; margin: 24px; }}
+        .card {{ border: 1px solid #ccc; padding: 16px; border-radius: 8px; }}
+        .title {{ font-size: 20px; font-weight: 600; margin-bottom: 12px; }}
+        .row {{ margin: 6px 0; }}
+        .muted {{ color: #666; font-size: 12px; }}
+        .barcode {{ margin-top: 24px; height: 48px; background: repeating-linear-gradient(90deg,#000 0,#000 4px,#fff 4px,#fff 8px); }}
+      </style>
+    </head>
+    <body>
+      <div class='card'>
+        <div class='title'>eBay Shipping Label (Placeholder)</div>
+        <div class='row'><strong>Order ID:</strong> {order_id}</div>
+        <div class='row'><strong>Buyer:</strong> {buyer}</div>
+        <div class='row'><strong>Ship To:</strong><br/>{addr_html}</div>
+        <div class='row'><strong>SKU:</strong> {sku} &nbsp; <strong>Qty:</strong> {qty}</div>
+        <div class='row muted'>Generated: {today}</div>
+        <div class='barcode'></div>
+      </div>
+    </body>
+    </html>
+    """
+
+
+def generate_placeholder_label_pdf(driver, output_path: str, meta: dict) -> bool:
+    """Create a simple HTML label as a data URL, navigate to it, and save to PDF via CDP.
+    This produces a valid PDF without external dependencies.
+    """
+    try:
+        if not ensure_download_dir(output_path):
+            return False
+        html = _build_placeholder_label_html(meta)
+        import base64
+        # Encode HTML into a data URL to avoid serving a local file
+        data_url = "data:text/html;base64," + base64.b64encode(html.encode("utf-8")).decode("ascii")
+        prev_url = driver.current_url
+        driver.get(data_url)
+        # Give the browser a moment to render
+        WebDriverWait(driver, 5).until(lambda d: True)
+        ok = save_page_pdf_via_cdp(driver, output_path, options={"printBackground": True})
+        # Try to restore previous URL (best-effort)
+        try:
+            if prev_url and prev_url.startswith("http"):
+                driver.get(prev_url)
+        except Exception:
+            pass
+        return ok
+    except Exception as e:
+        logger.debug(f"Placeholder label generation failed: {e}")
+        return False
