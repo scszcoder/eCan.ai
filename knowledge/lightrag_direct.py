@@ -87,8 +87,8 @@ class LightRAG:
             prompt,
             system_prompt=system_prompt,
             history_messages=history_messages,
-            api_key=api_key,
-            base_url=base_url,
+            # api_key=api_key,
+            # base_url=base_url,
             **kwargs,
         )
 
@@ -109,14 +109,14 @@ class LightRAG:
                 system_prompt=None,
                 history_messages=[],
                 messages=messages,
-                api_key=api_key,
-                base_url=base_url,
+                # api_key=api_key,
+                # base_url=base_url,
                 **kwargs,
             )
         # Traditional single image format
         elif image_data:
             return openai_complete_if_cache(
-                "gpt-4o",
+                "gpt-5-mini",
                 "",
                 system_prompt=None,
                 history_messages=[],
@@ -139,8 +139,8 @@ class LightRAG:
                     if image_data
                     else {"role": "user", "content": prompt},
                 ],
-                api_key=api_key,
-                base_url=base_url,
+                # api_key=api_key,
+                # base_url=base_url,
                 **kwargs,
             )
         # Pure text format
