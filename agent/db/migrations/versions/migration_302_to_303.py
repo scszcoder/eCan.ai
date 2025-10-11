@@ -5,12 +5,14 @@ This migration makes the following changes:
 1. agent_task_rels table: Change vehicle_id column from NOT NULL to NULL (optional)
 2. agents table: Add vehicle_id column to store where agent is deployed/stored
 3. agents table: Convert title column from String to JSON
+4. agent_skills table: Add diagram column (JSON) to store workflow/diagram data
 
 Rationale:
 - Agent's vehicle_id: Indicates where the agent is deployed/stored
 - Task's vehicle_id: Indicates where the task is executed (can be different from agent's vehicle)
 - vehicle_id in agent_task_rels should be optional, assigned during task execution
 - title should be JSON array to support multiple titles
+- diagram stores workflow/diagram data needed to rebuild skill runnable
 """
 
 from sqlalchemy.orm import Session
@@ -33,7 +35,7 @@ class Migration302To303(BaseMigration):
     
     @property
     def description(self) -> str:
-        return "Make vehicle_id nullable in agent_task_rels, add vehicle_id to agents, and convert title to JSON"
+        return "Make vehicle_id nullable in agent_task_rels, add vehicle_id to agents, convert title to JSON, and add diagram to agent_skills"
     
     def upgrade(self, session: Session) -> bool:
         """
@@ -43,6 +45,7 @@ class Migration302To303(BaseMigration):
         1. Make vehicle_id column nullable in agent_task_rels table
         2. Add vehicle_id column to agents table (where agent is deployed/stored)
         3. Convert title column from String to JSON in agents table
+        4. Add diagram column to agent_skills table for workflow storage
         
         Args:
             session: SQLAlchemy session
@@ -66,6 +69,10 @@ class Migration302To303(BaseMigration):
             
             # 2. Convert title column to JSON in agents table
             if not self._convert_title_to_json(session):
+                return False
+            
+            # 3. Add diagram column to agent_skills table
+            if not self._add_diagram_to_agent_skills(session):
                 return False
             
             logger.info("Successfully completed migration to 3.0.3")
@@ -283,6 +290,57 @@ class Migration302To303(BaseMigration):
                 pass
             return False
     
+    def _add_diagram_to_agent_skills(self, session: Session) -> bool:
+        """
+        Add diagram column to agent_skills table.
+        
+        The diagram column stores workflow/diagram data in JSON format,
+        which is needed to rebuild the skill's runnable when loading from database.
+        
+        Args:
+            session: SQLAlchemy session
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Check if agent_skills table exists
+            if not self.table_exists('agent_skills'):
+                logger.warning("agent_skills table does not exist, skipping diagram column addition")
+                return True  # Not a critical error, table might not exist yet
+            
+            # Check if diagram column already exists
+            if self.column_exists('agent_skills', 'diagram'):
+                logger.info("diagram column already exists in agent_skills table, skipping")
+                return True
+            
+            logger.info("Adding diagram column to agent_skills table")
+            
+            # Add diagram column
+            add_column_sql = "ALTER TABLE agent_skills ADD COLUMN diagram JSON"
+            
+            if not self.execute_sql(session, add_column_sql):
+                logger.error("Failed to add diagram column to agent_skills table")
+                return False
+            
+            logger.info("Successfully added diagram column to agent_skills table")
+            
+            # Flush the changes
+            session.flush()
+            
+            # Verify the column was added
+            if not self.column_exists('agent_skills', 'diagram'):
+                logger.error("Failed to verify diagram column addition")
+                return False
+            
+            logger.info("✓ diagram column verified in agent_skills table")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to add diagram column to agent_skills: {e}")
+            return False
+    
     def validate_postconditions(self, session: Session) -> bool:
         """
         Validate that all migration changes were applied successfully.
@@ -352,6 +410,25 @@ class Migration302To303(BaseMigration):
                 return False
             
             logger.info("✓ vehicle_id column exists and is nullable in agents table")
+            
+            # 4. Check that agent_skills table has diagram column (if table exists)
+            if self.table_exists('agent_skills'):
+                result = session.execute(text("PRAGMA table_info(agent_skills)"))
+                skill_columns = {row[1]: {'type': row[2], 'notnull': row[3]} for row in result.fetchall()}
+                
+                if 'diagram' not in skill_columns:
+                    logger.error("diagram column missing from agent_skills table")
+                    return False
+                
+                # Check if diagram is JSON type (SQLite may show it as JSON or TEXT)
+                diagram_type = skill_columns['diagram']['type'].upper()
+                if diagram_type not in ['JSON', 'TEXT']:
+                    logger.error(f"diagram column has unexpected type: {diagram_type}")
+                    return False
+                
+                logger.info("✓ diagram column exists in agent_skills table")
+            else:
+                logger.info("⊘ agent_skills table does not exist, skipping diagram validation")
             
             logger.info("All postconditions validated successfully")
             return True

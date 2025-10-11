@@ -394,10 +394,10 @@ class ManagedTask(Task):
         """
         # Reuse a persistent config (thread_id) across runs; create and cache if missing
         effective_config = config or self.metadata.get("config")
-        if effective_config is None:
+        if not effective_config:
             effective_config = {
                 "configurable": {
-                    "thread_id": str(uuid.uuid4())
+                    "thread_id": str(uuid.uuid4()),
                 }
             }
             self.metadata["config"] = effective_config

@@ -361,6 +361,7 @@ def _prepare_skill_data(skill_info: Dict[str, Any], username: str, skill_id: Opt
         'path': skill_info.get('path', ''),
         'level': skill_info.get('level', 'entry'),
         'config': skill_info.get('config', {}),
+        'diagram': skill_info.get('diagram', {}),
         'tags': skill_info.get('tags', []),
         'examples': skill_info.get('examples', []),
         'inputModes': skill_info.get('inputModes', []),
