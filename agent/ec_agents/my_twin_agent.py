@@ -19,6 +19,10 @@ from utils.logger_helper import logger_helper as logger
 if typing.TYPE_CHECKING:
     from gui.MainGUI import MainWindow
 
+# 固定的 My Twin Agent ID - 这是系统默认的后台 agent
+MY_TWIN_AGENT_ID = "system_my_twin_agent"
+MY_TWIN_AGENT_NAME = "My Twin Agent"
+
 def set_up_my_twin_agent(mainwin: 'MainWindow'):
     try:
         llm = mainwin.llm
@@ -27,9 +31,12 @@ def set_up_my_twin_agent(mainwin: 'MainWindow'):
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
         chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for my digital twin"), None)
         logger.info("chatter skill:", chatter_skill)
+        
+        # 使用固定的 ID 和 name 创建 agent card
         agent_card = AgentCard(
-                name="My Twin Agent",
-                description="Human Representative",
+                id=MY_TWIN_AGENT_ID,  # 固定 ID
+                name=MY_TWIN_AGENT_NAME,  # 固定 name
+                description="Human Representative (System Background Agent)",
                 url=get_a2a_server_url(mainwin) or "http://localhost:3600",
                 version="1.0.0",
                 defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
@@ -37,7 +44,7 @@ def set_up_my_twin_agent(mainwin: 'MainWindow'):
                 capabilities=capabilities,
                 skills=[chatter_skill],
         )
-        logger.info("agent card created:", agent_card.name, agent_card.url)
+        logger.info(f"[MyTwinAgent] Created system agent with fixed ID: {MY_TWIN_AGENT_ID}, name: {MY_TWIN_AGENT_NAME}")
         chat_task = create_my_twin_chat_task(mainwin)
 
         # 在打包环境中安全初始化browser_use_llm

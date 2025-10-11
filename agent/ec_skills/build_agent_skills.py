@@ -283,7 +283,7 @@ async def _load_skills_from_database_async(mainwin):
         return []
 
 def _convert_db_skill_to_object(db_skill):
-    """Convert database skill data to skill object"""
+    """Convert database skill data to skill object with compiled workflow"""
     try:
         # Create EC_Skill object
         skill_obj = EC_Skill()
@@ -307,7 +307,32 @@ def _convert_db_skill_to_object(db_skill):
         if 'need_inputs' in db_skill:
             skill_obj.need_inputs = db_skill.get('need_inputs', [])
 
-        logger.debug(f"[build_agent_skills] Converted DB skill: {skill_obj.name}")
+        diagram = db_skill.get('diagram')
+        if diagram and isinstance(diagram, dict):
+            try:
+                logger.debug(f"[build_agent_skills] Rebuilding workflow for skill: {skill_obj.name}")
+                # Store diagram for reference
+                skill_obj.diagram = diagram
+                
+                # Convert flowgram diagram to LangGraph workflow
+                workflow = flowgram2langgraph(diagram)
+                
+                if workflow:
+                    # Compile the workflow with checkpointer
+                    from langgraph.checkpoint.memory import InMemorySaver
+                    checkpointer = InMemorySaver()
+                    skill_obj.runnable = workflow.compile(checkpointer=checkpointer)
+                    logger.info(f"[build_agent_skills] ✅ Successfully compiled workflow for: {skill_obj.name}")
+                else:
+                    logger.warning(f"[build_agent_skills] ⚠️ Failed to convert diagram to workflow for: {skill_obj.name}")
+            except Exception as e:
+                logger.error(f"[build_agent_skills] ❌ Error rebuilding workflow for {skill_obj.name}: {e}")
+                logger.error(f"[build_agent_skills] Traceback: {traceback.format_exc()}")
+        else:
+            logger.warning(f"[build_agent_skills] ⚠️ No diagram data for skill: {skill_obj.name}")
+            logger.warning(f"[build_agent_skills] 💡 This skill was created before diagram support was added")
+
+        logger.debug(f"[build_agent_skills] Converted DB skill: {skill_obj.name} (runnable: {'✅' if skill_obj.runnable else '❌'})")
         return skill_obj
 
     except Exception as e:

@@ -214,13 +214,21 @@ const OrgNavigator: React.FC = () => {
     });
     
     // 添加所有agents，排序值设置为较大值，让agents显示在doors之后
-    agentsForDisplay.forEach((agent, index) => {
-      items.push({
-        type: 'agent',
-        data: agent,
-        sortOrder: 1000000 + index  // 确保agents排在doors后面
+    // 过滤掉系统后台 agent (My Twin Agent)
+    agentsForDisplay
+      .filter(agent => {
+        const agentId = (agent as any)?.card?.id ?? (agent as any)?.id;
+        const agentName = (agent as any)?.card?.name ?? (agent as any)?.name;
+        // 过滤掉 My Twin Agent（通过 ID 或 name）
+        return agentId !== 'system_my_twin_agent' && agentName !== 'My Twin Agent';
+      })
+      .forEach((agent, index) => {
+        items.push({
+          type: 'agent',
+          data: agent,
+          sortOrder: 1000000 + index  // 确保agents排在doors后面
+        });
       });
-    });
     
     // 按sortOrder排序
     items.sort((a, b) => a.sortOrder - b.sortOrder);
@@ -453,12 +461,11 @@ const OrgNavigator: React.FC = () => {
                 displayName = t(displayName) || displayName;
               }
 
-              if (door.type === 'org_with_agents' && typeof door.agentCount === 'number') {
-                displayName = `${displayName} (${door.agentCount})`;
-              }
-
+              // 有子组织时，显示子组织数量；没有子组织时，显示 agents 数量
               if (door.type === 'org_with_children' && typeof door.childrenCount === 'number') {
                 displayName = `${displayName} (${door.childrenCount})`;
+              } else if (door.type === 'org_with_agents' && typeof door.agentCount === 'number') {
+                displayName = `${displayName} (${door.agentCount})`;
               }
 
               // 移除未分配agents门的显示逻辑

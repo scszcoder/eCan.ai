@@ -109,6 +109,7 @@ export interface Skill {
   need_inputs?: SkillNeedInput[]; // 需要的输入
   run_mode?: SkillRunMode | string; // 运行模式: development/released
   mapping_rules?: SkillMappingRule | null; // 映射规则
+  diagram?: Record<string, any>; // Workflow/diagram 数据 (nodes, edges, etc.)
 
   // ========== UI 扩展字段 ==========
   status?: SkillStatus | string; // UI 状态
