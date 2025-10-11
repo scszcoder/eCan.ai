@@ -39,6 +39,15 @@ class ThreadSafePortAllocator:
             used_ports = []
             
         with self._lock:
+            # Clean up: remove used ports from allocated set (they're already in use)
+            # This prevents double-counting ports that were allocated and are now in use
+            if used_ports:
+                used_set = set(used_ports)
+                removed = self._allocated_ports & used_set
+                if removed:
+                    self._allocated_ports -= used_set
+                    logger.debug(f"[PortAllocator] 🧹 Cleaned up {len(removed)} ports from allocated (now in use): {sorted(removed)}")
+            
             # Get all ports in range
             all_ports = list(range(port_range[0], port_range[1] + 1))
             
@@ -46,11 +55,18 @@ class ThreadSafePortAllocator:
             unavailable_ports = set(used_ports) | self._allocated_ports
             free_ports = [port for port in all_ports if port not in unavailable_ports]
             
+            # Log detailed port status
+            logger.info(f"[PortAllocator] 🔍 Port allocation request: need {n} ports")
+            logger.info(f"[PortAllocator]    📊 Port range: {port_range[0]}-{port_range[1]} (total: {len(all_ports)})")
+            logger.info(f"[PortAllocator]    🔴 Used by agents: {sorted(used_ports) if used_ports else 'none'}")
+            logger.info(f"[PortAllocator]    🟡 Allocated (pending): {sorted(self._allocated_ports) if self._allocated_ports else 'none'}")
+            logger.info(f"[PortAllocator]    🟢 Available: {len(free_ports)} ports {sorted(free_ports[:10])}{'...' if len(free_ports) > 10 else ''}")
+            
             # Check if we have enough free ports
             if len(free_ports) < n:
                 available_count = len(free_ports)
-                logger.error(f"[PortAllocator] Only {available_count} free ports available, but {n} requested")
-                logger.error(f"[PortAllocator] Port range: {port_range}, Used: {used_ports}, Allocated: {list(self._allocated_ports)}")
+                logger.error(f"[PortAllocator] ❌ Insufficient ports: only {available_count} available, but {n} requested")
+                logger.error(f"[PortAllocator]    Port range: {port_range}, Used: {used_ports}, Allocated: {list(self._allocated_ports)}")
                 raise RuntimeError(f"Only {available_count} free ports available, but {n} requested.")
             
             # Allocate the first n free ports
@@ -59,7 +75,8 @@ class ThreadSafePortAllocator:
             # Mark these ports as allocated
             self._allocated_ports.update(allocated_ports)
             
-            logger.info(f"[PortAllocator] Allocated ports {allocated_ports} (total allocated: {len(self._allocated_ports)})")
+            logger.info(f"[PortAllocator] ✅ Allocated {n} ports: {allocated_ports}")
+            logger.info(f"[PortAllocator]    Total allocated now: {len(self._allocated_ports)} ports {sorted(self._allocated_ports)}")
             return allocated_ports
     
     def release_ports(self, ports: List[int]):
@@ -70,9 +87,20 @@ class ThreadSafePortAllocator:
             ports: List of port numbers to release
         """
         with self._lock:
+            released = []
+            not_found = []
             for port in ports:
-                self._allocated_ports.discard(port)
-            logger.info(f"[PortAllocator] Released ports {ports} (remaining allocated: {len(self._allocated_ports)})")
+                if port in self._allocated_ports:
+                    self._allocated_ports.discard(port)
+                    released.append(port)
+                else:
+                    not_found.append(port)
+            
+            if released:
+                logger.info(f"[PortAllocator] 🔓 Released {len(released)} ports: {released}")
+            if not_found:
+                logger.warning(f"[PortAllocator] ⚠️ Ports not in allocated list: {not_found}")
+            logger.info(f"[PortAllocator]    Remaining allocated: {len(self._allocated_ports)} ports {sorted(self._allocated_ports) if self._allocated_ports else 'none'}")
     
     def release_port(self, port: int):
         """

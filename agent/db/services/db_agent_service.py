@@ -21,6 +21,7 @@ from sqlalchemy import and_, or_, func
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 import re
+import json
 from utils.logger_helper import logger_helper as logger
 
 
@@ -134,7 +135,7 @@ class DBAgentService(BaseService):
                     'org_id': str,  # organization ID
                     'tasks': list,  # [task_id, ...]
                     'skills': list,  # [skill_id, ...]
-                    'vehicle_id': str,  # vehicle_id - stored in extra_data.default_vehicle_id
+                    'vehicle_id': str,  # vehicle_id - used in task associations
                 }
             username: Username of the agent owner
 
@@ -150,9 +151,8 @@ class DBAgentService(BaseService):
         Note:
             - Frontend 'description' (text) maps to DBAgent.description (Text field)
             - Frontend 'extra_data' (text) is stored in DBAgent.extra_data.notes (JSON field)
-            - vehicle_id is stored in DBAgent.extra_data.default_vehicle_id (JSON field)
-            - vehicle_id is also used in task associations (DBAgentTaskRel.vehicle_id)
-            - DBAgent.extra_data (JSON) stores structured data like vehicle_id, notes, preferences, etc.
+            - vehicle_id is used in task associations (DBAgentTaskRel.vehicle_id)
+            - DBAgent.extra_data (JSON) stores structured data like notes, preferences, etc.
         """
         try:
             # Extract and process agent data
@@ -184,10 +184,6 @@ class DBAgentService(BaseService):
 
             # Build extra_data JSON from frontend data
             extra_data = {}
-            # Store default vehicle in extra_data if provided
-            if vehicle_id:
-                extra_data['default_vehicle_id'] = vehicle_id
-            # Store additional notes/extra_data from frontend
             if frontend_extra_data:
                 extra_data['notes'] = frontend_extra_data
 
@@ -202,7 +198,7 @@ class DBAgentService(BaseService):
                 personality_traits=personality_traits,
                 supervisor_id=supervisor_id,
                 status='active',
-                extra_data=extra_data  # JSON data including vehicle_id and notes
+                extra_data=extra_data
             )
 
             # Save agent and create relationships in a transaction
@@ -224,6 +220,7 @@ class DBAgentService(BaseService):
                     session.add(org_rel)
 
                 # Create skill relationships
+                # Frontend sends: ['skill_id1', 'skill_id2', ...]
                 for skill_id in skill_ids:
                     if skill_id:
                         skill_rel = DBAgentSkillRel(
@@ -235,6 +232,7 @@ class DBAgentService(BaseService):
                         session.add(skill_rel)
 
                 # Create task relationships (with vehicle)
+                # Frontend sends: ['task_id1', 'task_id2', ...]
                 for task_id in task_ids:
                     if task_id and vehicle_id:
                         task_rel = DBAgentTaskRel(
@@ -250,6 +248,10 @@ class DBAgentService(BaseService):
 
                 # Get the created agent data
                 created_agent_data = db_agent.to_dict()
+                
+                # Add org_id to the returned data (not stored in DBAgent model)
+                if org_id:
+                    created_agent_data['org_id'] = org_id
 
             return {
                 'success': True,
@@ -321,12 +323,49 @@ class DBAgentService(BaseService):
         }
 
     def delete_agent(self, agent_id):
-        """Delete an agent"""
-        return self._delete(DBAgent, agent_id)
+        """
+        Delete an agent and all its associations
+        
+        Args:
+            agent_id: Agent ID to delete
+            
+        Returns:
+            dict: Result with success status
+        """
+        try:
+            with self.session_scope() as session:
+                # Get the agent
+                agent = session.get(DBAgent, agent_id)
+                if not agent:
+                    return {"success": False, "id": agent_id, "data": None, "error": "Agent not found"}
+                
+                # Delete all association records first (to avoid foreign key constraints)
+                # 1. Delete agent-org relationships
+                deleted_org_rels = session.query(DBAgentOrgRel).filter(DBAgentOrgRel.agent_id == agent_id).delete()
+                logger.debug(f"[DBAgentService] Deleted {deleted_org_rels} agent-org relationships")
+                
+                # 2. Delete agent-skill relationships
+                deleted_skill_rels = session.query(DBAgentSkillRel).filter(DBAgentSkillRel.agent_id == agent_id).delete()
+                logger.debug(f"[DBAgentService] Deleted {deleted_skill_rels} agent-skill relationships")
+                
+                # 3. Delete agent-task relationships
+                deleted_task_rels = session.query(DBAgentTaskRel).filter(DBAgentTaskRel.agent_id == agent_id).delete()
+                logger.debug(f"[DBAgentService] Deleted {deleted_task_rels} agent-task relationships")
+                
+                # Note: DBAgentSkillKnowledgeRel and DBAgentTaskSkillRel don't have agent_id
+                # They are indirect relationships (skill-knowledge, task-skill) and will be cleaned up separately if needed
+                
+                # Finally, delete the agent itself
+                session.delete(agent)
+                session.flush()
+                
+                logger.info(f"[DBAgentService] Successfully deleted agent {agent_id} and all associations")
+                return {"success": True, "id": agent_id, "data": None, "error": None}
+                
+        except SQLAlchemyError as e:
+            logger.error(f"[DBAgentService] Failed to delete agent {agent_id}: {e}")
+            return {"success": False, "id": agent_id, "data": None, "error": str(e)}
 
-    def update_agent(self, agent_id, fields):
-        """Update an agent"""
-        return self._update(DBAgent, agent_id, fields)
 
     def query_agents(self, id=None, name=None, description=None):
         """Query agents"""
@@ -338,6 +377,139 @@ class DBAgentService(BaseService):
         """Alias for query_agents for compatibility"""
         result = self.query_agents(id, name, description)
         return result.get("data", [])
+    
+    def get_agents_by_owner(self, owner: str) -> Dict[str, Any]:
+        """
+        Get all agents for a specific owner with their organization relationships
+        
+        Args:
+            owner: Owner username/email
+        
+        Returns:
+            dict: Query result with success status and agent data list
+                {
+                    'success': bool,
+                    'data': List[dict],  # List of agent dicts with org_id field
+                    'error': str or None
+                }
+        """
+        try:
+            with self.session_scope() as session:
+                from agent.db.models.association_models import DBAgentOrgRel
+                
+                # Query agents by owner
+                db_agent_records = session.query(DBAgent).filter(
+                    DBAgent.owner == owner
+                ).all()
+                
+                # Query all agent-org relationships for these agents
+                agent_ids = [agent.id for agent in db_agent_records]
+                org_rels = session.query(DBAgentOrgRel).filter(
+                    DBAgentOrgRel.agent_id.in_(agent_ids)
+                ).all()
+                org_rel_map = {rel.agent_id: rel.org_id for rel in org_rels}
+                
+                # Query all agent-skill relationships
+                skill_rels = session.query(DBAgentSkillRel).filter(
+                    DBAgentSkillRel.agent_id.in_(agent_ids)
+                ).all()
+                
+                # Build skill map: agent_id -> [skill_names]
+                skill_map = {}
+                for rel in skill_rels:
+                    if rel.agent_id not in skill_map:
+                        skill_map[rel.agent_id] = []
+                    # Get skill name from skill object
+                    if rel.skill:
+                        skill_map[rel.agent_id].append(rel.skill.name)
+                
+                # Query all agent-task relationships
+                task_rels = session.query(DBAgentTaskRel).filter(
+                    DBAgentTaskRel.agent_id.in_(agent_ids)
+                ).all()
+                
+                # Build task map: agent_id -> [task_names]
+                task_map = {}
+                for rel in task_rels:
+                    if rel.agent_id not in task_map:
+                        task_map[rel.agent_id] = []
+                    # Get task name from task object
+                    if rel.task:
+                        task_map[rel.agent_id].append(rel.task.name)
+                
+                # Convert to dict list and add relationships
+                agents_data = []
+                for agent in db_agent_records:
+                    agent_dict = agent.to_dict()
+                    # Add org_id from relationship table
+                    agent_dict['org_id'] = org_rel_map.get(agent.id)
+                    # Add skills from relationship table (override JSON field)
+                    agent_dict['skills'] = skill_map.get(agent.id, [])
+                    # Add tasks from relationship table (override JSON field)
+                    agent_dict['tasks'] = task_map.get(agent.id, [])
+                    agents_data.append(agent_dict)
+                
+                return {
+                    "success": True,
+                    "data": agents_data,
+                    "error": None
+                }
+                
+        except SQLAlchemyError as e:
+            logger.error(f"[DBAgentService] Database query failed for owner {owner}: {e}")
+            return {
+                "success": False,
+                "data": [],
+                "error": str(e)
+            }
+        except Exception as e:
+            logger.error(f"[DBAgentService] Failed to get agents for owner {owner}: {e}")
+            return {
+                "success": False,
+                "data": [],
+                "error": str(e)
+            }
+    
+    def query_agents_with_org(self):
+        """
+        Query all agents with their organization relationships
+        
+        Returns:
+            dict: Query result with success status and data
+                  Each agent dict will include 'org_id' field from agent_org_rels table
+        """
+        try:
+            with self.session_scope() as session:
+                from agent.db.models.agent_model import DBAgent
+                from agent.db.models.association_models import DBAgentOrgRel
+                
+                # Query all agents
+                agents_query = session.query(DBAgent).all()
+                
+                # Query all agent-org relationships
+                org_rels = session.query(DBAgentOrgRel).all()
+                org_rel_map = {rel.agent_id: rel.org_id for rel in org_rels}
+                
+                # Convert agents to dict and add org_id from relationship table
+                result_data = []
+                for agent in agents_query:
+                    agent_dict = agent.to_dict(deep=False)
+                    # Add org_id from relationship table
+                    agent_dict['org_id'] = org_rel_map.get(agent.id)
+                    result_data.append(agent_dict)
+                
+                return {
+                    "success": True,
+                    "data": result_data,
+                    "error": None
+                }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "data": [],
+                "error": str(e)
+            }
 
     def query_agents_with_relations(self, id=None, name=None, org_id=None, include_skills=True, include_tasks=True, include_org=True):
         """
@@ -913,7 +1085,7 @@ class DBAgentService(BaseService):
 
     def update_agent(self, agent_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Update an agent
+        Update an agent with proper data type conversion
         
         Args:
             agent_id (str): Agent ID
@@ -923,6 +1095,82 @@ class DBAgentService(BaseService):
             dict: Standard response with success status and data
         """
         try:
+            # Convert list/dict fields to JSON strings for SQLite compatibility
+            processed_data = data.copy()
+            
+            logger.debug(f"[DBAgentService] update_agent called with fields: {list(data.keys())}")
+            
+            # List of fields that should be stored as JSON strings
+            json_fields = ['personality_traits', 'tasks', 'skills', 'org_ids']
+            
+            for field in json_fields:
+                if field in processed_data:
+                    value = processed_data[field]
+                    logger.debug(f"[DBAgentService] Processing field '{field}': type={type(value).__name__}, value={value}")
+                    
+                    # If already a string (from frontend), keep it as is
+                    if isinstance(value, str):
+                        logger.debug(f"[DBAgentService] Field '{field}' is already a JSON string")
+                        # Validate it's valid JSON
+                        try:
+                            json.loads(value)
+                        except:
+                            logger.warning(f"[DBAgentService] Field '{field}' is not valid JSON, converting to array")
+                            processed_data[field] = json.dumps([value])
+                    elif isinstance(value, (list, dict)):
+                        processed_data[field] = json.dumps(value)
+                        logger.debug(f"[DBAgentService] Converted '{field}' to JSON: {processed_data[field]}")
+                    elif value is None:
+                        processed_data[field] = '[]'  # Empty array as default
+                        logger.debug(f"[DBAgentService] Set '{field}' to empty array")
+            
+            # Handle title field (now stored as JSON array, same as other list fields)
+            if 'title' in processed_data:
+                value = processed_data['title']
+                logger.debug(f"[DBAgentService] Processing title field: type={type(value).__name__}, value={value}")
+                
+                if isinstance(value, list):
+                    # Convert list to JSON string
+                    processed_data['title'] = json.dumps(value)
+                    logger.debug(f"[DBAgentService] Converted title list to JSON: {processed_data['title']}")
+                elif isinstance(value, str):
+                    # Check if it's a comma-separated string (from frontend Select)
+                    if ',' in value:
+                        # Split by comma and convert to array
+                        title_array = [t.strip() for t in value.split(',') if t.strip()]
+                        processed_data['title'] = json.dumps(title_array)
+                        logger.debug(f"[DBAgentService] Converted comma-separated title to JSON array: {processed_data['title']}")
+                    else:
+                        # Check if it's already a JSON string
+                        try:
+                            parsed = json.loads(value)
+                            if isinstance(parsed, list):
+                                # Already a JSON array string, keep it
+                                logger.debug(f"[DBAgentService] title is already a JSON array string")
+                            else:
+                                # Single string, convert to array
+                                processed_data['title'] = json.dumps([value])
+                                logger.debug(f"[DBAgentService] Converted single title string to JSON array")
+                        except:
+                            # Not JSON, treat as single value and convert to array
+                            processed_data['title'] = json.dumps([value])
+                            logger.debug(f"[DBAgentService] Wrapped title string in JSON array")
+                elif value is None:
+                    processed_data['title'] = '[]'
+                    logger.debug(f"[DBAgentService] Set title to empty array")
+            
+            # Handle extra_data field (should be JSON string or dict)
+            if 'extra_data' in processed_data:
+                value = processed_data['extra_data']
+                if isinstance(value, str):
+                    # Already a JSON string, keep it
+                    logger.debug(f"[DBAgentService] extra_data is already a JSON string")
+                elif isinstance(value, dict):
+                    processed_data['extra_data'] = json.dumps(value)
+                    logger.debug(f"[DBAgentService] Converted extra_data to JSON")
+                elif value is None:
+                    processed_data['extra_data'] = '{}'
+            
             with self.session_scope() as session:
                 agent = session.get(DBAgent, agent_id)
                 if not agent:
@@ -932,10 +1180,96 @@ class DBAgentService(BaseService):
                         "error": f"Agent with id {agent_id} not found"
                     }
                 
-                # Update agent fields
-                for key, value in data.items():
+                # Extract relationship fields before updating agent
+                # These are not direct DBAgent fields, but relationship table fields
+                skills_data = data.get('skills')
+                tasks_data = data.get('tasks')
+                org_id = data.get('org_id')
+                vehicle_id = data.get('vehicle_id')  # Used for task relationships
+                
+                # Fields that should not be set on DBAgent model (handled separately)
+                # Note: vehicle_id is now a direct DBAgent field (agent deployment location)
+                # but we still handle it separately for task relationships
+                relationship_fields = {'skills', 'tasks', 'org_id', 'org_ids'}
+                
+                # Update agent fields with processed data (excluding relationship fields)
+                for key, value in processed_data.items():
+                    # Skip relationship fields - they're handled separately below
+                    if key in relationship_fields:
+                        continue
+                    
                     if hasattr(agent, key):
                         setattr(agent, key, value)
+                    else:
+                        logger.warning(f"[DBAgentService] Skipping unknown field: {key}")
+                
+                # Update agent-skill relationships if skills provided
+                if skills_data is not None:
+                    # Parse skills if it's a JSON string
+                    if isinstance(skills_data, str):
+                        try:
+                            skills_list = json.loads(skills_data)
+                        except:
+                            skills_list = [skills_data] if skills_data else []
+                    else:
+                        skills_list = skills_data if isinstance(skills_data, list) else []
+                    
+                    logger.debug(f"[DBAgentService] Updating agent-skill relationships: {skills_list}")
+                    
+                    # Delete existing agent-skill relationships
+                    session.query(DBAgentSkillRel).filter(DBAgentSkillRel.agent_id == agent_id).delete()
+                    
+                    # Add new relationships
+                    # Frontend sends: ['skill_id1', 'skill_id2', ...]
+                    for skill_id in skills_list:
+                        if skill_id:
+                            rel = DBAgentSkillRel(agent_id=agent_id, skill_id=skill_id)
+                            session.add(rel)
+                            logger.debug(f"[DBAgentService] Added agent-skill relationship: {agent_id} -> {skill_id}")
+                
+                # Update agent-task relationships if tasks provided
+                if tasks_data is not None:
+                    # Parse tasks if it's a JSON string
+                    if isinstance(tasks_data, str):
+                        try:
+                            tasks_list = json.loads(tasks_data)
+                        except:
+                            tasks_list = [tasks_data] if tasks_data else []
+                    else:
+                        tasks_list = tasks_data if isinstance(tasks_data, list) else []
+                    
+                    logger.debug(f"[DBAgentService] Updating agent-task relationships: {tasks_list}")
+                    
+                    # Delete existing agent-task relationships
+                    session.query(DBAgentTaskRel).filter(DBAgentTaskRel.agent_id == agent_id).delete()
+                    
+                    # Get agent's vehicle_id (optional, can be None)
+                    agent_vehicle_id = vehicle_id
+                    
+                    # Add new relationships
+                    # Frontend sends: ['task_id1', 'task_id2', ...]
+                    for task_id in tasks_list:
+                        if task_id:
+                            rel = DBAgentTaskRel(
+                                agent_id=agent_id, 
+                                task_id=task_id,
+                                vehicle_id=agent_vehicle_id
+                            )
+                            session.add(rel)
+                            logger.debug(f"[DBAgentService] Added agent-task relationship: {agent_id} -> {task_id} (vehicle: {agent_vehicle_id or 'unassigned'})")
+                
+                # Update agent-org relationship if org_id provided
+                if org_id is not None:
+                    logger.debug(f"[DBAgentService] Updating agent-org relationship: {org_id}")
+                    
+                    # Delete existing agent-org relationships
+                    session.query(DBAgentOrgRel).filter(DBAgentOrgRel.agent_id == agent_id).delete()
+                    
+                    # Add new relationship if org_id is not empty
+                    if org_id:
+                        rel = DBAgentOrgRel(agent_id=agent_id, org_id=org_id)
+                        session.add(rel)
+                        logger.debug(f"[DBAgentService] Added agent-org relationship: {agent_id} -> {org_id}")
                 
                 session.flush()
                 
@@ -945,6 +1279,7 @@ class DBAgentService(BaseService):
                     "error": None
                 }
         except SQLAlchemyError as e:
+            logger.error(f"[DBAgentService] Failed to update agent {agent_id}: {e}")
             return {
                 "success": False,
                 "data": None,

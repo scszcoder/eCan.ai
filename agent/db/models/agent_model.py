@@ -27,7 +27,7 @@ class DBAgent(BaseModel, TimestampMixin, ExtensibleMixin):
 
     # Agent profile
     gender = Column(String(16))  # male, female, other
-    title = Column(String(128))  # job title
+    title = Column(JSON)  # job titles (array of strings)
     rank = Column(String(64))    # seniority level
     birthday = Column(String(32))  # birth date
 
@@ -42,6 +42,7 @@ class DBAgent(BaseModel, TimestampMixin, ExtensibleMixin):
     status = Column(String(32), default='active')    # active, inactive, suspended
     version = Column(String(64))                     # agent version
     url = Column(String(512))                        # agent endpoint URL
+    vehicle_id = Column(String(64))                  # vehicle where agent is deployed/stored
 
     # Extra data - flexible JSON storage for additional data
     extra_data = Column(JSON)
@@ -51,7 +52,19 @@ class DBAgent(BaseModel, TimestampMixin, ExtensibleMixin):
 
     def to_dict(self, deep=False):
         """Convert model instance to dictionary"""
+        import json
         d = super().to_dict()
+        
+        # Parse JSON string fields back to arrays/objects for frontend
+        json_fields = ['personality_traits', 'title', 'tasks', 'skills', 'extra_data']
+        for field in json_fields:
+            if field in d and isinstance(d[field], str):
+                try:
+                    d[field] = json.loads(d[field])
+                except:
+                    # If parsing fails, keep as is
+                    pass
+        
         if deep:
             # Include supervisor details
             if self.supervisor:

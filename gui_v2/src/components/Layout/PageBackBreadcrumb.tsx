@@ -1,9 +1,13 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Button, Breadcrumb } from 'antd';
-import { ArrowLeftOutlined, HomeOutlined } from '@ant-design/icons';
+import { Button, Breadcrumb, Tooltip, App } from 'antd';
+import { ArrowLeftOutlined, HomeOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useOrgStore } from '../../stores/orgStore';
+import { useTaskStore } from '../../stores/domain/taskStore';
+import { useSkillStore } from '../../stores/domain/skillStore';
+import { useUserStore } from '../../stores/userStore';
+import { get_ipc_api } from '@/services/ipc_api';
 
 // ==================== 类型定义 ====================
 interface BreadcrumbItem {
@@ -233,14 +237,59 @@ const PageBackBreadcrumb: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { t } = useTranslation();
+    const { message } = App.useApp();
     const { treeOrgs } = useOrgStore(); // 在组件中获取数据
+    const username = useUserStore((state) => state.username);
     const path = location.pathname;
+    const [refreshing, setRefreshing] = useState(false);
+    
+    // 解析路径段 - 需要在 handleRefresh 之前定义
+    const segments = path.split('/').filter(Boolean);
+
+    // 处理刷新数据 - 根据当前页面智能刷新
+    const handleRefresh = useCallback(async () => {
+        if (refreshing || !username) return;
+        
+        setRefreshing(true);
+        try {
+            const api = get_ipc_api();
+            const currentPath = segments[0];
+            
+            // 根据当前页面刷新对应的数据
+            if (currentPath === 'agents') {
+                // Agents 页面：调用 get_all_org_agents 接口刷新组织和代理数据
+                const res = await api.getAllOrgAgents(username).catch((e: any) => ({ success: false, error: e, data: null }));
+                
+                if (res.success && res.data) {
+                    useOrgStore.getState().refreshOrgData();
+                }
+            } else if (currentPath === 'tasks') {
+                // Tasks 页面：只刷新 tasks 数据
+                const tasksRes = await api.getAgentTasks(username, []).catch((e: any) => ({ success: false, error: e, data: null }));
+                
+                if (tasksRes.success && tasksRes.data && (tasksRes.data as any).tasks) {
+                    useTaskStore.getState().setItems((tasksRes.data as any).tasks);
+                }
+            } else if (currentPath === 'skills') {
+                // Skills 页面：只刷新 skills 数据
+                const skillsRes = await api.getAgentSkills(username, []).catch((e: any) => ({ success: false, error: e, data: null }));
+                
+                if (skillsRes.success && skillsRes.data && (skillsRes.data as any).skills) {
+                    useSkillStore.getState().setItems((skillsRes.data as any).skills);
+                }
+            }
+            
+            message.success(t('common.refresh_success') || '数据刷新成功');
+        } catch (error) {
+            console.error('[PageBackBreadcrumb] Refresh error:', error);
+            message.error(t('common.refresh_failed') || '数据刷新失败');
+        } finally {
+            setRefreshing(false);
+        }
+    }, [refreshing, username, message, t, segments]);
 
     // 从 location.search 获取查询参数
     const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
-    
-    // 解析路径段
-    const segments = path.split('/').filter(Boolean);
     
     // 构建面包屑项 - 使用处理器模式
     const items = useMemo(() => {
@@ -316,24 +365,27 @@ const PageBackBreadcrumb: React.FC = () => {
         <div style={{ 
             display: 'flex', 
             alignItems: 'center', 
-            gap: 12
+            gap: 12,
+            justifyContent: 'space-between',
+            width: '100%'
         }}>
-            {showBackButton && (
-                <Button
-                    type="text"
-                    icon={<ArrowLeftOutlined />}
-                    onClick={() => navigate(parentPath)}
-                    style={{ 
-                        color: 'rgba(255, 255, 255, 0.85)',
-                        paddingLeft: 0,
-                        fontSize: '14px'
-                    }}
-                >
-                    {t('common.back', '返回')}
-                </Button>
-            )}
-            {items.length > 0 && (
-                <Breadcrumb 
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {showBackButton && (
+                    <Button
+                        type="text"
+                        icon={<ArrowLeftOutlined />}
+                        onClick={() => navigate(parentPath)}
+                        style={{ 
+                            color: 'rgba(255, 255, 255, 0.85)',
+                            paddingLeft: 0,
+                            fontSize: '14px'
+                        }}
+                    >
+                        {t('common.back', '返回')}
+                    </Button>
+                )}
+                {items.length > 0 && (
+                    <Breadcrumb 
                     items={items as any}
                     style={{
                         color: 'rgba(255, 255, 255, 0.65)'
@@ -362,7 +414,22 @@ const PageBackBreadcrumb: React.FC = () => {
                         );
                     }}
                 />
-            )}
+                )}
+            </div>
+            
+            {/* 刷新按钮 */}
+            <Tooltip title={t('common.refresh') || '刷新数据'}>
+                <Button
+                    type="text"
+                    icon={<ReloadOutlined spin={refreshing} />}
+                    onClick={handleRefresh}
+                    disabled={refreshing}
+                    style={{ 
+                        color: 'rgba(255, 255, 255, 0.85)',
+                        fontSize: '16px'
+                    }}
+                />
+            </Tooltip>
         </div>
     );
 };

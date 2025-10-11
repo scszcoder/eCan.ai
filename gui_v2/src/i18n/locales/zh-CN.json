@@ -30,6 +30,9 @@
     "id": "ID",
     "name": "名称",
     "refresh": "刷新",
+    "refresh_success": "数据刷新成功",
+    "refresh_failed": "数据刷新失败",
+    "close": "关闭",
     "export": "导出",
     "import": "导入",
     "actions": "操作",
@@ -139,6 +142,7 @@
       "personality": "个性",
       "skill": "技能",
       "skills": "技能",
+      "skills_required": "请至少选择一个技能",
       "subordinate": "下属",
       "subordinates": "下属们",
       "supervisor": "上级",
@@ -153,7 +157,12 @@
       "unassigned_agents_desc": "没有归属组织的代理",
       "load_failed": "组织数据加载失败",
       "no_sub_orgs": "暂无下级组织",
-      "direct_agents": "直属代理"
+      "direct_agents": "直属代理",
+      "deleteConfirmTitle": "删除代理",
+      "deleteConfirmMessage": "确定要删除此代理吗？此操作无法撤销。",
+      "deleteSuccess": "代理删除成功",
+      "deleteError": "删除代理失败",
+      "no_items": "暂无组织或代理"
     },
     "analytics": {
       "activeAgents": "活跃代理",

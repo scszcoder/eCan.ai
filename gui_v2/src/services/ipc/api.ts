@@ -178,8 +178,8 @@ export class IPCAPI {
         return this.executeRequest<T>('get_all_org_agents', { username });
     }
     
-    public async getAgents<T>(username: string, skill_ids: string[]): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_agents', { username, skill_ids });
+    public async getAgents<T>(username: string, agent_id: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_agents', { username, agent_id });
     }
 
     public async getAgentSkills<T>(username: string,skill_ids: string[]): Promise<APIResponse<T>> {
@@ -285,23 +285,18 @@ export class IPCAPI {
         return this.executeRequest<T>('stop_tests', { test_ids });
     }
 
-    public async saveAgents<T>(username: string, agents: T[]): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('save_agents', {username, agents});
+    public async saveAgent<T>(username: string, agent: T[]): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('save_agent', {username, agent});
     }
 
-    public async deleteAgents<T>(username: string, agent_ids: (string|number)[]): Promise<APIResponse<T>> {
-        // Delete multiple agents by id
-        return this.executeRequest<T>('delete_agents', { username, agent_ids });
+    public async deleteAgent<T>(username: string, agent_id: (string|number)[]): Promise<APIResponse<T>> {
+        // Delete agents by id
+        return this.executeRequest<T>('delete_agent', { username, agent_id });
     }
 
-    public async deleteAgent<T>(username: string, agent_id: string|number): Promise<APIResponse<T>> {
-        // Convenience wrapper to delete a single agent
-        return this.deleteAgents<T>(username, [agent_id]);
-    }
-
-    public async newAgents<T>(username: string, agents: T[]): Promise<APIResponse<void>> {
-        // Create multiple agents
-        return this.executeRequest<void>('new_agents', { username, agents });
+    public async newAgent<T>(username: string, agent: T[]): Promise<APIResponse<void>> {
+        // Create agents
+        return this.executeRequest<void>('new_agent', { username, agent });
     }
 
     public async newTools<T>(username: string, tools: T[]): Promise<APIResponse<void>> {

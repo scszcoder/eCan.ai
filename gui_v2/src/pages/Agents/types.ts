@@ -22,7 +22,7 @@ export interface Agent {
     subordinates: string[];
     peers: string[];
     rank: string;
-    organizations: string[];
+    orgIds: string[];  // camelCase for TypeScript/JavaScript standard
     job_description: string;
     personalities: string[];
 }

@@ -34,7 +34,7 @@ interface AppHeaderProps {
 
 const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuItems, onLogout }) => {
     const { t, i18n } = useTranslation();
-    const { theme, changeTheme } = useTheme();
+    const { changeTheme } = useTheme();
     const { changeLanguage } = useLanguage();
     const { message } = App.useApp();
     const username = useUserStore((state) => state.username);

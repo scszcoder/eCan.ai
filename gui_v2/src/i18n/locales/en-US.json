@@ -30,6 +30,9 @@
     "id": "Id",
     "name": "Name",
     "refresh": "Refresh",
+    "refresh_success": "Data refreshed successfully",
+    "refresh_failed": "Failed to refresh data",
+    "close": "Close",
     "export": "Export",
     "import": "Import",
     "actions": "Actions",
@@ -138,6 +141,7 @@
       "personality": "Personality",
       "skill": "Skill",
       "skills": "Skills",
+      "skills_required": "Please select at least one skill",
       "subordinate": "Subordinate",
       "subordinates": "Subordinates",
       "supervisor": "Supervisor",
@@ -152,7 +156,12 @@
       "unassigned_agents_desc": "Agents without organization assignment",
       "load_failed": "Failed to load organizations",
       "no_sub_orgs": "No sub organizations available.",
-      "direct_agents": "Direct Agents"
+      "direct_agents": "Direct Agents",
+      "deleteConfirmTitle": "Delete Agent",
+      "deleteConfirmMessage": "Are you sure you want to delete this agent? This action cannot be undone.",
+      "deleteSuccess": "Agent deleted successfully",
+      "deleteError": "Failed to delete agent",
+      "no_items": "No organizations or agents available"
     },
     "analytics": {
       "activeAgents": "Active Agents",

@@ -114,7 +114,7 @@ class DBAgentTaskRel(BaseModel, TimestampMixin):
     # Foreign keys
     agent_id = Column(String(64), ForeignKey('agents.id'), nullable=False)
     task_id = Column(String(64), ForeignKey('agent_tasks.id'), nullable=False)
-    vehicle_id = Column(String(64), ForeignKey('agent_vehicles.id'), nullable=False)
+    vehicle_id = Column(String(64), ForeignKey('agent_vehicles.id'), nullable=True)
 
     # Execution status and state
     status = Column(String(32), default='pending')       # pending, running, completed, failed, cancelled, paused
