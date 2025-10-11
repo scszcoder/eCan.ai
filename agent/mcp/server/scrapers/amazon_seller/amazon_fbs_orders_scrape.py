@@ -6,6 +6,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
+from mcp.types import CallToolResult, TextContent
 
 
 def scrape_amz_fas_orders(web_driver):
@@ -427,3 +428,22 @@ def enrich_orders_with_buyer_details(driver, wait: WebDriverWait, orders: list, 
             logger.debug(f"Failed to enrich order with buyer details: {e}")
             continue
     return orders
+
+
+
+async def fullfill_amazon_fbs_orders(mainwin, args):  # type: ignore
+    try:
+        logger.debug("fullfill_amazon_fbs_orders started....")
+        new_orders = []
+        fullfilled_orders = []
+        options = args["input"]["options"]
+        web_driver = mainwin.getWebDriver()
+
+        msg = f"completed in fullfilling amazon FBS new orders: {len(new_orders)} new orders came in, {len(fullfilled_orders)} orders processed."
+        tool_result = TextContent(type="text", text=msg)
+        tool_result.meta = {"new_orders": new_orders, "fullfilled_orders": fullfilled_orders}
+        return [tool_result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorFullfillEtsyOrders")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]

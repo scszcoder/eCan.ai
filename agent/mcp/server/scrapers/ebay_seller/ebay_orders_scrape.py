@@ -7,6 +7,8 @@ from selenium.common.exceptions import TimeoutException
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from agent.mcp.server.utils.print_utils import save_page_pdf_via_cdp, ensure_download_dir
+from mcp.types import CallToolResult, TextContent
+
 
 # Placeholder mode: when no live order/label UI is available, we can generate a
 # simple HTML label page and save it via CDP as a real PDF. Toggle as needed.
@@ -222,3 +224,36 @@ def generate_placeholder_label_pdf(driver, output_path: str, meta: dict) -> bool
     except Exception as e:
         logger.debug(f"Placeholder label generation failed: {e}")
         return False
+
+
+
+from datetime import datetime
+import base64
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
+from utils.logger_helper import logger_helper as logger
+from utils.logger_helper import get_traceback
+from mcp.types import CallToolResult, TextContent
+
+
+
+
+async def fullfill_ebay_orders(mainwin, args):  # type: ignore
+    try:
+        logger.debug("fetch_ebay_messages started....")
+        new_orders = []
+        fullfilled_orders = []
+        options = args["input"]["options"]
+        web_driver = mainwin.getWebDriver()
+
+        msg = f"completed in fullfilling ebay new orders: {len(new_orders)} new orders came in, {len(fullfilled_orders)} orders processed."
+        tool_result = TextContent(type="text", text=msg)
+        tool_result.meta = {"new_orders": new_orders, "fullfilled_orders": fullfilled_orders}
+        return [tool_result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorFullfillEbayOrders")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
