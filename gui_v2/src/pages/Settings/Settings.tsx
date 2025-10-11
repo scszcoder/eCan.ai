@@ -54,7 +54,11 @@ const initialSettings: Settings = {
   new_bots_file_path: '',
   new_orders_path: '',
   mids_forced_to_run: [],
-  default_llm: ''  // Default LLM provider to use
+  default_llm: '',  // Default LLM provider to use
+  ocr_engine: 'lan',
+  ocr_endpoint: '',
+  ocr_port: '2222',
+  ocr_api_key: ''
 };
 
 const Settings: React.FC = () => {
@@ -323,6 +327,56 @@ const Settings: React.FC = () => {
                   style={{ marginBottom: '8px' }}
                 >
                   <Input size="small" placeholder="Enter local server port" />
+                </StyledFormItem>
+              </Col>
+            </Row>
+          </Card>
+
+          {/* OCR 设置 */}
+          <Card
+            title={t('pages.settings.ocr_settings')}
+            size="small"
+            style={{ marginBottom: '8px' }}
+            styles={{ body: { padding: '12px 16px 8px 16px' } }}
+          >
+            <Row gutter={[16, 4]}>
+              <Col span={6}>
+                <StyledFormItem
+                  name="ocr_engine"
+                  label={t('pages.settings.ocr_engine')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Select size="small">
+                    <Select.Option value="lan">LAN</Select.Option>
+                    <Select.Option value="wan">WAN</Select.Option>
+                  </Select>
+                </StyledFormItem>
+              </Col>
+              <Col span={6}>
+                <StyledFormItem
+                  name="ocr_endpoint"
+                  label={t('pages.settings.ocr_endpoint')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input size="small" placeholder="Enter OCR endpoint" />
+                </StyledFormItem>
+              </Col>
+              <Col span={6}>
+                <StyledFormItem
+                  name="ocr_port"
+                  label={t('pages.settings.ocr_port')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input size="small" placeholder="Enter OCR port" />
+                </StyledFormItem>
+              </Col>
+              <Col span={6}>
+                <StyledFormItem
+                  name="ocr_api_key"
+                  label={t('pages.settings.ocr_api_key')}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <Input.Password size="small" placeholder="Enter OCR API key" />
                 </StyledFormItem>
               </Col>
             </Row>

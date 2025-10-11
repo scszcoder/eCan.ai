@@ -136,7 +136,9 @@
       "description": "描述",
       "description_placeholder": "请输入代理描述",
       "extra_data": "额外数据/备注",
-      "extra_data_placeholder": "请输入额外的备注或数据",
+      "extra_data_placeholder": "请输入有效的 JSON 格式（如 {\"notes\": \"文本\"}）",
+      "extra_data_tooltip": "必须是有效的 JSON 格式（如 {\"key\": \"value\"}）",
+      "extra_data_invalid_json": "JSON 格式无效。请输入有效的 JSON（如 {\"key\": \"value\"}）",
       "organization": "组织",
       "organizations": "组织",
       "personality": "个性",
@@ -467,7 +469,12 @@
       "themeChanged": "主题已更改",
       "wan_api_endpoint": "广域网API端点",
       "wan_api_key": "广域网API密钥",
-      "ws_api_endpoint": "WebSocket API端点"
+      "ws_api_endpoint": "WebSocket API端点",
+      "ocr_settings": "OCR 设置",
+      "ocr_engine": "OCR 引擎",
+      "ocr_endpoint": "OCR 端点",
+      "ocr_port": "OCR 端口",
+      "ocr_api_key": "OCR API 密钥"
     },
     "skills": {
       "addSkill": "添加技能",
@@ -535,6 +542,7 @@
       "needInputsHelp": "此技能所需的输入参数",
       "appsHelp": "相关应用程序",
       "limitationsHelp": "已知限制",
+      "invalidJson": "JSON 格式无效。请输入有效的 JSON",
       "priceModelPlaceholder": "例如：按次计费、订阅制",
       "tabs": {
         "basic": "基础信息",
@@ -592,7 +600,8 @@
       "scheduleEndTimeLabel": "结束时间（可选）",
       "scheduleTimeoutLabel": "超时时间（秒）",
       "metadata": "元数据（JSON）",
-      "invalidJson": "无效的 JSON 格式",
+      "metadata_tooltip": "必须是有效的 JSON 格式（如 {\"key\": \"value\"}）",
+      "invalidJson": "JSON 格式无效。请输入有效的 JSON（如 {\"key\": \"value\"}）",
       "latestVersion": "最新版本",
       "taskId": "任务 ID",
       "untitledTask": "未命名任务",
@@ -787,11 +796,18 @@
         "title": "代理列表",
         "allLeafAgents": "所有子部门的代理"
       },
+      "binding": {
+        "bound": "已绑定",
+        "unbound": "未绑定",
+        "noDescription": "暂无描述",
+        "boundToOther": "已绑定到其他组织",
+        "boundToOrg": "已绑定到组织"
+      },
       "direct_agents": "直属代理",
       "direct_agents_desc": "该组织的直属代理",
       "confirm": {
-        "delete": "确认删除此组织？",
-        "unbind": "确认解绑此代理？"
+        "delete": "删除组织",
+        "deleteMessage": "确定要删除此组织吗？"
       },
       "details": {
         "title": "组织详情"
@@ -834,10 +850,6 @@
         "updateSuccess": "更新成功",
         "allAgentsAlreadyBound": "所选代理都已绑定到当前组织"
       },
-      "confirm": {
-        "delete": "删除组织",
-        "deleteMessage": "确定要删除此组织吗？"
-      },
       "modal": {
         "bind": {
           "selectAgents": "选择代理",
@@ -854,11 +866,6 @@
         "noAgents": "暂无代理",
         "noAvailableAgents": "暂无可用代理",
         "selectOrg": "请选择一个组织查看详情"
-      },
-      "binding": {
-        "bound": "已绑定",
-        "unbound": "未绑定",
-        "noDescription": "暂无描述"
       },
       "status": {
         "active": "活跃",
@@ -885,14 +892,21 @@
       "ariaHistory": "历史记录",
       "ariaSearch": "搜索",
       "clearHistory": "清除历史",
-      "colon": "冒号",
+      "colon": ": ",
       "deleteHistory": "删除历史",
-      "filters": "过滤器",
+      "filters": "筛选",
       "history": "历史",
       "justNow": "刚刚",
       "moreHistory": "更多历史",
-      "placeholder": "占位符",
-      "resetFilters": "重置过滤器"
+      "placeholder": "搜索...",
+      "resetFilters": "重置筛选",
+      "selectFilter": "选择{{filter}}",
+      "minutesAgo": "{{count}}分钟前",
+      "hoursAgo": "{{count}}小时前",
+      "daysAgo": "{{count}}天前",
+      "totalResults": "共 {{count}} 条",
+      "filteredResults": "筛选 {{count}} 条",
+      "searchTime": "{{time}}ms"
     },
     "knowledge": {
       "title": "知识库",
@@ -1020,5 +1034,26 @@
     "commander": "指挥官",
     "platoon": "排",
     "staff_office": "参谋办公室"
+  },
+  "search": {
+    "ariaFilter": "过滤器",
+    "ariaHistory": "历史记录",
+    "ariaSearch": "搜索",
+    "clearHistory": "清除历史",
+    "colon": ": ",
+    "deleteHistory": "删除历史",
+    "filters": "筛选",
+    "history": "历史",
+    "justNow": "刚刚",
+    "moreHistory": "更多历史",
+    "placeholder": "搜索...",
+    "resetFilters": "重置筛选",
+    "selectFilter": "选择{{filter}}",
+    "minutesAgo": "{{count}}分钟前",
+    "hoursAgo": "{{count}}小时前",
+    "daysAgo": "{{count}}天前",
+    "totalResults": "共 {{count}} 条",
+    "filteredResults": "筛选 {{count}} 条",
+    "searchTime": "{{time}}ms"
   }
 }

@@ -517,14 +517,26 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                   <StyledFormItem
                     label={t('pages.tasks.metadata', 'Metadata (JSON)')}
                     name="metadata_text"
+                    tooltip={t('pages.tasks.metadata_tooltip') || 'Must be valid JSON format (e.g., {"key": "value"}) or plain text'}
+                    validateTrigger={['onChange', 'onBlur']}
                     rules={[{
                       validator: (_, value) => {
-                        if (!value) return Promise.resolve();
+                        // 允许空值
+                        if (!value || value.trim() === '') {
+                          return Promise.resolve();
+                        }
+                        
+                        // 必须是有效的 JSON 格式
                         try {
                           JSON.parse(value);
                           return Promise.resolve();
                         } catch (e) {
-                          return Promise.reject(new Error(t('pages.tasks.invalidJson', 'Invalid JSON')));
+                          return Promise.reject(
+                            new Error(
+                              t('pages.tasks.invalidJson') || 
+                              'Invalid JSON format. Please enter valid JSON (e.g., {"key": "value"})'
+                            )
+                          );
                         }
                       }
                     }]}

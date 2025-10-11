@@ -13,10 +13,13 @@ from agent.ec_agents.create_agent_tasks import create_my_twin_chat_task
 import traceback
 import socket
 import uuid
+import typing
 from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
 from utils.logger_helper import logger_helper as logger
+if typing.TYPE_CHECKING:
+    from gui.MainGUI import MainWindow
 
-def set_up_my_twin_agent(mainwin):
+def set_up_my_twin_agent(mainwin: 'MainWindow'):
     try:
         llm = mainwin.llm
         agent_skills = mainwin.agent_skills

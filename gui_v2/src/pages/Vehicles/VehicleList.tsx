@@ -51,8 +51,8 @@ const VehicleList: React.FC<VehicleListProps> = ({
                     key: 'type',
                     label: t('pages.vehicles.type'),
                     options: [
-                        { label: t('pages.vehicles.groundVehicle'), value: t('pages.vehicles.groundVehicle') },
-                        { label: t('pages.vehicles.aerialVehicle'), value: t('pages.vehicles.aerialVehicle') },
+                        { label: t('pages.vehicles.groundVehicle'), value: 'ground' },
+                        { label: t('pages.vehicles.aerialVehicle'), value: 'aerial' },
                     ],
                 },
             ]}

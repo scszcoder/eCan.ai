@@ -130,24 +130,39 @@ export const useOrgs = () => {
       console.log('[loadAvailableAgents] allAgents count:', allAgents.length);
       console.log('[loadAvailableAgents] allAgents:', allAgents);
 
-      let boundAgentIds: string[] = [];
-
+      // 获取当前组织已绑定的 Agent IDs（用于区分当前组织绑定 vs 其他组织绑定）
+      let currentOrgAgentIds: string[] = [];
       if (selectedOrgId) {
         const boundAgentsResponse = await api.getOrgAgents(username, selectedOrgId, false);
+        console.log('[loadAvailableAgents] selectedOrgId:', selectedOrgId);
         console.log('[loadAvailableAgents] boundAgentsResponse:', boundAgentsResponse);
         if (boundAgentsResponse.success && boundAgentsResponse.data) {
-          const boundAgents = (boundAgentsResponse.data as any).agents || [];
-          boundAgentIds = boundAgents.map((agent: any) => agent.id);
-          console.log('[loadAvailableAgents] boundAgentIds:', boundAgentIds);
+          const boundAgents = (boundAgentsResponse.data as any).agents || (boundAgentsResponse.data as any) || [];
+          currentOrgAgentIds = boundAgents.map((agent: any) => agent.id || agent.card?.id).filter(Boolean);
+          console.log('[loadAvailableAgents] currentOrgAgentIds:', currentOrgAgentIds);
         }
       }
 
       const agentsWithStatus = allAgents
         .filter((agent: any) => agent && agent.id && agent.name)
-        .map((agent: any) => ({
-          ...agent,
-          isBound: boundAgentIds.includes(agent.id)
-        }));
+        .map((agent: any) => {
+          const agentId = agent.id || agent.card?.id;
+          // Agent 已绑定的条件：
+          // 1. 绑定到当前组织：agent.org_id === selectedOrgId
+          // 2. 绑定到其他组织：agent.org_id 存在且不为空
+          const isBoundToCurrentOrg = currentOrgAgentIds.includes(agentId);
+          const isBoundToOtherOrg = agent.org_id && agent.org_id !== selectedOrgId;
+          const isBound = isBoundToCurrentOrg || isBoundToOtherOrg;
+          
+          console.log(`[loadAvailableAgents] Agent ${agent.name} (${agentId}): isBound=${isBound}, isBoundToCurrentOrg=${isBoundToCurrentOrg}, isBoundToOtherOrg=${isBoundToOtherOrg}, org_id=${agent.org_id}`);
+          
+          return {
+            ...agent,
+            isBound,
+            isBoundToCurrentOrg,
+            boundOrgId: agent.org_id
+          };
+        });
 
       console.log('[loadAvailableAgents] agentsWithStatus count:', agentsWithStatus.length);
       console.log('[loadAvailableAgents] agentsWithStatus:', agentsWithStatus);

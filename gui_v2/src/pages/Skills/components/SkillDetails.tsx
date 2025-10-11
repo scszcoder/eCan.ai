@@ -96,6 +96,33 @@ const DEFAULT_SKILL: Partial<ExtendedSkill> = {
 };
 
 /**
+ * JSON 格式验证器
+ * 允许：空值、有效的 JSON
+ * 拒绝：任何非 JSON 格式的内容
+ */
+const validateJSON = (t: any) => ({
+    validator: (_: any, value: string) => {
+        // 允许空值
+        if (!value || value.trim() === '') {
+            return Promise.resolve();
+        }
+        
+        // 必须是有效的 JSON 格式
+        try {
+            JSON.parse(value);
+            return Promise.resolve();
+        } catch (e) {
+            return Promise.reject(
+                new Error(
+                    t('pages.skills.invalidJson') || 
+                    'Invalid JSON format. Please enter valid JSON'
+                )
+            );
+        }
+    },
+});
+
+/**
  * 辅助函数：将对象/数组转换为 JSON 字符串
  */
 const toJsonString = (value: any): string => {
@@ -419,6 +446,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                             label={t('pages.skills.config', 'Config (JSON)')}
                             name="config_json"
                             help={t('pages.skills.configHelp', 'Enter valid JSON configuration')}
+                            validateTrigger={['onChange', 'onBlur']}
+                            rules={[validateJSON(t)]}
                         >
                             <TextArea
                                 rows={8}
@@ -432,6 +461,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                             label={t('pages.skills.mappingRules', 'Mapping Rules (JSON)')}
                             name="mapping_rules_json"
                             help={t('pages.skills.mappingRulesHelp', 'State mapping rules for resume/event handling')}
+                            validateTrigger={['onChange', 'onBlur']}
+                            rules={[validateJSON(t)]}
                         >
                             <TextArea
                                 rows={8}
@@ -453,6 +484,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                             label={t('pages.skills.tags', 'Tags (JSON Array)')}
                             name="tags_json"
                             help={t('pages.skills.tagsHelp', 'e.g., ["tag1", "tag2"]')}
+                            validateTrigger={['onChange', 'onBlur']}
+                            rules={[validateJSON(t)]}
                         >
                             <TextArea
                                 rows={3}
@@ -466,6 +499,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                             label={t('pages.skills.examples', 'Examples (JSON Array)')}
                             name="examples_json"
                             help={t('pages.skills.examplesHelp', 'Usage examples')}
+                            validateTrigger={['onChange', 'onBlur']}
+                            rules={[validateJSON(t)]}
                         >
                             <TextArea
                                 rows={4}
@@ -478,6 +513,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                         <StyledFormItem
                             label={t('pages.skills.inputModes', 'Input Modes (JSON Array)')}
                             name="inputModes_json"
+                            validateTrigger={['onChange', 'onBlur']}
+                            rules={[validateJSON(t)]}
                         >
                             <TextArea
                                 rows={3}
@@ -490,6 +527,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                         <StyledFormItem
                             label={t('pages.skills.outputModes', 'Output Modes (JSON Array)')}
                             name="outputModes_json"
+                            validateTrigger={['onChange', 'onBlur']}
+                            rules={[validateJSON(t)]}
                         >
                             <TextArea
                                 rows={3}
@@ -503,6 +542,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                             label={t('pages.skills.objectives', 'Objectives (JSON Array)')}
                             name="objectives_json"
                             help={t('pages.skills.objectivesHelp', 'Skill objectives/goals')}
+                            validateTrigger={['onChange', 'onBlur']}
+                            rules={[validateJSON(t)]}
                         >
                             <TextArea
                                 rows={4}
@@ -516,6 +557,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                             label={t('pages.skills.needInputs', 'Required Inputs (JSON Array)')}
                             name="need_inputs_json"
                             help={t('pages.skills.needInputsHelp', 'Input parameters required by this skill')}
+                            validateTrigger={['onChange', 'onBlur']}
+                            rules={[validateJSON(t)]}
                         >
                             <TextArea
                                 rows={6}
@@ -537,6 +580,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                             label={t('pages.skills.apps', 'Apps (JSON)')}
                             name="apps_json"
                             help={t('pages.skills.appsHelp', 'Related applications')}
+                            validateTrigger={['onChange', 'onBlur']}
+                            rules={[validateJSON(t)]}
                         >
                             <TextArea
                                 rows={4}
@@ -550,6 +595,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLev
                             label={t('pages.skills.limitations', 'Limitations (JSON)')}
                             name="limitations_json"
                             help={t('pages.skills.limitationsHelp', 'Known limitations')}
+                            validateTrigger={['onChange', 'onBlur']}
+                            rules={[validateJSON(t)]}
                         >
                             <TextArea
                                 rows={4}

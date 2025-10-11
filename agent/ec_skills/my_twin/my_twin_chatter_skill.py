@@ -1,4 +1,5 @@
 import traceback
+import typing
 from typing import TypedDict
 import uuid
 
@@ -12,8 +13,10 @@ from agent.ec_skill import *
 from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
 from agent.agent_service import get_agent_by_id
+if typing.TYPE_CHECKING:
+    from gui.MainGUI import MainWindow
 
-# this is simply an parrot agent, no thinking, no intelligent, simply pipe human message to agent
+# this is simply a parrot agent, no thinking, no intelligent, simply pipe human message to agent
 # and pipe agent response back to human
 
 def human_message(state):
@@ -158,7 +161,7 @@ TWIN_CHATTER_MAPPING_RULES = [
           }
     ]
 
-async def create_my_twin_chatter_skill(mainwin):
+async def create_my_twin_chatter_skill(mainwin: 'MainWindow'):
     try:
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
