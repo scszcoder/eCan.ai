@@ -68,7 +68,36 @@ class EC_OrgCtrl:
                     # Root level organization
                     tree.append(org)
             
-            # Sort children by sort_order
+            # Get all agents and their organization relationships
+            agents_result = self.agent_service.query_agents_with_org()
+            agent_org_map = {}  # org_id -> agent count
+            
+            if agents_result.get("success"):
+                agents = agents_result.get("data", [])
+                for agent in agents:
+                    org_id = agent.get("org_id")
+                    if org_id:
+                        agent_org_map[org_id] = agent_org_map.get(org_id, 0) + 1
+            
+            # Calculate total agent count for each organization (including descendants)
+            def calculate_agent_count(node):
+                # Direct agents in this org
+                direct_count = agent_org_map.get(node["id"], 0)
+                
+                # Agents in child orgs
+                child_count = 0
+                if "children" in node and node["children"]:
+                    for child in node["children"]:
+                        child_count += calculate_agent_count(child)
+                
+                # Total agents (direct + descendants)
+                total_count = direct_count + child_count
+                node["agent_count"] = total_count
+                node["direct_agent_count"] = direct_count
+                
+                return total_count
+            
+            # Sort children by sort_order and calculate agent counts
             def sort_children(node):
                 if "children" in node:
                     node["children"].sort(key=lambda x: x.get("sort_order", 0))
@@ -77,6 +106,7 @@ class EC_OrgCtrl:
             
             for root in tree:
                 sort_children(root)
+                calculate_agent_count(root)
             
             return {
                 "success": True,
