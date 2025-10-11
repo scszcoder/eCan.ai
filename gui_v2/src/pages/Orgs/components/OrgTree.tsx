@@ -39,22 +39,27 @@ const OrgTree: React.FC<OrgTreeProps> = ({
   }, []);
 
   const convertToTreeData = React.useCallback((orgs: Org[]): DataNode[] => {
-    return orgs.map(org => ({
-      key: org.id,
-      title: (
-        <Space>
-          <ApartmentOutlined />
-          <span>{org.name}</span>
-          {org.children && org.children.length > 0 && (
-            <span style={{ color: '#666', fontSize: '12px' }}>
-              ({org.children.length})
-            </span>
-          )}
-        </Space>
-      ),
-      children: org.children ? convertToTreeData(org.children) : undefined,
-      isLeaf: !org.children || org.children.length === 0
-    }));
+    return orgs.map(org => {
+      // 使用 agent_count 显示总代理数量（包括子组织的代理）
+      const agentCount = (org as any).agent_count || 0;
+      
+      return {
+        key: org.id,
+        title: (
+          <Space>
+            <ApartmentOutlined />
+            <span>{org.name}</span>
+            {agentCount > 0 && (
+              <span style={{ color: '#1890ff', fontSize: '12px', fontWeight: 500 }}>
+                ({agentCount})
+              </span>
+            )}
+          </Space>
+        ),
+        children: org.children ? convertToTreeData(org.children) : undefined,
+        isLeaf: !org.children || org.children.length === 0
+      };
+    });
   }, []);
 
   const treeData = React.useMemo(() => convertToTreeData(orgs), [orgs, convertToTreeData]);

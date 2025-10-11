@@ -1208,56 +1208,7 @@ const AgentDetails: React.FC = () => {
                 </StyledFormItem>
               </Col>
 
-              {/* 第六行：Personality 和 Title */}
-              <Col span={12}>
-                <StyledFormItem
-                  name="personality_traits"
-                  label={t('pages.agents.personality') || 'Personality'}
-                  htmlFor="agent-personality"
-                >
-                  <TagsEditor
-                    id="agent-personality"
-                    options={knownPersonalities}
-                    disabled={!editMode}
-                    placeholder={t('common.select_personality') || 'Select personality traits'}
-                    aria-label={t('pages.agents.personality') || 'Personality'}
-                  />
-                </StyledFormItem>
-              </Col>
-              <Col span={12}>
-                <StyledFormItem
-                  name="title"
-                  label={t('pages.agents.title') || 'Title'}
-                  htmlFor="agent-title"
-                >
-                  <TagsEditor
-                    id="agent-title"
-                    options={knownTitles}
-                    disabled={!editMode}
-                    placeholder={t('common.select_title') || 'Select titles'}
-                    aria-label={t('pages.agents.title') || 'Title'}
-                  />
-                </StyledFormItem>
-              </Col>
-
-              {/* 第七行：Tasks 和 Skills */}
-              <Col span={12}>
-                <StyledFormItem
-                  name="tasks"
-                  label={t('pages.agents.tasks') || 'Tasks'}
-                  htmlFor="agent-tasks"
-                >
-                  <TagsEditor
-                    id="agent-tasks"
-                    options={taskOptions}
-                    disabled={!editMode}
-                    placeholder={t('common.select_task') || 'Select tasks'}
-                    aria-label={t('pages.agents.tasks') || 'Tasks'}
-                    dataMap={taskMap}
-                    dataType="task"
-                  />
-                </StyledFormItem>
-              </Col>
+              {/* 第六行：Skills（必填）和 Tasks - 移到 Organization 后面 */}
               <Col span={12}>
                 <StyledFormItem
                   name="skills"
@@ -1286,6 +1237,55 @@ const AgentDetails: React.FC = () => {
                     aria-label={t('pages.agents.skills') || 'Skills'}
                     dataMap={skillMap}
                     dataType="skill"
+                  />
+                </StyledFormItem>
+              </Col>
+              <Col span={12}>
+                <StyledFormItem
+                  name="tasks"
+                  label={t('pages.agents.tasks') || 'Tasks'}
+                  htmlFor="agent-tasks"
+                >
+                  <TagsEditor
+                    id="agent-tasks"
+                    options={taskOptions}
+                    disabled={!editMode}
+                    placeholder={t('common.select_task') || 'Select tasks'}
+                    aria-label={t('pages.agents.tasks') || 'Tasks'}
+                    dataMap={taskMap}
+                    dataType="task"
+                  />
+                </StyledFormItem>
+              </Col>
+
+              {/* 第七行：Personality 和 Title */}
+              <Col span={12}>
+                <StyledFormItem
+                  name="personality_traits"
+                  label={t('pages.agents.personality') || 'Personality'}
+                  htmlFor="agent-personality"
+                >
+                  <TagsEditor
+                    id="agent-personality"
+                    options={knownPersonalities}
+                    disabled={!editMode}
+                    placeholder={t('common.select_personality') || 'Select personality traits'}
+                    aria-label={t('pages.agents.personality') || 'Personality'}
+                  />
+                </StyledFormItem>
+              </Col>
+              <Col span={12}>
+                <StyledFormItem
+                  name="title"
+                  label={t('pages.agents.title') || 'Title'}
+                  htmlFor="agent-title"
+                >
+                  <TagsEditor
+                    id="agent-title"
+                    options={knownTitles}
+                    disabled={!editMode}
+                    placeholder={t('common.select_title') || 'Select titles'}
+                    aria-label={t('pages.agents.title') || 'Title'}
                   />
                 </StyledFormItem>
               </Col>
