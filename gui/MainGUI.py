@@ -1150,6 +1150,7 @@ class MainWindow:
         try:
             from knowledge.lightrag_server import LightragServer
             from knowledge.lightrag_client import LightragClient
+            from knowledge.lightrag_direct import LightRAG
             # Prepare environment variables for LightRAG server
             lightrag_env = {"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"}
             
@@ -1161,6 +1162,7 @@ class MainWindow:
             else:
                 logger.warning("[MainWindow] ⚠️ OPENAI_API_KEY not found in environment variables (deferred)")
 
+            self.lightrag = LightRAG()
             self.lightrag_client = LightragClient()
             self.lightrag_server = LightragServer(extra_env=lightrag_env)
             # Start server process but don't wait for it to be ready

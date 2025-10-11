@@ -26,7 +26,7 @@ def run_default_tests(mwin, test_setup=None):
     print("run_default_tests with setup:", test_setup)
     results = None
     # results = testLongLLMTask(mwin, test_setup)
-
+    results = testLightRAG(mwin)
     return results
 
 
