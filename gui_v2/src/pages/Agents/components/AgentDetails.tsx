@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { App, Button, Card, Col, DatePicker, Divider, Form, Input, Radio, Row, Select, Tag, TreeSelect } from 'antd';
-import { EditOutlined, SaveOutlined } from '@ant-design/icons';
+import { App, Button, Card, Col, DatePicker, Form, Input, Modal, Radio, Row, Select, Tag, Tooltip, TreeSelect } from 'antd';
+import { EditOutlined, SaveOutlined, InfoCircleOutlined, DeleteOutlined, CloseOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useUserStore } from '@/stores/userStore';
 import { useOrgStore } from '@/stores/orgStore';
-import { useTaskStore, useSkillStore, useVehicleStore } from '@/stores';
+import { useTaskStore, useSkillStore, useVehicleStore, useAgentStore } from '@/stores';
 import { get_ipc_api } from '@/services/ipc_api';
 import { StyledFormItem } from '@/components/Common/StyledForm';
 
@@ -14,7 +14,6 @@ type Gender = 'gender_options.male' | 'gender_options.female';
 
 interface AgentDetailsForm {
   id?: string;
-  agent_id?: string;
   name?: string;
   gender?: Gender;
   birthday?: Dayjs | null;
@@ -65,6 +64,7 @@ const knownSkills = ['skill_001', 'skill_002', 'skill_003'];
 
 const AgentDetails: React.FC = () => {
   const { t } = useTranslation();
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const { id } = useParams();
   const location = useLocation();
@@ -92,8 +92,6 @@ const AgentDetails: React.FC = () => {
     return localVehicle?.id || vehicles[0]?.id || null;
   }, [vehicles]);
 
-  const { message } = App.useApp();
-
   // 使用专用的 taskStore 和 skillStore
   const storeTasks = useTaskStore((state) => state.items);
   const storeSkills = useSkillStore((state) => state.items);
@@ -103,13 +101,31 @@ const AgentDetails: React.FC = () => {
   // 获取组织数据
   const { treeOrgs, setAllOrgAgents, shouldFetchData, setLoading: setOrgLoading, setError: setOrgError } = useOrgStore();
 
-  // Build options for selects. ListEditor expects string[] options.
-  // For tasks, use task.skill; for skills, use skill.name.
+  // Build options for selects with full object data for tooltips
+  // 保存完整的task和skill对象映射，用于显示详细信息
+  const taskMap = useMemo(() => {
+    const map = new Map();
+    (storeTasks || []).forEach((t: any) => {
+      const key = t.name || t.skill;
+      if (key) map.set(key, t);
+    });
+    return map;
+  }, [storeTasks]);
+
+  const skillMap = useMemo(() => {
+    const map = new Map();
+    (storeSkills || []).forEach((s: any) => {
+      if (s.name) map.set(s.name, s);
+    });
+    return map;
+  }, [storeSkills]);
+
+  // For tasks, use task name or skill; for skills, use skill.name.
   const taskOptions = useMemo(() => {
-    const skills = (storeTasks || [])
-      .map((t: any) => t.skill)
+    const taskNames = (storeTasks || [])
+      .map((t: any) => t.name || t.skill)
       .filter(Boolean);
-    const unique = Array.from(new Set(skills));
+    const unique = Array.from(new Set(taskNames));
     return unique.length > 0 ? unique : knownTasks;
   }, [storeTasks]);
 
@@ -117,6 +133,7 @@ const AgentDetails: React.FC = () => {
     const names = (storeSkills || [])
       .map((s: any) => s.name)
       .filter(Boolean);
+    // 使用 Set 去重，确保没有重复的名称
     const unique = Array.from(new Set(names));
     return unique.length > 0 ? unique : knownSkills;
   }, [storeSkills]);
@@ -319,34 +336,55 @@ const AgentDetails: React.FC = () => {
     
     loadOrgData();
   }, [username, treeOrgs, shouldFetchData, setAllOrgAgents, setOrgLoading, setOrgError, isNew, defaultOrgId, form]);
-  
-  // 动态标题
-  const pageTitle = useMemo(() => {
-    if (pageMode === 'create') {
-      return t('pages.agents.create_agent') || '新增 Agent';
-    }
-    return t('pages.agents.agent_details') || '代理详情';
-  }, [pageMode, t]);
 
   // 从IPC获取agent数据（编辑模式）
   useEffect(() => {
     const fetchAgentData = async () => {
       if (isNew || !id || !username) return;
 
+      console.log('[AgentDetails] Fetching agent data for ID:', id);
+      
       try {
         setLoading(true);
         const api = get_ipc_api();
         const response = await api.getAgents(username, [id]) as any;
 
+        console.log('[AgentDetails] Received response:', response);
+        
         if (response?.success && response.data?.agents && Array.isArray(response.data.agents) && response.data.agents.length > 0) {
           const agent = response.data.agents[0];
+          console.log('[AgentDetails] Loading agent:', { 
+            id: agent.id || agent.card?.id, 
+            name: agent.name || agent.card?.name,
+            fullAgent: agent 
+          });
 
           // 更新表单数据
           // 优先使用 agent 自身的 org_id，如果没有则使用 URL 参数中的 defaultOrgId
           const orgId = agent.org_id || agent.organization || defaultOrgId || '';
+          
+          // Convert skills and tasks from objects to names (for Select component)
+          const skillNames = (agent.skills || []).map((s: any) => 
+            typeof s === 'string' ? s : s.name || s
+          );
+          const taskNames = (agent.tasks || []).map((t: any) => 
+            typeof t === 'string' ? t : t.name || t
+          );
+          
+          // Extract extra_data: if it's an object, get notes; if string, use as is
+          let extraDataText = '';
+          if (agent.extra_data) {
+            if (typeof agent.extra_data === 'object') {
+              extraDataText = agent.extra_data.notes || '';
+            } else {
+              extraDataText = agent.extra_data;
+            }
+          } else if (agent.metadata) {
+            extraDataText = agent.metadata;
+          }
+          
           form.setFieldsValue({
             id: agent.card?.id || agent.id,
-            agent_id: agent.card?.id || agent.id,
             name: agent.card?.name || agent.name,
             gender: agent.gender || 'gender_options.male',
             birthday: agent.birthday ? dayjs(agent.birthday) : null,
@@ -355,16 +393,22 @@ const AgentDetails: React.FC = () => {
             title: agent.title || [],
             org_id: orgId,
             supervisor_id: agent.supervisor_id || (Array.isArray(agent.supervisors) && agent.supervisors.length > 0 ? agent.supervisors[0] : ''),
-            tasks: agent.tasks || [],
-            skills: agent.skills || [],
+            tasks: taskNames,
+            skills: skillNames,
             vehicle_id: agent.vehicle_id || agent.vehicle || localVehicleId || '',
             description: agent.description || '',
-            extra_data: agent.extra_data || agent.metadata || ''  // 兼容旧字段 metadata
+            extra_data: extraDataText
           });
           // 设置选中的组织ID以显示完整路径
           if (orgId) {
             setSelectedOrgId(orgId);
           }
+          
+          // 从 AgentCard 编辑进入时，自动进入编辑模式
+          setEditMode(true);
+        } else {
+          // 如果没有找到 agent 数据，显示错误
+          message.error(t('pages.agents.fetch_failed') || 'Agent not found');
         }
       } catch (e) {
         console.error('Failed to fetch agent data:', e);
@@ -390,7 +434,6 @@ const AgentDetails: React.FC = () => {
             // 创建完全独立的初始值对象，避免任何可能的引用
             const initialValues: Partial<AgentDetailsForm> = {
               id: '',
-              agent_id: '',
               name: '',
               gender: 'gender_options.male' as Gender,
               birthday: dayjs(),
@@ -548,7 +591,12 @@ const AgentDetails: React.FC = () => {
     isOrgField?: boolean;
     'aria-label'?: string;
     id?: string;
-  }> = ({ value, onChange, options, disabled, placeholder, isOrgField, 'aria-label': ariaLabel, id }) => {
+    dataMap?: Map<string, any>;  // 用于显示详细信息的数据映射
+    dataType?: 'task' | 'skill';  // 数据类型，用于显示不同的详细信息
+  }> = ({ value, onChange, options, disabled, placeholder, isOrgField, 'aria-label': ariaLabel, id, dataMap, dataType }) => {
+    // 详细信息Modal状态
+    const [detailModalVisible, setDetailModalVisible] = React.useState(false);
+    const [selectedDetailItem, setSelectedDetailItem] = React.useState<any>(null);
     // 获取显示文本
     // 如果是预定义选项（如 personality.friendly），显示国际化翻译
     // 如果是用户自定义输入，直接显示原文
@@ -578,12 +626,13 @@ const AgentDetails: React.FC = () => {
 
     // 使用 useMemo 缓存选项，避免重复计算
     const selectOptions = useMemo(() => {
-      return options.map(opt => {
+      return options.map((opt, index) => {
         const displayText = getDisplayText(opt);
         return {
           label: displayText,  // 下拉列表中显示的文本（翻译后）
           value: opt,          // 实际存储的值（国际化 key）
-          key: opt             // 唯一标识
+          key: `option-${index}-${opt}`,  // 使用索引+值确保唯一性（索引在前更可靠）
+          title: ''            // 清空title，避免原生tooltip
         };
       });
     }, [options, getDisplayText]);
@@ -613,6 +662,7 @@ const AgentDetails: React.FC = () => {
     }, [onChange, selectOptions]);
 
     return (
+      <>
       <Select
         id={id}
         mode="tags"
@@ -626,70 +676,347 @@ const AgentDetails: React.FC = () => {
         allowClear
         tokenSeparators={[',']}
         aria-label={ariaLabel}
+        // 搜索过滤 - 支持模糊搜索label和value
+        filterOption={(input, option) => {
+          if (!input) return true;
+          const searchText = input.toLowerCase();
+          const label = (option?.label || '').toString().toLowerCase();
+          const value = (option?.value || '').toString().toLowerCase();
+          return label.includes(searchText) || value.includes(searchText);
+        }}
         // 下拉框定位 - 避免遮挡输入框
         popupMatchSelectWidth={false}
         listHeight={400}
         placement="bottomLeft"
-        // 标签渲染
+        // 标签渲染 - 添加tooltip显示描述
         tagRender={(props) => {
           const { value: tagValue, closable, onClose } = props;
           const displayText = getDisplayText(tagValue as string);
-          // 判断是否是预定义选项（有翻译）还是自定义输入
           const isCustom = tagValue && typeof tagValue === 'string' && !tagValue.includes('.');
+          const itemData = dataMap?.get(tagValue as string);
+          const description = itemData?.description || '';
 
-          return (
+          const tagContent = (
             <Tag
-              color={isCustom ? 'green' : 'blue'}  // 自定义输入用绿色，预定义用蓝色
+              color={isCustom ? 'green' : 'blue'}
               closable={closable && !disabled}
               onClose={onClose}
-              style={{ marginRight: 3 }}
+              style={{ marginRight: 3, cursor: itemData ? 'pointer' : 'default' }}
+              onClick={(e) => {
+                if (itemData) {
+                  e.stopPropagation();
+                  setSelectedDetailItem(itemData);
+                  setDetailModalVisible(true);
+                }
+              }}
             >
               {displayText}
             </Tag>
           );
+
+          // 如果有描述信息，添加tooltip
+          if (description && dataMap) {
+            return (
+              <Tooltip 
+                title={
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ flex: 1 }}>{description}</div>
+                    <InfoCircleOutlined 
+                      style={{ fontSize: 14, cursor: 'pointer', color: '#40a9ff' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedDetailItem(itemData);
+                        setDetailModalVisible(true);
+                      }}
+                    />
+                  </div>
+                }
+                mouseEnterDelay={0.3}
+              >
+                {tagContent}
+              </Tooltip>
+            );
+          }
+
+          return tagContent;
         }}
         // 下拉选项配置 - 使用缓存的选项
         options={selectOptions}
-        // 不使用 getPopupContainer，让下拉框自然定位，避免遮挡
-        // 过滤选项 - 支持模糊搜索
-        filterOption={(input, option) => {
-          if (!input) return true;  // 没有输入时显示所有选项
-          if (!option) return false;
-          const displayText = (option.label as string || '').toLowerCase();
-          const inputLower = input.toLowerCase();
-          // 支持模糊匹配
-          return displayText.includes(inputLower);
+        // 自定义下拉选项渲染 - 添加tooltip显示描述
+        optionRender={(option) => {
+          const itemData = dataMap?.get(option.value as string);
+          const description = itemData?.description || '';
+          
+          if (description && dataMap) {
+            return (
+              <Tooltip
+                title={
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ flex: 1 }}>{description}</div>
+                    <InfoCircleOutlined 
+                      style={{ fontSize: 14, cursor: 'pointer', color: '#40a9ff' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedDetailItem(itemData);
+                        setDetailModalVisible(true);
+                      }}
+                    />
+                  </div>
+                }
+                placement="right"
+                mouseEnterDelay={0.3}
+              >
+                <div style={{ padding: '4px 0', width: '100%' }}>{option.label}</div>
+              </Tooltip>
+            );
+          }
+          
+          return <div style={{ padding: '4px 0' }}>{option.label}</div>;
         }}
+        // 禁用Select自带的title属性，避免tooltip冲突
+        optionFilterProp="label"
+        // 不使用 getPopupContainer，让下拉框自然定位，避免遮挡
         // 不显示下拉箭头，更像输入框
         suffixIcon={null}
         // 自动获取焦点时不自动打开下拉框
         open={undefined}
       />
+      
+      {/* 详细信息Modal */}
+      {dataMap && selectedDetailItem && (
+        <Modal
+          title={dataType === 'task' ? t('pages.tasks.details', 'Task Details') : t('pages.skills.details', 'Skill Details')}
+          open={detailModalVisible}
+          onCancel={() => setDetailModalVisible(false)}
+          footer={[
+            <Button key="close" onClick={() => setDetailModalVisible(false)}>
+              {t('common.close', 'Close')}
+            </Button>
+          ]}
+          width={600}
+          centered
+        >
+          <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+            {/* 名称 */}
+            <div style={{ marginBottom: 16 }}>
+              <strong>{t('common.name', 'Name')}:</strong>{' '}
+              <span style={{ color: selectedDetailItem.name || selectedDetailItem.skill ? 'inherit' : '#999' }}>
+                {selectedDetailItem.name || selectedDetailItem.skill || '-'}
+              </span>
+            </div>
+            
+            {/* 描述 */}
+            <div style={{ marginBottom: 16 }}>
+              <strong>{t('common.description', 'Description')}:</strong>
+              <div style={{ marginTop: 8, padding: 12, background: 'rgba(0,0,0,0.02)', borderRadius: 4, color: selectedDetailItem.description ? 'inherit' : '#999' }}>
+                {selectedDetailItem.description || '-'}
+              </div>
+            </div>
+            
+            {/* Task特有字段 */}
+            {dataType === 'task' && (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <strong>{t('pages.tasks.priorityLabel', 'Priority')}:</strong>{' '}
+                  <span style={{ color: selectedDetailItem.priority ? 'inherit' : '#999' }}>
+                    {selectedDetailItem.priority || '-'}
+                  </span>
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <strong>{t('pages.tasks.triggerLabel', 'Trigger')}:</strong>{' '}
+                  <span style={{ color: selectedDetailItem.trigger ? 'inherit' : '#999' }}>
+                    {selectedDetailItem.trigger || '-'}
+                  </span>
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <strong>{t('pages.tasks.statusLabel', 'Status')}:</strong>{' '}
+                  <span style={{ color: selectedDetailItem.status ? 'inherit' : '#999' }}>
+                    {selectedDetailItem.status || '-'}
+                  </span>
+                </div>
+              </>
+            )}
+            
+            {/* Skill特有字段 */}
+            {dataType === 'skill' && (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <strong>{t('pages.skills.level', 'Level')}:</strong>{' '}
+                  <span style={{ color: selectedDetailItem.level !== undefined && selectedDetailItem.level !== null ? 'inherit' : '#999' }}>
+                    {selectedDetailItem.level !== undefined && selectedDetailItem.level !== null ? selectedDetailItem.level : '-'}
+                  </span>
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <strong>{t('pages.skills.statusLabel', 'Status')}:</strong>{' '}
+                  <span style={{ color: selectedDetailItem.status ? 'inherit' : '#999' }}>
+                    {selectedDetailItem.status || '-'}
+                  </span>
+                </div>
+              </>
+            )}
+            
+            {/* Metadata */}
+            <div style={{ marginBottom: 16 }}>
+              <strong>{t('common.metadata', 'Metadata')}:</strong>
+              <pre style={{ marginTop: 8, padding: 12, background: 'rgba(0,0,0,0.02)', borderRadius: 4, fontSize: 12, overflowX: 'auto', color: selectedDetailItem.metadata ? 'inherit' : '#999' }}>
+                {selectedDetailItem.metadata ? JSON.stringify(selectedDetailItem.metadata, null, 2) : '-'}
+              </pre>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
     );
   };
 
 
+
+  const handleDelete = async () => {
+    if (!id || !username) return;
+    
+    modal.confirm({
+      title: t('pages.agents.deleteConfirmTitle', 'Delete Agent'),
+      content: t('pages.agents.deleteConfirmMessage', 'Are you sure you want to delete this agent? This action cannot be undone.'),
+      okText: t('common.delete', 'Delete'),
+      okType: 'danger',
+      cancelText: t('common.cancel', 'Cancel'),
+      centered: true,
+      onOk: async () => {
+        try {
+          setLoading(true);
+          const api = get_ipc_api();
+          const response = await api.deleteAgent(username, [id]);
+          
+          if (response.success) {
+            message.success(t('pages.agents.deleteSuccess', 'Agent deleted successfully'));
+            // 从 agentStore 中移除已删除的 agent
+            const { removeAgent } = useAgentStore.getState();
+            removeAgent(id);
+            // 同时从 orgStore 中移除
+            const { removeAgentFromOrg } = useOrgStore.getState();
+            removeAgentFromOrg(id);
+            // 跳转回agents列表页
+            navigate('/agents');
+          } else {
+            message.error(response.error?.message || t('pages.agents.deleteError', 'Failed to delete agent'));
+          }
+        } catch (error) {
+          console.error('[AgentDetails] Delete error:', error);
+          message.error(t('pages.agents.deleteError', 'Failed to delete agent'));
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
+  };
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
+      
+      // Convert skills and tasks from names to IDs only
+      const skillIds = (values.skills || []).map((skillName: string) => {
+        const skill = skillMap.get(skillName);
+        return skill ? skill.id : null;
+      }).filter(id => id !== null);
+      
+      const taskIds = (values.tasks || []).map((taskName: string) => {
+        const task = taskMap.get(taskName);
+        return task ? task.id : null;
+      }).filter(id => id !== null);
+      
       // Serialize dayjs and metadata
       const payload = {
         ...values,
         birthday: values.birthday ? (values.birthday as Dayjs).toISOString() : null,
-        // 字段名已统一，不需要转换
+        skills: skillIds,  // 只发送 ID 数组
+        tasks: taskIds,    // 只发送 ID 数组
       };
       setLoading(true);
       const api = get_ipc_api();
       const res = isNew
-        ? await api.newAgents(username, [payload])
-        : await api.saveAgents(username, [payload]);
+        ? await api.newAgent(username, [payload])
+        : await api.saveAgent(username, [payload]);
       setLoading(false);
       if (res.success) {
         message.success(t('common.saved_successfully') || 'Saved');
+        
+        // 保存成功后，立即刷新组织和代理数据
+        try {
+          const api = get_ipc_api();
+          const refreshResponse = await api.getAllOrgAgents(username);
+          
+          if (refreshResponse?.success && refreshResponse.data) {
+            // 手动更新 OrgStore 中的数据
+            useOrgStore.getState().setAllOrgAgents(refreshResponse.data as any);
+          }
+        } catch (error) {
+          console.error('[AgentDetails] Error refreshing org data:', error);
+        }
+        
+        // 如果是编辑模式，重新获取 agent 数据更新表单
+        if (!isNew && id) {
+          try {
+            const api = get_ipc_api();
+            const refreshResponse = await api.getAgents(username, [id]) as any;
+            
+            if (refreshResponse?.success && refreshResponse.data?.agents && refreshResponse.data.agents.length > 0) {
+              const updatedAgent = refreshResponse.data.agents[0];
+              
+              // Convert skills and tasks from objects to names (for Select component)
+              const skillNames = (updatedAgent.skills || []).map((s: any) => 
+                typeof s === 'string' ? s : s.name || s
+              );
+              const taskNames = (updatedAgent.tasks || []).map((t: any) => 
+                typeof t === 'string' ? t : t.name || t
+              );
+              
+              // Extract extra_data: if it's an object, get notes; if string, use as is
+              let extraDataText = '';
+              if (updatedAgent.extra_data) {
+                if (typeof updatedAgent.extra_data === 'object') {
+                  extraDataText = updatedAgent.extra_data.notes || '';
+                } else {
+                  extraDataText = updatedAgent.extra_data;
+                }
+              }
+              
+              const formData = {
+                id: updatedAgent.card?.id || updatedAgent.id,
+                name: updatedAgent.card?.name || updatedAgent.name,
+                description: updatedAgent.description || '',
+                gender: updatedAgent.gender || 'gender_options.male',
+                birthday: updatedAgent.birthday ? dayjs(updatedAgent.birthday) : null,
+                owner: updatedAgent.owner || username,
+                personality_traits: updatedAgent.personality_traits || updatedAgent.personalities || [],
+                title: updatedAgent.title || [],
+                org_id: updatedAgent.org_id || '',
+                supervisor_id: updatedAgent.supervisor_id || '',
+                tasks: taskNames,
+                skills: skillNames,
+                vehicle_id: updatedAgent.vehicle_id || '',
+                extra_data: extraDataText
+              };
+              
+              form.setFieldsValue(formData);
+            }
+          } catch (error) {
+            console.error('[AgentDetails] Error refreshing agent data:', error);
+          }
+        }
+        
+        // 更新完表单后再切换到查看模式
         setEditMode(false);
+        
         if (isNew) {
-          // After creation, navigate back to agents list or to the new detail page
-          navigate('/agents');
+          // After creation, navigate back to the OrgNavigator page with refresh flag
+          const orgId = values.org_id;
+          if (orgId && orgId !== 'root') {
+            // 跳转到对应组织的navigator页面，添加时间戳强制刷新
+            navigate(`/agents/organization/${orgId}?refresh=${Date.now()}`);
+          } else {
+            // 跳转到根navigator页面，添加时间戳强制刷新
+            navigate(`/agents?refresh=${Date.now()}`);
+          }
         }
       } else {
         message.error(res.error?.message || t('common.save_failed') || 'Save failed');
@@ -716,18 +1043,7 @@ const AgentDetails: React.FC = () => {
         }
       `}</style>
       <div style={{ padding: 12, height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ marginBottom: 12 }}>
-          <span style={{ fontSize: 18, fontWeight: 600 }}>
-            {pageTitle}
-            {isNew && defaultOrgId && (
-              <span style={{ fontSize: 14, fontWeight: 400, color: 'rgba(255, 255, 255, 0.65)', marginLeft: 8 }}>
-                - {getOrgName(defaultOrgId)}
-              </span>
-            )}
-          </span>
-        </div>
-
-        <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} styles={{ body: { padding: 12, height: '100%', overflow: 'hidden' } }}>
+        <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden', marginTop: '16px' }} styles={{ body: { padding: 12, height: '100%', overflow: 'hidden' } }}>
           <div style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', paddingRight: 8 }}>
           <Form
             form={form}
@@ -741,12 +1057,12 @@ const AgentDetails: React.FC = () => {
               {/* 第一行：ID（只在编辑时显示）和 Name */}
               {!isNew && (
                 <Col span={12}>
-                  <StyledFormItem name="agent_id" label={t('pages.agents.agent_id') || 'Agent ID'} htmlFor="agent-agent-id">
+                  <StyledFormItem name="id" label="ID" htmlFor="agent-id">
                     <Input
-                      id="agent-agent-id"
+                      id="agent-id"
                       readOnly
                       autoComplete="off"
-                      aria-label={t('pages.agents.agent_id') || 'Agent ID'}
+                      aria-label="Agent ID"
                     />
                   </StyledFormItem>
                 </Col>
@@ -793,12 +1109,26 @@ const AgentDetails: React.FC = () => {
                 </StyledFormItem>
               </Col>
               <Col span={12}>
-                <StyledFormItem name="gender" label={t('common.gender') || 'Gender'}>
-                  <Radio.Group disabled={!editMode} aria-label={t('common.gender') || 'Gender'}>
-                    <Radio value="gender_options.male">{t('common.gender_options.male') || 'Male'}</Radio>
-                    <Radio value="gender_options.female">{t('common.gender_options.female') || 'Female'}</Radio>
-                  </Radio.Group>
-                </StyledFormItem>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ 
+                    paddingBottom: 8,
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: 'rgba(255, 255, 255, 0.95)',
+                    letterSpacing: '0.3px'
+                  }}>
+                    {t('common.gender') || 'Gender'}
+                  </div>
+                  <Form.Item name="gender" noStyle>
+                    <Radio.Group 
+                      disabled={!editMode} 
+                      aria-label={t('common.gender') || 'Gender'}
+                    >
+                      <Radio value="gender_options.male">{t('common.gender_options.male') || 'Male'}</Radio>
+                      <Radio value="gender_options.female">{t('common.gender_options.female') || 'Female'}</Radio>
+                    </Radio.Group>
+                  </Form.Item>
+                </div>
               </Col>
 
               {/* 第四行：Birthday 和 Vehicle */}
@@ -923,6 +1253,8 @@ const AgentDetails: React.FC = () => {
                     disabled={!editMode}
                     placeholder={t('common.select_task') || 'Select tasks'}
                     aria-label={t('pages.agents.tasks') || 'Tasks'}
+                    dataMap={taskMap}
+                    dataType="task"
                   />
                 </StyledFormItem>
               </Col>
@@ -931,6 +1263,20 @@ const AgentDetails: React.FC = () => {
                   name="skills"
                   label={t('pages.agents.skills') || 'Skills'}
                   htmlFor="agent-skills"
+                  rules={[
+                    {
+                      required: true,
+                      message: t('pages.agents.skills_required') || 'Please select at least one skill',
+                    },
+                    {
+                      validator: (_, value) => {
+                        if (!value || value.length === 0) {
+                          return Promise.reject(new Error(t('pages.agents.skills_required') || 'Please select at least one skill'));
+                        }
+                        return Promise.resolve();
+                      },
+                    },
+                  ]}
                 >
                   <TagsEditor
                     id="agent-skills"
@@ -938,6 +1284,8 @@ const AgentDetails: React.FC = () => {
                     disabled={!editMode}
                     placeholder={t('common.select_skill') || 'Select skills'}
                     aria-label={t('pages.agents.skills') || 'Skills'}
+                    dataMap={skillMap}
+                    dataType="skill"
                   />
                 </StyledFormItem>
               </Col>
@@ -957,75 +1305,98 @@ const AgentDetails: React.FC = () => {
                   />
                 </StyledFormItem>
               </Col>
-
-              {/* 按钮区域 - 放在表单内部 */}
-              <Col span={24}>
-                <Divider style={{ margin: '12px 0 8px 0' }} />
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-                  {/* 新增模式：只显示保存按钮 */}
-                  {pageMode === 'create' && (
-                    <Button icon={<SaveOutlined />} type="primary" loading={loading} onClick={handleSave}>
-                      {t('common.create') || '创建'}
-                    </Button>
-                  )}
-                  
-                  {/* 查看模式：显示编辑按钮 */}
-                  {pageMode === 'view' && (
-                    <Button icon={<EditOutlined />} type="default" onClick={() => setEditMode(true)}>
-                      {t('common.edit') || '编辑'}
-                    </Button>
-                  )}
-                  
-                  {/* 编辑模式：显示取消和保存按钮 */}
-                  {pageMode === 'edit' && (
-                    <>
-                      <Button onClick={() => {
-                        setEditMode(false);
-                        // 重新加载数据
-                        if (!isNew && id && username) {
-                          const api = get_ipc_api();
-                          api.getAgents(username, [id]).then((response: any) => {
-                            if (response?.success && response.data?.agents?.[0]) {
-                              const agent = response.data.agents[0];
-                              const orgId = agent.org_id || agent.organization || '';
-                              form.setFieldsValue({
-                                id: agent.card?.id || agent.id,
-                                agent_id: agent.card?.id || agent.id,
-                                name: agent.card?.name || agent.name,
-                                gender: agent.gender || 'gender_options.male',
-                                birthday: agent.birthday ? dayjs(agent.birthday) : null,
-                                owner: agent.owner || username,
-                                personality_traits: agent.personality_traits || agent.personalities || [],
-                                title: agent.title || [],
-                                org_id: orgId,
-                                supervisor_id: agent.supervisor_id || (Array.isArray(agent.supervisors) && agent.supervisors.length > 0 ? agent.supervisors[0] : ''),
-                                tasks: agent.tasks || [],
-                                skills: agent.skills || [],
-                                vehicle_id: agent.vehicle_id || agent.vehicle || localVehicleId || '',
-                                description: agent.description || '',
-                                extra_data: agent.extra_data || agent.metadata || ''  // 兼容旧字段 metadata
-                              });
-                              // 设置选中的组织ID
-                              if (orgId) {
-                                setSelectedOrgId(orgId);
-                              }
-                            }
-                          });
-                        }
-                      }}>
-                        {t('common.cancel') || '取消'}
-                      </Button>
-                      <Button icon={<SaveOutlined />} type="primary" loading={loading} onClick={handleSave}>
-                        {t('common.save') || '保存'}
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </Col>
             </Row>
           </Form>
           </div>
         </Card>
+
+        {/* 操作按钮区域 - 固定在底部，不随表单滚动 */}
+        <div 
+          style={{ 
+            marginTop: '16px',
+            padding: '16px 0',
+            position: 'sticky',
+            bottom: 0,
+            zIndex: 100,
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 12
+          }}
+        >
+          {/* 新增模式：显示关闭和保存按钮 */}
+          {pageMode === 'create' && (
+            <>
+              <Button icon={<CloseOutlined />} onClick={() => navigate(-1)} size="large">
+                {t('common.close') || '关闭'}
+              </Button>
+              <Button icon={<SaveOutlined />} type="primary" loading={loading} onClick={handleSave} size="large">
+                {t('common.create') || '创建'}
+              </Button>
+            </>
+          )}
+          
+          {/* 查看模式：显示关闭、删除和编辑按钮 */}
+          {pageMode === 'view' && (
+            <>
+              <Button icon={<CloseOutlined />} onClick={() => navigate(-1)} size="large">
+                {t('common.close') || '关闭'}
+              </Button>
+              <Button icon={<DeleteOutlined />} danger onClick={handleDelete} size="large">
+                {t('common.delete') || '删除'}
+              </Button>
+              <Button icon={<EditOutlined />} type="default" onClick={() => setEditMode(true)} size="large">
+                {t('common.edit') || '编辑'}
+              </Button>
+            </>
+          )}
+          
+          {/* 编辑模式：显示关闭、取消和保存按钮 */}
+          {pageMode === 'edit' && (
+            <>
+              <Button icon={<CloseOutlined />} onClick={() => navigate(-1)} size="large">
+                {t('common.close') || '关闭'}
+              </Button>
+              <Button onClick={() => {
+                setEditMode(false);
+                // 重新加载数据
+                if (!isNew && id && username) {
+                  const api = get_ipc_api();
+                  api.getAgents(username, [id]).then((response: any) => {
+                    if (response?.success && response.data?.agents?.[0]) {
+                      const agent = response.data.agents[0];
+                      const orgId = agent.org_id || agent.organization || '';
+                      form.setFieldsValue({
+                        id: agent.card?.id || agent.id,
+                        name: agent.card?.name || agent.name,
+                        gender: agent.gender || 'gender_options.male',
+                        birthday: agent.birthday ? dayjs(agent.birthday) : null,
+                        owner: agent.owner || username,
+                        personality_traits: agent.personality_traits || agent.personalities || [],
+                        title: agent.title || [],
+                        org_id: orgId,
+                        supervisor_id: agent.supervisor_id || (Array.isArray(agent.supervisors) && agent.supervisors.length > 0 ? agent.supervisors[0] : ''),
+                        tasks: agent.tasks || [],
+                        skills: agent.skills || [],
+                        vehicle_id: agent.vehicle_id || agent.vehicle || localVehicleId || '',
+                        description: agent.description || '',
+                        extra_data: agent.extra_data || agent.metadata || ''  // 兼容旧字段 metadata
+                      });
+                      // 设置选中的组织ID
+                      if (orgId) {
+                        setSelectedOrgId(orgId);
+                      }
+                    }
+                  });
+                }
+              }} size="large">
+                {t('common.cancel') || '取消'}
+              </Button>
+              <Button icon={<SaveOutlined />} type="primary" loading={loading} onClick={handleSave} size="large">
+                {t('common.save') || '保存'}
+              </Button>
+            </>
+          )}
+        </div>
       </div>
     </>
   );

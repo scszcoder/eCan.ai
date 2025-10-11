@@ -75,7 +75,11 @@ export const useAgentStore = create<AgentStoreState>()(
       }),
       
       removeAgent: (id) => set((state) => {
-        const newAgents = state.agents.filter(agent => agent.card?.id !== id);
+        const newAgents = state.agents.filter(agent => {
+          // 支持两种数据结构：agent.card?.id 或 agent.id
+          const agentId = agent.card?.id || (agent as any).id;
+          return agentId !== id;
+        });
         return { agents: newAgents, items: newAgents };
       }),
       
@@ -84,7 +88,7 @@ export const useAgentStore = create<AgentStoreState>()(
           if (agent.card?.id === agentId) {
             return {
               ...agent,
-              organizations: orgId ? [orgId] : []
+              orgIds: orgId ? [orgId] : []
             };
           }
           return agent;
@@ -110,7 +114,7 @@ export const useAgentStore = create<AgentStoreState>()(
       
       getAgentsByOrganization: (organization) => {
         const agents = get().agents;
-        return agents.filter(agent => agent.organizations?.includes(organization));
+        return agents.filter(agent => agent.orgIds?.includes(organization));
       },
 
       // Data fetching
@@ -159,7 +163,7 @@ export const useAgentStore = create<AgentStoreState>()(
         set({ loading: true, error: null });
         try {
           const api = createIPCAPI();
-          const response = await api.saveAgents(username, [agent]);
+          const response = await api.saveAgent(username, [agent]);
           
           if (response && response.success) {
             // Update the local state
@@ -184,7 +188,7 @@ export const useAgentStore = create<AgentStoreState>()(
         set({ loading: true, error: null });
         try {
           const api = createIPCAPI();
-          const response = await api.deleteAgent(username, agentId);
+          const response = await api.deleteAgent(username, [agentId]);
           
           if (response && response.success) {
             // Remove from local state
@@ -204,7 +208,7 @@ export const useAgentStore = create<AgentStoreState>()(
         set({ loading: true, error: null });
         try {
           const api = createIPCAPI();
-          const response = await api.newAgents(username, [agent]);
+          const response = await api.newAgent(username, [agent]);
 
           if (response && response.success) {
             // Add to local state

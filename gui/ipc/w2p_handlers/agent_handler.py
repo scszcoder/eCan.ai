@@ -1,4 +1,5 @@
 import traceback
+import uuid
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Optional, Dict
 from gui.ipc.handlers import validate_params
@@ -179,26 +180,22 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
     """
     try:
         logger.debug(f"[agent_handler] Get agents handler called with request: {request}")
-        # 验证参数
-        is_valid, data, error = validate_params(params, ['username'])
-        if not is_valid:
-            logger.warning(f"[agent_handler] Invalid parameters for get agents: {error}")
-            return create_error_response(
-                request,
-                'INVALID_PARAMS',
-                error
-            )
 
-        # 获取用户名
-        username = data['username']
-        logger.info(f"[agent_handler] get agents request for user: {username}")
+        # 获取用户名和 agent IDs
+        username = params.get('username')
+        if not username:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing username parameter')
+        
+        # 获取 agent_id 参数（数组）
+        agent_ids = params.get('agent_id', [])
+        
+        logger.info(f"[agent_handler] get agents request for user: {username}, agent_id: {agent_ids}")
 
         main_window = AppContext.get_main_window()
         if main_window is None:
             logger.warning(f"[agent_handler] MainWindow not available for user: {username} - user may have logged out")
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'User session not available - please login again')
 
-        # Get agents from database instead of memory
         # This ensures we get all agents including newly created ones
         if not main_window.ec_db_mgr or not main_window.ec_db_mgr.agent_service:
             logger.error(f"[agent_handler] Database service not available")
@@ -206,22 +203,34 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
 
         agent_service = main_window.ec_db_mgr.agent_service
 
-        try:
-            # Query all agents from database
-            with agent_service.session_scope() as session:
-                from agent.db.models.agent_model import DBAgent
-                db_agents = session.query(DBAgent).filter(DBAgent.owner == username).all()
-                agents_data = [agent.to_dict() for agent in db_agents]
-                logger.info(f"[agent_handler] Successfully retrieved {len(agents_data)} agents from database for user: {username}")
-
-                resultJS = {
-                    'agents': agents_data,
-                    'message': 'Get all successful'
-                }
-                logger.trace('[agent_handler] get agents resultJS:' + str(resultJS))
-                return create_success_response(request, resultJS)
-        except Exception as e:
-            logger.error(f"[agent_handler] Error querying agents from database: {e}")
+        # If specific agent IDs are requested, filter by them
+        if agent_ids and len(agent_ids) > 0:
+            # Get all agents first
+            result = agent_service.get_agents_by_owner(username)
+            if result.get('success'):
+                all_agents = result.get('data', [])
+                # Filter by requested IDs
+                agents_data = [agent for agent in all_agents if agent.get('id') in agent_ids]
+                logger.info(f"[agent_handler] Filtered {len(agents_data)} agents from {len(all_agents)} total agents")
+            else:
+                agents_data = []
+        else:
+            # Get all agents for the user
+            result = agent_service.get_agents_by_owner(username)
+            agents_data = result.get('data', []) if result.get('success') else []
+        
+        if result.get('success'):
+            agents_data = agents_data  # Already filtered above
+            logger.info(f"[agent_handler] Successfully retrieved {len(agents_data)} agents from database for user: {username}")
+            
+            resultJS = {
+                'agents': agents_data,
+                'message': 'Get all successful'
+            }
+            logger.debug(f"[agent_handler] Successfully retrieved {resultJS}")
+            return create_success_response(request, resultJS)
+        else:
+            logger.error(f"[agent_handler] Failed to get agents: {result.get('error')}")
             # Fallback to memory agents
             agents = getattr(main_window, 'agents', []) or []
             logger.info(f"[agent_handler] Fallback to memory: retrieved {len(agents)} agents")
@@ -239,14 +248,14 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
             f"Error during get agents: {str(e)} "
         )
     
-@IPCHandlerRegistry.handler('save_agents')
-def handle_save_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
+@IPCHandlerRegistry.handler('save_agent')
+def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
     """
     Save/update agents
 
     Args:
         request: IPC request object
-        params: Request parameters with username and agents data
+        params: Request parameters with username and agent data
 
     Returns:
         IPCResponse: Response with success status
@@ -254,13 +263,15 @@ def handle_save_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCR
     try:
         logger.debug(f"[agent_handler] Save agents handler called with request: {request}")
 
-        # Validate required parameters
-        is_valid, data, error = validate_params(request.get('params'), ['username', 'agents'])
-        if not is_valid:
-            logger.warning(f"[agent_handler] Invalid parameters for save agents: {error}")
-            return create_error_response(request, 'INVALID_PARAMS', error)
-        username = data['username']
-        agents_data = data['agents']
+        # Get username
+        username = params.get('username')
+        if not username:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing username parameter')
+        
+        # Get agent parameter (array)
+        agents_data = params.get('agent', [])
+        if not agents_data:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing agent parameter')
 
         logger.info(f"[agent_handler] Saving {len(agents_data)} agents for user: {username}")
 
@@ -269,33 +280,68 @@ def handle_save_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCR
             logger.error(f"[agent_handler] MainWindow not available for user: {username}")
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'MainWindow not available')
 
+        # Get database service
+        if not main_window.ec_db_mgr or not main_window.ec_db_mgr.agent_service:
+            logger.error(f"[agent_handler] Database service not available")
+            return create_error_response(request, 'DB_ERROR', 'Database service not available')
+        
+        agent_service = main_window.ec_db_mgr.agent_service
+        
         # Process each agent
         saved_count = 0
         errors = []
+        updated_agents = []
 
         for agent_data in agents_data:
             try:
-                # Handle organization migration: if organizations list exists, use first one as organization_id
-                if 'organizations' in agent_data and agent_data['organizations'] and not agent_data.get('organization_id'):
-                    agent_data['organization_id'] = agent_data['organizations'][0]
-
-                # Find existing agent by ID
-                agent_id = agent_data.get('id') or (agent_data.get('card', {}).get('id') if agent_data.get('card') else None)
-                if agent_id:
-                    existing_agent = next((ag for ag in main_window.agents if getattr(getattr(ag, 'card', None), 'id', None) == agent_id), None)
+                # Get agent ID (must use 'id' field for consistency)
+                agent_id = agent_data.get('id')
+                if not agent_id:
+                    logger.error(f"[agent_handler] Missing 'id' field in agent data. Available fields: {list(agent_data.keys())}")
+                    errors.append("Missing required 'id' field")
+                    continue
+                
+                # Update agent in database using service
+                result = agent_service.update_agent(agent_id, agent_data)
+                
+                if result.get('success'):
+                    # Get updated agent data from database
+                    updated_agent_data = result.get('data', {})
+                    updated_agents.append(updated_agent_data)
+                    
+                    # Update agent in memory (main_window.agents)
+                    existing_agent = next((ag for ag in main_window.agents if ag.card.id == agent_id), None)
                     if existing_agent:
-                        # Update existing agent
-                        for key, value in agent_data.items():
-                            if hasattr(existing_agent, key):
-                                setattr(existing_agent, key, value)
-                        saved_count += 1
-                        logger.info(f"[agent_handler] Updated agent: {agent_id}")
+                        logger.debug(f"[agent_handler] Found agent in memory: {agent_id}, current name: {existing_agent.card.name}")
+                        
+                        # Update memory agent with new data
+                        if 'name' in agent_data:
+                            old_name = existing_agent.card.name
+                            existing_agent.card.name = agent_data['name']
+                            logger.info(f"[agent_handler] Updated agent name in memory: '{old_name}' -> '{agent_data['name']}'")
+                        if 'description' in agent_data:
+                            existing_agent.card.description = agent_data['description']
+                        if 'org_id' in agent_data:
+                            org_id = agent_data['org_id']
+                            existing_agent.org_ids = [org_id] if org_id else []
+                        
+                        # Update other fields if they exist
+                        if hasattr(existing_agent, 'gender') and 'gender' in agent_data:
+                            existing_agent.gender = agent_data['gender']
+                        if hasattr(existing_agent, 'birthday') and 'birthday' in agent_data:
+                            existing_agent.birthday = agent_data['birthday']
+                        
+                        logger.info(f"[agent_handler] Updated agent in memory: {agent_id}")
                     else:
-                        logger.warning(f"[agent_handler] Agent not found for update: {agent_id}")
-                        errors.append(f"Agent not found: {agent_id}")
+                        logger.warning(f"[agent_handler] Agent {agent_id} not found in memory (main_window.agents)")
+                        logger.debug(f"[agent_handler] Available agents in memory: {[ag.card.id for ag in main_window.agents if hasattr(ag, 'card') and hasattr(ag.card, 'id')]}")
+                    
+                    saved_count += 1
+                    logger.info(f"[agent_handler] Updated agent in database: {agent_id}")
                 else:
-                    logger.warning(f"[agent_handler] No agent ID provided for save")
-                    errors.append("No agent ID provided")
+                    error_msg = result.get('error', 'Unknown error')
+                    logger.error(f"[agent_handler] Failed to update agent {agent_id}: {error_msg}")
+                    errors.append(f"Agent {agent_id}: {error_msg}")
 
             except Exception as e:
                 error_msg = f"Error saving agent: {str(e)}"
@@ -308,7 +354,8 @@ def handle_save_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCR
         else:
             logger.info(f"[agent_handler] Successfully saved {saved_count} agents for user: {username}")
             return create_success_response(request, {
-                'message': f'Successfully saved {saved_count} agents'
+                'message': f'Successfully saved {saved_count} agents',
+                'agents': updated_agents  # 返回更新后的 agent 数据
             })
 
     except Exception as e:
@@ -321,59 +368,101 @@ def handle_save_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCR
 
 
 
-@IPCHandlerRegistry.handler('delete_agents')
-def handle_delete_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
-    """处理登录请求
-
-    验证用户凭据并返回访问令牌。
+@IPCHandlerRegistry.handler('delete_agent')
+def handle_delete_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
+    """处理删除代理请求
 
     Args:
         request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段, 'agent_id'
+        params: 请求参数，必须包含 'username' 和 'agent_id' 字段
 
     Returns:
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Delete agents handler called with request: {request}")
-
-        # 验证参数
-        is_valid, data, error = validate_params(params, ['username', 'password'])
-        if not is_valid:
-            logger.warning(f"[agent_handler] Invalid parameters for delete agents: {error}")
+        # 获取用户名
+        username = params.get('username')
+        if not username:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing username parameter')
+        
+        # Get agent_id parameter (can be a single string or array)
+        agent_id_param = params.get('agent_id')
+        
+        if not agent_id_param:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing agent_id parameter')
+        
+        # Normalize to array
+        if isinstance(agent_id_param, str):
+            agent_ids = [agent_id_param]
+        elif isinstance(agent_id_param, list):
+            agent_ids = agent_id_param
+        else:
+            return create_error_response(request, 'INVALID_PARAMS', 'Invalid agent_id parameter type')
+        
+        main_window = AppContext.get_main_window()
+        if main_window is None:
+            logger.error(f"[agent_handler] MainWindow not available for user: {username}")
+            return create_error_response(request, 'MAIN_WINDOW_ERROR', 'MainWindow not available')
+        
+        # Get database service
+        if not main_window.ec_db_mgr or not main_window.ec_db_mgr.agent_service:
+            logger.error(f"[agent_handler] Database service not available")
+            return create_error_response(request, 'DB_ERROR', 'Database service not available')
+        
+        agent_service = main_window.ec_db_mgr.agent_service
+        
+        # Delete each agent from database and memory
+        deleted_count = 0
+        errors = []
+        
+        for agent_id in agent_ids:
+            try:
+                # Delete from database using service
+                result = agent_service.delete_agent(agent_id)
+                
+                if result.get('success'):
+                    # Delete from memory (main_window.agents)
+                    main_window.agents = [ag for ag in main_window.agents if ag.card.id != agent_id]
+                    deleted_count += 1
+                else:
+                    error_msg = result.get('error', 'Unknown error')
+                    logger.error(f"[agent_handler] Failed to delete agent {agent_id}: {error_msg}")
+                    errors.append(f"Agent {agent_id}: {error_msg}")
+                    
+            except Exception as e:
+                error_msg = f"Error deleting agent {agent_id}: {str(e)}"
+                logger.error(f"[agent_handler] {error_msg}")
+                errors.append(error_msg)
+        
+        if errors:
             return create_error_response(
                 request,
-                'INVALID_PARAMS',
-                error
+                'PARTIAL_DELETE_ERROR',
+                f"Deleted {deleted_count} agents with errors: {'; '.join(errors)}"
             )
-
-        # 获取用户名和密码
-        username = data['username']
-
-
-        logger.info(f"[agent_handler] delete agents successful for user: {username}")
-        return create_success_response(request, {
-            'message': 'Delete agents successful'
-        })
+        else:
+            return create_success_response(request, {
+                'message': f'Successfully deleted {deleted_count} agent(s)'
+            })
 
     except Exception as e:
         logger.error(f"[agent_handler] Error in delete agents handler: {e} {traceback.format_exc()}")
         return create_error_response(
             request,
-            'LOGIN_ERROR',
+            'DELETE_ERROR',
             f"Error during delete agents: {str(e)}"
         )
 
 
 
-@IPCHandlerRegistry.handler('new_agents')
-def handle_new_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
+@IPCHandlerRegistry.handler('new_agent')
+def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
     """
     Create new agents
 
     Args:
         request: IPC request object
-        params: Request parameters with username and agents data
+        params: Request parameters with username and agent data
 
     Returns:
         IPCResponse: Response with success status
@@ -381,21 +470,19 @@ def handle_new_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
     try:
         logger.debug(f"[agent_handler] Create agents handler called with request: {request}")
 
-        # Validate required parameters
-        is_valid, data, error = validate_params(request.get('params'), ['agents'])
-        if not is_valid:
-            logger.warning(f"[agent_handler] Invalid parameters for new agents: {error}")
-            return create_error_response(request, 'INVALID_PARAMS', error)
+        # Get agent parameter (array, but we only process the first one)
+        agents_data = params.get('agent', [])
+        
+        if not agents_data:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing agent parameter')
+        
+        # Only process the first agent (single create, not batch)
+        agent_data = agents_data[0]
 
-        # Get username from params or from first agent's owner field
-        username = data.get('username')
-        agents_data = data['agents']
+        # Get username from params or from agent's owner field
+        username = params.get('username') or agent_data.get('owner', 'unknown')
 
-        if not username and agents_data:
-            # Try to get username from first agent's owner field
-            username = agents_data[0].get('owner', 'unknown')
-
-        logger.info(f"[agent_handler] Creating {len(agents_data)} agents for user: {username}")
+        logger.info(f"[agent_handler] Creating agent '{agent_data.get('name')}' for user: {username}")
 
         main_window = AppContext.get_main_window()
         if main_window is None:
@@ -412,40 +499,41 @@ def handle_new_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
             logger.error(f"[agent_handler] Agent service not available")
             return create_error_response(request, 'DB_ERROR', 'Agent service not available')
 
-        # Call service layer to create agents in batch
-        result = agent_service.create_agents_batch(agents_data, username)
+        # Call service layer to create single agent
+        result = agent_service.create_agent_from_data(agent_data, username)
 
-        created_count = result['created_count']
-        errors = result['errors']
-        created_agents = result['agents']
+        if not result.get('success'):
+            error_msg = result.get('error', 'Unknown error')
+            logger.error(f"[agent_handler] Failed to create agent: {error_msg}")
+            return create_error_response(request, 'CREATE_AGENT_ERROR', error_msg)
+        
+        created_agent = result.get('data')
 
-        # Note: We don't add created agents to main_window.agents here because:
-        # 1. main_window.agents contains EC_Agent objects which require complex initialization
-        # 2. EC_Agent requires mainwin, skill_llm, and other dependencies
-        # 3. The agents are already in the database and will be loaded on next app restart
-        # 4. For immediate access, frontend should query the database directly via get_org_agents
+        # Convert created agent to EC_Agent object and add to main_window.agents
+        # Use common converter function for consistency
+        try:
+            from agent.agent_converter import convert_agent_dict_to_ec_agent
+            
+            ec_agent = convert_agent_dict_to_ec_agent(created_agent, main_window)
+            
+            if ec_agent:
+                # Add to main_window.agents
+                main_window.agents.append(ec_agent)
+                logger.info(f"[agent_handler] Created and added EC_Agent '{created_agent.get('name')}' to memory")
+            else:
+                logger.warning(f"[agent_handler] Failed to convert agent to EC_Agent. Frontend will need to refresh.")
+        except Exception as e:
+            logger.warning(f"[agent_handler] Failed to add agent to memory: {e}. Frontend will need to refresh.")
+            logger.debug(f"[agent_handler] Traceback: {traceback.format_exc()}")
 
-        logger.info(f"[agent_handler] Created {created_count} agents in database. "
-                   f"Note: These agents will be available in memory after app restart, "
-                   f"or can be queried from database immediately.")
-
-        if errors:
-            logger.warning(f"[agent_handler] Created {created_count} agents with {len(errors)} errors")
-            return create_error_response(
-                request,
-                'PARTIAL_CREATE_ERROR',
-                f"Created {created_count} agents with errors: {'; '.join(errors)}"
-            )
-        else:
-            logger.info(f"[agent_handler] Successfully created {created_count} agents for user: {username}")
-            return create_success_response(
-                request,
-                {
-                    'message': f'Successfully created {created_count} agents',
-                    'created_count': created_count,
-                    'agents': created_agents
-                }
-            )
+        logger.info(f"[agent_handler] Successfully created agent '{created_agent.get('name')}' for user: {username}")
+        return create_success_response(
+            request,
+            {
+                'message': f"Successfully created agent '{created_agent.get('name')}'",
+                'agent': created_agent
+            }
+        )
 
     except Exception as e:
         logger.error(f"[agent_handler] Error in create agents handler: {e} {traceback.format_exc()}")
@@ -486,15 +574,21 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
         username = data['username']
         logger.info(f"[agent_handler] Getting all organizations and agents for user: {username}")
         
-        # Get main window for agents data
+        # Get main_window to access integrated agents list
         main_window = AppContext.get_main_window()
         if main_window is None:
             logger.warning(f"[agent_handler] MainWindow not available for user: {username}")
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'User session not available - please login again')
         
-        # Get all agents from main window
-        all_agents = getattr(main_window, 'agents', []) or []
-        logger.info(f"[agent_handler] Retrieved {len(all_agents)} total agents from main window")
+        # Get integrated agents from MainWindow.agents (includes local DB + cloud + code-built agents)
+        # If agents not ready, we still return org structure (empty agents list)
+        all_agents = []
+        if hasattr(main_window, 'agents') and main_window.agents:
+            # All agents in MainWindow.agents are EC_Agent instances with to_flat_dict method
+            all_agents = [agent.to_flat_dict(owner=username) for agent in main_window.agents]
+            logger.info(f"[agent_handler] Retrieved {len(all_agents)} agents from MainWindow.agents")
+        else:
+            logger.warning(f"[agent_handler] MainWindow.agents not initialized - will return org structure only")
         
         # Get org manager for organization data
         ec_org_ctrl = get_ec_org_ctrl()
@@ -502,107 +596,27 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
         # Get all organizations as flat list (not tree structure)
         org_result = ec_org_ctrl.org_service.get_all_orgs()
         
-        if not org_result.get("success"):
-            logger.error(f"[agent_handler] Failed to get organizations: {org_result.get('error')}")
-            return create_error_response(request, 'GET_ORGANIZATIONS_FAILED', org_result.get('error', 'Unknown error'))
-        
-        organizations = org_result.get("data", [])
-        logger.info(f"[agent_handler] Retrieved {len(organizations)} organizations from flat list")
-        
-        # logger.info(f"[agent_handler] org_result full response: {org_result}")
-        
-        # Debug: log organization structure
-        if organizations:
-            logger.info("[agent_handler] Organization details length:", len(organizations))
-            # for org in organizations:
-            #     logger.info(f"  - Org: {org.get('name', 'Unknown')} (id: {org.get('id')}, parent_id: {org.get('parent_id')})")
+        # Get organizations - if query fails or returns empty, return empty structure
+        organizations = []
+        if org_result.get("success"):
+            organizations = org_result.get("data", [])
+            logger.info(f"[agent_handler] Retrieved {len(organizations)} organizations from database")
         else:
-            logger.error("[agent_handler] No organizations found in database!")
-            logger.error(f"[agent_handler] Database query result: success={org_result.get('success')}, data={org_result.get('data')}, error={org_result.get('error')}")
-            
-            # Check if the service is properly initialized
-            try:
-                # Check database service initialization
-                if hasattr(ec_org_ctrl.org_service, 'session_scope'):
-                    logger.info("[agent_handler] Database service appears to be initialized")
-                    
-                    # Try to check if table exists and has data
-                    try:
-                        with ec_org_ctrl.org_service.session_scope() as session:
-                            from agent.db.models.org_model import DBAgentOrg
-                            
-                            # Check if table exists by trying to count records
-                            count = session.query(DBAgentOrg).count()
-                            logger.info(f"[agent_handler] Found {count} organizations in agent_orgs table")
-                            
-                            if count == 0:
-                                logger.warning("[agent_handler] agent_orgs table is empty - this explains why children is empty")
-                                logger.warning("[agent_handler] You may need to check if organization template was loaded during initialization")
-                            else:
-                                # If there are records, let's see what they look like
-                                sample_orgs = session.query(DBAgentOrg).limit(3).all()
-                                logger.info("[agent_handler] Sample organizations from database:")
-                                for org in sample_orgs:
-                                    logger.info(f"  - {org.name} (id: {org.id}, parent_id: {org.parent_id})")
-                                    
-                    except Exception as db_e:
-                        logger.error(f"[agent_handler] Error checking database table: {db_e}")
-                        
-                else:
-                    logger.error("[agent_handler] Database service not properly initialized - missing session_scope")
-                    
-            except Exception as debug_e:
-                logger.error(f"[agent_handler] Error during debugging: {debug_e}")
+            logger.warning(f"[agent_handler] Failed to get organizations: {org_result.get('error')} - will return empty org structure")
         
-        # Process all agents with org_id field to indicate assignment
-        agents = []
-        
+        # all_agents is already in flat dict format from to_flat_dict() method
+        # Just add isBound field for frontend compatibility
         for agent in all_agents:
-            try:
-                # Convert agent to dict format
-                agent_dict = agent.to_dict() if hasattr(agent, 'to_dict') else agent
-                
-                # Check if agent has organization assignment
-                org_id = None
-                
-                # Try different ways to get org_id
-                if hasattr(agent, 'organization_id') and agent.organization_id:
-                    org_id = agent.organization_id
-                elif hasattr(agent, 'organizations') and agent.organizations:
-                    org_id = agent.organizations[0] if isinstance(agent.organizations, list) else agent.organizations
-                elif isinstance(agent_dict, dict):
-                    org_id = agent_dict.get('organization_id') or (
-                        agent_dict.get('organizations', [None])[0] if agent_dict.get('organizations') else None
-                    )
-                
-                # Create agent data with org_id field (null for unassigned)
-                # Ensure compatibility with frontend OrgAgent interface
-                agent_data = {
-                    'id': agent_dict.get('id') or (agent_dict.get('card', {}).get('id') if agent_dict.get('card') else None),
-                    'name': agent_dict.get('name') or (agent_dict.get('card', {}).get('name') if agent_dict.get('card') else 'Unknown'),
-                    'description': agent_dict.get('description') or agent_dict.get('job_description', ''),
-                    'avatar': agent_dict.get('avatar'),
-                    'status': agent_dict.get('status', 'active'),
-                    'org_id': org_id,  # null for unassigned, org_id for assigned
-                    'created_at': agent_dict.get('created_at'),
-                    'updated_at': agent_dict.get('updated_at'),
-                    'capabilities': agent_dict.get('capabilities', []),
-                    'isBound': org_id is not None  # 添加前端期望的 isBound 字段
-                }
-                
-                agents.append(agent_data)
-                    
-            except Exception as e:
-                logger.warning(f"[agent_handler] Error processing agent {getattr(agent, 'id', 'unknown')}: {e}")
-                continue
+            agent['isBound'] = agent.get('org_id') is not None
         
         # Count assigned vs unassigned for logging
-        assigned_count = len([a for a in agents if a['org_id']])
-        unassigned_count = len([a for a in agents if not a['org_id']])
-        logger.info(f"[agent_handler] Processed {len(agents)} total agents: {assigned_count} assigned, {unassigned_count} unassigned")
+        if all_agents:
+            assigned_count = len([a for a in all_agents if a.get('org_id')])
+            unassigned_count = len([a for a in all_agents if not a.get('org_id')])
+            logger.info(f"[agent_handler] Processed {len(all_agents)} total agents: {assigned_count} assigned, {unassigned_count} unassigned")
         
         # Build integrated tree structure with organizations and their agents
-        tree_root = build_org_agent_tree(organizations, agents)
+        tree_root = build_org_agent_tree(organizations, all_agents)
         
         # Return complete tree structure with root as orgs
         result_data = {

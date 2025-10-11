@@ -144,7 +144,7 @@ class OrgDataSyncService {
             subordinates: [],
             peers: [],
             rank: 'member' as const,
-            organizations: agent.org_id ? [String(agent.org_id)] : [],
+            orgIds: agent.org_id ? [String(agent.org_id)] : [],
             job_description: agent.description || '',
             personalities: [],
         }));

@@ -39,7 +39,7 @@ export function mapOrgAgentToAgent(
     subordinates: [],
     peers: [],
     rank: 'member',
-    organizations: normalizedOrgId ? [normalizedOrgId] : [],
+    orgIds: normalizedOrgId ? [normalizedOrgId] : [],
     job_description: orgAgent.description || '',
     personalities: [],
   };

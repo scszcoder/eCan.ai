@@ -14,8 +14,6 @@ import { get_ipc_api } from '@/services/ipc_api';
 import { DisplayNode, GetAllOrgAgentsResponse, OrgAgent, TreeOrgNode } from '../Orgs/types';
 import type { Agent } from './types';
 
-const UNASSIGNED_NODE_ID = 'unassigned';
-
 // 查找树节点
 function findTreeNodeById(node: TreeOrgNode, targetId: string): TreeOrgNode | null {
   if (node.id === targetId) {
@@ -65,15 +63,14 @@ const mapOrgAgentToAgent = (orgAgent: OrgAgent, orgId?: string): Agent => {
     subordinates: [],
     peers: [],
     rank: 'member',
-    organizations: normalizedOrgId ? [normalizedOrgId] : [],
+    orgIds: normalizedOrgId ? [normalizedOrgId] : [],
     job_description: orgAgent.description || '',
     personalities: [],
   };
 };
 
 const buildDoorsForNode = (
-  node: TreeOrgNode,
-  includeUnassignedDoor: boolean
+  node: TreeOrgNode
 ): DisplayNode[] => {
   const doors: DisplayNode[] = [];
   const children = [...(node.children || [])];
@@ -101,17 +98,6 @@ const buildDoorsForNode = (
     });
   });
 
-  if (includeUnassignedDoor && node.agents && node.agents.length > 0) {
-    doors.push({
-      id: UNASSIGNED_NODE_ID,
-      name: 'pages.agents.unassigned_agents',
-      type: 'unassigned_agents',
-      description: 'pages.agents.unassigned_agents_desc',
-      sort_order: Number.MAX_SAFE_INTEGER,
-      agents: node.agents,
-      agentCount: node.agents.length,
-    });
-  }
 
   return doors;
 };
@@ -155,7 +141,8 @@ const OrgNavigator: React.FC = () => {
   // 使用 useMemo 确保 rootNode 响应 treeOrgs 的变化
   const rootNode = useMemo(() => treeOrgs[0], [treeOrgs]);
   const isRootView = !actualOrgId || actualOrgId === 'root';
-  const isUnassignedView = actualOrgId === UNASSIGNED_NODE_ID;
+  // 移除isUnassignedView，不再需要单独的未分配视图
+  const isUnassignedView = false;
 
   const currentNode = useMemo(() => {
     if (!rootNode) {
@@ -178,14 +165,13 @@ const OrgNavigator: React.FC = () => {
       return [] as DisplayNode[];
     }
 
-    const includeUnassignedDoor = isRootView;
     const targetNode = isRootView ? rootNode : currentNode;
 
     if (!targetNode) {
       return [] as DisplayNode[];
     }
 
-    return buildDoorsForNode(targetNode, includeUnassignedDoor);
+    return buildDoorsForNode(targetNode);
   }, [rootNode, currentNode, isRootView, isUnassignedView, treeOrgs]);
 
   const rawAgents = useMemo(() => {
@@ -197,26 +183,66 @@ const OrgNavigator: React.FC = () => {
       return rootNode.agents || [];
     }
 
+    // 在根视图下，显示根节点的agents（未分配的agents）
+    if (isRootView) {
+      return rootNode.agents || [];
+    }
+
     if (!actualOrgId || !currentNode) {
       return [] as OrgAgent[];
     }
 
     return currentNode.agents || [];
-  }, [rootNode, currentNode, isUnassignedView, actualOrgId, treeOrgs]);
+  }, [rootNode, currentNode, isUnassignedView, isRootView, actualOrgId, treeOrgs]);
 
   const agentsForDisplay = useMemo(() => {
     const currentOrgId = isUnassignedView ? undefined : actualOrgId;
     return rawAgents.map((agent) => mapOrgAgentToAgent(agent, currentOrgId));
   }, [rawAgents, actualOrgId, isUnassignedView]);
 
+  // 合并doors和agents到统一的items列表，用于统一渲染
+  const allItems = useMemo(() => {
+    const items: Array<{type: 'door' | 'agent', data: any, sortOrder: number}> = [];
+    
+    // 添加所有doors（子组织）
+    levelDoors.forEach(door => {
+      items.push({
+        type: 'door',
+        data: door,
+        sortOrder: door.sort_order || 0
+      });
+    });
+    
+    // 添加所有agents，排序值设置为较大值，让agents显示在doors之后
+    agentsForDisplay.forEach((agent, index) => {
+      items.push({
+        type: 'agent',
+        data: agent,
+        sortOrder: 1000000 + index  // 确保agents排在doors后面
+      });
+    });
+    
+    // 按sortOrder排序
+    items.sort((a, b) => a.sortOrder - b.sortOrder);
+    
+    // 调试日志
+    console.log('[OrgNavigator] allItems:', {
+      totalItems: items.length,
+      doors: items.filter(i => i.type === 'door').length,
+      agents: items.filter(i => i.type === 'agent').length,
+      rawAgentsCount: rawAgents.length,
+      agentsForDisplayCount: agentsForDisplay.length,
+      isRootView,
+      actualOrgId
+    });
+    
+    return items;
+  }, [levelDoors, agentsForDisplay, rawAgents.length, isRootView, actualOrgId]);
+
 
   const handleDoorClick = useCallback(
     (door: DisplayNode) => {
-      if (door.type === 'unassigned_agents') {
-        const currentPath = location.pathname;
-        navigate(`${currentPath}/organization/unassigned`);
-        return;
-      }
+      // 移除未分配agents门的处理逻辑
 
       // 构建正确的嵌套路径：当前路径 + /organization/:orgId
       // 这样 PageBackBreadcrumb 组件就能正确解析路径层级
@@ -231,33 +257,6 @@ const OrgNavigator: React.FC = () => {
     [navigate, location.pathname, actualOrgId]
   );
 
-  const doorComponents = useMemo(() => {
-    return levelDoors.map((door) => {
-      let displayName = door.name;
-
-      if (displayName.startsWith('pages.')) {
-        displayName = t(displayName) || displayName;
-      }
-
-      if (door.type === 'org_with_agents' && typeof door.agentCount === 'number') {
-        displayName = `${displayName} (${door.agentCount})`;
-      }
-
-      if (door.type === 'org_with_children' && typeof door.childrenCount === 'number') {
-        displayName = `${displayName} (${door.childrenCount})`;
-      }
-
-      if (door.type === 'unassigned_agents') {
-        displayName = `${displayName} (${door.agentCount || 0})`;
-      }
-
-      return (
-        <div key={`${door.id}`} onClick={() => handleDoorClick(door)}>
-          <OrgDoor name={displayName} />
-        </div>
-      );
-    });
-  }, [levelDoors, t, handleDoorClick]);
 
   const fetchOrgStructure = useCallback(async () => {
     if (!username || !shouldFetchData()) {
@@ -320,6 +319,71 @@ const OrgNavigator: React.FC = () => {
     fetchOrgStructure();
   }, [fetchOrgStructure]);
 
+  // 监听URL参数变化，当有refresh参数时重新获取数据
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const refreshParam = searchParams.get('refresh');
+    if (refreshParam && username) {
+      console.log('[OrgNavigator] Refresh parameter detected, force reloading data');
+      
+      // 强制刷新数据，不检查shouldFetchData
+      const forceRefresh = async () => {
+        setLoading(true);
+        setError(null);
+
+        try {
+          logger.info('[OrgNavigator] Force fetching organization structure...');
+          const response = await get_ipc_api().getAllOrgAgents<GetAllOrgAgentsResponse>(username);
+
+          if (response.success && response.data) {
+            setAllOrgAgents(response.data);
+
+            const extractAllAgents = (node: TreeOrgNode): OrgAgent[] => {
+              let allAgents: OrgAgent[] = [];
+
+              if (node.agents && Array.isArray(node.agents)) {
+                allAgents = allAgents.concat(node.agents);
+              }
+
+              if (node.children && Array.isArray(node.children)) {
+                node.children.forEach((child) => {
+                  allAgents = allAgents.concat(extractAllAgents(child));
+                });
+              }
+
+              return allAgents;
+            };
+
+            const allAgents = extractAllAgents(response.data.orgs);
+
+            if (allAgents.length > 0) {
+              setAgents(
+                allAgents.map((agent) =>
+                  mapOrgAgentToAgent(agent, agent.org_id || undefined)
+                )
+              );
+              logger.info(`[OrgNavigator] Force refresh: Extracted and saved ${allAgents.length} agents to agentStore`);
+            } else {
+              logger.warn('[OrgNavigator] Force refresh: No agents found in organization structure');
+            }
+          } else {
+            const errorMessage = response.error?.message || 'Failed to fetch organization structure';
+            setError(errorMessage);
+            logger.error('[OrgNavigator] Force refresh failed:', errorMessage);
+          }
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+          setError(errorMessage);
+          logger.error('[OrgNavigator] Force refresh error:', errorMessage);
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      forceRefresh();
+    }
+  }, [location.search, username, setLoading, setError, setAllOrgAgents, setAgents]);
+
   if (loading && !rootNode) {
     return (
       <div className="org-navigator">
@@ -377,33 +441,53 @@ const OrgNavigator: React.FC = () => {
         <div className="navigator-space-light navigator-space-light1" />
       </div>
 
-      {/* 门规则网格分布 */}
-      {doorComponents.length > 0 && (
-        <div className="doors-grid" data-door-count={doorComponents.length}>
-          {doorComponents}
-        </div>
-      )}
+      {/* 统一网格布局 - 同时显示doors和agents */}
+      {allItems.length > 0 && (
+        <div className="unified-grid" data-item-count={allItems.length}>
+          {allItems.map((item) => {
+            if (item.type === 'door') {
+              const door = item.data;
+              let displayName = door.name;
 
-      {doorComponents.length === 0 && !isUnassignedView && (
-        <div className="doors-empty-state">
-          {t('pages.agents.no_sub_orgs') || 'No sub organizations available.'}
-        </div>
-      )}
+              if (displayName.startsWith('pages.')) {
+                displayName = t(displayName) || displayName;
+              }
 
-      {agentsForDisplay.length > 0 && (
-        <div className="agent-roster">
-          <div className="agent-roster-grid">
-            {agentsForDisplay.map((agent) => {
+              if (door.type === 'org_with_agents' && typeof door.agentCount === 'number') {
+                displayName = `${displayName} (${door.agentCount})`;
+              }
+
+              if (door.type === 'org_with_children' && typeof door.childrenCount === 'number') {
+                displayName = `${displayName} (${door.childrenCount})`;
+              }
+
+              // 移除未分配agents门的显示逻辑
+
+              return (
+                <div key={`door-${door.id}`} onClick={() => handleDoorClick(door)}>
+                  <OrgDoor name={displayName} />
+                </div>
+              );
+            } else {
+              // agent item
+              const agent = item.data;
               const cardId = (agent as any)?.card?.id ?? (agent as any)?.id ?? agent.card.name;
               return (
-                <AgentCard
-                  key={cardId}
-                  agent={agent}
-                  onChat={() => navigate(`/chat?agentId=${cardId}`)}
-                />
+                <div key={`agent-${cardId}`} className="agent-card-wrapper">
+                  <AgentCard
+                    agent={agent}
+                    onChat={() => navigate(`/chat?agentId=${cardId}`)}
+                  />
+                </div>
               );
-            })}
-          </div>
+            }
+          })}
+        </div>
+      )}
+
+      {allItems.length === 0 && !isUnassignedView && (
+        <div className="empty-state">
+          {t('pages.agents.no_items') || 'No organizations or agents available.'}
         </div>
       )}
 
@@ -417,11 +501,11 @@ const OrgNavigator: React.FC = () => {
           // 传递当前组织ID作为查询参数
           console.log('[OrgNavigator] Add button clicked, actualOrgId:', actualOrgId);
           const queryParams = new URLSearchParams();
-          if (actualOrgId && actualOrgId !== 'root' && actualOrgId !== UNASSIGNED_NODE_ID) {
+          if (actualOrgId && actualOrgId !== 'root') {
             console.log('[OrgNavigator] Setting orgId query param:', actualOrgId);
             queryParams.set('orgId', actualOrgId);
           } else {
-            console.log('[OrgNavigator] Not setting orgId - actualOrgId:', actualOrgId, 'UNASSIGNED:', UNASSIGNED_NODE_ID);
+            console.log('[OrgNavigator] Not setting orgId - actualOrgId:', actualOrgId);
           }
           const queryString = queryParams.toString();
           const targetUrl = `/agents/add${queryString ? `?${queryString}` : ''}`;

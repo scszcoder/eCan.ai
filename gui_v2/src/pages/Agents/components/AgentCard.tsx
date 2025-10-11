@@ -8,7 +8,7 @@
  */
 
 import React, { useMemo, useEffect } from 'react';
-import { Button, Dropdown, Modal, message } from 'antd';
+import { App, Button, Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
 import { MessageOutlined, MoreOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -16,6 +16,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import agentGifs, { logVideoSupport } from '@/assets/gifs';
 import { Agent, type AgentCard as AgentCardType } from '../types';
 import { useAgentStore } from '@/stores/agentStore';
+import { useOrgStore } from '@/stores/orgStore';
 import { useUserStore } from '@/stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 import './AgentCard.css';
@@ -112,7 +113,12 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
   
   // 处理编辑
   const handleEdit = () => {
-    if (!id) return;
+    if (!id) {
+      console.error('[AgentCard] handleEdit: No agent ID found', { agent });
+      return;
+    }
+    console.log('[AgentCard] handleEdit called for agent:', { id, name, agent });
+    
     // 传递当前组织ID作为查询参数
     const queryParams = new URLSearchParams();
     if (currentOrgId && currentOrgId !== 'root' && currentOrgId !== 'unassigned') {
@@ -120,15 +126,26 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
     }
     const queryString = queryParams.toString();
     const targetUrl = `/agents/details/${id}${queryString ? `?${queryString}` : ''}`;
-    console.log('[AgentCard] Navigating to edit with orgId:', currentOrgId, 'URL:', targetUrl);
+    console.log('[AgentCard] Navigating to edit:', { 
+      agentId: id, 
+      agentName: name,
+      currentOrgId, 
+      targetUrl 
+    });
     navigate(targetUrl);
   };
   
+  // 使用 App 组件的上下文
+  const { modal, message } = App.useApp();
+  
   // 处理删除
   const handleDelete = () => {
-    if (!id || !username) return;
+    if (!id || !username) {
+      console.error('[AgentCard] handleDelete: No agent ID or username');
+      return;
+    }
     
-    Modal.confirm({
+    modal.confirm({
       title: t('common.confirm_delete') || 'Confirm Delete',
       content: t('common.confirm_delete_desc') || 'Are you sure you want to delete this agent?',
       okText: t('common.ok') || 'OK',
@@ -137,9 +154,16 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
       onOk: async () => {
         try {
           const api = get_ipc_api();
-          const res = await api.deleteAgent(username, id);
+          const res = await api.deleteAgent(username, [id]);
+          
           if (res.success) {
             message.success(t('common.deleted_successfully') || 'Deleted successfully');
+            // 从 agentStore 中移除已删除的 agent
+            const removeAgent = useAgentStore.getState().removeAgent;
+            removeAgent(id);
+            // 同时从 orgStore 中移除
+            const removeAgentFromOrg = useOrgStore.getState().removeAgentFromOrg;
+            removeAgentFromOrg(id);
           } else {
             message.error(res.error?.message || (t('common.delete_failed') as string) || 'Delete failed');
           }

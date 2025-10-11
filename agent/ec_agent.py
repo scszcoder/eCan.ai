@@ -81,7 +81,7 @@ class EC_Agent(Agent):
 		subordinates: Optional[List[str]] = None,
 		peers: Optional[List[str]] = None,
 		rank: Optional[str] = None,
-		organizations: Optional[List[str]] = None,
+		org_ids: Optional[List[str]] = None,
 		title: Optional[str] = None,
 		gender: Optional[str] = None,
 		birthday: Optional[str] = None,
@@ -101,7 +101,7 @@ class EC_Agent(Agent):
 		self.subordinates = subordinates if subordinates is not None else []
 		self.peers = peers if peers is not None else []
 		self.rank = rank if rank is not None else ""
-		self.organizations = organizations if organizations is not None else []
+		self.org_ids = org_ids if org_ids is not None else []
 		self.title = title if title is not None else ""
 		self.gender = gender if gender is not None else "m"
 		self.birthday = birthday if birthday is not None else "2000-01-01"
@@ -185,17 +185,57 @@ class EC_Agent(Agent):
 
 
 	def to_dict(self):
+		"""Convert agent to dict with camelCase keys for frontend"""
 		agentJS = {
 			"card": self.card_to_dict(self.card),
 			"supervisors": self.supervisors,
 			"subordinates": self.subordinates,
 			"peers": self.peers,
 			"rank": self.rank,
-			"organizations": self.organizations,
+			"orgIds": self.org_ids,  # Convert to camelCase for API/JSON
 			"title": self.title,
 			"personalities": self.personalities
 		}
 		return agentJS
+	
+	def to_flat_dict(self, owner: str = None):
+		"""
+		Convert agent to flat dict structure for frontend/API consumption
+		
+		This method flattens the nested card structure into a single-level dict,
+		making it easier for frontend to consume without nested navigation.
+		
+		Args:
+			owner: Optional owner username/email to include in the dict
+		
+		Returns:
+			dict: Flat agent structure with all fields at root level
+		"""
+		agent_dict = self.to_dict()
+		card = agent_dict.get('card', {})
+		
+		flat_agent = {
+			'id': card.get('id'),
+			'name': card.get('name'),
+			'description': card.get('description', ''),
+			'owner': owner or card.get('owner'),
+			'gender': card.get('gender', 'male'),
+			'title': card.get('title', ''),
+			'rank': agent_dict.get('rank'),
+			'birthday': card.get('birthday'),
+			'supervisor_id': agent_dict.get('supervisors', [None])[0] if agent_dict.get('supervisors') else None,
+			'personality_traits': card.get('personalities', []),
+			'capabilities': card.get('capabilities'),
+			'status': card.get('status', 'active'),
+			'version': card.get('version'),
+			'url': card.get('url'),
+			'extra_data': card.get('extra_data', {}),
+			'created_at': card.get('created_at'),
+			'updated_at': card.get('updated_at'),
+			'ext': card.get('ext'),
+			'org_id': agent_dict.get('orgIds', [None])[0] if agent_dict.get('orgIds') else None,
+		}
+		return flat_agent
 
 	def card_to_dict(self, card):
 		cardJS = {
@@ -259,7 +299,7 @@ class EC_Agent(Agent):
 		return self.card
 
 	def get_a2a_server_port(self):
-		logger.info(f"get a2a server port: {self.a2a_server.agent_card.url.split(':')[-1]}")
+		"""Get the A2A server port number"""
 		return int(self.a2a_server.agent_card.url.split(":")[-1])
 
 	def is_busy(self):

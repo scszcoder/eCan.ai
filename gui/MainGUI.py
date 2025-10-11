@@ -23,6 +23,7 @@ import socket
 import threading
 import time
 import traceback
+import uuid
 from datetime import datetime, timedelta
 from os.path import exists
 from typing import List
@@ -1572,67 +1573,8 @@ class MainWindow:
                 if agents_built:
                     logger.info(f"[MainWindow] ✅ Successfully built and launched {len(self.agents)} agents")
 
-                    # TODO: Merge agent.tasks from built agents into mainwin.agent_tasks
-                    # This step will be deprecated in the future
-                    try:
-                        logger.info("[MainWindow] 📝 Merging agent.tasks from built agents...")
-                        merged_count = 0
-                        skipped_count = 0
-
-                        # Build a set of existing task identifiers for fast lookup
-                        existing_task_ids = set()
-                        existing_task_names = set()
-                        for existing_task in self.agent_tasks:
-                            task_id = getattr(existing_task, 'id', None)
-                            task_name = getattr(existing_task, 'name', None)
-                            if task_id:
-                                existing_task_ids.add(task_id)
-                            if task_name:
-                                existing_task_names.add(task_name)
-
-                        logger.debug(f"[MainWindow] Existing tasks: {len(existing_task_ids)} with IDs, {len(existing_task_names)} with names")
-
-                        # Merge agent tasks with deduplication
-                        for agent in self.agents:
-                            if hasattr(agent, 'tasks') and agent.tasks:
-                                agent_name = getattr(agent, 'name', 'Unknown')
-                                logger.debug(f"[MainWindow] Processing {len(agent.tasks)} tasks from agent: {agent_name}")
-
-                                for agent_task in agent.tasks:
-                                    task_id = getattr(agent_task, 'id', None)
-                                    task_name = getattr(agent_task, 'name', None)
-
-                                    # Check for duplicates by ID (primary) or name (fallback)
-                                    is_duplicate = False
-                                    if task_id and task_id in existing_task_ids:
-                                        is_duplicate = True
-                                        logger.debug(f"[MainWindow] Skipping duplicate task by ID: {task_id}")
-                                    elif task_name and task_name in existing_task_names:
-                                        is_duplicate = True
-                                        logger.debug(f"[MainWindow] Skipping duplicate task by name: {task_name}")
-
-                                    if not is_duplicate:
-                                        # Add to memory
-                                        self.agent_tasks.append(agent_task)
-
-                                        # Update tracking sets
-                                        if task_id:
-                                            existing_task_ids.add(task_id)
-                                        if task_name:
-                                            existing_task_names.add(task_name)
-
-                                        merged_count += 1
-                                        logger.debug(f"[MainWindow] Merged task: {task_name or task_id}")
-                                    else:
-                                        skipped_count += 1
-
-                        logger.info(f"[MainWindow] ✅ Merged {merged_count} agent tasks from built agents")
-                        logger.info(f"[MainWindow] ⏭️  Skipped {skipped_count} duplicate agent tasks")
-                        logger.info(f"[MainWindow] 📊 Total agent tasks in memory: {len(self.agent_tasks)}")
-                    except Exception as merge_error:
-                        logger.warning(f"[MainWindow] ⚠️ Failed to merge agent.tasks: {merge_error}")
-                        import traceback
-                        logger.debug(f"[MainWindow] Merge error traceback: {traceback.format_exc()}")
+                    # TODO: Merge agent.tasks from built agents into mainwin.agent_tasks, This step will be deprecated in the future
+                    self._merge_agent_tasks_to_memory()
                 else:
                     logger.warning("[MainWindow] ⚠️ Agent ultra-parallel process completed with issues")
 
@@ -1844,9 +1786,7 @@ class MainWindow:
             
             # Get port range from configuration
             local_agent_ports = self.config_manager.general_settings.local_agent_ports
-            
-            logger.info(f"[MainWindow] Port allocation: {len(self.agents)} agents, used ports: {used_ports}, range: {local_agent_ports}")
-            
+                        
             # Use thread-safe allocator
             free_ports = self._port_allocator.get_free_ports(n, local_agent_ports, used_ports)
             
@@ -1916,7 +1856,17 @@ class MainWindow:
             return []
 
     async def _build_and_launch_agents_ultra_parallel(self):
-        """Ultra-parallel Agent build and launch - true parallel processing to maximize performance"""
+        """
+        Ultra-parallel agent build and launch
+        
+        Integrates agents from three sources in parallel:
+        1. Code-built agents (from builder functions)
+        2. Local database agents (user-created via UI)
+        3. Cloud agents (synced from cloud API)
+        
+        Returns:
+            bool: True if agents were successfully built and initialized
+        """
         try:
             logger.info("[MainWindow] 🚀 Starting ultra-parallel agent build and launch...")
             start_time = time.time()
@@ -1924,122 +1874,203 @@ class MainWindow:
             # Initialize agents list
             self.agents = []
             
-            # Define Agent types to build (based on role)
+            # Step 1: Parallel execution of THREE tasks
+            logger.info("[MainWindow] 🔧 Starting 3-way parallel execution:")
+            logger.info("[MainWindow]    1️⃣ Building code-built agents")
+            logger.info("[MainWindow]    2️⃣ Loading local database agents")
+            logger.info("[MainWindow]    3️⃣ Fetching cloud agents")
+            
+            built_agents, local_db_agents, cloud_agents = await asyncio.gather(
+                self._build_code_agents_async(),
+                self._load_local_db_agents(),
+                self._fetch_cloud_agents(),
+                return_exceptions=True
+            )
+            
+            # Handle exceptions from parallel tasks
+            if isinstance(built_agents, Exception):
+                logger.error(f"[MainWindow] ❌ Failed to build code agents: {built_agents}")
+                built_agents = []
+            if isinstance(local_db_agents, Exception):
+                logger.error(f"[MainWindow] ❌ Failed to load local DB agents: {local_db_agents}")
+                local_db_agents = []
+            if isinstance(cloud_agents, Exception):
+                logger.error(f"[MainWindow] ❌ Failed to fetch cloud agents: {cloud_agents}")
+                cloud_agents = []
+            
+            logger.info(f"[MainWindow] 📊 Parallel loading completed:")
+            logger.info(f"[MainWindow]    - Code-built: {len(built_agents)}, DB: {len(local_db_agents)}, Cloud: {len(cloud_agents)}")
+            
+            # Step 2: Merge and deduplicate agents from all sources
+            logger.info("[MainWindow] 🔀 Merging agents from all sources...")
+            
+            # Merge local DB and cloud agents (cloud overwrites local)
+            merged_db_cloud = self._merge_agent_data(local_db_agents, cloud_agents)
+            logger.info(f"[MainWindow] 📊 DB + Cloud merged: {len(merged_db_cloud)} agents")
+            
+            # Update local database with merged data
+            await self._update_local_db_agents(merged_db_cloud)
+            
+            # Merge code-built agents with DB/Cloud agents (Priority: Code-built > Cloud > Local DB)
+            self.agents = self._merge_all_agent_sources(
+                code_built_agents=built_agents,
+                db_cloud_agents=merged_db_cloud
+            )
+            
+            logger.info(f"[MainWindow] ✅ Merged {len(self.agents)} unique agents")
+            
+            if len(self.agents) == 0:
+                logger.error("[MainWindow] ❌ No agents available after merge")
+                return False
+            
+            # Step 3: Convert DB/Cloud agent dicts to EC_Agent objects
+            logger.info("[MainWindow] 🔄 Converting DB/Cloud agents to EC_Agent objects...")
+            converted_agents = await self._convert_db_agents_to_objects()
+            logger.info(f"[MainWindow] ✅ Converted {len(converted_agents)} DB/Cloud agents")
+            
+            # Replace dict agents with EC_Agent objects
+            new_agents_list = []
+            for agent in self.agents:
+                if isinstance(agent, dict):
+                    agent_id = agent.get('id')
+                    converted = next((a for a in converted_agents if hasattr(a, 'card') and a.card.id == agent_id), None)
+                    if converted:
+                        new_agents_list.append(converted)
+                    else:
+                        logger.warning(f"[MainWindow] ⚠️ Failed to convert agent {agent.get('name')}")
+                else:
+                    new_agents_list.append(agent)
+            
+            self.agents = new_agents_list
+            logger.info(f"[MainWindow] ✅ Final agent list: {len(self.agents)} EC_Agent objects")
+            
+            # Step 4: Launch agents in background (non-blocking)
+            self._launch_agents_async(self.agents)
+            
+            total_time = time.time() - start_time
+            logger.info(f"[MainWindow] 🎉 Ultra-parallel process completed in {total_time:.3f}s")
+            logger.info(f"[MainWindow]    - {len(self.agents)} agents ready, launches running in background")
+            
+            return len(self.agents) > 0
+            
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Ultra-parallel process failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+
+    async def _build_code_agents_async(self):
+        """Build all code-built agents in parallel
+        
+        Returns:
+            List of successfully built (agent_name, agent) tuples
+        """
+        try:
+            # Import agent builder functions
+            from agent.ec_agents.my_twin_agent import set_up_my_twin_agent
+            from agent.ec_agents.ec_helper_agent import set_up_ec_helper_agent
+            from agent.ec_agents.ec_rpa_operator_agent import set_up_ec_rpa_operator_agent
+            from agent.ec_agents.ec_tester_agent import set_up_ec_tester_agent
+            from agent.ec_agents.ec_procurement_agent import set_up_ec_procurement_agent
+            
+            # Define agent configurations based on role
             agent_configs = []
             
             # Basic Agent (always needed)
             agent_configs.append({
                 'name': 'My Twin',
-                'builder': 'agent.ec_agents.my_twin_agent.set_up_my_twin_agent'
+                'builder': set_up_my_twin_agent
             })
             
-            # Add other Agents based on role
+            # Add other agents based on role
             if "Platoon" in self.machine_role:
                 agent_configs.extend([
-                    {'name': 'Helper', 'builder': 'agent.ec_agents.ec_helper_agent.set_up_ec_helper_agent'},
-                    {'name': 'RPA Operator', 'builder': 'agent.ec_agents.ec_rpa_operator_agent.set_up_ec_rpa_operator_agent'},
-                    {'name': 'Tester', 'builder': 'agent.ec_agents.ec_tester_agent.set_up_ec_tester_agent'}
+                    {'name': 'Helper', 'builder': set_up_ec_helper_agent},
+                    {'name': 'RPA Operator', 'builder': set_up_ec_rpa_operator_agent},
+                    {'name': 'Tester', 'builder': set_up_ec_tester_agent}
                 ])
             else:
                 agent_configs.append({
-                    'name': 'Helper', 
-                    'builder': 'agent.ec_agents.ec_helper_agent.set_up_ec_helper_agent'
+                    'name': 'Helper',
+                    'builder': set_up_ec_helper_agent
                 })
                 
                 if "ONLY" not in self.machine_role:
                     agent_configs.extend([
-                        {'name': 'Procurement', 'builder': 'agent.ec_agents.ec_procurement_agent.set_up_ec_procurement_agent'},
-                        {'name': 'Tester', 'builder': 'agent.ec_agents.ec_tester_agent.set_up_ec_tester_agent'}
+                        {'name': 'Procurement', 'builder': set_up_ec_procurement_agent},
+                        {'name': 'Tester', 'builder': set_up_ec_tester_agent}
                     ])
             
-            logger.info(f"[MainWindow] 📋 Ultra-parallel will build {len(agent_configs)} agents")
+            logger.info(f"[MainWindow] 📋 Building {len(agent_configs)} code-built agents in parallel")
             
-            # 🚀 Strategy 1: Build all Agents in parallel
-            build_start = time.time()
-            build_tasks = [
-                self._build_single_agent_with_name_async(config['name'], config['builder'])
-                for config in agent_configs
-            ]
+            # Build all agents in parallel
+            async def build_single(config):
+                try:
+                    loop = asyncio.get_event_loop()
+                    agent = await loop.run_in_executor(None, config['builder'], self)
+                    return (config['name'], agent) if agent else None
+                except Exception as e:
+                    logger.error(f"[MainWindow] ❌ Failed to build {config['name']}: {e}")
+                    return None
             
-            logger.info(f"[MainWindow] 🔧 Building {len(build_tasks)} agents in parallel...")
-            build_results = await asyncio.gather(*build_tasks, return_exceptions=True)
+            build_tasks = [build_single(config) for config in agent_configs]
+            results = await asyncio.gather(*build_tasks, return_exceptions=True)
             
-            # Collect successfully built Agents
+            # Filter successful builds
             built_agents = []
-            for i, result in enumerate(build_results):
+            for i, result in enumerate(results):
                 if isinstance(result, Exception):
                     logger.error(f"[MainWindow] ❌ Failed to build {agent_configs[i]['name']}: {result}")
-                elif result and result[1]:  # (name, agent) tuple
+                elif result and result[1]:
                     built_agents.append(result)
-                    self.agents.append(result[1])
                     logger.info(f"[MainWindow] ✅ Built {result[0]} agent ({len(built_agents)}/{len(agent_configs)})")
                 else:
                     logger.warning(f"[MainWindow] ⚠️ {agent_configs[i]['name']} build returned None")
             
-            build_time = time.time() - build_start
-            logger.info(f"[MainWindow] 🎉 Parallel build completed: {len(built_agents)}/{len(agent_configs)} agents in {build_time:.3f}s")
+            logger.info(f"[MainWindow] 🎉 Code-built agents completed: {len(built_agents)}/{len(agent_configs)}")
+            return built_agents
             
-            if not built_agents:
-                logger.error("[MainWindow] ❌ No agents were successfully built")
-                return False
-            
-            # 🚀 Strategy 2: Launch all successfully built Agents in parallel
-            launch_start = time.time()
-            launch_tasks = [
-                self._launch_single_agent_with_name_async(name, agent)
-                for name, agent in built_agents
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Failed to build code agents: {e}")
+            return []
+
+    def _launch_agents_async(self, agents_list):
+        """Launch agents in background without blocking
+        
+        Creates a background task to launch all agents in parallel.
+        This method returns immediately without waiting for launches to complete.
+        
+        Args:
+            agents_list: List of EC_Agent objects to launch
+        """
+        async def launch_all_async():
+            """Internal async function to launch all agents"""
+            launchable_agents = [
+                (f"Agent_{i}", agent) for i, agent in enumerate(agents_list)
+                if hasattr(agent, 'launch') or hasattr(agent, 'start')
             ]
             
-            logger.info(f"[MainWindow] 🚀 Launching {len(launch_tasks)} agents in parallel...")
-            launch_results = await asyncio.gather(*launch_tasks, return_exceptions=True)
+            if not launchable_agents:
+                logger.info("[MainWindow] 🔍 No launchable agents found")
+                return
             
-            # Count launch results
-            launched_count = 0
-            for i, result in enumerate(launch_results):
-                agent_name = built_agents[i][0]
-                if isinstance(result, Exception):
-                    logger.warning(f"[MainWindow] ⚠️ Failed to launch {agent_name}: {result}")
-                elif result:
-                    launched_count += 1
-                    logger.info(f"[MainWindow] 🚀 Launched {agent_name} agent ({launched_count}/{len(built_agents)})")
-                else:
-                    logger.warning(f"[MainWindow] ⚠️ {agent_name} launch returned False")
+            logger.info(f"[MainWindow] 🚀 Launching {len(launchable_agents)} agents in background (fire-and-forget)...")
             
-            launch_time = time.time() - launch_start
-            total_time = time.time() - start_time
+            # Launch all agents in parallel using existing method
+            launch_tasks = [
+                self._launch_single_agent_with_name_async(name, agent)
+                for name, agent in launchable_agents
+            ]
+            results = await asyncio.gather(*launch_tasks, return_exceptions=True)
             
-            logger.info(f"[MainWindow] 🎉 Parallel launch completed: {launched_count}/{len(built_agents)} agents in {launch_time:.3f}s")
-            logger.info(f"[MainWindow] 🎉 Ultra-parallel process completed: {len(built_agents)} built, {launched_count} launched in {total_time:.3f}s")
-            
-            # Performance comparison information
-            estimated_sequential_time = len(agent_configs) * 0.6  # Estimate sequential execution time
-            improvement = ((estimated_sequential_time - total_time) / estimated_sequential_time) * 100
-            logger.info(f"[MainWindow] 📈 Performance improvement: ~{improvement:.1f}% faster than sequential")
-            
-            return len(built_agents) > 0
-            
-        except Exception as e:
-            logger.error(f"[MainWindow] ❌ Ultra-parallel process failed: {e}")
-            return False
-
-    async def _build_single_agent_with_name_async(self, agent_name: str, builder_path: str):
-        """Asynchronously build a single Agent (returns tuple of name and Agent)"""
-        try:
-            # Dynamically import build function
-            module_path, function_name = builder_path.rsplit('.', 1)
-            module = __import__(module_path, fromlist=[function_name])
-            builder_func = getattr(module, function_name)
-            
-            # Execute build in thread pool (avoid blocking event loop)
-            loop = asyncio.get_event_loop()
-            agent = await loop.run_in_executor(None, builder_func, self)
-            
-            return (agent_name, agent) if agent else None
-            
-        except Exception as e:
-            logger.error(f"[MainWindow] ❌ Failed to build {agent_name}: {e}")
-            return None
-
+            # Count results
+            launched_count = sum(1 for r in results if r is True)
+            logger.info(f"[MainWindow] 🎉 Background launch completed: {launched_count}/{len(launchable_agents)} agents launched")
+        
+        # Create task and run in background (fire-and-forget)
+        asyncio.create_task(launch_all_async())
+        logger.info(f"[MainWindow] 🔥 Agent launch task created (running in background)")
+    
     async def _launch_single_agent_with_name_async(self, agent_name: str, agent):
         """Asynchronously launch a single Agent (returns launch result)"""
         try:
@@ -2079,6 +2110,349 @@ class MainWindow:
         except Exception as e:
             logger.error(f"[MainWindow] ❌ Failed to launch {agent_name}: {e}")
             return False
+
+    async def _load_local_db_agents(self):
+        """
+        Load agents from local database using agent service
+        Returns: List of agent dicts
+        """
+        try:
+            logger.info("[MainWindow] 📂 Loading agents from local database...")
+            logger.info(f"[MainWindow] 📂 Current user (original): {self.user}")
+            logger.info(f"[MainWindow] 📂 Current user (sanitized): {self.log_user}")
+            
+            if not self.ec_db_mgr or not self.ec_db_mgr.agent_service:
+                logger.warning("[MainWindow] ⚠️  Agent service not available")
+                return []
+            
+            agent_service = self.ec_db_mgr.agent_service
+            logger.info(f"[MainWindow] 📂 Agent service available: {agent_service}")
+            
+            # Use agent service method to load agents (run in executor to avoid blocking)
+            # IMPORTANT: Use self.user (original email) not self.log_user (sanitized for filesystem)
+            def load_from_service():
+                logger.info(f"[MainWindow] 📂 Querying agents for owner: {self.user}")
+                result = agent_service.get_agents_by_owner(self.user)
+                logger.info(f"[MainWindow] 📂 Query result: success={result.get('success')}, data_count={len(result.get('data', []))}")
+                if result.get("success"):
+                    agents_data = result.get("data", [])
+                    logger.info(f"[MainWindow] 📂 Found {len(agents_data)} agents in database")
+                    return agents_data
+                else:
+                    logger.error(f"[MainWindow] ❌ Agent service query failed: {result.get('error')}")
+                    return []
+            
+            agents = await asyncio.get_event_loop().run_in_executor(None, load_from_service)
+            logger.info(f"[MainWindow] ✅ Loaded {len(agents)} agents from local database")
+            return agents
+            
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Failed to load local DB agents: {e}")
+            return []
+    
+    def _merge_agent_tasks_to_memory(self):
+        """
+        Merge agent.tasks from built agents into mainwin.agent_tasks
+        
+        This method consolidates tasks from all agents into the main window's task list,
+        with deduplication by task ID and name.
+        
+        Returns:
+            tuple: (merged_count, skipped_count, total_count)
+        """
+        try:
+            logger.info("[MainWindow] 📝 Merging agent.tasks from built agents...")
+            merged_count = 0
+            skipped_count = 0
+
+            # Build a set of existing task identifiers for fast lookup
+            existing_task_ids = set()
+            existing_task_names = set()
+            for existing_task in self.agent_tasks:
+                task_id = getattr(existing_task, 'id', None)
+                task_name = getattr(existing_task, 'name', None)
+                if task_id:
+                    existing_task_ids.add(task_id)
+                if task_name:
+                    existing_task_names.add(task_name)
+
+            logger.debug(f"[MainWindow] Existing tasks: {len(existing_task_ids)} with IDs, {len(existing_task_names)} with names")
+
+            # Merge agent tasks with deduplication
+            for agent in self.agents:
+                if hasattr(agent, 'tasks') and agent.tasks:
+                    agent_name = getattr(agent, 'name', 'Unknown')
+                    logger.debug(f"[MainWindow] Processing {len(agent.tasks)} tasks from agent: {agent_name}")
+
+                    for agent_task in agent.tasks:
+                        task_id = getattr(agent_task, 'id', None)
+                        task_name = getattr(agent_task, 'name', None)
+
+                        # Check for duplicates by ID (primary) or name (fallback)
+                        is_duplicate = False
+                        if task_id and task_id in existing_task_ids:
+                            is_duplicate = True
+                            logger.debug(f"[MainWindow] Skipping duplicate task by ID: {task_id}")
+                        elif task_name and task_name in existing_task_names:
+                            is_duplicate = True
+                            logger.debug(f"[MainWindow] Skipping duplicate task by name: {task_name}")
+
+                        if not is_duplicate:
+                            # Add to memory
+                            self.agent_tasks.append(agent_task)
+
+                            # Update tracking sets
+                            if task_id:
+                                existing_task_ids.add(task_id)
+                            if task_name:
+                                existing_task_names.add(task_name)
+
+                            merged_count += 1
+                            logger.debug(f"[MainWindow] Merged task: {task_name or task_id}")
+                        else:
+                            skipped_count += 1
+
+            total_count = len(self.agent_tasks)
+            logger.info(f"[MainWindow] ✅ Merged {merged_count} agent tasks from built agents")
+            logger.info(f"[MainWindow] ⏭️  Skipped {skipped_count} duplicate agent tasks")
+            logger.info(f"[MainWindow] 📊 Total agent tasks in memory: {total_count}")
+            
+            return merged_count, skipped_count, total_count
+            
+        except Exception as e:
+            logger.warning(f"[MainWindow] ⚠️ Failed to merge agent.tasks: {e}")
+            import traceback
+            logger.debug(f"[MainWindow] Merge error traceback: {traceback.format_exc()}")
+            return 0, 0, len(self.agent_tasks)
+    
+    async def _convert_db_agents_to_objects(self):
+        """
+        Convert DB/Cloud agent dicts to EC_Agent objects with A2A support
+        Returns: List of EC_Agent objects
+        """
+        try:
+            from agent.ec_agent import EC_Agent
+            from agent.a2a.common.types import AgentCard
+            from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
+            
+            converted_agents = []
+            
+            # Get all dict agents from self.agents
+            logger.info(f"[MainWindow] 🔍 DEBUG: self.agents has {len(self.agents)} total items")
+            logger.info(f"[MainWindow] 🔍 DEBUG: Types in self.agents: {[type(a).__name__ for a in self.agents[:5]]}")
+            dict_agents = [agent for agent in self.agents if isinstance(agent, dict)]
+            
+            logger.info(f"[MainWindow] 🔄 Converting {len(dict_agents)} dict agents to EC_Agent objects...")
+            
+            # Use common converter function for consistency
+            from agent.agent_converter import convert_agent_dict_to_ec_agent
+            
+            for agent_data in dict_agents:
+                # Debug: log agent data
+                logger.debug(f"[MainWindow] 🔍 Converting agent: {agent_data.get('name')}, org_id from DB: {agent_data.get('org_id')}")
+                
+                # Convert using common function
+                agent = convert_agent_dict_to_ec_agent(agent_data, self)
+                
+                if agent:
+                    converted_agents.append(agent)
+            
+            logger.info(f"[MainWindow] ✅ Successfully converted {len(converted_agents)}/{len(dict_agents)} agents")
+            return converted_agents
+            
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Failed to convert DB agents: {e}")
+            logger.error(f"[MainWindow] Traceback: {traceback.format_exc()}")
+            return []
+    
+    async def _fetch_cloud_agents(self):
+        """
+        Fetch agents from cloud API
+        Returns: List of agent dicts
+        """
+        try:
+            logger.info("[MainWindow] 🌐 Fetching agents from cloud...")
+            
+            # TODO: Implement cloud agent API call
+            # This should be similar to bot_service.sync_cloud_bot_data
+            # For now, return empty list
+            logger.warning("[MainWindow] ⚠️  Cloud agent API not yet implemented")
+            
+            # Example implementation (when API is ready):
+            # cloud_agents = await asyncio.get_event_loop().run_in_executor(
+            #     None,
+            #     self.agent_service.fetch_cloud_agents,
+            #     self.session,
+            #     self.get_auth_token()
+            # )
+            
+            return []
+            
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Failed to fetch cloud agents: {e}")
+            return []
+    
+    def _merge_agent_data(self, local_agents, cloud_agents):
+        """
+        Merge local and cloud agent data
+        Cloud data overwrites local data by agent ID
+        
+        Args:
+            local_agents: List of agent dicts from local database
+            cloud_agents: List of agent dicts from cloud API
+        
+        Returns:
+            List of merged agent dicts
+        """
+        try:
+            logger.info("[MainWindow] 🔀 Merging local and cloud agent data...")
+            
+            # Create a dict with local agents keyed by ID
+            merged_dict = {agent.get('id'): agent for agent in local_agents}
+            
+            # Overwrite with cloud agents (cloud data takes precedence)
+            for cloud_agent in cloud_agents:
+                agent_id = cloud_agent.get('id')
+                if agent_id:
+                    merged_dict[agent_id] = cloud_agent
+                    logger.debug(f"[MainWindow] 🔄 Cloud agent overwrites local: {agent_id}")
+            
+            merged_agents = list(merged_dict.values())
+            logger.info(f"[MainWindow] ✅ Merged {len(merged_agents)} unique agents")
+            
+            return merged_agents
+            
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Failed to merge agent data: {e}")
+            # Return local agents as fallback
+            return local_agents
+    
+    def _merge_all_agent_sources(self, code_built_agents, db_cloud_agents):
+        """
+        Merge agents from all sources with deduplication into a unified mixed-type list
+        
+        Priority: Code-built > Cloud > Local DB
+        
+        Args:
+            code_built_agents: List of (name, agent) tuples from code builders
+            db_cloud_agents: List of agent dicts from DB/Cloud merge
+        
+        Returns:
+            List of mixed types (EC_Agent objects and agent dicts)
+            - EC_Agent objects for code-built agents
+            - Agent dicts for DB/Cloud agents (not overwritten by code-built)
+        """
+        try:
+            logger.info("[MainWindow] 🔀 Merging all agent sources into unified list...")
+            
+            # Create a unified list with mixed types
+            unified_agents = []
+            
+            # Track code-built agent names for deduplication
+            code_built_names = set()
+            
+            # Step 1: Add all code-built agents (EC_Agent objects)
+            for name, agent in code_built_agents:
+                if agent:
+                    unified_agents.append(agent)
+                    code_built_names.add(name)
+                    logger.debug(f"[MainWindow] 🔧 Builded code-built agent: {name}")
+            
+            # Step 2: Add DB/Cloud agents that are NOT overwritten by code-built agents
+            for agent_data in db_cloud_agents:
+                agent_name = agent_data.get('name', '')
+                
+                # Only keep DB/Cloud agent if no code-built agent with same name
+                if agent_name not in code_built_names:
+                    unified_agents.append(agent_data)
+                    logger.debug(f"[MainWindow] 📂 Builded DB/Cloud agent: {agent_name}")
+                else:
+                    logger.debug(f"[MainWindow] ⚠️  DB/Cloud agent '{agent_name}' overwritten by code-built agent")
+            
+            # Count types
+            agent_objects = sum(1 for a in unified_agents if not isinstance(a, dict))
+            agent_dicts = sum(1 for a in unified_agents if isinstance(a, dict))
+            
+            logger.info(f"[MainWindow] ✅ Merged all sources into unified list:")
+            logger.info(f"[MainWindow]    - Code-built agents (objects): {agent_objects}")
+            logger.info(f"[MainWindow]    - DB/Cloud agents (dicts): {agent_dicts}")
+            logger.info(f"[MainWindow]    - Total unique agents: {len(unified_agents)}")
+            
+            return unified_agents
+            
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Failed to merge all agent sources: {e}")
+            # Return code-built agents as fallback
+            return [agent for _, agent in code_built_agents if agent]
+    
+    async def _update_local_db_agents(self, merged_agents):
+        """
+        Update local database with merged agent data
+        
+        Args:
+            merged_agents: List of merged agent dicts
+        """
+        try:
+            logger.info(f"[MainWindow] 💾 Updating local database with {len(merged_agents)} merged agents...")
+            
+            if not self.ec_db_mgr or not self.ec_db_mgr.agent_service:
+                logger.warning("[MainWindow] ⚠️  Agent service not available, skipping DB update")
+                return
+            
+            agent_service = self.ec_db_mgr.agent_service
+            
+            # Run database update in executor
+            def update_db():
+                try:
+                    with agent_service.session_scope() as session:
+                        from agent.db.models.agent_model import DBAgent
+                        
+                        updated_count = 0
+                        for agent_data in merged_agents:
+                            agent_id = agent_data.get('id')
+                            if not agent_id:
+                                continue
+                            
+                            # Check if agent exists
+                            # IMPORTANT: Use self.user (original email) not self.log_user (sanitized)
+                            existing = session.query(DBAgent).filter(
+                                DBAgent.id == agent_id,
+                                DBAgent.owner == self.user
+                            ).first()
+                            
+                            if existing:
+                                # Update existing agent
+                                for key, value in agent_data.items():
+                                    if hasattr(existing, key):
+                                        # Convert timestamp to datetime for SQLite
+                                        if key in ('created_at', 'updated_at') and isinstance(value, (int, float)):
+                                            from datetime import datetime
+                                            value = datetime.fromtimestamp(value / 1000.0)  # Convert ms to seconds
+                                        setattr(existing, key, value)
+                                updated_count += 1
+                            else:
+                                # Create new agent - convert timestamps
+                                agent_dict = agent_data.copy()
+                                for key in ('created_at', 'updated_at'):
+                                    if key in agent_dict and isinstance(agent_dict[key], (int, float)):
+                                        from datetime import datetime
+                                        agent_dict[key] = datetime.fromtimestamp(agent_dict[key] / 1000.0)
+                                new_agent = DBAgent(**agent_dict)
+                                session.add(new_agent)
+                                updated_count += 1
+                        
+                        session.commit()
+                        logger.info(f"[MainWindow] ✅ Updated {updated_count} agents in database")
+                        
+                except Exception as e:
+                    logger.error(f"[MainWindow] ❌ Database update failed: {e}")
+                    session.rollback()
+            
+            await asyncio.get_event_loop().run_in_executor(None, update_db)
+            
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Failed to update local DB agents: {e}")
+
 
     def get_vehicle_ecbot_op_agent(self, v):
         # obtain agents on a vehicle.

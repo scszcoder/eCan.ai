@@ -3,6 +3,7 @@ from utils.logger_helper import logger_helper as logger
 from utils.time_util import TimeUtil
 from typing import Dict, Any, Optional, Callable
 from enum import Enum
+from PySide6.QtCore import QTimer
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui start...")
 
@@ -183,9 +184,15 @@ class Login:
                 logger.error(f"[AsyncLogin] ❌ Async {request.login_type.value} login failed: {error_msg}")
                 self._update_progress(100, f"Authentication failed: {error_msg}")
                 
+                # Close progress dialog and return to login screen after a short delay
+                QTimer.singleShot(2000, self._close_progress_and_show_login)
+                
         except Exception as e:
             logger.error(f"[AsyncLogin] ❌ Async {request.login_type.value} login exception: {e}")
             self._update_progress(100, f"Login exception: {str(e)}")
+            
+            # Close progress dialog and return to login screen after a short delay
+            QTimer.singleShot(2000, self._close_progress_and_show_login)
         finally:
             self._login_in_progress = False
     
@@ -193,6 +200,28 @@ class Login:
         """Update login progress"""
         if self._login_progress_callback:
             self._login_progress_callback(progress, message)
+    
+    def _close_progress_and_show_login(self):
+        """Close progress dialog and return to login screen"""
+        logger.info("[AsyncLogin] Closing progress dialog and returning to login screen")
+        
+        # Emit signal to close progress dialog if it exists
+        if hasattr(self, 'login_progress_dialog') and self.login_progress_dialog:
+            try:
+                self.login_progress_dialog.close()
+                self.login_progress_dialog = None
+            except Exception as e:
+                logger.error(f"[AsyncLogin] Error closing progress dialog: {e}")
+        
+        # Show login window again
+        if hasattr(self, 'login_window') and self.login_window:
+            try:
+                self.login_window.show()
+                self.login_window.raise_()
+                self.login_window.activateWindow()
+                logger.info("[AsyncLogin] Login window shown and activated")
+            except Exception as e:
+                logger.error(f"[AsyncLogin] Error showing login window: {e}")
     
     def _get_login_type_display_name(self, login_type: LoginType) -> str:
         """Get display name for login type"""
@@ -308,7 +337,6 @@ class Login:
         """Launch the main application window after successful login."""
         try:
             # Ensure execution in main thread
-            from PySide6.QtCore import QMetaObject, Qt
             from PySide6.QtWidgets import QApplication
             
             # Get main application instance
