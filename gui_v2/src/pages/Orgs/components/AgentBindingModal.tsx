@@ -6,12 +6,12 @@ import React, { useEffect } from 'react';
 import { Modal, Form, Select, Avatar, Empty, Tag } from 'antd';
 import { UserOutlined, CheckCircleOutlined, MinusCircleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import type { Agent, AgentBindingFormData } from '../types';
+import type { OrgAgent, AgentBindingFormData } from '../types';
 import { MODAL_CONFIG } from '../constants';
 
 interface AgentBindingModalProps {
   visible: boolean;
-  availableAgents: Agent[];
+  availableAgents: OrgAgent[];
   selectedOrgId?: string;
   onOk: (values: AgentBindingFormData) => Promise<void>;
   onCancel: () => void;
@@ -117,9 +117,10 @@ const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
                       {agent.isBound && (
                         <Tag
                           icon={<CheckCircleOutlined />}
-                          color="success"
+                          color={agent.isBoundToCurrentOrg ? "success" : "warning"}
+                          title={agent.boundOrgId ? `${t('pages.org.binding.boundToOrg')}: ${agent.boundOrgId}` : undefined}
                         >
-                          {t('pages.org.binding.bound')}
+                          {agent.isBoundToCurrentOrg ? t('pages.org.binding.bound') : t('pages.org.binding.boundToOther')}
                         </Tag>
                       )}
                     </div>
@@ -150,9 +151,10 @@ const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
                           {agent.isBound ? (
                             <Tag
                               icon={<CheckCircleOutlined />}
-                              color="success"
+                              color={agent.isBoundToCurrentOrg ? "success" : "warning"}
+                              title={agent.boundOrgId ? `${t('pages.org.binding.boundToOrg')}: ${agent.boundOrgId}` : undefined}
                             >
-                              {t('pages.org.binding.bound')}
+                              {agent.isBoundToCurrentOrg ? t('pages.org.binding.bound') : t('pages.org.binding.boundToOther')}
                             </Tag>
                           ) : (
                             <Tag

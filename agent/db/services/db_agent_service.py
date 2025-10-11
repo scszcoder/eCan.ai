@@ -1119,10 +1119,10 @@ class DBAgentService(BaseService):
                             processed_data[field] = json.dumps([value])
                     elif isinstance(value, (list, dict)):
                         processed_data[field] = json.dumps(value)
-                        logger.debug(f"[DBAgentService] Converted '{field}' to JSON: {processed_data[field]}")
+                        # logger.debug(f"[DBAgentService] Converted '{field}' to JSON: {processed_data[field]}")
                     elif value is None:
                         processed_data[field] = '[]'  # Empty array as default
-                        logger.debug(f"[DBAgentService] Set '{field}' to empty array")
+                        # logger.debug(f"[DBAgentService] Set '{field}' to empty array")
             
             # Handle title field (now stored as JSON array, same as other list fields)
             if 'title' in processed_data:
@@ -1132,29 +1132,30 @@ class DBAgentService(BaseService):
                 if isinstance(value, list):
                     # Convert list to JSON string
                     processed_data['title'] = json.dumps(value)
-                    logger.debug(f"[DBAgentService] Converted title list to JSON: {processed_data['title']}")
+                    # logger.debug(f"[DBAgentService] Converted title list to JSON: {processed_data['title']}")
                 elif isinstance(value, str):
                     # Check if it's a comma-separated string (from frontend Select)
                     if ',' in value:
                         # Split by comma and convert to array
                         title_array = [t.strip() for t in value.split(',') if t.strip()]
                         processed_data['title'] = json.dumps(title_array)
-                        logger.debug(f"[DBAgentService] Converted comma-separated title to JSON array: {processed_data['title']}")
+                        # logger.debug(f"[DBAgentService] Converted comma-separated title to JSON array: {processed_data['title']}")
                     else:
                         # Check if it's already a JSON string
                         try:
                             parsed = json.loads(value)
                             if isinstance(parsed, list):
                                 # Already a JSON array string, keep it
-                                logger.debug(f"[DBAgentService] title is already a JSON array string")
+                                # logger.debug(f"[DBAgentService] title is already a JSON array string")
+                                pass
                             else:
                                 # Single string, convert to array
                                 processed_data['title'] = json.dumps([value])
-                                logger.debug(f"[DBAgentService] Converted single title string to JSON array")
+                                # logger.debug(f"[DBAgentService] Converted single title string to JSON array")
                         except:
                             # Not JSON, treat as single value and convert to array
                             processed_data['title'] = json.dumps([value])
-                            logger.debug(f"[DBAgentService] Wrapped title string in JSON array")
+                            # logger.debug(f"[DBAgentService] Wrapped title string in JSON array")
                 elif value is None:
                     processed_data['title'] = '[]'
                     logger.debug(f"[DBAgentService] Set title to empty array")
@@ -1167,7 +1168,7 @@ class DBAgentService(BaseService):
                     logger.debug(f"[DBAgentService] extra_data is already a JSON string")
                 elif isinstance(value, dict):
                     processed_data['extra_data'] = json.dumps(value)
-                    logger.debug(f"[DBAgentService] Converted extra_data to JSON")
+                    # logger.debug(f"[DBAgentService] Converted extra_data to JSON")
                 elif value is None:
                     processed_data['extra_data'] = '{}'
             

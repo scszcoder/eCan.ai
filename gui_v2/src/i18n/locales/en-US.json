@@ -71,6 +71,7 @@
     "select_personality": "Select or enter personality traits",
     "select_title": "Select or enter titles",
     "select_organization": "Select organizations",
+    "please_select_organization": "Please select organization",
     "select_supervisor": "Select supervisors",
     "select_subordinate": "Select subordinates",
     "select_task": "Select tasks",
@@ -135,7 +136,9 @@
       "description": "Description",
       "description_placeholder": "Enter agent description",
       "extra_data": "Extra Data / Notes",
-      "extra_data_placeholder": "Enter additional notes or extra data",
+      "extra_data_placeholder": "Enter valid JSON (e.g., {\"notes\": \"text\"})",
+      "extra_data_tooltip": "Must be valid JSON format (e.g., {\"key\": \"value\"})",
+      "extra_data_invalid_json": "Invalid JSON format. Please enter valid JSON (e.g., {\"key\": \"value\"})",
       "organization": "Organization",
       "organizations": "Organizations",
       "personality": "Personality",
@@ -390,8 +393,7 @@
       "timeAndLocation": "Time And Location",
       "timeOut": "Time Out",
       "title": "Title",
-      "twoWeeksFromNow": "Two Weeks From Now",
-      "weekDays": "Week Days"
+      "twoWeeksFromNow": "Two Weeks From Now"
     },
     "settings": {
       "title": "Settings",
@@ -467,7 +469,12 @@
       "themeChanged": "Theme Changed",
       "wan_api_endpoint": "Wan_api_endpoint",
       "wan_api_key": "Wan_api_key",
-      "ws_api_endpoint": "Ws_api_endpoint"
+      "ws_api_endpoint": "Ws_api_endpoint",
+      "ocr_settings": "OCR Settings",
+      "ocr_engine": "OCR Engine",
+      "ocr_endpoint": "OCR Endpoint",
+      "ocr_port": "OCR Port",
+      "ocr_api_key": "OCR API Key"
     },
     "skills": {
       "addSkill": "Add Skill",
@@ -535,6 +542,7 @@
       "needInputsHelp": "Input parameters required by this skill",
       "appsHelp": "Related applications",
       "limitationsHelp": "Known limitations",
+      "invalidJson": "Invalid JSON format. Please enter valid JSON",
       "priceModelPlaceholder": "e.g., per-use, subscription",
       "tabs": {
         "basic": "Basic Info",
@@ -592,7 +600,8 @@
       "scheduleEndTimeLabel": "End Date Time (Optional)",
       "scheduleTimeoutLabel": "Timeout (seconds)",
       "metadata": "Metadata (JSON)",
-      "invalidJson": "Invalid JSON",
+      "metadata_tooltip": "Must be valid JSON format (e.g., {\"key\": \"value\"})",
+      "invalidJson": "Invalid JSON format. Please enter valid JSON (e.g., {\"key\": \"value\"})",
       "latestVersion": "Latest Version",
       "taskId": "Task ID",
       "untitledTask": "Untitled Task",
@@ -790,8 +799,8 @@
       "direct_agents": "Direct Agents",
       "direct_agents_desc": "Direct agents of this organization",
       "confirm": {
-        "delete": "Are you sure to delete this organization?",
-        "unbind": "Are you sure to unbind this agent?"
+        "delete": "Delete Organization",
+        "deleteMessage": "Are you sure you want to delete this organization?"
       },
       "details": {
         "title": "Organization Details"
@@ -834,10 +843,6 @@
         "updateSuccess": "Update successful",
         "allAgentsAlreadyBound": "All selected agents are already bound to current organization"
       },
-      "confirm": {
-        "delete": "Delete Organization",
-        "deleteMessage": "Are you sure you want to delete this organization?"
-      },
       "modal": {
         "bind": {
           "selectAgents": "Select Agents",
@@ -858,6 +863,8 @@
       "binding": {
         "bound": "Bound",
         "unbound": "Unbound",
+        "boundToOther": "Bound to Other Org",
+        "boundToOrg": "Bound to Organization",
         "noDescription": "No description"
       },
       "status": {
@@ -881,18 +888,25 @@
       }
     },
     "search": {
-      "ariaFilter": "Aria Filter",
-      "ariaHistory": "Aria History",
-      "ariaSearch": "Aria Search",
+      "ariaFilter": "Filter",
+      "ariaHistory": "History",
+      "ariaSearch": "Search",
       "clearHistory": "Clear History",
-      "colon": "Colon",
+      "colon": ": ",
       "deleteHistory": "Delete History",
       "filters": "Filters",
       "history": "History",
       "justNow": "Just Now",
       "moreHistory": "More History",
-      "placeholder": "Placeholder",
-      "resetFilters": "Reset Filters"
+      "placeholder": "Search...",
+      "resetFilters": "Reset Filters",
+      "selectFilter": "Select {{filter}}",
+      "minutesAgo": "{{count}} minutes ago",
+      "hoursAgo": "{{count}} hours ago",
+      "daysAgo": "{{count}} days ago",
+      "totalResults": "Total {{count}}",
+      "filteredResults": "Filtered {{count}}",
+      "searchTime": "{{time}}ms"
     },
     "knowledge": {
       "title": "Knowledge Base",
@@ -1020,5 +1034,26 @@
     "commander": "Commander",
     "platoon": "Platoon",
     "staff_office": "Staff Office"
+  },
+  "search": {
+    "ariaFilter": "Filter",
+    "ariaHistory": "History",
+    "ariaSearch": "Search",
+    "clearHistory": "Clear History",
+    "colon": ": ",
+    "deleteHistory": "Delete History",
+    "filters": "Filters",
+    "history": "History",
+    "justNow": "Just Now",
+    "moreHistory": "More History",
+    "placeholder": "Search...",
+    "resetFilters": "Reset Filters",
+    "selectFilter": "Select {{filter}}",
+    "minutesAgo": "{{count}} minutes ago",
+    "hoursAgo": "{{count}} hours ago",
+    "daysAgo": "{{count}} days ago",
+    "totalResults": "Total {{count}}",
+    "filteredResults": "Filtered {{count}}",
+    "searchTime": "{{time}}ms"
   }
 }

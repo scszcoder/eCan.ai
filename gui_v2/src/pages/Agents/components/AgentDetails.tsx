@@ -1292,13 +1292,42 @@ const AgentDetails: React.FC = () => {
 
               {/* 第八行：Extra Data */}
               <Col span={24}>
-                <StyledFormItem name="extra_data" label={t('pages.agents.extra_data') || 'Extra Data / Notes'} htmlFor="agent-extra-data">
+                <StyledFormItem 
+                  name="extra_data" 
+                  label={t('pages.agents.extra_data') || 'Extra Data / Notes'} 
+                  htmlFor="agent-extra-data"
+                  tooltip={t('pages.agents.extra_data_tooltip') || 'Must be valid JSON format (e.g., {"key": "value"}) or plain text'}
+                  validateTrigger={['onChange', 'onBlur']}
+                  rules={[
+                    {
+                      validator: (_, value) => {
+                        // 允许空值
+                        if (!value || value.trim() === '') {
+                          return Promise.resolve();
+                        }
+                        
+                        // 必须是有效的 JSON 格式
+                        try {
+                          JSON.parse(value);
+                          return Promise.resolve();
+                        } catch (e) {
+                          return Promise.reject(
+                            new Error(
+                              t('pages.agents.extra_data_invalid_json') || 
+                              'Invalid JSON format. Please enter valid JSON (e.g., {"key": "value"})'
+                            )
+                          );
+                        }
+                      },
+                    },
+                  ]}
+                >
                   <Input.TextArea
                     id="agent-extra-data"
                     rows={4}
                     disabled={!editMode}
                     autoComplete="off"
-                    placeholder={t('pages.agents.extra_data_placeholder') || 'Enter additional notes or extra data'}
+                    placeholder={t('pages.agents.extra_data_placeholder') || 'Enter valid JSON (e.g., {"notes": "text"}) or plain text'}
                     aria-label={t('pages.agents.extra_data') || 'Extra Data'}
                     className="resizable-textarea"
                     style={{ minHeight: '100px', resize: 'vertical' }}

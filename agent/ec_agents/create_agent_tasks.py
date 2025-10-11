@@ -1,4 +1,5 @@
 import traceback
+import typing
 import uuid
 import asyncio
 from agent.ec_agents.agent_utils import load_agent_tasks_from_cloud
@@ -10,9 +11,11 @@ from agent.tasks import Repeat_Types
 
 from utils.logger_helper import logger_helper as logger
 from agent.ec_agents.create_dev_task import create_skill_dev_task
+if typing.TYPE_CHECKING:
+    from gui.MainGUI import MainWindow
 
 
-def create_my_twin_chat_task(mainwin):
+def create_my_twin_chat_task(mainwin: 'MainWindow'):
     agent_skills = mainwin.agent_skills
     agent_tasks = mainwin.agent_tasks
 

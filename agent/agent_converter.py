@@ -5,6 +5,7 @@ Provides common functions to convert agent data (dict) to EC_Agent objects.
 Used by both MainGUI and IPC handlers to ensure consistency.
 """
 
+import json
 import uuid
 import traceback
 from typing import Dict, Any, Optional, TYPE_CHECKING
@@ -59,6 +60,17 @@ def convert_agent_dict_to_ec_agent(
         org_id = agent_data.get('org_id')
         org_ids = [org_id] if org_id else []
         
+        # Parse extra_data if it's a JSON string
+        extra_data = agent_data.get('extra_data', {})
+        if isinstance(extra_data, str):
+            try:
+                extra_data = json.loads(extra_data) if extra_data else {}
+            except (json.JSONDecodeError, ValueError):
+                logger.warning(f"[AgentConverter] Failed to parse extra_data JSON: {extra_data}")
+                extra_data = {}
+        elif not isinstance(extra_data, dict):
+            extra_data = {}
+        
         # Create browser_use compatible LLM
         try:
             browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
@@ -84,7 +96,7 @@ def convert_agent_dict_to_ec_agent(
             gender=agent_data.get('gender', 'male'),
             birthday=agent_data.get('birthday'),
             personalities=agent_data.get('personality_traits', []),
-            vehicle=agent_data.get('extra_data', {}).get('default_vehicle_id')
+            vehicle=extra_data.get('default_vehicle_id')
         )
         
         logger.debug(f"[AgentConverter] ✅ Converted agent: {agent_data.get('name')}, org_ids: {ec_agent.org_ids}")

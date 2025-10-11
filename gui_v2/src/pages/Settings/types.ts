@@ -58,6 +58,10 @@ export interface Settings {
   last_order_file_time: number;
   new_orders_path: string;
   default_llm: string;  // 默认使用的LLM提供商
+  ocr_engine: string;  // OCR 引擎
+  ocr_endpoint: string;  // OCR 端点
+  ocr_port: string;  // OCR 端口
+  ocr_api_key: string;  // OCR API 密钥
 }
 
 // 工具函数

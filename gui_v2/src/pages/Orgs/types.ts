@@ -63,7 +63,9 @@ export interface OrgAgent {
   created_at?: string;
   updated_at?: string;
   capabilities?: string[];
-  isBound?: boolean; // 是否已绑定到当前组织
+  isBound?: boolean; // 是否已绑定（到任何组织）
+  isBoundToCurrentOrg?: boolean; // 是否绑定到当前选中的组织
+  boundOrgId?: string; // 绑定到的组织 ID
 }
 
 // API Response types
