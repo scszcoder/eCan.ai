@@ -2425,4 +2425,17 @@ def run_default_tests(mwin, test_setup=None):
     print("unit test results:", results)
     return results
 
+def testLightRAG(mwin):
+    mwin.lightrag.ingest_docs("./lightrag_data/inputs/AN4973-Application-Note-DS000004973.pdf",
+        "./lightrag_data/rag_storage",
+        "",
+        "base_url",
+        "working_dir",
+        "mineru")
+    # return test_ocr()
+
+    answer = mwin.lightrag.retrieve_knowledge("what is the maximum input voltage?")
+    print(f"answer found:: {answer}")
+
+
 print(TimeUtil.formatted_now_with_ms() + "loading unittests finished...")
