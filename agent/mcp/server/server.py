@@ -44,6 +44,13 @@ from agent.mcp.server.scrapers.selenium_search_component import (
     selenium_search_component,
     selenium_sort_search_results
 )
+from agent.mcp.server.scrapers.ebay_seller.ebay_orders_scrape import fullfill_ebay_orders
+from agent.mcp.server.scrapers.etsy_seller.etsy_orders_scrape import fullfill_etsy_orders
+from agent.mcp.server.scrapers.amazon_seller.amazon_fbs_orders_scrape import fullfill_amazon_fbs_orders
+from agent.mcp.server.scrapers.ebay_seller.ebay_messages_scrape import fetch_ebay_messages, answer_ebay_messages
+from agent.mcp.server.scrapers.etsy_seller.etsy_messages_scrape import fetch_etsy_messages, answer_etsy_messages
+from agent.mcp.server.scrapers.amazon_seller.amazon_messages_scrape import fetch_amazon_messages, answer_amazon_messages
+from agent.mcp.server.scrapers.pirate_shipping.purchase_label import pirate_shipping_purchase_label
 
 from agent.mcp.server.scrapers.eval_util import calculate_score, get_default_fom_form
 
@@ -1646,7 +1653,19 @@ tool_function_mapping = {
         "api_ecan_ai_rerank_results": api_ecan_ai_rerank_results,
         "mouse_act_on_screen": mouse_act_on_screen,
         "ecan_local_search_components": ecan_local_search_components,
-        "ecan_local_sort_search_results": ecan_local_sort_search_results
+        "ecan_local_sort_search_results": ecan_local_sort_search_results,
+        "fullfill_ebay_orders": fullfill_ebay_orders,
+        "fullfill_etsy_orders": fullfill_etsy_orders,
+        "fullfill_amazon_fbs_orders": fullfill_amazon_fbs_orders,
+        "fetch_ebay_messages": fetch_ebay_messages,
+        "fetch_etsy_messages": fetch_etsy_messages,
+        "fetch_amazon_messages": fetch_amazon_messages,
+        "answer_ebay_messages": answer_ebay_messages,
+        "answer_etsy_messages": answer_etsy_messages,
+        "answer_amazon_messages": answer_amazon_messages,
+        "pirate_shipping_purchase_label": pirate_shipping_purchase_label,
+        "reformat_and_print_labels": reformat_and_print_labels
+
     }
 
 def set_server_main_win(mw):
