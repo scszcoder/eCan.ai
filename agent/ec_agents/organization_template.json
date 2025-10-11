@@ -1,0 +1,119 @@
+{
+  "template_version": "1.0.0",
+  "description": "Default organization structure template for eCan.ai",
+  "organizations": [
+    {
+      "id": "org_root_001",
+      "name": "eCan.ai",
+      "description": "Root organization for eCan.ai platform",
+      "parent_id": null,
+      "org_type": "company",
+      "level": 0,
+      "sort_order": 0,
+      "status": "active",
+      "settings": {
+        "is_root": true,
+        "allow_agent_creation": true,
+        "default_permissions": ["read", "write"]
+      }
+    },
+    {
+      "id": "org_agent_resource_001",
+      "name": "Agent Resource",
+      "description": "Agent resource management department",
+      "parent_id": "org_root_001",
+      "org_type": "department",
+      "level": 1,
+      "sort_order": 1,
+      "status": "active",
+      "settings": {
+        "allow_agent_creation": true,
+        "default_permissions": ["read", "write"]
+      }
+    },
+    {
+      "id": "org_accounting_001",
+      "name": "Accounting",
+      "description": "Financial accounting and bookkeeping department",
+      "parent_id": "org_root_001",
+      "org_type": "department",
+      "level": 1,
+      "sort_order": 2,
+      "status": "active",
+      "settings": {
+        "allow_agent_creation": true,
+        "default_permissions": ["read", "write"]
+      }
+    },
+    {
+      "id": "org_finance_001",
+      "name": "Finance",
+      "description": "Financial planning and analysis department",
+      "parent_id": "org_root_001",
+      "org_type": "department",
+      "level": 1,
+      "sort_order": 3,
+      "status": "active",
+      "settings": {
+        "allow_agent_creation": true,
+        "default_permissions": ["read", "write"]
+      }
+    },
+    {
+      "id": "org_legal_001",
+      "name": "Legal",
+      "description": "Legal affairs and compliance department",
+      "parent_id": "org_root_001",
+      "org_type": "department",
+      "level": 1,
+      "sort_order": 4,
+      "status": "active",
+      "settings": {
+        "allow_agent_creation": true,
+        "default_permissions": ["read", "write"]
+      }
+    },
+    {
+      "id": "org_marketing_001",
+      "name": "Marketing",
+      "description": "Marketing and brand management department",
+      "parent_id": "org_root_001",
+      "org_type": "department",
+      "level": 1,
+      "sort_order": 5,
+      "status": "active",
+      "settings": {
+        "allow_agent_creation": true,
+        "default_permissions": ["read", "write"]
+      }
+    },
+    {
+      "id": "org_sales_001",
+      "name": "Sales",
+      "description": "Sales and customer relations department",
+      "parent_id": "org_root_001",
+      "org_type": "department",
+      "level": 1,
+      "sort_order": 6,
+      "status": "active",
+      "settings": {
+        "allow_agent_creation": true,
+        "default_permissions": ["read", "write"]
+      }
+    },
+    {
+      "id": "org_rnd_001",
+      "name": "Research and Development",
+      "description": "Research and development department",
+      "parent_id": "org_root_001",
+      "org_type": "department",
+      "level": 1,
+      "sort_order": 7,
+      "status": "active",
+      "settings": {
+        "allow_agent_creation": true,
+        "default_permissions": ["read", "write"]
+      }
+    }
+  ]
+}
