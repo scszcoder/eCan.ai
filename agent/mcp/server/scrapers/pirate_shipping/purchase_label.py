@@ -90,9 +90,28 @@ def add_pirate_shipping_purchase_labels_tool_schema(tool_schemas):
                             "required": ["message_id", "reply_text", "reply_attachments", "actions"],
                             "properties": {
                                 "order_id": {"type": "string"},
-                                "reply_text": {"type": "string"},
-                                "reply_attachments": {"type": "array"},
-                                "actions": {"type": "array"}
+                                "platform": {"type": "string"},
+                                "total_dimensions": {"type": "array"},
+                                "shipping_vendor": {"type": "string"},
+                                "shipping_service": {"type": "string"},
+                                "recipient_name": {"type": "string"},
+                                "recipient_address": {"type": "string"},
+                                "recipient_city": {"type": "string"},
+                                "recipient_state": {"type": "string"},
+                                "recipient_zip": {"type": "string"},
+                                "recipient_country": {"type": "string"},
+                                "recipient_phone": {"type": "string"},
+                                "recipient_email": {"type": "string"},
+                                "shipping_dimension_unit": {"type": "string"},
+                                "shipping_weight_unit": {"type": "string"},
+                                "sender_name": {"type": "string"},
+                                "sender_address": {"type": "string"},
+                                "sender_city":{"type": "string"},
+                                "sender_state": {"type": "string"},
+                                "sender_zip": {"type": "string"},
+                                "sender_country": {"type": "string"},
+                                "sender_phone": {"type": "string"},
+                                "sender_email": {"type": "string"},
                             }
                         }
                     }
