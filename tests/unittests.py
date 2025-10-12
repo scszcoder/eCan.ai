@@ -2098,7 +2098,7 @@ def testGetManagerMissions(mwin):
 
 def testSyncPrivateCloudImageAPI(parent):
 
-    api_key = "cf13091533f6d99e653b2e1db33f879b53d389cd4dcf82e0e22b0dd33876aeac"
+    api_key = "cf13091533f6d99e653b2e1db33f879b53d389cd4dcf82e0e22b0dd33876aeacx"
     # x_api_key = scramble_api_key(api_key)
     print("TESTING Private Cloud IMG API....", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
@@ -2190,7 +2190,7 @@ def testSyncPrivateCloudImageAPI(parent):
 
 def test_ocr():
     print("start time stamp1: ", datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'))
-    api_key = "cf13091533f6d99e653b2e1db33f879b53d389cd4dcf82e0e22b0dd33876aeac"
+    api_key = "cf13091533f6d99e653b2e1db33f879b53d389cd4dcf82e0e22b0dd33876aeacx"
     # host_ip = "127.0.0.1"
     host_ip = "47.120.48.82"
     endpoint = f"http://{host_ip}:8848/graphql/reqScreenTxtRead"
