@@ -78,7 +78,7 @@
 "step 45":
 {
     "type": "Call Extern",
-    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['New Profile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
+    "file": "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1],'attention_targets':['New Profile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -150,7 +150,7 @@
 "step 75":
 {
     "type": "Call Extern",
-    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 0.9, 0.5],'attention_targets':['Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
+    "file": "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 0.9, 0.5],'attention_targets':['Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -236,7 +236,7 @@
 "step 115":
 {
     "type": "Call Extern",
-    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 0.9, 0.5],'attention_targets':['Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
+    "file": "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 0.9, 0.5],'attention_targets':['Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -345,7 +345,7 @@
 "step 165":
 {
     "type": "Call Extern",
-    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['@all']}\nprint('scrn_options', scrn_options)",
+    "file": "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1],'attention_targets':['@all']}\nprint('scrn_options', scrn_options)",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -431,7 +431,7 @@
 "step 200":
 {
     "type": "Call Extern",
-    "file": "global scrn_options\nscrn_options = {'attention_area':[0.5, 0, 1, 0.65],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)",
+    "file": "global scrn_options\nscrn_options = {'txt_attention_area':[0.5, 0, 1, 0.65],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -476,7 +476,7 @@
 "step 215":
 {
     "type": "Call Extern",
-    "file": "global scrn_options\nscrn_options = {'attention_area':[0.2, 0, 1, 0.65],'attention_targets':['@all']}\nprint('scrn_options', scrn_options)",
+    "file": "global scrn_options\nscrn_options = {'txt_attention_area':[0.2, 0, 1, 0.65], 'icon_attention_area':[0.2, 0, 1, 0.65], 'attention_targets':['@all']}\nprint('scrn_options', scrn_options)",
     "args": "",
     "entity": "in_line",
     "output": ""

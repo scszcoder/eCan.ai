@@ -447,3 +447,32 @@ async def fullfill_amazon_fbs_orders(mainwin, args):  # type: ignore
         err_trace = get_traceback(e, "ErrorFullfillEtsyOrders")
         logger.debug(err_trace)
         return [TextContent(type="text", text=err_trace)]
+
+
+
+def add_fullfill_amazon_fbs_orders_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="fullfill_amazon_fbs_orders",
+        description="fullfill amazon FBS orders by scraping orders list, for unshipped ones, click on buy shipping to obtain the cheapest shipping labels, save them and return the list of labels files fullpath.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["options"],
+                    "properties": {
+                        "options": {
+                            "type": "object",
+                            "description": "some options in json format",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)
+

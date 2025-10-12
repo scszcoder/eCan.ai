@@ -1,5 +1,12 @@
 import mcp.types as types
-
+from scrapers.amazon_seller.amazon_fbs_orders_scrape import add_fullfill_amazon_fbs_orders_tool_schema
+from scrapers.ebay_seller.ebay_orders_scrape import add_fullfill_ebay_orders_tool_schema
+from scrapers.etsy_seller.etsy_orders_scrape import add_fullfill_etsy_orders_tool_schema
+from scrapers.ebay_seller.ebay_messages_scrape import add_fetch_ebay_messages_tool_schema, add_answer_ebay_messages_tool_schema
+from scrapers.etsy_seller.etsy_messages_scrape import add_fetch_etsy_messages_tool_schema, add_answer_etsy_messages_tool_schema
+from scrapers.amazon_seller.amazon_messages_scrape import add_fetch_amazon_messages_tool_schema, add_answer_amazon_messages_tool_schema
+from scrapers.pirate_shipping.purchase_label import add_pirate_shipping_purchase_labels_tool_schema
+from utils.print_utils import add_reformat_and_print_labels_tool_schema
 tool_schemas = []
 
 def get_tool_schemas():
@@ -1672,5 +1679,16 @@ def build_agent_mcp_tools_schemas():
     )
 
     add_tool_schema(tool_schema)
+    add_fetch_etsy_messages_tool_schema(tool_schemas)
+    add_answer_etsy_messages_tool_schema(tool_schemas)
+    add_fetch_ebay_messages_tool_schema(tool_schemas)
+    add_answer_ebay_messages_tool_schema(tool_schemas)
+    add_fetch_amazon_messages_tool_schema(tool_schemas)
+    add_answer_amazon_messages_tool_schema(tool_schemas)
+    add_fullfill_ebay_orders_tool_schema(tool_schemas)
+    add_fullfill_etsy_orders_tool_schema(tool_schemas)
+    add_fullfill_amazon_fbs_orders_tool_schema(tool_schemas)
+    add_pirate_shipping_purchase_labels_tool_schema(tool_schemas)
+    add_reformat_and_print_labels_tool_schema(tool_schemas)
 
     return tool_schemas

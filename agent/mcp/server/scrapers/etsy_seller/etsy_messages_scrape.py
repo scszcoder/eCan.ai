@@ -43,3 +43,66 @@ async def answer_etsy_messages(mainwin, args):  # type: ignore
         err_trace = get_traceback(e, "ErrorAnswerEtsyMessages")
         logger.debug(err_trace)
         return [TextContent(type="text", text=err_trace)]
+
+
+
+def add_fetch_etsy_messages_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="fetch_etsy_messages",
+        description="fetch etsy newly received messages list.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["options"],
+                    "properties": {
+                        "options": {
+                            "type": "object",
+                            "description": "some options in json format",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)
+
+
+def add_answer_etsy_messages_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="answer_etsy_messages",
+        description="Answer etsy messages with text, attachments, and related actions if any (for example, handle return, cancel, refund/partial refund, send replacement items, etc",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["messages_todos"],
+                    "properties": {
+                        "type": "array",
+                        "description": "list of json objects with basic attributes of original_label(full path file name), product_name_short, quantity, and customer_name.",
+                        "items": {
+                            "type": "object",
+                            "required": ["message_id", "reply_text", "reply_attachments", "actions"],
+                            "properties": {
+                                "message_id": {"type": "string"},
+                                "reply_text": {"type": "string"},
+                                "reply_attachments": {"type": "array"},
+                                "actions": {"type": "array"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)
