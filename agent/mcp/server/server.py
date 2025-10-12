@@ -50,7 +50,8 @@ from agent.mcp.server.scrapers.amazon_seller.amazon_fbs_orders_scrape import ful
 from agent.mcp.server.scrapers.ebay_seller.ebay_messages_scrape import fetch_ebay_messages, answer_ebay_messages
 from agent.mcp.server.scrapers.etsy_seller.etsy_messages_scrape import fetch_etsy_messages, answer_etsy_messages
 from agent.mcp.server.scrapers.amazon_seller.amazon_messages_scrape import fetch_amazon_messages, answer_amazon_messages
-from agent.mcp.server.scrapers.pirate_shipping.purchase_label import pirate_shipping_purchase_label
+from agent.mcp.server.scrapers.pirate_shipping.purchase_label import pirate_shipping_purchase_labels
+from agent.mcp.server.utils.print_utils import reformat_and_print_labels
 
 from agent.mcp.server.scrapers.eval_util import calculate_score, get_default_fom_form
 
@@ -1663,9 +1664,8 @@ tool_function_mapping = {
         "answer_ebay_messages": answer_ebay_messages,
         "answer_etsy_messages": answer_etsy_messages,
         "answer_amazon_messages": answer_amazon_messages,
-        "pirate_shipping_purchase_label": pirate_shipping_purchase_label,
+        "pirate_shipping_purchase_labels": pirate_shipping_purchase_labels,
         "reformat_and_print_labels": reformat_and_print_labels
-
     }
 
 def set_server_main_win(mw):

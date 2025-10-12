@@ -52,10 +52,11 @@ from mcp.types import CallToolResult, TextContent
 #]
 
 
-async def pirate_shipping_purchase_label(mainwin, args):  # type: ignore
+async def pirate_shipping_purchase_labels(mainwin, args):  # type: ignore
     try:
         logger.debug("pirate_shipping_purchase_label started....")
         orders = args["input"]["orders"]
+        labels = []
         web_driver = mainwin.getWebDriver()
 
         msg = f"completed in purchsing labels from pirate shipping: {len(labels)} labels purchased."
@@ -66,3 +67,38 @@ async def pirate_shipping_purchase_label(mainwin, args):  # type: ignore
         err_trace = get_traceback(e, "ErrorPirateShippingPurchaseLabel")
         logger.debug(err_trace)
         return [TextContent(type="text", text=err_trace)]
+
+
+def add_pirate_shipping_purchase_labels_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="pirate_shipping_purchase_labels",
+        description="Answer ebay messages with text, attachments, and related actions if any (for example, handle return, cancel, refund/partial refund, send replacement items, etc",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["orders"],
+                    "properties": {
+                        "type": "array",
+                        "description": "list of json objects with basic attributes of order_id, dimension, weight, and sender and recipient name and address info.",
+                        "items": {
+                            "type": "object",
+                            "required": ["message_id", "reply_text", "reply_attachments", "actions"],
+                            "properties": {
+                                "order_id": {"type": "string"},
+                                "reply_text": {"type": "string"},
+                                "reply_attachments": {"type": "array"},
+                                "actions": {"type": "array"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)

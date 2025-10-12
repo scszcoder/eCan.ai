@@ -11,9 +11,9 @@ from mcp.types import CallToolResult, TextContent
 
 
 
-async def fetch_etsy_messages(mainwin, args):  # type: ignore
+async def fullfill_etsy_orders(mainwin, args):  # type: ignore
     try:
-        logger.debug("fetch_etsy_messages started....")
+        logger.debug("fullfill_etsy_orders started....")
         new_orders = []
         fullfilled_orders = []
         options = args["input"]["options"]
@@ -28,3 +28,29 @@ async def fetch_etsy_messages(mainwin, args):  # type: ignore
         logger.debug(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
+
+def add_fullfill_etsy_orders_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="fullfill_etsy_orders",
+        description="fullfill etsy orders by scraping orders list, for unshipped ones, click on buy shipping to obtain the cheapest shipping labels, save them and return the list of labels files fullpath.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["options"],
+                    "properties": {
+                        "options": {
+                            "type": "object",
+                            "description": "some options in json format",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)

@@ -1,8 +1,10 @@
 import base64
 import os
 from typing import Optional, Dict, Any
-
+from utils.logger_helper import logger_helper as logger
+from utils.logger_helper import get_traceback
 from selenium.webdriver.remote.webdriver import WebDriver
+from mcp.types import CallToolResult, TextContent
 
 
 def save_page_pdf_via_cdp(driver: WebDriver, output_path: str, options: Optional[Dict[str, Any]] = None) -> bool:
@@ -70,3 +72,62 @@ def ensure_download_dir(path: str) -> bool:
         return True
     except Exception:
         return False
+
+
+async def reformat_and_print_labels(mainwin, args):  # type: ignore
+    try:
+        logger.debug("reformat_and_print_labels started....")
+        new_orders = []
+        fullfilled_orders = []
+        options = args["input"]["options"]
+        web_driver = mainwin.getWebDriver()
+
+        msg = f"completed in fullfilling amazon FBS new orders: {len(new_orders)} new orders came in, {len(fullfilled_orders)} orders processed."
+        tool_result = TextContent(type="text", text=msg)
+        tool_result.meta = {"new_orders": new_orders, "fullfilled_orders": fullfilled_orders}
+        return [tool_result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorReformatAndPrintLabels")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
+def add_reformat_and_print_labels_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="reformat_and_print_labels",
+        description="reformat pdf to 2 labels per sheet and add product + quantity info as footnote, then send the label to printer to print (assume printer is conencted on LAN).",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["printer", "product_labels"],
+                    "properties": {
+                        "printer": {
+                            "type": "string",
+                            "description": "name of printer to print the label.",
+                        },
+                        "product_labels": {
+                            "type": "array",
+                            "description": "list of json objects with basic attributes of original_label(full path file name), product_name_short, quantity, and customer_name.",
+                            "items": {
+                                "type": "object",
+                                "required": ["original_label", "product_name_short", "quantity", "customer_name"],
+                                "properties": {
+                                    "original_label": {"type": "string"},
+                                    "product_name_short": {"type": "string"},
+                                    "quantity": {"type": "integer"},
+                                    "customer_name": {"type": "string"}
+                                }
+                            }
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)
