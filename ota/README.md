@@ -1,19 +1,22 @@
-# 📦 eCan.ai OTA (Over-The-Air) 更新系统
+# 📦 eCan OTA (Over-The-Air) 自动更新系统
 
-eCan.ai 的自动更新模块，支持跨平台 OTA 更新功能。
+eCan 应用的完整 OTA 自动更新模块，支持 Windows 和 macOS 平台的全自动更新流程。
 
 ## 🎯 功能特性
 
-- ✅ **跨平台支持**: macOS (Sparkle) / Windows (WinSparkle) / Linux (通用 HTTP API)
-- ✅ **签名验证**: Ed25519 数字签名确保更新包安全
-- ✅ **本地测试**: 内置本地测试服务器，方便开发调试
-- ✅ **灵活配置**: 支持开发/生产环境切换
-- ✅ **自动更新**: 支持后台自动检查和静默更新
+- ✅ **Windows 支持**: EXE (Setup.exe 优先) / MSI 安装包
+- ✅ **macOS 支持**: PKG (推荐) / DMG 安装包
+- ✅ **签名验证**: Ed25519 数字签名 + SHA256 哈希验证
+- ✅ **S3 分发**: AWS S3 作为主要更新源，GitHub Pages 作为备份
+- ✅ **自动更新**: 后台定时检查、自动下载、静默安装
+- ✅ **版本管理**: 统一从 VERSION 文件读取版本号
+- ✅ **安全机制**: 代码签名、HTTPS 传输、文件完整性验证
 
 ---
 
 ## 📁 目录结构
 
+{{ ... }}
 ```
 ota/
 ├── README.md                  # 本文档
@@ -74,6 +77,19 @@ python3 ota/test_local_ota.py
 ---
 
 ## 📚 文档导航
+
+### 生产环境文档（推荐）
+
+| 文档 | 用途 | 推荐指数 |
+|------|------|---------|
+| **[docs/README.md](docs/README.md)** | OTA 系统完整文档 - 项目概述 | ⭐⭐⭐⭐⭐ |
+| **[docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md)** | 快速参考 - 常用命令和 API | ⭐⭐⭐⭐⭐ |
+| **[docs/COMPLETE_GUIDE.md](docs/COMPLETE_GUIDE.md)** | 完整指南 - 详细使用说明 | ⭐⭐⭐⭐ |
+| **[docs/DEPLOYMENT_CHECKLIST.md](docs/DEPLOYMENT_CHECKLIST.md)** | 部署清单 - 33 项检查项 | ⭐⭐⭐⭐ |
+| **[docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md)** | 平台支持 - Windows/macOS 详解 | ⭐⭐⭐ |
+| **[docs/S3_SETUP.md](docs/S3_SETUP.md)** | S3 配置 - AWS 配置指南 | ⭐⭐⭐ |
+
+### 开发测试文档
 
 | 文档 | 用途 | 推荐指数 |
 |------|------|---------|
