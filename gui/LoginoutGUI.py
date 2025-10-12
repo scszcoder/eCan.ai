@@ -59,6 +59,10 @@ class Login:
         self._login_in_progress = False
         self._login_progress_callback = None
         
+        # UI references (will be set by WebGUI)
+        self.login_window = None
+        self.login_progress_dialog = None
+        
         # Login handler mapping
         self._login_handlers = {
             LoginType.USERNAME_PASSWORD: self._handle_username_password_auth,
@@ -70,7 +74,12 @@ class Login:
         }
 
         logger.info("Login controller initialized end")
-
+    
+    def set_ui_references(self, login_window=None, login_progress_dialog=None):
+        """Set references to UI components (called by WebGUI)"""
+        self.login_window = login_window
+        self.login_progress_dialog = login_progress_dialog
+        logger.debug(f"[Login] UI references set: login_window={login_window is not None}, login_progress_dialog={login_progress_dialog is not None}")
 
     # Unified login entry method
     def login(self, request: LoginRequest) -> Dict[str, Any]:
@@ -107,17 +116,98 @@ class Login:
             logger.error(f"Failed to start async {request.login_type.value} login: {e}")
             return {'success': False, 'error': f'Failed to start login: {str(e)}'}
     
-    # Compatibility method
     def _handle_login(self, username: str, password: str, role: str, schedule_mode: str):
-        """Handle login request from UI and return the result (legacy compatibility)."""
-        request = LoginRequest(
-            LoginType.USERNAME_PASSWORD,
-            username=username,
-            password=password,
-            role=role,
-            schedule_mode=schedule_mode
-        )
-        return self.login(request)
+        """Handle synchronous login request from UI (for username/password login).
+        
+        This method executes authentication synchronously and returns the result immediately.
+        If authentication succeeds, it starts an async task to create MainWindow.
+        """
+        try:
+            logger.info(f"[Login] Synchronous login for user: {username}")
+            
+            # Execute authentication synchronously
+            result = self.auth_manager.login(username, password, role)
+            
+            if result['success']:
+                # Authentication successful, start async MainWindow creation
+                logger.info(f"[Login] Authentication successful, launching main window...")
+                request = LoginRequest(
+                    LoginType.USERNAME_PASSWORD,
+                    username=username,
+                    password=password,
+                    role=role,
+                    schedule_mode=schedule_mode
+                )
+                
+                # Start async task to create MainWindow
+                try:
+                    asyncio.create_task(self._async_launch_main_window(request))
+                except Exception as e:
+                    logger.error(f"[Login] Failed to start async main window launch: {e}")
+                
+                return {'success': True, 'message': 'Authentication successful'}
+            else:
+                # Authentication failed, return error immediately
+                logger.warning(f"[Login] Authentication failed for user: {username}")
+                return result
+                
+        except Exception as e:
+            logger.error(f"[Login] Synchronous login error: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {'success': False, 'error': str(e)}
+    
+    async def _async_launch_main_window(self, request: LoginRequest):
+        """Launch MainWindow asynchronously (authentication already succeeded).
+        
+        This method waits for preload completion and then launches MainWindow.
+        Used by both synchronous login (_handle_login) and async login (_async_login).
+        """
+        try:
+            logger.info(f"[Login] Starting async main window launch...")
+            
+            # Check and wait for background preload completion
+            try:
+                from gui.async_preloader import get_async_preloader
+                
+                preloader = get_async_preloader()
+                
+                if preloader.is_in_progress():
+                    logger.info("[Login] 📦 Waiting for background preload to complete...")
+                    self._update_progress(70, "Finalizing preload...")
+                    
+                    preload_result = await preloader.wait_for_completion(timeout=30.0)
+                    success_count = preload_result.get('success_count', 0)
+                    total_tasks = preload_result.get('total_tasks', 0)
+                    
+                    logger.info(f"[Login] 📦 Preload completed: {success_count}/{total_tasks} successful")
+                    self._update_progress(75, f"Preload ready ({success_count}/{total_tasks})")
+                elif preloader.is_complete():
+                    result = preloader.get_summary()
+                    logger.info(f"[Login] ✅ Preload ready: {result['success_count']}/{result['total_tasks']} modules")
+                    self._update_progress(75, "Preload ready")
+                else:
+                    logger.warning("[Login] ⚠️ Preload not available, continuing...")
+                    self._update_progress(75, "Loading without preload...")
+                    
+            except Exception as e:
+                logger.warning(f"[Login] ⚠️ Preload check failed: {e}")
+                self._update_progress(75, "Continuing...")
+            
+            # Launch main window
+            self._update_progress(80, "Launching main window...")
+            try:
+                self._launch_main_window(request.schedule_mode)
+                logger.info(f"[Login] ✅ Main window launched successfully")
+            except Exception as e:
+                logger.error(f"[Login] ❌ Main window launch failed: {e}")
+                raise  # Re-raise exception for caller to handle
+                
+        except Exception as e:
+            logger.error(f"[Login] ❌ Async main window launch error: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            raise  # Re-raise exception
     
     async def _async_login(self, request: LoginRequest):
         """Unified async login processing method"""
@@ -135,44 +225,11 @@ class Login:
             
             if result['success']:
                 # Update progress: authentication successful
-                self._update_progress(65, "Authentication successful, waiting for preload...")
+                self._update_progress(65, "Authentication successful, launching main window...")
                 
-                # Check and wait for background preload completion
-                # Preload runs in background during login, should be complete by now
+                # Use unified MainWindow launch method
                 try:
-                    from gui.async_preloader import get_async_preloader
-                    
-                    preloader = get_async_preloader()
-                    
-                    if preloader.is_in_progress():
-                        # Preload still running, wait for it to complete
-                        logger.info("[AsyncLogin] 📦 Waiting for background preload to complete...")
-                        self._update_progress(70, "Finalizing preload...")
-                        
-                        preload_result = await preloader.wait_for_completion(timeout=30.0)
-                        success_count = preload_result.get('success_count', 0)
-                        total_tasks = preload_result.get('total_tasks', 0)
-                        
-                        logger.info(f"[AsyncLogin] 📦 Preload completed: {success_count}/{total_tasks} successful")
-                        self._update_progress(75, f"Preload ready ({success_count}/{total_tasks})")
-                    elif preloader.is_complete():
-                        # Preload already completed - perfect timing!
-                        result = preloader.get_summary()
-                        logger.info(f"[AsyncLogin] ✅ Preload ready: {result['success_count']}/{result['total_tasks']} modules")
-                        self._update_progress(75, "Preload ready")
-                    else:
-                        # Preload not started - continue anyway
-                        logger.warning("[AsyncLogin] ⚠️ Preload not available, continuing...")
-                        self._update_progress(75, "Loading without preload...")
-                        
-                except Exception as e:
-                    logger.warning(f"[AsyncLogin] ⚠️ Preload check failed: {e}")
-                    self._update_progress(75, "Continuing...")
-                
-                # Launch main window
-                self._update_progress(80, "Launching main window...")
-                try:
-                    self._launch_main_window(request.schedule_mode)
+                    await self._async_launch_main_window(request)
                     self._update_progress(100, "Login completed!")
                     logger.info(f"[AsyncLogin] ✅ Async {request.login_type.value} login completed successfully")
                 except Exception as e:
@@ -184,15 +241,19 @@ class Login:
                 logger.error(f"[AsyncLogin] ❌ Async {request.login_type.value} login failed: {error_msg}")
                 self._update_progress(100, f"Authentication failed: {error_msg}")
                 
-                # Close progress dialog and return to login screen after a short delay
-                QTimer.singleShot(2000, self._close_progress_and_show_login)
+                # Close progress dialog and return to login screen
+                logger.info("[AsyncLogin] Scheduling return to login screen...")
+                QTimer.singleShot(1000, self._close_progress_and_show_login)
                 
         except Exception as e:
             logger.error(f"[AsyncLogin] ❌ Async {request.login_type.value} login exception: {e}")
+            import traceback
+            logger.error(f"[AsyncLogin] Exception traceback: {traceback.format_exc()}")
             self._update_progress(100, f"Login exception: {str(e)}")
             
-            # Close progress dialog and return to login screen after a short delay
-            QTimer.singleShot(2000, self._close_progress_and_show_login)
+            # Close progress dialog and return to login screen
+            logger.info("[AsyncLogin] Scheduling return to login screen after exception...")
+            QTimer.singleShot(1000, self._close_progress_and_show_login)
         finally:
             self._login_in_progress = False
     
@@ -202,10 +263,10 @@ class Login:
             self._login_progress_callback(progress, message)
     
     def _close_progress_and_show_login(self):
-        """Close progress dialog and return to login screen"""
-        logger.info("[AsyncLogin] Closing progress dialog and returning to login screen")
+        """Close progress dialog and return to login screen (for async login failures)"""
+        logger.info("[AsyncLogin] Returning to login screen")
         
-        # Emit signal to close progress dialog if it exists
+        # Close progress dialog if it exists
         if hasattr(self, 'login_progress_dialog') and self.login_progress_dialog:
             try:
                 self.login_progress_dialog.close()
@@ -213,13 +274,13 @@ class Login:
             except Exception as e:
                 logger.error(f"[AsyncLogin] Error closing progress dialog: {e}")
         
-        # Show login window again
+        # Show login window again (for async login failures like Google OAuth)
         if hasattr(self, 'login_window') and self.login_window:
             try:
                 self.login_window.show()
                 self.login_window.raise_()
                 self.login_window.activateWindow()
-                logger.info("[AsyncLogin] Login window shown and activated")
+                logger.info("[AsyncLogin] Login window shown")
             except Exception as e:
                 logger.error(f"[AsyncLogin] Error showing login window: {e}")
     
