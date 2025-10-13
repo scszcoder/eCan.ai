@@ -1805,7 +1805,27 @@ class TaskRunner(Generic[Context]):
                             # Tag = business ID or fallback to node name
                             tag = interrupt_obj.value.get("i_tag") or f"{thread_id}:interrupt_{getattr(interrupt_obj, 'id', 'unknown')}"
 
-                            self.active_checkpoints[tag] = interrupt_obj.checkpoint
+                            # Get checkpoint - either from interrupt_obj or from controller state
+                            checkpoint = None
+                            try:
+                                # Try to get checkpoint from interrupt object (GraphInterrupt case)
+                                checkpoint = getattr(interrupt_obj, 'checkpoint', None)
+                            except Exception:
+                                pass
+                            
+                            # If no checkpoint on interrupt object, get current state from controller
+                            if checkpoint is None:
+                                try:
+                                    checkpoint = controller.get_state(config)
+                                    logger.debug(f"Retrieved checkpoint from controller for tag {tag}")
+                                except Exception as e:
+                                    logger.warning(f"Could not get checkpoint for tag {tag}: {e}")
+                            
+                            if checkpoint:
+                                self.active_checkpoints[tag] = checkpoint
+                            else:
+                                logger.warning(f"No checkpoint available for tag {tag}")
+                            
                             current_node = interrupt_obj.value.get("paused_at", tag)
                             run_status = "paused"
 
@@ -1837,7 +1857,7 @@ class TaskRunner(Generic[Context]):
                             tag = None
                             payload = {}
 
-                        if cmd_type == "resume":
+                        if cmd_type == "resume" or "chat" in cmd_type.lower() or "msg" in cmd_type.lower() or "event" in cmd_type.lower():
                             if not tag:
                                 logger.warning("Resume requested but no tag specified.")
                                 continue
