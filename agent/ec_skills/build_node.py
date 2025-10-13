@@ -958,11 +958,15 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
                 chat_id = None
             chat_id = chat_id or 'default_chat'
 
+            recipient_agent = next((ag for ag in mainwin.agents if "twin" in ag.card.name.lower()), None)
+
             if role == 'assistant':
                 runner and runner.sendChatMessageToGUI(agent, chat_id, message)
             elif role == 'system':
                 runner and runner.sendChatNotificationToGUI(agent, chat_id, {"title": "system", "text": message})
             else:  # user role -> treat as message
+                send_result = agent.a2a_send_chat_message(recipient_agent, message)
+
                 runner and runner.sendChatMessageToGUI(agent, chat_id, message)
         except Exception as e:
             logger.debug(f"chat_node GUI send failed: {e}")
