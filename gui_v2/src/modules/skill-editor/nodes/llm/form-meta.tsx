@@ -7,7 +7,7 @@ import { Divider, Select, Button, Space, Tag, Tooltip } from '@douyinfe/semi-ui'
 import { IconPaperclip, IconDelete } from '@douyinfe/semi-icons';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormContent, FormHeader, FormItem, FormInputs } from '../../form-components';
-import { DisplayOutputs } from '@flowgram.ai/form-materials';
+import { DisplayOutputs, createInferInputsPlugin } from '@flowgram.ai/form-materials';
 import { getModelMap } from '../../stores/model-store';
 
 export const FormRender = ({ form }: FormRenderProps<any>) => {
@@ -237,4 +237,5 @@ export const formMeta: FormMeta = {
   render: (props) => <FormRender {...props} />,
   effect: defaultFormMeta.effect,
   validate: defaultFormMeta.validate,
+  plugins: [createInferInputsPlugin({ sourceKey: 'inputsValues', targetKey: 'inputs' })],
 };

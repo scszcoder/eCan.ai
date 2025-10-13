@@ -120,6 +120,37 @@ export function FormInputs() {
                       />
                     );
                   }
+                  if (property?.type === 'number') {
+                    // Extract the actual number value from FlowValue
+                    let numValue = '';
+                    if (field.value && typeof field.value === 'object' && 'content' in field.value) {
+                      numValue = field.value.content === '' ? '' : String(field.value.content);
+                    } else if (field.value !== null && field.value !== undefined) {
+                      numValue = String(field.value);
+                    }
+                    try { console.debug('[MCP][FormInputs] number input field value =', numValue); } catch {}
+                    return (
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="1"
+                        style={{ width: '100%', padding: 6, border: '1px solid var(--semi-color-border)', backgroundColor: '#fff', color: '#111' }}
+                        value={numValue}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          // Only store non-empty values, convert to number
+                          if (val === '') {
+                            field.onChange({ type: 'constant', content: '', schema: { type: 'number' } });
+                          } else {
+                            const parsed = parseFloat(val);
+                            field.onChange({ type: 'constant', content: isNaN(parsed) ? val : parsed, schema: { type: 'number' } });
+                          }
+                        }}
+                        disabled={readonly}
+                      />
+                    );
+                  }
                   const adjustedSchema = property;
                   try { console.debug('[MCP][FormInputs] DynamicValueInput schema =', adjustedSchema); } catch {}
                   return (
