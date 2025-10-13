@@ -890,7 +890,36 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             "paused_at": node_name,
             "prompt_to_human": prompt,
         }
-        interrupt(info)
+        resume_payload = interrupt(info)
+        # If resumer supplied a state patch (e.g., via Command(resume={... "_state_patch": {...}})), merge it
+        try:
+            if isinstance(resume_payload, dict) and "_state_patch" in resume_payload:
+                patch = resume_payload.get("_state_patch")
+                if isinstance(patch, dict):
+                    def _deep_merge(a: dict, b: dict) -> dict:
+                        out = dict(a)
+                        for k, v in b.items():
+                            if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+                                out[k] = _deep_merge(out[k], v)
+                            else:
+                                out[k] = v
+                        return out
+
+                    # merge patch into state in place
+                    try:
+                        if isinstance(state, dict):
+                            merged = _deep_merge(state, patch)
+                            state.clear()
+                            state.update(merged)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        logger.debug("[pend_event_node] resume payload received:", resume_payload)
+        logger.debug("[pend_event_node] resumed, state:", state)
+
+        # data = try_parse_json(resume_payload.get("human_text"))
         return state
 
     return node_builder(_pend, node_name, skill_name, owner, bp_manager)
