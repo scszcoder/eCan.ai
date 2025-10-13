@@ -1769,6 +1769,35 @@ class TaskRunner(Generic[Context]):
                             )
                             break
 
+                        # Extract current node from event metadata
+                        try:
+                            if isinstance(event, dict):
+                                # LangGraph events can have metadata with node info
+                                metadata = event.get("__metadata__", {})
+                                if metadata:
+                                    node_name = metadata.get("langgraph_node") or metadata.get("node")
+                                    if node_name:
+                                        current_node = node_name
+                                        logger.debug(f"Current node from metadata: {current_node}")
+                                # Also check for node name in the event keys (some LangGraph versions)
+                                elif len(event) == 1 and not any(k.startswith("__") for k in event.keys()):
+                                    # Single key that's not a special key might be the node name
+                                    current_node = list(event.keys())[0]
+                                    logger.debug(f"Current node from event key: {current_node}")
+                        except Exception as e:
+                            logger.debug(f"Could not extract current node from event: {e}")
+
+                        # Update GUI with current node during execution
+                        try:
+                            ipc_api.update_run_stat(
+                                agent_task_id=dev_task.run_id,
+                                current_node=current_node,
+                                status=run_status,
+                                langgraph_state=self._get_serializable_state(dev_task, config)
+                            )
+                        except Exception as e:
+                            logger.debug(f"Failed to update run stat during execution: {e}")
+
                         # Handle interrupts
                         if isinstance(event, dict) and "__interrupt__" in event:
                             interrupt_obj = event["__interrupt__"][0]
