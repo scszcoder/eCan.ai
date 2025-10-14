@@ -1,6 +1,7 @@
 import json
 import os
 from langgraph.graph import StateGraph, START, END
+from agent.ec_skills.dev_defs import BreakpointManager
 from agent.ec_skills.build_node import *
 import importlib
 # from agent.ec_skills.llm_utils.llm_utils import node_maker
@@ -332,7 +333,7 @@ def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp
     except Exception as e:
         logger.debug(f"block conditional edges not fully captured: {e}")
 
-def flowgram2langgraph(flow: dict, bundle_json: dict | None = None):
+def flowgram2langgraph(flow: dict, bundle_json: dict | None = None, bp_mgr: BreakpointManager | None = None):
     """
     Convert a flowgram-style JSON to an EC_Skill workflow and breakpoints list.
     """
@@ -388,7 +389,9 @@ def flowgram2langgraph(flow: dict, bundle_json: dict | None = None):
         # Prepare LangGraph
         skill_name = str(flow.get("skillName") or flow.get("name") or "skill")
         owner = str(flow.get("owner") or flow.get("createdBy") or "")
-        bp_mgr = None  # BreakpointManager is optional at compile time
+        # Use provided BreakpointManager (if any); nodes will consult it at runtime
+        # If None, breakpoint checks will be skipped in node_builder
+        bp_mgr = bp_mgr
 
         workflow = StateGraph(NodeState)
 
@@ -512,7 +515,8 @@ def flowgram2langgraph(flow: dict, bundle_json: dict | None = None):
                 d = n.get("data") or {}
                 has_bp = False
                 try:
-                    has_bp = (d.get("breakpoint") is True) or (n.get("breakpoint") is True)
+                    # Accept both UI shapes: 'break_point' (UI save) and 'breakpoint' (legacy)
+                    has_bp = (d.get("break_point") is True) or (d.get("breakpoint") is True) or (n.get("breakpoint") is True)
                 except Exception:
                     has_bp = False
                 if has_bp:
