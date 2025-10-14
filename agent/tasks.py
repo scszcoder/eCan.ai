@@ -1771,25 +1771,39 @@ class TaskRunner(Generic[Context]):
                                 agent_task_id=dev_task.run_id,
                                 current_node=None,
                                 status="completed",
-                                langgraph_state=clean_state
+                                langgraph_state=clean_state,
+                                timestamp=int(time.time() * 1000)
                             )
                             break
 
                         # Extract current node from event metadata
+                        previous_node = current_node
+                        node_extracted = False
                         try:
                             if isinstance(event, dict):
+                                # Log the event structure for debugging
+                                event_keys = list(event.keys())
+                                logger.info(f"[EventDebug] Event keys: {event_keys}, has_metadata: {'__metadata__' in event}")
+                                
                                 # LangGraph events can have metadata with node info
                                 metadata = event.get("__metadata__", {})
                                 if metadata:
                                     node_name = metadata.get("langgraph_node") or metadata.get("node")
                                     if node_name:
                                         current_node = node_name
-                                        logger.debug(f"Current node from metadata: {current_node}")
+                                        node_extracted = True
+                                        if current_node != previous_node:
+                                            logger.info(f"[NodeTransition] {previous_node} -> {current_node} (from metadata)")
                                 # Also check for node name in the event keys (some LangGraph versions)
                                 elif len(event) == 1 and not any(k.startswith("__") for k in event.keys()):
                                     # Single key that's not a special key might be the node name
                                     current_node = list(event.keys())[0]
-                                    logger.debug(f"Current node from event key: {current_node}")
+                                    node_extracted = True
+                                    if current_node != previous_node:
+                                        logger.info(f"[NodeTransition] {previous_node} -> {current_node} (from event key)")
+                                
+                                if not node_extracted:
+                                    logger.warning(f"[NodeExtraction] Failed to extract node from event. Keeping current_node='{current_node}'. Event keys: {event_keys}")
                         except Exception as e:
                             logger.debug(f"Could not extract current node from event: {e}")
 
@@ -1799,7 +1813,8 @@ class TaskRunner(Generic[Context]):
                                 agent_task_id=dev_task.run_id,
                                 current_node=current_node,
                                 status=run_status,
-                                langgraph_state=self._get_serializable_state(dev_task, config)
+                                langgraph_state=self._get_serializable_state(dev_task, config),
+                                timestamp=int(time.time() * 1000)
                             )
                         except Exception as e:
                             logger.debug(f"Failed to update run stat during execution: {e}")
@@ -1840,7 +1855,8 @@ class TaskRunner(Generic[Context]):
                                 agent_task_id=dev_task.run_id,
                                 current_node=current_node,
                                 status="paused",
-                                langgraph_state=self._get_serializable_state(dev_task, config)
+                                langgraph_state=self._get_serializable_state(dev_task, config),
+                                timestamp=int(time.time() * 1000)
                             )
                             continue  # wait for GUI
 
@@ -1959,23 +1975,10 @@ class TaskRunner(Generic[Context]):
                             logger.info("Dev run cancelled by user")
                             break
 
-                    # Update GUI with latest state
-                    ipc_api.update_run_stat(
-                        agent_task_id=dev_task.run_id,
-                        current_node=current_node,
-                        status=run_status,
-                        langgraph_state=self._get_serializable_state(dev_task, config)
-                    )
-
-                except StopIteration:
-                    logger.debug(f"Dev run for {dev_task.name} has completed (StopIteration).")
-                    ipc_api.update_run_stat(
-                        agent_task_id=dev_task.run_id,
-                        current_node=None,
-                        status="completed",
-                        langgraph_state={}
-                    )
-                    break
+                    # Do not send a premature completion here. The proper completion
+                    # notifications are already sent when the graph finishes (event is None)
+                    # or in the StopIteration branch above. Keeping a mid-run completion
+                    # here causes the frontend to clear the running icon immediately.
                 except Exception as e:
                     err_msg = get_traceback(e, "ErrorLaunchDevRun")
                     logger.error(f"Exception during launch_dev_run for task {dev_task.name}: {err_msg}")
@@ -1983,7 +1986,8 @@ class TaskRunner(Generic[Context]):
                         agent_task_id=dev_task.run_id,
                         current_node=current_node,
                         status="failed",
-                        langgraph_state={"error": str(e)}
+                        langgraph_state={"error": str(e)},
+                        timestamp=int(time.time() * 1000)
                     )
                     raise
 

@@ -157,38 +157,9 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
     onCancel();
   };
 
-  // runtime effect - Only close the node editor sidebar when TestRun panel is visible
-  useEffect(() => {
-    if (visible && sidebarNodeId) {
-      setNodeId(undefined);
-    }
-  }, [visible, sidebarNodeId]);
+  // Removed auto-closing of node editor to allow editing during Test Run
 
-  const renderForm = (
-    <div className={styles['testrun-panel-form']}>
-      <div className={styles['testrun-panel-input']}>
-        <div className={styles.title}>Input Form</div>
-        <div>JSON Mode</div>
-        <Switch
-          checked={inputJSONMode}
-          onChange={(checked: boolean) => setInputJSONMode(checked)}
-          size="small"
-        />
-      </div>
-      {inputJSONMode ? (
-        <TestRunJsonInput values={values} setValues={setValues} />
-      ) : (
-        <TestRunForm values={values} setValues={setValues} />
-      )}
-      {errors?.map((e) => (
-        <div className={styles.error} key={e}>
-          {e}
-        </div>
-      ))}
-      <NodeStatusGroup title="Inputs Result" data={result?.inputs} optional disableCollapse />
-      <NodeStatusGroup title="Outputs Result" data={result?.outputs} optional disableCollapse />
-    </div>
-  );
+  // Removed input form UI per request: only keep a minimal Start/Cancel button
 
   const renderButton = (
     <Button
@@ -203,42 +174,27 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
     </Button>
   );
 
+  // Minimal floating popup (button only) so it doesn't block the canvas
+  if (!visible) return null;
+
   return (
-    <SideSheet
-      title="Test Run"
-      visible={visible}
-      mask={false}
-      motion={false}
-      onCancel={onClose}
-      width={400}
-      headerStyle={{
-        display: 'none',
-      }}
-      bodyStyle={{
-        padding: 0,
-      }}
+    <div
       style={{
-        background: 'none',
-        boxShadow: 'none',
+        position: 'fixed',
+        right: 16,
+        bottom: 16,
+        zIndex: 1000,
+        background: 'var(--semi-color-bg-1)',
+        border: '1px solid var(--semi-color-border)',
+        borderRadius: 8,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+        padding: 8,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
       }}
     >
-      <div className={styles['testrun-panel-container']}>
-        <div className={styles['testrun-panel-header']}>
-          <div className={styles['testrun-panel-title']}>Test Run</div>
-          <Button
-            className={styles['testrun-panel-title']}
-            type="tertiary"
-            icon={<IconClose />}
-            size="small"
-            theme="borderless"
-            onClick={onClose}
-          />
-        </div>
-        <div className={styles['testrun-panel-content']}>
-          {renderForm}
-        </div>
-        <div className={styles['testrun-panel-footer']}>{renderButton}</div>
-      </div>
-    </SideSheet>
+      {renderButton}
+    </div>
   );
 };
