@@ -314,8 +314,16 @@ def _convert_db_skill_to_object(db_skill):
                 # Store diagram for reference
                 skill_obj.diagram = diagram
                 
-                # Convert flowgram diagram to LangGraph workflow
-                workflow = flowgram2langgraph(diagram)
+                # Convert flowgram diagram to LangGraph workflow with breakpoint support
+                from agent.ec_skills.dev_defs import BreakpointManager
+                bp_mgr = BreakpointManager()
+                workflow, bp_list = flowgram2langgraph(diagram, bp_mgr=bp_mgr)
+                try:
+                    # Populate manager after construction; node wrappers hold the same reference
+                    if isinstance(bp_list, (list, tuple)):
+                        bp_mgr.set_breakpoints(list(bp_list))
+                except Exception:
+                    pass
                 
                 if workflow:
                     # Compile the workflow with checkpointer
@@ -614,7 +622,14 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                     with bundle_path.open("r", encoding="utf-8") as bf:
                         bundle_dict = json.load(bf)
 
-                workflow, _breakpoints = flowgram2langgraph(core_dict, bundle_dict)
+                from agent.ec_skills.dev_defs import BreakpointManager
+                bp_mgr = BreakpointManager()
+                workflow, _breakpoints = flowgram2langgraph(core_dict, bundle_dict, bp_mgr)
+                try:
+                    if isinstance(_breakpoints, (list, tuple)):
+                        bp_mgr.set_breakpoints(list(_breakpoints))
+                except Exception:
+                    pass
                 if not workflow:
                     logger.error(f"[build_agent_skills] flowgram2langgraph returned empty workflow for {core_path}")
                     return None

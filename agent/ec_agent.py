@@ -375,15 +375,29 @@ class EC_Agent(Agent):
 
 	def _task_done_callback(self, run_id: str, future: concurrent.futures.Future):
 		"""Callback to remove a task from the registry upon completion."""
+		# Keep dev run alive; it manages pause/step/resume explicitly.
+		if run_id == "dev_run_singleton":
+			try:
+				_ = future.result()  # raise if task errored, so we can log it
+			except Exception as e:
+				logger.error(f"Dev run task failed with an exception: {e}")
+			else:
+				logger.info("Dev run task callback invoked; preserving registry entry for step/resume.")
+			return
+
+		# Non-dev tasks: default behavior
+		try:
+			_ = future.result()
+		except Exception as e:
+			logger.error(f"Task with run_id {run_id} failed with an exception: {e}")
+
 		with self.task_lock:
 			if run_id in self.active_tasks:
 				del self.active_tasks[run_id]
 				logger.info(f"Task with run_id {run_id} completed and removed from registry.")
-		try:
-			# Retrieve result to raise any exceptions that occurred during the task run
-			future.result()
-		except Exception as e:
-			logger.error(f"Task with run_id {run_id} failed with an exception: {e}")
+
+
+
 
 	def is_task_running(self, run_id: str) -> bool:
 		"""Check if a task with the given run_id is currently running."""

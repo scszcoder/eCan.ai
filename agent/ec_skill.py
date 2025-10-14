@@ -464,6 +464,42 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                 out = {k: _stringify(v) for k, v in out.items()}
             return out
 
+        # Step-once: pause at the very next node regardless of configured breakpoints
+        try:
+            step_once = False
+            try:
+                step_once = bool(runtime.context.get("step_once"))
+            except Exception:
+                step_once = False
+
+            # Collect debug context for tracing
+            try:
+                origin = runtime.context.get("step_from")
+            except Exception:
+                origin = None
+            try:
+                skip_list_dbg = runtime.context.get("skip_bp_once", [])
+            except Exception:
+                skip_list_dbg = []
+            logger.debug(f"[step-once] node={node_name}, origin={origin}, step_once={step_once}, skip_bp_once={skip_list_dbg}")
+
+            if step_once:
+                origin = runtime.context.get("step_from")
+                # Pause at the next node (not the origin which was just skipped)
+                if (not origin) or (origin != node_name):
+                    logger.info(f"Step-once: pausing at {node_name} before execution.")
+                    try:
+                        runtime.context["step_once"] = False  # clear so it only pauses once
+                    except Exception:
+                        pass
+                    interrupt({"paused_at": node_name, "i_tag": node_name, "state": _safe_state_view(state)})
+        except GraphInterrupt:
+            # Re-raise GraphInterrupt so the workflow actually pauses
+            raise
+        except Exception as _e:
+            err_msg = get_traceback(_e, "ErrorNodeBuilderWrapper")
+            logger.debug(f"[node_builder] step-once check failed at {node_name}: {err_msg}")
+
         # Check for breakpoints BEFORE executing the node
         # This ensures we pause before any node code runs
         if bp_manager and bp_manager.has_breakpoint(node_name):
@@ -488,25 +524,34 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                 logger.error(f"Error build skip list at {node_name}: {err_msg}")
                 skip_list = []
 
+            logger.debug(f"[skip-once] at={node_name}, skip_list(before)={skip_list}")
             if isinstance(skip_list, (list, tuple)) and node_name in skip_list:
                 logger.info(f"Skip-once: skipping breakpoint at {node_name} per runtime.context")
                 # remove it so it only skips once
                 try:
                     if isinstance(skip_list, list):
                         skip_list.remove(node_name)
+                        logger.debug(f"[skip-once] at={node_name}, skip_list(after)={runtime.context.get('skip_bp_once')}")
                         runtime.context["skip_bp_once"] = skip_list
                 except Exception:
                     pass
             else:
-                # Fallback: state-based resume flag (kept for compatibility with older flows)
-                resuming_from = state.get("_resuming_from")
-                logger.info(f"DEBUG: Breakpoint check for {node_name}, _resuming_from = {resuming_from}")
-                if resuming_from == node_name:
-                    logger.info(f"Skipping breakpoint at {node_name} - resuming from this node (state flag)")
-                    state.pop("_resuming_from", None)
+                # Check if step_once is active and this is the origin - if so, skip breakpoint
+                step_once_active = runtime.context.get("step_once", False)
+                step_origin = runtime.context.get("step_from", "")
+                if step_once_active and step_origin == node_name:
+                    logger.info(f"Step-once: skipping breakpoint at origin node {node_name}")
                 else:
-                    logger.info(f"Breakpoint hit at node: {node_name}. Pausing before execution.")
-                    interrupt({"paused_at": node_name, "i_tag": node_name, "state": _safe_state_view(state)})
+                    # Fallback: state-based resume flag (kept for compatibility with older flows)
+                    resuming_from = state.get("_resuming_from")
+                    logger.info(f"DEBUG: Breakpoint check for {node_name}, _resuming_from = {resuming_from}")
+                    if resuming_from == node_name:
+                        logger.info(f"Skipping breakpoint at {node_name} - resuming from this node (state flag)")
+                        state.pop("_resuming_from", None)
+                    else:
+                        logger.info(f"Breakpoint hit at node: {node_name}. Pausing before execution.")
+                        interrupt({"paused_at": node_name, "i_tag": node_name, "state": _safe_state_view(state)})
+
 
         # Execute the node function with retry logic
         while attempts < retries:

@@ -25,7 +25,7 @@ export function TestRunButton(props: { disabled: boolean }) {
   const ipcApi = IPCAPI.getInstance();
   const username = useUserStore((state) => state.username);
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
-  // Note: We intentionally do NOT inject breakpoints on Run button to avoid unintended pauses
+  const breakpoints = useSkillInfoStore((state) => state.breakpoints);
   const setRunningNodeId = useRunningNodeStore((state) => state.setRunningNodeId);
 
   const updateValidateData = useCallback(() => {
@@ -83,20 +83,36 @@ export function TestRunButton(props: { disabled: boolean }) {
         if (startNode) setRunningNodeId(startNode.id);
       } catch {}
 
-      // Deep copy diagram
+      // Deep copy diagram (base)
       const diagram = clientContext.document.toJSON();
-      const diagramWithBreakpoints: any = JSON.parse(JSON.stringify(diagram || {}));
+      const diagramCopy: any = JSON.parse(JSON.stringify(diagram || {}));
 
       // Compose bundle and ensure workFlow points to main sheet document if present
       const allSheets = useSheetsStore.getState().getAllSheets();
       const mainSheet = allSheets.sheets.find((s) => s.id === allSheets.mainSheetId) || allSheets.sheets[0];
-      const composedDiagram = {
-        ...(diagramWithBreakpoints || {}),
+      const composedDiagram: any = {
+        ...(diagramCopy || {}),
         ...(mainSheet && (mainSheet as any).document ? { workFlow: (mainSheet as any).document } : {}),
         bundle: {
           sheets: allSheets.sheets.map((s) => ({ name: s.name || s.id, document: (s as any).document || {} })),
         },
       } as any;
+
+      // Inject breakpoint info into the actual workFlow used for backend
+      try {
+        const wf = composedDiagram?.workFlow;
+        if (wf && Array.isArray(wf.nodes)) {
+          wf.nodes.forEach((node: any) => {
+            if (breakpoints.includes(node.id)) {
+              node.data = node.data || {};
+              node.data.break_point = true;
+            } else if (node?.data?.break_point) {
+              // ensure no stale flags
+              delete node.data.break_point;
+            }
+          });
+        }
+      } catch {}
 
       const skillPayload = {
         ...skillInfo,
@@ -118,7 +134,7 @@ export function TestRunButton(props: { disabled: boolean }) {
     } catch (e: any) {
       Notification.error({ title: 'Run Error', content: e?.message || String(e) });
     }
-  }, [clientContext, username, skillInfo, setRunningNodeId]);
+  }, [clientContext, username, skillInfo, setRunningNodeId, breakpoints]);
 
   /**
    * Listen single node validate
