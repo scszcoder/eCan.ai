@@ -23,7 +23,7 @@ export const RAGNodeRegistry: FlowNodeRegistry = {
   onAdd() {
     return {
       id: `rag_${nanoid(5)}`,
-      type: 'rag',
+      type: 'rag_node',
       data: {
         title: `RAG_${++index}`,
         inputsValues: {

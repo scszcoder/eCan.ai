@@ -43,6 +43,8 @@ function_registry = {
     # Back-compat alias for common typo
     "chat_node": build_chat_node,
     "rag_node": build_rag_node,
+    # Back-compat alias for old rag type
+    "rag": build_rag_node,
     "browser-automation": build_browser_automation_node,
     # Local default to avoid import-time NameError and double wrapping issues
     "default": _default_noop_builder,
