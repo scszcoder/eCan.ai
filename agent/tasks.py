@@ -295,12 +295,24 @@ class ManagedTask(Task):
                 "app_context": {},
                 "this_node": {"name": ""},
             }
+        
+        # Merge step/breakpoint control flags into config's configurable dict
+        # These are read by node_builder for step control
+        step_control = {}
+        for key in ["step_once", "skip_bp_once", "step_from"]:
+            if key in context:
+                step_control[key] = context[key]
+        
+        if step_control:
+            effective_config.setdefault("configurable", {})
+            effective_config["configurable"].update(step_control)
+        
         print("current langgraph run time state0:", self.skill.runnable.get_state(config=effective_config))
 
         # Support Command inputs (e.g., Command(resume=...)) and normal state runs
+        # Pass context as kwarg for runtime.context, and step control via config
         if isinstance(in_msg, Command):
             # in_args = self.metadata.get("state", {})
-            # agen = self.skill.runnable.stream(in_args, config=effective_config, context=context, **kwargs)
             print("effective config before resume:", effective_config)
             agen = self.skill.runnable.stream(in_msg, config=effective_config, context=context, **kwargs)
         else:
@@ -444,17 +456,22 @@ class ManagedTask(Task):
             run_result = {"success": success, "step": step, "cp": current_checkpoint}
             print("synced stream_run result:", run_result)
             # Push completion status to GUI
+            # Note: Don't send update here if we already sent a paused status at interrupt
+            # The paused node should remain highlighted until user resumes/steps
             try:
                 from gui.ipc.api import IPCAPI
                 ipc = IPCAPI.get_instance()
                 st_js = current_checkpoint.values if hasattr(current_checkpoint, "values") else {}
-                ipc.update_run_stat(
-                    agent_task_id=self.run_id,
-                    current_node="",
-                    status="completed" if success else "paused",
-                    langgraph_state=st_js,
-                    timestamp=int(time.time() * 1000)
-                )
+                # Only send completion update if truly completed (not paused at interrupt)
+                if success:
+                    ipc.update_run_stat(
+                        agent_task_id=self.run_id,
+                        current_node="",
+                        status="completed",
+                        langgraph_state=st_js,
+                        timestamp=int(time.time() * 1000)
+                    )
+                # If paused, the interrupt handler already sent the update with the correct node
             except Exception:
                 pass
             return run_result
@@ -2219,16 +2236,58 @@ class TaskRunner(Generic[Context]):
         try:
             if self._dev_task is None:
                 return {"success": False, "error": "No dev run task"}
+            # Fetch last checkpoint recorded at interrupt
+            cps = getattr(self._dev_task, "checkpoint_nodes", None) or []
+            if not cps:
+                return {"success": False, "error": "No checkpoint to resume from"}
+            last = cps[-1] or {}
+            tag = last.get("tag") or last.get("i_tag") or ""
+            checkpoint = last.get("checkpoint")
+            if not checkpoint:
+                return {"success": False, "error": "Missing checkpoint object"}
+
+            # Build resume payload so node_builder sees the state flag on resume input
+            resume_payload = {"_resuming_from": tag} if tag else {}
+            # Also defensively set the flag on the checkpoint state itself
             try:
-                self._dev_task.pause_event.set()
+                vals = getattr(checkpoint, "values", None)
+                if isinstance(vals, dict) and tag:
+                    vals["_resuming_from"] = tag
+                    # ensure attributes exists for any downstream readers
+                    attrs = vals.get("attributes")
+                    if not isinstance(attrs, dict):
+                        vals["attributes"] = {}
             except Exception:
                 pass
-            if hasattr(self._dev_task, "status"):
-                try:
+
+            try:
+                if hasattr(self._dev_task, "status"):
                     self._dev_task.status.state = TaskState.WORKING
-                except Exception:
-                    pass
-            return {"success": True}
+            except Exception:
+                pass
+
+            # Resume the runnable from checkpoint and skip the paused node exactly once
+            # Step-once semantics: skip the paused node once, then pause at the very next node
+            if tag:
+                ctx = {"skip_bp_once": [tag], "step_once": True, "step_from": tag}
+            else:
+                ctx = {"skip_bp_once": [], "step_once": True, "step_from": ""}
+
+            # Make sure we resume the exact same thread as the checkpoint
+            tid = None
+            try:
+                tid = (getattr(checkpoint, "config", {}) or {}).get("configurable", {}).get("thread_id")
+            except Exception:
+                pass
+
+            saved_cfg = getattr(self._dev_task, "metadata", {}).get("config") or {}
+            saved_cfg.setdefault("configurable", {})
+            if tid:
+                saved_cfg["configurable"]["thread_id"] = tid
+
+            logger.info(f"[step_dev_run] ctx={ctx}, resume_payload={resume_payload}, thread_id={saved_cfg.get('configurable', {}).get('thread_id')}")
+            result = self._dev_task.stream_run(Command(resume=resume_payload), checkpoint=checkpoint, context=ctx, config=saved_cfg)
+            return {"success": True, "result": result}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -2250,20 +2309,58 @@ class TaskRunner(Generic[Context]):
             return {"success": False, "error": str(e)}
 
     def step_dev_run(self):
-        """Allow one step by setting pause_event; assumes graph yields interrupts between nodes."""
+        """Single-step: resume from last checkpoint and skip the paused node once."""
         try:
             if self._dev_task is None:
                 return {"success": False, "error": "No dev run task"}
+            cps = getattr(self._dev_task, "checkpoint_nodes", None) or []
+            if not cps:
+                return {"success": False, "error": "No checkpoint to step from"}
+            last = cps[-1] or {}
+            tag = last.get("tag") or last.get("i_tag") or ""
+            checkpoint = last.get("checkpoint")
+            if not checkpoint:
+                return {"success": False, "error": "Missing checkpoint object"}
+
+            # Build resume payload carrying the state flag for a single-step past breakpoint
+            resume_payload = {"_resuming_from": tag} if tag else {}
+            # Also set on checkpoint values for robustness
             try:
-                self._dev_task.pause_event.set()
+                vals = getattr(checkpoint, "values", None)
+                if isinstance(vals, dict) and tag:
+                    vals["_resuming_from"] = tag
+                    if not isinstance(vals.get("attributes"), dict):
+                        vals["attributes"] = {}
             except Exception:
                 pass
-            if hasattr(self._dev_task, "status"):
-                try:
+
+            try:
+                if hasattr(self._dev_task, "status"):
                     self._dev_task.status.state = TaskState.WORKING
-                except Exception:
-                    pass
-            return {"success": True}
+            except Exception:
+                pass
+
+            # Single-step semantics: skip the paused node once, then pause at the very next node
+            if tag:
+                ctx = {"skip_bp_once": [tag], "step_once": True, "step_from": tag}
+            else:
+                ctx = {"skip_bp_once": [], "step_once": True, "step_from": ""}
+            
+            # Make sure we resume the exact same thread as the checkpoint
+            tid = None
+            try:
+                tid = (getattr(checkpoint, "config", {}) or {}).get("configurable", {}).get("thread_id")
+            except Exception:
+                pass
+            
+            saved_cfg = getattr(self._dev_task, "metadata", {}).get("config") or {}
+            saved_cfg.setdefault("configurable", {})
+            if tid:
+                saved_cfg["configurable"]["thread_id"] = tid
+            
+            logger.info(f"[step_dev_run] ctx={ctx}, resume_payload={resume_payload}, thread_id={saved_cfg.get('configurable', {}).get('thread_id')}")
+            result = self._dev_task.stream_run(Command(resume=resume_payload), checkpoint=checkpoint, context=ctx, config=saved_cfg)
+            return {"success": True, "result": result}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
