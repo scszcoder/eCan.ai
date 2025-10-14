@@ -2,6 +2,7 @@ import json
 import os
 import re
 from typing import Dict, List, Optional, Tuple
+from agent.ec_skills.dev_defs import BreakpointManager
 
 from utils.logger_helper import logger_helper as logger
 
@@ -473,7 +474,7 @@ def _v2_save_mermaid(tag: str, wf: dict, base_name: str):
         logger.debug(f"[v2][mmd] save failed: {e}")
 
 
-def flowgram2langgraph_v2(flow: dict, bundle_json: Optional[dict] = None, enable_subgraph: bool = False):
+def flowgram2langgraph_v2(flow: dict, bundle_json: Optional[dict] = None, enable_subgraph: bool = False, bp_mgr: Optional[BreakpointManager] = None):
     """
     v2 layered converter (flat mode for now). Same input/output signature as v1.
     We preprocess schema (flatten sheets, remove groups), then delegate to v1.
@@ -574,4 +575,4 @@ def flowgram2langgraph_v2(flow: dict, bundle_json: Optional[dict] = None, enable
     }
     logger.debug('[v2] Delegating to v1 after preprocessing (flat mode)')
     from agent.ec_skills.flowgram2langgraph import flowgram2langgraph as v1
-    return v1(new_flow, bundle_json=None)
+    return v1(new_flow, bundle_json=None, bp_mgr=bp_mgr)

@@ -324,6 +324,28 @@ class ManagedTask(Task):
             # Pass through any additional kwargs to astream
             step = {}
             current_checkpoint = None
+            # Initial emit: show first node as running if available
+            try:
+                from gui.ipc.api import IPCAPI
+                ipc = IPCAPI.get_instance()
+                st0 = self.skill.runnable.get_state(config=effective_config)
+                node0 = ""
+                try:
+                    if hasattr(st0, "next") and st0.next:
+                        node0 = st0.next[0]
+                except Exception:
+                    node0 = ""
+                st0_js = st0.values if hasattr(st0, "values") else {}
+                ipc.update_run_stat(
+                    agent_task_id=self.run_id,
+                    current_node=node0 or "",
+                    status="running",
+                    langgraph_state=st0_js,
+                    timestamp=int(time.time() * 1000)
+                )
+            except Exception:
+                pass
+
             for step in agen:
                 # print("synced Step output:", step)
 
@@ -338,6 +360,46 @@ class ManagedTask(Task):
                     role="agent",
                     parts=[TextPart(type="text", text=str(step))]
                 )
+                # Push running status to GUI
+                try:
+                    from gui.ipc.api import IPCAPI  # lazy import to avoid circular deps
+                    ipc = IPCAPI.get_instance()
+                    node_name = ""
+                    try:
+                        meta = step.get("__metadata__", {}) if isinstance(step, dict) else {}
+                        node_name = meta.get("langgraph_node") or meta.get("node") or ""
+                    except Exception:
+                        node_name = ""
+                    try:
+                        st = self.skill.runnable.get_state(config=effective_config)
+                        st_js = st.values if hasattr(st, "values") else {}
+                        # fallback: use node name from state values if available
+                        if not node_name:
+                            try:
+                                node_name = (
+                                    ((st_js or {}).get("attributes") or {})
+                                        .get("__this_node__", {})
+                                        .get("name") or ""
+                                )
+                            except Exception:
+                                pass
+                        # final fallback: next node from state if still missing
+                        if (not node_name) and hasattr(st, "next") and st.next:
+                            try:
+                                node_name = st.next[0]
+                            except Exception:
+                                pass
+                    except Exception:
+                        st_js = {}
+                    ipc.update_run_stat(
+                        agent_task_id=self.run_id,
+                        current_node=node_name or "",
+                        status="running",
+                        langgraph_state=st_js,
+                        timestamp=int(time.time() * 1000)
+                    )
+                except Exception:
+                    pass
                 if step.get("require_user_input") or step.get("await_agent") or step.get("__interrupt__"):
                     self.status.state = TaskState.INPUT_REQUIRED
                     print("input required...", step)
@@ -351,6 +413,20 @@ class ManagedTask(Task):
                         current_checkpoint.values["attributes"]["i_tag"] = i_tag
                         print("current checkpoint:", current_checkpoint)
                         self.add_checkpoint_node({"tag": i_tag, "checkpoint": current_checkpoint})
+                        # Push paused status to GUI at interrupt
+                        try:
+                            from gui.ipc.api import IPCAPI
+                            ipc = IPCAPI.get_instance()
+                            st_js = current_checkpoint.values if hasattr(current_checkpoint, "values") else {}
+                            ipc.update_run_stat(
+                                agent_task_id=self.run_id,
+                                current_node=i_tag or "",
+                                status="paused",
+                                langgraph_state=st_js,
+                                timestamp=int(time.time() * 1000)
+                            )
+                        except Exception:
+                            pass
 
                     break
 
@@ -367,6 +443,20 @@ class ManagedTask(Task):
 
             run_result = {"success": success, "step": step, "cp": current_checkpoint}
             print("synced stream_run result:", run_result)
+            # Push completion status to GUI
+            try:
+                from gui.ipc.api import IPCAPI
+                ipc = IPCAPI.get_instance()
+                st_js = current_checkpoint.values if hasattr(current_checkpoint, "values") else {}
+                ipc.update_run_stat(
+                    agent_task_id=self.run_id,
+                    current_node="",
+                    status="completed" if success else "paused",
+                    langgraph_state=st_js,
+                    timestamp=int(time.time() * 1000)
+                )
+            except Exception:
+                pass
             return run_result
 
         except Exception as e:
@@ -428,6 +518,28 @@ class ManagedTask(Task):
             # Pass through any additional kwargs to astream
             step = {}
             current_checkpoint = None
+            # Initial emit: show first node as running if available
+            try:
+                from gui.ipc.api import IPCAPI
+                ipc = IPCAPI.get_instance()
+                st0 = self.skill.runnable.get_state(config=effective_config)
+                node0 = ""
+                try:
+                    if hasattr(st0, "next") and st0.next:
+                        node0 = st0.next[0]
+                except Exception:
+                    node0 = ""
+                st0_js = st0.values if hasattr(st0, "values") else {}
+                ipc.update_run_stat(
+                    agent_task_id=self.run_id,
+                    current_node=node0 or "",
+                    status="running",
+                    langgraph_state=st0_js,
+                    timestamp=int(time.time() * 1000)
+                )
+            except Exception:
+                pass
+
             async for step in agen:
                 print("async Step output:", step)
                 await self.pause_event.wait()
@@ -435,6 +547,36 @@ class ManagedTask(Task):
                     role="agent",
                     parts=[TextPart(type="text", text=str(step))]
                 )
+                # Push running status to GUI
+                try:
+                    from gui.ipc.api import IPCAPI
+                    ipc = IPCAPI.get_instance()
+                    node_name = ""
+                    try:
+                        meta = step.get("__metadata__", {}) if isinstance(step, dict) else {}
+                        node_name = meta.get("langgraph_node") or meta.get("node") or ""
+                    except Exception:
+                        node_name = ""
+                    try:
+                        st = self.skill.runnable.get_state(config=effective_config)
+                        st_js = st.values if hasattr(st, "values") else {}
+                        # fallback: use next node from state if metadata missing
+                        if (not node_name) and hasattr(st, "next") and st.next:
+                            try:
+                                node_name = st.next[0]
+                            except Exception:
+                                pass
+                    except Exception:
+                        st_js = {}
+                    ipc.update_run_stat(
+                        agent_task_id=self.run_id,
+                        current_node=node_name or "",
+                        status="running",
+                        langgraph_state=st_js,
+                        timestamp=int(time.time() * 1000)
+                    )
+                except Exception:
+                    pass
                 if step.get("require_user_input") or step.get("await_agent") or step.get("__interrupt__"):
                     self.status.state = TaskState.INPUT_REQUIRED
                     print("input required...", step)
@@ -445,6 +587,20 @@ class ManagedTask(Task):
                         # Get checkpoint from LangGraph state since raw Interrupt object doesn't have it
                         current_checkpoint = self.skill.runnable.get_state(config=effective_config)
                         self.add_checkpoint_node({"tag": i_tag, "checkpoint": current_checkpoint})
+                        # Push paused status to GUI at interrupt
+                        try:
+                            from gui.ipc.api import IPCAPI
+                            ipc = IPCAPI.get_instance()
+                            st_js = current_checkpoint.values if hasattr(current_checkpoint, "values") else {}
+                            ipc.update_run_stat(
+                                agent_task_id=self.run_id,
+                                current_node=i_tag or "",
+                                status="paused",
+                                langgraph_state=st_js,
+                                timestamp=int(time.time() * 1000)
+                            )
+                        except Exception:
+                            pass
                     break
 
             if self.status.state == TaskState.INPUT_REQUIRED:
@@ -460,6 +616,20 @@ class ManagedTask(Task):
 
             run_result = {"success": success, "step": step, "cp": current_checkpoint}
             print("astream_run result:", run_result)
+            # Push completion status to GUI
+            try:
+                from gui.ipc.api import IPCAPI
+                ipc = IPCAPI.get_instance()
+                st_js = current_checkpoint.values if hasattr(current_checkpoint, "values") else {}
+                ipc.update_run_stat(
+                    agent_task_id=self.run_id,
+                    current_node="",
+                    status="completed" if success else "paused",
+                    langgraph_state=st_js,
+                    timestamp=int(time.time() * 1000)
+                )
+            except Exception:
+                pass
             return run_result
 
         except Exception as e:
@@ -470,8 +640,12 @@ class ManagedTask(Task):
         finally:
             # Cleanup code here
             # self.runner = None
-            self.status.state = TaskState.CANCELED
-            await agen.aclose()
+            if self.cancellation_event.is_set():
+                self.status.state = TaskState.CANCELED
+            try:
+                await agen.aclose()
+            except Exception:
+                pass
 
 
 
@@ -725,6 +899,7 @@ class TaskRunner(Generic[Context]):
         self.running_tasks = []
         self.save_dir = os.path.join(agent.mainwin.my_ecb_data_homepath, "task_saves")
         os.makedirs(self.save_dir, exist_ok=True)
+        self._dev_task = None  # dev-run handle for sidebar controls
 
         self._stop_event = asyncio.Event()
         TaskRunnerRegistry.register(self)
@@ -905,7 +1080,7 @@ class TaskRunner(Generic[Context]):
         if tbr_task:
             if tbr_task.status.state != TaskState.WORKING and tbr_task.status.state != TaskState.INPUT_REQUIRED :
                 print("start to run task: ", tbr_task.status.state)
-                await tbr_task.astream()
+                await tbr_task.astream_run()
             else:
                 print("WARNING: no running tasks....")
 
@@ -1092,9 +1267,10 @@ class TaskRunner(Generic[Context]):
         found = []
         msg_js = json.loads(msg["message"])         # need , encoding='utf-8'?
         if msg_js['metadata']["mtype"] == "send_task":
-            found = [task for task in self.agent.tasks if msg_js['metadata']['task']['name'].lower in task.name.lower()]
+            name_filter = (((msg_js.get('metadata') or {}).get('task') or {}).get('name') or '')
+            found = [task for task in self.agent.tasks if name_filter.lower() in (task.name or "").lower()]
         elif msg_js['metadata']["mtype"] == "send_chat":
-            found = [task for task in self.agent.tasks if "chatter task" in task.name.lower()]
+            found = [task for task in self.agent.tasks if "chatter task" in (task.name or "").lower()]
         return found
 
     def _extract_text_from_message(self, message) -> str:
@@ -1700,308 +1876,412 @@ class TaskRunner(Generic[Context]):
                 logger.error(f"{ex_stat}")
             time.sleep(1)
 
-    def launch_dev_run(self, init_state, dev_task: ManagedTask = None):
-        """
-        Executes a controlled, interactive development run for a given task,
-        supporting multiple breakpoints and human/API interrupts.
-        """
-        web_gui = AppContext.get_web_gui()
-        ipc_api = web_gui.get_ipc_api()
-        if not dev_task:
-            logger.error("launch_dev_run called without a task.")
-            return
+    # def launch_dev_run(self, init_state, dev_task: ManagedTask = None):
+    #     """
+    #     Executes a controlled, interactive development run for a given task,
+    #     supporting multiple breakpoints and human/API interrupts.
+    #     """
+    #     web_gui = AppContext.get_web_gui()
+    #     ipc_api = web_gui.get_ipc_api()
+    #     if not dev_task:
+    #         logger.error("launch_dev_run called without a task.")
+    #         return
+    #
+    #     logger.info(f"Launching interactive dev run for task: {dev_task.name} with run_id: {dev_task.run_id}")
+    #
+    #     try:
+    #         context = {
+    #             "id": str(uuid.uuid4()),
+    #             "topic": "",
+    #             "summary": "",
+    #             "msg_thread_id": "",
+    #             "tot_context": {},
+    #             "app_context": {},
+    #             "this_node": {"name": ""},
+    #         }
+    #
+    #         # Create a unique thread_id for the checkpointer
+    #         thread_id = str(uuid.uuid4())
+    #         config = {
+    #             "configurable": {"thread_id": thread_id}
+    #         }
+    #
+    #         # Start the stream with the correct config, and initial state
+    #         controller = dev_task.skill.runnable.stream(init_state, context=context, config=config)
+    #         stream_iterator = iter(controller)
+    #
+    #         # Keep track of active checkpoints (tag -> checkpoint)
+    #         self.active_checkpoints = {}
+    #
+    #         run_status = "running"
+    #         current_node = "start"
+    #         event = None
+    #
+    #         while not dev_task.cancellation_event.is_set():
+    #             try:
+    #                 if run_status == "running":
+    #                     # Try to advance the graph
+    #                     try:
+    #                         event = next(stream_iterator, None)
+    #                     except GraphInterrupt as gi:
+    #                         # GraphInterrupt should have checkpoint information
+    #                         # Get the current state/checkpoint from LangGraph
+    #                         current_state = controller.get_state(config)
+    #
+    #                         # Create proper interrupt object with checkpoint
+    #                         interrupt_with_checkpoint = type('InterruptWithCheckpoint', (), {
+    #                             'value': gi.value,
+    #                             'id': getattr(gi, 'id', str(gi)),
+    #                             'checkpoint': current_state
+    #                         })()
+    #                         event = {"__interrupt__": [interrupt_with_checkpoint]}
+    #                     except Exception as e:
+    #                         logger.info(f"Non-interrupt exception: {e}")
+    #                         raise
+    #
+    #                     # Graph finished
+    #                     if event is None:
+    #                         logger.info(f"Dev run for {dev_task.name} has completed.")
+    #                         clean_state = self._get_serializable_state(dev_task, config)
+    #                         ipc_api.update_run_stat(
+    #                             agent_task_id=dev_task.run_id,
+    #                             current_node=None,
+    #                             status="completed",
+    #                             langgraph_state=clean_state,
+    #                             timestamp=int(time.time() * 1000)
+    #                         )
+    #                         break
+    #
+    #                     # Extract current node from event metadata
+    #                     previous_node = current_node
+    #                     node_extracted = False
+    #                     try:
+    #                         if isinstance(event, dict):
+    #                             # Log the event structure for debugging
+    #                             event_keys = list(event.keys())
+    #                             logger.info(f"[EventDebug] Event keys: {event_keys}, has_metadata: {'__metadata__' in event}")
+    #
+    #                             # LangGraph events can have metadata with node info
+    #                             metadata = event.get("__metadata__", {})
+    #                             if metadata:
+    #                                 node_name = metadata.get("langgraph_node") or metadata.get("node")
+    #                                 if node_name:
+    #                                     current_node = node_name
+    #                                     node_extracted = True
+    #                                     if current_node != previous_node:
+    #                                         logger.info(f"[NodeTransition] {previous_node} -> {current_node} (from metadata)")
+    #                             # Also check for node name in the event keys (some LangGraph versions)
+    #                             elif len(event) == 1 and not any(k.startswith("__") for k in event.keys()):
+    #                                 # Single key that's not a special key might be the node name
+    #                                 current_node = list(event.keys())[0]
+    #                                 node_extracted = True
+    #                                 if current_node != previous_node:
+    #                                     logger.info(f"[NodeTransition] {previous_node} -> {current_node} (from event key)")
+    #
+    #                             if not node_extracted:
+    #                                 logger.warning(f"[NodeExtraction] Failed to extract node from event. Keeping current_node='{current_node}'. Event keys: {event_keys}")
+    #                     except Exception as e:
+    #                         logger.debug(f"Could not extract current node from event: {e}")
+    #
+    #                     # Update GUI with current node during execution
+    #                     try:
+    #                         ipc_api.update_run_stat(
+    #                             agent_task_id=dev_task.run_id,
+    #                             current_node=current_node,
+    #                             status=run_status,
+    #                             langgraph_state=self._get_serializable_state(dev_task, config),
+    #                             timestamp=int(time.time() * 1000)
+    #                         )
+    #                     except Exception as e:
+    #                         logger.debug(f"Failed to update run stat during execution: {e}")
+    #
+    #                     # Handle interrupts
+    #                     if isinstance(event, dict) and "__interrupt__" in event:
+    #                         interrupt_obj = event["__interrupt__"][0]
+    #
+    #                         # Tag = business ID or fallback to node name
+    #                         tag = interrupt_obj.value.get("i_tag") or f"{thread_id}:interrupt_{getattr(interrupt_obj, 'id', 'unknown')}"
+    #
+    #                         # Get checkpoint - either from interrupt_obj or from controller state
+    #                         checkpoint = None
+    #                         try:
+    #                             # Try to get checkpoint from interrupt object (GraphInterrupt case)
+    #                             checkpoint = getattr(interrupt_obj, 'checkpoint', None)
+    #                         except Exception:
+    #                             pass
+    #
+    #                         # If no checkpoint on interrupt object, get current state from controller
+    #                         if checkpoint is None:
+    #                             try:
+    #                                 checkpoint = controller.get_state(config)
+    #                                 logger.debug(f"Retrieved checkpoint from controller for tag {tag}")
+    #                             except Exception as e:
+    #                                 logger.warning(f"Could not get checkpoint for tag {tag}: {e}")
+    #
+    #                         if checkpoint:
+    #                             self.active_checkpoints[tag] = checkpoint
+    #                         else:
+    #                             logger.warning(f"No checkpoint available for tag {tag}")
+    #
+    #                         current_node = interrupt_obj.value.get("paused_at", tag)
+    #                         run_status = "paused"
+    #
+    #                         logger.info(f"Execution paused at node/tag: {tag}")
+    #                         ipc_api.update_run_stat(
+    #                             agent_task_id=dev_task.run_id,
+    #                             current_node=current_node,
+    #                             status="paused",
+    #                             langgraph_state=self._get_serializable_state(dev_task, config),
+    #                             timestamp=int(time.time() * 1000)
+    #                         )
+    #                         continue  # wait for GUI
+    #
+    #                 # If paused, wait for GUI command
+    #                 if run_status == "paused":
+    #                     try:
+    #                         command = dev_task.queue.get(timeout=0.3)
+    #                         logger.debug(f"Dev run ({dev_task.run_id}) received queue command: {command}")
+    #                     except Empty:
+    #                         continue
+    #
+    #                     # Command handling
+    #                     if isinstance(command, dict):
+    #                         cmd_type = command.get("type")
+    #                         tag = command.get("tag")
+    #                         payload = command.get("payload", {})
+    #                     else:
+    #                         # Legacy string-only commands
+    #                         cmd_type = command
+    #                         tag = None
+    #                         payload = {}
+    #
+    #                     if cmd_type == "resume" or "chat" in cmd_type.lower() or "msg" in cmd_type.lower() or "event" in cmd_type.lower():
+    #                         if not tag:
+    #                             logger.warning("Resume requested but no tag specified.")
+    #                             continue
+    #                         checkpoint = self.active_checkpoints.pop(tag, None)
+    #                         if not checkpoint:
+    #                             logger.warning(f"No checkpoint found for tag {tag}")
+    #                             continue
+    #                         logger.info(f"Resuming execution from tag {tag}")
+    #                         # Build per-node transfer patch (optional)
+    #                         state_snapshot = {}
+    #                         try:
+    #                             state_snapshot = getattr(checkpoint, "values", {}) if checkpoint else {}
+    #                         except Exception:
+    #                             state_snapshot = {}
+    #                         try:
+    #                             node_rules = {}
+    #                             try:
+    #                                 node_rules = (dev_task.skill.mapping_rules or {}).get("node_transfers", {}) or {}
+    #                             except Exception:
+    #                                 node_rules = {}
+    #                             node_patch = build_node_transfer_patch(tag, state_snapshot, node_rules) or {}
+    #                             if node_patch:
+    #                                 payload = self._deep_merge(payload or {}, node_patch)
+    #                                 logger.info(f"Applied node transfer patch at {tag}: keys={list(node_patch.keys())}")
+    #                         except Exception as e:
+    #                             logger.debug(f"node transfer at resume failed: {e}")
+    #                         # Inject cloud_task_id into checkpoint values for node resume detection
+    #                         try:
+    #                             vals = getattr(checkpoint, "values", None)
+    #                             if isinstance(vals, dict):
+    #                                 attrs = vals.get("attributes")
+    #                                 if not isinstance(attrs, dict):
+    #                                     attrs = {}
+    #                                     vals["attributes"] = attrs
+    #                                 attrs["cloud_task_id"] = tag
+    #                         except Exception as e:
+    #                             logger.debug(f"launch_dev_run resume: could not inject cloud_task_id: {e}")
+    #                         # Use Command(resume=...) so interrupt() receives payload immediately
+    #                         controller = dev_task.skill.runnable.stream(Command(resume=payload), checkpoint=checkpoint, config=config,
+    #                                                                 context=context)
+    #                         stream_iterator = iter(controller)
+    #                         run_status = "running"
+    #
+    #                     elif cmd_type == "step":
+    #                         if not tag:
+    #                             logger.warning("Step requested but no tag specified.")
+    #                             continue
+    #                         checkpoint = self.active_checkpoints.pop(tag, None)
+    #                         if not checkpoint:
+    #                             logger.warning(f"No checkpoint found for tag {tag}")
+    #                             continue
+    #                         logger.info(f"Stepping execution from tag {tag}")
+    #                         # Build per-node transfer patch (optional)
+    #                         state_snapshot = {}
+    #                         try:
+    #                             state_snapshot = getattr(checkpoint, "values", {}) if checkpoint else {}
+    #                         except Exception:
+    #                             state_snapshot = {}
+    #                         try:
+    #                             node_rules = {}
+    #                             try:
+    #                                 node_rules = (dev_task.skill.mapping_rules or {}).get("node_transfers", {}) or {}
+    #                             except Exception:
+    #                                 node_rules = {}
+    #                             node_patch = build_node_transfer_patch(tag, state_snapshot, node_rules) or {}
+    #                             if node_patch:
+    #                                 payload = self._deep_merge(payload or {}, node_patch)
+    #                                 logger.info(f"Applied node transfer patch at {tag}: keys={list(node_patch.keys())}")
+    #                         except Exception as e:
+    #                             logger.debug(f"node transfer at step failed: {e}")
+    #                         # Inject cloud_task_id to ensure node detects resume
+    #                         try:
+    #                             vals = getattr(checkpoint, "values", None)
+    #                             if isinstance(vals, dict):
+    #                                 attrs = vals.get("attributes")
+    #                                 if not isinstance(attrs, dict):
+    #                                     attrs = {}
+    #                                     vals["attributes"] = attrs
+    #                                 attrs["cloud_task_id"] = tag
+    #                         except Exception as e:
+    #                             logger.debug(f"launch_dev_run step: could not inject cloud_task_id: {e}")
+    #                         controller = dev_task.skill.runnable.stream(Command(resume=payload), checkpoint=checkpoint, config=config,
+    #                                                                 context=context)
+    #                         stream_iterator = iter(controller)
+    #                         run_status = "running"
+    #
+    #                     elif cmd_type == "pause":
+    #                         logger.info("Pause command received — staying paused")
+    #                         run_status = "paused"
+    #
+    #                     elif cmd_type == "cancel":
+    #                         dev_task.cancel()
+    #                         logger.info("Dev run cancelled by user")
+    #                         break
+    #
+    #                 # Do not send a premature completion here. The proper completion
+    #                 # notifications are already sent when the graph finishes (event is None)
+    #                 # or in the StopIteration branch above. Keeping a mid-run completion
+    #                 # here causes the frontend to clear the running icon immediately.
+    #             except Exception as e:
+    #                 err_msg = get_traceback(e, "ErrorLaunchDevRun")
+    #                 logger.error(f"Exception during launch_dev_run for task {dev_task.name}: {err_msg}")
+    #                 ipc_api.update_run_stat(
+    #                     agent_task_id=dev_task.run_id,
+    #                     current_node=current_node,
+    #                     status="failed",
+    #                     langgraph_state={"error": str(e)},
+    #                     timestamp=int(time.time() * 1000)
+    #                 )
+    #                 raise
+    #
+    #         logger.info("Dev run ENDED.")
+    #
+    #     finally:
+    #         # Flush any remaining commands from the queue
+    #         logger.info(f"Flushing dev message queue for task {dev_task.run_id}.")
+    #         while not dev_task.queue.empty():
+    #             try:
+    #                 dev_task.queue.get_nowait()
+    #             except Empty:
+    #                 break
+    #         logger.info("Dev message queue flushed.")
 
-        logger.info(f"Launching interactive dev run for task: {dev_task.name} with run_id: {dev_task.run_id}")
-
+    def launch_dev_run(self, init_state: dict, dev_task: "ManagedTask"):
+        """Register and execute a dev run task so pause/resume/step/cancel work via EC_Agent.
+        This method is invoked in a background thread from EC_Agent, so it's safe to run synchronously.
+        """
         try:
-            context = {
-                "id": str(uuid.uuid4()),
-                "topic": "",
-                "summary": "",
-                "msg_thread_id": "",
-                "tot_context": {},
-                "app_context": {},
-                "this_node": {"name": ""},
-            }
-
-            # Create a unique thread_id for the checkpointer
-            thread_id = str(uuid.uuid4())
-            config = {
-                "configurable": {"thread_id": thread_id}
-            }
-
-            # Start the stream with the correct config, and initial state
-            controller = dev_task.skill.runnable.stream(init_state, context=context, config=config)
-            stream_iterator = iter(controller)
-
-            # Keep track of active checkpoints (tag -> checkpoint)
-            self.active_checkpoints = {}
-
-            run_status = "running"
-            current_node = "start"
-            event = None
-
-            while not dev_task.cancellation_event.is_set():
+            self._dev_task = dev_task
+            # Merge provided initial state
+            if isinstance(init_state, dict):
                 try:
-                    if run_status == "running":
-                        # Try to advance the graph
-                        try:
-                            event = next(stream_iterator, None)
-                        except GraphInterrupt as gi:
-                            # GraphInterrupt should have checkpoint information
-                            # Get the current state/checkpoint from LangGraph
-                            current_state = controller.get_state(config)
-                            
-                            # Create proper interrupt object with checkpoint
-                            interrupt_with_checkpoint = type('InterruptWithCheckpoint', (), {
-                                'value': gi.value,
-                                'id': getattr(gi, 'id', str(gi)),
-                                'checkpoint': current_state
-                            })()
-                            event = {"__interrupt__": [interrupt_with_checkpoint]}
-                        except Exception as e:
-                            logger.info(f"Non-interrupt exception: {e}")
-                            raise
-
-                        # Graph finished
-                        if event is None:
-                            logger.info(f"Dev run for {dev_task.name} has completed.")
-                            clean_state = self._get_serializable_state(dev_task, config)
-                            ipc_api.update_run_stat(
-                                agent_task_id=dev_task.run_id,
-                                current_node=None,
-                                status="completed",
-                                langgraph_state=clean_state,
-                                timestamp=int(time.time() * 1000)
-                            )
-                            break
-
-                        # Extract current node from event metadata
-                        previous_node = current_node
-                        node_extracted = False
-                        try:
-                            if isinstance(event, dict):
-                                # Log the event structure for debugging
-                                event_keys = list(event.keys())
-                                logger.info(f"[EventDebug] Event keys: {event_keys}, has_metadata: {'__metadata__' in event}")
-                                
-                                # LangGraph events can have metadata with node info
-                                metadata = event.get("__metadata__", {})
-                                if metadata:
-                                    node_name = metadata.get("langgraph_node") or metadata.get("node")
-                                    if node_name:
-                                        current_node = node_name
-                                        node_extracted = True
-                                        if current_node != previous_node:
-                                            logger.info(f"[NodeTransition] {previous_node} -> {current_node} (from metadata)")
-                                # Also check for node name in the event keys (some LangGraph versions)
-                                elif len(event) == 1 and not any(k.startswith("__") for k in event.keys()):
-                                    # Single key that's not a special key might be the node name
-                                    current_node = list(event.keys())[0]
-                                    node_extracted = True
-                                    if current_node != previous_node:
-                                        logger.info(f"[NodeTransition] {previous_node} -> {current_node} (from event key)")
-                                
-                                if not node_extracted:
-                                    logger.warning(f"[NodeExtraction] Failed to extract node from event. Keeping current_node='{current_node}'. Event keys: {event_keys}")
-                        except Exception as e:
-                            logger.debug(f"Could not extract current node from event: {e}")
-
-                        # Update GUI with current node during execution
-                        try:
-                            ipc_api.update_run_stat(
-                                agent_task_id=dev_task.run_id,
-                                current_node=current_node,
-                                status=run_status,
-                                langgraph_state=self._get_serializable_state(dev_task, config),
-                                timestamp=int(time.time() * 1000)
-                            )
-                        except Exception as e:
-                            logger.debug(f"Failed to update run stat during execution: {e}")
-
-                        # Handle interrupts
-                        if isinstance(event, dict) and "__interrupt__" in event:
-                            interrupt_obj = event["__interrupt__"][0]
-
-                            # Tag = business ID or fallback to node name
-                            tag = interrupt_obj.value.get("i_tag") or f"{thread_id}:interrupt_{getattr(interrupt_obj, 'id', 'unknown')}"
-
-                            # Get checkpoint - either from interrupt_obj or from controller state
-                            checkpoint = None
-                            try:
-                                # Try to get checkpoint from interrupt object (GraphInterrupt case)
-                                checkpoint = getattr(interrupt_obj, 'checkpoint', None)
-                            except Exception:
-                                pass
-                            
-                            # If no checkpoint on interrupt object, get current state from controller
-                            if checkpoint is None:
-                                try:
-                                    checkpoint = controller.get_state(config)
-                                    logger.debug(f"Retrieved checkpoint from controller for tag {tag}")
-                                except Exception as e:
-                                    logger.warning(f"Could not get checkpoint for tag {tag}: {e}")
-                            
-                            if checkpoint:
-                                self.active_checkpoints[tag] = checkpoint
-                            else:
-                                logger.warning(f"No checkpoint available for tag {tag}")
-                            
-                            current_node = interrupt_obj.value.get("paused_at", tag)
-                            run_status = "paused"
-
-                            logger.info(f"Execution paused at node/tag: {tag}")
-                            ipc_api.update_run_stat(
-                                agent_task_id=dev_task.run_id,
-                                current_node=current_node,
-                                status="paused",
-                                langgraph_state=self._get_serializable_state(dev_task, config),
-                                timestamp=int(time.time() * 1000)
-                            )
-                            continue  # wait for GUI
-
-                    # If paused, wait for GUI command
-                    if run_status == "paused":
-                        try:
-                            command = dev_task.queue.get(timeout=0.3)
-                            logger.debug(f"Dev run ({dev_task.run_id}) received queue command: {command}")
-                        except Empty:
-                            continue
-
-                        # Command handling
-                        if isinstance(command, dict):
-                            cmd_type = command.get("type")
-                            tag = command.get("tag")
-                            payload = command.get("payload", {})
-                        else:
-                            # Legacy string-only commands
-                            cmd_type = command
-                            tag = None
-                            payload = {}
-
-                        if cmd_type == "resume" or "chat" in cmd_type.lower() or "msg" in cmd_type.lower() or "event" in cmd_type.lower():
-                            if not tag:
-                                logger.warning("Resume requested but no tag specified.")
-                                continue
-                            checkpoint = self.active_checkpoints.pop(tag, None)
-                            if not checkpoint:
-                                logger.warning(f"No checkpoint found for tag {tag}")
-                                continue
-                            logger.info(f"Resuming execution from tag {tag}")
-                            # Build per-node transfer patch (optional)
-                            state_snapshot = {}
-                            try:
-                                state_snapshot = getattr(checkpoint, "values", {}) if checkpoint else {}
-                            except Exception:
-                                state_snapshot = {}
-                            try:
-                                node_rules = {}
-                                try:
-                                    node_rules = (dev_task.skill.mapping_rules or {}).get("node_transfers", {}) or {}
-                                except Exception:
-                                    node_rules = {}
-                                node_patch = build_node_transfer_patch(tag, state_snapshot, node_rules) or {}
-                                if node_patch:
-                                    payload = self._deep_merge(payload or {}, node_patch)
-                                    logger.info(f"Applied node transfer patch at {tag}: keys={list(node_patch.keys())}")
-                            except Exception as e:
-                                logger.debug(f"node transfer at resume failed: {e}")
-                            # Inject cloud_task_id into checkpoint values for node resume detection
-                            try:
-                                vals = getattr(checkpoint, "values", None)
-                                if isinstance(vals, dict):
-                                    attrs = vals.get("attributes")
-                                    if not isinstance(attrs, dict):
-                                        attrs = {}
-                                        vals["attributes"] = attrs
-                                    attrs["cloud_task_id"] = tag
-                            except Exception as e:
-                                logger.debug(f"launch_dev_run resume: could not inject cloud_task_id: {e}")
-                            # Use Command(resume=...) so interrupt() receives payload immediately
-                            controller = dev_task.skill.runnable.stream(Command(resume=payload), checkpoint=checkpoint, config=config,
-                                                                    context=context)
-                            stream_iterator = iter(controller)
-                            run_status = "running"
-
-                        elif cmd_type == "step":
-                            if not tag:
-                                logger.warning("Step requested but no tag specified.")
-                                continue
-                            checkpoint = self.active_checkpoints.pop(tag, None)
-                            if not checkpoint:
-                                logger.warning(f"No checkpoint found for tag {tag}")
-                                continue
-                            logger.info(f"Stepping execution from tag {tag}")
-                            # Build per-node transfer patch (optional)
-                            state_snapshot = {}
-                            try:
-                                state_snapshot = getattr(checkpoint, "values", {}) if checkpoint else {}
-                            except Exception:
-                                state_snapshot = {}
-                            try:
-                                node_rules = {}
-                                try:
-                                    node_rules = (dev_task.skill.mapping_rules or {}).get("node_transfers", {}) or {}
-                                except Exception:
-                                    node_rules = {}
-                                node_patch = build_node_transfer_patch(tag, state_snapshot, node_rules) or {}
-                                if node_patch:
-                                    payload = self._deep_merge(payload or {}, node_patch)
-                                    logger.info(f"Applied node transfer patch at {tag}: keys={list(node_patch.keys())}")
-                            except Exception as e:
-                                logger.debug(f"node transfer at step failed: {e}")
-                            # Inject cloud_task_id to ensure node detects resume
-                            try:
-                                vals = getattr(checkpoint, "values", None)
-                                if isinstance(vals, dict):
-                                    attrs = vals.get("attributes")
-                                    if not isinstance(attrs, dict):
-                                        attrs = {}
-                                        vals["attributes"] = attrs
-                                    attrs["cloud_task_id"] = tag
-                            except Exception as e:
-                                logger.debug(f"launch_dev_run step: could not inject cloud_task_id: {e}")
-                            controller = dev_task.skill.runnable.stream(Command(resume=payload), checkpoint=checkpoint, config=config,
-                                                                    context=context)
-                            stream_iterator = iter(controller)
-                            run_status = "running"
-
-                        elif cmd_type == "pause":
-                            logger.info("Pause command received — staying paused")
-                            run_status = "paused"
-
-                        elif cmd_type == "cancel":
-                            dev_task.cancel()
-                            logger.info("Dev run cancelled by user")
-                            break
-
-                    # Do not send a premature completion here. The proper completion
-                    # notifications are already sent when the graph finishes (event is None)
-                    # or in the StopIteration branch above. Keeping a mid-run completion
-                    # here causes the frontend to clear the running icon immediately.
-                except Exception as e:
-                    err_msg = get_traceback(e, "ErrorLaunchDevRun")
-                    logger.error(f"Exception during launch_dev_run for task {dev_task.name}: {err_msg}")
-                    ipc_api.update_run_stat(
-                        agent_task_id=dev_task.run_id,
-                        current_node=current_node,
-                        status="failed",
-                        langgraph_state={"error": str(e)},
-                        timestamp=int(time.time() * 1000)
-                    )
-                    raise
-
-            logger.info("Dev run ENDED.")
-
-        finally:
-            # Flush any remaining commands from the queue
-            logger.info(f"Flushing dev message queue for task {dev_task.run_id}.")
-            while not dev_task.queue.empty():
+                    cur = getattr(dev_task, "state", {}) or {}
+                    dev_task.state = {**cur, **init_state}
+                except Exception:
+                    pass
+            # Ensure it is runnable
+            try:
+                dev_task.pause_event.set()
+            except Exception:
+                pass
+            if hasattr(dev_task, "status"):
                 try:
-                    dev_task.queue.get_nowait()
-                except Empty:
-                    break
-            logger.info("Dev message queue flushed.")
+                    dev_task.status.state = TaskState.WORKING
+                except Exception:
+                    pass
+
+            # Execute the dev run synchronously using the sync stream API
+            try:
+                result = dev_task.stream_run(init_state)
+                logger.info("Dev run finished with result:", result)
+                return {"success": True, "result": result}
+            except Exception as run_exc:
+                ex_stat = "ErrorDevRunExecute:" + traceback.format_exc() + " " + str(run_exc)
+                logger.error(ex_stat)
+                return {"success": False, "error": ex_stat}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def resume_dev_run(self):
+        try:
+            if self._dev_task is None:
+                return {"success": False, "error": "No dev run task"}
+            try:
+                self._dev_task.pause_event.set()
+            except Exception:
+                pass
+            if hasattr(self._dev_task, "status"):
+                try:
+                    self._dev_task.status.state = TaskState.WORKING
+                except Exception:
+                    pass
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def pause_dev_run(self):
+        try:
+            if self._dev_task is None:
+                return {"success": False, "error": "No dev run task"}
+            try:
+                self._dev_task.pause_event.clear()
+            except Exception:
+                pass
+            if hasattr(self._dev_task, "status"):
+                try:
+                    self._dev_task.status.state = TaskState.INPUT_REQUIRED
+                except Exception:
+                    pass
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def step_dev_run(self):
+        """Allow one step by setting pause_event; assumes graph yields interrupts between nodes."""
+        try:
+            if self._dev_task is None:
+                return {"success": False, "error": "No dev run task"}
+            try:
+                self._dev_task.pause_event.set()
+            except Exception:
+                pass
+            if hasattr(self._dev_task, "status"):
+                try:
+                    self._dev_task.status.state = TaskState.WORKING
+                except Exception:
+                    pass
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def cancel_dev_run(self):
+        try:
+            if self._dev_task is None:
+                return {"success": True}
+            try:
+                if hasattr(self._dev_task, "cancel"):
+                    self._dev_task.cancel()
+                if hasattr(self._dev_task, "exit"):
+                    self._dev_task.exit()
+            except Exception:
+                pass
+            self._dev_task = None
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     def _get_serializable_state(self, task, config):
         """Helper: safely extract JSON-serializable state"""
