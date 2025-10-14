@@ -89,16 +89,22 @@ class DBChatService(BaseService):
         with self.session_scope() as session:
             try:
                 input_member_ids = set(str(m['userId']) for m in members)
+                logger.info(f"[create_chat] Checking for duplicate chat with members: {input_member_ids}, type: {type}")
                 candidate_chats = session.query(Chat).filter(Chat.type == type).all()
+                logger.info(f"[create_chat] Found {len(candidate_chats)} candidate chats of type '{type}'")
                 for chat in candidate_chats:
                     db_member_ids = set(str(m.userId) for m in chat.members)
+                    logger.debug(f"[create_chat] Comparing with chat {chat.id}, members: {db_member_ids}")
                     if db_member_ids == input_member_ids:
+                        logger.info(f"[create_chat] Duplicate found! Returning existing chat: {chat.id}")
                         return {
                             "success": False,
                             "id": chat.id,
                             "data": chat.to_dict(deep=True),
                             "error": f"Chat with same members already exists: {chat.id}"
                         }
+                
+                logger.info(f"[create_chat] No duplicate found, creating new chat with members: {input_member_ids}")
 
                 chat_id = id or f"chat-{str(int(time.time() * 1000))[-6:]}"
                 chat = Chat(

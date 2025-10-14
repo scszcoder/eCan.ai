@@ -746,10 +746,12 @@ class TaskRunner(Generic[Context]):
         - Return the first matching ManagedTask. No global queues.
         """
         try:
-            event = normalize_event(request)
+            event = normalize_event(event_type, request)
             etype = event.get("type") or event_type
         except Exception:
             etype = event_type
+
+        logger.debug("normalized event:", event)
 
         # First, try task-specific routing based on each task's skill mapping_rules
         try:
@@ -776,11 +778,13 @@ class TaskRunner(Generic[Context]):
                     continue
 
                 rule = event_routing.get(etype)
+                print("event_routing rule:", rule)
                 if not isinstance(rule, dict):
                     continue
 
                 selector = rule.get("task_selector") or ""
                 sel_ok = False
+                print("rule selector:", selector)
                 try:
                     if selector.startswith("id:"):
                         sel_ok = t.id == selector.split(":", 1)[1]
@@ -794,6 +798,8 @@ class TaskRunner(Generic[Context]):
                         sel_ok = True
                 except Exception as e:
                     sel_ok = False
+
+                print("sel_ok:", sel_ok)
 
                 if not sel_ok:
                     continue

@@ -20,7 +20,7 @@ export enum WorkflowNodeType {
   Break = 'break',
   Basic = 'basic',
   MCP = 'mcp',
-  RAG = 'rag',
+  RAG = 'rag_node',
   Chat = 'chat_node',
   PendInput = 'pend_input_node',
   PendEvent = 'pend_event_node',

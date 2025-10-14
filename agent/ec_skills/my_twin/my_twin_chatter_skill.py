@@ -15,6 +15,7 @@ from utils.logger_helper import logger_helper as logger
 from agent.agent_service import get_agent_by_id
 if typing.TYPE_CHECKING:
     from gui.MainGUI import MainWindow
+from agent.ec_skills.llm_utils.llm_utils import find_opposite_agent
 
 # this is simply a parrot agent, no thinking, no intelligent, simply pipe human message to agent
 # and pipe agent response back to human
@@ -35,7 +36,8 @@ def parrot(state: NodeState) -> NodeState:
     try:
         if human_message(state):
             # this is a human to agent chat message
-            recipient_agent = next((ag for ag in mainwin.agents if "Engineering Procurement Agent" == ag.card.name), None)
+            recipient_agent = find_opposite_agent(agent, state["messages"][1])
+
             if recipient_agent:
                 logger.info("[my_twin_chatter_skill] parrot recipient found:", recipient_agent.card.name)
             else:
