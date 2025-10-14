@@ -137,7 +137,6 @@ export const Save = ({ disabled }: SaveProps) => {
   const { document } = useClientContext();
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
-  const breakpoints = useSkillInfoStore((state) => state.breakpoints);
   const currentFilePath = useSkillInfoStore((state) => state.currentFilePath);
   const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
@@ -153,18 +152,10 @@ export const Save = ({ disabled }: SaveProps) => {
       // 1. Get the latest diagram state
       const diagram = document.toJSON();
 
-      // 2. Inject breakpoint information into the diagram
+      // 2. Ensure breakpoints are NOT persisted: strip any break_point flags
       diagram.nodes.forEach((node: any) => {
-        if (breakpoints.includes(node.id)) {
-          if (!node.data) {
-            node.data = {};
-          }
-          node.data.break_point = true;
-        } else {
-          // Ensure the flag is removed if the breakpoint was removed
-          if (node.data?.break_point) {
-            delete node.data.break_point;
-          }
+        if (node?.data?.break_point) {
+          delete node.data.break_point;
         }
       });
 
@@ -371,7 +362,7 @@ export const Save = ({ disabled }: SaveProps) => {
       console.error('Failed to save skill:', error);
       // TODO: Show user-friendly error message
     }
-  }, [skillInfo, username, document, breakpoints, currentFilePath, setSkillInfo, setCurrentFilePath, setHasUnsavedChanges]);
+  }, [skillInfo, username, document, currentFilePath, setSkillInfo, setCurrentFilePath, setHasUnsavedChanges]);
 
   return (
     <Tooltip content="Save">
@@ -390,7 +381,6 @@ export const SaveAs = ({ disabled }: SaveProps) => {
   const { document } = useClientContext();
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
-  const breakpoints = useSkillInfoStore((state) => state.breakpoints);
   const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
   const addRecentFile = useRecentFilesStore((state) => state.addRecentFile);
@@ -403,11 +393,9 @@ export const SaveAs = ({ disabled }: SaveProps) => {
 
     try {
       const diagram = document.toJSON();
+      // Ensure breakpoints are NOT persisted in Save As as well
       diagram.nodes.forEach((node: any) => {
-        if (breakpoints.includes(node.id)) {
-          node.data = node.data || {};
-          node.data.break_point = true;
-        } else if (node.data?.break_point) {
+        if (node?.data?.break_point) {
           delete node.data.break_point;
         }
       });
@@ -534,7 +522,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
     } catch (error) {
       console.error('Failed to save as:', error);
     }
-  }, [skillInfo, username, document, breakpoints, setSkillInfo, setCurrentFilePath, setHasUnsavedChanges]);
+  }, [skillInfo, username, document, setSkillInfo, setCurrentFilePath, setHasUnsavedChanges]);
 
   return (
     <Tooltip content="Save As">
