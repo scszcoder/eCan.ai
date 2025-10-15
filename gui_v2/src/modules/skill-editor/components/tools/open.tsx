@@ -26,22 +26,28 @@ export const Open = ({ disabled }: OpenProps) => {
 
   const handleOpen = useCallback(async () => {
     let ipcHandled = false;
-    // Try IPC path first
-    try {
-      const { IPCAPI } = await import('../../../../services/ipc/api');
-      const ipcApi = IPCAPI.getInstance();
-      console.log('[SKILL_IO][FRONTEND][IPC_ATTEMPT] showOpenDialog');
-      const dialogResponse = await ipcApi.showOpenDialog([
-        { name: 'Skill Files', extensions: ['json'] },
-        { name: 'All Files', extensions: ['*'] }
-      ]);
+    
+    // In web mode, skip IPC and use browser file picker directly
+    if (!hasIPCSupport()) {
+      console.log('[SKILL_IO][FRONTEND][WEB_MODE] Skipping IPC, using browser file picker');
+      // Fall through to web fallback below
+    } else {
+      // Try IPC path first (desktop mode)
+      try {
+        const { IPCAPI } = await import('../../../../services/ipc/api');
+        const ipcApi = IPCAPI.getInstance();
+        console.log('[SKILL_IO][FRONTEND][IPC_ATTEMPT] showOpenDialog');
+        const dialogResponse = await ipcApi.showOpenDialog([
+          { name: 'Skill Files', extensions: ['json'] },
+          { name: 'All Files', extensions: ['*'] }
+        ]);
 
-      // Mark as handled if dialog was shown (even if cancelled)
-      if (dialogResponse.success) {
-        ipcHandled = true;
-      }
+        // Mark as handled if dialog was shown (even if cancelled)
+        if (dialogResponse.success) {
+          ipcHandled = true;
+        }
       
-      if (dialogResponse.success && dialogResponse.data && !dialogResponse.data.cancelled) {
+        if (dialogResponse.success && dialogResponse.data && !dialogResponse.data.cancelled) {
         const filePath = (dialogResponse.data as any).filePaths?.[0] || (dialogResponse.data as any).filePath;
         if (!filePath) { console.warn('[Open] No filePath from dialog'); return; }
         console.log('[SKILL_IO][FRONTEND][SELECTED_MAIN_JSON]', filePath);
@@ -177,10 +183,11 @@ export const Open = ({ disabled }: OpenProps) => {
         } else {
           console.error('[Open] Failed to read primary file:', fileResponse.error);
         }
-        return; // handled IPC path
+          return; // handled IPC path
+        }
+      } catch (e) {
+        console.warn('[SKILL_IO][FRONTEND][IPC_ERROR]', e);
       }
-    } catch (e) {
-      console.warn('[SKILL_IO][FRONTEND][IPC_ERROR]', e);
     }
 
     // Only use web fallback if IPC was not handled
