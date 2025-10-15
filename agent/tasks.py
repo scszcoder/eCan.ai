@@ -2266,12 +2266,13 @@ class TaskRunner(Generic[Context]):
             except Exception:
                 pass
 
-            # Resume the runnable from checkpoint and skip the paused node exactly once
-            # Step-once semantics: skip the paused node once, then pause at the very next node
+            # Resume semantics: run until next breakpoint or completion.
+            # We skip the current paused breakpoint node once to avoid re-pausing immediately at the same spot,
+            # but we DO NOT set step_once so execution continues until the next interrupt or end.
             if tag:
-                ctx = {"skip_bp_once": [tag], "step_once": True, "step_from": tag}
+                ctx = {"skip_bp_once": [tag]}
             else:
-                ctx = {"skip_bp_once": [], "step_once": True, "step_from": ""}
+                ctx = {"skip_bp_once": []}
 
             # Make sure we resume the exact same thread as the checkpoint
             tid = None
@@ -2285,7 +2286,7 @@ class TaskRunner(Generic[Context]):
             if tid:
                 saved_cfg["configurable"]["thread_id"] = tid
 
-            logger.info(f"[step_dev_run] ctx={ctx}, resume_payload={resume_payload}, thread_id={saved_cfg.get('configurable', {}).get('thread_id')}")
+            logger.info(f"[resume_dev_run] ctx={ctx}, resume_payload={resume_payload}, thread_id={saved_cfg.get('configurable', {}).get('thread_id')}")
             result = self._dev_task.stream_run(Command(resume=resume_payload), checkpoint=checkpoint, context=ctx, config=saved_cfg)
             return {"success": True, "result": result}
         except Exception as e:
