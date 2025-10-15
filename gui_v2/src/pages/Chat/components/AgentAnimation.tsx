@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useState, useCallback } from 'react';
+import React, { useMemo, useEffect, useState, useCallback, useRef } from 'react';
 import agentGifs, { logVideoSupport } from '@/assets/gifs';
 import styled from '@emotion/styled';
 import { DynamicAgentAnimation } from '../../../components/DynamicAgentAnimation';
@@ -31,6 +31,25 @@ function getRandomGif(): string {
   if (!Array.isArray(agentGifs) || agentGifs.length === 0) return '';
   const idx = Math.floor(Math.random() * agentGifs.length);
   return agentGifs[idx] as string;
+}
+
+// Normalize asset paths for both web (http/https) and local file protocol
+function resolveAssetPath(path?: string): string {
+  if (!path) return '';
+  try {
+    const isFile = typeof window !== 'undefined' && window.location?.protocol === 'file:';
+    const BASE = (import.meta as any)?.env?.BASE_URL || '/';
+    const PREFIX = (typeof BASE === 'string' ? BASE : '/').replace(/\/$/, '');
+    // If running under file:// and the asset path is absolute like "/assets/...",
+    // prefix with "." so it resolves relative to index.html; otherwise honor BASE_URL
+    if (path.startsWith('/assets/')) {
+      if (isFile) return `.${path}`;
+      return `${PREFIX}${path}`;
+    }
+    return path;
+  } catch {
+    return path || '';
+  }
 }
 
 // Global flag to ensure video support detection only runs once
@@ -75,19 +94,32 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
     const selectedGif = Array.isArray(agentGifs) && agentGifs.length > 0 ? agentGifs[index] as string : '';
     
     // Return selected GIF or ultimate fallback
-    return selectedGif || '/assets/default-avatar.gif';
+    return resolveAssetPath(selectedGif) || resolveAssetPath('/assets/default-avatar.gif');
   }, [agentId]);
 
-  // Define multiple fallback levels for static mode
-  const staticFallbackUrls = useMemo(() => [
-    fallbackMediaUrl,
-    '/assets/default-avatar.gif',
-    '/assets/avatars/default.gif',
-    '/assets/default.png',
-    'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkF2YXRhcjwvdGV4dD48L3N2Zz4='
-  ].filter(Boolean), [fallbackMediaUrl]);
+  // Define multiple fallback levels for static mode (include all known agent media)
+  const staticFallbackUrls = useMemo(() => {
+    const baseList = [
+      resolveAssetPath(fallbackMediaUrl),
+      // Try other agent media as alternates in case one file has issues
+      ...((agentGifs || []) as string[]).map(u => resolveAssetPath(u)),
+      resolveAssetPath('/assets/default-avatar.gif'),
+      resolveAssetPath('/assets/avatars/default.gif'),
+      resolveAssetPath('/assets/default.png'),
+      'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkF2YXRhcjwvdGV4dD48L3N2Zz4='
+    ].filter(Boolean);
+    // De-duplicate while preserving order
+    const seen = new Set<string>();
+    return baseList.filter(u => (typeof u === 'string') && !seen.has(u) && !!seen.add(u));
+  }, [fallbackMediaUrl]);
 
   const [staticFallbackLevel, setStaticFallbackLevel] = useState(0);
+  const loadedRef = useRef(false);
+
+  // Reset loaded flag whenever URL changes
+  useEffect(() => {
+    loadedRef.current = false;
+  }, [fallbackMediaUrl, staticFallbackLevel]);
 
   // Use video if mediaUrl exists and ends with .webm or .mp4
   const isVideo = Boolean(fallbackMediaUrl && typeof fallbackMediaUrl === 'string' && 
@@ -137,6 +169,8 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
 
   // Progressive fallback error handler for static mode
   const handleStaticMediaError = useCallback(() => {
+    // If media already reported load/playable, ignore spurious errors
+    if (loadedRef.current) return;
     if (staticFallbackLevel < staticFallbackUrls.length - 1) {
       const nextLevel = staticFallbackLevel + 1;
       setStaticFallbackLevel(nextLevel);
@@ -175,16 +209,23 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
   const currentIsVideo = Boolean(currentStaticUrl && typeof currentStaticUrl === 'string' && 
     (currentStaticUrl.trim().toLowerCase().endsWith('.webm') || currentStaticUrl.trim().toLowerCase().endsWith('.mp4')));
 
+  // Debug: log the resolved URL once per change to help diagnose loading issues
+  useEffect(() => {
+    if (currentStaticUrl) {
+      try { console.debug('[AgentAnimation] using media URL:', currentStaticUrl); } catch {}
+    }
+  }, [currentStaticUrl]);
+
   return (
     <AnimationContainer className={className}>
       <AnimationWrapper>
         {currentIsVideo ? (
           <video
-            src={currentStaticUrl}
             autoPlay
             loop
             muted
             playsInline
+            preload="auto"
             style={{ 
               width: '100%', 
               height: '100%', 
@@ -192,9 +233,13 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
               borderRadius: '12px',
               background: 'transparent' 
             }}
-            poster="./assets/default-agent-poster.png"
+            poster={resolveAssetPath('/assets/default-agent-poster.png')}
+            onLoadedData={() => { loadedRef.current = true; }}
+            onCanPlay={() => { loadedRef.current = true; }}
             onError={handleStaticMediaError}
-          />
+          >
+            <source src={currentStaticUrl} type="video/webm" />
+          </video>
         ) : (
           <img 
             src={currentStaticUrl} 
@@ -205,6 +250,7 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
               objectFit: 'contain', 
               borderRadius: '12px' 
             }}
+            onLoad={() => { loadedRef.current = true; }}
             onError={handleStaticMediaError}
           />
         )}
