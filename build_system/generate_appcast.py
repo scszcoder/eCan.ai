@@ -74,6 +74,43 @@ def filter_assets(assets: List[Dict], platform_filter: Optional[str] = None,
     """
     filtered = []
     
+    # For Windows, prioritize Setup.exe over standalone exe
+    if platform_filter == 'windows':
+        setup_files = []
+        standalone_files = []
+        
+        for asset in assets:
+            name = asset['name'].lower()
+            
+            if not (name.endswith('.exe') or name.endswith('.msi') or 'windows' in name):
+                continue
+            
+            # Filter by architecture
+            if arch_filter:
+                if arch_filter == 'amd64':
+                    if not any(x in name for x in ['amd64', 'x86_64', 'x64']):
+                        continue
+                elif arch_filter == 'aarch64':
+                    if not any(x in name for x in ['aarch64', 'arm64']):
+                        continue
+            
+            # Prioritize Setup.exe
+            if 'setup' in name and name.endswith('.exe'):
+                setup_files.append(asset)
+            elif name.endswith('.exe'):
+                standalone_files.append(asset)
+            elif name.endswith('.msi'):
+                filtered.append(asset)
+        
+        # Use Setup.exe if available, otherwise use standalone exe
+        if setup_files:
+            filtered.extend(setup_files)
+        else:
+            filtered.extend(standalone_files)
+        
+        return filtered
+    
+    # For other platforms, use original logic
     for asset in assets:
         name = asset['name'].lower()
         
@@ -81,9 +118,6 @@ def filter_assets(assets: List[Dict], platform_filter: Optional[str] = None,
         if platform_filter:
             if platform_filter == 'macos':
                 if not (name.endswith('.pkg') or name.endswith('.dmg') or 'macos' in name or 'darwin' in name):
-                    continue
-            elif platform_filter == 'windows':
-                if not (name.endswith('.exe') or name.endswith('.msi') or 'windows' in name):
                     continue
             elif platform_filter == 'linux':
                 if not (name.endswith('.appimage') or 'linux' in name):

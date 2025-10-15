@@ -1002,15 +1002,17 @@ jobs:
         cat checksums/SHA256SUMS
         cd ..
         
-        # Upload to S3 (bucket policy controls public access)
+        # Upload to S3 with public read access
         echo "=== Uploading to S3 ==="
         aws s3 sync upload/ s3://${S3_BUCKET}/${S3_VERSION_PATH}/ \
+          --acl public-read \
           --cache-control "max-age=31536000" \
           --metadata "version=${VERSION}"
         
         # Upload to latest directory (for easy access to latest version)
         echo "=== Updating latest version ==="
         aws s3 sync upload/ s3://${S3_BUCKET}/${S3_BASE_PATH}/latest/ \
+          --acl public-read \
           --cache-control "max-age=300" \
           --metadata "version=${VERSION}"
         
@@ -1089,6 +1091,7 @@ jobs:
         
         # Upload metadata to S3
         aws s3 cp version-metadata.json s3://${S3_BUCKET}/${S3_VERSION_PATH}/version-metadata.json \
+          --acl public-read \
           --content-type "application/json"
         
         echo "Version metadata uploaded to: ${{ steps.upload.outputs.s3_base_url }}/version-metadata.json"
@@ -1422,6 +1425,7 @@ jobs:
           if [ "$AWS_ACCESS_KEY_ID" != "" ] && [ "$S3_BUCKET" != "" ]; then
             echo "=== Uploading appcasts to S3 ==="
             aws s3 sync dist/appcast/ s3://${S3_BUCKET}/appcast/ \
+              --acl public-read \
               --cache-control "max-age=300" \
               --content-type "application/xml" \
               --exclude "*" \

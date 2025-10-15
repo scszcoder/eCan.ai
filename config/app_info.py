@@ -18,6 +18,7 @@ class AppInfo:
         self.app_resources_path = self._app_resources_path()
         self.appdata_path = self._appdata_path()
         self.appdata_temp_path = self._appdata_temp_path()
+        self.version = self._get_version()
 
     # 在打包后的可执行文件中运行,获取每次运行时解压的临时文件路径
     def _prod_app_home_path(self):
@@ -145,6 +146,24 @@ class AppInfo:
 
         print(f"appdata temp path: {temp_path}")
         return temp_path
+    
+    def _get_version(self):
+        """Get application version from VERSION file"""
+        try:
+            # Try to read from VERSION file in project root
+            version_file = Path(self.app_home_path) / "VERSION"
+            if version_file.exists():
+                version = version_file.read_text().strip()
+                if version:
+                    print(f"App version from VERSION file: {version}")
+                    return version
+        except Exception as e:
+            print(f"Failed to read VERSION file: {e}")
+        
+        # Fallback to default version
+        default_version = "1.0.0"
+        print(f"Using default version: {default_version}")
+        return default_version
 
 
 # init
