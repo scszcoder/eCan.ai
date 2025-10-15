@@ -534,6 +534,7 @@
       "descriptionPlaceholder": "Enter skill description",
       "pathPlaceholder": "Skill file path",
       "openEditor": "Open in Editor",
+      "noPathWarning": "No file path available for this skill",
       "configHelp": "Enter valid JSON configuration",
       "mappingRulesHelp": "State mapping rules for resume/event handling",
       "tagsHelp": "e.g., [\"tag1\", \"tag2\"]",

@@ -534,6 +534,7 @@
       "descriptionPlaceholder": "请输入技能描述",
       "pathPlaceholder": "技能文件路径",
       "openEditor": "在编辑器中打开",
+      "noPathWarning": "该技能没有关联的文件路径",
       "configHelp": "请输入有效的JSON配置",
       "mappingRulesHelp": "用于恢复/事件处理的状态映射规则",
       "tagsHelp": "例如：[\"标签1\", \"标签2\"]",

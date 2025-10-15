@@ -36,8 +36,12 @@ export const Open = ({ disabled }: OpenProps) => {
         { name: 'All Files', extensions: ['*'] }
       ]);
 
-      if (dialogResponse.success && dialogResponse.data && !dialogResponse.data.cancelled) {
+      // Mark as handled if dialog was shown (even if cancelled)
+      if (dialogResponse.success) {
         ipcHandled = true;
+      }
+      
+      if (dialogResponse.success && dialogResponse.data && !dialogResponse.data.cancelled) {
         const filePath = (dialogResponse.data as any).filePaths?.[0] || (dialogResponse.data as any).filePath;
         if (!filePath) { console.warn('[Open] No filePath from dialog'); return; }
         console.log('[SKILL_IO][FRONTEND][SELECTED_MAIN_JSON]', filePath);
@@ -177,6 +181,12 @@ export const Open = ({ disabled }: OpenProps) => {
       }
     } catch (e) {
       console.warn('[SKILL_IO][FRONTEND][IPC_ERROR]', e);
+    }
+
+    // Only use web fallback if IPC was not handled
+    if (ipcHandled) {
+      console.log('[SKILL_IO][FRONTEND] IPC handled, skipping web fallback');
+      return;
     }
 
     // Web fallback path

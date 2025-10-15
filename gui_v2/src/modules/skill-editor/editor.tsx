@@ -20,6 +20,7 @@ import { useSkillInfoStore } from './stores/skill-info-store';
 import { createSkillInfo } from './typings/skill-info';
 import { NodeInfoDisplay } from './components/node-info-display';
 import { useSimpleAutoLoad } from './hooks/useAutoLoadRecentFile';
+import { RouteFileLoader } from './components/RouteFileLoader';
 import { FilePathDisplay } from './components/file-path-display';
 import { useUnsavedChangesTracker } from './hooks/useUnsavedChangesTracker';
 import { useDragAndDrop } from './hooks/useDragAndDrop';
@@ -59,6 +60,7 @@ export const Editor = () => {
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
 
   // Auto-load the most recent file on startup
+  // (RouteFileLoader component will override this if there's a route file)
   useSimpleAutoLoad();
 
   // Track unsaved changes
@@ -100,7 +102,7 @@ export const Editor = () => {
     } catch {}
 
     if (isValidationDisabled()) {
-      console.warn('[VALIDATION_DISABLED] Frontend validation is disabled in the skill editor.');
+      console.info('[VALIDATION_DISABLED] Frontend validation is disabled in the skill editor.');
     } else {
       console.warn('[VALIDATION_DISABLED] Attempted to disable validation but flag still false.');
     }
@@ -130,6 +132,8 @@ export const Editor = () => {
       <div className="doc-free-feature-overview">
         <SkillEditorErrorBoundary>
           <FreeLayoutEditorProvider {...editorProps}>
+            {/* Load file from route state if present */}
+            <RouteFileLoader />
             {/* Sync the active sheet's document with the editor's WorkflowDocument */}
             <ActiveSheetBinder />
             <RunningNodeNavigator />
