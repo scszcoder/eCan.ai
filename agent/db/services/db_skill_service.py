@@ -142,6 +142,18 @@ class DBSkillService(BaseService):
                     return {"success": False, "data": None, "error": "Skill not found"}
         except SQLAlchemyError as e:
             return {"success": False, "data": None, "error": str(e)}
+    
+    def get_skill_by_path(self, path):
+        """Get a skill by file path"""
+        try:
+            with self.session_scope() as s:
+                skill = s.query(DBAgentSkill).filter(DBAgentSkill.path == path).first()
+                if skill:
+                    return {"success": True, "data": skill.to_dict(), "error": None}
+                else:
+                    return {"success": False, "data": None, "error": "Skill not found"}
+        except SQLAlchemyError as e:
+            return {"success": False, "data": None, "error": str(e)}
 
     def get_skills_by_owner(self, owner):
         """Get all skills by owner"""

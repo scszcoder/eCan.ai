@@ -358,6 +358,29 @@ def handle_write_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]
                 f.write(content)
             size = os.path.getsize(file_path)
             logger.info(f"[SKILL_IO][BACKEND][WRITE_OK] {file_path} size={size}")
+            
+            # After successfully writing the file, sync with skill database if it's a skill workflow JSON file
+            # Only process files ending with _skill.json (not _data_mapping.json, _skill_bundle.json, etc.)
+            if file_path.endswith('_skill.json'):
+                try:
+                    # Import and call the standard skill sync function
+                    from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
+                    
+                    logger.info(f"[SKILL_IO][BACKEND][SYNC_START] Syncing skill from file: {file_path}")
+                    result = sync_skill_from_file(file_path)
+                    
+                    if result.get('success'):
+                        operation = result.get('operation', 'unknown')
+                        skill_id = result.get('skill_id')
+                        logger.info(f"[SKILL_IO][BACKEND][SYNC_SUCCESS] Skill {operation}d successfully (ID: {skill_id})")
+                    else:
+                        error = result.get('error', 'Unknown error')
+                        logger.warning(f"[SKILL_IO][BACKEND][SYNC_ERROR] Failed to sync skill: {error}")
+                        
+                except Exception as sync_error:
+                    # Don't fail the file write if database sync fails
+                    logger.warning(f"[SKILL_IO][BACKEND][SYNC_EXCEPTION] Error syncing skill to database: {sync_error}")
+            
             return create_success_response(request, {
                 'filePath': file_path,
                 'fileName': os.path.basename(file_path),
@@ -422,8 +445,54 @@ def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         ok, data, err = validate_params(params, ['oldName', 'newName'])
         if not ok:
             return create_error_response(request, 'INVALID_PARAMS', err or 'invalid')
+        
+        old_name = data['oldName']
+        new_name = data['newName']
+        
+        # Rename the skill directory
         _, rename_skill, _ = _get_extern_skills()
-        new_path = rename_skill(data['oldName'], data['newName'])
+        new_path = rename_skill(old_name, new_name)
+        
+        # Update skill database if old skill exists
+        try:
+            from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
+            from gui.context.app_context import AppContext
+            
+            # Construct old and new skill file paths
+            old_skill_path = str(new_path).replace(f'/{new_name}_skill/', f'/{old_name}_skill/')
+            old_skill_file = f"{old_skill_path}/diagram_dir/{old_name}_skill.json"
+            new_skill_file = f"{new_path}/diagram_dir/{new_name}_skill.json"
+            
+            logger.info(f"[SKILL_RENAME] Checking for existing skill at: {old_skill_file}")
+            
+            # Get skill service to check if old skill exists in database
+            main_window = AppContext.get_main_window()
+            if main_window and hasattr(main_window, 'ec_db_mgr') and main_window.ec_db_mgr:
+                skill_service = main_window.ec_db_mgr.skill_service
+                if skill_service:
+                    # Check if skill exists by old path
+                    existing_skill = skill_service.get_skill_by_path(old_skill_file)
+                    
+                    if existing_skill.get('success') and existing_skill.get('data'):
+                        logger.info(f"[SKILL_RENAME] Found existing skill in database, updating path to: {new_skill_file}")
+                        
+                        # Check if new skill file exists
+                        if os.path.exists(new_skill_file):
+                            # Sync the renamed skill file to update database
+                            sync_result = sync_skill_from_file(new_skill_file)
+                            
+                            if sync_result.get('success'):
+                                logger.info(f"[SKILL_RENAME] ✅ Skill database updated successfully")
+                            else:
+                                logger.warning(f"[SKILL_RENAME] ⚠️ Failed to update skill database: {sync_result.get('error')}")
+                        else:
+                            logger.warning(f"[SKILL_RENAME] ⚠️ New skill file not found: {new_skill_file}")
+                    else:
+                        logger.info(f"[SKILL_RENAME] No existing skill found in database for old path")
+        except Exception as sync_error:
+            # Don't fail the rename if database sync fails
+            logger.warning(f"[SKILL_RENAME] Error syncing renamed skill to database: {sync_error}")
+        
         return create_success_response(request, { 'skillRoot': str(new_path) })
     except Exception as e:
         logger.error(f"[IPC] skills.rename error: {e}")

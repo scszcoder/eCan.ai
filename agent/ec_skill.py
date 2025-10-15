@@ -233,6 +233,7 @@ class EC_Skill(AgentSkill):
             "need_inputs": self.need_inputs,
             "version": self.version,
             "level": self.level,
+            "path": self.path,
         }
 
 

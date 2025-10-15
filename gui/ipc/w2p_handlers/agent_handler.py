@@ -302,7 +302,7 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                     errors.append("Missing required 'id' field")
                     continue
                 
-                # Update agent in database using service
+                # Step 1: Update agent in database first
                 result = agent_service.update_agent(agent_id, agent_data)
                 
                 if result.get('success'):
@@ -310,23 +310,7 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                     updated_agent_data = result.get('data', {})
                     updated_agents.append(updated_agent_data)
                     
-                    # Sync to cloud (async, auto-cached if failed)
-                    # Step 1: Sync Agent entity
-                    _trigger_cloud_sync(agent_data, Operation.UPDATE)
-                    
-                    # Step 2: Sync Agent-Skill relationships (if changed)
-                    if 'skills' in agent_data:
-                        _sync_agent_skill_relations(updated_agent_data, agent_data.get('skills', []), Operation.UPDATE)
-                    
-                    # Step 3: Sync Agent-Task relationships (if changed)
-                    if 'tasks' in agent_data:
-                        _sync_agent_task_relations(updated_agent_data, agent_data.get('tasks', []), Operation.UPDATE)
-                    
-                    # Step 4: Sync Agent-Tool relationships (if changed)
-                    if 'tools' in agent_data:
-                        _sync_agent_tool_relations(updated_agent_data, agent_data.get('tools', []), Operation.UPDATE)
-                    
-                    # Update agent in memory (main_window.agents)
+                    # Step 2: Update agent in memory after database update succeeds
                     existing_agent = next((ag for ag in main_window.agents if ag.card.id == agent_id), None)
                     if existing_agent:
                         logger.debug(f"[agent_handler] Found agent in memory: {agent_id}, current name: {existing_agent.card.name}")
@@ -352,6 +336,33 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                     else:
                         logger.warning(f"[agent_handler] Agent {agent_id} not found in memory (main_window.agents)")
                         logger.debug(f"[agent_handler] Available agents in memory: {[ag.card.id for ag in main_window.agents if hasattr(ag, 'card') and hasattr(ag.card, 'id')]}")
+                    
+                    # Step 3: Clean up offline sync queue for this agent (remove pending add/update operations)
+                    try:
+                        from agent.cloud_api.offline_sync_queue import get_offline_sync_queue
+                        sync_queue = get_offline_sync_queue()
+                        removed_add = sync_queue.remove_tasks_by_resource('agent', agent_id, operation='add')
+                        removed_update = sync_queue.remove_tasks_by_resource('agent', agent_id, operation='update')
+                        if removed_add + removed_update > 0:
+                            logger.info(f"[agent_handler] Removed {removed_add + removed_update} pending sync tasks for agent: {agent_id}")
+                    except Exception as e:
+                        logger.warning(f"[agent_handler] Failed to clean offline sync queue: {e}")
+                    
+                    # Step 4: Sync to cloud after memory update succeeds (async, auto-cached if failed)
+                    # Sync Agent entity
+                    _trigger_cloud_sync(agent_data, Operation.UPDATE)
+                    
+                    # Sync Agent-Skill relationships (if changed)
+                    if 'skills' in agent_data:
+                        _sync_agent_skill_relations(updated_agent_data, agent_data.get('skills', []), Operation.UPDATE)
+                    
+                    # Sync Agent-Task relationships (if changed)
+                    if 'tasks' in agent_data:
+                        _sync_agent_task_relations(updated_agent_data, agent_data.get('tasks', []), Operation.UPDATE)
+                    
+                    # Sync Agent-Tool relationships (if changed)
+                    if 'tools' in agent_data:
+                        _sync_agent_tool_relations(updated_agent_data, agent_data.get('tools', []), Operation.UPDATE)
                     
                     saved_count += 1
                     logger.info(f"[agent_handler] Updated agent in database: {agent_id}")
@@ -434,29 +445,41 @@ def handle_delete_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPC
         
         for agent_id in agent_ids:
             try:
-                # Delete from database using service
+                # Step 1: Delete from database first
                 result = agent_service.delete_agent(agent_id)
                 
                 if result.get('success'):
-                    # Delete from memory (main_window.agents)
-                    main_window.agents = [ag for ag in main_window.agents if ag.card.id != agent_id]
-                    deleted_count += 1
+                    try:
+                        original_count = len(main_window.agents)
+                        # Step 2: Delete from memory after database deletion succeeds
+                        main_window.agents = [ag for ag in main_window.agents if ag.card.id != agent_id]
+                        new_count = len(main_window.agents)
+                        logger.info(f"[agent_handler] Removed agent from memory: {agent_id} (count: {original_count} → {new_count})")
+                    except Exception as e:
+                        logger.warning(f"[agent_handler] Failed to remove agent from memory: {e}")
                     
-                    # Sync deletion to cloud (fire and forget)
+                    # Step 3: Clean up offline sync queue for this agent
+                    try:
+                        from agent.cloud_api.offline_sync_queue import get_offline_sync_queue
+                        sync_queue = get_offline_sync_queue()
+                        removed_count_queue = sync_queue.remove_tasks_by_resource('agent', agent_id)
+                        if removed_count_queue > 0:
+                            logger.info(f"[agent_handler] Removed {removed_count_queue} pending sync tasks for agent: {agent_id}")
+                    except Exception as e:
+                        logger.warning(f"[agent_handler] Failed to clean offline sync queue: {e}")
+                    
+                    # Step 4: Sync deletion to cloud after memory update (async, fire and forget)
                     delete_agent_data = {
                         'id': agent_id,
-                        'agid': agent_id,
                         'owner': username,
                         'name': f"Agent_{agent_id}"  # Placeholder name for deletion
                     }
-                    
-                    # Step 1: Sync Agent entity deletion
                     _trigger_cloud_sync(delete_agent_data, Operation.DELETE)
                     
-                    # Step 2: Delete all Agent-Skill relationships
-                    # Note: In practice, you might want to query existing relations first
-                    # For now, we assume cascade delete or manual cleanup
-                    logger.info(f"[agent_handler] Agent {agent_id} deleted, relationships will be cascade deleted or cleaned up")
+                    # Note: Agent-Skill/Task/Tool relationships are cascade deleted in database
+                    logger.info(f"[agent_handler] Agent relationships cascade deleted, cloud sync triggered")
+                    
+                    deleted_count += 1
                 else:
                     error_msg = result.get('error', 'Unknown error')
                     logger.error(f"[agent_handler] Failed to delete agent {agent_id}: {error_msg}")
@@ -532,7 +555,7 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
             logger.error(f"[agent_handler] Agent service not available")
             return create_error_response(request, 'DB_ERROR', 'Agent service not available')
 
-        # Call service layer to create single agent
+        # Step 1: Create agent in database first
         result = agent_service.create_agent_from_data(agent_data, username)
 
         if not result.get('success'):
@@ -542,19 +565,7 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         
         created_agent = result.get('data')
 
-        # Sync to cloud (async, auto-cached if failed)
-        # Step 1: Sync Agent entity
-        _trigger_cloud_sync(created_agent, Operation.ADD)
-        
-        # Step 2: Sync Agent-Skill relationships
-        _sync_agent_skill_relations(created_agent, agent_data.get('skills', []), Operation.ADD)
-        
-        # Step 3: Sync Agent-Task relationships
-        _sync_agent_task_relations(created_agent, agent_data.get('tasks', []), Operation.ADD)
-        
-        # Step 4: Sync Agent-Tool relationships
-        _sync_agent_tool_relations(created_agent, agent_data.get('tools', []), Operation.ADD)
-
+        # Step 2: Add agent to memory after database creation succeeds
         # Convert created agent to EC_Agent object and add to main_window.agents
         # Use common converter function for consistency
         try:
@@ -571,6 +582,19 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         except Exception as e:
             logger.warning(f"[agent_handler] Failed to add agent to memory: {e}. Frontend will need to refresh.")
             logger.debug(f"[agent_handler] Traceback: {traceback.format_exc()}")
+
+        # Step 3: Sync to cloud after memory update succeeds (async, auto-cached if failed)
+        # Sync Agent entity
+        _trigger_cloud_sync(created_agent, Operation.ADD)
+        
+        # Sync Agent-Skill relationships
+        _sync_agent_skill_relations(created_agent, agent_data.get('skills', []), Operation.ADD)
+        
+        # Sync Agent-Task relationships
+        _sync_agent_task_relations(created_agent, agent_data.get('tasks', []), Operation.ADD)
+        
+        # Sync Agent-Tool relationships
+        _sync_agent_tool_relations(created_agent, agent_data.get('tools', []), Operation.ADD)
 
         logger.info(f"[agent_handler] Successfully created agent '{created_agent.get('name')}' for user: {username}")
         return create_success_response(

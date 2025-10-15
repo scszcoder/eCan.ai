@@ -26,7 +26,9 @@ const TabsRow = styled.div`
   transition: transform 0.15s ease;
 `;
 
-const Tab = styled.div<{ active?: boolean }>`
+const Tab = styled.div.withConfig({
+  shouldForwardProp: (prop) => prop !== 'active',
+})<{ active?: boolean }>`
   display: flex;
   align-items: center;
   max-width: 180px;

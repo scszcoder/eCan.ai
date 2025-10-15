@@ -293,17 +293,30 @@ def handle_save_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]
             actual_agent_task_id = result.get('id', agent_task_id)
             logger.info(f"Agent task saved successfully: {agent_task_data['name']} (ID: {actual_agent_task_id})")
 
-            # Update memory
+            # Step 2: Update memory after database update succeeds
             _update_agent_task_in_memory(actual_agent_task_id, agent_task_data)
 
-            # Sync to cloud (fire and forget)
+            # Step 3: Clean up offline sync queue for this task (remove pending add/update operations)
+            try:
+                from agent.cloud_api.offline_sync_queue import get_offline_sync_queue
+                sync_queue = get_offline_sync_queue()
+                # Remove any pending add operations (they're now redundant since we're updating)
+                removed_add = sync_queue.remove_tasks_by_resource('task', actual_agent_task_id, operation='add')
+                # Remove any pending update operations (they're now redundant since we have a new update)
+                removed_update = sync_queue.remove_tasks_by_resource('task', actual_agent_task_id, operation='update')
+                if removed_add + removed_update > 0:
+                    logger.info(f"[task_handler] Removed {removed_add + removed_update} pending sync tasks for task: {actual_agent_task_id}")
+            except Exception as e:
+                logger.warning(f"[task_handler] Failed to clean offline sync queue: {e}")
+
+            # Step 4: Sync to cloud after memory update succeeds (async, fire and forget)
             task_data_with_id = agent_task_data.copy()
             task_data_with_id['id'] = actual_agent_task_id
             
-            # Step 1: Sync Agent-Task relationship
+            # Sync Task entity
             _trigger_cloud_sync(task_data_with_id, Operation.UPDATE)
             
-            # Step 2: Sync Task-Skill relationships (if changed)
+            # Sync Task-Skill relationships (if changed)
             if 'skills' in agent_task_data:
                 _sync_task_skill_relations(actual_agent_task_id, agent_task_data.get('skills', []), Operation.UPDATE)
 
@@ -382,17 +395,17 @@ def handle_new_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
 
             logger.info(f"Agent task created successfully: {agent_task_data['name']} (ID: {agent_task_id})")
 
-            # Update memory
+            # Step 2: Update memory after database creation succeeds
             _update_agent_task_in_memory(agent_task_id, agent_task_data)
 
-            # Sync to cloud (fire and forget)
+            # Step 3: Sync to cloud after memory update succeeds (async, fire and forget)
             task_data_with_id = agent_task_data.copy()
             task_data_with_id['id'] = agent_task_id
             
-            # Step 1: Sync Agent-Task relationship
+            # Sync Task entity
             _trigger_cloud_sync(task_data_with_id, Operation.ADD)
             
-            # Step 2: Sync Task-Skill relationships
+            # Sync Task-Skill relationships
             if 'skills' in agent_task_data:
                 _sync_task_skill_relations(agent_task_id, agent_task_data.get('skills', []), Operation.ADD)
 
@@ -451,13 +464,13 @@ def handle_delete_agent_task(request: IPCRequest, params: Optional[Dict[str, Any
         if not agent_task_service:
             return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
 
-        # Delete from database
+        # Step 1: Delete from database first
         result = agent_task_service.delete_task(agent_task_id)
 
         if result.get('success'):
             logger.info(f"Agent task deleted successfully from database: {agent_task_id}")
 
-            # Remove from memory
+            # Step 2: Remove from memory after database deletion succeeds
             try:
                 main_window = AppContext.get_main_window()
                 if main_window and hasattr(main_window, 'agent_tasks'):
@@ -471,7 +484,17 @@ def handle_delete_agent_task(request: IPCRequest, params: Optional[Dict[str, Any
             except Exception as e:
                 logger.warning(f"[task_handler] Failed to remove agent task from memory: {e}")
 
-            # Sync deletion to cloud (fire and forget)
+            # Step 3: Clean up offline sync queue for this task
+            try:
+                from agent.cloud_api.offline_sync_queue import get_offline_sync_queue
+                sync_queue = get_offline_sync_queue()
+                removed_count = sync_queue.remove_tasks_by_resource('task', agent_task_id)
+                if removed_count > 0:
+                    logger.info(f"[task_handler] Removed {removed_count} pending sync tasks for task: {agent_task_id}")
+            except Exception as e:
+                logger.warning(f"[task_handler] Failed to clean offline sync queue: {e}")
+
+            # Step 4: Sync deletion to cloud after memory update (async, fire and forget)
             delete_task_data = {
                 'id': agent_task_id,
                 'owner': username,

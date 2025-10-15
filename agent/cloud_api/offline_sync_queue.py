@@ -257,6 +257,53 @@ class OfflineSyncQueue:
             data_type = task['data_type']
             counts[data_type] = counts.get(data_type, 0) + 1
         return counts
+    
+    def remove_tasks_by_resource(self, data_type: str, resource_id: str, operation: Optional[str] = None) -> int:
+        """
+        Remove tasks related to a specific resource from both pending and failed queues
+        
+        Args:
+            data_type: Data type ('skill', 'task', 'agent', 'tool', etc.)
+            resource_id: Resource ID to match
+            operation: Optional, only remove tasks with specific operation ('add', 'update', 'delete')
+        
+        Returns:
+            int: Number of tasks removed
+        """
+        with self._lock:
+            removed_count = 0
+            
+            # Remove from pending queue
+            original_pending = len(self.pending_queue)
+            self.pending_queue = [
+                task for task in self.pending_queue
+                if not (
+                    task['data_type'] == data_type and
+                    task.get('data', {}).get('id') == resource_id and
+                    (operation is None or task.get('operation') == operation)
+                )
+            ]
+            removed_from_pending = original_pending - len(self.pending_queue)
+            
+            # Remove from failed queue
+            original_failed = len(self.failed_queue)
+            self.failed_queue = [
+                task for task in self.failed_queue
+                if not (
+                    task['data_type'] == data_type and
+                    task.get('data', {}).get('id') == resource_id and
+                    (operation is None or task.get('operation') == operation)
+                )
+            ]
+            removed_from_failed = original_failed - len(self.failed_queue)
+            
+            removed_count = removed_from_pending + removed_from_failed
+            
+            if removed_count > 0:
+                self._save_queue()
+                logger.info(f"[OfflineSyncQueue] Removed {removed_count} tasks for {data_type}:{resource_id} (operation={operation})")
+            
+            return removed_count
 
 
 # Global singleton

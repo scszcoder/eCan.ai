@@ -423,9 +423,11 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                         </StyledFormItem>
                     </Col>
                     <Col span={24}>
-                        <StyledFormItem label={t('pages.skills.path', 'Path')} name="path" htmlFor="skill-path-input">
+                        <StyledFormItem label={t('pages.skills.path', 'Path')}>
                             <Space.Compact style={{ width: '100%' }}>
-                                <Input id="skill-path-input" readOnly placeholder={t('pages.skills.pathPlaceholder', 'Skill file path')} />
+                                <Form.Item name="path" noStyle>
+                                    <Input id="skill-path-input" readOnly placeholder={t('pages.skills.pathPlaceholder', 'Skill file path')} />
+                                </Form.Item>
                                 <Tooltip title={t('pages.skills.openEditor', 'Open in Editor')}>
                                     <Button icon={<FileTextOutlined />} onClick={goToEditor} />
                                 </Tooltip>
