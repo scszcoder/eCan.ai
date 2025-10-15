@@ -53,7 +53,7 @@ def set_up_my_twin_agent(mainwin: 'MainWindow'):
         except Exception as e:
             logger.warning(f"Failed to initialize BrowserUseChatOpenAI in packaged environment: {e}")
 
-        helper = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=[chatter_skill], tasks=[chat_task])
+        helper = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=[chatter_skill], tasks=[chat_task])
 
     except Exception as e:
         # Get the traceback information

@@ -35,11 +35,9 @@ export function mapOrgAgentToAgent(
       defaultInputModes: [],
       defaultOutputModes: [],
     },
-    supervisors: [],
-    subordinates: [],
-    peers: [],
+    supervisor_id: '',
     rank: 'member',
-    orgIds: normalizedOrgId ? [normalizedOrgId] : [],
+    org_id: normalizedOrgId || '',
     job_description: orgAgent.description || '',
     personalities: [],
   };

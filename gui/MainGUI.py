@@ -322,6 +322,12 @@ class MainWindow:
                 None, self._init_task_management
             )
 
+            # Phase 2F: Start offline sync on startup (non-blocking)
+            logger.info("[MainWindow] 🔄 Starting offline sync on startup (non-blocking)...")
+            asyncio.get_event_loop().run_in_executor(
+                None, self._startup_sync_offline_cloud_cache
+            )
+            
             # Initialize async tasks
             self._init_async_tasks()
 
@@ -418,16 +424,6 @@ class MainWindow:
             logger.info("[MainWindow] 🎉 System is now fully ready with all data loaded!")
         except Exception as e:
             logger.error(f"[MainWindow] ❌ Agents initialization failed: {e}")
-            # Still mark as ready to prevent hanging, but log the issue
-            # self._initialization_status['fully_ready'] = True
-
-            # # Notify IPC Registry even if failed
-            # try:
-            #     from gui.ipc.registry import IPCHandlerRegistry
-            #     IPCHandlerRegistry.force_system_ready(True)
-            # except Exception as cache_e:
-            #     logger.warning(f"[MainWindow] Failed to update IPC registry cache: {cache_e}")
-
             logger.warning("[MainWindow] ⚠️ System marked as ready despite agents initialization failure")
 
         logger.info("[MainWindow] ✅ Async initialization finalized")
@@ -1127,8 +1123,6 @@ class MainWindow:
 
         logger.info("[MainWindow] ✅ Async tasks initialized")
 
-
-
     def is_fully_initialized(self) -> bool:
         """Check if initialization is fully completed"""
         return self._initialization_status.get('fully_ready', False)
@@ -1225,6 +1219,90 @@ class MainWindow:
             logger.error(f"[MainWindow] Cloud sync error details: {traceback.format_exc()}")
             logger.error(f"[MainWindow] Cloud sync failed: {str(e)}")
 
+    def _startup_sync_offline_cloud_cache(self):
+        """
+        Startup sync: sync pending cache to cloud and start auto retry timer
+        
+        This is a BLOCKING synchronous function that:
+        1. Checks if there are pending cached tasks
+        2. If yes, syncs all cached tasks to cloud (blocking)
+        3. Starts auto retry timer for periodic cache sync (every 5 minutes)
+        
+        Note: Loading data from cloud is handled by each module separately.
+        """
+        try:
+            logger.info("[MainWindow] 🚀 Starting startup sync (blocking)...")
+            
+            # Get username
+            username = self.user if hasattr(self, 'user') else None
+            if not username:
+                logger.warning("[MainWindow] No username available, skipping startup sync")
+                return
+            
+            # Import sync manager and queue
+            from agent.cloud_api.offline_sync_manager import get_sync_manager
+            from agent.cloud_api.offline_sync_queue import get_sync_queue
+            
+            manager = get_sync_manager()
+            queue = get_sync_queue()
+            
+            # Step 1: Check if there are pending tasks
+            stats = queue.get_stats()
+            pending_count = stats['pending_count']
+            failed_count = stats['failed_count']
+            total_count = pending_count + failed_count
+            
+            if total_count > 0:
+                logger.info(f"[MainWindow] 📤 Found {total_count} tasks to sync ({pending_count} pending, {failed_count} failed)")
+                logger.info(f"[MainWindow] Pending by type: {stats['pending_by_type']}")
+                if failed_count > 0:
+                    logger.info(f"[MainWindow] Failed by type: {stats['failed_by_type']}")
+                
+                # Use thread for sync, fully async, doesn't block any operations
+                import threading
+                import time
+                
+                def _sync_task():
+                    """Background sync task"""
+                    try:
+                        start_time = time.time()
+                        logger.info("[MainWindow] 🔄 Starting startup sync in background (timeout: 15s per task)...")
+                        
+                        # Limit to max 20 tasks, 15s timeout per task, include failed tasks
+                        result = manager.sync_pending_queue(max_tasks=20, timeout_per_task=15.0, include_failed=True)
+                        
+                        elapsed = time.time() - start_time
+                        logger.info(f"[MainWindow] ✅ Startup sync completed in {elapsed:.1f}s:")
+                        logger.info(f"  - Total: {result['total']}")
+                        logger.info(f"  - Synced: {result['synced']}")
+                        logger.info(f"  - Failed: {result['failed']}")
+                        
+                        if result['failed'] > 0:
+                            logger.warning(f"[MainWindow] ⚠️ {result['failed']} tasks failed (timeout or error), will retry later")
+                        
+                        if total_count > 20:
+                            logger.info(f"[MainWindow] 💡 {total_count - 20} tasks will be synced by auto-retry timer")
+                            
+                    except Exception as e:
+                        logger.error(f"[MainWindow] ❌ Startup sync error: {e}")
+                        logger.error(f"[MainWindow] Traceback: {traceback.format_exc()}")
+                
+                # Start background thread (fully async, no waiting)
+                sync_thread = threading.Thread(target=_sync_task, daemon=True, name="StartupSync")
+                sync_thread.start()
+                logger.info("[MainWindow] ✅ Startup sync started in background (non-blocking)")
+            else:
+                logger.info("[MainWindow] ✅ No pending tasks to sync")
+            
+            # Step 2: Start auto retry timer (background task for periodic sync)
+            # This timer will automatically sync cached data every 5 minutes
+            logger.info("[MainWindow] 🔄 Starting auto retry timer for periodic cache sync...")
+            manager.start_auto_retry(interval=300)  # 300 seconds
+            logger.info("[MainWindow] ✅ Auto retry timer started (interval: 300s)")
+                
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Startup sync error: {e}")
+            logger.error(f"[MainWindow] Startup sync error details: {traceback.format_exc()}")
 
     async def _async_setup_browser_manager(self):
         """
@@ -2276,23 +2354,52 @@ class MainWindow:
         try:
             logger.info("[MainWindow] 🌐 Fetching agents from cloud...")
             
-            # TODO: Implement cloud agent API call
-            # This should be similar to bot_service.sync_cloud_bot_data
-            # For now, return empty list
-            logger.warning("[MainWindow] ⚠️  Cloud agent API not yet implemented")
+            # Use load_agents_from_cloud to fetch agents from cloud
+            from agent.ec_agents.agent_utils import load_agents_from_cloud
             
-            # Example implementation (when API is ready):
-            # cloud_agents = await asyncio.get_event_loop().run_in_executor(
-            #     None,
-            #     self.agent_service.fetch_cloud_agents,
-            #     self.session,
-            #     self.get_auth_token()
-            # )
+            # Run in executor to avoid blocking the event loop
+            # Note: load_agents_from_cloud returns EC_Agent objects, not dicts
+            cloud_agent_objects = await asyncio.get_event_loop().run_in_executor(
+                None,
+                load_agents_from_cloud,
+                self
+            )
             
-            return []
+            if not cloud_agent_objects:
+                logger.info("[MainWindow] ℹ️  No agents returned from cloud")
+                return []
+            
+            logger.info(f"[MainWindow] ✅ Fetched {len(cloud_agent_objects)} agents from cloud")
+            
+            # Convert EC_Agent objects to dicts for merging
+            cloud_agent_dicts = []
+            for agent_obj in cloud_agent_objects:
+                try:
+                    if hasattr(agent_obj, 'to_dict'):
+                        agent_dict = agent_obj.to_dict()
+                    elif hasattr(agent_obj, 'card'):
+                        # Extract basic info from agent card
+                        agent_dict = {
+                            'id': agent_obj.card.id if hasattr(agent_obj.card, 'id') else None,
+                            'name': agent_obj.card.name if hasattr(agent_obj.card, 'name') else 'Unknown',
+                            'description': agent_obj.card.description if hasattr(agent_obj.card, 'description') else '',
+                            'owner': getattr(agent_obj, 'owner', 'unknown'),
+                        }
+                    else:
+                        logger.warning(f"[MainWindow] Cannot convert agent object to dict: {agent_obj}")
+                        continue
+                    
+                    cloud_agent_dicts.append(agent_dict)
+                except Exception as e:
+                    logger.warning(f"[MainWindow] Failed to convert agent to dict: {e}")
+                    continue
+            
+            logger.info(f"[MainWindow] 🔄 Converted {len(cloud_agent_dicts)} cloud agents to dicts")
+            return cloud_agent_dicts
             
         except Exception as e:
             logger.error(f"[MainWindow] ❌ Failed to fetch cloud agents: {e}")
+            logger.error(f"[MainWindow] Traceback: {traceback.format_exc()}")
             return []
     
     def _merge_agent_data(self, local_agents, cloud_agents):
@@ -5160,6 +5267,15 @@ class MainWindow:
         
         # Set shutdown flag to prevent WAN Chat reconnections
         self._shutting_down = True
+        
+        # Stop sync manager auto retry timer
+        try:
+            from agent.cloud_api.offline_sync_manager import get_sync_manager
+            manager = get_sync_manager()
+            manager.stop_auto_retry()
+            logger.info("[MainWindow] ✅ Sync manager auto retry timer stopped")
+        except Exception as e:
+            logger.warning(f"[MainWindow] ❌ Error stopping sync manager: {e}")
         
         # Stop LightRAG server
         try:

@@ -14,14 +14,15 @@ from urllib.parse import urlparse, urlencode, urlunparse, parse_qsl
 from typing import Optional, Tuple
 from utils.logger_helper import logger_helper
 from agent.a2a.common.types import TaskSendParams, Message, TextPart
+from agent.cloud_api.constants import cloud_api, DataType, Operation
+
+# Import new generic GraphQL builder
+from agent.cloud_api.graphql_builder import build_mutation
 
 
 limiter = AsyncLimiter(1, 1)  # Max 5 requests per second
 
 ecb_data_homepath = getECBotDataHome()
-# Constants Copied from AppSync API 'Settings'
-API_URL = 'https://w3lhm34x5jgxlbpr7zzxx7ckqq.appsync-api.ap-southeast-2.amazonaws.com/graphql'
-
 
 #	requestRunExtAgentSkill(input: [SkillRun]): AWSJSON!
 # 	skid: ID!
@@ -91,143 +92,34 @@ def gen_query_report_run_ext_agent_skill_status_string(query):
 
 
 def gen_add_agents_string(agents):
-    query_string = "mutation MyMutation { addAgents(input: ["
-    rec_string = ""
-    for i in range(len(agents)):
-        if isinstance(agents[i], dict):
-            rec_string = rec_string + "{ agid: \"" + str(agents[i]["agid"]) + "\", "
-            rec_string = rec_string + "owner: \"" + str(agents[i]["owner"]) + "\", "
-            rec_string = rec_string + "gender: \"" + agents[i]["gender"] + "\", "
-            rec_string = rec_string + "organizations: \"" + agents[i]["organizations"] + "\", "
-            rec_string = rec_string + "rank: \"" + agents[i]["rank"] + "\", "
-            rec_string = rec_string + "supervisors: \"" + agents[i]["supervisors"] + "\", "
-            rec_string = rec_string + "subordinates: \"" + agents[i]["subordinates"] + "\", "
-            rec_string = rec_string + "title: \"" + agents[i]["title"] + "\", "
-            rec_string = rec_string + "personalities: \"" + agents[i]["personalities"] + "\", "
-            rec_string = rec_string + "birthday: \"" + agents[i]["birthday"] + "\", "
-            rec_string = rec_string + "name: \"" + agents[i]["name"] + "\", "
-            rec_string = rec_string + "status: \"" + agents[i]["status"] + "\", "
-            rec_string = rec_string + "metadata: \"" + agents[i]["metadata"] + "\", "
-            rec_string = rec_string + "vehicle: \"" + agents[i]["vehicle"] + "\", "
-            rec_string = rec_string + "skills: \"" + agents[i]["skills"] + "\", "
-            rec_string = rec_string + "tasks: \"" + agents[i]["tasks"] + "\", "
-            rec_string = rec_string + "knowledges: \"" + agents[i]["knowledges"] + "\"} "
-        else:
-            rec_string = rec_string + "{ agid: \"" + str(agents[i].getAgid()) + "\", "
-            rec_string = rec_string + "owner: \"" + str(agents[i].getOwner()) + "\", "
-            rec_string = rec_string + "gender: \"" + agents[i].getGender() + "\", "
-            rec_string = rec_string + "organizations: \"" + agents[i].getOrganizations() + "\", "
-            rec_string = rec_string + "rank: \"" + agents[i].getRank() + "\", "
-            rec_string = rec_string + "supervisors: \"" + agents[i].getSupervisors() + "\", "
-            rec_string = rec_string + "subordinates: \"" + agents[i].getSubordinates() + "\", "
-            rec_string = rec_string + "title: \"" + agents[i].getTitle() + "\", "
-            rec_string = rec_string + "personalities: \"" + agents[i].getPersonalities() + "\", "
-            rec_string = rec_string + "birthday: \"" + agents[i].getBirthday() + "\", "
-            rec_string = rec_string + "name: \"" + agents[i].getName() + "\", "
-            rec_string = rec_string + "status: \"" + agents[i].getStatus() + "\", "
-            rec_string = rec_string + "metadata: \"" + agents[i].getMetadata() + "\", "
-            rec_string = rec_string + "vehicle: \"" + agents[i].getVehicle() + "\", "
-            rec_string = rec_string + "skills: \"" + agents[i].getSkills() + "\", "
-            rec_string = rec_string + "tasks: \"" + agents[i].getTasks() + "\", "
-            rec_string = rec_string + "knowledges: \"" + agents[i].getKnowledges() + "\"} "
-
-
-        if i != len(agents) - 1:
-            rec_string = rec_string + ', '
-        else:
-            rec_string = rec_string + ']'
-
-    tail_string = ") } "
-    query_string = query_string + rec_string + tail_string
-    logger.debug("query string:"+query_string)
-    return query_string
+    """
+    Generate GraphQL mutation string for adding agents
+    
+    ✅ Now uses generic GraphQL builder based on Schema
+    ✅ No hardcoded fields - all fields come from data and Schema mapping
+    """
+    return build_mutation(DataType.AGENT, Operation.ADD, agents)
 
 
 def gen_update_agents_string(agents):
-    query_string = """
-        mutation MyUBMutation {
-      updateAgents (input:[
     """
-    rec_string = ""
-    for i in range(len(agents)):
-        if isinstance(agents[i], dict):
-            rec_string = rec_string + "{ agid: \"" + str(agents[i]["agid"]) + "\", "
-            rec_string = rec_string + "owner: \"" + str(agents[i]["owner"]) + "\", "
-            rec_string = rec_string + "gender: \"" + agents[i]["gender"] + "\", "
-            rec_string = rec_string + "organizations: \"" + agents[i]["organizations"] + "\", "
-            rec_string = rec_string + "rank: \"" + agents[i]["rank"] + "\", "
-            rec_string = rec_string + "supervisors: \"" + agents[i]["supervisors"] + "\", "
-            rec_string = rec_string + "subordinates: \"" + agents[i]["subordinates"] + "\", "
-            rec_string = rec_string + "title: \"" + agents[i]["title"] + "\", "
-            rec_string = rec_string + "personalities: \"" + agents[i]["personalities"] + "\", "
-            rec_string = rec_string + "birthday: \"" + agents[i]["birthday"] + "\", "
-            rec_string = rec_string + "name: \"" + agents[i]["name"] + "\", "
-            rec_string = rec_string + "status: \"" + agents[i]["status"] + "\", "
-            rec_string = rec_string + "metadata: \"" + agents[i]["metadata"] + "\", "
-            rec_string = rec_string + "vehicle: \"" + agents[i]["vehicle"] + "\", "
-            rec_string = rec_string + "skills: \"" + agents[i]["skills"] + "\", "
-            rec_string = rec_string + "tasks: \"" + agents[i]["tasks"] + "\", "
-            rec_string = rec_string + "knowledges: \"" + agents[i]["knowledges"] + "\"} "
-        else:
-            if agents[i].getOrg():
-                org = agents[i].getOrg()
-            else:
-                org = ""
-            rec_string = rec_string + "{ agid: \"" + str(agents[i].getAgid()) + "\", "
-            rec_string = rec_string + "owner: \"" + str(agents[i].getOwner()) + "\", "
-            rec_string = rec_string + "gender: \"" + agents[i].getGender() + "\", "
-            rec_string = rec_string + "organizations: \"" + agents[i].getOrganizations() + "\", "
-            rec_string = rec_string + "rank: \"" + agents[i].getRank() + "\", "
-            rec_string = rec_string + "supervisors: \"" + agents[i].getSupervisors() + "\", "
-            rec_string = rec_string + "subordinates: \"" + agents[i].getSubordinates() + "\", "
-            rec_string = rec_string + "title: \"" + agents[i].getTitle() + "\", "
-            rec_string = rec_string + "personalities: \"" + agents[i].getPersonalities() + "\", "
-            rec_string = rec_string + "birthday: \"" + agents[i].getBirthday() + "\", "
-            rec_string = rec_string + "name: \"" + agents[i].getName() + "\", "
-            rec_string = rec_string + "status: \"" + agents[i].getStatus() + "\", "
-            rec_string = rec_string + "metadata: \"" + agents[i].getMetadata() + "\", "
-            rec_string = rec_string + "vehicle: \"" + agents[i].getVehicle() + "\", "
-            rec_string = rec_string + "skills: \"" + agents[i].getSkills() + "\", "
-            rec_string = rec_string + "tasks: \"" + agents[i].getTasks() + "\", "
-            rec_string = rec_string + "knowledges: \"" + agents[i].getKnowledges() + "\"} "
-
-        if i != len(agents) - 1:
-            rec_string = rec_string + ', '
-        else:
-            rec_string = rec_string + ']'
-
-    tail_string = """
-    ) 
-    } """
-    query_string = query_string + rec_string + tail_string
-    logger.debug(query_string)
-    return query_string
+    Generate GraphQL mutation string for updating agents
+    
+    ✅ Now uses generic GraphQL builder based on Schema
+    ✅ No hardcoded fields - all fields come from data and Schema mapping
+    """
+    return build_mutation(DataType.AGENT, Operation.UPDATE, agents)
 
 
 
 
 def gen_remove_agents_string(removeOrders):
-    query_string = """
-        mutation MyRAMutation {
-      removeAgents (input:[
     """
-    rec_string = ""
-    for i in range(len(removeOrders)):
-        rec_string = rec_string + "{ oid:" + str(removeOrders[i]["id"]) + ", "
-        rec_string = rec_string + "owner:\"" + removeOrders[i]["owner"] + "\", "
-        rec_string = rec_string + "reason:\"" + removeOrders[i]["reason"] + "\"} "
-
-        if i != len(removeOrders) - 1:
-            rec_string = rec_string + ', '
-        else:
-            rec_string = rec_string + ']'
-
-    tail_string = """
-    ) 
-    } """
-    query_string = query_string + rec_string + tail_string
-    logger.debug(query_string)
-    return query_string
+    Generate GraphQL mutation string for removing agents
+    
+    Now uses generic GraphQL builder
+    """
+    return build_mutation(DataType.AGENT, Operation.DELETE, removeOrders)
 
 
 def gen_query_agents_string(q_setting):
@@ -243,10 +135,10 @@ def gen_query_agents_string(q_setting):
     return query_string
 
 def gen_get_agents_string():
-    query_string = "query MyGetAgentQuery { getAgents (ids:'"
+    query_string = 'query MyGetAgentQuery { getAgents (ids:"'
     rec_string = "0"
 
-    tail_string = "') }"
+    tail_string = '") }'
     query_string = query_string + rec_string + tail_string
     logger.debug(query_string)
     return query_string
@@ -254,121 +146,45 @@ def gen_get_agents_string():
 
 
 def gen_add_agent_skills_string(skills):
-    query_string = "mutation MyMutation { addAgentSkills(input: ["
-    rec_string = ""
-    for i in range(len(skills)):
-        if isinstance(skills[i], dict):
-            rec_string = rec_string + "{ askid: " + str(skills[i]["askid"]) + ", "
-            rec_string = rec_string + "owner: \"" + str(skills[i]["owner"]) + "\", "
-            rec_string = rec_string + "name: \"" + skills[i]["name"] + "\", "
-            rec_string = rec_string + "description: \"" + skills[i]["description"] + "\", "
-            rec_string = rec_string + "status: \"" + skills[i]["status"] + "\", "
-            rec_string = rec_string + "path: \"" + skills[i]["path"] + "\", "
-            rec_string = rec_string + "flowgram: \"" + skills[i]["flowgram"] + "\", "
-            rec_string = rec_string + "langgraph: \"" + skills[i]["langgraph"] + "\", "
-            rec_string = rec_string + "config: " + str(skills[i]["config"]) + ", "
-            rec_string = rec_string + "price: " + str(skills[i]["price"]) + "\"} "
-        else:
-            rec_string = rec_string + "{ askid: " + str(skills[i].getSkid()) + ", "
-            rec_string = rec_string + "owner: \"" + str(skills[i].getOwner()) + "\", "
-            rec_string = rec_string + "name: \"" + skills[i].getName() + "\", "
-            rec_string = rec_string + "description: \"" + skills[i].getDescription() + "\", "
-            rec_string = rec_string + "status: \"" + skills[i].getStatus() + "\", "
-            rec_string = rec_string + "path: \"" + skills[i].getPath() + "\", "
-            rec_string = rec_string + "flowgram: \"" + skills[i].getFlowgram() + "\", "
-            rec_string = rec_string + "langgraph: \"" + skills[i].getLanggraph() + "\", "
-            rec_string = rec_string + "config: " + str(skills[i].getConfig()) + ", "
-            rec_string = rec_string + "price: " + str(skills[i].getPrice()) + "\"} "
-
-        if i != len(skills) - 1:
-            rec_string = rec_string + ', '
-        else:
-            rec_string = rec_string + ']'
-
-    tail_string = ") } "
-    query_string = query_string + rec_string + tail_string
-    logger.debug(query_string)
-    return query_string
+    """
+    Generate GraphQL mutation string for adding skills
+    
+    ✅ Now uses generic GraphQL builder based on Schema
+    ✅ No hardcoded fields - all fields come from data and Schema mapping
+    """
+    return build_mutation(DataType.SKILL, Operation.ADD, skills)
 
 
 
 
 
 def gen_update_agent_skills_string(skills):
-    query_string = """
-        mutation MyUASMutation {
-      updateAgentSkills (input:[
     """
-    rec_string = ""
-    for i in range(len(skills)):
-        if isinstance(skills[i], dict):
-            rec_string = rec_string + "{ askid: " + str(skills[i]["askid"]) + ", "
-            rec_string = rec_string + "owner: \"" + str(skills[i]["owner"]) + "\", "
-            rec_string = rec_string + "name: \"" + skills[i]["name"] + "\", "
-            rec_string = rec_string + "description: \"" + skills[i]["description"] + "\", "
-            rec_string = rec_string + "status: \"" + skills[i]["status"] + "\", "
-            rec_string = rec_string + "path: \"" + skills[i]["path"] + "\", "
-            rec_string = rec_string + "flowgram: \"" + skills[i]["flowgram"] + "\", "
-            rec_string = rec_string + "langgraph: \"" + skills[i]["langgraph"] + "\", "
-            rec_string = rec_string + "config: " + str(skills[i]["config"]) + ", "
-            rec_string = rec_string + "price: " + str(skills[i]["price"]) + "\"} "
-        else:
-            rec_string = rec_string + "{ askid: " + str(skills[i].getSkid()) + ", "
-            rec_string = rec_string + "owner: \"" + str(skills[i].getOwner()) + "\", "
-            rec_string = rec_string + "name: \"" + skills[i].getName() + "\", "
-            rec_string = rec_string + "description: \"" + skills[i].getDescription() + "\", "
-            rec_string = rec_string + "status: \"" + skills[i].getStatus() + "\", "
-            rec_string = rec_string + "path: \"" + skills[i].getPath() + "\", "
-            rec_string = rec_string + "flowgram: \"" + skills[i].getFlowgram() + "\", "
-            rec_string = rec_string + "langgraph: \"" + skills[i].getLanggraph() + "\", "
-            rec_string = rec_string + "config: " + str(skills[i].getConfig()) + ", "
-            rec_string = rec_string + "price: " + str(skills[i].getPrice()) + "\"} "
-
-        if i != len(skills) - 1:
-            rec_string = rec_string + ', '
-        else:
-            rec_string = rec_string + ']'
-
-    tail_string = """
-    ) 
-    } """
-    query_string = query_string + rec_string + tail_string
-    logger.debug(query_string)
-    return query_string
+    Generate GraphQL mutation string for updating skills
+    
+    ✅ Now uses generic GraphQL builder based on Schema
+    ✅ No hardcoded fields - all fields come from data and Schema mapping
+    """
+    return build_mutation(DataType.SKILL, Operation.UPDATE, skills)
 
 
 
 
 def gen_remove_agent_skills_string(removeOrders):
-    query_string = """
-        mutation MyRASMutation {
-      removeAgentSkills (input:[
     """
-    rec_string = ""
-    for i in range(len(removeOrders)):
-        rec_string = rec_string + "{ oid:" + str(removeOrders[i]["skid"]) + ", "
-        rec_string = rec_string + "owner:\"" + removeOrders[i]["owner"] + "\", "
-        rec_string = rec_string + "reason:\"" + removeOrders[i]["reason"] + "\"} "
-
-        if i != len(removeOrders) - 1:
-            rec_string = rec_string + ', '
-        else:
-            rec_string = rec_string + ']'
-
-    tail_string = """
-    ) 
-    } """
-    query_string = query_string + rec_string + tail_string
-    logger.debug(query_string)
-    return query_string
+    Generate GraphQL mutation string for removing skills
+    
+    Now uses generic GraphQL builder
+    """
+    return build_mutation(DataType.SKILL, Operation.DELETE, removeOrders)
 
 
 
 def gen_query_agent_skills_string(q_setting):
     if q_setting["byowneruser"]:
-        query_string = "query MySkQuery { queryAgentSkills(qs: \"{ \\\"byowneruser\\\": true}\") } "
+        query_string = "query MySkQuery { queryAgentSkillRelations(qs: \"{ \\\"byowneruser\\\": true}\") } "
     else:
-        query_string = "query MySkQuery { queryAgentSkills(qs: \"{ \\\"byowneruser\\\": false, \\\"qphrase\\\": \\\""+q_setting["qphrase"]+"\\\"}\") } "
+        query_string = "query MySkQuery { queryAgentSkillRelations(qs: \"{ \\\"byowneruser\\\": false, \\\"qphrase\\\": \\\"" +q_setting["qphrase"]+"\\\"}\") } "
 
     rec_string = ""
     tail_string = ""
@@ -377,130 +193,44 @@ def gen_query_agent_skills_string(q_setting):
     return query_string
 
 def gen_get_agent_skills_string():
-    query_string = "query MyGetAgentSkillsQuery { getAgentSkills (ids:'"
+    query_string = 'query MyGetAgentSkillsQuery { getAgentSkills (ids:"'
     rec_string = "0"
 
-    tail_string = "') }"
+    tail_string = '") }'
     query_string = query_string + rec_string + tail_string
     logger.debug(query_string)
     return query_string
 
 
-def gen_add_agent_tasks_string(tasks, test_settings={}):
-    query_string = """
-        mutation MyAMMutation {
-      addAgentTasks (input:[
+def gen_add_agent_tasks_string(tasks, test_settings=None):
     """
-    rec_string = ""
-    for i in range(len(tasks)):
-        if isinstance(tasks[i], dict):
-            rec_string = rec_string + "{ ataskid:" + str(tasks[i]["ataskid"]) + ", "
-            rec_string = rec_string + "owner:\"" + tasks[i]["owner"] + "\", "
-            rec_string = rec_string + "name:" + str(tasks[i]["name"]) + ", "
-            rec_string = rec_string + "description:\"" + tasks[i]["description"] + "\", "
-            rec_string = rec_string + "objectives:\"" + tasks[i]["objectives"].replace('"', '\\"') + "\", "
-            rec_string = rec_string + "status:\"" + tasks[i]["status"] + "\", "
-            rec_string = rec_string + "schedule:" + tasks[i]["schedule"].replace('"', '\\"') + ", "
-            rec_string = rec_string + "metadata:\"" + tasks[i]["metadata"].replace('"', '\\"') + "\", "
-            rec_string = rec_string + "start:\"" + tasks[i]["start"] + "\", "
-            rec_string = rec_string + "priority:\"" + tasks[i]["priority"] + "\"} "
-        else:
-            rec_string = rec_string + "{ ataskid:" + str(tasks[i].getTaskId()) + ", "
-            rec_string = rec_string + "owner:" + str(tasks[i].getOwner()) + ", "
-            rec_string = rec_string + "name:\"" + tasks[i].getName() + "\", "
-            rec_string = rec_string + "description:" + str(tasks[i].getDescription()) + ", "
-            rec_string = rec_string + "objectives:\"" + tasks[i].getObjectives().replace('"', '\\"') + "\", "
-            rec_string = rec_string + "status:\"" + tasks[i].getStatus() + "\", "
-            rec_string = rec_string + "schedule:\"" + tasks[i].getSchedule().replace('"', '\\"') + "\", "
-            rec_string = rec_string + "metadata:\"" + tasks[i].getMetadata().replace('"', '\\"') + "\", "
-            rec_string = rec_string + "start:\"" + tasks[i].getStart() + "\", "
-            rec_string = rec_string + "priority:\"" + tasks[i].getPriority() + "\"} "
-
-        if i != len(tasks) - 1:
-            rec_string = rec_string + ', '
-        else:
-            rec_string = rec_string + ']'
-
-    if len(test_settings) == 0:
-        rec_string = rec_string + ", settings: \"{ \\\"testmode\\\": false}\""
-    else:
-        rec_string = rec_string + ", settings: \"{ \\\"testmode\\\": false}\""
-
-
-    tail_string = """
-    ) 
-    } """
-    query_string = query_string + rec_string + tail_string
-    logger.debug(query_string)
-    return query_string
+    Generate GraphQL mutation string for adding tasks
+    
+    Now uses generic GraphQL builder based on Schema
+    No hardcoded fields - all fields come from data and Schema mapping
+    """
+    # Don't pass settings - GraphQL schema doesn't support it
+    return build_mutation(DataType.TASK, Operation.ADD, tasks)
 
 
 def gen_remove_agent_tasks_string(removeOrders):
-    query_string = """
-        mutation MyRMMutation {
-      removeAgentTasks (input:[
     """
-    rec_string = ""
-    for i in range(len(removeOrders)):
-        rec_string = rec_string + "{ oid:" + str(removeOrders[i]["id"]) + ", "
-        rec_string = rec_string + "owner:\"" + removeOrders[i]["owner"] + "\", "
-        rec_string = rec_string + "reason:\"" + removeOrders[i]["reason"] + "\"} "
-
-        if i != len(removeOrders) - 1:
-            rec_string = rec_string + ', '
-        else:
-            rec_string = rec_string + ']'
-
-    tail_string = """
-    ) 
-    } """
-    query_string = query_string + rec_string + tail_string
-    logger.debug(query_string)
-    return query_string
+    Generate GraphQL mutation string for removing tasks
+    
+    Now uses generic GraphQL builder
+    """
+    return build_mutation(DataType.TASK, Operation.DELETE, removeOrders)
 
 
 
 def gen_update_agent_tasks_string(tasks):
-    query_string = """
-        mutation MyUMMutation {
-      updateAgentTasks (input:[
     """
-    rec_string = ""
-    for i in range(len(tasks)):
-        if isinstance(tasks[i], dict):
-            rec_string = rec_string + "{ ataskid:" + str(tasks[i]["ataskid"]) + ", "
-            rec_string = rec_string + "owner:\"" + tasks[i]["owner"] + "\", "
-            rec_string = rec_string + "name:" + str(tasks[i]["name"]) + ", "
-            rec_string = rec_string + "description:\"" + tasks[i]["description"] + "\", "
-            rec_string = rec_string + "objectives:\"" + tasks[i]["objectives"].replace('"', '\\"') + "\", "
-            rec_string = rec_string + "status:\"" + tasks[i]["status"] + "\", "
-            rec_string = rec_string + "schedule:" + tasks[i]["schedule"].replace('"', '\\"') + ", "
-            rec_string = rec_string + "metadata:\"" + tasks[i]["metadata"].replace('"', '\\"') + "\", "
-            rec_string = rec_string + "start:\"" + tasks[i]["start"] + "\", "
-            rec_string = rec_string + "priority:\"" + tasks[i]["priority"] + "\"} "
-        else:
-            rec_string = rec_string + "{ ataskid:" + str(tasks[i].getTaskId()) + ", "
-            rec_string = rec_string + "owner:" + str(tasks[i].getOwner()) + ", "
-            rec_string = rec_string + "name:\"" + tasks[i].getName() + "\", "
-            rec_string = rec_string + "description:" + str(tasks[i].getDescription()) + ", "
-            rec_string = rec_string + "objectives:\"" + tasks[i].getObjectives().replace('"', '\\"') + "\", "
-            rec_string = rec_string + "status:\"" + tasks[i].getStatus() + "\", "
-            rec_string = rec_string + "schedule:\"" + tasks[i].getSchedule().replace('"', '\\"') + "\", "
-            rec_string = rec_string + "metadata:\"" + tasks[i].getMetadata().replace('"', '\\"') + "\", "
-            rec_string = rec_string + "start:\"" + tasks[i].getStart() + "\", "
-            rec_string = rec_string + "priority:\"" + tasks[i].getPriority() + "\"} "
-
-        if i != len(tasks) - 1:
-            rec_string = rec_string + ', '
-        else:
-            rec_string = rec_string + ']'
-
-    tail_string = """
-    ) 
-    } """
-    query_string = query_string + rec_string + tail_string
-    logger.debug(query_string)
-    return query_string
+    Generate GraphQL mutation string for updating tasks
+    
+    Now uses generic GraphQL builder based on Schema
+    No hardcoded fields - all fields come from data and Schema mapping
+    """
+    return build_mutation(DataType.TASK, Operation.UPDATE, tasks)
 
 
 
@@ -559,126 +289,44 @@ def gen_query_agent_tasks_string(query):
 
 
 def gen_get_agent_tasks_string():
-    query_string = "query MyGetAgentTasksQuery { getAgentTasks (ids:'"
+    query_string = 'query MyGetAgentTasksQuery { getAgentTasks (ids:"'
     rec_string = "0"
 
-    tail_string = "') }"
+    tail_string = '") }'
     query_string = query_string + rec_string + tail_string
     logger.debug(query_string)
     return query_string
 
 
 def gen_add_agent_tools_string(tools, test_settings={}):
-    query_string = """
-        mutation MyAMMutation {
-      addAgentTools (input:[
     """
-    rec_string = ""
-    for i in range(len(tools)):
-        if isinstance(tools[i], dict):
-            rec_string = rec_string + "{ toolid:" + str(tools[i]["toolId"]) + ", "
-            rec_string = rec_string + "owner:\"" + tools[i]["owner"] + "\", "
-            rec_string = rec_string + "name:" + tools[i]["name"] + ", "
-            rec_string = rec_string + "description:\"" + tools[i]["description"] + "\", "
-            rec_string = rec_string + "link:\"" + tools[i]["link"] + "\", "
-            rec_string = rec_string + "protocol:\"" + tools[i]["protocol"] + "\", "
-            rec_string = rec_string + "status:\"" + tools[i]["status"] + "\", "
-            rec_string = rec_string + "metadata:\"" + tools[i]["metadata"].replace('"', '\\"') + "\", "
-            rec_string = rec_string + "price:\"" + str(tools[i]["price"]) + "\"} "
-        else:
-            rec_string = rec_string + "{ toolid:" + str(tools[i].getToolId()) + ", "
-            rec_string = rec_string + "owner:" + tools[i].getOwner() + ", "
-            rec_string = rec_string + "name:\"" + tools[i].getName() + "\", "
-            rec_string = rec_string + "description:" + tools[i].getDescription() + ", "
-            rec_string = rec_string + "link:\"" + tools[i].getLink() + "\", "
-            rec_string = rec_string + "protocol:\"" + tools[i].getProtocol() + "\", "
-            rec_string = rec_string + "status:\"" + tools[i].getStatus() + "\", "
-            rec_string = rec_string + "metadata:" + tools[i].getMetadata().replace('"', '\\"') + ", "
-            rec_string = rec_string + "price:\"" + str(tools[i].getConfig()) + "\"} "
-
-        if i != len(tools) - 1:
-            rec_string = rec_string + ', '
-        else:
-            rec_string = rec_string + ']'
-
-    if len(test_settings) == 0:
-        rec_string = rec_string + ", settings: \"{ \\\"testmode\\\": false}\""
-    else:
-        rec_string = rec_string + ", settings: \"{ \\\"testmode\\\": false}\""
-
-
-    tail_string = """
-    ) 
-    } """
-    query_string = query_string + rec_string + tail_string
-    logger.debug(query_string)
-    return query_string
+    Generate GraphQL mutation string for adding tools
+    
+    Now uses generic GraphQL builder based on Schema
+    No hardcoded fields - all fields come from data and Schema mapping
+    """
+    settings = test_settings if test_settings else {"testmode": False}
+    return build_mutation(DataType.TOOL, Operation.ADD, tools, settings)
 
 
 def gen_remove_agent_tools_string(removeOrders):
-    query_string = """
-        mutation MyRMMutation {
-      removeAgentTools (input:[
     """
-    rec_string = ""
-    for i in range(len(removeOrders)):
-        rec_string = rec_string + "{ oid:" + str(removeOrders[i]["id"]) + ", "
-        rec_string = rec_string + "owner:\"" + removeOrders[i]["owner"] + "\", "
-        rec_string = rec_string + "reason:\"" + removeOrders[i]["reason"] + "\"} "
-
-        if i != len(removeOrders) - 1:
-            rec_string = rec_string + ', '
-        else:
-            rec_string = rec_string + ']'
-
-    tail_string = """
-    ) 
-    } """
-    query_string = query_string + rec_string + tail_string
-    logger.debug(query_string)
-    return query_string
+    Generate GraphQL mutation string for removing tools
+    
+    Now uses generic GraphQL builder
+    """
+    return build_mutation(DataType.TOOL, Operation.DELETE, removeOrders)
 
 
 
 def gen_update_agent_tools_string(tools):
-    query_string = """
-        mutation MyUMMutation {
-      updateAgentTools (input:[
     """
-    rec_string = ""
-    for i in range(len(tools)):
-        if isinstance(tools[i], dict):
-            rec_string = rec_string + "{ toolid:" + str(tools[i]["toolId"]) + ", "
-            rec_string = rec_string + "owner:\"" + tools[i]["owner"] + "\", "
-            rec_string = rec_string + "name:" + tools[i]["name"] + ", "
-            rec_string = rec_string + "description:\"" + tools[i]["description"] + "\", "
-            rec_string = rec_string + "link:\"" + tools[i]["link"] + "\", "
-            rec_string = rec_string + "protocol:\"" + tools[i]["protocol"] + "\", "
-            rec_string = rec_string + "status:\"" + tools[i]["status"] + "\", "
-            rec_string = rec_string + "metadata:\"" + tools[i]["metadata"].replace('"', '\\"') + "\", "
-            rec_string = rec_string + "price:\"" + str(tools[i]["price"]) + "\"} "
-        else:
-            rec_string = rec_string + "{ toolid:" + str(tools[i].getToolId()) + ", "
-            rec_string = rec_string + "owner:" + tools[i].getOwner() + ", "
-            rec_string = rec_string + "name:\"" + tools[i].getName() + "\", "
-            rec_string = rec_string + "description:" + tools[i].getDescription() + ", "
-            rec_string = rec_string + "link:\"" + tools[i].getLink() + "\", "
-            rec_string = rec_string + "protocol:\"" + tools[i].getProtocol() + "\", "
-            rec_string = rec_string + "status:\"" + tools[i].getStatus() + "\", "
-            rec_string = rec_string + "metadata:" + tools[i].getMetadata().replace('"', '\\"') + ", "
-            rec_string = rec_string + "price:\"" + str(tools[i].getConfig()) + "\"} "
-
-        if i != len(tools) - 1:
-            rec_string = rec_string + ', '
-        else:
-            rec_string = rec_string + ']'
-
-    tail_string = """
-    ) 
-    } """
-    query_string = query_string + rec_string + tail_string
-    logger.debug(query_string)
-    return query_string
+    Generate GraphQL mutation string for updating tools
+    
+    ✅ Now uses generic GraphQL builder based on Schema
+    ✅ No hardcoded fields - all fields come from data and Schema mapping
+    """
+    return build_mutation(DataType.TOOL, Operation.UPDATE, tools)
 
 
 
@@ -686,7 +334,7 @@ def gen_query_agent_tools_by_time_string(query):
 
     query_string = """
         query MyQuery {
-      queryAgentTools (qm:[
+      queryAgentToolRelations (qm:[
     """
     rec_string = ""
     for i in range(len(query)):
@@ -716,7 +364,7 @@ def gen_query_agent_tools_by_time_string(query):
 def gen_query_agent_tools_string(query):
     query_string = """
         query MyQuery {
-      queryAgentTools (qt:[
+      queryAgentToolRelations (qt:[
     """
     rec_string = ""
     for i in range(len(query)):
@@ -736,10 +384,10 @@ def gen_query_agent_tools_string(query):
 
 
 def gen_get_agent_tools_string():
-    query_string = "query MyGetAgentToolsQuery { getAgentTools (ids:'"
+    query_string = 'query MyGetAgentToolsQuery { getAgentTools (ids:"'
     rec_string = "0"
 
-    tail_string = "') }"
+    tail_string = '") }'
     query_string = query_string + rec_string + tail_string
     logger.debug(query_string)
     return query_string
@@ -912,10 +560,10 @@ def gen_query_knowledges_string(query):
 
 
 def gen_get_knowledges_string():
-    query_string = "query MyGetKnowledgesQuery { getKnowledges (ids:'"
+    query_string = 'query MyGetKnowledgesQuery { getKnowledges (ids:"'
     rec_string = "0"
 
-    tail_string = "') }"
+    tail_string = '") }'
     query_string = query_string + rec_string + tail_string
     logger.debug(query_string)
     return query_string
@@ -1149,7 +797,10 @@ def send_update_agent_tasks_ex_status_to_cloud(session, tasksStats, token, endpo
         if "errors" in jresp:
             screen_error = True
             jresponse = jresp["errors"][0]
-            logger.error("ERROR Type: " + json.dumps(jresponse["errorType"]) + " ERROR Info: " + json.dumps(jresponse["message"]))
+            error_type = jresponse.get("errorType", "Unknown")
+            error_msg = jresponse.get("message", str(jresponse))
+            logger.error(f"ERROR Type: {error_type}, ERROR Info: {error_msg}")
+            logger.error(f"Full error response: {json.dumps(jresp, ensure_ascii=False)}")
         else:
             jresponse = json.loads(jresp["data"]["updateAgentTasksExStatus"])
     else:
@@ -1170,7 +821,10 @@ def send_completion_status_to_cloud(session, taskStats, token, endpoint, full=Tr
         if "errors" in jresp:
             screen_error = True
             jresponse = jresp["errors"][0]
-            logger.error("ERROR Type: " + json.dumps(jresponse["errorType"]) + " ERROR Info: " + json.dumps(jresponse["message"]))
+            error_type = jresponse.get("errorType", "Unknown")
+            error_msg = jresponse.get("message", str(jresponse))
+            logger.error(f"ERROR Type: {error_type}, ERROR Info: {error_msg}")
+            logger.error(f"Full error response: {json.dumps(jresp, ensure_ascii=False)}")
         else:
             jresponse = json.loads(jresp["data"]["reportTaskStatus"])
     else:
@@ -1180,76 +834,87 @@ def send_completion_status_to_cloud(session, taskStats, token, endpoint, full=Tr
 
 
 # =================================================================================================
-# interface appsync, directly use HTTP request.
-# Use AWS4Auth to sign a requests session
-def send_add_agents_request_to_cloud(session, agents, token, endpoint):
-
-    mutationInfo = gen_add_agents_string(agents)
-
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-
+# Helper function for safe JSON parsing
+def safe_parse_response(jresp, operation_name, data_key):
+    """
+    Safely parse AppSync response
+    
+    Args:
+        jresp: JSON response from AppSync
+        operation_name: Name of the operation (for error messages)
+        data_key: Key to extract from response data
+        
+    Returns:
+        Parsed response data
+        
+    Raises:
+        Exception: If response contains errors or returns null
+    """
     if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-
-        jresponse = jresp["errors"][0]
+        errors = jresp.get("errors", [])
+        error_message = errors[0].get("message", "Unknown error") if errors else "Unknown error"
+        logger.error(f"❌ GraphQL Error: {error_message}")
+        logger.error(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+        raise Exception(f"{operation_name} failed: {error_message}")
     else:
-        jresponse = json.loads(jresp["data"]["addAgents"])
+        # Check if data exists and is not None
+        data = jresp.get("data", {})
+        response_data = data.get(data_key) if data else None
+        if response_data is not None:
+            return json.loads(response_data)
+        else:
+            # Null response without errors - this is unexpected
+            error_msg = f"{operation_name} returned null"
+            logger.error(f"❌ ERROR: {error_msg}")
+            logger.error(f"📋 Full response: {json.dumps(jresp, ensure_ascii=False)}")
+            logger.error(f"💡 Possible causes:")
+            logger.error(f"   1. Backend resolver returned null (check Lambda/DynamoDB)")
+            logger.error(f"   2. Data validation failed silently on backend")
+            logger.error(f"   3. Resource already exists (for ADD) or not found (for UPDATE/DELETE)")
+            logger.error(f"   4. Permission denied (check IAM/Cognito)")
+            logger.error(f"   5. Backend timeout or internal error")
+            raise Exception(error_msg)
 
-    return jresponse
+# =================================================================================================
+# interface appsync, directly use HTTP request.
+# Use AWS4Auth to sign a requests session
+@cloud_api(DataType.AGENT, Operation.ADD)
+def send_add_agents_request_to_cloud(session, bots, token, endpoint):
+    mutationInfo = gen_add_agents_string(bots)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "addAgents", "addAgents")
+
 
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
+@cloud_api(DataType.AGENT, Operation.UPDATE)
 def send_update_agents_request_to_cloud(session, bots, token, endpoint):
 
     mutationInfo = gen_update_agents_string(bots)
-
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["updateAgents"])
-
-    return jresponse
+    return safe_parse_response(jresp, "updateAgents", "updateAgents")
 
 
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
+@cloud_api(DataType.AGENT, Operation.DELETE)
 def send_remove_agents_request_to_cloud(session, removes, token, endpoint):
 
     mutationInfo = gen_remove_agents_string(removes)
-
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["removeAgents"])
-    return jresponse
+    return safe_parse_response(jresp, "removeAgents", "removeAgents")
 
 
 
 
+@cloud_api(DataType.AGENT, Operation.QUERY)
 def send_query_agents_request_to_cloud(session, token, q_settings, endpoint):
 
     queryInfo = gen_query_agents_string(q_settings)
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["queryAgents"])
-        # print("jresponse", jresponse)
-
-    return jresponse
+    return safe_parse_response(jresp, "queryAgents", "queryAgents")
 
 
 # interface appsync, directly use HTTP request.
@@ -1286,74 +951,74 @@ def send_get_agents_request_to_cloud(session, token, endpoint):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_add_agent_skills_request_to_cloud(session, skills, token, endpoint):
-
-    mutationInfo = gen_add_agent_skills_string(skills)
-
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["addAgentSkills"])
-
-    return jresponse
+@cloud_api(DataType.AGENT_SKILL, Operation.ADD)
+def send_add_agent_skill_relations_request_to_cloud(session, relations, token, endpoint, timeout=180):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.AGENT_SKILL, Operation.ADD, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "addAgentSkillRelations", "addAgentSkillRelations")
 
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_update_agent_skills_request_to_cloud(session, bots, token, endpoint):
-
-    mutationInfo = gen_update_agent_skills_string(bots)
-
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["updateAgentSkills"])
-
-    return jresponse
+@cloud_api(DataType.AGENT_SKILL, Operation.UPDATE)
+def send_update_agent_skill_relations_request_to_cloud(session, relations, token, endpoint, timeout=180):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.AGENT_SKILL, Operation.UPDATE, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "updateAgentSkillRelations", "updateAgentSkillRelations")
 
 
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_remove_agent_skills_request_to_cloud(session, removes, token, endpoint):
-
-    mutationInfo = gen_remove_agent_skills_string(removes)
-
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["removeAgentSkills"])
-
-    return jresponse
+@cloud_api(DataType.AGENT_SKILL, Operation.DELETE)
+def send_remove_agent_skill_relations_request_to_cloud(session, removes, token, endpoint, timeout=180):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.AGENT_SKILL, Operation.DELETE, removes)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "removeAgentSkillRelations", "removeAgentSkillRelations")
 
 
-def send_query_agent_skills_request_to_cloud(session, token, q_settings, endpoint):
-
+@cloud_api(DataType.AGENT_SKILL, Operation.QUERY)
+def send_query_agent_skill_relations_request_to_cloud(session, token, q_settings, endpoint):
     queryInfo = gen_query_agent_skills_string(q_settings)
-
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["queryAgentSkills"])
+    return safe_parse_response(jresp, "queryAgentSkillRelations", "queryAgentSkillRelations")
 
 
-    return jresponse
+# ============================================================================
+# Skill Entity Operations
+# ============================================================================
+
+@cloud_api(DataType.SKILL, Operation.ADD)
+def send_add_skills_request_to_cloud(session, skills, token, endpoint, timeout=180):
+    """Add Skill entities (skill data: name, description, etc.)"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    from agent.cloud_api.constants import Operation
+    mutationInfo = build_mutation(DataType.SKILL, Operation.ADD, skills)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "addAgentSkills", "addAgentSkills")
+
+
+@cloud_api(DataType.SKILL, Operation.UPDATE)
+def send_update_skills_request_to_cloud(session, skills, token, endpoint):
+    """Update Skill entities (skill data: name, description, etc.)"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    from agent.cloud_api.constants import Operation
+    mutationInfo = build_mutation(DataType.SKILL, Operation.UPDATE, skills)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "updateAgentSkills", "updateAgentSkills")
+
+
+@cloud_api(DataType.SKILL, Operation.DELETE)
+def send_remove_skills_request_to_cloud(session, removes, token, endpoint):
+    """Remove Skill entities (skill data: name, description, etc.)"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    from agent.cloud_api.constants import Operation
+    mutationInfo = build_mutation(DataType.SKILL, Operation.DELETE, removes)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "removeAgentSkills", "removeAgentSkills")
 
 
 
@@ -1391,73 +1056,75 @@ def send_get_agent_skills_request_to_cloud(session, token, endpoint):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_add_agent_tasks_request_to_cloud(session, tasks, token, endpoint):
-
-    mutationInfo = gen_add_agent_tasks_string(tasks)
-
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR message: "+json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["addAgentTasks"])
-    return jresponse
+@cloud_api(DataType.AGENT_TASK, Operation.ADD)
+def send_add_agent_task_relations_request_to_cloud(session, relations, token, endpoint, timeout=180):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.AGENT_TASK, Operation.ADD, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "addAgentTaskRelations", "addAgentTaskRelations")
 
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_update_agent_tasks_request_to_cloud(session, tasks, token, endpoint):
-
-    mutationInfo = gen_update_agent_tasks_string(tasks)
-
+@cloud_api(DataType.AGENT_TASK, Operation.UPDATE)
+def send_update_agent_task_relations_request_to_cloud(session, relations, token, endpoint):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.AGENT_TASK, Operation.UPDATE, relations)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["updateAgentTasks"])
-    return jresponse
+    return safe_parse_response(jresp, "updateAgentTaskRelations", "updateAgentTaskRelations")
 
 
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_remove_agent_tasks_request_to_cloud(session, removes, token, endpoint):
-
-    mutationInfo = gen_remove_agent_tasks_string(removes)
-
+@cloud_api(DataType.AGENT_TASK, Operation.DELETE)
+def send_remove_agent_task_relations_request_to_cloud(session, removes, token, endpoint):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.AGENT_TASK, Operation.DELETE, removes)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR Type: "+json.dumps(jresp["errors"][0]["errorType"])+" ERROR Info: "+json.dumps(jresp["errors"][0]["message"]) )
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["removeAgentTasks"])
-
-    return jresponse
+    return safe_parse_response(jresp, "removeAgentTaskRelations", "removeAgentTaskRelations")
 
 
 
-def send_query_agent_tasks_request_to_cloud(session, token, q_settings, endpoint):
-
+@cloud_api(DataType.AGENT_TASK, Operation.QUERY)
+def send_query_agent_task_relations_request_to_cloud(session, token, q_settings, endpoint):
     queryInfo = gen_query_agent_tasks_string(q_settings)
-
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["queryAgentTasks"])
+    return safe_parse_response(jresp, "queryAgentTaskRelations", "queryAgentTaskRelations")
 
 
-    return jresponse
+# ============================================================================
+# Task Entity Operations
+# ============================================================================
+
+@cloud_api(DataType.TASK, Operation.ADD)
+def send_add_tasks_request_to_cloud(session, tasks, token, endpoint, timeout=180):
+    """Add Task entities (task data: name, description, etc.)"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    from agent.cloud_api.constants import Operation
+    mutationInfo = build_mutation(DataType.TASK, Operation.ADD, tasks)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "addAgentTasks", "addAgentTasks")
+
+
+@cloud_api(DataType.TASK, Operation.UPDATE)
+def send_update_tasks_request_to_cloud(session, tasks, token, endpoint):
+    """Update Task entities (task data: name, description, etc.)"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    from agent.cloud_api.constants import Operation
+    mutationInfo = build_mutation(DataType.TASK, Operation.UPDATE, tasks)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "updateAgentTasks", "updateAgentTasks")
+
+
+@cloud_api(DataType.TASK, Operation.DELETE)
+def send_remove_tasks_request_to_cloud(session, removes, token, endpoint):
+    """Remove Task entities (task data: name, description, etc.)"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    from agent.cloud_api.constants import Operation
+    mutationInfo = build_mutation(DataType.TASK, Operation.DELETE, removes)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "removeAgentTasks", "removeAgentTasks")
 
 
 def send_query_agent_tasks_by_time_request_to_cloud(session, token, q_settings, endpoint):
@@ -1468,10 +1135,14 @@ def send_query_agent_tasks_by_time_request_to_cloud(session, token, q_settings, 
 
         if "errors" in jresp:
             screen_error = True
-            logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-            jresponse = jresp["errors"][0]
+            error = jresp["errors"][0] if jresp["errors"] else {}
+            error_type = error.get("errorType", "Unknown")
+            error_msg = error.get("message", str(error))
+            logger.error(f"ERROR Type: {error_type}, ERROR Info: {error_msg}")
+            logger.error(f"Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+            jresponse = error
         else:
-            jresponse = json.loads(jresp["data"]["queryAgentTasks"])
+            jresponse = json.loads(jresp["data"]["queryAgentTaskRelations"])
 
     except Exception as e:
         # Get the traceback information
@@ -1520,73 +1191,75 @@ def send_get_agent_tasks_request_to_cloud(session, token, endpoint):
 
 
 
-def send_add_agent_tools_request_to_cloud(session, tools, token, endpoint):
-
-    mutationInfo = gen_add_agent_tools_string(tools)
-
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR message: "+json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["addAgentTools"])
-    return jresponse
+@cloud_api(DataType.AGENT_TOOL, Operation.ADD)
+def send_add_agent_tool_relations_request_to_cloud(session, relations, token, endpoint, timeout=180):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.AGENT_TOOL, Operation.ADD, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "addAgentToolRelations", "addAgentToolRelations")
 
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_update_agent_tools_request_to_cloud(session, tools, token, endpoint):
-
-    mutationInfo = gen_update_agent_tools_string(tools)
-
+@cloud_api(DataType.AGENT_TOOL, Operation.UPDATE)
+def send_update_agent_tool_relations_request_to_cloud(session, relations, token, endpoint):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.AGENT_TOOL, Operation.UPDATE, relations)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["updateAgentTools"])
-    return jresponse
+    return safe_parse_response(jresp, "updateAgentToolRelations", "updateAgentToolRelations")
 
 
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_remove_agent_tools_request_to_cloud(session, removes, token, endpoint):
-
-    mutationInfo = gen_remove_agent_tools_string(removes)
-
+@cloud_api(DataType.AGENT_TOOL, Operation.DELETE)
+def send_remove_agent_tool_relations_request_to_cloud(session, removes, token, endpoint):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.AGENT_TOOL, Operation.DELETE, removes)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR Type: "+json.dumps(jresp["errors"][0]["errorType"])+" ERROR Info: "+json.dumps(jresp["errors"][0]["message"]) )
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["removeAgentTools"])
-
-    return jresponse
+    return safe_parse_response(jresp, "removeAgentToolRelations", "removeAgentToolRelations")
 
 
 
-def send_query_agent_tools_request_to_cloud(session, token, q_settings, endpoint):
-
+@cloud_api(DataType.AGENT_TOOL, Operation.QUERY)
+def send_query_agent_tool_relations_request_to_cloud(session, token, q_settings, endpoint):
     queryInfo = gen_query_agent_tools_string(q_settings)
-
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["queryAgentTools"])
+    return safe_parse_response(jresp, "queryAgentToolRelations", "queryAgentToolRelations")
 
 
-    return jresponse
+# ============================================================================
+# Tool Entity Operations
+# ============================================================================
+
+@cloud_api(DataType.TOOL, Operation.ADD)
+def send_add_tools_request_to_cloud(session, tools, token, endpoint, timeout=180):
+    """Add Tool entities (tool data: name, description, etc.)"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    from agent.cloud_api.constants import Operation
+    mutationInfo = build_mutation(DataType.TOOL, Operation.ADD, tools)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "addAgentTools", "addAgentTools")
+
+
+@cloud_api(DataType.TOOL, Operation.UPDATE)
+def send_update_tools_request_to_cloud(session, tools, token, endpoint):
+    """Update Tool entities (tool data: name, description, etc.)"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    from agent.cloud_api.constants import Operation
+    mutationInfo = build_mutation(DataType.TOOL, Operation.UPDATE, tools)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "updateAgentTools", "updateAgentTools")
+
+
+@cloud_api(DataType.TOOL, Operation.DELETE)
+def send_remove_tools_request_to_cloud(session, removes, token, endpoint):
+    """Remove Tool entities (tool data: name, description, etc.)"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    from agent.cloud_api.constants import Operation
+    mutationInfo = build_mutation(DataType.TOOL, Operation.DELETE, removes)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "removeAgentTools", "removeAgentTools")
 
 
 def send_query_agent_tools_by_time_request_to_cloud(session, token, q_settings, endpoint):
@@ -1597,10 +1270,14 @@ def send_query_agent_tools_by_time_request_to_cloud(session, token, q_settings, 
 
         if "errors" in jresp:
             screen_error = True
-            logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-            jresponse = jresp["errors"][0]
+            error = jresp["errors"][0] if jresp["errors"] else {}
+            error_type = error.get("errorType", "Unknown")
+            error_msg = error.get("message", str(error))
+            logger.error(f"ERROR Type: {error_type}, ERROR Info: {error_msg}")
+            logger.error(f"Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+            jresponse = error
         else:
-            jresponse = json.loads(jresp["data"]["queryAgentTools"])
+            jresponse = json.loads(jresp["data"]["queryAgentToolRelations"])
 
     except Exception as e:
         # Get the traceback information
@@ -1652,71 +1329,30 @@ def send_get_agent_tools_request_to_cloud(session, token, endpoint):
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
 def send_add_knowledges_request_to_cloud(session, tasks, token, endpoint):
-
     mutationInfo = gen_add_knowledges_string(tasks)
-
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR message: "+json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["addKnowledges"])
-
-    return jresponse
+    return safe_parse_response(jresp, "addKnowledges", "addKnowledges")
 
 
 def send_update_knowledges_request_to_cloud(session, vehicles, token, endpoint):
-
     mutationInfo = gen_update_knowledges_string(vehicles)
-
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["updateknowledges"])
-
-    return jresponse
+    return safe_parse_response(jresp, "updateknowledges", "updateknowledges")
 
 
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
 def send_remove_knowledges_request_to_cloud(session, removes, token, endpoint):
-
     mutationInfo = gen_remove_knowledges_string(removes)
-
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR Type: "+json.dumps(jresp["errors"][0]["errorType"])+" ERROR Info: "+json.dumps(jresp["errors"][0]["message"]) )
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["removeKnowledges"])
-
-    return jresponse
+    return safe_parse_response(jresp, "removeKnowledges", "removeKnowledges")
 
 
 def send_query_knowledges_request_to_cloud(session, token, q_settings, endpoint):
-
     queryInfo = gen_query_knowledges_string(q_settings)
-
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["queryKnowledges"])
-
-
-    return jresponse
+    return safe_parse_response(jresp, "queryKnowledges", "queryKnowledges")
 
 
 
@@ -1759,8 +1395,12 @@ def send_query_components_request_to_cloud(session, token, components, endpoint)
     logger.debug("send_query_components_request_to_cloud, response:", jresp)
     if "errors" in jresp:
         screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
+        error = jresp["errors"][0] if jresp["errors"] else {}
+        error_type = error.get("errorType", "Unknown")
+        error_msg = error.get("message", str(error))
+        logger.error(f"ERROR Type: {error_type}, ERROR Info: {error_msg}")
+        logger.error(f"Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+        jresponse = error
     else:
         jresponse = json.loads(jresp["data"]["queryComponents"])
 
@@ -1776,8 +1416,12 @@ def send_query_fom_request_to_cloud(session, token, fom_info, endpoint):
     logger.debug("send_query_fom_request_to_cloud, response:", jresp)
     if "errors" in jresp:
         screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
+        error = jresp["errors"][0] if jresp["errors"] else {}
+        error_type = error.get("errorType", "Unknown")
+        error_msg = error.get("message", str(error))
+        logger.error(f"ERROR Type: {error_type}, ERROR Info: {error_msg}")
+        logger.error(f"Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+        jresponse = error
     else:
         jresponse = json.loads(jresp["data"]["queryFOM"])
 
@@ -1793,8 +1437,12 @@ def send_rank_results_request_to_cloud(session, token, rank_data_inut, endpoint)
     logger.debug("send_query_rank_results_request_to_cloud, response:", jresp)
     if "errors" in jresp:
         screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
+        error = jresp["errors"][0] if jresp["errors"] else {}
+        error_type = error.get("errorType", "Unknown")
+        error_msg = error.get("message", str(error))
+        logger.error(f"ERROR Type: {error_type}, ERROR Info: {error_msg}")
+        logger.error(f"Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+        jresponse = error
     else:
         jresponse = json.loads(jresp["data"]["queryRankResults"])
 
@@ -1830,8 +1478,12 @@ def send_start_long_llm_task_to_cloud(session, token, rank_data_inut, endpoint):
     logger.debug("send_start_long_llm_task_to_cloud, response:", jresp)
     if "errors" in jresp:
         screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
+        error = jresp["errors"][0] if jresp["errors"] else {}
+        error_type = error.get("errorType", "Unknown")
+        error_msg = error.get("message", str(error))
+        logger.error(f"ERROR Type: {error_type}, ERROR Info: {error_msg}")
+        logger.error(f"Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+        jresponse = error
     else:
         jresponse = json.loads(jresp["data"]["startLongLLMTask"])
 

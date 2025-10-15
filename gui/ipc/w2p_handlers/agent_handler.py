@@ -8,6 +8,7 @@ from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create
 from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
 from agent.ec_org_ctrl import get_ec_org_ctrl
+from agent.cloud_api.constants import Operation
 
 
 def _normalize_id(value: Any) -> Optional[str]:
@@ -309,6 +310,22 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                     updated_agent_data = result.get('data', {})
                     updated_agents.append(updated_agent_data)
                     
+                    # Sync to cloud (async, auto-cached if failed)
+                    # Step 1: Sync Agent entity
+                    _trigger_cloud_sync(agent_data, Operation.UPDATE)
+                    
+                    # Step 2: Sync Agent-Skill relationships (if changed)
+                    if 'skills' in agent_data:
+                        _sync_agent_skill_relations(updated_agent_data, agent_data.get('skills', []), Operation.UPDATE)
+                    
+                    # Step 3: Sync Agent-Task relationships (if changed)
+                    if 'tasks' in agent_data:
+                        _sync_agent_task_relations(updated_agent_data, agent_data.get('tasks', []), Operation.UPDATE)
+                    
+                    # Step 4: Sync Agent-Tool relationships (if changed)
+                    if 'tools' in agent_data:
+                        _sync_agent_tool_relations(updated_agent_data, agent_data.get('tools', []), Operation.UPDATE)
+                    
                     # Update agent in memory (main_window.agents)
                     existing_agent = next((ag for ag in main_window.agents if ag.card.id == agent_id), None)
                     if existing_agent:
@@ -424,6 +441,22 @@ def handle_delete_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPC
                     # Delete from memory (main_window.agents)
                     main_window.agents = [ag for ag in main_window.agents if ag.card.id != agent_id]
                     deleted_count += 1
+                    
+                    # Sync deletion to cloud (fire and forget)
+                    delete_agent_data = {
+                        'id': agent_id,
+                        'agid': agent_id,
+                        'owner': username,
+                        'name': f"Agent_{agent_id}"  # Placeholder name for deletion
+                    }
+                    
+                    # Step 1: Sync Agent entity deletion
+                    _trigger_cloud_sync(delete_agent_data, Operation.DELETE)
+                    
+                    # Step 2: Delete all Agent-Skill relationships
+                    # Note: In practice, you might want to query existing relations first
+                    # For now, we assume cascade delete or manual cleanup
+                    logger.info(f"[agent_handler] Agent {agent_id} deleted, relationships will be cascade deleted or cleaned up")
                 else:
                     error_msg = result.get('error', 'Unknown error')
                     logger.error(f"[agent_handler] Failed to delete agent {agent_id}: {error_msg}")
@@ -508,6 +541,19 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
             return create_error_response(request, 'CREATE_AGENT_ERROR', error_msg)
         
         created_agent = result.get('data')
+
+        # Sync to cloud (async, auto-cached if failed)
+        # Step 1: Sync Agent entity
+        _trigger_cloud_sync(created_agent, Operation.ADD)
+        
+        # Step 2: Sync Agent-Skill relationships
+        _sync_agent_skill_relations(created_agent, agent_data.get('skills', []), Operation.ADD)
+        
+        # Step 3: Sync Agent-Task relationships
+        _sync_agent_task_relations(created_agent, agent_data.get('tasks', []), Operation.ADD)
+        
+        # Step 4: Sync Agent-Tool relationships
+        _sync_agent_tool_relations(created_agent, agent_data.get('tools', []), Operation.ADD)
 
         # Convert created agent to EC_Agent object and add to main_window.agents
         # Use common converter function for consistency
@@ -631,3 +677,149 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
         logger.error(f"[agent_handler] Error in get_all_org_agents: {e}")
         logger.error(traceback.format_exc())
         return create_error_response(request, 'GET_ALL_ORG_AGENTS_ERROR', str(e))
+
+
+# ============================================================================
+# Cloud Synchronization Functions
+# ============================================================================
+
+def _trigger_cloud_sync(agent_data: Dict[str, Any], operation: 'Operation') -> None:
+    """Trigger cloud synchronization (async, non-blocking)
+    
+    Async background execution, doesn't block UI operations, ensures eventual consistency.
+    
+    Args:
+        agent_data: Agent data to sync
+        operation: Operation type (Operation enum)
+    """
+    from agent.cloud_api.offline_sync_manager import get_sync_manager
+    from agent.cloud_api.constants import DataType
+    
+    def _log_result(result: Dict[str, Any]):
+        """Log sync result"""
+        if result.get('synced'):
+            logger.info(f"[agent_handler] ✅ Agent synced to cloud: {operation} - {agent_data.get('name')}")
+        elif result.get('cached'):
+            logger.info(f"[agent_handler] 💾 Agent cached for later sync: {operation} - {agent_data.get('name')}")
+        elif not result.get('success'):
+            logger.error(f"[agent_handler] ❌ Failed to sync agent: {result.get('error')}")
+    
+    # Use SyncManager's thread pool for async execution
+    manager = get_sync_manager()
+    manager.sync_to_cloud_async(DataType.AGENT, agent_data, operation, callback=_log_result)
+
+
+def _sync_agent_skill_relations(agent_data: Dict[str, Any], skill_ids: list, operation: 'Operation') -> None:
+    """Sync Agent-Skill relationships to cloud (async, non-blocking)
+    
+    Args:
+        agent_data: Agent data (must contain 'agid' and 'owner')
+        skill_ids: List of skill IDs
+        operation: Operation type (ADD/UPDATE/DELETE)
+    """
+    if not skill_ids:
+        return
+    
+    from agent.cloud_api.offline_sync_manager import get_sync_manager
+    from agent.cloud_api.constants import DataType
+    
+    manager = get_sync_manager()
+    agent_id = agent_data.get('agid') or agent_data.get('id')
+    owner = agent_data.get('owner', 'unknown')
+    
+    logger.info(f"[agent_handler] Syncing {len(skill_ids)} skill relationships for agent: {agent_id}")
+    
+    for skill_id in skill_ids:
+        skill_relation_data = {
+            'agid': agent_id,
+            'skid': skill_id,
+            'owner': owner
+        }
+        
+        def _log_result(result: Dict[str, Any]):
+            if result.get('synced'):
+                logger.info(f"[agent_handler] ✅ Skill relation synced: {skill_id}")
+            elif result.get('cached'):
+                logger.info(f"[agent_handler] 💾 Skill relation cached: {skill_id}")
+            elif not result.get('success'):
+                logger.error(f"[agent_handler] ❌ Failed to sync skill relation: {result.get('error')}")
+        
+        manager.sync_to_cloud_async(DataType.AGENT_SKILL, skill_relation_data, operation, callback=_log_result)
+
+
+def _sync_agent_task_relations(agent_data: Dict[str, Any], task_ids: list, operation: 'Operation') -> None:
+    """Sync Agent-Task relationships to cloud (async, non-blocking)
+    
+    Args:
+        agent_data: Agent data (must contain 'agid' and 'owner')
+        task_ids: List of task IDs
+        operation: Operation type (ADD/UPDATE/DELETE)
+    """
+    if not task_ids:
+        return
+    
+    from agent.cloud_api.offline_sync_manager import get_sync_manager
+    from agent.cloud_api.constants import DataType
+    
+    manager = get_sync_manager()
+    agent_id = agent_data.get('agid') or agent_data.get('id')
+    owner = agent_data.get('owner', 'unknown')
+    
+    logger.info(f"[agent_handler] Syncing {len(task_ids)} task relationships for agent: {agent_id}")
+    
+    for task_id in task_ids:
+        task_relation_data = {
+            'agid': agent_id,
+            'task_id': task_id,
+            'owner': owner,
+            'status': 'assigned'  # Default status
+        }
+        
+        def _log_result(result: Dict[str, Any]):
+            if result.get('synced'):
+                logger.info(f"[agent_handler] ✅ Task relation synced: {task_id}")
+            elif result.get('cached'):
+                logger.info(f"[agent_handler] 💾 Task relation cached: {task_id}")
+            elif not result.get('success'):
+                logger.error(f"[agent_handler] ❌ Failed to sync task relation: {result.get('error')}")
+        
+        manager.sync_to_cloud_async(DataType.AGENT_TASK, task_relation_data, operation, callback=_log_result)
+
+
+def _sync_agent_tool_relations(agent_data: Dict[str, Any], tool_ids: list, operation: 'Operation') -> None:
+    """Sync Agent-Tool relationships to cloud (async, non-blocking)
+    
+    Args:
+        agent_data: Agent data (must contain 'agid' and 'owner')
+        tool_ids: List of tool IDs
+        operation: Operation type (ADD/UPDATE/DELETE)
+    """
+    if not tool_ids:
+        return
+    
+    from agent.cloud_api.offline_sync_manager import get_sync_manager
+    from agent.cloud_api.constants import DataType
+    
+    manager = get_sync_manager()
+    agent_id = agent_data.get('agid') or agent_data.get('id')
+    owner = agent_data.get('owner', 'unknown')
+    
+    logger.info(f"[agent_handler] Syncing {len(tool_ids)} tool relationships for agent: {agent_id}")
+    
+    for tool_id in tool_ids:
+        tool_relation_data = {
+            'agid': agent_id,
+            'tool_id': tool_id,
+            'owner': owner,
+            'permission': 'use'  # Default permission
+        }
+        
+        def _log_result(result: Dict[str, Any]):
+            if result.get('synced'):
+                logger.info(f"[agent_handler] ✅ Tool relation synced: {tool_id}")
+            elif result.get('cached'):
+                logger.info(f"[agent_handler] 💾 Tool relation cached: {tool_id}")
+            elif not result.get('success'):
+                logger.error(f"[agent_handler] ❌ Failed to sync tool relation: {result.get('error')}")
+        
+        manager.sync_to_cloud_async(DataType.AGENT_TOOL, tool_relation_data, operation, callback=_log_result)

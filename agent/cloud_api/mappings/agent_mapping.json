@@ -1,0 +1,68 @@
+{
+  "data_type": "agent",
+  "version": "2.0.0",
+  "description": "Agent field mapping configuration - Unified naming",
+  "last_updated": "2025-10-14",
+  
+  "field_mapping": {
+    "id": "agid"
+  },
+  
+  "cloud_required_fields": {
+    "agid": "",
+    "status": "active"
+  },
+  
+  "default_values": {
+    "personalities": [],
+    "extra_data": {},
+    "capabilities": {}
+  },
+  
+  "excluded_fields": [
+    "skills",
+    "tasks",
+    "tools"
+  ],
+  
+  "json_serialize_fields": [
+    "personalities",
+    "extra_data",
+    "capabilities"
+  ],
+  
+  "aws_date_fields": [
+    "birthday"
+  ],
+  
+  "aws_datetime_fields": [
+    "created_at",
+    "updated_at"
+  ],
+  
+  "notes": [
+    "✨ v2.0.0 - Unified field naming:",
+    "",
+    "Field naming principles:",
+    "1. Single value → singular (org_id, supervisor_id, not org_ids, supervisors)",
+    "2. Multiple values → plural (personalities, skills, not personality_traits, skill_set)",
+    "3. Concise naming (personalities, not personality_traits)",
+    "",
+    "3-layer architecture:",
+    "Layer 1: Object = DTO (unified field names, no conversion)",
+    "Layer 2: DTO → Cloud (Schema): id → agid, JSON serialize, exclude fields",
+    "Layer 3: Cloud → GraphQL: Build mutation string",
+    "",
+    "Schema responsibilities:",
+    "1. Field name mapping: id → agid (only different field)",
+    "2. Field exclusion:",
+    "   - ext: Local-only field (not sent to cloud)",
+    "   - skills, tasks, tools: Relationship fields (managed separately via AgentSkill, AgentTask, AgentTool)",
+    "3. JSON serialization: personalities, extra_data, capabilities",
+    "4. Default values: status = 'active'",
+    "5. AWS type handling:",
+    "   - AWSDate: birthday (YYYY-MM-DD)",
+    "   - AWSDateTime: created_at, updated_at (ISO 8601)",
+    "   - AWSJSON: personalities, extra_data, capabilities (JSON string)"
+  ]
+}

@@ -71,17 +71,15 @@ class EC_Agent(Agent):
 	@time_execution_sync('--init (agent)')
 	def __init__(
 		self,
-		mainwin,
+		mainwin,  # Add mainwin parameter
 		skill_llm,
 		tasks: Optional[List[ManagedTask]] = None,
 		# Optional parameters
-		skill_set: Optional[List[EC_Skill]] = None,
+		skills: Optional[List[EC_Skill]] = None,
 		card: AgentCard | None = None,
-		supervisors: Optional[List[str]] = None,
-		subordinates: Optional[List[str]] = None,
-		peers: Optional[List[str]] = None,
+		supervisor_id: Optional[str] = None,
 		rank: Optional[str] = None,
-		org_ids: Optional[List[str]] = None,
+		org_id: Optional[str] = None,
 		title: Optional[str] = None,
 		gender: Optional[str] = None,
 		birthday: Optional[str] = None,
@@ -95,22 +93,24 @@ class EC_Agent(Agent):
 		self.skill_llm = skill_llm
 		self.active_tasks: Dict[str, concurrent.futures.Future] = {}
 		self.task_lock = threading.Lock()
-		self.skill_set = skill_set
+		self.skills = skills if skills is not None else []  # Use skills (unified naming)
 		self._stop_event = asyncio.Event()
-		self.supervisors = supervisors if supervisors is not None else []
-		self.subordinates = subordinates if subordinates is not None else []
-		self.peers = peers if peers is not None else []
+		
+		# Agent properties
+		self.supervisor_id = supervisor_id
 		self.rank = rank if rank is not None else ""
-		self.org_ids = org_ids if org_ids is not None else []
+		# Note: subordinates can be queried via supervisor_id reverse lookup
+		# Note: peers relationship not yet implemented
+		self.org_id = org_id
 		self.title = title if title is not None else ""
 		self.gender = gender if gender is not None else "m"
 		self.birthday = birthday if birthday is not None else "2000-01-01"
-		self.personalities = personalities if personalities is not None else []
+		self.personalities = personalities if personalities is not None else []  # Use personalities (unified naming)
 		self.vehicle = vehicle if vehicle is not None else ""
 		self.status = "active"
 		self.images = [{"image_name":"", "image_source":"","text":""}]
 
-		# 在打包环境中安全初始化embeddings
+		# Safely initialize embeddings in packaged environment
 		try:
 			self.embeddings = init_embeddings("openai:text-embedding-3-small")
 			self.store = InMemoryStore(
@@ -185,16 +185,16 @@ class EC_Agent(Agent):
 
 
 	def to_dict(self):
-		"""Convert agent to dict with camelCase keys for frontend"""
+		"""Convert agent to dict for frontend"""
 		agentJS = {
 			"card": self.card_to_dict(self.card),
-			"supervisors": self.supervisors,
-			"subordinates": self.subordinates,
-			"peers": self.peers,
+			"supervisor_id": self.supervisor_id,
 			"rank": self.rank,
-			"orgIds": self.org_ids,  # Convert to camelCase for API/JSON
+			"org_id": self.org_id,
 			"title": self.title,
-			"personalities": self.personalities
+			"personalities": self.personalities  # Concise naming
+			# Note: subordinates can be queried via supervisor_id reverse lookup
+			# Note: peers relationship not yet implemented
 		}
 		return agentJS
 	
@@ -223,8 +223,8 @@ class EC_Agent(Agent):
 			'title': card.get('title', ''),
 			'rank': agent_dict.get('rank'),
 			'birthday': card.get('birthday'),
-			'supervisor_id': agent_dict.get('supervisors', [None])[0] if agent_dict.get('supervisors') else None,
-			'personality_traits': card.get('personalities', []),
+			'supervisor_id': agent_dict.get('supervisor_id'),
+			'personalities': agent_dict.get('personalities', []),  # Concise naming
 			'capabilities': card.get('capabilities'),
 			'status': card.get('status', 'active'),
 			'version': card.get('version'),
@@ -233,7 +233,7 @@ class EC_Agent(Agent):
 			'created_at': card.get('created_at'),
 			'updated_at': card.get('updated_at'),
 			'ext': card.get('ext'),
-			'org_id': agent_dict.get('orgIds', [None])[0] if agent_dict.get('orgIds') else None,
+			'org_id': agent_dict.get('org_id'),
 		}
 		return flat_agent
 
@@ -280,14 +280,14 @@ class EC_Agent(Agent):
 			return None
 
 	def add_skills(self, skills):
-		self.skill_set += skills  # or: self.skill_set.extend(skills)
+		self.skills += skills  # or: self.skills.extend(skills)
 
 	def remove_skills(self, skills):
-		self.skill_set = [s for s in self.skill_set if s not in skills]
+		self.skills = [s for s in self.skills if s not in skills]
 
 	def update_skills(self, skills):
 		skill_ids = {s.id for s in skills}
-		self.skill_set = [s for s in self.skill_set if s.id not in skill_ids] + skills
+		self.skills = [s for s in self.skills if s.id not in skill_ids] + skills
 
 	def set_skill_llm(self, llm):
 		self.skill_llm = llm
@@ -365,7 +365,7 @@ class EC_Agent(Agent):
 				logger.error(f"Task {task.name} is missing a 'run_id' and cannot be tracked.")
 
 
-		# runnable = self.skill_set[0].get_runnable()
+		# runnable = self.skills[0].get_runnable()
 		# response: dict[str, Any] = await self.runnable.ainvoke(input_messages)
 		# runnable.ainvoke()
 		logger.info("Ready to A2A chat....", self.card.name)

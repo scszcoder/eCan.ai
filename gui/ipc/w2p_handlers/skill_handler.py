@@ -1,11 +1,13 @@
 import traceback
+import asyncio
+import requests
 from typing import TYPE_CHECKING, Any, Optional, Dict, Tuple
 from app_context import AppContext
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
-from gui.LoginoutGUI import Login
 from utils.logger_helper import logger_helper as logger
+from agent.cloud_api.constants import Operation
 
 # --- Simple in-memory simulation state for step-sim debug ---
 _SIM_BUNDLE: Optional[Dict[str, Any]] = None
@@ -151,6 +153,21 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             # Update memory
             _update_skill_in_memory(actual_skill_id, skill_data)
 
+            # Sync to cloud (fire and forget)
+            skill_data_with_id = skill_data.copy()
+            skill_data_with_id['id'] = actual_skill_id
+            
+            # Step 1: Sync Agent-Skill relationship
+            _trigger_cloud_sync(skill_data_with_id, Operation.UPDATE)
+            
+            # Step 2: Sync Skill-Tool relationships (if changed)
+            if 'tools' in skill_data:
+                _sync_skill_tool_relations(actual_skill_id, skill_data.get('tools', []), Operation.UPDATE)
+            
+            # Step 3: Sync Skill-Knowledge relationships (if changed)
+            if 'knowledges' in skill_data:
+                _sync_skill_knowledge_relations(actual_skill_id, skill_data.get('knowledges', []), Operation.UPDATE)
+
             # Create clean response
             clean_skill_data = _create_clean_skill_response(actual_skill_id, skill_data)
 
@@ -228,6 +245,21 @@ def handle_new_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]
             # Update memory
             _update_skill_in_memory(skill_id, skill_data)
 
+            # Sync to cloud (fire and forget)
+            skill_data_with_id = skill_data.copy()
+            skill_data_with_id['id'] = skill_id
+            
+            # Step 1: Sync Agent-Skill relationship
+            _trigger_cloud_sync(skill_data_with_id, Operation.ADD)
+            
+            # Step 2: Sync Skill-Tool relationships
+            if 'tools' in skill_data:
+                _sync_skill_tool_relations(skill_id, skill_data.get('tools', []), Operation.ADD)
+            
+            # Step 3: Sync Skill-Knowledge relationships
+            if 'knowledges' in skill_data:
+                _sync_skill_knowledge_relations(skill_id, skill_data.get('knowledges', []), Operation.ADD)
+
             # Create clean response
             clean_skill_data = _create_clean_skill_response(skill_id, skill_data)
 
@@ -302,6 +334,14 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
                     logger.info(f"[skill_handler] Removed skill from memory: {skill_id} (count: {original_count} → {new_count})")
             except Exception as e:
                 logger.warning(f"[skill_handler] Failed to remove skill from memory: {e}")
+
+            # Sync deletion to cloud (fire and forget)
+            delete_skill_data = {
+                'id': skill_id,
+                'owner': username,
+                'name': f"Skill_{skill_id}"  # Placeholder name for deletion
+            }
+            _trigger_cloud_sync(delete_skill_data, Operation.DELETE)
 
             return create_success_response(request, {
                 'message': 'Delete agent skill successful',
@@ -442,16 +482,136 @@ def _create_clean_skill_response(skill_id: str, skill_data: Dict[str, Any]) -> D
         skill_data: Skill data dictionary
 
     Returns:
-        Dict containing clean skill data
+        Dict containing clean skill data (serializable, no circular refs)
     """
-    return {
+    # Only return primitive types and simple structures
+    clean_data = {
         'id': skill_id,
-        'name': skill_data['name'],
-        'owner': skill_data['owner'],
-        'description': skill_data['description'],
-        'version': skill_data['version'],
-        'level': skill_data['level'],
-        'public': skill_data.get('public', False),
-        'rentable': skill_data.get('rentable', False),
-        'price': skill_data.get('price', 0)
+        'name': str(skill_data.get('name', '')),
+        'owner': str(skill_data.get('owner', '')),
+        'description': str(skill_data.get('description', '')),
+        'version': str(skill_data.get('version', '0.0.0')),
+        'level': str(skill_data.get('level', 'entry')),
+        'public': bool(skill_data.get('public', False)),
+        'rentable': bool(skill_data.get('rentable', False)),
+        'price': int(skill_data.get('price', 0))
     }
+    
+    # Add optional fields if they exist and are simple types
+    if 'path' in skill_data:
+        clean_data['path'] = str(skill_data['path'])
+    if 'status' in skill_data:
+        clean_data['status'] = str(skill_data['status'])
+    
+    return clean_data
+
+
+# ============================================================================
+# Cloud Synchronization Functions
+# ============================================================================
+
+
+def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> None:
+    """Trigger cloud synchronization (async, non-blocking)
+    
+    Async background execution, doesn't block UI operations, ensures eventual consistency.
+    
+    Args:
+        skill_data: Skill data to sync
+        operation: Operation type (Operation enum)
+    """
+    from agent.cloud_api.offline_sync_manager import get_sync_manager
+    from agent.cloud_api.constants import DataType
+    
+    def _log_result(result: Dict[str, Any]):
+        """Log sync result"""
+        if result.get('synced'):
+            logger.info(f"[skill_handler] ✅ Skill synced to cloud: {operation} - {skill_data.get('name')}")
+        elif result.get('cached'):
+            logger.info(f"[skill_handler] 💾 Skill cached for later sync: {operation} - {skill_data.get('name')}")
+        elif not result.get('success'):
+            logger.error(f"[skill_handler] ❌ Failed to sync skill: {result.get('error')}")
+    
+    # Use SyncManager's thread pool for async execution
+    # Note: Use SKILL for Skill entity data (name, description, etc.)
+    #       Use AGENT_SKILL for Agent-Skill relationship data (agid, skid, owner)
+    manager = get_sync_manager()
+    manager.sync_to_cloud_async(DataType.SKILL, skill_data, operation, callback=_log_result)
+
+
+def _sync_skill_tool_relations(skill_id: str, tool_ids: list, operation: 'Operation') -> None:
+    """Sync Skill-Tool relationships to cloud (async, non-blocking)
+    
+    Args:
+        skill_id: Skill ID
+        tool_ids: List of tool IDs
+        operation: Operation type (ADD/UPDATE/DELETE)
+    """
+    if not tool_ids:
+        return
+    
+    from agent.cloud_api.offline_sync_manager import get_sync_manager
+    from agent.cloud_api.constants import DataType
+    from app_context import AppContext
+    
+    manager = get_sync_manager()
+    main_window = AppContext.get_main_window()
+    owner = main_window.current_user if main_window else 'unknown'
+    
+    logger.info(f"[skill_handler] Syncing {len(tool_ids)} tool relationships for skill: {skill_id}")
+    
+    for tool_id in tool_ids:
+        relation_data = {
+            'skill_id': skill_id,
+            'tool_id': tool_id,
+            'owner': owner
+        }
+        
+        def _log_result(result: Dict[str, Any]):
+            if result.get('synced'):
+                logger.info(f"[skill_handler] ✅ Tool relation synced: {tool_id}")
+            elif result.get('cached'):
+                logger.info(f"[skill_handler] 💾 Tool relation cached: {tool_id}")
+            elif not result.get('success'):
+                logger.error(f"[skill_handler] ❌ Failed to sync tool relation: {result.get('error')}")
+        
+        manager.sync_to_cloud_async(DataType.SKILL_TOOL, relation_data, operation, callback=_log_result)
+
+
+def _sync_skill_knowledge_relations(skill_id: str, knowledge_ids: list, operation: 'Operation') -> None:
+    """Sync Skill-Knowledge relationships to cloud (async, non-blocking)
+    
+    Args:
+        skill_id: Skill ID
+        knowledge_ids: List of knowledge IDs
+        operation: Operation type (ADD/UPDATE/DELETE)
+    """
+    if not knowledge_ids:
+        return
+    
+    from agent.cloud_api.offline_sync_manager import get_sync_manager
+    from agent.cloud_api.constants import DataType
+    from app_context import AppContext
+    
+    manager = get_sync_manager()
+    main_window = AppContext.get_main_window()
+    owner = main_window.current_user if main_window else 'unknown'
+    
+    logger.info(f"[skill_handler] Syncing {len(knowledge_ids)} knowledge relationships for skill: {skill_id}")
+    
+    for knowledge_id in knowledge_ids:
+        relation_data = {
+            'skill_id': skill_id,
+            'knowledge_id': knowledge_id,
+            'owner': owner
+        }
+        
+        def _log_result(result: Dict[str, Any]):
+            if result.get('synced'):
+                logger.info(f"[skill_handler] ✅ Knowledge relation synced: {knowledge_id}")
+            elif result.get('cached'):
+                logger.info(f"[skill_handler] 💾 Knowledge relation cached: {knowledge_id}")
+            elif not result.get('success'):
+                logger.error(f"[skill_handler] ❌ Failed to sync knowledge relation: {result.get('error')}")
+        
+        manager.sync_to_cloud_async(DataType.SKILL_KNOWLEDGE, relation_data, operation, callback=_log_result)

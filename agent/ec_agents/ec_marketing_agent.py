@@ -43,7 +43,7 @@ def set_up_ec_marketing_agent(mainwin):
         chatter_task = create_ec_marketing_chat_task(mainwin)
         worker_task = create_ec_marketing_work_task(mainwin)
         browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
-        marketer = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
+        marketer = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
 
     except Exception as e:
         # Get the traceback information

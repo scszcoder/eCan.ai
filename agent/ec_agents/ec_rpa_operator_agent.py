@@ -65,7 +65,7 @@ def set_up_ec_rpa_operator_agent(mainwin):
         # 过滤掉 None 值的任务列表
         valid_tasks = [task for task in [worker_task, chatter_task] if task is not None]
 
-        operator = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=valid_skills, tasks=valid_tasks)
+        operator = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=valid_skills, tasks=valid_tasks)
 
     except Exception as e:
         # Get the traceback information

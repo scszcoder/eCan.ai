@@ -56,9 +56,8 @@ def convert_agent_dict_to_ec_agent(
             skills=[]  # DB agents don't have skills initially
         )
         
-        # Get org_id and convert to list
+        # Get org_id (single value)
         org_id = agent_data.get('org_id')
-        org_ids = [org_id] if org_id else []
         
         # Parse extra_data if it's a JSON string
         extra_data = agent_data.get('extra_data', {})
@@ -85,21 +84,19 @@ def convert_agent_dict_to_ec_agent(
             llm=browser_use_llm or main_window.llm,
             task="",  # Required by parent Agent class
             tasks=[],
-            skill_set=[],
+            skills=[],  # skill_set → skills (unified naming)
             card=card,
-            supervisors=[agent_data.get('supervisor_id')] if agent_data.get('supervisor_id') else [],
-            subordinates=[],
-            peers=[],
+            supervisor_id=agent_data.get('supervisor_id'),
             rank=agent_data.get('rank', 'member'),
-            org_ids=org_ids,
+            org_id=org_id,
             title=agent_data.get('title', ''),
             gender=agent_data.get('gender', 'male'),
             birthday=agent_data.get('birthday'),
-            personalities=agent_data.get('personality_traits', []),
+            personalities=agent_data.get('personalities', []),  # Concise naming
             vehicle=extra_data.get('default_vehicle_id')
         )
         
-        logger.debug(f"[AgentConverter] ✅ Converted agent: {agent_data.get('name')}, org_ids: {ec_agent.org_ids}")
+        logger.debug(f"[AgentConverter] ✅ Converted agent: {agent_data.get('name')}, org_id: {ec_agent.org_id}")
         return ec_agent
         
     except Exception as e:
