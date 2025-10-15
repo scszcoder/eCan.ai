@@ -311,7 +311,33 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
 
     const goToEditor = () => {
         if (!skill) return;
-        navigate('/skill_editor', { state: { skillId: (skill as any).id } });
+        
+        console.log('[SkillDetails] goToEditor called:', {
+            hasSkill: !!skill,
+            filePath: form.getFieldValue('path') || (skill as any).path,
+            skillId: (skill as any).id
+        });
+        
+        // Get the file path from form or skill object
+        const filePath = form.getFieldValue('path') || (skill as any).path;
+        
+        if (!filePath) {
+            message.warning(t('pages.skills.noPathWarning', '该技能没有关联的文件路径'));
+            return;
+        }
+        
+        console.log('[SkillDetails] Navigating to skill_editor with state:', {
+            filePath,
+            skillId: (skill as any).id
+        });
+        
+        // Navigate to skill editor with file path
+        navigate('/skill_editor', { 
+            state: { 
+                filePath: filePath,
+                skillId: (skill as any).id 
+            } 
+        });
     };
 
     const handleDelete = () => {

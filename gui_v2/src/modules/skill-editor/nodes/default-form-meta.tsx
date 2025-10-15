@@ -155,8 +155,9 @@ export const defaultFormMeta: FormMeta<FlowNodeJSON> = {
     title: syncVariableTitle,
     outputs: provideJsonSchemaOutputs,
     inputsValues: [...autoRenameRefEffect, ...validateWhenVariableSync({ scope: 'public' })],
-    'inputsValues.*': listenRefSchemaChange((params) => {
-      console.log(`[${params.context.node.id}][${params.name}] Schema Of Ref Updated`);
+    'inputsValues.*': listenRefSchemaChange((_params) => {
+      // Debug: Schema reference updated (disabled in production)
+      // console.log(`[${_params.context.node.id}][${_params.name}] Schema Of Ref Updated`);
     }),
   },
 };
