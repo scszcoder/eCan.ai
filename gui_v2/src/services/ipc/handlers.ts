@@ -3,6 +3,9 @@
  * 实现了与 Python 后端通信的请求处理器
  */
 import { IPCRequest } from './types';
+import { useNodeStatusStore } from '@/modules/skill-editor/stores/node-status-store';
+import { useSheetsStore } from '@/modules/skill-editor/stores/sheets-store';
+import { useSkillInfoStore } from '@/modules/skill-editor/stores/skill-info-store';
 import { useAppDataStore } from '../../stores/appDataStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -231,17 +234,204 @@ export class IPCHandlers {
 
 
     async updateSkillRunStat(request: IPCRequest): Promise<{ success: boolean }> {
-        // logger.info('Received updateSkillRunStat request:', request.params);
-        const { current_node, status, nodeState } = request.params as { current_node?: string, status?: string, nodeState?: any };
+        const { agentTaskId, current_node, status, nodeState, timestamp } = request.params as { agentTaskId?: string, current_node?: string, status?: string, nodeState?: any, timestamp?: number };
+
+        // Log every update received from backend
+        console.log(`[RunningNode][IPC] Received: current_node='${current_node}', status='${status}', ts=${timestamp ?? 'n/a'}`);
+
+        // Drop stale/out-of-order updates based on timestamp
+        const g: any = (window as any);
+        if (typeof g.__runningNodeLastTs !== 'number') g.__runningNodeLastTs = 0;
+        const incomingTs = typeof timestamp === 'number' ? timestamp : Date.now();
+        if (incomingTs < g.__runningNodeLastTs) {
+            console.log(`[RunningNode] ⤳ Ignoring stale update ts=${incomingTs} < lastTs=${g.__runningNodeLastTs}`);
+            return { success: true };
+        }
+        g.__runningNodeLastTs = incomingTs;
+
+        const runningNodeStore = useRunningNodeStore.getState();
+        const previousRunningNode = runningNodeStore.runningNodeId;
+
+        // Queue scheme to enforce a minimum visible duration per node
+        const GN: any = (window as any);
+        if (!GN.__runningNodeQueue) GN.__runningNodeQueue = { runId: null as string | null, queue: [] as string[], showing: null as string | null, shownAt: 0, t: null as any, completed: false, clearT: null as any, endStatus: null as null | 'completed' | 'failed' };
+        const q = GN.__runningNodeQueue as { runId: string | null; queue: string[]; showing: string | null; shownAt: number; t: any; completed: boolean; clearT: any; endStatus: null | 'completed' | 'failed' };
+        // Reset queue if this is a new run
+        if (agentTaskId && q.runId !== agentTaskId) {
+            if (q.t) { try { clearTimeout(q.t); } catch {} }
+            if (q.clearT) { try { clearTimeout(q.clearT); } catch {} }
+            GN.__runningNodeQueue = { runId: agentTaskId, queue: [], showing: null, shownAt: 0, t: null, completed: false, clearT: null, endStatus: null };
+            // Clear any previous end status overlay when a new run starts
+            try { useNodeStatusStore.getState().clear(); } catch {}
+        }
+        // Re-read q after potential reset
+        const qRef = (window as any).__runningNodeQueue as { runId: string | null; queue: string[]; showing: string | null; shownAt: number; t: any; completed: boolean; clearT: any; endStatus: null | 'completed' | 'failed' };
+        const now = Date.now();
+        const MIN_VISIBLE_MS = 1000; // hysteresis: each node should be visible at least this long
+        const MAX_STUCK_EXTRA_MS = 2000; // fail-safe: if timers get throttled, advance after this extra time
+
+        const showNode = (nodeId: string) => {
+            console.log(`[RunningNode] → Show '${nodeId}'`);
+            runningNodeStore.setRunningNodeId(nodeId);
+            q.showing = nodeId;
+            q.shownAt = Date.now();
+        };
+
+        const scheduleTick = () => {
+            const elapsed = Date.now() - (q.shownAt || 0);
+            const remaining = Math.max(0, MIN_VISIBLE_MS - elapsed);
+            if (q.t) { try { clearTimeout(q.t); } catch {} q.t = null; }
+            // Use a small floor to avoid zero-delay busy looping
+            const delay = Math.max(50, remaining);
+            q.t = setTimeout(processQueue, delay);
+        };
+
+        const maybeScheduleFinalClear = () => {
+            if (!q.completed) return;
+            if (q.clearT) return;
+            const elapsed = Date.now() - (q.shownAt || 0);
+            if (q.queue.length === 0 && q.showing) {
+                const remaining = Math.max(0, MIN_VISIBLE_MS - elapsed);
+                const delay = Math.max(remaining, 450);
+                console.log(`[RunningNode] ✓ Queue drained after completion, clearing after ${delay} ms`);
+                // Record end status overlay
+                try {
+                    const st = useNodeStatusStore.getState();
+                    const isCompleted = (q.endStatus ?? 'completed') === 'completed';
+                    let targetNodeId: string | null = null;
+                    if (isCompleted) {
+                        // Prefer the End node in the SAME SHEET that contains the last shown node
+                        try {
+                            const bundle = useSheetsStore.getState().getAllSheets?.();
+                            const sheetsArr: any[] = bundle?.sheets || [];
+                            for (const s of sheetsArr) {
+                                const doc = s?.document;
+                                const nodes: any[] = Array.isArray(doc?.nodes) ? doc.nodes : [];
+                                const containsLast = nodes.some((n) => n && n.id === q.showing);
+                                if (containsLast) {
+                                    const endNode = nodes.find((n) => n && (n.type === 'end' || n.type === 'End'));
+                                    if (endNode?.id) { targetNodeId = endNode.id; break; }
+                                }
+                            }
+                        } catch {}
+                        // Next fallback: End node in the ACTIVE SHEET
+                        if (!targetNodeId) {
+                            try {
+                                const activeDoc = useSheetsStore.getState().getActiveDocument?.();
+                                const nodesA = activeDoc?.nodes;
+                                if (Array.isArray(nodesA)) {
+                                    const endNodeA = nodesA.find((n: any) => n && (n.type === 'end' || n.type === 'End'));
+                                    if (endNodeA?.id) targetNodeId = endNodeA.id;
+                                }
+                            } catch {}
+                        }
+                        // Final fallback: global skillInfo workflow
+                        if (!targetNodeId) {
+                            try {
+                                const wf = useSkillInfoStore.getState().skillInfo?.workFlow as any;
+                                const endNode = wf?.nodes?.find((n: any) => n && (n.type === 'end' || n.type === 'End'));
+                                targetNodeId = endNode?.id || null;
+                            } catch {}
+                        }
+                    }
+                    // For failure or no end node found, fall back to the last shown node
+                    if (!targetNodeId) targetNodeId = q.showing;
+                    if (targetNodeId) st.setEndStatus(targetNodeId, (q.endStatus ?? 'completed') as any);
+                } catch {}
+                q.clearT = setTimeout(() => {
+                    const rs = useRunningNodeStore.getState();
+                    if (rs.runningNodeId !== null) rs.setRunningNodeId(null);
+                    q.showing = null; q.shownAt = 0; q.completed = false; q.clearT = null; q.endStatus = null;
+                }, delay);
+            }
+        };
+
+        const processQueue = () => {
+            if (q.t) { try { clearTimeout(q.t); } catch {} q.t = null; }
+            const elapsed = Date.now() - (q.shownAt || 0);
+            if (!q.showing) {
+                const next = q.queue.shift();
+                if (next) {
+                    showNode(next);
+                    // Ensure we advance after min visible time
+                    if (q.queue.length > 0 || q.completed) scheduleTick();
+                }
+                // If completed and nothing to show, consider final clear
+                if (!next) maybeScheduleFinalClear();
+                return;
+            }
+            // If we've satisfied minimum visible time, advance to next if any
+            if (elapsed >= MIN_VISIBLE_MS) {
+                const next = q.queue.shift();
+                if (next) {
+                    showNode(next);
+                    // Continue draining if more queued or completed
+                    if (q.queue.length > 0 || q.completed) scheduleTick();
+                } else {
+                    // Nothing left; if completed, consider clearing
+                    maybeScheduleFinalClear();
+                }
+                return;
+            }
+            // Fail-safe: if we're beyond MIN + MAX_STUCK_EXTRA_MS and there IS a next node, force-advance
+            if (elapsed >= MIN_VISIBLE_MS + MAX_STUCK_EXTRA_MS && q.queue.length > 0) {
+                const next = q.queue.shift();
+                if (next) {
+                    console.warn(`[RunningNode] ⚠ Forcing advance due to potential timer stall (elapsed=${elapsed}ms) to '${next}'`);
+                    showNode(next);
+                    if (q.queue.length > 0 || q.completed) scheduleTick();
+                }
+                return;
+            }
+            // Not yet; if there is pending work, wait remaining time
+            if (q.queue.length > 0) {
+                scheduleTick();
+            } else if (q.completed) {
+                // No next item; ensure we clear after min time
+                const remaining = Math.max(0, MIN_VISIBLE_MS - elapsed);
+                q.t = setTimeout(() => { maybeScheduleFinalClear(); }, Math.max(50, remaining));
+            }
+        };
 
         // Update the running node if the backend provides a specific node ID.
         if (typeof current_node === 'string' && current_node.length > 0) {
-            useRunningNodeStore.getState().setRunningNodeId(current_node);
+            // Avoid duplicates: only enqueue if different from the last item and current showing
+            const lastQueued = q.queue.length > 0 ? q.queue[q.queue.length - 1] : null;
+            if (current_node !== q.showing && current_node !== lastQueued) {
+                console.log(`[RunningNode] ≈ Enqueue '${current_node}'`);
+                // If this looks like a fresh start (no showing and empty queue), clear any old end-status overlays
+                if (!q.showing && q.queue.length === 0 && !q.completed) {
+                    try { useNodeStatusStore.getState().clear(); } catch {}
+                }
+                q.queue.push(current_node);
+                processQueue();
+            } else {
+                console.log(`[RunningNode] ⊘ Skipping enqueue, already showing or pending '${current_node}'`);
+            }
+        } else if (current_node === null || current_node === undefined) {
+            // Do NOT clear on null/undefined current_node.
+            // Some backends emit heartbeat or partial updates without node id between steps.
+            // Keep the previous running node to avoid flicker.
+            console.log('[RunningNode] ⏸ Received update without current_node; preserving previous running node');
         }
 
-        // Clear the running node if the skill has completed or failed.
+        // Handle terminal statuses
         if (status === 'completed' || status === 'failed') {
-            useRunningNodeStore.getState().setRunningNodeId(null);
+            // Mark as completed and let the queue drain naturally to honor MIN_VISIBLE_MS per node
+            q.completed = true;
+            q.endStatus = status === 'failed' ? 'failed' : 'completed';
+            console.log(`[RunningNode] ◷ Workflow ${status}, allowing queue to drain before clear`);
+            processQueue();
+        }
+        // Handle cancel events by clearing overlays and running icon immediately
+        if (status === 'canceled' || status === 'cancelled') {
+            try { useNodeStatusStore.getState().clear(); } catch {}
+            if (q.t) { try { clearTimeout(q.t); } catch {} q.t = null; }
+            if (q.clearT) { try { clearTimeout(q.clearT); } catch {} q.clearT = null; }
+            q.queue.length = 0; q.showing = null; q.shownAt = 0; q.completed = false; q.endStatus = null;
+            const rs = useRunningNodeStore.getState();
+            if (rs.runningNodeId !== null) rs.setRunningNodeId(null);
+            console.log('[RunningNode] ◼ Run canceled, cleared running state and overlays');
         }
 
         // Capture runtime state for the current node (if provided)
@@ -267,7 +457,6 @@ export class IPCHandlers {
     async updateTasksStat(request: IPCRequest): Promise<{ success: boolean }> {
         // logger.info('Received updateTasksStat request:', request.params);
         eventBus.emit('chat:newMessage', request.params);
-        return { success: true };
     }
 
     async updateScreens(request: IPCRequest): Promise<{ success: boolean }> {

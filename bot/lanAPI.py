@@ -7,6 +7,8 @@ import requests
 import logging
 import httpx
 import asyncio
+import io
+from PIL import Image
 
 from bot.envi import getECBotDataHome
 from utils.logger_helper import logger_helper
@@ -160,10 +162,17 @@ def lan_http_request2(query_js, imgs, session, token, lan_endpoint):
 
 # since it's LAN, should be fast, so we send file and request data in 1 shot
 async def lan_http_request8(query_js, imgs, session, token, api_key, lan_endpoint):
-    LAN_API_ENDPOINT_URL= f"{lan_endpoint}/reqScreenTxtRead"
+    # Respect full endpoint if provided; otherwise append once.
+    base = (lan_endpoint or "").rstrip("/")
+    if "reqScreenTxtRead" in base:
+        LAN_API_ENDPOINT_URL = base
+    else:
+        LAN_API_ENDPOINT_URL = f"{base}/reqScreenTxtRead"
     headers = {
         # 'Content-Type': "multipart/form-data",
-        "x-api-key": api_key
+        "x-api-key": api_key,
+        "Connection": "close",
+        "Accept": "*/*",
         # 'Authorization': token,
         # 'cache-control': "no-cache",
     }
@@ -171,40 +180,78 @@ async def lan_http_request8(query_js, imgs, session, token, api_key, lan_endpoin
 
     def print_on_request(request: httpx.Request):
         print(f"🔍 Raw HTTP Request (sync hook): {request}")
-
-    timeout = httpx.Timeout(connect=60.0, read=60.0, write=60.0, pool=60.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    timeout = httpx.Timeout(connect=60.0, read=120.0, write=60.0, pool=60.0)
+    limits = httpx.Limits(max_keepalive_connections=0, max_connections=20)
+    async with httpx.AsyncClient(timeout=timeout, limits=limits, http2=False, trust_env=False) as client:
         try:
-            print("no need to read files, img is already there...")
-            # Prepare the multipart form-data request
-            # files = {"file": (os.path.basename(query_js['img_file_name']), query_js['img'], "image/png")}
-            # files = {
-            #     f"files": (os.path.basename(img["file_name"]), open(img["file_name"], "rb"),  "image/png")
-            #     for ix, img in enumerate(imgs)
-            # }
-            files = [("files", (os.path.basename(imgs[0]["file_name"]), imgs[0]["bytes"], "image/png"))]
+            print("preparing multipart files for upload...", len(imgs or []))
+            # Build multipart parts exactly like requests test: ("files", (filename, bytes, "image/png"))
+            files = []
+            for i, img in enumerate(imgs or []):
+                fname = os.path.basename(img.get("file_name") or f"file_{i}.png")
+                content = img.get("bytes")
+
+                # 1) Already bytes
+                if isinstance(content, (bytes, bytearray)):
+                    files.append(("files", (fname, content, "image/png")))
+                    continue
+
+                # 2) File-like: read into bytes
+                if hasattr(content, "read"):
+                    try:
+                        if hasattr(content, "seek"):
+                            content.seek(0)
+                        buf_bytes = content.read()
+                        files.append(("files", (fname, buf_bytes, "image/png")))
+                        continue
+                    except Exception:
+                        pass
+
+                # 3) PIL Image: encode PNG to bytes
+                if isinstance(content, Image.Image):
+                    buf = io.BytesIO()
+                    content.save(buf, format="PNG")
+                    files.append(("files", (fname, buf.getvalue(), "image/png")))
+                    continue
+
+                # 4) Fallback to file path
+                fpath = img.get("file_name")
+                if fpath and os.path.exists(fpath):
+                    with open(fpath, "rb") as fobj:
+                        file_bytes = fobj.read()
+                    files.append(("files", (os.path.basename(fpath), file_bytes, "image/png")))
+                    continue
+
+                print(f"Warning: image #{i} has unsupported content type; skipping.")
+
+            if not files:
+                raise ValueError("No valid images provided to upload.")
 
             payload = {"data": json.dumps(query_js)}
 
-            # print("Sending HTTP request...", len(files), query_js)
-            # print("files:", files)
-
-            # Send the async request
-            # response = await client.post(LAN_API_ENDPOINT_URL, files=files, data=payload, headers=headers)
-            response = await client.post(LAN_API_ENDPOINT_URL, headers=headers, files=files, data=payload)
-
-            # need to repackage response to be the same format as from aws so that
-            # the response handler can be the same. ... sc, well, let's push it to
-            # the server side.
+            # Send with a short retry on transient read errors
+            for attempt in range(2):
+                try:
+                    response = await client.post(
+                        LAN_API_ENDPOINT_URL,
+                        headers=headers,
+                        files=files,
+                        data=payload,
+                        follow_redirects=True,
+                    )
+                    break
+                except httpx.ReadError as re:
+                    print(f"httpx.ReadError on attempt {attempt+1}, retrying once...\n{re}")
+                    if attempt == 1:
+                        raise
 
             print("MILAN Response:", response)
-
             return response
 
         except Exception as e:
             print(f"Unexpected error: {e}")
             traceback_info = traceback.extract_tb(e.__traceback__)
-            # Extract the file name and line number from the last entry in the traceback
             if traceback_info:
                 ex_stat = "ErrorHttpxClient:" + traceback.format_exc() + " " + str(e)
                 print(ex_stat)
+            raise

@@ -364,10 +364,63 @@ class IPCAPI:
             timestamp: 通知时间戳
             callback: 回调函数，接收 APIResponse[bool]
         """
-        params = {'agentTaskId': agent_task_id, "current_node": current_node, "status": status, 'nodeState': langgraph_state, 'timestamp': timestamp}
+        # Make nodeState JSON-safe to avoid serialization errors (e.g., CallToolResult)
+        def _json_safe(value, depth=0):
+            try:
+                # Prevent extremely deep recursion
+                if depth > 6:
+                    return str(value)
+                if value is None or isinstance(value, (str, int, float, bool)):
+                    return value
+                if isinstance(value, dict):
+                    safe_dict = {}
+                    for k, v in value.items():
+                        # ensure keys are strings
+                        key = str(k)
+                        safe_dict[key] = _json_safe(v, depth + 1)
+                    return safe_dict
+                if isinstance(value, (list, tuple, set)):
+                    return [_json_safe(v, depth + 1) for v in value]
+                # objects with __dict__ (pydantic, dataclasses, etc.)
+                if hasattr(value, 'model_dump') and callable(getattr(value, 'model_dump')):
+                    try:
+                        return _json_safe(value.model_dump(mode="python"), depth + 1)
+                    except Exception:
+                        pass
+                if hasattr(value, '__dict__'):
+                    try:
+                        return _json_safe(vars(value), depth + 1)
+                    except Exception:
+                        pass
+                # Fallback to string representation
+                return str(value)
+            except Exception:
+                try:
+                    return str(value)
+                except Exception:
+                    return '<unserializable>'
+
+        safe_state = _json_safe(langgraph_state)
+
+        # Include both snake_case and camelCase for compatibility with different frontends
+        params = {
+            'agentTaskId': agent_task_id,
+            # snake_case (legacy/current handlers)
+            'current_node': current_node,
+            'nodeState': safe_state,
+            # camelCase (new handlers)
+            'currentNode': current_node,
+            'langgraphState': safe_state,
+            'status': status,
+            'timestamp': timestamp,
+        }
         try:
             # Clear, distinguishable backend log for IPC emission
-            logger.info(f"[SIM][BE][IPC] sending update_skill_run_stat: agentTaskId={agent_task_id}, current_node={current_node}, status={status}, nodeState.keys={list(langgraph_state.keys())}")
+            try:
+                node_keys = list(langgraph_state.keys()) if isinstance(langgraph_state, dict) else []
+            except Exception:
+                node_keys = []
+            logger.info(f"[SIM][BE][IPC] sending update_skill_run_stat: agentTaskId={agent_task_id}, current_node={current_node}, status={status}, nodeState.keys={node_keys}")
         except Exception:
             pass
         self._send_request('update_skill_run_stat', params, callback=callback)
@@ -387,7 +440,11 @@ class IPCAPI:
             timestamp: 通知时间戳
             callback: 回调函数，接收 APIResponse[bool]
         """
-        params = {'agentTaskId': agent_task_id, 'langgraphState': langgraph_state, 'isRead': isRead, 'timestamp': timestamp, 'uid': uid}
+        params = {
+            'agentTaskId': agent_task_id,
+            'langgraphState': langgraph_state,
+            'timestamp': timestamp,
+        }
         self._send_request('update_tasks_stat', params, callback=callback)
 
     def get_editor_agents(

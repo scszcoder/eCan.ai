@@ -47,7 +47,7 @@ class GeneralSettings:
             "debug_mode": False,
             "default_wifi": "",
             "default_printer": "",
-            "display_resolution": "",
+            "display_resolution": "D1920X1080",
             "default_webdriver_path": "",
             "build_dom_tree_script_path": "",
             "new_orders_dir": "c:/ding_dan/",
@@ -61,9 +61,9 @@ class GeneralSettings:
             "ws_api_host": "3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com",
             "img_engine": "lan",
             "ocr_engine": "lan",
-            "ocr_endpoint": "lan",
-            "ocr_port": "2222",
-            "ocr_api_key": "lan",
+            "ocr_api_endpoint": "http://47.120.48.82:8848/graphql/reqScreenTxtRead",
+            "ocr_api_port": "8848",
+            "ocr_api_key": "xxxxxxxxxxxxxx",
             "schedule_engine": "wan",
             "local_agent_ports": [3600, 3800],
             "browser_use_file_system_path": "",
@@ -296,6 +296,44 @@ class GeneralSettings:
     @img_engine.setter
     def img_engine(self, value: str):
         self._data["img_engine"] = value
+
+
+    @property
+    def ocr_engine(self) -> str:
+        """Image engine: lan, wan"""
+        return self._data.get("ocr_engine", "lan")
+
+    @ocr_engine.setter
+    def ocr_engine(self, value: str):
+        self._data["ocr_engine"] = value
+
+    @property
+    def ocr_api_key(self) -> str:
+        """Image engine: lan, wan"""
+        return self._data.get("ocr_api_key", "lan")
+
+    @ocr_api_key.setter
+    def ocr_api_key(self, value: str):
+        self._data["ocr_api_key"] = value
+
+    @property
+    def ocr_api_endpoint(self) -> str:
+        """Image engine: lan, wan"""
+        return self._data.get("ocr_api_endpoint", "lan")
+
+    @ocr_api_endpoint.setter
+    def ocr_api_endpoint(self, value: str):
+        self._data["ocr_api_endpoint"] = value
+
+
+    @property
+    def ocr_api_port(self) -> str:
+        """Image engine: lan, wan"""
+        return self._data.get("ocr_api_port", "lan")
+
+    @ocr_api_port.setter
+    def ocr_api_port(self, value: str):
+        self._data["ocr_api_port"] = value
 
     @property
     def schedule_engine(self) -> str:

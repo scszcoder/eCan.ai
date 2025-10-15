@@ -18,7 +18,12 @@ export const RunningNodeNavigator = () => {
   const pendingCenterRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!runningNodeId) return;
+    // Clear last handled ref when runningNodeId becomes null
+    if (!runningNodeId) {
+      lastHandledIdRef.current = null;
+      pendingCenterRef.current = null;
+      return;
+    }
 
     // Avoid re-handling the same node id repeatedly
     if (lastHandledIdRef.current === runningNodeId && !pendingCenterRef.current) {
@@ -60,7 +65,14 @@ export const RunningNodeNavigator = () => {
       // Switch to that sheet; defer centering
       state.openSheet(ownerSheetId);
       pendingCenterRef.current = runningNodeId;
-      setTimeout(doCenter, 250);
+      setTimeout(() => {
+        // first attempt after sheet switch
+        doCenter();
+        // if still pending (rare), retry once more
+        if (pendingCenterRef.current) {
+          setTimeout(doCenter, 400);
+        }
+      }, 400);
     } else {
       // Already on the right sheet; center now
       doCenter();

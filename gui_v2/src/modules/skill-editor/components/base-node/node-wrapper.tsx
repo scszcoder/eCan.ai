@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import React, { useState, useContext, useCallback } from 'react';
+import React, { useState, useContext, useCallback, useEffect } from 'react';
 
 import { WorkflowPortRender } from '@flowgram.ai/free-layout-editor';
 import { useClientContext, useNode } from '@flowgram.ai/free-layout-editor';
@@ -16,6 +16,7 @@ import { scrollToView } from './utils';
 import { NodeWrapperStyle, BreakpointIcon, RunningIcon } from './styles';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useRunningNodeStore } from '../../stores/running-node-store';
+import { useNodeStatusStore } from '../../stores/node-status-store';
 
 export interface NodeWrapperProps {
   isScrollToView?: boolean;
@@ -38,9 +39,19 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
   const onPortClick = usePortClick();
   const meta = node.getNodeMeta<FlowNodeMeta>();
   const { breakpoints } = useSkillInfoStore();
-  const { runningNodeId } = useRunningNodeStore();
+  const runningNodeId = useRunningNodeStore((state) => state.runningNodeId);
   const isBreakpoint = breakpoints.includes(node.id);
   const isRunning = runningNodeId === node.id;
+  const endNodeId = useNodeStatusStore((s) => s.endNodeId);
+  const endStatus = useNodeStatusStore((s) => s.endStatus);
+  const isEndNode = endNodeId === node.id && !!endStatus;
+  
+  // Debug: Log when running state changes for this node
+  useEffect(() => {
+    if (isRunning) {
+      console.log(`[NodeWrapper] Node '${node.id}' is now RUNNING`);
+    }
+  }, [isRunning, node.id]);
 
   const portsRender = ports.map((p) => (
     <WorkflowPortRender key={p.id} entity={p} onClick={!readonly ? onPortClick : undefined} />
@@ -95,11 +106,39 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
         style={{
           ...meta.wrapperStyle,
           outline: form?.state.invalid ? '1px solid red' : 'none',
+          // Thick red border to emphasize currently running node
+          border: isRunning ? '3px solid #ff4d4f' : meta.wrapperStyle?.border,
+          position: 'relative',
         }}
       >
         <RunningIcon />
         {children}
         {isBreakpoint && <BreakpointIcon />}
+        {isEndNode && (
+          <div
+            style={{
+              position: 'absolute',
+              top: -8,
+              right: -8,
+              width: 22,
+              height: 22,
+              borderRadius: 11,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: endStatus === 'completed' ? '#52c41a' : '#ff4d4f',
+              color: 'white',
+              fontSize: 14,
+              fontWeight: 700,
+              border: '2px solid white',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+              zIndex: 2,
+            }}
+            title={endStatus === 'completed' ? 'Completed' : 'Failed'}
+          >
+            {endStatus === 'completed' ? '✓' : '✕'}
+          </div>
+        )}
       </NodeWrapperStyle>
       {portsRender}
     </>

@@ -615,6 +615,9 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
     return full_node_callable
 
+
+
+
 # pre-requisite: tool_name is in config_metadata, tool_input is in state and conform the tool input schema (strictly, it will be type checked)
 def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     """
@@ -637,6 +640,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                      or ((config_metadata.get('inputsValues') or {}).get('toolName') or {}).get('content')
                      or (config_metadata.get('inputs') or {}).get('tool_name')
                      or (config_metadata.get('inputs') or {}).get('toolName'))
+
     except Exception:
         tool_name = None
 
@@ -644,11 +648,181 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         print("Error: 'tool_name' is missing in config_metadata for mcp_tool_calling_node.")
         return lambda state: {**state, 'error': 'MCP tool_name not configured'}
 
+    # --- MCP tool input helpers (schema-aware) ---
+
+    def _get_tool_schema_by_name(tool_name: str):
+        try:
+            mainwin = AppContext.get_main_window()
+            schemas = getattr(mainwin, 'mcp_tools_schemas', None)
+            if not schemas:
+                return None
+            for s in schemas:
+                try:
+                    s_name = getattr(s, 'name', None) or (s.get('name') if isinstance(s, dict) else None)
+                    if s_name == tool_name:
+                        # normalize to a dict
+                        return s if isinstance(s, dict) else {
+                            'name': s.name,
+                            'description': getattr(s, 'description', ''),
+                            'inputSchema': getattr(s, 'inputSchema', {})
+                        }
+                except Exception:
+                    continue
+        except Exception:
+            return None
+        return None
+
+    def _normalize_schema_root(schema: dict) -> dict:
+        if not isinstance(schema, dict):
+            return {}
+        return schema.get('inputSchema') if 'inputSchema' in schema else schema
+
+    def _empty_for_type(t):
+        try:
+            if not t:
+                return ''
+            t = str(t).lower()
+            if t == 'string':
+                return ''
+            if t in ('integer', 'number'):
+                return 0
+            if t == 'float':
+                return 0.0
+            if t == 'boolean':
+                return False
+            if t.startswith('['):  # e.g. "[string]" in some of our schemas
+                return []
+            if t == 'object':
+                if t in ('object', 'dict'):
+                    return {}
+                if t in ('array',) or t.startswith('['):
+                    return []
+            return ''
+        except Exception:
+            return ''
+
+    def _gather_config_value(cfg: dict, key: str):
+        # Read from config_metadata across several shapes:
+        if not isinstance(cfg, dict):
+            return None
+        try:
+            # 1) flat
+            if key in cfg:
+                return cfg.get(key)
+
+            # 2) inputsValues.<key>.content
+            inputs_values = cfg.get('inputsValues')
+            if isinstance(inputs_values, dict) and key in inputs_values:
+                v = inputs_values.get(key)
+                if isinstance(v, dict) and 'content' in v:
+                    return v.get('content')
+                return v
+
+            # 3) inputs.<key>
+            inputs = cfg.get('inputs')
+            if isinstance(inputs, dict) and key in inputs:
+                return inputs.get(key)
+        except Exception:
+            return None
+        return None
+
+    def _validate_tool_input_against_schema(inp: dict, root: dict) -> bool:
+        # Minimal structural validation to ensure required keys are present
+        try:
+            if not isinstance(root, dict):
+                return True
+            required_root = root.get('required') or []
+            if not isinstance(inp, dict):
+                return False if required_root else True
+
+            # root-level required fields
+            for k in required_root:
+                if k not in inp:
+                    return False
+
+            # nested input object
+            props = root.get('properties') or {}
+            input_prop = props.get('input') if isinstance(props, dict) else None
+            if 'input' in required_root and isinstance(input_prop, dict):
+                input_required = input_prop.get('required') or []
+                input_obj = inp.get('input', {}) if isinstance(inp.get('input'), dict) else {}
+                for k in input_required:
+                    if k not in input_obj:
+                        return False
+            return True
+        except Exception:
+            return False
+
+    def _build_input_from_config(config_metadata: dict, root: dict) -> dict:
+        # Build a correct-shaped input dict; fill missing with type-based empty defaults
+        result = {}
+        try:
+            if not isinstance(root, dict):
+                return result
+            required_root = root.get('required') or []
+            props = root.get('properties') or {}
+
+            # Handle nested 'input' object
+            if 'input' in required_root and isinstance(props, dict):
+                input_spec = props.get('input') if isinstance(props.get('input'), dict) else None
+                input_obj = {}
+                if isinstance(input_spec, dict):
+                    input_required = input_spec.get('required') or []
+                    input_props = input_spec.get('properties') or {}
+                    for rk in input_required:
+                        val = _gather_config_value(config_metadata, rk)
+                        if val is None:
+                            t = (input_props.get(rk) or {}).get('type') if isinstance(input_props, dict) else None
+                            val = _empty_for_type(t)
+                        input_obj[rk] = val
+                result['input'] = input_obj
+
+            # Handle other root-level required keys
+            for rk in required_root:
+                if rk == 'input':
+                    continue
+                if rk not in result:
+                    val = _gather_config_value(config_metadata, rk)
+                    if val is None:
+                        t = ((props.get(rk) or {}).get('type') if isinstance(props, dict) else None)
+                        val = _empty_for_type(t)
+                    result[rk] = val
+        except Exception:
+            pass
+        return result
+
+    def _merge_inputs(runtime_input: dict, compiled_input: dict) -> dict:
+        # Prefer runtime-provided, fill missing from compiled
+        out = compiled_input.copy() if isinstance(compiled_input, dict) else {}
+        if isinstance(runtime_input, dict):
+            for k, v in runtime_input.items():
+                if k == 'input' and isinstance(v, dict):
+                    out.setdefault('input', {})
+                    for ik, iv in v.items():
+                        out['input'][ik] = iv
+                else:
+                    out[k] = v
+        return out
+
     def mcp_tool_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
         print(f"Executing MCP tool node for tool: {tool_name}")
 
         # By convention, the input for the tool is expected in state['tool_input']
         tool_input = state.get('tool_input', {})
+
+        # Schema-aware compile-time fallback from node editor config
+        try:
+            _schema = _get_tool_schema_by_name(tool_name)
+            _root = _normalize_schema_root(_schema) if _schema else {}
+            if _root and not _validate_tool_input_against_schema(tool_input, _root):
+                compiled_input = _build_input_from_config(config_metadata, _root)
+                tool_input = _merge_inputs(tool_input if isinstance(tool_input, dict) else {}, compiled_input)
+                state['tool_input'] = tool_input
+                logger.debug(f"tool_input backfilled for {tool_name}: {state['tool_input']}")
+
+        except Exception as _e:
+            logger.debug(f"mcp_tool_callable backfill skipped due to error: {_e}")
+
 
         async def run_tool_call():
             """A local async function to perform the actual tool call."""
@@ -716,7 +890,36 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             "paused_at": node_name,
             "prompt_to_human": prompt,
         }
-        interrupt(info)
+        resume_payload = interrupt(info)
+        # If resumer supplied a state patch (e.g., via Command(resume={... "_state_patch": {...}})), merge it
+        try:
+            if isinstance(resume_payload, dict) and "_state_patch" in resume_payload:
+                patch = resume_payload.get("_state_patch")
+                if isinstance(patch, dict):
+                    def _deep_merge(a: dict, b: dict) -> dict:
+                        out = dict(a)
+                        for k, v in b.items():
+                            if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+                                out[k] = _deep_merge(out[k], v)
+                            else:
+                                out[k] = v
+                        return out
+
+                    # merge patch into state in place
+                    try:
+                        if isinstance(state, dict):
+                            merged = _deep_merge(state, patch)
+                            state.clear()
+                            state.update(merged)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        logger.debug("[pend_event_node] resume payload received:", resume_payload)
+        logger.debug("[pend_event_node] resumed, state:", state)
+
+        # data = try_parse_json(resume_payload.get("human_text"))
         return state
 
     return node_builder(_pend, node_name, skill_name, owner, bp_manager)
@@ -755,11 +958,15 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
                 chat_id = None
             chat_id = chat_id or 'default_chat'
 
+            recipient_agent = next((ag for ag in mainwin.agents if "twin" in ag.card.name.lower()), None)
+
             if role == 'assistant':
                 runner and runner.sendChatMessageToGUI(agent, chat_id, message)
             elif role == 'system':
                 runner and runner.sendChatNotificationToGUI(agent, chat_id, {"title": "system", "text": message})
             else:  # user role -> treat as message
+                send_result = agent.a2a_send_chat_message(recipient_agent, message)
+
                 runner and runner.sendChatMessageToGUI(agent, chat_id, message)
         except Exception as e:
             logger.debug(f"chat_node GUI send failed: {e}")

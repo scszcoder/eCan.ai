@@ -57,7 +57,8 @@ def setup_dev_skill(mainwin, skill):
         except Exception:
             pass
         # Use v2 layered converter (flat mode for now)
-        skill_under_dev, breakpoints = flowgram2langgraph_v2(flow_payload or skill, bundle_json=bundle_json, enable_subgraph=False)
+        bp_mgr = getattr(tester_agent, 'runner', None).bp_manager if tester_agent and getattr(tester_agent, 'runner', None) else None
+        skill_under_dev, breakpoints = flowgram2langgraph_v2(flow_payload or skill, bundle_json=bundle_json, enable_subgraph=False, bp_mgr=bp_mgr)
         logger.debug("langgraph skill converted....")
         
         # Ensure the dev_run_task exists before using it; if missing, create and register it

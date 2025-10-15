@@ -43,6 +43,17 @@ function normalizeFlowValueForSchema(val: any, schema: any) {
     // If it's already a FlowValue with content, coerce content types as needed
     if (val && typeof val === 'object' && 'content' in val) {
       const c = (val as any).content;
+      // Handle number type: convert empty strings to actual numbers or remove schema if empty
+      if (t === 'number') {
+        if (c === '' || c === null || c === undefined) {
+          // Remove schema property for empty number fields
+          const { schema: _, ...rest } = val as any;
+          return rest;
+        }
+        // Ensure content is a number
+        const num = typeof c === 'number' ? c : parseFloat(c);
+        return { ...val, content: isNaN(num) ? 0 : num };
+      }
       if (t === 'string' && typeof c !== 'string') {
         return { ...val, content: toSafeString(c) };
       }
@@ -54,6 +65,11 @@ function normalizeFlowValueForSchema(val: any, schema: any) {
     // If not a FlowValue, wrap for string/object/array to avoid editor crashes
     if (t === 'string') {
       return { type: 'constant', content: toSafeString(val) } as any;
+    }
+    if (t === 'number') {
+      // Ensure number values are properly wrapped
+      const num = typeof val === 'number' ? val : parseFloat(val);
+      return { type: 'constant', content: isNaN(num) ? 0 : num } as any;
     }
     if (t === 'array' || t === 'object') {
       const defStr = t === 'array' ? '[]' : '{}';

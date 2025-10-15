@@ -35,6 +35,14 @@ export const NodeWrapperStyle = styled.div`
     ${RunningIcon} {
       display: block;
     }
+    /* Glowing animation for running emphasis */
+    animation: runningGlow 1200ms ease-in-out infinite;
+  }
+
+  @keyframes runningGlow {
+    0% { box-shadow: 0 0 0 2px rgba(255,77,79,0.20), 0 0 8px rgba(255,77,79,0.15); }
+    50% { box-shadow: 0 0 0 3px rgba(255,77,79,0.35), 0 0 14px rgba(255,77,79,0.30); }
+    100% { box-shadow: 0 0 0 2px rgba(255,77,79,0.20), 0 0 8px rgba(255,77,79,0.15); }
   }
 `;
 

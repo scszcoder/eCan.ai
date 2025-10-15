@@ -32,7 +32,7 @@ def set_up_ec_tester_agent(mainwin):
             logger.info("ec_tester worker skill:", worker_skill.name)
         else:
             logger.error("ec_tester worker skill not found! Make sure 'eCan.ai self test' skill is built.")
-        chatter_skill = next((sk for sk in agent_skills if sk and sk.name == "chatter for ecan.ai self test"), None)
+        chatter_skill = next((sk for sk in agent_skills if sk and sk.name == "self_test_chatter"), None)
         if chatter_skill:
             logger.info("ec_tester chatter skill:", chatter_skill.name)
         else:

@@ -78,44 +78,28 @@ export const SidebarRenderer = () => {
    */
   useEffect(() => {
     const disposable = playground.config.onReadonlyOrDisabledChange(() => {
-      // Do not auto-close the sidebar here; readonly/disabled flips can be transient
       refresh();
     });
     return () => disposable.dispose();
   }, [playground]);
   /**
-   * Listen selection
+   * Listen selection but do not auto-close the sidebar. We keep the editor open
+   * during runs and only close on explicit user action or when node is disposed.
    */
   useEffect(() => {
     const toDispose = selection.onSelectionChanged(() => {
-      // If no node is selected, close the sidebar
-      if (selection.selection.length === 0) {
-        const now = Date.now();
-        if (now - lastOpenAtRef.current > LOCK_MS) {
-          handleClose();
-        }
-        return;
-      }
-      // If exactly one node is selected, do NOT automatically open sidebar
-      // Sidebar will only open on explicit double-click (handled in NodeWrapper)
-      if (selection.selection.length === 1) {
-        // Keep sidebar open if it's already showing the selected node
-        const sel = selection.selection[0];
-        if (sel && nodeId && sel.id === nodeId) {
-          // Sidebar is already open for this node, keep it open
-          return;
-        }
-        // If sidebar is open for a different node, or closed, don't auto-open
-        return;
-      }
-      // For multi-selection, close by default
-      const now = Date.now();
-      if (now - lastOpenAtRef.current > LOCK_MS) {
-        handleClose();
-      }
+      try { console.debug('[SidebarRenderer] selection changed, keeping sidebar as-is'); } catch {}
+      // Intentionally no auto-close behavior here
     });
     return () => toDispose.dispose();
-  }, [selection, handleClose, nodeId]);
+  }, [selection]);
+
+  // Track when the sidebar is explicitly opened to prevent accidental closes
+  useEffect(() => {
+    if (nodeId) {
+      lastOpenAtRef.current = Date.now();
+    }
+  }, [nodeId]);
   /**
    * Close when node disposed
    */
