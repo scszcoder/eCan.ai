@@ -426,7 +426,8 @@ const PageBackBreadcrumb: React.FC = () => {
                     disabled={refreshing}
                     style={{ 
                         color: 'rgba(255, 255, 255, 0.85)',
-                        fontSize: '16px'
+                        fontSize: '16px',
+                        marginRight: '16px'
                     }}
                 />
             </Tooltip>
