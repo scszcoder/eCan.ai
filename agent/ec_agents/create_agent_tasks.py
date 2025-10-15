@@ -649,7 +649,7 @@ def create_ec_self_tester_chat_task(mainwin):
     agent_skills = mainwin.agent_skills
     agent_tasks = mainwin.agent_tasks
 
-    chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecan.ai self test"), None)
+    chatter_skill = next((sk for sk in agent_skills if sk.name == "self_test_chatter"), None)
     chatter_task = next((task for task in agent_tasks if task.name == "chat:eCan.ai Self Test Chatter Task"), None)
 
     if not chatter_task:

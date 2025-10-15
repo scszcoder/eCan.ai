@@ -2966,6 +2966,12 @@ class MainWindow:
     def getLanImageEndpoint(self):
         return self.config_manager.general_settings.lan_api_endpoint
 
+    def getLanOCREndpoint(self):
+        return self.config_manager.general_settings.ocr_api_endpoint
+
+    def getLanOCRApiKey(self):
+        return self.config_manager.general_settings.ocr_api_key
+
     def getWanImageEndpoint(self):
         return self.config_manager.general_settings.wan_api_endpoint
 

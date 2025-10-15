@@ -1773,13 +1773,18 @@ async def readScreen8(win_title_keyword, site_page, page_sect, page_theme, layou
 #image_file *.png must be put in the following diretory
 # "imageFile": "C:/Users/***/PycharmProjects/ecbot/resource/runlogs/20240328/b0m0/any_any_any_any/skills/any/images/*.png"
 async def cloudAnalyzeRandomImage8(mission, screen_image, image_file, image_bytes, session, token):
+    settings = mission.main_win_settings
+    mainwin = mission.get_main_win()
     sk_settings = {
         "platform": "any",
         "app": "any",
         "site": "any",
         "skname": "any",
-        "skfname": "resource/skills/public/any_any_any_any/any.psk"
+        "skfname": "resource/skills/public/any_any_any_any/any.psk",
+        "display_resolution": mainwin.config_manager.general_settings.display_resolution,
+        "wan_api_key": mainwin.config_manager.general_settings.ocr_api_key
     }
+    print("skill settings:", sk_settings)
     return await cloudAnalyzeImage8(image_file, screen_image, image_bytes,"any", "any", "", "", 0, 0, sk_settings, "", "{}", session, token, mission)
 
 async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, page_sect, page_theme, layout, mid, bid, sk_settings, options, factors, session, token, mission):
@@ -1788,7 +1793,7 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
     mwin = mission.get_main_win()
     img_engine = mwin.getImageEngine()
     if img_engine == "lan":
-        img_endpoint = mwin.getLanImageEndpoint()
+        img_endpoint = mwin.getLanOCREndpoint()
         print("img endpoint:", img_endpoint)
     else:
         img_endpoint = mwin.getWanImageEndpoint()

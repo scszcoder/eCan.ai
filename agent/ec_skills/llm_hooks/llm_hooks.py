@@ -107,6 +107,27 @@ def standard_post_llm_func(askid, node_name, state, response):
             else:
                 result = raw_content
 
+        # Ensure result is always a dict, not a string representation of a dict
+        if isinstance(result, str):
+            # Try to parse string as JSON first
+            if is_json_parsable(result):
+                result = json.loads(result)
+            else:
+                # Try to parse as Python literal (handles single quotes)
+                try:
+                    parsed = ast.literal_eval(result)
+                    if isinstance(parsed, dict):
+                        result = parsed
+                    else:
+                        # Wrap non-dict results in a dict
+                        result = {"message": result}
+                except (ValueError, SyntaxError):
+                    # If all parsing fails, wrap the string in a dict
+                    result = {"message": result}
+        elif not isinstance(result, dict):
+            # If result is not a dict or string, wrap it
+            result = {"message": str(result)}
+
         llm_result = {"llm_result": result}
         logger.debug(f"standard_post_llm_func: llm_result: {llm_result}")
         return llm_result
@@ -114,7 +135,7 @@ def standard_post_llm_func(askid, node_name, state, response):
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPostLLMFunc")
         logger.debug(err_trace)
-        return {"llm_result": err_trace}
+        return {"llm_result": {"error": err_trace}}
 
 
 
@@ -183,6 +204,7 @@ def run_pre_llm_hook(node_name, agent, state):
         skill_name = node_name.split(":")[1]
         this_skill = next((sk for sk in mainwin.agent_skills if sk.name == skill_name), None)
         askid = this_skill.askid
+        print("[run_pre_llm_hook] askid:", askid)
         askid = "skid0"
         print("pre llm hook node name:", node_name, askid)
         # Try exact match first
@@ -247,7 +269,6 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         owner = runtime.context["this_node"].get("owner")
 
         # print("current node:", current_node)
-        nodes = [{"askid": "skid0", "name": current_node_name}]
         full_node_name = f"{owner}:{skill_name}:{current_node_name}"
         run_pre_llm_hook(full_node_name, agent, state)
 

@@ -344,23 +344,44 @@ const ChatPage: React.FC = () => {
             const response = await get_ipc_api().chatApi.createChat(chatData);
             const resp: any = response;
             
-            if (resp.success && resp.data && resp.data.data) {
-                // 提取新聊天数据
-                const newChat = { ...resp.data.data, name: resp.data.data.name || chatData.name } as Chat;
-                logger.debug('[createChatWithAgent] New chat created:', newChat.id);
-                
-                // 更新聊天列表
-                setChats(prevChats => {
-                    const exists = prevChats.some(c => c.id === newChat.id);
-                    return exists
-                        ? prevChats.map(c => c.id === newChat.id ? { ...c, ...newChat } : c)
-                        : [...prevChats, newChat];
-                });
-                
-                // 设置为活动聊天并获取消息
-                setActiveChatIdAndFetchMessages(newChat.id);
+            // Check if IPC call succeeded
+            if (resp.success && resp.data) {
+                // Check if backend operation succeeded (new chat created)
+                if (resp.data.success && resp.data.data) {
+                    // 提取新聊天数据
+                    const newChat = { ...resp.data.data, name: resp.data.data.name || chatData.name } as Chat;
+                    logger.debug('[createChatWithAgent] New chat created:', newChat.id);
+                    
+                    // 更新聊天列表
+                    setChats(prevChats => {
+                        const exists = prevChats.some(c => c.id === newChat.id);
+                        return exists
+                            ? prevChats.map(c => c.id === newChat.id ? { ...c, ...newChat } : c)
+                            : [...prevChats, newChat];
+                    });
+                    
+                    // 设置为活动聊天并获取消息
+                    setActiveChatIdAndFetchMessages(newChat.id);
+                } else if (!resp.data.success && resp.data.data) {
+                    // Chat already exists - backend returns existing chat data when duplicate detected
+                    logger.debug('[createChatWithAgent] Chat already exists, using existing chat:', resp.data.id);
+                    const existingChat = { ...resp.data.data, name: resp.data.data.name || chatData.name } as Chat;
+                    
+                    // Add to chat list if not already there, or update if it exists
+                    setChats(prevChats => {
+                        const exists = prevChats.some(c => c.id === existingChat.id);
+                        return exists 
+                            ? prevChats.map(c => c.id === existingChat.id ? existingChat : c)
+                            : [...prevChats, existingChat];
+                    });
+                    
+                    // Set as active chat and load messages
+                    setActiveChatIdAndFetchMessages(existingChat.id);
+                } else {
+                    logger.error('[createChatWithAgent] Backend operation failed:', resp.data.error);
+                }
             } else {
-                logger.error('[createChatWithAgent] Failed to create chat:', resp.error);
+                logger.error('[createChatWithAgent] IPC call failed:', resp.error);
             }
         } catch (error) {
             logger.error('[createChatWithAgent] Error creating chat:', error);
