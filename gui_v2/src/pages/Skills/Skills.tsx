@@ -1,13 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Space, message } from 'antd';
-import { ReloadOutlined, PlusOutlined } from '@ant-design/icons';
+import { ReloadOutlined } from '@ant-design/icons';
 import DetailLayout from '../../components/Layout/DetailLayout';
 import { useTranslation } from 'react-i18next';
 import { useSkillStore } from '../../stores';
 import { useUserStore } from '../../stores/userStore';
 import SkillList from './components/SkillList';
 import SkillDetails from './components/SkillDetails';
-import { IPCWCClient } from '@/services/ipc/ipcWCClient';
 import { logger } from '@/utils/logger';
 import type { Skill } from '@/stores';
 import './Skills.css';
@@ -20,7 +19,6 @@ const Skills: React.FC = () => {
     const isLoading = useSkillStore((state) => state.loading);
     const fetchItems = useSkillStore((state) => state.fetchItems);
     const forceRefresh = useSkillStore((state) => state.forceRefresh);
-    const updateItem = useSkillStore((state) => state.updateItem);
 
     const username = useUserStore((state) => state.username);
     const [isAddingNew, setIsAddingNew] = React.useState(false);
@@ -61,26 +59,6 @@ const Skills: React.FC = () => {
         }
     }, [username, forceRefresh, t]);
 
-    const handleLevelUp = (id: number) => {
-        const skill = skills.find(s => String(s.id) === String(id));
-        if (skill && skill.level) {
-            // 将 level 转换为数字进行比较
-            const currentLevel = typeof skill.level === 'string' ? parseInt(skill.level, 10) : skill.level;
-            if (currentLevel < 100) {
-                const newLevel = Math.min(currentLevel + 5, 100);
-                const updates = {
-                    level: typeof skill.level === 'string' ? String(newLevel) : newLevel,
-                    lastUsed: t('pages.skills.time.justNow'),
-                    usageCount: (skill.usageCount || 0) + 1,
-                };
-
-                // 更新本地状态
-                updateItem(String(id), updates as any);
-
-                logger.info('[Skills] Level up skill:', id, updates);
-            }
-        }
-    };
 
     const listTitle = (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -93,28 +71,7 @@ const Skills: React.FC = () => {
                     loading={isLoading}
                     title={t('pages.skills.refresh')}
                 />
-                <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={async () => {
-                        // Scaffold a code-based skill on backend
-                        const defaultName = `skill_${Date.now()}`;
-                        try {
-                            const resp: any = await IPCWCClient.getInstance().sendRequest('skills.scaffold', { name: defaultName, kind: 'code' });
-                            if (resp?.status !== 'success') {
-                                // eslint-disable-next-line no-console
-                                console.warn('[Skills] scaffold code skill failed', resp);
-                            }
-                        } catch (e) {
-                            // eslint-disable-next-line no-console
-                            console.warn('[Skills] scaffold code skill exception', e);
-                        }
-                        setIsAddingNew(true);
-                        // Refresh list to include the new scaffold
-                        await fetchSkills();
-                    }}
-                    title={t('pages.skills.addSkill')}
-                />
+                {/* Add button removed - skills are created from skill_editor */}
             </Space>
         </div>
     );
@@ -147,7 +104,6 @@ const Skills: React.FC = () => {
                     <SkillDetails
                         skill={isAddingNew ? null : selectedSkill}
                         isNew={isAddingNew}
-                        onLevelUp={handleLevelUp}
                         onRefresh={handleRefresh}
                         onSave={handleSkillSave}
                         onCancel={() => setIsAddingNew(false)}

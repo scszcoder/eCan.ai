@@ -150,21 +150,34 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             actual_skill_id = result.get('id', skill_id)
             logger.info(f"Skill saved successfully: {skill_data['name']} (ID: {actual_skill_id})")
 
-            # Update memory
+            # Step 2: Update memory after database update succeeds
             _update_skill_in_memory(actual_skill_id, skill_data)
 
-            # Sync to cloud (fire and forget)
+            # Step 3: Clean up offline sync queue for this skill (remove pending add/update operations)
+            try:
+                from agent.cloud_api.offline_sync_queue import get_offline_sync_queue
+                sync_queue = get_offline_sync_queue()
+                # Remove any pending add operations (they're now redundant since we're updating)
+                removed_add = sync_queue.remove_tasks_by_resource('skill', actual_skill_id, operation='add')
+                # Remove any pending update operations (they're now redundant since we have a new update)
+                removed_update = sync_queue.remove_tasks_by_resource('skill', actual_skill_id, operation='update')
+                if removed_add + removed_update > 0:
+                    logger.info(f"[skill_handler] Removed {removed_add + removed_update} pending sync tasks for skill: {actual_skill_id}")
+            except Exception as e:
+                logger.warning(f"[skill_handler] Failed to clean offline sync queue: {e}")
+
+            # Step 4: Sync to cloud after memory update succeeds (async, fire and forget)
             skill_data_with_id = skill_data.copy()
             skill_data_with_id['id'] = actual_skill_id
             
-            # Step 1: Sync Agent-Skill relationship
+            # Sync Skill entity
             _trigger_cloud_sync(skill_data_with_id, Operation.UPDATE)
             
-            # Step 2: Sync Skill-Tool relationships (if changed)
+            # Sync Skill-Tool relationships (if changed)
             if 'tools' in skill_data:
                 _sync_skill_tool_relations(actual_skill_id, skill_data.get('tools', []), Operation.UPDATE)
             
-            # Step 3: Sync Skill-Knowledge relationships (if changed)
+            # Sync Skill-Knowledge relationships (if changed)
             if 'knowledges' in skill_data:
                 _sync_skill_knowledge_relations(actual_skill_id, skill_data.get('knowledges', []), Operation.UPDATE)
 
@@ -242,21 +255,21 @@ def handle_new_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]
 
             logger.info(f"Skill created successfully: {skill_data['name']} (ID: {skill_id})")
 
-            # Update memory
+            # Step 2: Update memory after database creation succeeds
             _update_skill_in_memory(skill_id, skill_data)
 
-            # Sync to cloud (fire and forget)
+            # Step 3: Sync to cloud after memory update succeeds (async, fire and forget)
             skill_data_with_id = skill_data.copy()
             skill_data_with_id['id'] = skill_id
             
-            # Step 1: Sync Agent-Skill relationship
+            # Sync Skill entity
             _trigger_cloud_sync(skill_data_with_id, Operation.ADD)
             
-            # Step 2: Sync Skill-Tool relationships
+            # Sync Skill-Tool relationships
             if 'tools' in skill_data:
                 _sync_skill_tool_relations(skill_id, skill_data.get('tools', []), Operation.ADD)
             
-            # Step 3: Sync Skill-Knowledge relationships
+            # Sync Skill-Knowledge relationships
             if 'knowledges' in skill_data:
                 _sync_skill_knowledge_relations(skill_id, skill_data.get('knowledges', []), Operation.ADD)
 
@@ -315,13 +328,13 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
         if not skill_service:
             return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
 
-        # Delete from database
+        # Step 1: Delete from database first
         result = skill_service.delete_skill(skill_id)
 
         if result.get('success'):
             logger.info(f"Skill deleted successfully from database: {skill_id}")
 
-            # Remove from memory
+            # Step 2: Remove from memory after database deletion succeeds
             try:
                 main_window = AppContext.get_main_window()
                 if main_window and hasattr(main_window, 'agent_skills'):
@@ -335,7 +348,17 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
             except Exception as e:
                 logger.warning(f"[skill_handler] Failed to remove skill from memory: {e}")
 
-            # Sync deletion to cloud (fire and forget)
+            # Step 3: Clean up offline sync queue for this skill
+            try:
+                from agent.cloud_api.offline_sync_queue import get_offline_sync_queue
+                sync_queue = get_offline_sync_queue()
+                removed_count = sync_queue.remove_tasks_by_resource('skill', skill_id)
+                if removed_count > 0:
+                    logger.info(f"[skill_handler] Removed {removed_count} pending sync tasks for skill: {skill_id}")
+            except Exception as e:
+                logger.warning(f"[skill_handler] Failed to clean offline sync queue: {e}")
+
+            # Step 4: Sync deletion to cloud after memory update (async, fire and forget)
             delete_skill_data = {
                 'id': skill_id,
                 'owner': username,
@@ -393,6 +416,7 @@ def _prepare_skill_data(skill_info: Dict[str, Any], username: str, skill_id: Opt
     Returns:
         Dict containing prepared skill data
     """
+   
     skill_data = {
         'name': skill_info.get('name', skill_info.get('skillName', 'Unnamed Skill')),
         'owner': username,
@@ -453,6 +477,7 @@ def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any]) -> bool:
         skill_obj.owner = skill_data['owner']
         skill_obj.description = skill_data['description']
         skill_obj.version = skill_data['version']
+        skill_obj.path = skill_data.get('path', '')
         skill_obj.config = skill_data.get('config', {})
         skill_obj.level = skill_data.get('level', 'entry')
 
@@ -615,3 +640,117 @@ def _sync_skill_knowledge_relations(skill_id: str, knowledge_ids: list, operatio
                 logger.error(f"[skill_handler] ❌ Failed to sync knowledge relation: {result.get('error')}")
         
         manager.sync_to_cloud_async(DataType.SKILL_KNOWLEDGE, relation_data, operation, callback=_log_result)
+
+
+def sync_skill_from_file(file_path: str) -> Dict[str, Any]:
+    """
+    Standard function to sync skill from file to database.
+    This function reads the skill JSON file and creates/updates the skill in database.
+    
+    Args:
+        file_path: Full path to the skill JSON file
+    
+    Returns:
+        Dict with success status and skill_id
+    """
+    import json
+    
+    try:
+        # Get username from AppContext
+        main_window = AppContext.get_main_window()
+        username = main_window.current_user if main_window and hasattr(main_window, 'current_user') else 'default'
+        
+        # Read skill data from file
+        with open(file_path, 'r', encoding='utf-8') as f:
+            skill_data = json.load(f)
+        
+        # Get skill service
+        skill_service = _get_skill_service()
+        if not skill_service:
+            return {'success': False, 'error': 'Database service not available'}
+        
+        # Check if skill exists by path
+        existing_skill = skill_service.get_skill_by_path(file_path)
+        
+        # Prepare skill data - only use fields that have values
+        skill_name = skill_data.get('name') or skill_data.get('skillName', 'Unnamed Skill')
+        
+        logger.info(f"[skill_handler] Syncing skill: {skill_name}, path: {file_path}")
+        
+        # Build minimal skill_info - only include fields with actual values
+        skill_info = {
+            'name': skill_name,
+            'path': file_path,
+        }
+        
+        # Add diagram field - check both 'diagram' and 'workFlow' for compatibility
+        diagram_data = None
+        if 'diagram' in skill_data and skill_data['diagram']:
+            diagram_data = skill_data['diagram']
+        elif 'workFlow' in skill_data and skill_data['workFlow']:
+            diagram_data = skill_data['workFlow']
+        
+        if diagram_data:
+            skill_info['diagram'] = diagram_data
+        
+        # Add other fields only if they have non-empty values
+        optional_fields = ['description', 'version', 'level', 'config', 'tags', 
+                          'examples', 'inputModes', 'outputModes', 'apps', 
+                          'limitations', 'price', 'price_model', 'public', 'rentable']
+        for field in optional_fields:
+            if field in skill_data and skill_data[field]:
+                skill_info[field] = skill_data[field]
+        
+        logger.debug(f"[skill_handler] Prepared skill_info with {len(skill_info)} fields")
+        
+        if existing_skill.get('success') and existing_skill.get('data'):
+            # Update existing skill
+            skill_id = existing_skill['data']['id']
+            logger.info(f"[skill_handler] Updating existing skill: {skill_name} (ID: {skill_id})")
+            
+            prepared_data = _prepare_skill_data(skill_info, username, skill_id)
+            logger.debug(f"[skill_handler] Prepared data for update: path={prepared_data.get('path')}")
+            result = skill_service.update_skill(skill_id, prepared_data)
+            
+            if result.get('success'):
+                # Update memory
+                _update_skill_in_memory(skill_id, prepared_data)
+                
+                # Sync to cloud
+                skill_data_with_id = prepared_data.copy()
+                skill_data_with_id['id'] = skill_id
+                _trigger_cloud_sync(skill_data_with_id, Operation.UPDATE)
+                
+                logger.info(f"[skill_handler] ✅ Skill updated successfully: {skill_name}")
+                return {'success': True, 'skill_id': skill_id, 'operation': 'update'}
+            else:
+                logger.error(f"[skill_handler] ❌ Failed to update skill: {result.get('error')}")
+                return {'success': False, 'error': result.get('error')}
+        else:
+            # Create new skill
+            logger.info(f"[skill_handler] Creating new skill: {skill_name}")
+            
+            prepared_data = _prepare_skill_data(skill_info, username, skill_id=None)
+            logger.debug(f"[skill_handler] Prepared data for create: path={prepared_data.get('path')}")
+            result = skill_service.add_skill(prepared_data)
+            
+            if result.get('success'):
+                skill_id = result.get('id')
+                
+                # Update memory
+                _update_skill_in_memory(skill_id, prepared_data)
+                
+                # Sync to cloud
+                skill_data_with_id = prepared_data.copy()
+                skill_data_with_id['id'] = skill_id
+                _trigger_cloud_sync(skill_data_with_id, Operation.ADD)
+                
+                logger.info(f"[skill_handler] ✅ Skill created successfully: {skill_name} (ID: {skill_id})")
+                return {'success': True, 'skill_id': skill_id, 'operation': 'create'}
+            else:
+                logger.error(f"[skill_handler] ❌ Failed to create skill: {result.get('error')}")
+                return {'success': False, 'error': result.get('error')}
+                
+    except Exception as e:
+        logger.error(f"[skill_handler] ❌ Error syncing skill from file: {e}")
+        return {'success': False, 'error': str(e)}

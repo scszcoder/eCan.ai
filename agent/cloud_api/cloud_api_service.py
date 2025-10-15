@@ -186,14 +186,30 @@ class CloudAPIService:
             }
             
         except Exception as e:
-            import traceback
-            logger.error(f"[CloudAPIService] Failed to sync {self.data_type}(s): {e}")
-            logger.error(f"[CloudAPIService] Traceback: {traceback.format_exc()}")
+            error_msg = str(e)
+            
+            # Check if this is a "returned null" error (server-side issue, not a code exception)
+            if 'returned null' in error_msg:
+                # This is a server-side null response, not a code exception
+                # Log friendly error without traceback
+                logger.error(f"[CloudAPIService] ❌ Cloud API returned null for {self.data_type}.{operation}")
+                logger.error(f"[CloudAPIService] This usually means:")
+                logger.error(f"   • Resource not found (for UPDATE/DELETE)")
+                logger.error(f"   • Resource already exists (for ADD)")
+                logger.error(f"   • Data validation failed on server")
+                logger.error(f"   • Permission denied")
+                logger.debug(f"[CloudAPIService] Error details: {error_msg}")
+            else:
+                # This is a real exception, log with traceback
+                import traceback
+                logger.error(f"[CloudAPIService] ❌ Exception during sync {self.data_type}(s): {error_msg}")
+                logger.error(f"[CloudAPIService] Traceback: {traceback.format_exc()}")
+            
             return {
                 'success': False,
                 'synced': 0,
                 'failed': len(local_items),
-                'errors': [str(e)]
+                'errors': [error_msg]
             }
     
     def _prepare_delete_items(self, cloud_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
