@@ -1,4 +1,4 @@
-import runningGif from '/src/assets/gifs/running0.gif';
+import runningGif from '/src/assets/gifs/red_running0.gif';
 import styles from './index.module.less';
 
 export const RunningIndicator = () => {
