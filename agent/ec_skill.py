@@ -354,7 +354,7 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         attempts = 0
         last_exc = None
         result = None
-        logger.debug("node_builder called on::", node_fn)
+        logger.info(f"[node_builder] ENTERING node={node_name}, skill={skill_name}")
         runtime.context["this_node"] = {"name": node_name, "skill_name": skill_name, "owner": owner}
 
         # Apply node-level state->state mapping (if provided in state)
@@ -552,6 +552,34 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                         logger.info(f"Breakpoint hit at node: {node_name}. Pausing before execution.")
                         interrupt({"paused_at": node_name, "i_tag": node_name, "state": _safe_state_view(state)})
 
+        # Send running status to frontend before executing node
+        # This must be OUTSIDE the retry loop and AFTER breakpoint checks
+        try:
+            from gui.ipc.api import IPCAPI
+            import time as time_mod
+            ipc = IPCAPI.get_instance()
+            # Get run_id from runtime context if available
+            run_id = "dev_run_singleton"  # default for dev runs
+            try:
+                run_id = runtime.context.get("run_id", "dev_run_singleton")
+            except Exception:
+                pass
+            logger.info(f"[SIM][node_builder] sending running status for node={node_name}, run_id={run_id}")
+            ipc.update_run_stat(
+                agent_task_id=run_id,
+                current_node=node_name,
+                status="running",
+                langgraph_state=state,
+                timestamp=int(time_mod.time() * 1000)
+            )
+            logger.info(f"[SIM][node_builder] status update sent successfully for node={node_name}")
+            # Small delay to ensure frontend receives the message before node completes
+            time_mod.sleep(0.05)
+        except Exception as ex:
+            import traceback
+            logger.error(f"[node_builder] Failed to send running status for {node_name}: {ex}")
+            logger.error(f"[node_builder] Traceback: {traceback.format_exc()}")
+            pass
 
         # Execute the node function with retry logic
         while attempts < retries:
