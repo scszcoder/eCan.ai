@@ -35,8 +35,8 @@ class DBAgent(BaseModel, TimestampMixin, ExtensibleMixin):
     supervisor_id = Column(String(64), ForeignKey('agents.id'), nullable=True)
 
     # Agent characteristics
-    personality_traits = Column(JSON)  # List[str] - personality traits
-    capabilities = Column(JSON)        # List[str] - agent capabilities
+    personalities = Column(JSON)  # List[str] - personality traits (concise naming)
+    capabilities = Column(JSON)   # List[str] - agent capabilities
 
     # Agent configuration
     status = Column(String(32), default='active')    # active, inactive, suspended
@@ -56,7 +56,7 @@ class DBAgent(BaseModel, TimestampMixin, ExtensibleMixin):
         d = super().to_dict()
         
         # Parse JSON string fields back to arrays/objects for frontend
-        json_fields = ['personality_traits', 'title', 'tasks', 'skills', 'extra_data']
+        json_fields = ['personalities', 'title', 'tasks', 'skills', 'extra_data']  # Use personalities (unified naming)
         for field in json_fields:
             if field in d and isinstance(d[field], str):
                 try:

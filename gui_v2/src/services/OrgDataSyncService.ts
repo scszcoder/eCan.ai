@@ -140,11 +140,9 @@ class OrgDataSyncService {
                 defaultInputModes: [],
                 defaultOutputModes: [],
             },
-            supervisors: [],
-            subordinates: [],
-            peers: [],
+            supervisor_id: agent.supervisor_id || '',
             rank: 'member' as const,
-            orgIds: agent.org_id ? [String(agent.org_id)] : [],
+            org_id: agent.org_id || '',
             job_description: agent.description || '',
             personalities: [],
         }));

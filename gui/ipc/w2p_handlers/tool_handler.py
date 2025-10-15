@@ -157,3 +157,36 @@ def handle_delete_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             'LOGIN_ERROR',
             f"Error during delete tools: {str(e)}"
         )
+
+
+# ============================================================================
+# Cloud Synchronization Functions
+# ============================================================================
+
+
+def _trigger_cloud_sync(tool_data: Dict[str, Any], operation: 'Operation') -> None:
+    """Trigger cloud synchronization (async, non-blocking)
+    
+    Async background execution, doesn't block UI operations, ensures eventual consistency.
+    
+    Args:
+        tool_data: Tool data to sync
+        operation: Operation type (Operation enum)
+    """
+    from agent.cloud_api.offline_sync_manager import get_sync_manager
+    from agent.cloud_api.constants import DataType, Operation
+    
+    def _log_result(result: Dict[str, Any]):
+        """Log sync result"""
+        if result.get('synced'):
+            logger.info(f"[tool_handler] ✅ Tool synced to cloud: {operation} - {tool_data.get('name')}")
+        elif result.get('cached'):
+            logger.info(f"[tool_handler] 💾 Tool cached for later sync: {operation} - {tool_data.get('name')}")
+        elif not result.get('success'):
+            logger.error(f"[tool_handler] ❌ Failed to sync tool: {result.get('error')}")
+    
+    # Use SyncManager's thread pool for async execution
+    # Note: Use TOOL for Tool entity data (name, description, etc.)
+    #       Use AGENT_TOOL for Agent-Tool relationship data (agid, tool_id, owner)
+    manager = get_sync_manager()
+    manager.sync_to_cloud_async(DataType.TOOL, tool_data, operation, callback=_log_result)

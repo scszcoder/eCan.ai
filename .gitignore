@@ -37,3 +37,4 @@ gui_v2/coverage/
 .build_cache
 /webdrivers/
 /build_system/version_info.txt
+/offline_sync_queue/

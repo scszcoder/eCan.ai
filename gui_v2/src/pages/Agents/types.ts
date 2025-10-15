@@ -18,11 +18,11 @@ export interface AgentCard {
 
 export interface Agent {
     card: AgentCard;
-    supervisors: string[];
-    subordinates: string[];
-    peers: string[];
+    supervisor_id: string;  // Single supervisor ID (unified naming)
     rank: string;
-    orgIds: string[];  // camelCase for TypeScript/JavaScript standard
+    org_id: string;  // Single organization ID (unified naming)
     job_description: string;
     personalities: string[];
+    // Note: subordinates can be queried via supervisor_id reverse lookup, no need to store
+    // Note: peers relationship not yet implemented, no need to store
 }

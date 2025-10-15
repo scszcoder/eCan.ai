@@ -18,8 +18,23 @@ from aiolimiter import AsyncLimiter
 limiter = AsyncLimiter(1, 1)  # Max 5 requests per second
 
 ecb_data_homepath = getECBotDataHome()
-# Constants Copied from AppSync API 'Settings'
-API_URL = 'https://w3lhm34x5jgxlbpr7zzxx7ckqq.appsync-api.ap-southeast-2.amazonaws.com/graphql'
+
+
+def get_appsync_endpoint() -> str:
+    """
+    Get AppSync API endpoint URL (common method)
+    
+    Priority:
+    Return corresponding endpoint based on API_DEV_MODE
+    
+    Returns:
+        AppSync API endpoint URL
+    """
+    # Return default endpoint based on development mode
+    if API_DEV_MODE:
+        return "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
+    else:
+        return "https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql"
 
 
 #resp is the response from requesting the presigned_url
@@ -2116,18 +2131,21 @@ def download_file(session, datahome, f2dl, source, token, endpoint, ftype="gener
 #     res = send_file_op_request_to_cloud(session, fopreqs, token, endpoint)
 #     logger_helper.debug("cloud response: "+json.dumps(res['body']))
 
-def appsync_http_request(query_string, session, token, endpoint):
+def appsync_http_request(query_string, session, token, endpoint=None, timeout=180):
     """
     Send AppSync GraphQL request with authentication.
     Supports both Cognito User Pool tokens and Google ID tokens.
-    """
-    if API_DEV_MODE:
-        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
-    else:
-        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     
+    Args:
+        query_string: GraphQL query string
+        session: requests.Session object
+        token: Authentication token
+        endpoint: API endpoint URL (optional, will use get_appsync_endpoint() if not provided)
+        timeout: Request timeout in seconds (default: 180)
+    """
+    # 如果没有提供 endpoint，使用通用方法获取
     if not endpoint:
-        endpoint = APPSYNC_API_ENDPOINT_URL
+        endpoint = get_appsync_endpoint()
 
     headers = {
         'Content-Type': "application/graphql",
@@ -2136,11 +2154,11 @@ def appsync_http_request(query_string, session, token, endpoint):
     }
 
     try:
-        # Send the request
+        # Send the request with configurable timeout
         response = session.request(
             url=endpoint,
             method='POST',
-            timeout=1200,
+            timeout=timeout,
             headers=headers,
             json={'query': query_string}
         )

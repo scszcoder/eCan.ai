@@ -75,7 +75,7 @@ def set_up_ec_tester_agent(mainwin):
             llm=browser_use_llm,
             task="",
             card=agent_card,
-            skill_set=skills_for_card,
+            skills=skills_for_card,
             tasks=[t for t in [chatter_task, worker_task, dev_run_task] if t is not None]
         )
 

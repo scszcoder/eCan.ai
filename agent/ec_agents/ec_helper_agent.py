@@ -63,7 +63,7 @@ def set_up_ec_helper_agent(mainwin):
         try:
             helper = EC_Agent(
                 mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="",
-                card=agent_card, skill_set=valid_skills, tasks=[worker_task, chatter_task]
+                card=agent_card, skills=valid_skills, tasks=[worker_task, chatter_task]
             )
         except RuntimeError as re:
             logger.error(f"Warning: browser_use resource loading failed in PyInstaller environment: {re}")

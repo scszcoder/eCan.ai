@@ -130,7 +130,7 @@ class DBAgentService(BaseService):
                     'gender': str,  # 'gender_options.male' etc
                     'birthday': str,
                     'title': list or str,
-                    'personality_traits': list,  # personality traits
+                    'personalities': list,  # personality traits
                     'supervisor_id': str,  # single supervisor ID
                     'org_id': str,  # organization ID
                     'tasks': list,  # [task_id, ...]
@@ -172,7 +172,7 @@ class DBAgentService(BaseService):
             title_data = agent_data.get('title', [])
             title = ','.join(title_data) if isinstance(title_data, list) else str(title_data) if title_data else ''
             supervisor_id = agent_data.get('supervisor_id') or None
-            personality_traits = agent_data.get('personality_traits', [])
+            personalities = agent_data.get('personalities', [])
             description = agent_data.get('description', '')
             frontend_extra_data = agent_data.get('extra_data', '')
 
@@ -195,7 +195,7 @@ class DBAgentService(BaseService):
                 gender=gender,
                 birthday=agent_data.get('birthday', ''),
                 title=title,
-                personality_traits=personality_traits,
+                personalities=personalities,
                 supervisor_id=supervisor_id,
                 status='active',
                 extra_data=extra_data
@@ -1101,7 +1101,7 @@ class DBAgentService(BaseService):
             logger.debug(f"[DBAgentService] update_agent called with fields: {list(data.keys())}")
             
             # List of fields that should be stored as JSON strings
-            json_fields = ['personality_traits', 'tasks', 'skills', 'org_ids']
+            json_fields = ['personalities', 'tasks', 'skills']
             
             for field in json_fields:
                 if field in processed_data:
@@ -1191,7 +1191,7 @@ class DBAgentService(BaseService):
                 # Fields that should not be set on DBAgent model (handled separately)
                 # Note: vehicle_id is now a direct DBAgent field (agent deployment location)
                 # but we still handle it separately for task relationships
-                relationship_fields = {'skills', 'tasks', 'org_id', 'org_ids'}
+                relationship_fields = {'skills', 'tasks', 'org_id'}
                 
                 # Update agent fields with processed data (excluding relationship fields)
                 for key, value in processed_data.items():

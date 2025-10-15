@@ -25,8 +25,8 @@ class DBAgentOrgRel(BaseModel, TimestampMixin):
     id = Column(String(64), primary_key=True, default=lambda: f"rel_ao_{uuid.uuid4().hex[:16]}")
 
     # Foreign keys
-    agent_id = Column(String(64), ForeignKey('agents.id'), nullable=False)
-    org_id = Column(String(64), ForeignKey('agent_orgs.id'), nullable=False)
+    agent_id = Column(String(64), ForeignKey('agents.id', ondelete='CASCADE'), nullable=False)
+    org_id = Column(String(64), ForeignKey('agent_orgs.id', ondelete='CASCADE'), nullable=False)
 
     # Association metadata
     role = Column(String(64), default='member')          # member, manager, admin, owner
@@ -66,8 +66,8 @@ class DBAgentSkillRel(BaseModel, TimestampMixin):
     id = Column(String(64), primary_key=True, default=lambda: f"rel_as_{uuid.uuid4().hex[:16]}")
 
     # Foreign keys
-    agent_id = Column(String(64), ForeignKey('agents.id'), nullable=False)
-    skill_id = Column(String(64), ForeignKey('agent_skills.id'), nullable=False)
+    agent_id = Column(String(64), ForeignKey('agents.id', ondelete='CASCADE'), nullable=False)
+    skill_id = Column(String(64), ForeignKey('agent_skills.id', ondelete='CASCADE'), nullable=False)
 
     # Skill proficiency and experience
     proficiency_level = Column(String(32), default='beginner')  # beginner, intermediate, advanced, expert
@@ -112,9 +112,9 @@ class DBAgentTaskRel(BaseModel, TimestampMixin):
     id = Column(String(64), primary_key=True, default=lambda: f"rel_at_{uuid.uuid4().hex[:16]}")
 
     # Foreign keys
-    agent_id = Column(String(64), ForeignKey('agents.id'), nullable=False)
-    task_id = Column(String(64), ForeignKey('agent_tasks.id'), nullable=False)
-    vehicle_id = Column(String(64), ForeignKey('agent_vehicles.id'), nullable=True)
+    agent_id = Column(String(64), ForeignKey('agents.id', ondelete='CASCADE'), nullable=False)
+    task_id = Column(String(64), ForeignKey('agent_tasks.id', ondelete='CASCADE'), nullable=False)
+    vehicle_id = Column(String(64), ForeignKey('agent_vehicles.id', ondelete='SET NULL'), nullable=True)
 
     # Execution status and state
     status = Column(String(32), default='pending')       # pending, running, completed, failed, cancelled, paused
@@ -188,8 +188,8 @@ class DBSkillToolRel(BaseModel, TimestampMixin):
     id = Column(String(64), primary_key=True, default=lambda: f"rel_st_{uuid.uuid4().hex[:16]}")
 
     # Foreign keys
-    skill_id = Column(String(64), ForeignKey('agent_skills.id'), nullable=False)
-    tool_id = Column(String(64), ForeignKey('agent_tools.id'), nullable=False)
+    skill_id = Column(String(64), ForeignKey('agent_skills.id', ondelete='CASCADE'), nullable=False)
+    tool_id = Column(String(64), ForeignKey('agent_tools.id', ondelete='CASCADE'), nullable=False)
 
     # Dependency metadata
     dependency_type = Column(String(32), default='required')    # required, optional, recommended
@@ -236,8 +236,8 @@ class DBAgentSkillKnowledgeRel(BaseModel, TimestampMixin):
     id = Column(String(64), primary_key=True, default=lambda: f"rel_sk_{uuid.uuid4().hex[:16]}")
 
     # Foreign keys
-    skill_id = Column(String(64), ForeignKey('agent_skills.id'), nullable=False)
-    knowledge_id = Column(String(64), ForeignKey('agent_knowledges.id'), nullable=False)
+    skill_id = Column(String(64), ForeignKey('agent_skills.id', ondelete='CASCADE'), nullable=False)
+    knowledge_id = Column(String(64), ForeignKey('agent_knowledges.id', ondelete='CASCADE'), nullable=False)
 
     # Dependency metadata
     dependency_type = Column(String(32), default='required')    # required, optional, recommended
@@ -284,8 +284,8 @@ class DBAgentTaskSkillRel(BaseModel, TimestampMixin):
     id = Column(String(64), primary_key=True, default=lambda: f"rel_ts_{uuid.uuid4().hex[:16]}")
 
     # Foreign keys
-    task_id = Column(String(64), ForeignKey('agent_tasks.id'), nullable=False)
-    skill_id = Column(String(64), ForeignKey('agent_skills.id'), nullable=False)
+    task_id = Column(String(64), ForeignKey('agent_tasks.id', ondelete='CASCADE'), nullable=False)
+    skill_id = Column(String(64), ForeignKey('agent_skills.id', ondelete='CASCADE'), nullable=False)
 
     # Skill role in task
     role = Column(String(32), default='primary')                # primary, secondary, optional, fallback

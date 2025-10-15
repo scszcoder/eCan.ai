@@ -6,6 +6,7 @@ if TYPE_CHECKING:
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
+from agent.cloud_api.constants import Operation
 
 from utils.logger_helper import logger_helper as logger
 
@@ -295,6 +296,17 @@ def handle_save_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]
             # Update memory
             _update_agent_task_in_memory(actual_agent_task_id, agent_task_data)
 
+            # Sync to cloud (fire and forget)
+            task_data_with_id = agent_task_data.copy()
+            task_data_with_id['id'] = actual_agent_task_id
+            
+            # Step 1: Sync Agent-Task relationship
+            _trigger_cloud_sync(task_data_with_id, Operation.UPDATE)
+            
+            # Step 2: Sync Task-Skill relationships (if changed)
+            if 'skills' in agent_task_data:
+                _sync_task_skill_relations(actual_agent_task_id, agent_task_data.get('skills', []), Operation.UPDATE)
+
             # Create clean response
             clean_agent_task_data = _create_clean_agent_task_response(actual_agent_task_id, agent_task_data)
 
@@ -373,6 +385,17 @@ def handle_new_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
             # Update memory
             _update_agent_task_in_memory(agent_task_id, agent_task_data)
 
+            # Sync to cloud (fire and forget)
+            task_data_with_id = agent_task_data.copy()
+            task_data_with_id['id'] = agent_task_id
+            
+            # Step 1: Sync Agent-Task relationship
+            _trigger_cloud_sync(task_data_with_id, Operation.ADD)
+            
+            # Step 2: Sync Task-Skill relationships
+            if 'skills' in agent_task_data:
+                _sync_task_skill_relations(agent_task_id, agent_task_data.get('skills', []), Operation.ADD)
+
             # Create clean response
             clean_agent_task_data = _create_clean_agent_task_response(agent_task_id, agent_task_data)
 
@@ -448,6 +471,14 @@ def handle_delete_agent_task(request: IPCRequest, params: Optional[Dict[str, Any
             except Exception as e:
                 logger.warning(f"[task_handler] Failed to remove agent task from memory: {e}")
 
+            # Sync deletion to cloud (fire and forget)
+            delete_task_data = {
+                'id': agent_task_id,
+                'owner': username,
+                'name': f"Task_{agent_task_id}"  # Placeholder name for deletion
+            }
+            _trigger_cloud_sync(delete_task_data, Operation.DELETE)
+
             return create_success_response(request, {
                 'message': 'Delete agent task successful',
                 'task_id': agent_task_id
@@ -467,3 +498,75 @@ def handle_delete_agent_task(request: IPCRequest, params: Optional[Dict[str, Any
             'DELETE_TASK_ERROR',
             f"Error during delete task: {str(e)}"
         )
+
+
+# ============================================================================
+# Cloud Synchronization Functions
+# ============================================================================
+
+
+def _trigger_cloud_sync(task_data: Dict[str, Any], operation: 'Operation') -> None:
+    """Trigger cloud synchronization (async, non-blocking)
+    
+    Async background execution, doesn't block UI operations, ensures eventual consistency.
+    
+    Args:
+        task_data: Task data to sync
+        operation: Operation type (Operation enum)
+    """
+    from agent.cloud_api.offline_sync_manager import get_sync_manager
+    from agent.cloud_api.constants import DataType
+    
+    def _log_result(result: Dict[str, Any]):
+        """Log sync result"""
+        if result.get('synced'):
+            logger.info(f"[task_handler] ✅ Task synced to cloud: {operation} - {task_data.get('name')}")
+        elif result.get('cached'):
+            logger.info(f"[task_handler] 💾 Task cached for later sync: {operation} - {task_data.get('name')}")
+        elif not result.get('success'):
+            logger.error(f"[task_handler] ❌ Failed to sync task: {result.get('error')}")
+    
+    # Use SyncManager's thread pool for async execution
+    # Note: Use TASK for Task entity data (name, description, etc.)
+    #       Use AGENT_TASK for Agent-Task relationship data (agid, task_id, owner)
+    manager = get_sync_manager()
+    manager.sync_to_cloud_async(DataType.TASK, task_data, operation, callback=_log_result)
+
+
+def _sync_task_skill_relations(task_id: str, skill_ids: list, operation: 'Operation') -> None:
+    """Sync Task-Skill relationships to cloud (async, non-blocking)
+    
+    Args:
+        task_id: Task ID
+        skill_ids: List of skill IDs
+        operation: Operation type (ADD/UPDATE/DELETE)
+    """
+    if not skill_ids:
+        return
+    
+    from agent.cloud_api.offline_sync_manager import get_sync_manager
+    from agent.cloud_api.constants import DataType
+    from app_context import AppContext
+    
+    manager = get_sync_manager()
+    main_window = AppContext.get_main_window()
+    owner = main_window.current_user if main_window else 'unknown'
+    
+    logger.info(f"[task_handler] Syncing {len(skill_ids)} skill relationships for task: {task_id}")
+    
+    for skill_id in skill_ids:
+        relation_data = {
+            'task_id': task_id,
+            'skill_id': skill_id,
+            'owner': owner
+        }
+        
+        def _log_result(result: Dict[str, Any]):
+            if result.get('synced'):
+                logger.info(f"[task_handler] ✅ Skill relation synced: {skill_id}")
+            elif result.get('cached'):
+                logger.info(f"[task_handler] 💾 Skill relation cached: {skill_id}")
+            elif not result.get('success'):
+                logger.error(f"[task_handler] ❌ Failed to sync skill relation: {result.get('error')}")
+        
+        manager.sync_to_cloud_async(DataType.TASK_SKILL, relation_data, operation, callback=_log_result)

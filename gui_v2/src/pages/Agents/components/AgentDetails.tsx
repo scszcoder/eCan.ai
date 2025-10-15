@@ -18,18 +18,18 @@ interface AgentDetailsForm {
   gender?: Gender;
   birthday?: Dayjs | null;
   owner?: string;
-  personality_traits?: string[];
+  personalities?: string[];  // Unified naming: personality_traits → personalities
   title?: string[];
-  org_id?: string; // 组织ID（单选）
-  supervisor_id?: string; // 上级ID（单选）
+  org_id?: string; // Organization ID (single selection)
+  supervisor_id?: string; // Supervisor ID (single selection)
   tasks?: string[];
   skills?: string[];
   vehicle_id?: string | null;
-  description?: string; // Agent描述
-  extra_data?: string; // 额外数据/备注
+  description?: string; // Agent description
+  extra_data?: string; // Extra data/notes
 }
 
-// 预定义的性格特征选项（使用国际化 key）
+// Predefined personality trait options (using i18n keys)
 const knownPersonalities = [
   'personality.friendly',
   'personality.analytical',
@@ -389,10 +389,10 @@ const AgentDetails: React.FC = () => {
             gender: agent.gender || 'gender_options.male',
             birthday: agent.birthday ? dayjs(agent.birthday) : null,
             owner: agent.owner || username,
-            personality_traits: agent.personality_traits || agent.personalities || [],
+            personalities: agent.personalities || [],  // Use personalities (unified naming)
             title: agent.title || [],
             org_id: orgId,
-            supervisor_id: agent.supervisor_id || (Array.isArray(agent.supervisors) && agent.supervisors.length > 0 ? agent.supervisors[0] : ''),
+            supervisor_id: agent.supervisor_id || '',
             tasks: taskNames,
             skills: skillNames,
             vehicle_id: agent.vehicle_id || agent.vehicle || localVehicleId || '',
@@ -431,29 +431,29 @@ const AgentDetails: React.FC = () => {
         // 使用 setTimeout 延迟设置，确保在下一个事件循环中执行
         const timeoutId = setTimeout(() => {
           try {
-            // 创建完全独立的初始值对象，避免任何可能的引用
+            // Create completely independent initial values object to avoid any possible references
             const initialValues: Partial<AgentDetailsForm> = {
               id: '',
               name: '',
               gender: 'gender_options.male' as Gender,
               birthday: dayjs(),
               owner: username || t('common.owner') || 'owner',
-              personality_traits: [], // 新数组
-              title: [], // 新数组
+              personalities: [], // Use personalities (unified naming)
+              title: [], // New array
               org_id: defaultOrgId || '',
               supervisor_id: '',
-              tasks: [], // 新数组
-              skills: [], // 新数组
+              tasks: [], // New array
+              skills: [], // New array
               vehicle_id: localVehicleId || '',
               description: '',
               extra_data: ''
             };
 
-            // 使用 setFieldsValue 一次性设置所有值
+            // Use setFieldsValue to set all values at once
             form.setFieldsValue(initialValues);
             setEditMode(true);
 
-            // 设置选中的组织
+            // Set selected organization
             if (defaultOrgId) {
               setSelectedOrgId(defaultOrgId);
             }
@@ -462,30 +462,30 @@ const AgentDetails: React.FC = () => {
           }
         }, 0);
 
-        // 清理函数
+        // Cleanup function
         return () => clearTimeout(timeoutId);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNew, defaultOrgId, organizationTreeData.length, username, localVehicleId]);
 
-  // 监听 defaultOrgId 变化，确保 selectedOrgId 同步更新
+  // Monitor defaultOrgId changes to ensure selectedOrgId is synchronized
   useEffect(() => {
     if (isNew && defaultOrgId && selectedOrgId !== defaultOrgId && organizationTreeData.length > 0) {
       setSelectedOrgId(defaultOrgId);
-      // 同时更新表单字段
+      // Also update form field
       form.setFieldValue('org_id', defaultOrgId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultOrgId, isNew, selectedOrgId, organizationTreeData.length]);
 
-  // 获取上级候选数据（当前组织及父级组织的agents）
+  // Get supervisor candidates (agents from current and parent organizations)
   useEffect(() => {
     const fetchAgentsForSupervisor = async () => {
       if (!treeOrgs || treeOrgs.length === 0) return;
       
       try {
-        // 获取当前选中组织的agents
+        // Get agents from currently selected organization
         const currentOrgId = form.getFieldValue('org_id') || defaultOrgId;
         
         if (!currentOrgId) {
@@ -493,9 +493,9 @@ const AgentDetails: React.FC = () => {
           return;
         }
         
-        const currentOrgIds = [currentOrgId]; // 转为数组以兼容后续逻辑
+        const currentOrgIds = [currentOrgId]; // Convert to array for compatibility with subsequent logic
         
-        // 查找组织节点并返回从根到目标节点的路径（只返回 id 和 name，避免循环引用）
+        // Find organization node and return path from root to target node (only return id and name to avoid circular references)
         const findOrgPath = (node: any, targetId: string, path: Array<{id: string, name: string}> = []): Array<{id: string, name: string}> | null => {
           const simplifiedNode = { id: node.id, name: node.name };
           const currentPath = [...path, simplifiedNode];
@@ -987,7 +987,7 @@ const AgentDetails: React.FC = () => {
                 gender: updatedAgent.gender || 'gender_options.male',
                 birthday: updatedAgent.birthday ? dayjs(updatedAgent.birthday) : null,
                 owner: updatedAgent.owner || username,
-                personality_traits: updatedAgent.personality_traits || updatedAgent.personalities || [],
+                personalities: updatedAgent.personalities || [],  // ✅ 统一使用 personalities
                 title: updatedAgent.title || [],
                 org_id: updatedAgent.org_id || '',
                 supervisor_id: updatedAgent.supervisor_id || '',
@@ -1261,7 +1261,7 @@ const AgentDetails: React.FC = () => {
               {/* 第七行：Personality 和 Title */}
               <Col span={12}>
                 <StyledFormItem
-                  name="personality_traits"
+                  name="personalities"
                   label={t('pages.agents.personality') || 'Personality'}
                   htmlFor="agent-personality"
                 >
@@ -1400,10 +1400,10 @@ const AgentDetails: React.FC = () => {
                         gender: agent.gender || 'gender_options.male',
                         birthday: agent.birthday ? dayjs(agent.birthday) : null,
                         owner: agent.owner || username,
-                        personality_traits: agent.personality_traits || agent.personalities || [],
+                        personalities: agent.personalities || [],  // Use personalities (unified naming)
                         title: agent.title || [],
                         org_id: orgId,
-                        supervisor_id: agent.supervisor_id || (Array.isArray(agent.supervisors) && agent.supervisors.length > 0 ? agent.supervisors[0] : ''),
+                        supervisor_id: agent.supervisor_id || '',
                         tasks: agent.tasks || [],
                         skills: agent.skills || [],
                         vehicle_id: agent.vehicle_id || agent.vehicle || localVehicleId || '',
