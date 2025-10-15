@@ -5,7 +5,8 @@
 
 import styled from 'styled-components';
 import { IconInfoCircle, IconCode } from '@douyinfe/semi-icons';
-import runningGif from '/src/assets/gifs/running0.gif';
+// import runningGif from '/src/assets/gifs/running0.gif';
+import runningGif from '/src/assets/gifs/red_running0.gif';
 
 export const RunningIcon = styled.div`
   display: none; // Hidden by default
@@ -13,9 +14,11 @@ export const RunningIcon = styled.div`
   top: 4px;
   left: 50%;
   transform: translateX(-50%);
-  width: 32px;
-  height: 32px;
+  width: 64px;
+  height: 48px;
   background-image: url(${runningGif});
+  background-repeat: no-repeat;
+  background-position: center center;
   background-size: contain;
   z-index: 10;
 `;
