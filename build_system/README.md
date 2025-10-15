@@ -51,21 +51,19 @@ config/
 - Component-based logging
 - No external dependencies
 - Used only during build
-
 **Runtime Logging** (`utils/logger_helper.py`):
 - Rich logging with colors, crash handling
 - Application-focused features
 - Used only by running application
 
-### 4. Configuration
+### 4.## S3 Upload Documentation
 
-**Build Configuration** (`build_system/build_config.json`):
-- PyInstaller settings
-- Data files to package
-- Platform-specific options
+### Quick Links
 
-**Runtime Configuration** (`config/`):
-- Application settings
+- **[Quick Fix](./docs/QUICK_FIX.md)** - Fix "Access Denied" error immediately
+- **[Troubleshooting](./docs/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[S3 Setup Guide](./docs/AWS_S3_RELEASE_SETUP.md)** - Complete AWS S3 configuration
+- **[Appcast Management](./docs/APPCAST_MANAGEMENT.md)** - OTA update management
 - User preferences
 - Runtime constants
 

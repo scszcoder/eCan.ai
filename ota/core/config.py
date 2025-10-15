@@ -17,6 +17,9 @@ class OTAConfig:
     # 常量定义
     DEFAULT_LOCAL_SERVER_URL = "http://127.0.0.1:8080"
     DEFAULT_REMOTE_SERVER_URL = "https://updates.ecbot.com"
+    # S3 配置 - 需要在 GitHub Secrets 中设置 S3_BUCKET
+    DEFAULT_S3_BUCKET = "ecbot-updates"  # 默认 bucket 名称，可以通过环境变量覆盖
+    DEFAULT_S3_REGION = "us-east-1"
     
     def __init__(self):
         self.config_file = self._get_config_path()
@@ -42,10 +45,11 @@ class OTAConfig:
             "platforms": {
                 "darwin": {
                     "framework_path": "/Applications/ECBot.app/Contents/Frameworks/Sparkle.framework",
-                    "appcast_url": "https://scszcoder.github.io/ecbot/appcast-macos.xml",
+                    # S3 作为更新源
+                    "appcast_url": f"https://{self.DEFAULT_S3_BUCKET}.s3.{self.DEFAULT_S3_REGION}.amazonaws.com/appcast/appcast-macos.xml",
                     "appcast_urls": {
-                        "amd64": "https://scszcoder.github.io/ecbot/appcast-macos-amd64.xml",
-                        "aarch64": "https://scszcoder.github.io/ecbot/appcast-macos-aarch64.xml"
+                        "amd64": f"https://{self.DEFAULT_S3_BUCKET}.s3.{self.DEFAULT_S3_REGION}.amazonaws.com/appcast/appcast-macos-amd64.xml",
+                        "aarch64": f"https://{self.DEFAULT_S3_BUCKET}.s3.{self.DEFAULT_S3_REGION}.amazonaws.com/appcast/appcast-macos-aarch64.xml"
                     },
                     "local_appcast_url": f"{self.DEFAULT_LOCAL_SERVER_URL}/appcast.xml",
                     "local_appcast_urls": {
@@ -55,10 +59,11 @@ class OTAConfig:
                 },
                 "windows": {
                     "dll_path": "winsparkle.dll",
-                    "appcast_url": "https://scszcoder.github.io/ecbot/appcast-windows.xml",
+                    # S3 作为更新源
+                    "appcast_url": f"https://{self.DEFAULT_S3_BUCKET}.s3.{self.DEFAULT_S3_REGION}.amazonaws.com/appcast/appcast-windows.xml",
                     "appcast_urls": {
-                        "amd64": "https://scszcoder.github.io/ecbot/appcast-windows-amd64.xml",
-                        "aarch64": "https://scszcoder.github.io/ecbot/appcast-windows-aarch64.xml"
+                        "amd64": f"https://{self.DEFAULT_S3_BUCKET}.s3.{self.DEFAULT_S3_REGION}.amazonaws.com/appcast/appcast-windows-amd64.xml",
+                        "aarch64": f"https://{self.DEFAULT_S3_BUCKET}.s3.{self.DEFAULT_S3_REGION}.amazonaws.com/appcast/appcast-windows-aarch64.xml"
                     },
                     "local_appcast_url": f"{self.DEFAULT_LOCAL_SERVER_URL}/appcast.xml",
                     "local_appcast_urls": {
@@ -69,10 +74,11 @@ class OTAConfig:
                 "linux": {
                     "api_url": "https://updates.ecbot.com/api",
                     "download_dir": "/tmp/ecbot_updates",
-                    "appcast_url": "https://scszcoder.github.io/ecbot/appcast-linux.xml",
+                    # S3 作为更新源
+                    "appcast_url": f"https://{self.DEFAULT_S3_BUCKET}.s3.{self.DEFAULT_S3_REGION}.amazonaws.com/appcast/appcast-linux.xml",
                     "appcast_urls": {
-                        "amd64": "https://scszcoder.github.io/ecbot/appcast-linux-amd64.xml",
-                        "aarch64": "https://scszcoder.github.io/ecbot/appcast-linux-aarch64.xml"
+                        "amd64": f"https://{self.DEFAULT_S3_BUCKET}.s3.{self.DEFAULT_S3_REGION}.amazonaws.com/appcast/appcast-linux-amd64.xml",
+                        "aarch64": f"https://{self.DEFAULT_S3_BUCKET}.s3.{self.DEFAULT_S3_REGION}.amazonaws.com/appcast/appcast-linux-aarch64.xml"
                     },
                     "local_appcast_url": f"{self.DEFAULT_LOCAL_SERVER_URL}/appcast.xml",
                     "local_appcast_urls": {

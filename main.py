@@ -311,6 +311,9 @@ try:
 
         progress_manager.update_progress(85, "Finalizing setup...")
         ctx.set_web_gui(web_gui)
+        
+        # Set UI references for login controller (WebGUI is the "login window")
+        login.set_ui_references(login_window=web_gui, login_progress_dialog=None)
         logger.info("WebGUI setup completed")
 
         # Finish splash screen

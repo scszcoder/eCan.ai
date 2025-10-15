@@ -37,7 +37,12 @@ class OTAUpdater:
     
     def __init__(self):
         self.platform = platform.system()
-        self.app_version = ota_config.get('app_version', '1.0.0')
+        # Get version from app_info (which reads from VERSION file)
+        try:
+            self.app_version = app_info.version
+        except Exception as e:
+            logger.warning(f"Failed to get version from app_info: {e}, using fallback")
+            self.app_version = ota_config.get('app_version', '1.0.0')
         self.update_server_url = ota_config.get_update_server()
         
         # Thread safety related

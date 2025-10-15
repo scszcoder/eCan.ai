@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ECBot OTA安装器模块
+ECBot OTA 安装器模块
 处理安装包的安装和应用重启逻辑
+
+支持的格式:
+- Windows: EXE, MSI
+- macOS: PKG, DMG
+- Linux: AppImage, DEB, RPM (计划中)
 """
 
 import os
@@ -43,6 +48,8 @@ class InstallationManager:
                 return self._install_exe(package_path, install_options)
             elif package_path.suffix.lower() == '.msi':
                 return self._install_msi(package_path, install_options)
+            elif package_path.suffix.lower() == '.pkg':
+                return self._install_pkg(package_path, install_options)
             elif package_path.suffix.lower() == '.dmg':
                 return self._install_dmg(package_path, install_options)
             else:
@@ -142,6 +149,66 @@ class InstallationManager:
             return False
         except Exception as e:
             logger.error(f"MSI installation error: {e}")
+            return False
+    
+    def _install_pkg(self, package_path: Path, install_options: Dict[str, Any]) -> bool:
+        """安装macOS PKG包"""
+        try:
+            logger.info(f"Installing macOS PKG: {package_path}")
+            
+            # PKG 需要管理员权限
+            # 构建安装命令
+            cmd = ["sudo", "installer", "-pkg", str(package_path), "-target", "/"]
+            
+            # 添加详细日志选项
+            if install_options.get('verbose', False):
+                cmd.extend(["-verbose"])
+            
+            # 检查是否在交互式环境中
+            if install_options.get('silent', False) or not sys.stdin.isatty():
+                # 非交互式环境，尝试使用 osascript 提示用户输入密码
+                logger.info("Requesting administrator privileges...")
+                
+                # 使用 AppleScript 请求管理员权限
+                applescript = f'''
+                do shell script "installer -pkg {package_path} -target /" with administrator privileges
+                '''
+                
+                try:
+                    result = subprocess.run(
+                        ["osascript", "-e", applescript],
+                        capture_output=True, text=True, timeout=300
+                    )
+                    
+                    if result.returncode == 0:
+                        logger.info("PKG installation completed successfully")
+                        return True
+                    else:
+                        logger.error(f"PKG installation failed: {result.stderr}")
+                        return False
+                        
+                except subprocess.TimeoutExpired:
+                    logger.error("Installation timeout")
+                    return False
+            else:
+                # 交互式环境，直接使用 sudo
+                logger.info(f"Executing: {' '.join(cmd)}")
+                logger.info("You may be prompted for your administrator password...")
+                
+                result = subprocess.run(cmd, timeout=300)
+                
+                if result.returncode == 0:
+                    logger.info("PKG installation completed successfully")
+                    return True
+                else:
+                    logger.error(f"PKG installation failed with return code: {result.returncode}")
+                    return False
+                    
+        except subprocess.TimeoutExpired:
+            logger.error("Installation timeout")
+            return False
+        except Exception as e:
+            logger.error(f"PKG installation error: {e}")
             return False
     
     def _install_dmg(self, package_path: Path, install_options: Dict[str, Any]) -> bool:
