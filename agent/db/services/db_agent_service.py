@@ -447,6 +447,12 @@ class DBAgentService(BaseService):
                     agent_dict['skills'] = skill_map.get(agent.id, [])
                     # Add tasks from relationship table (override JSON field)
                     agent_dict['tasks'] = task_map.get(agent.id, [])
+                    
+                    # Add avatar information
+                    avatar_info = self._get_agent_avatar_info(agent, owner)
+                    if avatar_info:
+                        agent_dict['avatar'] = avatar_info
+                    
                     agents_data.append(agent_dict)
                 
                 return {
@@ -1300,11 +1306,11 @@ class DBAgentService(BaseService):
         try:
             if not org_ids:
                 return {
-                    "success": True,
-                    "data": [],
-                    "error": None
+                    "success": False,
+                    "data": None,
+                    "error": "No organization IDs provided"
                 }
-                
+            
             with self.session_scope() as session:
                 # Query agents through the association table for multiple orgs
                 agents = session.query(DBAgent).join(
@@ -1325,6 +1331,60 @@ class DBAgentService(BaseService):
                 "data": [],
                 "error": str(e)
             }
+    
+    def _get_agent_avatar_info(self, agent: DBAgent, owner: str) -> Optional[Dict[str, Any]]:
+        """
+        Get avatar information for an agent
+        
+        Args:
+            agent: DBAgent instance
+            owner: Owner username
+            
+        Returns:
+            dict: Avatar information or None if no avatar or random system avatar should be used
+        """
+        try:
+            # If agent has no avatar_resource_id, return None (will use random system avatar)
+            if not agent.avatar_resource_id:
+                return None
+            
+            # Try to get avatar from AvatarManager
+            from agent.avatar.avatar_manager import AvatarManager
+            
+            avatar_manager = AvatarManager(owner, self)
+            
+            # Check if it's a system avatar (A001-A007)
+            if agent.avatar_resource_id.startswith('A00'):
+                # Get system avatar info
+                system_avatars = avatar_manager.get_system_avatars()
+                for sys_avatar in system_avatars:
+                    if sys_avatar['id'] == agent.avatar_resource_id:
+                        # Use WebM first, fallback to MP4
+                        video_path = sys_avatar.get('videoWebmPath') or sys_avatar.get('videoMp4Path')
+                        return {
+                            'id': sys_avatar['id'],
+                            'imageUrl': sys_avatar['imageUrl'],
+                            'videoPath': video_path,
+                            'videoExists': sys_avatar.get('videoExists', False)
+                        }
+            else:
+                # Get user uploaded avatar resource
+                avatar_resource = avatar_manager.get_avatar_resource(agent.avatar_resource_id)
+                if avatar_resource:
+                    # Use WebM first, fallback to MP4
+                    video_path = avatar_resource.get('videoWebmPath') or avatar_resource.get('videoMp4Path')
+                    return {
+                        'id': avatar_resource.get('id'),
+                        'imageUrl': avatar_resource.get('imageUrl'),
+                        'videoPath': video_path,
+                        'videoExists': avatar_resource.get('videoExists', False)
+                    }
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"[DBAgentService] Failed to get avatar info for agent {agent.id}: {e}")
+            return None
 
     def deactivate_agent_org_relations(self, agent_id: str) -> Dict[str, Any]:
         """

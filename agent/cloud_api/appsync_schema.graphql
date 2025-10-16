@@ -60,6 +60,7 @@ input Agent {
 	vehicle: String
 	metadata: AWSJSON
 	vehicle_id: String
+	avatar_resource_id: String
 	description: String
 	url: String
 	version: String
@@ -256,6 +257,29 @@ input Knowledge {
 	status: String
 	rag: String
 	metadata: AWSJSON
+}
+
+input AvatarResource {
+	id: ID!
+	owner: String
+	resource_type: String
+	name: String
+	description: String
+	image_path: String
+	video_path: String
+	image_hash: String
+	video_hash: String
+	cloud_image_url: String
+	cloud_video_url: String
+	cloud_image_key: String
+	cloud_video_key: String
+	cloud_synced: Boolean
+	avatar_metadata: AWSJSON
+	usage_count: Int
+	last_used_at: AWSDateTime
+	is_public: Boolean
+	created_at: AWSDateTime
+	updated_at: AWSDateTime
 }
 
 type LongLLMTaskResult @aws_api_key @aws_cognito_user_pools {
@@ -707,6 +731,11 @@ type Mutation {
   updateKnowledges(input: [Knowledge]!): AWSJSON
   removeKnowledges(input: [RemoveOrder]!): AWSJSON
   
+  # -------------------- Avatar Resource Operations --------------------
+  addAvatarResources(input: [AvatarResource]!): AWSJSON
+  updateAvatarResources(input: [AvatarResource]!): AWSJSON
+  removeAvatarResources(input: [RemoveOrder]!): AWSJSON
+  
   # -------------------- Agent-Skill Relationship Operations --------------------
   addAgentSkillRelations(input: [AgentSkillRelation]!): AWSJSON
   updateAgentSkillRelations(input: [AgentSkillRelation]!): AWSJSON
@@ -827,6 +856,10 @@ type Query {
   # -------------------- Knowledge Queries --------------------
   queryKnowledges(qb: String): AWSJSON
   getKnowledges(ids: String): AWSJSON
+  
+  # -------------------- Avatar Resource Queries --------------------
+  queryAvatarResources(qb: String): AWSJSON
+  getAvatarResources(ids: String): AWSJSON
   
   # -------------------- Organization Queries --------------------
   queryOrganizations(qb: String): AWSJSON

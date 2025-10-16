@@ -44,11 +44,15 @@ class DBAgent(BaseModel, TimestampMixin, ExtensibleMixin):
     url = Column(String(512))                        # agent endpoint URL
     vehicle_id = Column(String(64))                  # vehicle where agent is deployed/stored
 
+    # Avatar configuration - Foreign key to avatar_resources table
+    avatar_resource_id = Column(String(64), ForeignKey('avatar_resources.id'), nullable=True)
+
     # Extra data - flexible JSON storage for additional data
     extra_data = Column(JSON)
 
     # Relationships
     supervisor = relationship("DBAgent", remote_side=[id], backref="subordinates")
+    avatar_resource = relationship("DBAvatarResource", foreign_keys=[avatar_resource_id], backref="agents")
 
     def to_dict(self, deep=False):
         """Convert model instance to dictionary"""
@@ -69,6 +73,9 @@ class DBAgent(BaseModel, TimestampMixin, ExtensibleMixin):
             # Include supervisor details
             if self.supervisor:
                 d['supervisor'] = self.supervisor.to_dict(deep=False)
+            # Include avatar resource details
+            if self.avatar_resource:
+                d['avatar_resource'] = self.avatar_resource.to_dict(deep=False)
             # Include association details through backref relationships
             if hasattr(self, 'agent_orgs') and self.agent_orgs:
                 d['organizations'] = [assoc.to_dict(deep=False) for assoc in self.agent_orgs]
@@ -84,3 +91,4 @@ from .task_model import DBAgentTask
 from .tool_model import DBAgentTool  
 from .knowledge_model import DBAgentKnowledge
 from .vehicle_model import DBAgentVehicle
+from .avatar_model import DBAvatarResource

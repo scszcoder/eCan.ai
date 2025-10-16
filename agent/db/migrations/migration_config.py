@@ -7,7 +7,7 @@ the latest version.
 """
 
 # 当前支持的最新数据库版本
-LATEST_DATABASE_VERSION = "3.0.4"
+LATEST_DATABASE_VERSION = "3.0.5"
 
 # 版本历史记录 (用于快速版本比较和路径计算)
 VERSION_HISTORY = [
@@ -18,7 +18,8 @@ VERSION_HISTORY = [
     "3.0.1",
     "3.0.2",
     "3.0.3",
-    "3.0.4"
+    "3.0.4",
+    "3.0.5"
 ]
 
 # 版本依赖关系 (version -> previous_version)
@@ -29,7 +30,8 @@ VERSION_DEPENDENCIES = {
     "3.0.1": "3.0.0",
     "3.0.2": "3.0.1",
     "3.0.3": "3.0.2",
-    "3.0.4": "3.0.3"
+    "3.0.4": "3.0.3",
+    "3.0.5": "3.0.4"
 }
 
 def get_latest_version() -> str:
