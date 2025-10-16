@@ -90,6 +90,11 @@ from .vehicle_model import (
     DBAgentVehicle
 )
 
+# Import avatar-related models
+from .avatar_model import (
+    DBAvatarResource
+)
+
 # Import association models
 from .association_models import (
     DBAgentOrgRel,
@@ -142,6 +147,9 @@ __all__ = [
     # Vehicle models
     'DBAgentVehicle',
     
+    # Avatar models
+    'DBAvatarResource',
+    
     # Association models
     'DBAgentOrgRel',
     'DBAgentSkillRel',
@@ -170,6 +178,7 @@ MODEL_REGISTRY = {
     'DBAgentOrg': DBAgentOrg,
     'DBAgentSkill': DBAgentSkill,
     'DBAgentVehicle': DBAgentVehicle,
+    'DBAvatarResource': DBAvatarResource,
     'DBAgentOrgRel': DBAgentOrgRel,
     'DBAgentSkillRel': DBAgentSkillRel,
     'DBAgentTaskRel': DBAgentTaskRel,

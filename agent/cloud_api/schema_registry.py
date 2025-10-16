@@ -249,6 +249,11 @@ class SchemaRegistry:
             self.register_schema(DataType.AGENT_TOOL, "1.0", agent_tool_schema_v1)
             logger.info(f"[SchemaRegistry] ✅ Registered Agent-Tool relationship schema with {len(agent_tool_schema_v1.transformers)} transformers")
             
+            # Avatar Resource Entity Schema v1.0 - Avatar resource entity
+            avatar_resource_schema_v1 = builder.build_schema(DataType.AVATAR_RESOURCE, version="1.0")
+            self.register_schema(DataType.AVATAR_RESOURCE, "1.0", avatar_resource_schema_v1)
+            logger.info(f"[SchemaRegistry] ✅ Registered Avatar Resource entity schema with {len(avatar_resource_schema_v1.transformers)} transformers")
+            
             logger.info("[SchemaRegistry] ✅ All default schemas registered successfully")
         except Exception as e:
             logger.error(f"[SchemaRegistry] ❌ Failed to register schemas: {e}")
