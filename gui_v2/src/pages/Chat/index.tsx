@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import ChatList from './components/ChatList';
@@ -678,6 +678,24 @@ const ChatPage: React.FC = () => {
         : chats.find((c) => c.id === activeChatId) || null;
 
     // renderListContent 加 log
+    // Compute left panel header agentId: prefer selected chat's agent member, fallback to URL agentId
+    const headerAgentId = useMemo(() => {
+        if (activeChatId) {
+            const c = chats.find(c => c.id === activeChatId);
+            if (c && Array.isArray(c.members)) {
+                // 1) Prefer explicit agent role
+                const agentMember: any = c.members.find((mm: any) => (mm?.role || '').toLowerCase() === 'agent');
+                if (agentMember) return agentMember.userId || agentMember?.ext?.agentId || activeChatId;
+                // 2) Otherwise pick the member that is not me (myTwinAgentId)
+                const otherMember: any = c.members.find((mm: any) => mm?.userId && mm.userId !== myTwinAgentId);
+                if (otherMember) return otherMember.userId || otherMember?.ext?.agentId || activeChatId;
+            }
+            // 3) Fallback: use activeChatId as seed so header still changes visually
+            return activeChatId;
+        }
+        return agentId || undefined;
+    }, [activeChatId, chats, agentId, myTwinAgentId]);
+
     const renderListContent = () => {
         // console.log('[renderListContent] chats:', chats);
         return (
@@ -689,7 +707,7 @@ const ChatPage: React.FC = () => {
                 onChatPin={handleChatPin}
                 onChatMute={handleChatMute}
                 onFilterChange={handleFilterChange}
-                currentAgentId={agentId || undefined}
+                currentAgentId={headerAgentId}
             />
         );
     };
