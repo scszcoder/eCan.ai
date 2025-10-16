@@ -13,11 +13,22 @@ logger = logging.getLogger(__name__)
 class Migration_304_to_305(BaseMigration):
     """Migration to add avatar support"""
     
-    def __init__(self, engine):
-        super().__init__(engine, "3.0.4", "3.0.5")
-        self.description = "Add avatar fields to agents table and create avatar_resources table"
+    @property
+    def version(self) -> str:
+        """Target version"""
+        return "3.0.5"
     
-    def upgrade(self):
+    @property
+    def previous_version(self) -> str:
+        """Previous version"""
+        return "3.0.4"
+    
+    @property
+    def description(self) -> str:
+        """Migration description"""
+        return "Add avatar fields to agents table and create avatar_resources table"
+    
+    def upgrade(self, session):
         """Add avatar fields to agents table and create avatar_resources table"""
         logger.info("[Migration 3.0.4→3.0.5] Starting upgrade...")
         
@@ -96,7 +107,7 @@ class Migration_304_to_305(BaseMigration):
             logger.error(f"[Migration 3.0.4→3.0.5] ❌ Upgrade failed: {e}", exc_info=True)
             raise
     
-    def downgrade(self):
+    def downgrade(self, session):
         """Remove avatar support (partial - SQLite limitation)"""
         logger.info("[Migration 3.0.5→3.0.4] Starting downgrade...")
         
@@ -121,7 +132,7 @@ class Migration_304_to_305(BaseMigration):
             logger.error(f"[Migration 3.0.5→3.0.4] ❌ Downgrade failed: {e}", exc_info=True)
             raise
     
-    def validate(self):
+    def validate_postconditions(self, session):
         """Validate the migration was successful"""
         logger.info("[Migration 3.0.4→3.0.5] Validating migration...")
         
