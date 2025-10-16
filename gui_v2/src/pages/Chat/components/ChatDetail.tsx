@@ -5,6 +5,7 @@ import { Chat } from '../types/chat';
 import { defaultRoleConfig } from '../types/chat';
 import { getUploadProps } from '../utils/attachmentHandler';
 import ContentTypeRenderer from './ContentTypeRenderer';
+
 import { protocolHandler } from '../utils/protocolHandler';
 import { ChatDetailWrapper, commonOuterStyle } from '../styles/ChatDetail.styles';
 import AttachmentList from './AttachmentList';
@@ -163,6 +164,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         if (!chatId || !chats.length) return null;
         return chats.find(chat => chat.id === chatId);
     }, [chatId, chats]);
+
 
     // 处理消息，确保content是字符串
     const messages = useMemo<any[]>(() => {
@@ -537,6 +539,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         <ChatDetailWrapper ref={wrapperRef}>
             {loadingMore && <div style={{textAlign: 'center'}}>{t('common.loading')}</div>}
             {!hasMore && <div style={{textAlign: 'center'}}>{t('pages.chat.noMore') || ''}</div>}
+
             <SemiChat
                 key={chatKey}
                 chats={pageMessages}

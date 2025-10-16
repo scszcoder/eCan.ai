@@ -277,6 +277,12 @@ def startADSWebDriver(local_api_key, port_string, profile_id, in_driver_path, op
 
         # Configure Chrome options
         chrome_options = Options()
+
+        chrome_options.add_argument("--start-maximized")
+        # set a common browser user-agent — not for evasion but for correct rendering
+        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36")
+
         # chrome_options.add_experimental_option("debuggerAddress", f"127.0.0.1:{debug_port}")
         chrome_options.add_experimental_option("debuggerAddress", selenium_address)
 
@@ -304,7 +310,7 @@ def startADSWebDriver(local_api_key, port_string, profile_id, in_driver_path, op
         except WebDriverException:
             pass
 
-        # inject a tiny patch to prevent detection (guarded)
+        # inject a tiny patch to prevent detection (guarded) (stealth mode)
         try:
             driver.execute_cdp_cmd(
                 "Page.addScriptToEvaluateOnNewDocument",

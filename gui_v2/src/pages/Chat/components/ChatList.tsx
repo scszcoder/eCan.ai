@@ -256,7 +256,11 @@ const ChatList: React.FC<ChatListProps> = ({
 
     return (
         <ChatListContainer>
-            <AgentAnimation agentId={currentAgentId} />
+            {currentAgentId ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 12px' }}>
+                    <AgentAnimation key={currentAgentId} agentId={currentAgentId} />
+                </div>
+            ) : null}
             <SearchFilter
                 onSearch={onSearch}
                 placeholder={t('pages.chat.searchPlaceholder')}

@@ -1,13 +1,13 @@
-// 只导出 public/assets/gifs 下的 webm 文件路径
-// 使用相对路径以支持 file:// 协议
-const agentGifs = [
-  './assets/gifs/agent0.webm',
-  './assets/gifs/agent1.webm',
-  './assets/gifs/agent2.webm',
-  './assets/gifs/agent3.webm',
-  './assets/gifs/agent4.webm',
-  './assets/gifs/agent5.webm',
-];
+// 通过打包器导入资源，确保开发/构建环境下都能得到正确的 URL
+// 这些文件应位于本目录（src/assets/gifs）下
+import a0 from './agent0.webm';
+import a1 from './agent1.webm';
+import a2 from './agent2.webm';
+import a3 from './agent3.webm';
+import a4 from './agent4.webm';
+import a5 from './agent5.webm';
+
+const agentGifs = [a0, a1, a2, a3, a4, a5];
 
 export default agentGifs;
 
