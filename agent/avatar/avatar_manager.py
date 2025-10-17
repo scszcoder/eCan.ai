@@ -194,7 +194,6 @@ class AvatarManager:
             }
             avatars.append(avatar_data)
         
-        logger.debug(f"[AvatarManager] Retrieved {len(avatars)} system avatars")
         return avatars
     
     def get_system_avatar_path(self, avatar_id: str) -> Optional[Path]:

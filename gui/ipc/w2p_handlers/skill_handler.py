@@ -66,7 +66,7 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
                     if 'id' not in sk_dict:
                         sk_dict['id'] = f"skill_{i}"
                     skills_dicts.append(sk_dict)
-                    logger.debug(f"Converted skill: {sk_dict.get('name', 'NO NAME')}")
+                    logger.debug(f"Converted skill: {sk_dict.get('name', 'NO NAME')} (id: {sk_dict.get('id', 'NO ID')})")
                 except Exception as e:
                     logger.error(f"Failed to convert skill {i}: {e}")
 

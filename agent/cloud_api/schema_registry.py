@@ -131,14 +131,15 @@ class SchemaVersion:
             if field_name not in cloud_data:
                 cloud_data[field_name] = default_value
         
-        logger.debug(f"[Schema] Before transformers: {list(cloud_data.keys())}")
-        
+        # Extract ID for logging (try different ID fields)
+        record_id = cloud_data.get('agid') or cloud_data.get('askid') or cloud_data.get('ataskid') or cloud_data.get('toolid') or cloud_data.get('id', 'UNKNOWN')
+        logger.debug(f"[Schema] Before transformers (ID: {record_id}): {list(cloud_data.keys())}")
+
         # 4. Apply transformers
         for transformer in self.transformers:
             cloud_data = transformer.apply(cloud_data, direction='to_cloud')
-        
-        logger.debug(f"[Schema] After transformers: {list(cloud_data.keys())}")
-        logger.debug(f"[Schema] Sample field 'organizations': {cloud_data.get('organizations', 'MISSING')}")
+
+        logger.debug(f"[Schema] After transformers (ID: {record_id}): {list(cloud_data.keys())}")
         
         return cloud_data
     

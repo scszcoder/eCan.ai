@@ -502,13 +502,20 @@ const OrgNavigator: React.FC = () => {
         tooltip={t('pages.agents.add_agent') || 'Add Agent'}
         onClick={() => {
           // 传递当前组织ID作为查询参数
-          console.log('[OrgNavigator] Add button clicked, actualOrgId:', actualOrgId);
+          // 如果在根视图，使用根组织的ID；否则使用当前组织ID
+          const targetOrgId = isRootView && rootNode ? rootNode.id : actualOrgId;
+          console.log('[OrgNavigator] Add button clicked');
+          console.log('[OrgNavigator] - isRootView:', isRootView);
+          console.log('[OrgNavigator] - actualOrgId:', actualOrgId);
+          console.log('[OrgNavigator] - rootNode.id:', rootNode?.id);
+          console.log('[OrgNavigator] - targetOrgId:', targetOrgId);
+
           const queryParams = new URLSearchParams();
-          if (actualOrgId && actualOrgId !== 'root') {
-            console.log('[OrgNavigator] Setting orgId query param:', actualOrgId);
-            queryParams.set('orgId', actualOrgId);
+          if (targetOrgId && targetOrgId !== 'root') {
+            console.log('[OrgNavigator] Setting orgId query param:', targetOrgId);
+            queryParams.set('orgId', targetOrgId);
           } else {
-            console.log('[OrgNavigator] Not setting orgId - actualOrgId:', actualOrgId);
+            console.log('[OrgNavigator] Not setting orgId - targetOrgId:', targetOrgId);
           }
           const queryString = queryParams.toString();
           const targetUrl = `/agents/add${queryString ? `?${queryString}` : ''}`;
