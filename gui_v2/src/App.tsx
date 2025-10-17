@@ -19,6 +19,7 @@ import { logoutManager } from './services/LogoutManager';
 import { initializePlatform } from './config/platform';
 import { initializeStoreSync, cleanupStoreSync } from './services/storeSync';
 import { orgDataSyncService } from './services/OrgDataSyncService';
+import './utils/videoSupport'; // Initialize video support check on page load
 
 
 

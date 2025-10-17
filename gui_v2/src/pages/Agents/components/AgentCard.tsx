@@ -7,22 +7,18 @@
  * 3. 保持原有的简洁性
  */
 
-import React, { useMemo, useEffect } from 'react';
+import { useMemo } from 'react';
 import { App, Button, Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
 import { MessageOutlined, MoreOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
-import agentGifs, { logVideoSupport } from '@/assets/gifs';
 import { Agent, type AgentCard as AgentCardType } from '../types';
 import { useAgentStore } from '@/stores/agentStore';
 import { useOrgStore } from '@/stores/orgStore';
 import { useUserStore } from '@/stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 import './AgentCard.css';
-
-// 全局标记，确保视频支持检测只执行一次
-let videoSupportChecked = false;
 
 interface AgentCardProps {
   agent: Agent | AgentCardType;
@@ -82,34 +78,16 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
     return null;
   }, [location.pathname]);
   
-  // 获取 agent 的 avatar 信息
+  // 获取 agent 的 avatar 信息（后端保证总是返回，要么是指定的，要么是随机系统头像）
   const agentAvatar = 'avatar' in agent ? agent.avatar : undefined;
 
-  // 使用 useMemo 获取固定的媒体 URL（优先使用 agent 的 avatar，否则使用 fallback）
+  // 使用 useMemo 获取媒体 URL
   const mediaUrl = useMemo<string>(() => {
-    // 使用 agent 的 avatar（后端保证总是返回，要么是指定的，要么是随机系统头像）
     if (agentAvatar?.videoExists && agentAvatar.videoPath) {
       return agentAvatar.videoPath;
     }
-    
-    // Fallback: 如果后端没有返回 avatar（异常情况），使用本地 assets
-    if (!id || !Array.isArray(agentGifs) || agentGifs.length === 0) {
-      console.warn('[AgentCard] No avatar from backend, using random fallback');
-      return Array.isArray(agentGifs) && agentGifs.length > 0 
-        ? agentGifs[Math.floor(Math.random() * agentGifs.length)] as string 
-        : '';
-    }
-    // 使用 agent ID 作为种子生成固定的随机数
-    const seed = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const index = seed % agentGifs.length;
-    console.warn('[AgentCard] No avatar from backend, using seeded fallback:', {
-      agentId: id,
-      agentName: name,
-      avatarIndex: index,
-      videoUrl: agentGifs[index]
-    });
-    return agentGifs[index] as string;
-  }, [id, name, agentAvatar?.id, agentAvatar?.videoPath, agentAvatar?.videoExists]);
+    return '';
+  }, [agentAvatar?.id, agentAvatar?.videoPath, agentAvatar?.videoExists]);
   
   // 判断是否为视频
   const isVideo = Boolean(
@@ -120,14 +98,6 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
      mediaUrl.includes('.webm') ||
      mediaUrl.includes('.mp4'))
   );
-  
-  // 在第一次渲染时检测视频支持
-  useEffect(() => {
-    if (!videoSupportChecked) {
-      videoSupportChecked = true;
-      logVideoSupport();
-    }
-  }, []);
   
   // 处理编辑
   const handleEdit = () => {
@@ -239,7 +209,6 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
               borderRadius: 28,
               background: 'transparent'
             }}
-            poster="./assets/default-agent-poster.png"
           />
         </div>
       ) : (
