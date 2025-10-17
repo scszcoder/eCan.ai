@@ -108,14 +108,14 @@ class DBAgentService(BaseService):
     def generate_default_avatar(cls, agent_id: str, owner: str = None) -> Optional[Dict[str, Any]]:
         """
         Generate a default random system avatar for an agent
-        
+
         This is a public class method that can be called from anywhere to generate
         a consistent random avatar based on agent_id.
-        
+
         Args:
             agent_id: Agent ID (used as seed for consistent random selection)
             owner: Owner username (optional, for AvatarManager initialization)
-            
+
         Returns:
             dict: Avatar information with id, imageUrl, videoPath, videoExists
             None: If avatar generation fails
@@ -123,42 +123,38 @@ class DBAgentService(BaseService):
         try:
             # Use cached avatar manager (owner can be None for system avatars)
             avatar_manager = cls._get_avatar_manager(owner or "system", None)
-            
+
             # Get system avatars
             system_avatars = avatar_manager.get_system_avatars()
-            logger.info(f"[DBAgentService.generate_default_avatar] Found {len(system_avatars) if system_avatars else 0} system avatars")
             if not system_avatars:
                 logger.warning(f"[DBAgentService] No system avatars available")
                 return None
-            
+
             # Use agent ID as seed for consistent random selection
             import hashlib
             seed = int(hashlib.md5(agent_id.encode()).hexdigest(), 16)
             random_avatar = system_avatars[seed % len(system_avatars)]
-            
+
             # Convert file paths to HTTP URLs for frontend access
             base_url = _get_server_base_url()
-            
+
             # Convert image path to HTTP URL
             image_file_path = random_avatar.get('imageUrl')
             image_url = f"{base_url}/api/avatar?path={urllib.parse.quote(image_file_path)}" if image_file_path else None
-            
+
             # Convert video path to HTTP URL (use WebM first, fallback to MP4)
             video_file_path = random_avatar.get('videoWebmPath') or random_avatar.get('videoMp4Path')
             video_path = f"{base_url}/api/avatar?path={urllib.parse.quote(video_file_path)}" if video_file_path else None
-            
-            logger.debug(f"[DBAgentService] Generated random avatar {random_avatar['id']} for agent {agent_id}")
+
             return {
                 'id': random_avatar['id'],
                 'imageUrl': image_url,
                 'videoPath': video_path,
                 'videoExists': random_avatar.get('videoExists', False)
             }
-            
+
         except Exception as e:
-            logger.error(f"[DBAgentService] Failed to generate default avatar for agent {agent_id}: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            logger.error(f"[DBAgentService] Failed to generate default avatar: {e}")
             return None
 
 
@@ -1464,43 +1460,37 @@ class DBAgentService(BaseService):
     def _get_agent_avatar_info(self, agent: DBAgent, owner: str) -> Optional[Dict[str, Any]]:
         """
         Get avatar information for an agent
-        
+
         Args:
             agent: DBAgent instance
             owner: Owner username
-            
+
         Returns:
             dict: Avatar information (returns random system avatar if agent has no avatar_resource_id)
         """
-        logger.info(f"[DBAgentService] Getting avatar info for agent {agent.id}, avatar_resource_id: {agent.avatar_resource_id}")
         try:
             # Use cached avatar manager
             avatar_manager = self._get_avatar_manager(owner, self)
-            
+
             # If agent has avatar_resource_id, try to get it
             if agent.avatar_resource_id:
-                logger.debug(f"[DBAgentService] Agent has avatar_resource_id: {agent.avatar_resource_id}")
                 # Check if it's a system avatar (A001-A007)
                 if agent.avatar_resource_id.startswith('A00'):
-                    logger.debug(f"[DBAgentService] Looking for system avatar: {agent.avatar_resource_id}")
                     # Get system avatar info
                     system_avatars = avatar_manager.get_system_avatars()
-                    logger.debug(f"[DBAgentService] Found {len(system_avatars)} system avatars")
                     for sys_avatar in system_avatars:
-                        logger.debug(f"[DBAgentService] Checking system avatar: {sys_avatar.get('id')} vs {agent.avatar_resource_id}")
                         if sys_avatar['id'] == agent.avatar_resource_id:
-                            logger.info(f"[DBAgentService] ✅ Found matching system avatar: {agent.avatar_resource_id}")
                             # Convert file paths to HTTP URLs for frontend access
                             base_url = _get_server_base_url()
-                            
+
                             # Convert image path to HTTP URL
                             image_file_path = sys_avatar.get('imageUrl')
                             image_url = f"{base_url}/api/avatar?path={urllib.parse.quote(image_file_path)}" if image_file_path else None
-                            
+
                             # Convert video path to HTTP URL (use WebM first, fallback to MP4)
                             video_file_path = sys_avatar.get('videoWebmPath') or sys_avatar.get('videoMp4Path')
                             video_path = f"{base_url}/api/avatar?path={urllib.parse.quote(video_file_path)}" if video_file_path else None
-                            
+
                             return {
                                 'id': sys_avatar['id'],
                                 'imageUrl': image_url,
@@ -1513,31 +1503,29 @@ class DBAgentService(BaseService):
                     if avatar_resource:
                         # Convert file paths to HTTP URLs for frontend access
                         base_url = _get_server_base_url()
-                        
+
                         # Convert image path to HTTP URL
                         image_file_path = avatar_resource.get('imageUrl')
                         image_url = f"{base_url}/api/avatar?path={urllib.parse.quote(image_file_path)}" if image_file_path else None
-                        
+
                         # Convert video path to HTTP URL (use WebM first, fallback to MP4)
                         video_file_path = avatar_resource.get('videoWebmPath') or avatar_resource.get('videoMp4Path')
                         video_path = f"{base_url}/api/avatar?path={urllib.parse.quote(video_file_path)}" if video_file_path else None
-                        
+
                         return {
                             'id': avatar_resource.get('id'),
                             'imageUrl': image_url,
                             'videoPath': video_path,
                             'videoExists': avatar_resource.get('videoExists', False)
                         }
-            
+
             # If no avatar_resource_id or avatar not found, return None
             # Don't generate random avatar here - it should be handled by frontend or during agent creation
-            logger.warning(f"[DBAgentService] No avatar found for agent {agent.id} (avatar_resource_id: {agent.avatar_resource_id})")
+            logger.debug(f"[DBAgentService] No avatar for agent {agent.id}")
             return None
-            
+
         except Exception as e:
             logger.error(f"[DBAgentService] Failed to get avatar info for agent {agent.id}: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
             return None
 
     def deactivate_agent_org_relations(self, agent_id: str) -> Dict[str, Any]:

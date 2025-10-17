@@ -369,6 +369,10 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                     if 'tools' in agent_data:
                         _sync_agent_tool_relations(updated_agent_data, agent_data.get('tools', []), Operation.UPDATE)
                     
+                    # Sync Agent's Avatar resource to cloud (if avatar changed)
+                    if 'avatar_id' in agent_data:
+                        _sync_agent_avatar_to_cloud(updated_agent_data, Operation.UPDATE)
+                    
                     saved_count += 1
                     logger.info(f"[agent_handler] Updated agent in database: {agent_id}")
                 else:
@@ -473,7 +477,21 @@ def handle_delete_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPC
                     except Exception as e:
                         logger.warning(f"[agent_handler] Failed to clean offline sync queue: {e}")
                     
-                    # Step 4: Sync deletion to cloud after memory update (async, fire and forget)
+                    # Step 4: Check if agent had a custom avatar and clean it up if orphaned
+                    try:
+                        # Get the deleted agent's avatar_id before it's removed from memory
+                        deleted_agent = next((ag for ag in main_window.agents if ag.card.id == agent_id), None)
+                        avatar_id = deleted_agent.card.avatar_id if deleted_agent and hasattr(deleted_agent.card, 'avatar_id') else None
+                        
+                        if avatar_id and not avatar_id.startswith('A00'):  # Not a system avatar
+                            # Check if this avatar is used by other agents
+                            is_orphaned = _check_and_cleanup_orphaned_avatar(avatar_id, agent_id, username)
+                            if is_orphaned:
+                                logger.info(f"[agent_handler] Orphaned avatar {avatar_id} cleaned up")
+                    except Exception as e:
+                        logger.warning(f"[agent_handler] Error checking avatar cleanup: {e}")
+                    
+                    # Step 5: Sync deletion to cloud after memory update (async, fire and forget)
                     delete_agent_data = {
                         'id': agent_id,
                         'owner': username,
@@ -608,6 +626,9 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         
         # Sync Agent-Tool relationships
         _sync_agent_tool_relations(created_agent, agent_data.get('tools', []), Operation.ADD)
+        
+        # Sync Agent's Avatar resource to cloud (if has custom avatar)
+        _sync_agent_avatar_to_cloud(created_agent, Operation.ADD)
 
         logger.info(f"[agent_handler] Successfully created agent '{created_agent.get('name')}' for user: {username}")
         return create_success_response(
@@ -896,3 +917,236 @@ def _sync_agent_tool_relations(agent_data: Dict[str, Any], tool_ids: list, opera
                 logger.error(f"[agent_handler] ❌ Failed to sync tool relation: {result.get('error')}")
         
         manager.sync_to_cloud_async(DataType.AGENT_TOOL, tool_relation_data, operation, callback=_log_result)
+
+
+def _sync_agent_avatar_to_cloud(agent_data: Dict[str, Any], operation: 'Operation') -> None:
+    """Sync agent's avatar resource to cloud (async, non-blocking)
+    
+    When creating or updating an agent, if the agent has an avatar_id,
+    we need to sync the corresponding avatar resource to cloud.
+    
+    Args:
+        agent_data: Agent data (must contain 'avatar_id' and 'owner')
+        operation: Operation type (ADD/UPDATE/DELETE)
+    """
+    avatar_id = agent_data.get('avatar_id')
+    if not avatar_id:
+        logger.debug("[agent_handler] No avatar_id in agent data, skipping avatar sync")
+        return
+    
+    # Skip system avatars (they don't need cloud sync)
+    if isinstance(avatar_id, str) and avatar_id.startswith('A00'):
+        logger.debug(f"[agent_handler] System avatar {avatar_id}, skipping cloud sync")
+        return
+    
+    try:
+        main_window = AppContext.get_main_window()
+        if not main_window or not main_window.ec_db_mgr:
+            logger.warning("[agent_handler] MainWindow or DB manager not available for avatar sync")
+            return
+        
+        # Get avatar resource from database
+        from agent.db.models.avatar_model import DBAvatarResource
+        db_session = main_window.ec_db_mgr.get_session()
+        
+        avatar_resource = db_session.query(DBAvatarResource).filter_by(id=avatar_id).first()
+        
+        if not avatar_resource:
+            logger.warning(f"[agent_handler] Avatar resource not found: {avatar_id}")
+            return
+        
+        # Only sync uploaded and generated avatars (not system avatars)
+        if avatar_resource.resource_type not in ['uploaded', 'generated']:
+            logger.debug(f"[agent_handler] Avatar type '{avatar_resource.resource_type}' doesn't need cloud sync")
+            return
+        
+        # Check if already synced (unless it's a DELETE operation)
+        if operation != Operation.DELETE and avatar_resource.cloud_synced:
+            logger.debug(f"[agent_handler] Avatar {avatar_id} already synced to cloud")
+            return
+        
+        # Prepare avatar data for cloud sync
+        from agent.cloud_api.offline_sync_manager import get_sync_manager
+        from agent.cloud_api.constants import DataType
+        
+        manager = get_sync_manager()
+        
+        # Use to_dict() method to get avatar resource data
+        avatar_sync_data = avatar_resource.to_dict()
+        
+        def _log_result(result: Dict[str, Any]):
+            if result.get('synced'):
+                logger.info(f"[agent_handler] ✅ Avatar resource synced to cloud: {avatar_id}")
+                # Update cloud_synced flag in database
+                try:
+                    avatar_resource.cloud_synced = True
+                    db_session.commit()
+                except Exception as e:
+                    logger.warning(f"[agent_handler] Failed to update cloud_synced flag: {e}")
+            elif result.get('cached'):
+                logger.info(f"[agent_handler] 💾 Avatar resource cached for later sync: {avatar_id}")
+            elif not result.get('success'):
+                logger.error(f"[agent_handler] ❌ Failed to sync avatar resource: {result.get('error')}")
+        
+        # Trigger async cloud sync for avatar resource
+        logger.info(f"[agent_handler] Syncing avatar resource to cloud: {avatar_id} ({operation})")
+        manager.sync_to_cloud_async(DataType.AVATAR_RESOURCE, avatar_sync_data, operation, callback=_log_result)
+        
+        # Upload files to cloud storage (S3) only for uploaded/generated avatars with local files
+        if operation != Operation.DELETE:
+            # Only upload files for custom avatars (uploaded or generated)
+            if avatar_resource.resource_type in ['uploaded', 'generated']:
+                # Check if there are local files to upload
+                has_local_files = (
+                    (avatar_resource.image_path and avatar_resource.image_path.strip()) or
+                    (avatar_resource.video_path and avatar_resource.video_path.strip())
+                )
+                if has_local_files:
+                    _upload_avatar_files_to_cloud(avatar_resource)
+                else:
+                    logger.debug(f"[agent_handler] No local files to upload for avatar: {avatar_id}")
+            else:
+                logger.debug(f"[agent_handler] Avatar type '{avatar_resource.resource_type}' doesn't need file upload")
+        
+    except Exception as e:
+        logger.error(f"[agent_handler] Error syncing avatar to cloud: {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
+
+
+def _upload_avatar_files_to_cloud(avatar_resource: 'DBAvatarResource') -> None:
+    """Upload avatar image/video files to cloud storage (S3)
+    
+    This is separate from AppSync data sync - it handles the actual file uploads.
+    
+    Args:
+        avatar_resource: Avatar resource database model instance
+    """
+    try:
+        from agent.avatar.cloud_sync_manager import CloudSyncManager
+        
+        main_window = AppContext.get_main_window()
+        if not main_window or not main_window.ec_db_mgr:
+            return
+        
+        db_session = main_window.ec_db_mgr.get_session()
+        
+        # Create cloud sync manager
+        cloud_sync_manager = CloudSyncManager(db_session)
+        
+        if not cloud_sync_manager.is_enabled():
+            logger.debug("[agent_handler] Cloud storage not configured, skipping file upload")
+            return
+        
+        # Sync avatar files to cloud storage (async, non-blocking)
+        import threading
+        
+        def _sync_files():
+            try:
+                success = cloud_sync_manager.sync_avatar_to_cloud(avatar_resource, force=False)
+                if success:
+                    logger.info(f"[agent_handler] ✅ Avatar files uploaded to cloud storage: {avatar_resource.id}")
+                else:
+                    logger.warning(f"[agent_handler] ⚠️  Avatar file upload failed or skipped: {avatar_resource.id}")
+            except Exception as e:
+                logger.error(f"[agent_handler] Error uploading avatar files: {e}")
+        
+        # Run in background thread to avoid blocking
+        thread = threading.Thread(target=_sync_files, daemon=True)
+        thread.start()
+        
+    except Exception as e:
+        logger.error(f"[agent_handler] Error in avatar file upload: {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
+
+
+def _check_and_cleanup_orphaned_avatar(avatar_id: str, deleted_agent_id: str, username: str) -> bool:
+    """Check if an avatar is orphaned and clean it up if needed
+    
+    An avatar is orphaned if no other agents are using it after the current agent is deleted.
+    
+    Args:
+        avatar_id: Avatar resource ID to check
+        deleted_agent_id: ID of the agent being deleted
+        username: Owner username
+        
+    Returns:
+        True if avatar was orphaned and cleaned up, False otherwise
+    """
+    try:
+        main_window = AppContext.get_main_window()
+        if not main_window or not main_window.ec_db_mgr:
+            logger.warning("[agent_handler] MainWindow or DB manager not available for avatar cleanup")
+            return False
+        
+        agent_service = main_window.ec_db_mgr.agent_service
+        
+        # Query all agents with this avatar_id (excluding the one being deleted)
+        result = agent_service.query_agents_with_relations(
+            avatar_id=avatar_id,
+            owner=username
+        )
+        
+        if not result.get('success'):
+            logger.warning(f"[agent_handler] Failed to query agents with avatar {avatar_id}")
+            return False
+        
+        agents_with_avatar = result.get('data', [])
+        
+        # Filter out the agent being deleted
+        other_agents = [ag for ag in agents_with_avatar if ag.get('id') != deleted_agent_id]
+        
+        if len(other_agents) > 0:
+            logger.info(f"[agent_handler] Avatar {avatar_id} is still used by {len(other_agents)} other agent(s), not deleting")
+            return False
+        
+        # Avatar is orphaned, delete it from database and cloud
+        logger.info(f"[agent_handler] Avatar {avatar_id} is orphaned, cleaning up...")
+        
+        # Delete from database
+        from agent.db.models.avatar_model import DBAvatarResource
+        db_session = main_window.ec_db_mgr.get_session()
+        
+        avatar_resource = db_session.query(DBAvatarResource).filter_by(id=avatar_id).first()
+        
+        if avatar_resource:
+            # Delete local files
+            import os
+            if avatar_resource.image_path and os.path.exists(avatar_resource.image_path):
+                try:
+                    os.remove(avatar_resource.image_path)
+                    logger.info(f"[agent_handler] Deleted local avatar image: {avatar_resource.image_path}")
+                except Exception as e:
+                    logger.warning(f"[agent_handler] Failed to delete local image: {e}")
+            
+            if avatar_resource.video_path and os.path.exists(avatar_resource.video_path):
+                try:
+                    os.remove(avatar_resource.video_path)
+                    logger.info(f"[agent_handler] Deleted local avatar video: {avatar_resource.video_path}")
+                except Exception as e:
+                    logger.warning(f"[agent_handler] Failed to delete local video: {e}")
+            
+            # Delete from database
+            db_session.delete(avatar_resource)
+            db_session.commit()
+            logger.info(f"[agent_handler] Deleted avatar resource from database: {avatar_id}")
+            
+            # Sync deletion to cloud (async)
+            avatar_data = {
+                'id': avatar_id,
+                'owner': username,
+                'resource_type': avatar_resource.resource_type
+            }
+            _sync_agent_avatar_to_cloud(avatar_data, Operation.DELETE)
+            
+            return True
+        else:
+            logger.warning(f"[agent_handler] Avatar resource not found in database: {avatar_id}")
+            return False
+        
+    except Exception as e:
+        logger.error(f"[agent_handler] Error checking/cleaning orphaned avatar: {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
+        return False
