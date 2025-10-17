@@ -63,6 +63,7 @@ import concurrent.futures
 import base64
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
+from agent.db.services.db_agent_service import get_default_avatar
 
 
 load_dotenv()
@@ -85,6 +86,7 @@ class EC_Agent(Agent):
 		birthday: Optional[str] = None,
 		personalities: Optional[List[str]] = None,
 		vehicle: Optional[str] = None,
+		avatar: Optional[Dict] = None,
 		*args,
 		**kwargs
 	):
@@ -95,6 +97,9 @@ class EC_Agent(Agent):
 		self.task_lock = threading.Lock()
 		self.skills = skills if skills is not None else []  # Use skills (unified naming)
 		self._stop_event = asyncio.Event()
+		
+		# Save card before calling super().__init__() to ensure it's preserved
+		self.card = card
 		
 		# Agent properties
 		self.supervisor_id = supervisor_id
@@ -109,6 +114,7 @@ class EC_Agent(Agent):
 		self.vehicle = vehicle if vehicle is not None else ""
 		self.status = "active"
 		self.images = [{"image_name":"", "image_source":"","text":""}]
+		self.avatar = avatar or (get_default_avatar(card.id) if card else None)
 
 		# Safely initialize embeddings in packaged environment
 		try:
@@ -184,58 +190,64 @@ class EC_Agent(Agent):
 
 
 
-	def to_dict(self):
-		"""Convert agent to dict for frontend"""
-		agentJS = {
-			"card": self.card_to_dict(self.card),
-			"supervisor_id": self.supervisor_id,
-			"rank": self.rank,
-			"org_id": self.org_id,
-			"title": self.title,
-			"personalities": self.personalities  # Concise naming
-			# Note: subordinates can be queried via supervisor_id reverse lookup
-			# Note: peers relationship not yet implemented
-		}
-		return agentJS
-	
-	def to_flat_dict(self, owner: str = None):
+	def to_dict(self, owner: str = None):
 		"""
-		Convert agent to flat dict structure for frontend/API consumption
+		Convert agent to dict for frontend/API consumption
 		
-		This method flattens the nested card structure into a single-level dict,
-		making it easier for frontend to consume without nested navigation.
+		Unified serialization that matches DBAgent.to_dict() structure
+		to ensure consistency across the application.
 		
 		Args:
 			owner: Optional owner username/email to include in the dict
 		
 		Returns:
-			dict: Flat agent structure with all fields at root level
+			dict: Agent structure compatible with frontend expectations
 		"""
-		agent_dict = self.to_dict()
-		card = agent_dict.get('card', {})
+		# Helper function to serialize skills/tasks
+		def serialize_items(items):
+			result = []
+			if items:
+				for item in items:
+					if hasattr(item, 'to_dict'):
+						result.append(item.to_dict())
+					elif isinstance(item, dict):
+						result.append(item)
+					elif isinstance(item, str):
+						result.append({'id': item, 'name': item})
+			return result
 		
-		flat_agent = {
-			'id': card.get('id'),
-			'name': card.get('name'),
-			'description': card.get('description', ''),
-			'owner': owner or card.get('owner'),
-			'gender': card.get('gender', 'male'),
-			'title': card.get('title', ''),
-			'rank': agent_dict.get('rank'),
-			'birthday': card.get('birthday'),
-			'supervisor_id': agent_dict.get('supervisor_id'),
-			'personalities': agent_dict.get('personalities', []),  # Concise naming
-			'capabilities': card.get('capabilities'),
-			'status': card.get('status', 'active'),
-			'version': card.get('version'),
-			'url': card.get('url'),
-			'extra_data': card.get('extra_data', {}),
-			'created_at': card.get('created_at'),
-			'updated_at': card.get('updated_at'),
-			'ext': card.get('ext'),
-			'org_id': agent_dict.get('org_id'),
+		# Build the unified structure
+		return {
+			# Card information (nested for frontend compatibility)
+			'card': self.card_to_dict(self.card) if self.card else {},
+			
+			# Agent profile
+			'id': self.card.id if self.card else None,
+			'name': self.card.name if self.card else '',
+			'description': getattr(self, 'description', ''),
+			'owner': owner or getattr(self, 'owner', None),
+			'gender': getattr(self, 'gender', 'male'),
+			'birthday': getattr(self, 'birthday', None),
+			
+			# Organization and hierarchy
+			'org_id': self.org_id,
+			'supervisor_id': self.supervisor_id,
+			'rank': self.rank,
+			
+			# Agent characteristics
+			'title': self.title,
+			'personalities': self.personalities or [],
+			# Use _db_skills/_db_tasks if available (from database), otherwise serialize runtime skills/tasks
+			'skills': getattr(self, '_db_skills', []) or serialize_items(getattr(self, 'skills', [])),
+			'tasks': getattr(self, '_db_tasks', []) or serialize_items(getattr(self, 'tasks', [])),
+			
+			# Configuration
+			'vehicle_id': getattr(self, 'vehicle_id', None),
+			'status': getattr(self, 'status', 'active'),
+			# Avatar: 确保返回字典格式，如果是字典则直接返回，否则返回 None
+			'avatar': self.avatar if isinstance(self.avatar, dict) else None,
+			'extra_data': getattr(self, 'extra_data', ''),
 		}
-		return flat_agent
 
 	def card_to_dict(self, card):
 		cardJS = {

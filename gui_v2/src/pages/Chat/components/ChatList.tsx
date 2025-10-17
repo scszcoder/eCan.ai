@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { List, Badge, Avatar, Space, Typography, Tag, Button, Popconfirm, Modal } from 'antd';
 import { UserOutlined, RobotOutlined, TeamOutlined, MinusOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { Chat } from '../types/chat';
 import SearchFilter from '../../../components/Common/SearchFilter';
-import ActionButtons from '../../../components/Common/ActionButtons';
 import AgentAnimation from './AgentAnimation';
+import { useAgentStore } from '../../../stores/agentStore';
 
 const { Text } = Typography;
 
@@ -183,6 +183,17 @@ const ChatList: React.FC<ChatListProps> = ({
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
     const [hoveredDeleteButton, setHoveredDeleteButton] = useState<string | null>(null);
+    
+    // Get agents from store
+    const agents = useAgentStore((state) => state.agents);
+    
+    // Get current agent's avatar data
+    const currentAgentAvatar = useMemo(() => {
+        if (!currentAgentId || !agents) return undefined;
+        // Agent ID is in card.id
+        const agent = agents.find(a => a.card?.id === currentAgentId);
+        return agent?.avatar;
+    }, [currentAgentId, agents, activeChatId]);
 
     // Ensure chats is always an array to prevent crashes
     const safeChats = Array.isArray(chats) ? chats.filter(chat => chat && chat.id) : [];
@@ -257,21 +268,24 @@ const ChatList: React.FC<ChatListProps> = ({
     return (
         <ChatListContainer>
             {currentAgentId ? (
-                <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 12px' }}>
-                    <AgentAnimation key={currentAgentId} agentId={currentAgentId} />
+                <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'center', 
+                    padding: '8px 12px',
+                    flexShrink: 0,
+                    height: 'auto',
+                    maxHeight: '150px'
+                }}>
+                    <AgentAnimation 
+                        key={currentAgentId} 
+                        agentId={currentAgentId} 
+                        agentAvatar={currentAgentAvatar}
+                    />
                 </div>
             ) : null}
             <SearchFilter
                 onSearch={onSearch}
                 placeholder={t('pages.chat.searchPlaceholder')}
-            />
-            <ActionButtons
-                onAdd={onAdd}
-                onDelete={() => {}}
-                onSettings={onSettings}
-                addText={t('pages.chat.addChat')}
-                deleteText={t('pages.chat.deleteChat')}
-                settingsText={t('pages.chat.chatSettings')}
             />
             <ChatListArea>
                 <List

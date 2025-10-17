@@ -17,7 +17,6 @@ import {
   StyledFormItem,
   StyledCard,
   FormContainer,
-  ButtonContainer,
   buttonStyle,
   primaryButtonStyle
 } from '@/components/Common/StyledForm';
@@ -291,14 +290,15 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   }
 
   return (
-    <FormContainer>
-      <Form
-        form={form}
-        layout="vertical"
-        onFinish={handleSave}
-        disabled={!editMode && !isNew}
-      >
-        <Space direction="vertical" style={{ width: '100%' }} size={24}>
+    <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <FormContainer style={{ flex: 1, overflowY: 'auto', paddingBottom: '20px' }}>
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={handleSave}
+          disabled={!editMode && !isNew}
+        >
+          <Space direction="vertical" style={{ width: '100%' }} size={24}>
           <StyledCard>
             <Space direction="vertical" style={{ width: '100%' }} size={24}>
               <div style={{ marginBottom: '16px' }}>
@@ -307,10 +307,13 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                   label={t('pages.tasks.name')}
                   rules={[{ required: true }]}
                   style={{ marginBottom: 0 }}
+                  htmlFor="task-name"
                 >
                   <Input
+                    id="task-name"
                     placeholder={t('pages.tasks.namePlaceholder')}
                     size="large"
+                    autoComplete="off"
                   />
                 </StyledFormItem>
               </div>
@@ -363,7 +366,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                       id="task-description"
                       rows={4}
                       placeholder={t('pages.tasks.descriptionPlaceholder', 'Enter task description...')}
-                      aria-label={t('common.description', 'Description')}
+                      size="large"
+                      autoComplete="off"
                     />
                   </StyledFormItem>
                 </Col>
@@ -376,7 +380,11 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                         showSearch
                         size="large"
                         placeholder={t('pages.tasks.skillPlaceholder', 'Select a skill')}
-                        options={(skills || []).map((s: any) => ({ value: s.name, label: s.name }))}
+                        options={(skills || []).map((s: any) => ({ 
+                          key: s.id || s.name,  // Use unique ID as key
+                          value: s.name, 
+                          label: s.name 
+                        }))}
                         filterOption={(input, option) =>
                           (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
                         }
@@ -434,6 +442,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                                   id="task-repeat-number"
                                   size="large"
                                   type="number"
+                                  autoComplete="off"
                                   min={1}
                                   aria-label={t('pages.tasks.scheduleRepeatNumberLabel', 'Repeat Number')}
                                 />
@@ -500,6 +509,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                                   id="task-timeout"
                                   size="large"
                                   type="number"
+                                  autoComplete="off"
                                   min={60}
                                   step={60}
                                   aria-label={t('pages.tasks.scheduleTimeoutLabel', 'Timeout (seconds)')}
@@ -517,6 +527,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                   <StyledFormItem
                     label={t('pages.tasks.metadata', 'Metadata (JSON)')}
                     name="metadata_text"
+                    htmlFor="task-metadata"
                     tooltip={t('pages.tasks.metadata_tooltip') || 'Must be valid JSON format (e.g., {"key": "value"}) or plain text'}
                     validateTrigger={['onChange', 'onBlur']}
                     rules={[{
@@ -542,8 +553,10 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                     }]}
                   >
                     <Input.TextArea
+                      id="task-metadata"
                       rows={8}
                       placeholder={JSON.stringify({ key: 'value' }, null, 2)}
+                      autoComplete="off"
                       style={{
                         fontFamily: 'Consolas, Monaco, "Courier New", monospace',
                         fontSize: '13px',
@@ -555,62 +568,70 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
               </Row>
             </Space>
           </StyledCard>
+          </Space>
+        </Form>
+      </FormContainer>
 
-          <ButtonContainer>
-            {/* 编辑模式：显示保存和取消按钮 */}
-            {editMode && (
-              <>
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  icon={<SaveOutlined />}
-                  loading={saving}
-                  disabled={saving}
-                  size="large"
-                  style={primaryButtonStyle}
-                >
-                  {t('common.save')}
-                </Button>
-                <Button
-                  onClick={handleCancel}
-                  disabled={saving}
-                  icon={<CloseOutlined />}
-                  size="large"
-                  style={buttonStyle}
-                >
-                  {t('common.cancel')}
-                </Button>
-              </>
-            )}
+      {/* Fixed Action Buttons - Outside FormContainer, won't scroll */}
+      <div style={{
+          flexShrink: 0,
+          display: 'flex',
+          justifyContent: 'flex-end',
+          gap: '12px',
+          padding: '16px 24px',
+          background: 'transparent',
+          borderTop: '1px solid rgba(255, 255, 255, 0.05)'
+        }}>
+          {/* 编辑/新建模式：显示保存和取消按钮 */}
+          {(editMode || isNew) && (
+            <>
+              <Button
+                type="primary"
+                onClick={() => form.submit()}
+                loading={saving}
+                disabled={saving}
+                icon={<SaveOutlined />}
+                size="large"
+                style={primaryButtonStyle}
+              >
+                {isNew ? t('common.create') : t('common.save')}
+              </Button>
+              <Button
+                onClick={handleCancel}
+                disabled={saving}
+                icon={<CloseOutlined />}
+                size="large"
+                style={buttonStyle}
+              >
+                {t('common.cancel')}
+              </Button>
+            </>
+          )}
 
-            {/* 查看模式：显示编辑和删除按钮 */}
-            {!editMode && !isNew && task && (
-              <>
-                <Button
-                  type="primary"
-                  onClick={handleEdit}
-                  icon={<EditOutlined />}
-                  size="large"
-                  style={primaryButtonStyle}
-                  disabled={false}
-                >
-                  {t('common.edit')}
-                </Button>
-                <Button
-                  danger
-                  onClick={handleDelete}
-                  icon={<DeleteOutlined />}
-                  size="large"
-                  style={buttonStyle}
-                  disabled={false}
-                >
-                  {t('common.delete', 'Delete')}
-                </Button>
-              </>
-            )}
-          </ButtonContainer>
-        </Space>
-      </Form>
-    </FormContainer>
-  );
-};
+          {/* 查看模式：显示编辑和删除按钮 */}
+          {!editMode && !isNew && task && (
+            <>
+              <Button
+                type="primary"
+                onClick={handleEdit}
+                icon={<EditOutlined />}
+                size="large"
+                style={primaryButtonStyle}
+              >
+                {t('common.edit')}
+              </Button>
+              <Button
+                danger
+                onClick={handleDelete}
+                icon={<DeleteOutlined />}
+                size="large"
+                style={buttonStyle}
+              >
+                {t('common.delete', 'Delete')}
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };

@@ -18,6 +18,11 @@ export function mapOrgAgentToAgent(
       : undefined;
 
   return {
+    // 顶层字段（AgentCard 优先读取这些）
+    id: orgAgent.id,
+    name: orgAgent.name,
+    description: orgAgent.description || '',
+    // card 字段（向后兼容）
     card: {
       id: orgAgent.id,
       name: orgAgent.name,
@@ -40,7 +45,7 @@ export function mapOrgAgentToAgent(
     org_id: normalizedOrgId || '',
     job_description: orgAgent.description || '',
     personalities: [],
-  };
+  } as Agent;
 }
 
 /**

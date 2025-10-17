@@ -2170,14 +2170,14 @@ class MainWindow:
                 # 🔧 Critical fix: Wait for A2A Server to be fully ready before returning
                 # Agent.start() launches Uvicorn in a thread but doesn't wait for it to be ready
                 # We must explicitly wait for the server's /ping endpoint to respond
-                logger.info(f"[MainWindow] 🔍 Waiting for {agent_name}'s A2A server to be ready...")
+                logger.info(f"[MainWindow] 🔍 Waiting for {agent.get_card().name}'s A2A server to be ready...")
                 server_ready = await self.wait_for_server_async(agent, timeout=15.0)
                 
                 if server_ready:
-                    logger.info(f"[MainWindow] ✅ {agent_name}'s A2A server is ready")
+                    logger.info(f"[MainWindow] ✅ {agent.get_card().name}'s A2A server is ready")
                     return True
                 else:
-                    logger.error(f"[MainWindow] ❌ {agent_name}'s A2A server failed to start within 10s")
+                    logger.error(f"[MainWindow] ❌ {agent.get_card().name}'s A2A server failed to start within 10s")
                     return False
             else:
                 # If no specific launch method, try waiting for server readiness
@@ -2185,11 +2185,18 @@ class MainWindow:
                     await self.wait_for_server_async(agent, timeout=3.0)
                     return True
                 else:
-                    logger.warning(f"[MainWindow] ⚠️ {agent_name} has no launch method or server card")
+                    logger.warning(f"[MainWindow] ⚠️ {agent.get_card().name} has no launch method or server card")
                     return False
                     
         except Exception as e:
+            import traceback
+            agent_name = "Unknown"
+            try:
+                agent_name = agent.get_card().name if hasattr(agent, 'get_card') else str(agent)
+            except:
+                pass
             logger.error(f"[MainWindow] ❌ Failed to launch {agent_name}: {e}")
+            logger.error(f"[MainWindow] Traceback: {traceback.format_exc()}")
             return False
 
     async def _load_local_db_agents(self):
@@ -2376,7 +2383,7 @@ class MainWindow:
             for agent_obj in cloud_agent_objects:
                 try:
                     if hasattr(agent_obj, 'to_dict'):
-                        agent_dict = agent_obj.to_dict()
+                        agent_dict = agent_obj.to_dict(owner=self.user)
                     elif hasattr(agent_obj, 'card'):
                         # Extract basic info from agent card
                         agent_dict = {
@@ -2439,7 +2446,7 @@ class MainWindow:
     
     def _merge_all_agent_sources(self, code_built_agents, db_cloud_agents):
         """
-        Merge agents from all sources with deduplication into a unified mixed-type list
+        Merge agents from all sources with deduplication into a unified list of EC_Agent objects
         
         Priority: Code-built > Cloud > Local DB
         
@@ -2448,50 +2455,61 @@ class MainWindow:
             db_cloud_agents: List of agent dicts from DB/Cloud merge
         
         Returns:
-            List of mixed types (EC_Agent objects and agent dicts)
-            - EC_Agent objects for code-built agents
-            - Agent dicts for DB/Cloud agents (not overwritten by code-built)
+            List of EC_Agent objects (unified type)
         """
         try:
             logger.info("[MainWindow] 🔀 Merging all agent sources into unified list...")
             
-            # Create a unified list with mixed types
+            # Import converter
+            from agent.agent_converter import convert_agent_dict_to_ec_agent
+            
+            # Create a unified list of EC_Agent objects
             unified_agents = []
             
             # Track code-built agent names for deduplication
             code_built_names = set()
             
-            # Step 1: Add all code-built agents (EC_Agent objects)
+            # Step 1: Add all code-built agents (already EC_Agent objects)
             for name, agent in code_built_agents:
                 if agent:
                     unified_agents.append(agent)
                     code_built_names.add(name)
-                    logger.debug(f"[MainWindow] 🔧 Builded code-built agent: {name}")
+                    logger.debug(f"[MainWindow] 🔧 Added code-built agent: {name}")
             
-            # Step 2: Add DB/Cloud agents that are NOT overwritten by code-built agents
+            # Step 2: Convert DB/Cloud agents (dicts) to EC_Agent objects
+            converted_count = 0
+            failed_count = 0
+            
             for agent_data in db_cloud_agents:
                 agent_name = agent_data.get('name', '')
                 
                 # Only keep DB/Cloud agent if no code-built agent with same name
                 if agent_name not in code_built_names:
-                    unified_agents.append(agent_data)
-                    logger.debug(f"[MainWindow] 📂 Builded DB/Cloud agent: {agent_name}")
+                    # Convert dict to EC_Agent object
+                    ec_agent = convert_agent_dict_to_ec_agent(agent_data, self)
+                    if ec_agent:
+                        unified_agents.append(ec_agent)
+                        converted_count += 1
+                        logger.debug(f"[MainWindow] 📂 Converted DB/Cloud agent: {agent_name}")
+                    else:
+                        failed_count += 1
+                        logger.warning(f"[MainWindow] ⚠️  Failed to convert DB/Cloud agent: {agent_name}")
                 else:
                     logger.debug(f"[MainWindow] ⚠️  DB/Cloud agent '{agent_name}' overwritten by code-built agent")
             
-            # Count types
-            agent_objects = sum(1 for a in unified_agents if not isinstance(a, dict))
-            agent_dicts = sum(1 for a in unified_agents if isinstance(a, dict))
-            
             logger.info(f"[MainWindow] ✅ Merged all sources into unified list:")
-            logger.info(f"[MainWindow]    - Code-built agents (objects): {agent_objects}")
-            logger.info(f"[MainWindow]    - DB/Cloud agents (dicts): {agent_dicts}")
-            logger.info(f"[MainWindow]    - Total unique agents: {len(unified_agents)}")
+            logger.info(f"[MainWindow]    - Code-built agents: {len(code_built_names)}")
+            logger.info(f"[MainWindow]    - DB/Cloud agents converted: {converted_count}")
+            if failed_count > 0:
+                logger.warning(f"[MainWindow]    - Conversion failed: {failed_count}")
+            logger.info(f"[MainWindow]    - Total EC_Agent objects: {len(unified_agents)}")
             
             return unified_agents
             
         except Exception as e:
             logger.error(f"[MainWindow] ❌ Failed to merge all agent sources: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             # Return code-built agents as fallback
             return [agent for _, agent in code_built_agents if agent]
     

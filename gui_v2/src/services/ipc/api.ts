@@ -226,6 +226,15 @@ export class IPCAPI {
         return this.executeRequest<T>('get_tools', {username, tool_ids });
     }
 
+    // Avatar API methods
+    public async getSystemAvatars<T>(username: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('avatar.get_system_avatars', { username });
+    }
+
+    public async getUploadedAvatars<T>(username: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('avatar.get_uploaded_avatars', { username });
+    }
+
     /**
      * Refresh MCP tool schemas on the backend and return refreshed list
      */

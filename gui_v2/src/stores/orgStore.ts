@@ -30,6 +30,7 @@ interface OrgStoreState {
   loading: boolean;
   error: string | null;
   lastFetchTime: number | null;
+  lastUpdateTime: number;  // 用于强制重新渲染
   
   // Actions
   setAllOrgAgents: (data: GetAllOrgAgentsResponse) => void;
@@ -67,9 +68,14 @@ export const useOrgStore = create<OrgStoreState>((set, get) => ({
   loading: false,
   error: null,
   lastFetchTime: null,
+  lastUpdateTime: 0,
   
   setAllOrgAgents: (data: GetAllOrgAgentsResponse) => {
-    const treeRoot = data.orgs;  // 完整的树形结构（根节点）
+    console.log('[OrgStore] setAllOrgAgents called with data:', data);
+    console.log('[OrgStore] data.orgs:', data.orgs);
+    
+    // 使用原始数据（避免 JSON 序列化丢失数据）
+    const treeRoot = data.orgs;
     
     // 从树形结构中提取扁平的组织列表和所有 agents（向后兼容）
     const flattenTree = (treeNode: TreeOrgNode): { orgs: Org[], agents: OrgAgent[] } => {
@@ -108,8 +114,13 @@ export const useOrgStore = create<OrgStoreState>((set, get) => ({
     
     const { orgs: flatOrgs, agents: allAgents } = flattenTree(treeRoot);
     
-    // 分离有归属和无归属的 Agent
-    const orgAgents = allAgents.filter(agent => agent.org_id);
+    console.log('[OrgStore] Flattened agents:', allAgents);
+    console.log('[OrgStore] Agents count:', allAgents.length);
+    if (allAgents.length > 0) {
+      console.log('[OrgStore] Sample agent:', allAgents[0]);
+    }
+    
+    // 分离未分配的 Agent（向后兼容）
     const unassignedAgents = allAgents.filter(agent => !agent.org_id);
     
     // 构建组织树（向后兼容）
@@ -118,6 +129,7 @@ export const useOrgStore = create<OrgStoreState>((set, get) => ({
     // 构建显示节点 - 基于树形结构
     const displayNodes = buildDisplayNodesFromTree(null, treeRoot);
     
+    const now = Date.now();
     set({ 
       // 新的树形数据
       root: {
@@ -130,11 +142,12 @@ export const useOrgStore = create<OrgStoreState>((set, get) => ({
       
       // 向后兼容的扁平数据
       orgs: flatOrgs,
-      agents: orgAgents,
+      agents: allAgents,  // 🔥 使用所有 agents（包括有和没有 org_id 的）
       unassignedAgents: unassignedAgents,
       orgTree,
       displayNodes,
-      lastFetchTime: Date.now(),
+      lastFetchTime: now,
+      lastUpdateTime: now,  // 更新时间戳以强制重新渲染
       error: null 
     });
   },

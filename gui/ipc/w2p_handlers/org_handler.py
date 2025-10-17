@@ -340,10 +340,10 @@ def handle_bind_agent_to_org(request: IPCRequest, params: Optional[list[Any]]) -
             main_window = AppContext.get_main_window()
             if main_window and hasattr(main_window, 'agents'):
                 for agent in main_window.agents:
+                    # All agents are EC_Agent objects with card.id and org_id attributes
                     if hasattr(agent, 'card') and hasattr(agent.card, 'id') and agent.card.id == agent_id:
-                        if hasattr(agent.card, 'org_id'):
-                            agent.card.org_id = organization_id
-                            logger.info(f"[organizations_handler] Updated agent {agent_id} org_id to {organization_id} in memory")
+                        agent.org_id = organization_id
+                        logger.info(f"[organizations_handler] Updated agent {agent_id} org_id to {organization_id} in memory")
                         break
 
             logger.info(f"[organizations_handler] Successfully bound agent {agent_id} to organization {organization_id}")
@@ -402,10 +402,10 @@ def handle_unbind_agent_from_org(request: IPCRequest, params: Optional[list[Any]
             main_window = AppContext.get_main_window()
             if main_window and hasattr(main_window, 'agents'):
                 for agent in main_window.agents:
+                    # All agents are EC_Agent objects with card.id and org_id attributes
                     if hasattr(agent, 'card') and hasattr(agent.card, 'id') and agent.card.id == agent_id:
-                        if hasattr(agent.card, 'org_id'):
-                            agent.card.org_id = None
-                            logger.info(f"[organizations_handler] Updated agent {agent_id} org_id to None in memory")
+                        agent.org_id = None
+                        logger.info(f"[organizations_handler] Updated agent {agent_id} org_id to None in memory")
                         break
 
             logger.info(f"[organizations_handler] Successfully unbound agent {agent_id} from organization")

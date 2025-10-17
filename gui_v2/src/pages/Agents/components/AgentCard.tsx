@@ -82,9 +82,19 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
     return null;
   }, [location.pathname]);
   
-  // 使用 useMemo 获取固定的媒体 URL（基于 ID）
+  // 获取 agent 的 avatar 信息
+  const agentAvatar = 'avatar' in agent ? agent.avatar : undefined;
+
+  // 使用 useMemo 获取固定的媒体 URL（优先使用 agent 的 avatar，否则使用 fallback）
   const mediaUrl = useMemo<string>(() => {
+    // 使用 agent 的 avatar（后端保证总是返回，要么是指定的，要么是随机系统头像）
+    if (agentAvatar?.videoExists && agentAvatar.videoPath) {
+      return agentAvatar.videoPath;
+    }
+    
+    // Fallback: 如果后端没有返回 avatar（异常情况），使用本地 assets
     if (!id || !Array.isArray(agentGifs) || agentGifs.length === 0) {
+      console.warn('[AgentCard] No avatar from backend, using random fallback');
       return Array.isArray(agentGifs) && agentGifs.length > 0 
         ? agentGifs[Math.floor(Math.random() * agentGifs.length)] as string 
         : '';
@@ -92,15 +102,23 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
     // 使用 agent ID 作为种子生成固定的随机数
     const seed = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
     const index = seed % agentGifs.length;
+    console.warn('[AgentCard] No avatar from backend, using seeded fallback:', {
+      agentId: id,
+      agentName: name,
+      avatarIndex: index,
+      videoUrl: agentGifs[index]
+    });
     return agentGifs[index] as string;
-  }, [id]);
+  }, [id, name, agentAvatar?.id, agentAvatar?.videoPath, agentAvatar?.videoExists]);
   
   // 判断是否为视频
   const isVideo = Boolean(
     mediaUrl && 
     typeof mediaUrl === 'string' && 
     (mediaUrl.trim().toLowerCase().endsWith('.webm') || 
-     mediaUrl.trim().toLowerCase().endsWith('.mp4'))
+     mediaUrl.trim().toLowerCase().endsWith('.mp4') ||
+     mediaUrl.includes('.webm') ||
+     mediaUrl.includes('.mp4'))
   );
   
   // 在第一次渲染时检测视频支持
@@ -117,21 +135,14 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
       console.error('[AgentCard] handleEdit: No agent ID found', { agent });
       return;
     }
-    console.log('[AgentCard] handleEdit called for agent:', { id, name, agent });
     
     // 传递当前组织ID作为查询参数
     const queryParams = new URLSearchParams();
-    if (currentOrgId && currentOrgId !== 'root' && currentOrgId !== 'unassigned') {
+    if (currentOrgId) {
       queryParams.set('orgId', currentOrgId);
     }
     const queryString = queryParams.toString();
     const targetUrl = `/agents/details/${id}${queryString ? `?${queryString}` : ''}`;
-    console.log('[AgentCard] Navigating to edit:', { 
-      agentId: id, 
-      agentName: name,
-      currentOrgId, 
-      targetUrl 
-    });
     navigate(targetUrl);
   };
   
@@ -158,12 +169,24 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
           
           if (res.success) {
             message.success(t('common.deleted_successfully') || 'Deleted successfully');
+            
             // 从 agentStore 中移除已删除的 agent
             const removeAgent = useAgentStore.getState().removeAgent;
             removeAgent(id);
+            
             // 同时从 orgStore 中移除
             const removeAgentFromOrg = useOrgStore.getState().removeAgentFromOrg;
             removeAgentFromOrg(id);
+            
+            // 刷新组织和 agent 数据以确保界面更新
+            try {
+              const refreshResponse = await api.getAllOrgAgents(username);
+              if (refreshResponse?.success && refreshResponse.data) {
+                useOrgStore.getState().setAllOrgAgents(refreshResponse.data as any);
+              }
+            } catch (error) {
+              console.error('[AgentCard] Error refreshing org data after delete:', error);
+            }
           } else {
             message.error(res.error?.message || (t('common.delete_failed') as string) || 'Delete failed');
           }
@@ -281,13 +304,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
 }
 
 /**
- * 优化的 memo 比较函数
- * 只在 agent.id 变化时重新渲染
+ * 暂时移除 memo 以调试更新问题
+ * TODO: 重新添加优化的 memo 比较函数
  */
-export default React.memo(AgentCard, (prevProps, nextProps) => {
-  const prevId = getAgentId(prevProps.agent);
-  const nextId = getAgentId(nextProps.agent);
-  
-  // 如果 ID 相同且 onChat 函数相同，则不重新渲染
-  return prevId === nextId && prevProps.onChat === nextProps.onChat;
-});
+export default AgentCard;

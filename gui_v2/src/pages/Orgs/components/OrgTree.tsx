@@ -45,6 +45,7 @@ const OrgTree: React.FC<OrgTreeProps> = ({
       
       return {
         key: org.id,
+        value: org.id,  // Add value to fix TreeNode warning
         title: (
           <Space>
             <ApartmentOutlined />

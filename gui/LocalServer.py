@@ -81,6 +81,32 @@ class RequestHandlers:
         if os.path.isfile(file_path):
             return FileResponse(file_path)
         return JSONResponse({"error": "File not found."}, status_code=404)
+    
+    async def serve_avatar(self, request):
+        """Serve avatar files (images and videos) from absolute path"""
+        # Get file path from query parameter
+        file_path = request.query_params.get('path', '')
+        
+        if not file_path:
+            return JSONResponse({"error": "Missing 'path' parameter"}, status_code=400)
+        
+        # Security check: ensure file exists and is readable
+        if not os.path.isfile(file_path):
+            logger.warning(f"Avatar file not found: {file_path}")
+            return JSONResponse({"error": "File not found"}, status_code=404)
+        
+        # Check if file is in allowed directories (resource/avatars)
+        abs_path = os.path.abspath(file_path)
+        allowed_dirs = [
+            os.path.abspath('resource/avatars'),
+            os.path.abspath(os.path.join(base_dir, 'resource/avatars'))
+        ]
+        
+        if not any(abs_path.startswith(allowed_dir) for allowed_dir in allowed_dirs):
+            logger.warning(f"Avatar file outside allowed directories: {file_path}")
+            return JSONResponse({"error": "Access denied"}, status_code=403)
+        
+        return FileResponse(file_path)
 
     async def gen_feedbacks(self, request):
         logger.info("serving gen_feedbacks.....")
@@ -309,7 +335,7 @@ class RouteBuilder:
         self.request_handlers: RequestHandlers = request_handlers
 
     def get_base_routes(self):
-        """获取基础路由"""
+        """Get base routes"""
         return [
             Mount("/mcp", app=mcp_asgi),
             Route("/healthz", health_check),
@@ -320,10 +346,11 @@ class RouteBuilder:
             Route('/api/stream', self.request_handlers.stream),
             Route('/api/sync_bots_missions', self.request_handlers.sync_bots_missions, methods=['POST']),
             Route('/api/save_graph', self.request_handlers.save_skill_graph, methods=['POST']),
+            Route('/api/avatar', self.request_handlers.serve_avatar, methods=['GET']),
         ]
 
     def get_mcp_routes(self):
-        """获取 MCP 相关路由"""
+        """Get MCP related routes"""
         if not mcp_server_config.has_mcp_support():
             return []
         return [
@@ -333,7 +360,7 @@ class RouteBuilder:
         ]
 
     def create_routes(self):
-        """创建完整路由列表"""
+        """Create complete route list"""
         routes = self.get_base_routes()
         mcp_routes = self.get_mcp_routes()
         if mcp_routes:
@@ -341,15 +368,15 @@ class RouteBuilder:
             logger.info("✅ Added MCP routes")
         else:
             logger.info("🔧 MCP routes not added (disabled or unsupported)")
-        return routes # ==================== 应用创建 ====================
+        return routes # ==================== Application Creation ====================
 
 
 class AppBuilder:
-    """Starlette 应用构建器"""
+    """Starlette application builder"""
 
     @staticmethod
     def create_app(request_handlers):
-        """创建 Starlette 应用"""
+        """Create Starlette application"""
         route_builder = RouteBuilder(request_handlers)
         routes = route_builder.create_routes()
 
@@ -374,24 +401,24 @@ class AppBuilder:
         )
         return app
 
-# ==================== 服务器启动 ====================
+# ==================== Server Startup ====================
 class ServerOptimizer:
-    """服务器优化器"""
+    """Server optimizer"""
 
     @staticmethod
     def setup_pyinstaller_environment():
-        """设置 PyInstaller 环境优化"""
+        """Setup PyInstaller environment optimizations"""
         logger.info("🔧 Detected PyInstaller environment, applying optimizations...")
 
-        # 事件循环优化
+        # Event loop optimization
         ServerOptimizer._setup_event_loop()
 
-        # 禁用警告
+        # Disable warnings
         ServerOptimizer._disable_warnings()
 
     @staticmethod
     def _setup_event_loop():
-        """设置事件循环"""
+        """Setup event loop"""
         import asyncio
 
         try:
@@ -408,54 +435,63 @@ class ServerOptimizer:
 
     @staticmethod
     def _disable_warnings():
-        """禁用可能导致问题的警告"""
+        """Disable warnings that may cause issues"""
         import warnings
         warnings.filterwarnings("ignore", category=DeprecationWarning)
         logger.debug("✅ Disabled deprecation warnings for PyInstaller")
 
 # Global reference to allow graceful shutdown
 class ServerManager:
-    """服务器管理器，用于封装服务器状态和生命周期"""
+    """Server manager for encapsulating server state and lifecycle"""
 
     def __init__(self, main_win: 'MainWindow'):
         self.main_win: MainWindow = main_win
         self.uvicorn_server = None
         self.server_thread = None
 
+    def get_server_url(self) -> str:
+        """Get local server URL"""
+        port = int(self.main_win.get_local_server_port())
+        return f"http://localhost:{port}"
+
+    def get_api_url(self, endpoint: str) -> str:
+        """Get complete URL for API endpoint"""
+        return f"{self.get_server_url()}{endpoint}"
+
     def start_in_thread(self):
-        """在单独的线程中启动服务器"""
+        """Start server in a separate thread"""
         port = int(self.main_win.get_local_server_port())
 
-        # 优化：设置更高的线程优先级，加快启动
+        # Optimization: Set higher thread priority for faster startup
         self.server_thread = threading.Thread(target=self._run_starlette, args=(port,))
         self.server_thread.daemon = False  # Allow proper cleanup instead of forced termination
         self.server_thread.start()
         logger.info(f"🚀 Optimized local server starting on port {port} in separate thread")
 
     def stop(self):
-        """请求 Uvicorn 服务器优雅地关闭"""
+        """Request Uvicorn server to shut down gracefully"""
         if self.uvicorn_server:
             logger.info("Stopping local Starlette server...")
-            
+
             # IMPORTANT: First signal the server to stop, then wait for thread completion
             # This is simpler and more reliable than complex async shutdown
             try:
                 # Signal the server to stop gracefully
                 self.uvicorn_server.should_exit = True
                 logger.info("Server shutdown signal sent")
-                
+
                 # Wait for the server thread to complete
                 self._sync_shutdown()
-                    
+
             except Exception as e:
                 logger.error(f"Error during server shutdown: {e}")
                 # Force shutdown as last resort
                 self._force_shutdown()
-            
+
             # Reset references
             self.uvicorn_server = None
             self.server_thread = None
-            
+
             return True
         logger.warning("No active Uvicorn server to stop.")
         return False
@@ -489,7 +525,7 @@ class ServerManager:
             self.server_thread.daemon = True  # Convert to daemon for force termination
 
     def _run_starlette(self, port=4668):
-        """优化的 Starlette 服务器启动方法"""
+        """Optimized Starlette server startup method"""
         logger.info(f"🚀 Starting optimized Starlette server on port {port}")
         logger.info(f"Environment: {'PyInstaller' if mcp_server_config.is_frozen else 'Development'}")
         logger.info(f"MCP Support: {'Enabled' if mcp_server_config.has_mcp_support() else 'Disabled'}")
@@ -497,31 +533,31 @@ class ServerManager:
         if mcp_server_config.is_frozen:
             ServerOptimizer.setup_pyinstaller_environment()
 
-        # 预创建组件以减少启动时间
+        # Pre-create components to reduce startup time
         request_handlers = RequestHandlers(self.main_win)
         app = AppBuilder.create_app(request_handlers)
 
-        # 优化的主机绑定策略 - 优先使用 127.0.0.1
+        # Optimized host binding strategy - prioritize 127.0.0.1
         host_candidates = ["127.0.0.1", "0.0.0.0"]
-        
+
         last_err = None
         for host_bind in host_candidates:
             try:
                 logger.info(f"⚡ Attempting fast startup on {host_bind}:{port}")
-                
-                # 优化的 Uvicorn 配置 - 减少启动开销
+
+                # Optimized Uvicorn configuration - reduce startup overhead
                 config = uvicorn.Config(
                     app=app,
                     host=host_bind,
                     port=port,
-                    log_level="warning",  # 减少日志输出
-                    access_log=False,     # 禁用访问日志
+                    log_level="warning",  # Reduce log output
+                    access_log=False,     # Disable access log
                     loop="asyncio",
                     http="h11",
                     log_config=None,
-                    workers=1,            # 单进程模式
-                    reload=False,         # 禁用自动重载
-                    use_colors=False,     # 禁用颜色输出
+                    workers=1,            # Single process mode
+                    reload=False,         # Disable auto-reload
+                    use_colors=False,     # Disable color output
                 )
                 server = uvicorn.Server(config)
 
@@ -535,25 +571,25 @@ class ServerManager:
                 last_err = str(e1)
                 logger.warning(f"⚠️  Failed to bind {host_bind}:{port} - {e1}")
                 continue
-        
+
         if last_err:
             logger.error(f"❌ All server startup attempts failed. Last error: {last_err}")
             raise RuntimeError(f"Server startup failed: {last_err}")
 
-# ==================== 全局实例和入口点 ====================
+# ==================== Global Instance and Entry Point ====================
 
-# 全局服务器管理器实例
+# Global server manager instance
 server_manager_instance = None
 
 def start_local_server_in_thread(mwin: 'MainWindow'):
-    """启动本地服务器"""
+    """Start local server"""
     global server_manager_instance
     if server_manager_instance is None:
         server_manager_instance = ServerManager(mwin)
         server_manager_instance.start_in_thread()
 
 def is_port_available(host: str, port: int) -> bool:
-    """检查端口是否可用"""
+    """Check if port is available"""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(1)
@@ -563,7 +599,7 @@ def is_port_available(host: str, port: int) -> bool:
         return False
 
 def wait_for_port_release(host: str, port: int, timeout: float = 10.0) -> bool:
-    """等待端口释放"""
+    """Wait for port to be released"""
     start_time = time.time()
     while time.time() - start_time < timeout:
         if is_port_available(host, port):
@@ -574,17 +610,17 @@ def wait_for_port_release(host: str, port: int, timeout: float = 10.0) -> bool:
     return False
 
 def stop_local_server():
-    """停止本地服务器"""
+    """Stop local server"""
     global server_manager_instance
     if server_manager_instance:
         result = server_manager_instance.stop()
-        
+
         # Wait for port to be released
         if result:
             port = int(server_manager_instance.main_win.get_local_server_port())
             logger.info(f"Waiting for port {port} to be released...")
             wait_for_port_release("127.0.0.1", port, timeout=10.0)
-        
+
         # Clear the global instance to allow clean restart
         server_manager_instance = None
         logger.info("✅ Global server manager instance cleared")

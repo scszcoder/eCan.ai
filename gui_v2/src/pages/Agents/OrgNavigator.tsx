@@ -41,6 +41,16 @@ const mapOrgAgentToAgent = (orgAgent: OrgAgent, orgId?: string): Agent => {
       ? String(resolvedOrgId)
       : undefined;
 
+  // Check if orgAgent already has nested card structure (from backend)
+  if ((orgAgent as any).card) {
+    // Backend returns nested structure, use it directly
+    return {
+      ...(orgAgent as any),
+      org_id: normalizedOrgId || (orgAgent as any).org_id || '',
+    };
+  }
+
+  // Fallback: construct card from flat structure (for backward compatibility)
   return {
     card: {
       id: orgAgent.id,
@@ -125,7 +135,6 @@ const OrgNavigator: React.FC = () => {
   }, [location.pathname, orgId]);
 
   const {
-    treeOrgs,
     loading,
     error,
     setAllOrgAgents,
@@ -136,23 +145,17 @@ const OrgNavigator: React.FC = () => {
 
   const setAgents = useAgentStore((state) => state.setAgents);
 
-  // 使用 useMemo 确保 rootNode 响应 treeOrgs 的变化
-  const rootNode = useMemo(() => treeOrgs[0], [treeOrgs]);
+  // 🔥 简化：直接使用扁平的 agents 列表，不再从树中提取
+  const allAgentsFromStore = useOrgStore((state) => state.agents);
+  const rootNode = useOrgStore((state) => state.treeOrgs[0]);
   const isRootView = !actualOrgId || actualOrgId === 'root';
-  // 移除isUnassignedView，不再需要单独的未分配视图
   const isUnassignedView = false;
 
   const currentNode = useMemo(() => {
-    if (!rootNode) {
-      return null;
-    }
-
-    if (isRootView || isUnassignedView) {
-      return rootNode;
-    }
-
+    if (!rootNode) return null;
+    if (isRootView || isUnassignedView) return rootNode;
     return findTreeNodeById(rootNode, actualOrgId!);
-  }, [actualOrgId, isRootView, isUnassignedView, rootNode, treeOrgs]);
+  }, [actualOrgId, isRootView, isUnassignedView, rootNode]);
 
   const levelDoors = useMemo(() => {
     if (!rootNode) {
@@ -170,33 +173,29 @@ const OrgNavigator: React.FC = () => {
     }
 
     return buildDoorsForNode(targetNode);
-  }, [rootNode, currentNode, isRootView, isUnassignedView, treeOrgs]);
+  }, [rootNode, currentNode, isRootView, isUnassignedView]);
 
-  const rawAgents = useMemo(() => {
-    if (!rootNode) {
-      return [] as OrgAgent[];
-    }
-
-    if (isUnassignedView) {
-      return rootNode.agents || [];
-    }
-
-    // 在根视图下，显示根节点的agents（未分配的agents）
-    if (isRootView) {
-      return rootNode.agents || [];
-    }
-
-    if (!actualOrgId || !currentNode) {
-      return [] as OrgAgent[];
-    }
-
-    return currentNode.agents || [];
-  }, [rootNode, currentNode, isUnassignedView, isRootView, actualOrgId, treeOrgs]);
-
+  // 🔥 简化：直接从扁平列表中按 org_id 过滤，不再从树中提取
   const agentsForDisplay = useMemo(() => {
-    const currentOrgId = isUnassignedView ? undefined : actualOrgId;
-    return rawAgents.map((agent) => mapOrgAgentToAgent(agent, currentOrgId));
-  }, [rawAgents, actualOrgId, isUnassignedView]);
+    if (!allAgentsFromStore || allAgentsFromStore.length === 0) {
+      return [];
+    }
+
+    let filteredAgents: OrgAgent[];
+    
+    if (isRootView) {
+      // 根视图：显示没有 org_id 的 agents（未分配）
+      filteredAgents = allAgentsFromStore.filter(agent => !agent.org_id);
+    } else if (actualOrgId) {
+      // 特定组织：显示该组织的 agents
+      filteredAgents = allAgentsFromStore.filter(agent => agent.org_id === actualOrgId);
+    } else {
+      filteredAgents = [];
+    }
+
+    // 转换为前端格式
+    return filteredAgents.map((agent) => mapOrgAgentToAgent(agent, actualOrgId));
+  }, [allAgentsFromStore, actualOrgId, isRootView]);
 
   // 合并doors和agents到统一的items列表，用于统一渲染
   const allItems = useMemo(() => {
@@ -236,14 +235,13 @@ const OrgNavigator: React.FC = () => {
       totalItems: items.length,
       doors: items.filter(i => i.type === 'door').length,
       agents: items.filter(i => i.type === 'agent').length,
-      rawAgentsCount: rawAgents.length,
       agentsForDisplayCount: agentsForDisplay.length,
       isRootView,
       actualOrgId
     });
     
     return items;
-  }, [levelDoors, agentsForDisplay, rawAgents.length, isRootView, actualOrgId]);
+  }, [levelDoors, agentsForDisplay, isRootView, actualOrgId]);
 
 
   const handleDoorClick = useCallback(

@@ -120,32 +120,10 @@ class OrgDataSyncService {
 
     /**
      * 将后端 agent 数据映射为前端 store 格式
+     * 后端已经返回正确的格式（包含 card 对象），直接返回
      */
     private mapAgentsForStore(agents: any[]): any[] {
-        return agents.map((agent: any) => ({
-            card: {
-                id: agent.id,
-                name: agent.name,
-                description: agent.description || '',
-                url: '',
-                provider: null,
-                version: '1.0.0',
-                documentationUrl: null,
-                capabilities: {
-                    streaming: false,
-                    pushNotifications: false,
-                    stateTransitionHistory: false,
-                },
-                authentication: null,
-                defaultInputModes: [],
-                defaultOutputModes: [],
-            },
-            supervisor_id: agent.supervisor_id || '',
-            rank: 'member' as const,
-            org_id: agent.org_id || '',
-            job_description: agent.description || '',
-            personalities: [],
-        }));
+        return agents;
     }
 
     /**

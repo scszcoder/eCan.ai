@@ -37,7 +37,7 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             'vehicles': [v.to_dict() for v in vehicles],
             'message': 'Get all successful'
         }
-        logger.debug('get vehicles resultJS:' + str(resultJS))
+        # logger.debug('get vehicles resultJS:' + str(resultJS))
         return create_success_response(request, resultJS)
 
     except Exception as e:

@@ -23,6 +23,13 @@ export interface Agent {
     org_id: string;  // Single organization ID (unified naming)
     job_description: string;
     personalities: string[];
+    avatar_resource_id?: string;  // Avatar resource ID
+    avatar?: {
+        id: string;
+        imageUrl: string;  // Base64 data URL
+        videoPath?: string;  // Video file path (WebM or MP4)
+        videoExists: boolean;
+    };
     // Note: subordinates can be queried via supervisor_id reverse lookup, no need to store
     // Note: peers relationship not yet implemented, no need to store
 }

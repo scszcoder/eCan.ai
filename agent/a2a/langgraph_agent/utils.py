@@ -16,15 +16,27 @@ def get_lan_ip():
         return "127.0.0.1"  # fallback
 
 def get_a2a_server_url(mainwin):
+    """
+    Get A2A server URL with port allocation.
+    Always returns a valid URL with format: http://host:port
+    
+    Returns:
+        str: Valid URL with allocated port, or fallback URL if allocation fails
+    """
     try:
         host = get_lan_ip()
         free_ports = mainwin.get_free_agent_ports(1)
-        logger.debug("getting a2a  serer ports:", host, free_ports)
+        logger.debug("getting a2a server ports:", host, free_ports)
+        
         if not free_ports:
-            return None
+            # No free ports available, use default port
+            logger.warning("No free ports available, using default port 3600")
+            return f"http://{host}:3600"
+        
         a2a_server_port = free_ports[0]
-        url=f"http://{host}:{a2a_server_port}"
+        url = f"http://{host}:{a2a_server_port}"
         logger.debug("a2a server url:", url)
+        return url
 
     except Exception as e:
         # Get the traceback information
@@ -34,10 +46,12 @@ def get_a2a_server_url(mainwin):
             ex_stat = "ErrorGetA2AServerURL:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorGetA2AServerURL: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
         logger.error(ex_stat)
-        return ""
-    return url
+        
+        # Always return a valid fallback URL
+        fallback_url = "http://127.0.0.1:3600"
+        logger.warning(f"Returning fallback URL: {fallback_url}")
+        return fallback_url
 
 
 from utils.logger_helper import get_traceback

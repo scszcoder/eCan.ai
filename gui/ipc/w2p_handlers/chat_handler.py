@@ -308,6 +308,7 @@ def handle_create_chat(request: IPCRequest, params: Optional[dict]) -> IPCRespon
         name = params['name']
         chat_type = params.get('type', 'user-agent')
         avatar = params.get('avatar')
+        agent_id = params.get('agent_id')
         lastMsg = params.get('lastMsg')
         lastMsgTime = params.get('lastMsgTime') or int(time.time() * 1000)
         unread = params.get('unread', 0)
@@ -320,6 +321,7 @@ def handle_create_chat(request: IPCRequest, params: Optional[dict]) -> IPCRespon
             name=name,
             type=chat_type,
             avatar=avatar,
+            agent_id=agent_id,
             lastMsg=lastMsg,
             lastMsgTime=lastMsgTime,
             unread=unread,
