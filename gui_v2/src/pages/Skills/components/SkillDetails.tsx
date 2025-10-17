@@ -1,5 +1,5 @@
 import React from 'react';
-import { Typography, Space, Button, Progress, Tooltip, Tag, Form, Input, Row, Col, Checkbox, message, Select, Tabs, Modal } from 'antd';
+import { Typography, Space, Button, Progress, Tooltip, Tag, Form, Input, Row, Col, Checkbox, Select, Tabs, Modal, App } from 'antd';
 import type { TabsProps } from 'antd';
 import {
     ThunderboltOutlined,
@@ -148,6 +148,7 @@ const fromJsonString = (value: string): any => {
 const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRefresh, onSave, onCancel, onDelete }) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
+    const { message } = App.useApp();  // Use App context for message
     const username = useUserStore((s) => s.username) || '';
     const addItem = useSkillStore((s) => s.addItem);
     const updateItem = useSkillStore((s) => s.updateItem);

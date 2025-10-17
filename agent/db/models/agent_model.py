@@ -69,6 +69,10 @@ class DBAgent(BaseModel, TimestampMixin, ExtensibleMixin):
                     # If parsing fails, keep as is
                     pass
         
+        # Always extract org_id from org_rels (even if deep=False)
+        if hasattr(self, 'org_rels') and self.org_rels and len(self.org_rels) > 0:
+            d['org_id'] = self.org_rels[0].org_id
+        
         if deep:
             # Include supervisor details
             if self.supervisor:
@@ -76,13 +80,17 @@ class DBAgent(BaseModel, TimestampMixin, ExtensibleMixin):
             # Include avatar resource details
             if self.avatar_resource:
                 d['avatar_resource'] = self.avatar_resource.to_dict(deep=False)
-            # Include association details through backref relationships
-            if hasattr(self, 'agent_orgs') and self.agent_orgs:
-                d['organizations'] = [assoc.to_dict(deep=False) for assoc in self.agent_orgs]
-            if hasattr(self, 'agent_skills_rel') and self.agent_skills_rel:
-                d['skills'] = [assoc.to_dict(deep=False) for assoc in self.agent_skills_rel]
-            if hasattr(self, 'agent_tasks_rel') and self.agent_tasks_rel:
-                d['task_executions'] = [assoc.to_dict(deep=False) for assoc in self.agent_tasks_rel]
+            # Include association details through backref relationships (use correct backref names)
+            if hasattr(self, 'org_rels') and self.org_rels:
+                d['organizations'] = [assoc.to_dict(deep=False) for assoc in self.org_rels]
+                # Extract primary org_id from first organization (for frontend compatibility)
+                if len(self.org_rels) > 0:
+                    d['org_id'] = self.org_rels[0].org_id  # org_id is the organization ID in the relationship
+            # For skills and tasks, return the actual skill/task objects, not the relationship objects
+            if hasattr(self, 'skill_rels') and self.skill_rels:
+                d['skills'] = [assoc.skill.to_dict(deep=False) if assoc.skill else assoc.to_dict(deep=False) for assoc in self.skill_rels]
+            if hasattr(self, 'task_rels') and self.task_rels:
+                d['tasks'] = [assoc.task.to_dict(deep=False) if assoc.task else assoc.to_dict(deep=False) for assoc in self.task_rels]
         return d
 
 

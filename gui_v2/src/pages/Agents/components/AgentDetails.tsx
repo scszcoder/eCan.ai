@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { App, Button, Card, Col, DatePicker, Form, Input, Modal, Radio, Row, Select, Tag, Tooltip, TreeSelect } from 'antd';
 import { EditOutlined, SaveOutlined, InfoCircleOutlined, DeleteOutlined, CloseOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
@@ -9,6 +9,7 @@ import { useOrgStore } from '@/stores/orgStore';
 import { useTaskStore, useSkillStore, useVehicleStore, useAgentStore } from '@/stores';
 import { get_ipc_api } from '@/services/ipc_api';
 import { StyledFormItem } from '@/components/Common/StyledForm';
+import { AvatarManager, AvatarData } from '@/components/Avatar';
 
 type Gender = 'gender_options.male' | 'gender_options.female';
 
@@ -71,8 +72,8 @@ const AgentDetails: React.FC = () => {
   // 支持两种新建模式：/agents/add 和 /agents/details/new
   const isNew = id === 'new' || location.pathname === '/agents/add';
   const username = useUserStore((s: any) => s.username);
-
-  // 从查询参数中获取 orgId
+  
+  // 从查询参数中获取 orgId（用于保存后返回）
   const searchParams = new URLSearchParams(location.search);
   const defaultOrgId = searchParams.get('orgId');
 
@@ -100,6 +101,9 @@ const AgentDetails: React.FC = () => {
   
   // 获取组织数据
   const { treeOrgs, setAllOrgAgents, shouldFetchData, setLoading: setOrgLoading, setError: setOrgError } = useOrgStore();
+  
+  // 获取 agentStore 用于读取最新的 agent 数据
+  const getAgentById = useAgentStore((state) => state.getAgentById);
 
   // Build options for selects with full object data for tooltips
   // 保存完整的task和skill对象映射，用于显示详细信息
@@ -141,14 +145,14 @@ const AgentDetails: React.FC = () => {
   // 构建组织树形数据供TreeSelect使用（避免循环引用）
   const organizationTreeData = useMemo(() => {
     const buildTreeData = (node: any, parentPath: string = ''): any => {
-      if (!node) return null;
+      if (!node || !node.id) return null; // 添加 id 检查
       
       // 构建当前节点的完整路径
       const currentPath = parentPath ? `${parentPath} / ${node.name}` : node.name;
       
       // 只提取必要的字段，避免循环引用
       const treeNode: any = {
-        title: node.name, // 树形结构只显示节点名
+        title: node.name || node.id, // 确保有 title
         value: node.id,
         key: node.id,
         fullPath: currentPath, // 存储完整路径，用于选中后显示
@@ -157,6 +161,7 @@ const AgentDetails: React.FC = () => {
       // 递归处理子节点，只传递必要的数据
       if (node.children && Array.isArray(node.children) && node.children.length > 0) {
         treeNode.children = node.children
+          .filter((child: any) => child && child.id) // 过滤掉无效节点
           .map((child: any) => {
             // 为每个子节点创建简化的对象，只包含必要字段
             const simplifiedChild = {
@@ -281,6 +286,8 @@ const AgentDetails: React.FC = () => {
   const [loading, setLoading] = useState(false);
   // 初始化 selectedOrgId 为 defaultOrgId（如果存在）
   const [selectedOrgId, setSelectedOrgId] = useState<string | undefined>(defaultOrgId || undefined);
+  // Avatar 状态
+  const [avatarData, setAvatarData] = useState<AvatarData | undefined>();
   
   // 确定页面模式：view（查看）、edit（编辑）、create（新增）
   const pageMode = useMemo(() => {
@@ -338,38 +345,44 @@ const AgentDetails: React.FC = () => {
   }, [username, treeOrgs, shouldFetchData, setAllOrgAgents, setOrgLoading, setOrgError, isNew, defaultOrgId, form]);
 
   // 从IPC获取agent数据（编辑模式）
+  // 添加一个 ref 来跟踪是否刚刚保存过
+  const justSavedRef = useRef(false);
+  
   useEffect(() => {
     const fetchAgentData = async () => {
       if (isNew || !id || !username) return;
-
-      console.log('[AgentDetails] Fetching agent data for ID:', id);
+      
+      // 如果刚刚保存过，跳过这次获取（因为数据已经通过 agentStore 更新了）
+      if (justSavedRef.current) {
+        justSavedRef.current = false;
+        return;
+      }
       
       try {
         setLoading(true);
         const api = get_ipc_api();
         const response = await api.getAgents(username, [id]) as any;
-
-        console.log('[AgentDetails] Received response:', response);
         
         if (response?.success && response.data?.agents && Array.isArray(response.data.agents) && response.data.agents.length > 0) {
           const agent = response.data.agents[0];
-          console.log('[AgentDetails] Loading agent:', { 
-            id: agent.id || agent.card?.id, 
-            name: agent.name || agent.card?.name,
-            fullAgent: agent 
-          });
 
           // 更新表单数据
           // 优先使用 agent 自身的 org_id，如果没有则使用 URL 参数中的 defaultOrgId
           const orgId = agent.org_id || agent.organization || defaultOrgId || '';
           
           // Convert skills and tasks from objects to names (for Select component)
-          const skillNames = (agent.skills || []).map((s: any) => 
-            typeof s === 'string' ? s : s.name || s
-          );
-          const taskNames = (agent.tasks || []).map((t: any) => 
-            typeof t === 'string' ? t : t.name || t
-          );
+          // Skills/tasks from backend are objects with {id, name, ...}
+          const skillNames = (agent.skills || []).map((s: any) => {
+            if (typeof s === 'string') return s;
+            // Try multiple fields: name, skill_name, id
+            return s.name || s.skill_name || s.id || String(s);
+          }).filter(Boolean);  // Remove empty values
+          
+          const taskNames = (agent.tasks || []).map((t: any) => {
+            if (typeof t === 'string') return t;
+            // Try multiple fields: name, task_name, id
+            return t.name || t.task_name || t.id || String(t);
+          }).filter(Boolean);  // Remove empty values
           
           // Extract extra_data: if it's an object, get notes; if string, use as is
           let extraDataText = '';
@@ -383,14 +396,18 @@ const AgentDetails: React.FC = () => {
             extraDataText = agent.metadata;
           }
           
+          // Ensure title and personalities are arrays
+          const titleArray = Array.isArray(agent.title) ? agent.title : (agent.title ? [agent.title] : []);
+          const personalitiesArray = Array.isArray(agent.personalities) ? agent.personalities : (agent.personalities ? [agent.personalities] : []);
+          
           form.setFieldsValue({
             id: agent.card?.id || agent.id,
             name: agent.card?.name || agent.name,
             gender: agent.gender || 'gender_options.male',
             birthday: agent.birthday ? dayjs(agent.birthday) : null,
             owner: agent.owner || username,
-            personalities: agent.personalities || [],  // Use personalities (unified naming)
-            title: agent.title || [],
+            personalities: personalitiesArray,  // Use personalities (unified naming)
+            title: titleArray,
             org_id: orgId,
             supervisor_id: agent.supervisor_id || '',
             tasks: taskNames,
@@ -402,6 +419,16 @@ const AgentDetails: React.FC = () => {
           // 设置选中的组织ID以显示完整路径
           if (orgId) {
             setSelectedOrgId(orgId);
+          }
+          
+          // 设置 Avatar 数据
+          if (agent.avatar?.imageUrl) {
+            setAvatarData({
+              type: 'system',
+              imageUrl: agent.avatar.imageUrl,
+              videoUrl: agent.avatar.videoPath,
+              id: agent.avatar.id
+            });
           }
           
           // 从 AgentCard 编辑进入时，自动进入编辑模式
@@ -531,13 +558,15 @@ const AgentDetails: React.FC = () => {
 
           if (agents.length === 0) return null;
 
-          // 只提取必要的字段，避免循环引用
-          const agentNodes = agents.map((agent: any) => ({
-            title: agent.name || agent.id,
-            value: agent.id,
-            key: agent.id,
-            isLeaf: true,
-          }));
+          // 只提取必要的字段，避免循环引用，过滤掉无效节点
+          const agentNodes = agents
+            .filter((agent: any) => agent && agent.id) // 过滤掉无效的 agent
+            .map((agent: any) => ({
+              title: agent.name || agent.id,
+              value: agent.id,
+              key: agent.id,
+              isLeaf: true,
+            }));
 
           return {
             title: orgName,
@@ -668,7 +697,7 @@ const AgentDetails: React.FC = () => {
         mode="tags"
         style={{ width: '100%' }}
         placeholder={placeholder}
-        value={value}
+        value={Array.isArray(value) ? value : []}
         onChange={handleChange}
         disabled={disabled}
         maxTagCount="responsive"
@@ -698,6 +727,7 @@ const AgentDetails: React.FC = () => {
 
           const tagContent = (
             <Tag
+              key={`tag-${tagValue}`}  // ✅ 添加 key
               color={isCustom ? 'green' : 'blue'}
               closable={closable && !disabled}
               onClose={onClose}
@@ -889,12 +919,26 @@ const AgentDetails: React.FC = () => {
           
           if (response.success) {
             message.success(t('pages.agents.deleteSuccess', 'Agent deleted successfully'));
+            
             // 从 agentStore 中移除已删除的 agent
             const { removeAgent } = useAgentStore.getState();
             removeAgent(id);
+            
             // 同时从 orgStore 中移除
             const { removeAgentFromOrg } = useOrgStore.getState();
             removeAgentFromOrg(id);
+            
+            // 刷新组织和 agent 数据
+            try {
+              const api = get_ipc_api();
+              const refreshResponse = await api.getAllOrgAgents(username);
+              if (refreshResponse?.success && refreshResponse.data) {
+                useOrgStore.getState().setAllOrgAgents(refreshResponse.data as any);
+              }
+            } catch (error) {
+              console.error('[AgentDetails] Error refreshing org data after delete:', error);
+            }
+            
             // 跳转回agents列表页
             navigate('/agents');
           } else {
@@ -927,9 +971,12 @@ const AgentDetails: React.FC = () => {
       // Serialize dayjs and metadata
       const payload = {
         ...values,
+        id: values.id || id,  // 确保包含 id 字段
         birthday: values.birthday ? (values.birthday as Dayjs).toISOString() : null,
         skills: skillIds,  // 只发送 ID 数组
         tasks: taskIds,    // 只发送 ID 数组
+        // Avatar 数据 - 发送 avatar_resource_id 而不是完整的 avatar 数据
+        avatar_resource_id: avatarData?.id || null
       };
       setLoading(true);
       const api = get_ipc_api();
@@ -940,8 +987,11 @@ const AgentDetails: React.FC = () => {
       if (res.success) {
         message.success(t('common.saved_successfully') || 'Saved');
         
-        // 保存成功后，立即刷新组织和代理数据
+        // 保存成功后，延迟一下再刷新组织和代理数据（确保后端已更新）
         try {
+          // 添加短暂延迟确保后端数据已更新
+          await new Promise(resolve => setTimeout(resolve, 300));
+          
           const api = get_ipc_api();
           const refreshResponse = await api.getAllOrgAgents(username);
           
@@ -953,22 +1003,47 @@ const AgentDetails: React.FC = () => {
           console.error('[AgentDetails] Error refreshing org data:', error);
         }
         
-        // 如果是编辑模式，重新获取 agent 数据更新表单
+        // 如果是创建模式，跳转到 agent 列表或组织页面
+        if (isNew) {
+          // 添加延迟确保数据已经更新到 store
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          const orgId = form.getFieldValue('org_id');
+          if (orgId) {
+            // 跳转到该组织的页面，使用 replace 强制刷新
+            navigate(`/agents/organization/${orgId}`, { replace: true });
+          } else {
+            // 跳转到 agents 根页面
+            navigate('/agents', { replace: true });
+          }
+          return;
+        }
+        
+        // 如果是编辑模式，从 agentStore 获取最新数据更新表单（保留在编辑页面）
         if (!isNew && id) {
+          // 注意：上面的 getAllOrgAgents 已经完成并更新了 store
+          // 但 Zustand 的状态更新可能需要一个 tick，所以等待下一个微任务
+          await Promise.resolve();
+          
+          // 从 agentStore 获取最新的 agent 数据
           try {
-            const api = get_ipc_api();
-            const refreshResponse = await api.getAgents(username, [id]) as any;
+            const updatedAgent = getAgentById(id) as any; // Type assertion for dynamic agent data
             
-            if (refreshResponse?.success && refreshResponse.data?.agents && refreshResponse.data.agents.length > 0) {
-              const updatedAgent = refreshResponse.data.agents[0];
+            if (updatedAgent) {
               
               // Convert skills and tasks from objects to names (for Select component)
-              const skillNames = (updatedAgent.skills || []).map((s: any) => 
-                typeof s === 'string' ? s : s.name || s
-              );
-              const taskNames = (updatedAgent.tasks || []).map((t: any) => 
-                typeof t === 'string' ? t : t.name || t
-              );
+              // Skills/tasks from backend are objects with {id, name, ...}
+              const skillNames = (updatedAgent.skills || []).map((s: any) => {
+                if (typeof s === 'string') return s;
+                // Try multiple fields: name, skill_name, id
+                return s.name || s.skill_name || s.id || String(s);
+              }).filter(Boolean);  // Remove empty values
+              
+              const taskNames = (updatedAgent.tasks || []).map((t: any) => {
+                if (typeof t === 'string') return t;
+                // Try multiple fields: name, task_name, id
+                return t.name || t.task_name || t.id || String(t);
+              }).filter(Boolean);  // Remove empty values
               
               // Extract extra_data: if it's an object, get notes; if string, use as is
               let extraDataText = '';
@@ -983,11 +1058,11 @@ const AgentDetails: React.FC = () => {
               const formData = {
                 id: updatedAgent.card?.id || updatedAgent.id,
                 name: updatedAgent.card?.name || updatedAgent.name,
-                description: updatedAgent.description || '',
+                description: updatedAgent.description || updatedAgent.card?.description || '',
                 gender: updatedAgent.gender || 'gender_options.male',
                 birthday: updatedAgent.birthday ? dayjs(updatedAgent.birthday) : null,
                 owner: updatedAgent.owner || username,
-                personalities: updatedAgent.personalities || [],  // ✅ 统一使用 personalities
+                personalities: updatedAgent.personalities || [],
                 title: updatedAgent.title || [],
                 org_id: updatedAgent.org_id || '',
                 supervisor_id: updatedAgent.supervisor_id || '',
@@ -998,14 +1073,95 @@ const AgentDetails: React.FC = () => {
               };
               
               form.setFieldsValue(formData);
+              
+              // 更新组织选择状态（用于显示完整路径）
+              if (updatedAgent.org_id) {
+                setSelectedOrgId(updatedAgent.org_id);
+              }
+              
+              // 更新 Avatar 数据
+              if (updatedAgent.avatar) {
+                setAvatarData({
+                  type: 'system',
+                  imageUrl: updatedAgent.avatar.imageUrl || '',
+                  videoUrl: updatedAgent.avatar.videoPath || '',
+                  id: updatedAgent.avatar.id || ''
+                });
+              }
+              
+              // 设置标志，防止 useEffect 重新获取数据
+              justSavedRef.current = true;
+            } else {
+              console.warn('[AgentDetails] ⚠️ Agent not found in agentStore, falling back to API call');
+              // 如果 store 中没有数据，fallback 到 API 调用
+              const api = get_ipc_api();
+              const refreshResponse = await api.getAgents(username, [id]) as any;
+              
+              if (refreshResponse?.success && refreshResponse.data?.agents && refreshResponse.data.agents.length > 0) {
+                const apiAgent = refreshResponse.data.agents[0];
+                
+                // 转换并更新表单（使用相同的逻辑）
+                const skillNames = (apiAgent.skills || []).map((s: any) => {
+                  if (typeof s === 'string') return s;
+                  return s.name || s.skill_name || s.id || String(s);
+                }).filter(Boolean);
+                
+                const taskNames = (apiAgent.tasks || []).map((t: any) => {
+                  if (typeof t === 'string') return t;
+                  return t.name || t.task_name || t.id || String(t);
+                }).filter(Boolean);
+                
+                let extraDataText = '';
+                if (apiAgent.extra_data) {
+                  if (typeof apiAgent.extra_data === 'object') {
+                    extraDataText = apiAgent.extra_data.notes || '';
+                  } else {
+                    extraDataText = apiAgent.extra_data;
+                  }
+                }
+                
+                const formData = {
+                  id: apiAgent.card?.id || apiAgent.id,
+                  name: apiAgent.card?.name || apiAgent.name,
+                  description: apiAgent.description || apiAgent.card?.description || '',
+                  gender: apiAgent.gender || 'gender_options.male',
+                  birthday: apiAgent.birthday ? dayjs(apiAgent.birthday) : null,
+                  owner: apiAgent.owner || username,
+                  personalities: apiAgent.personalities || [],
+                  title: apiAgent.title || [],
+                  org_id: apiAgent.org_id || '',
+                  supervisor_id: apiAgent.supervisor_id || '',
+                  tasks: taskNames,
+                  skills: skillNames,
+                  vehicle_id: apiAgent.vehicle_id || '',
+                  extra_data: extraDataText
+                };
+                
+                form.setFieldsValue(formData);
+                
+                if (apiAgent.org_id) {
+                  setSelectedOrgId(apiAgent.org_id);
+                }
+                
+                if (apiAgent.avatar?.imageUrl) {
+                  setAvatarData({
+                    type: 'system',
+                    imageUrl: apiAgent.avatar.imageUrl,
+                    videoUrl: apiAgent.avatar.videoPath,
+                    id: apiAgent.avatar.id
+                  });
+                }
+                
+                console.log('[AgentDetails] ✅ Updated form from API fallback');
+              }
             }
           } catch (error) {
-            console.error('[AgentDetails] Error refreshing agent data:', error);
+            console.error('[AgentDetails] ❌ Error refreshing agent data:', error);
           }
         }
         
-        // 更新完表单后再切换到查看模式
-        setEditMode(false);
+        // ✅ 保持在编辑模式，允许用户继续编辑
+        // setEditMode(false);  // ← 移除这行，保持编辑模式
         
         if (isNew) {
           // After creation, navigate back to the OrgNavigator page with refresh flag
@@ -1041,6 +1197,31 @@ const AgentDetails: React.FC = () => {
           min-height: 200px !important;
           overflow: auto !important;
         }
+        .agent-basic-info-section {
+          display: flex;
+          gap: 40px;
+          margin-bottom: 24px;
+          align-items: center;
+        }
+        .agent-basic-info-left {
+          flex: 1;
+        }
+        .agent-basic-info-left .ant-form-item {
+          margin-bottom: 0;
+        }
+        .agent-basic-info-left .ant-form-item-label {
+          padding-bottom: 4px;
+        }
+        .agent-basic-info-left .ant-form-item-label > label {
+          height: auto;
+        }
+        .agent-basic-info-right {
+          flex-shrink: 0;
+          width: 280px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+        }
       `}</style>
       <div style={{ padding: 12, height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden', marginTop: '16px' }} styles={{ body: { padding: 12, height: '100%', overflow: 'hidden' } }}>
@@ -1052,23 +1233,24 @@ const AgentDetails: React.FC = () => {
             autoComplete="off"
             role="form"
             aria-label={t('pages.agents.form_label') || 'Agent Details Form'}
+            initialValues={{
+              skills: [],
+              tasks: [],
+              personalities: [],
+              title: []
+            }}
           >
-            <Row gutter={[12, 0]} style={{ margin: 0 }}>
-              {/* 第一行：ID（只在编辑时显示）和 Name */}
-              {!isNew && (
-                <Col span={12}>
-                  <StyledFormItem name="id" label="ID" htmlFor="agent-id">
-                    <Input
-                      id="agent-id"
-                      readOnly
-                      autoComplete="off"
-                      aria-label="Agent ID"
-                    />
-                  </StyledFormItem>
-                </Col>
-              )}
-              <Col span={isNew ? 24 : 12}>
-                <StyledFormItem name="name" label={t('common.name') || 'Name'} rules={[{ required: true, message: t('common.please_input_name') || 'Please input name' }]} htmlFor="agent-name">
+            {/* Basic Info Section with Avatar on the right */}
+            <div className="agent-basic-info-section">
+              <div className="agent-basic-info-left">
+                {/* Name - with label on top */}
+                <Form.Item 
+                  name="name" 
+                  label={t('common.name') || 'Name'}
+                  htmlFor="agent-name"
+                  rules={[{ required: true, message: t('common.please_input_name') || 'Please input name' }]}
+                  style={{ marginBottom: 0 }}
+                >
                   <Input
                     id="agent-name"
                     placeholder={t('common.name') || 'Name'}
@@ -1077,26 +1259,27 @@ const AgentDetails: React.FC = () => {
                     aria-label={t('common.name') || 'Name'}
                     aria-required="true"
                   />
-                </StyledFormItem>
-              </Col>
-
-              {/* 第二行：描述（提前到前面） */}
-              <Col span={24}>
-                <StyledFormItem name="description" label={t('pages.agents.description') || 'Description'} htmlFor="agent-description">
-                  <Input.TextArea
-                    id="agent-description"
-                    rows={3}
-                    disabled={!editMode}
-                    autoComplete="off"
-                    placeholder={t('pages.agents.description_placeholder') || 'Enter agent description'}
-                    aria-label={t('pages.agents.description') || 'Description'}
-                    className="resizable-textarea"
-                    style={{ minHeight: '80px', resize: 'vertical' }}
-                  />
-                </StyledFormItem>
-              </Col>
-
-              {/* 第三行：Owner 和 Gender */}
+                </Form.Item>
+              </div>
+              
+              <div className="agent-basic-info-right">
+                <AvatarManager
+                  username={username || 'default'}
+                  value={avatarData}
+                  onChange={setAvatarData}
+                  showVideo={true}
+                />
+              </div>
+            </div>
+            
+            {/* Divider */}
+            <div style={{ 
+              height: '1px', 
+              background: 'linear-gradient(to right, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.1))',
+              margin: '24px 0'
+            }} />
+            <Row gutter={[12, 0]} style={{ margin: 0 }}>
+              {/* 第一行：Owner 和 Gender */}
               <Col span={12}>
                 <StyledFormItem name="owner" label={t('common.owner') || 'Owner'} htmlFor="agent-owner">
                   <Input
@@ -1130,8 +1313,24 @@ const AgentDetails: React.FC = () => {
                   </Form.Item>
                 </div>
               </Col>
+              
+              {/* 第二行：描述 */}
+              <Col span={24}>
+                <StyledFormItem name="description" label={t('pages.agents.description') || 'Description'} htmlFor="agent-description">
+                  <Input.TextArea
+                    id="agent-description"
+                    rows={3}
+                    disabled={!editMode}
+                    autoComplete="off"
+                    placeholder={t('pages.agents.description_placeholder') || 'Enter agent description'}
+                    aria-label={t('pages.agents.description') || 'Description'}
+                    className="resizable-textarea"
+                    style={{ minHeight: '80px', resize: 'vertical' }}
+                  />
+                </StyledFormItem>
+              </Col>
 
-              {/* 第四行：Birthday 和 Vehicle */}
+              {/* 第二行：Birthday 和 Vehicle */}
               <Col span={12}>
                 <StyledFormItem name="birthday" label={t('common.birthday') || 'Birthday'} htmlFor="agent-birthday">
                   <DatePicker
@@ -1151,7 +1350,8 @@ const AgentDetails: React.FC = () => {
                     disabled={!editMode}
                     allowClear
                     placeholder={t('common.select_vehicle') || 'Select vehicle'}
-                    options={vehicles.map((v: any) => ({
+                    options={vehicles.map((v: any, index: number) => ({
+                      key: v.id || `vehicle-${index}`,  // 添加唯一 key
                       value: v.id,
                       label: `${v.name || v.id}${v.ip ? ` (${v.ip})` : ''}`
                     }))}

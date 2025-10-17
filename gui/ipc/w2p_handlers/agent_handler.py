@@ -9,6 +9,7 @@ from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
 from agent.ec_org_ctrl import get_ec_org_ctrl
 from agent.cloud_api.constants import Operation
+from agent.agent_converter import convert_agent_dict_to_ec_agent
 
 
 def _normalize_id(value: Any) -> Optional[str]:
@@ -202,44 +203,38 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
             logger.error(f"[agent_handler] Database service not available")
             return create_error_response(request, 'DB_ERROR', 'Database service not available')
 
-        agent_service = main_window.ec_db_mgr.agent_service
-
+        # Get all agents from memory (MainWindow.agents contains the most up-to-date data)
+        # This includes both database agents and special agents like MyTwinAgent
+        memory_agents = getattr(main_window, 'agents', []) or []
+        all_agents = [agent.to_dict(owner=username) for agent in memory_agents]
+        
+        logger.info(f"[agent_handler] Retrieved {len(all_agents)} agents from memory")
+        
         # If specific agent IDs are requested, filter by them
         if agent_ids and len(agent_ids) > 0:
-            # Get all agents first
-            result = agent_service.get_agents_by_owner(username)
-            if result.get('success'):
-                all_agents = result.get('data', [])
-                # Filter by requested IDs
-                agents_data = [agent for agent in all_agents if agent.get('id') in agent_ids]
-                logger.info(f"[agent_handler] Filtered {len(agents_data)} agents from {len(all_agents)} total agents")
-            else:
-                agents_data = []
-        else:
-            # Get all agents for the user
-            result = agent_service.get_agents_by_owner(username)
-            agents_data = result.get('data', []) if result.get('success') else []
-        
-        if result.get('success'):
-            agents_data = agents_data  # Already filtered above
-            logger.info(f"[agent_handler] Successfully retrieved {len(agents_data)} agents from database for user: {username}")
+            logger.debug(f"[agent_handler] Filtering by agent_ids: {agent_ids}")
             
-            resultJS = {
-                'agents': agents_data,
-                'message': 'Get all successful'
-            }
-            logger.debug(f"[agent_handler] Successfully retrieved {resultJS}")
-            return create_success_response(request, resultJS)
+            # Debug: print all agent card IDs
+            all_card_ids = [agent.get('card', {}).get('id') for agent in all_agents]
+            logger.debug(f"[agent_handler] Available agent card IDs: {all_card_ids}")
+            
+            agents_data = [agent for agent in all_agents if agent.get('card', {}).get('id') in agent_ids]
+            logger.info(f"[agent_handler] Filtered {len(agents_data)} agents from {len(all_agents)} total agents")
         else:
-            logger.error(f"[agent_handler] Failed to get agents: {result.get('error')}")
-            # Fallback to memory agents
-            agents = getattr(main_window, 'agents', []) or []
-            logger.info(f"[agent_handler] Fallback to memory: retrieved {len(agents)} agents")
-            resultJS = {
-                'agents': [agent.to_dict() for agent in agents],
-                'message': 'Get all successful (from memory)'
-            }
-            return create_success_response(request, resultJS)
+            agents_data = all_agents
+        
+        resultJS = {
+            'agents': agents_data,
+            'message': 'Get all successful'
+        }
+        
+        # Debug: log the first agent's skills/tasks to verify serialization
+        if agents_data and len(agents_data) > 0:
+            sample_agent = agents_data[0]
+            logger.info(f"[agent_handler] Sample agent data: id={sample_agent.get('id')}, skills={len(sample_agent.get('skills', []))}, tasks={len(sample_agent.get('tasks', []))}")
+        
+        logger.debug(f"[agent_handler] Successfully retrieved {len(agents_data)} agents")
+        return create_success_response(request, resultJS)
 
     except Exception as e:
         logger.error(f"[agent_handler] Error in get agents handler: {e} {traceback.format_exc()}")
@@ -303,39 +298,49 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                     continue
                 
                 # Step 1: Update agent in database first
+                logger.info(f"[agent_handler] Updating agent {agent_id} with fields: {list(agent_data.keys())}")
                 result = agent_service.update_agent(agent_id, agent_data)
                 
                 if result.get('success'):
+                    logger.info(f"[agent_handler] ✅ Database update successful for agent {agent_id}")
                     # Get updated agent data from database
                     updated_agent_data = result.get('data', {})
                     updated_agents.append(updated_agent_data)
                     
-                    # Step 2: Update agent in memory after database update succeeds
-                    existing_agent = next((ag for ag in main_window.agents if ag.card.id == agent_id), None)
-                    if existing_agent:
-                        logger.debug(f"[agent_handler] Found agent in memory: {agent_id}, current name: {existing_agent.card.name}")
+                    # Step 2: Reload agent from database and replace in memory
+                    # This ensures all fields are correctly updated, including skills and tasks
+                    try:
+                        # Query the updated agent from database with full details
+                        logger.info(f"[agent_handler] Querying agent {agent_id} with relations...")
+                        db_agent_result = agent_service.query_agents_with_relations(id=agent_id, include_skills=True, include_tasks=True)
                         
-                        # Update memory agent with new data
-                        if 'name' in agent_data:
-                            old_name = existing_agent.card.name
-                            existing_agent.card.name = agent_data['name']
-                            logger.info(f"[agent_handler] Updated agent name in memory: '{old_name}' -> '{agent_data['name']}'")
-                        if 'description' in agent_data:
-                            existing_agent.card.description = agent_data['description']
-                        if 'org_id' in agent_data:
-                            org_id = agent_data['org_id']
-                            existing_agent.org_ids = [org_id] if org_id else []
-                        
-                        # Update other fields if they exist
-                        if hasattr(existing_agent, 'gender') and 'gender' in agent_data:
-                            existing_agent.gender = agent_data['gender']
-                        if hasattr(existing_agent, 'birthday') and 'birthday' in agent_data:
-                            existing_agent.birthday = agent_data['birthday']
-                        
-                        logger.info(f"[agent_handler] Updated agent in memory: {agent_id}")
-                    else:
-                        logger.warning(f"[agent_handler] Agent {agent_id} not found in memory (main_window.agents)")
-                        logger.debug(f"[agent_handler] Available agents in memory: {[ag.card.id for ag in main_window.agents if hasattr(ag, 'card') and hasattr(ag.card, 'id')]}")
+                        if db_agent_result.get('success') and db_agent_result.get('data'):
+                            db_agent_data = db_agent_result['data'][0]
+                            logger.info(f"[agent_handler] ✅ Query successful, agent has {len(db_agent_data.get('skills', []))} skills, {len(db_agent_data.get('tasks', []))} tasks")
+                            
+                            # Convert database agent to EC_Agent instance
+                            from agent.agent_converter import convert_agent_dict_to_ec_agent
+                            updated_ec_agent = convert_agent_dict_to_ec_agent(db_agent_data, main_window)
+                            
+                            if updated_ec_agent:
+                                # Replace the agent in main_window.agents
+                                agent_index = next((i for i, ag in enumerate(main_window.agents) if ag.card.id == agent_id), None)
+                                if agent_index is not None:
+                                    main_window.agents[agent_index] = updated_ec_agent
+                                    logger.info(f"[agent_handler] ✅ Replaced agent in memory: {agent_id}")
+                                else:
+                                    # Agent 不在内存中，添加它（可能是新创建的或内存被清空）
+                                    main_window.agents.append(updated_ec_agent)
+                                    logger.info(f"[agent_handler] ✅ Added agent to memory (was missing): {agent_id}")
+                            else:
+                                logger.error(f"[agent_handler] ❌ Failed to convert agent to EC_Agent: {agent_id}")
+                                logger.error(f"[agent_handler] ⚠️ Memory will be out of sync! Consider restarting.")
+                        else:
+                            logger.error(f"[agent_handler] ❌ Failed to query updated agent: {db_agent_result.get('error')}")
+                    except Exception as e:
+                        logger.error(f"[agent_handler] Error reloading agent from database: {e}")
+                        import traceback
+                        logger.debug(traceback.format_exc())
                     
                     # Step 3: Clean up offline sync queue for this agent (remove pending add/update operations)
                     try:
@@ -565,20 +570,28 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         
         created_agent = result.get('data')
 
-        # Step 2: Add agent to memory after database creation succeeds
-        # Convert created agent to EC_Agent object and add to main_window.agents
-        # Use common converter function for consistency
+        # Step 2: Reload agent from database and add to memory
+        # This ensures all fields are correctly loaded, including skills and tasks
         try:
-            from agent.agent_converter import convert_agent_dict_to_ec_agent
+            agent_id = created_agent.get('id')
             
-            ec_agent = convert_agent_dict_to_ec_agent(created_agent, main_window)
-            
-            if ec_agent:
-                # Add to main_window.agents
-                main_window.agents.append(ec_agent)
-                logger.info(f"[agent_handler] Created and added EC_Agent '{created_agent.get('name')}' to memory")
+            # Query the created agent from database with full details
+            db_agent_result = agent_service.query_agents_with_relations(id=agent_id, include_skills=True, include_tasks=True)
+            if db_agent_result.get('success') and db_agent_result.get('data'):
+                db_agent_data = db_agent_result['data'][0]
+                
+                # Convert database agent to EC_Agent instance
+                from agent.agent_converter import convert_agent_dict_to_ec_agent
+                ec_agent = convert_agent_dict_to_ec_agent(db_agent_data, main_window)
+                
+                if ec_agent:
+                    # Add to main_window.agents
+                    main_window.agents.append(ec_agent)
+                    logger.info(f"[agent_handler] Created and added EC_Agent '{ec_agent.card.name}' to memory")
+                else:
+                    logger.warning(f"[agent_handler] Failed to convert agent to EC_Agent. Frontend will need to refresh.")
             else:
-                logger.warning(f"[agent_handler] Failed to convert agent to EC_Agent. Frontend will need to refresh.")
+                logger.error(f"[agent_handler] Failed to query created agent from database: {agent_id}")
         except Exception as e:
             logger.warning(f"[agent_handler] Failed to add agent to memory: {e}. Frontend will need to refresh.")
             logger.debug(f"[agent_handler] Traceback: {traceback.format_exc()}")
@@ -650,15 +663,48 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
             logger.warning(f"[agent_handler] MainWindow not available for user: {username}")
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'User session not available - please login again')
         
-        # Get integrated agents from MainWindow.agents (includes local DB + cloud + code-built agents)
-        # If agents not ready, we still return org structure (empty agents list)
+        # 🔥 优化方案：优先使用内存，如果内存为空则从数据库同步
+        # 这样既保证性能，又保证数据一致性
         all_agents = []
+        
         if hasattr(main_window, 'agents') and main_window.agents:
-            # All agents in MainWindow.agents are EC_Agent instances with to_flat_dict method
-            all_agents = [agent.to_flat_dict(owner=username) for agent in main_window.agents]
-            logger.info(f"[agent_handler] Retrieved {len(all_agents)} agents from MainWindow.agents")
+            # 内存中有数据，直接使用（性能最优）
+            all_agents = [agent.to_dict(owner=username) for agent in main_window.agents]
+            logger.info(f"[agent_handler] Retrieved {len(all_agents)} agents from memory")
         else:
-            logger.warning(f"[agent_handler] MainWindow.agents not initialized - will return org structure only")
+            # 内存为空，从数据库同步（确保数据可用）
+            logger.warning(f"[agent_handler] Memory cache empty, syncing from database...")
+            try:
+                # Get database service from main_window
+                if not main_window.ec_db_mgr or not main_window.ec_db_mgr.agent_service:
+                    logger.error(f"[agent_handler] Database service not available")
+                    return create_error_response(request, 'DB_ERROR', 'Database service not available')
+                
+                db_service = main_window.ec_db_mgr.agent_service
+                db_result = db_service.get_agents_by_owner(username)
+                
+                if db_result.get('success') and db_result.get('data'):
+                    db_agents = db_result['data']
+                    logger.info(f"[agent_handler] Retrieved {len(db_agents)} agents from database")
+                    
+                    # 转换为 EC_Agent 并添加到内存
+                    main_window.agents = []
+                    for db_agent_dict in db_agents:
+                        try:
+                            ec_agent = convert_agent_dict_to_ec_agent(db_agent_dict, main_window)
+                            if ec_agent:
+                                main_window.agents.append(ec_agent)
+                                all_agents.append(ec_agent.to_dict(owner=username))
+                        except Exception as e:
+                            logger.warning(f"[agent_handler] Failed to convert agent: {e}")
+                            continue
+                    
+                    logger.info(f"[agent_handler] Synced {len(main_window.agents)} agents to memory")
+                else:
+                    logger.error(f"[agent_handler] Failed to query agents from database: {db_result.get('error')}")
+            except Exception as e:
+                logger.error(f"[agent_handler] Error syncing agents from database: {e}")
+                logger.debug(traceback.format_exc())
         
         # Get org manager for organization data
         ec_org_ctrl = get_ec_org_ctrl()
@@ -684,7 +730,10 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
             assigned_count = len([a for a in all_agents if a.get('org_id')])
             unassigned_count = len([a for a in all_agents if not a.get('org_id')])
             logger.info(f"[agent_handler] Processed {len(all_agents)} total agents: {assigned_count} assigned, {unassigned_count} unassigned")
-        
+
+        # Note: Agent assignment to orgs is handled in build_org_agent_tree
+        # No need to manually assign here
+
         # Build integrated tree structure with organizations and their agents
         tree_root = build_org_agent_tree(organizations, all_agents)
         

@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect, useState, useCallback, useRef } from 'react';
-import agentGifs, { logVideoSupport } from '@/assets/gifs';
+import { logVideoSupport } from '@/assets/gifs';
 import styled from '@emotion/styled';
 import { DynamicAgentAnimation } from '../../../components/DynamicAgentAnimation';
 import { useAvatarSceneStore } from '@/stores/avatarSceneStore';
@@ -27,31 +27,6 @@ const AnimationWrapper = styled.div`
   overflow: hidden;
 `;
 
-function getRandomGif(): string {
-  if (!Array.isArray(agentGifs) || agentGifs.length === 0) return '';
-  const idx = Math.floor(Math.random() * agentGifs.length);
-  return agentGifs[idx] as string;
-}
-
-// Normalize asset paths for both web (http/https) and local file protocol
-function resolveAssetPath(path?: string): string {
-  if (!path) return '';
-  try {
-    const isFile = typeof window !== 'undefined' && window.location?.protocol === 'file:';
-    const BASE = (import.meta as any)?.env?.BASE_URL || '/';
-    const PREFIX = (typeof BASE === 'string' ? BASE : '/').replace(/\/$/, '');
-    // If running under file:// and the asset path is absolute like "/assets/...",
-    // prefix with "." so it resolves relative to index.html; otherwise honor BASE_URL
-    if (path.startsWith('/assets/')) {
-      if (isFile) return `.${path}`;
-      return `${PREFIX}${path}`;
-    }
-    return path;
-  } catch {
-    return path || '';
-  }
-}
-
 // Global flag to ensure video support detection only runs once
 let videoSupportChecked = false;
 
@@ -59,12 +34,19 @@ interface AgentAnimationProps {
   agentId?: string;
   className?: string;
   useDynamicSystem?: boolean; // New prop to enable/disable dynamic system
+  agentAvatar?: {
+    id?: string;
+    videoPath?: string;
+    imageUrl?: string;
+    videoExists?: boolean;
+  }; // Agent avatar from backend
 }
 
 const AgentAnimation: React.FC<AgentAnimationProps> = ({ 
   agentId, 
   className, 
-  useDynamicSystem = false // Temporarily disabled until store is properly initialized
+  useDynamicSystem = false, // Temporarily disabled until store is properly initialized
+  agentAvatar // Avatar data from backend
 }) => {
   const [hasDynamicScenes, setHasDynamicScenes] = useState(false);
   
@@ -85,33 +67,30 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
     setHasDynamicScenes(agentScenes.length > 0);
   }, [agentScenes]);
 
-  // Use agent ID as dependency to ensure the same agent always uses the same GIF (fallback)
-  const fallbackMediaUrl = useMemo<string>(() => {
-    // Use agent ID as seed to generate consistent random number
-    if (!agentId) return getRandomGif();
-    const seed = agentId.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
-    const index = seed % (agentGifs?.length || 1);
-    const selectedGif = Array.isArray(agentGifs) && agentGifs.length > 0 ? agentGifs[index] as string : '';
+  // Use backend avatar (video preferred, then image)
+  const mediaUrl = useMemo<string>(() => {
+    // Use backend avatar video if available
+    if (agentAvatar?.videoExists && agentAvatar.videoPath) {
+      return agentAvatar.videoPath;
+    }
     
-    // Return selected GIF or ultimate fallback
-    return resolveAssetPath(selectedGif) || resolveAssetPath('/assets/default-avatar.gif');
-  }, [agentId]);
+    // Use backend avatar image if available
+    if (agentAvatar?.imageUrl) {
+      return agentAvatar.imageUrl;
+    }
+    
+    // No avatar available
+    return '';
+  }, [agentAvatar?.id, agentAvatar?.videoPath, agentAvatar?.imageUrl, agentAvatar?.videoExists]);
 
-  // Define multiple fallback levels for static mode (include all known agent media)
+  // Fallback URLs if media fails to load
   const staticFallbackUrls = useMemo(() => {
-    const baseList = [
-      resolveAssetPath(fallbackMediaUrl),
-      // Try other agent media as alternates in case one file has issues
-      ...((agentGifs || []) as string[]).map(u => resolveAssetPath(u)),
-      resolveAssetPath('/assets/default-avatar.gif'),
-      resolveAssetPath('/assets/avatars/default.gif'),
-      resolveAssetPath('/assets/default.png'),
-      'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkF2YXRhcjwvdGV4dD48L3N2Zz4='
-    ].filter(Boolean);
-    // De-duplicate while preserving order
-    const seen = new Set<string>();
-    return baseList.filter(u => (typeof u === 'string') && !seen.has(u) && !!seen.add(u));
-  }, [fallbackMediaUrl]);
+    if (!mediaUrl) {
+      // No avatar, show placeholder
+      return ['data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkF2YXRhcjwvdGV4dD48L3N2Zz4='];
+    }
+    return [mediaUrl];
+  }, [mediaUrl]);
 
   const [staticFallbackLevel, setStaticFallbackLevel] = useState(0);
   const loadedRef = useRef(false);
@@ -119,11 +98,12 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
   // Reset loaded flag whenever URL changes
   useEffect(() => {
     loadedRef.current = false;
-  }, [fallbackMediaUrl, staticFallbackLevel]);
+  }, [mediaUrl, staticFallbackLevel]);
 
   // Use video if mediaUrl exists and ends with .webm or .mp4
-  const isVideo = Boolean(fallbackMediaUrl && typeof fallbackMediaUrl === 'string' && 
-    (fallbackMediaUrl.trim().toLowerCase().endsWith('.webm') || fallbackMediaUrl.trim().toLowerCase().endsWith('.mp4')));
+  const isVideo = Boolean(mediaUrl && typeof mediaUrl === 'string' && 
+    (mediaUrl.trim().toLowerCase().endsWith('.webm') || mediaUrl.trim().toLowerCase().endsWith('.mp4') ||
+     mediaUrl.includes('.webm') || mediaUrl.includes('.mp4')));
 
   // Check video support on first render
   useEffect(() => {
@@ -209,12 +189,6 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
   const currentIsVideo = Boolean(currentStaticUrl && typeof currentStaticUrl === 'string' && 
     (currentStaticUrl.trim().toLowerCase().endsWith('.webm') || currentStaticUrl.trim().toLowerCase().endsWith('.mp4')));
 
-  // Debug: log the resolved URL once per change to help diagnose loading issues
-  useEffect(() => {
-    if (currentStaticUrl) {
-      try { console.debug('[AgentAnimation] using media URL:', currentStaticUrl); } catch {}
-    }
-  }, [currentStaticUrl]);
 
   return (
     <AnimationContainer className={className}>
@@ -233,7 +207,7 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
               borderRadius: '12px',
               background: 'transparent' 
             }}
-            poster={resolveAssetPath('/assets/default-agent-poster.png')}
+            poster=""
             onLoadedData={() => { loadedRef.current = true; }}
             onCanPlay={() => { loadedRef.current = true; }}
             onError={handleStaticMediaError}

@@ -1,0 +1,23 @@
+.avatar-display {
+  display: inline-block;
+  transition: all 0.3s ease;
+}
+
+.avatar-display:hover {
+  transform: scale(1.05);
+}
+
+.avatar-display video,
+.avatar-display img {
+  display: block;
+}
+
+/* Ensure smooth video playback */
+.avatar-display video {
+  background: #f0f0f0;
+}
+
+/* Dark mode support */
+.dark .avatar-display video {
+  background: #2a2a2a;
+}

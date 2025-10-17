@@ -77,7 +77,7 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
         chats = {}
         logger.info(f"Get all successful for user: {username}")
         resultJS = {
-            'agents': [agent.to_dict() for agent in agents],
+            'agents': [agent.to_dict(owner=username) for agent in agents],
             'skills': [sk.to_dict() for sk in skills],
             'tools': [tool.model_dump() for tool in main_window.mcp_tools_schemas],
             'tasks': [task.to_dict() for task in all_tasks],

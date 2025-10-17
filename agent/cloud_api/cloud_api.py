@@ -866,14 +866,13 @@ def safe_parse_response(jresp, operation_name, data_key):
             # Null response without errors - this is a server-side issue
             error_msg = f"{operation_name} returned null"
             logger.warning(f"⚠️ {error_msg} (server rejected the request)")
-            logger.debug(f"📋 Full response: {json.dumps(jresp, ensure_ascii=False)}")
+            logger.warning(f"📋 Full response: {json.dumps(jresp, ensure_ascii=False)}")
             logger.debug(f"💡 Possible causes:")
             logger.debug(f"   1. Resource not found (for UPDATE/DELETE)")
             logger.debug(f"   2. Resource already exists (for ADD)")
             logger.debug(f"   3. Data validation failed on server")
             logger.debug(f"   4. Permission denied (check IAM/Cognito)")
             logger.debug(f"   5. Backend timeout or internal error")
-            raise Exception(error_msg)
 
 # =================================================================================================
 # interface appsync, directly use HTTP request.

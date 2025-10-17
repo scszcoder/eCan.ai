@@ -1,0 +1,36 @@
+.avatar-uploader-dragger {
+  width: 100%;
+}
+
+.avatar-uploader-dragger .ant-upload-drag {
+  border-radius: 12px;
+  border: 2px dashed #d9d9d9;
+  transition: all 0.3s ease;
+}
+
+.avatar-uploader-dragger .ant-upload-drag:hover {
+  border-color: #1890ff;
+}
+
+.upload-progress-container {
+  margin-top: 16px;
+}
+
+.avatar-uploader-button {
+  display: inline-block;
+}
+
+.upload-progress-inline {
+  min-width: 200px;
+}
+
+/* Dark mode support */
+.dark .avatar-uploader-dragger .ant-upload-drag {
+  background: #1f1f1f;
+  border-color: #434343;
+}
+
+.dark .avatar-uploader-dragger .ant-upload-drag:hover {
+  border-color: #1890ff;
+  background: #2a2a2a;
+}

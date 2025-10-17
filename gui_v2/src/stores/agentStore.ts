@@ -117,11 +117,12 @@ export const useAgentStore = create<AgentStoreState>()(
         return agents.filter(agent => agent.orgIds?.includes(organization));
       },
 
-      // Data fetching
+      // Data fetching - getAgents now returns all agents including MyTwinAgent
       fetchAgents: async (username: string, skillIds: string[] = []) => {
         set({ loading: true, error: null });
         try {
           const api = createIPCAPI();
+          // getAgents now includes all agents (database + memory-only agents like MyTwinAgent)
           const response = await api.getAgents<AgentsResponse | Agent[]>(username, skillIds);
           
           if (response && response.success && response.data) {
@@ -239,10 +240,9 @@ export const useAgentStore = create<AgentStoreState>()(
     }),
     {
       name: 'agent-storage',
-      // Only persist the agents data, not loading states
+      // Don't persist agents data to avoid localStorage quota exceeded
+      // Agents will be fetched from backend on each session
       partialize: (state) => ({
-        agents: state.agents,
-        items: state.agents, // 持久化时同步 items
         lastFetched: state.lastFetched,
       }),
     }

@@ -64,7 +64,8 @@ class DBChatService(BaseService):
         pinned: bool = False,       # 可选，是否置顶，默认False
         muted: bool = False,        # 可选，是否静音，默认False
         ext: dict = None,           # 可选，扩展字段，默认空字典
-        id: str = None              # 可选，会话ID，不传则自动生成
+        id: str = None,             # 可选，会话ID，不传则自动生成
+        agent_id: str = None        # 可选，关联的 agent ID
     ) -> Dict[str, Any]:
         """
         Create a new chat conversation.
@@ -94,7 +95,7 @@ class DBChatService(BaseService):
                 logger.info(f"[create_chat] Found {len(candidate_chats)} candidate chats of type '{type}'")
                 for chat in candidate_chats:
                     db_member_ids = set(str(m.userId) for m in chat.members)
-                    logger.debug(f"[create_chat] Comparing with chat {chat.id}, members: {db_member_ids}")
+                    # logger.debug(f"[create_chat] Comparing with chat {chat.id}, members: {db_member_ids}")
                     if db_member_ids == input_member_ids:
                         logger.info(f"[create_chat] Duplicate found! Returning existing chat: {chat.id}")
                         return {
@@ -112,6 +113,7 @@ class DBChatService(BaseService):
                     type=type,
                     name=name,
                     avatar=avatar,
+                    agent_id=agent_id,
                     lastMsg=lastMsg,
                     lastMsgTime=lastMsgTime,
                     unread=unread,

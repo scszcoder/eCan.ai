@@ -15,6 +15,7 @@ from agent.a2a.common.types import AgentCard, AgentCapabilities
 from agent.ec_agents.agent_utils import get_a2a_server_url
 from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
 from utils.logger_helper import logger_helper as logger
+from agent.db.services.db_agent_service import get_default_avatar
 
 if TYPE_CHECKING:
     from gui.MainGUI import MainWindow
@@ -50,7 +51,7 @@ def convert_agent_dict_to_ec_agent(
             id=agent_data.get('id', str(uuid.uuid4())),
             name=agent_data.get('name', 'Unknown Agent'),
             description=agent_data.get('description') or '',
-            url=agent_data.get('url') or get_a2a_server_url(main_window) or "http://localhost:3600",
+            url=agent_data.get('url') or get_a2a_server_url(main_window),
             version=agent_data.get('version') or '1.0.0',
             capabilities=capabilities,
             skills=[]  # DB agents don't have skills initially
@@ -77,24 +78,62 @@ def convert_agent_dict_to_ec_agent(
             logger.warning(f"[AgentConverter] Failed to create BrowserUseChatOpenAI: {e}")
             browser_use_llm = None
         
-        # Create EC_Agent object
+        avatar = agent_data.get('avatar') or get_default_avatar(agent_data.get('id'))
+        
+        # Extract relationship data from agent_data
+        # IMPORTANT: Database returns relationship objects (dicts), but EC_Agent expects:
+        # - skills: EC_Skill objects (not implemented yet, so keep empty)
+        # - tasks: ManagedTask objects (not implemented yet, so keep empty)
+        # These relationship data are stored separately for frontend display via to_dict()
+        skills_data = agent_data.get('skills', [])
+        tasks_data = agent_data.get('tasks', [])
+        title = agent_data.get('title', '')
+        if isinstance(title, str) and title.startswith('['):
+            try:
+                title = json.loads(title)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        
+        # Parse personalities if it's a JSON string
+        personalities = agent_data.get('personalities', [])
+        if isinstance(personalities, str) and personalities.startswith('['):
+            try:
+                personalities = json.loads(personalities)
+            except (json.JSONDecodeError, ValueError):
+                personalities = []
+        
+        main_window_llm = getattr(main_window, 'llm', None)
+        
         ec_agent = EC_Agent(
             mainwin=main_window,
-            skill_llm=main_window.llm,
-            llm=browser_use_llm or main_window.llm,
+            skill_llm=main_window_llm,
+            llm=browser_use_llm or main_window_llm,
             task="",  # Required by parent Agent class
-            tasks=[],
-            skills=[],  # skill_set → skills (unified naming)
+            tasks=[],  # Don't pass raw DB data - EC_Agent expects ManagedTask objects
+            skills=[],  # Don't pass raw DB data - EC_Agent expects EC_Skill objects
             card=card,
             supervisor_id=agent_data.get('supervisor_id'),
             rank=agent_data.get('rank', 'member'),
             org_id=org_id,
-            title=agent_data.get('title', ''),
+            title=title,
             gender=agent_data.get('gender', 'male'),
             birthday=agent_data.get('birthday'),
-            personalities=agent_data.get('personalities', []),  # Concise naming
-            vehicle=extra_data.get('default_vehicle_id')
+            personalities=personalities,
+            vehicle=agent_data.get('vehicle_id'),  # 只使用标准字段
+            avatar=avatar
         )
+        
+        # Store additional fields that might not be in __init__ but needed for serialization
+        ec_agent.owner = agent_data.get('owner')
+        ec_agent.description = agent_data.get('description', '')
+        ec_agent.status = agent_data.get('status', 'active')
+        ec_agent.vehicle_id = agent_data.get('vehicle_id')  # 只使用标准字段
+        ec_agent.extra_data = agent_data.get('extra_data', '')
+        
+        # ✅ Store raw relationship data for frontend display (to_dict)
+        # These are dicts from database, not EC_Skill/ManagedTask objects
+        ec_agent._db_skills = skills_data  # Store for to_dict() serialization
+        ec_agent._db_tasks = tasks_data    # Store for to_dict() serialization
         
         logger.debug(f"[AgentConverter] ✅ Converted agent: {agent_data.get('name')}, org_id: {ec_agent.org_id}")
         return ec_agent
