@@ -1,5 +1,4 @@
 import React, { useMemo, useEffect, useState, useCallback, useRef } from 'react';
-import { logVideoSupport } from '@/assets/gifs';
 import styled from '@emotion/styled';
 import { DynamicAgentAnimation } from '../../../components/DynamicAgentAnimation';
 import { useAvatarSceneStore } from '@/stores/avatarSceneStore';
@@ -26,9 +25,6 @@ const AnimationWrapper = styled.div`
   justify-content: center;
   overflow: hidden;
 `;
-
-// Global flag to ensure video support detection only runs once
-let videoSupportChecked = false;
 
 interface AgentAnimationProps {
   agentId?: string;
@@ -104,14 +100,6 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
   const isVideo = Boolean(mediaUrl && typeof mediaUrl === 'string' && 
     (mediaUrl.trim().toLowerCase().endsWith('.webm') || mediaUrl.trim().toLowerCase().endsWith('.mp4') ||
      mediaUrl.includes('.webm') || mediaUrl.includes('.mp4')));
-
-  // Check video support on first render
-  useEffect(() => {
-    if (!videoSupportChecked) {
-      videoSupportChecked = true;
-      logVideoSupport();
-    }
-  }, []);
 
   // If dynamic system is enabled and agent has scenes, use DynamicAgentAnimation
   if (useDynamicSystem && agentId && hasDynamicScenes) {

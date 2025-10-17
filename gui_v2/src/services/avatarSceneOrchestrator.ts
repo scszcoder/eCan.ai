@@ -17,7 +17,6 @@ import {
 import { useAvatarSceneStore } from '@/stores/avatarSceneStore';
 import { avatarEventManager } from '@/services/avatarEventManager';
 import { logger } from '@/utils/logger';
-import agentGifs from '@/assets/gifs';
 
 // Scene Orchestrator Class
 export class AvatarSceneOrchestrator {
@@ -477,21 +476,7 @@ export class AvatarSceneOrchestrator {
   }
 
   /**
-   * Get default media URL for an agent
-   */
-  public getDefaultMediaUrl(agentId: string): string {
-    if (!agentId || !Array.isArray(agentGifs) || agentGifs.length === 0) {
-      return '';
-    }
-
-    // Use agent ID as seed to generate consistent random number
-    const seed = agentId.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
-    const index = seed % agentGifs.length;
-    return agentGifs[index] as string;
-  }
-
-  /**
-   * Get current media URL for an agent (scene or default)
+   * Get current media URL for an agent from scene
    */
   public getCurrentMediaUrl(agentId: string): string {
     const store = useAvatarSceneStore.getState();
@@ -501,7 +486,8 @@ export class AvatarSceneOrchestrator {
       return currentScene.clip.clip;
     }
 
-    return this.getDefaultMediaUrl(agentId);
+    // Return empty string if no scene is playing (avatar should use backend-provided avatar)
+    return '';
   }
 
   /**
