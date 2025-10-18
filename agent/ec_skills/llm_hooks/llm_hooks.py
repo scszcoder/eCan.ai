@@ -22,7 +22,7 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state):
 
         state["prompts"] = nodes_prompts[0]
         print("state prompts:", state["input"], nodes_prompts)
-        print("standard_pre_llm_hook current stete:", state)
+        print("standard_pre_llm_hook current state:", state)
         langchain_prompt = ChatPromptTemplate.from_messages(state["prompts"])
 
         # Collect variables required by the prompt template
@@ -62,9 +62,36 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state):
         formatted_prompt = langchain_prompt.format_messages(**var_values)
         print("state:", state)
         # Ensure list exists
-        if not isinstance(state.get("formatted_prompts"), list):
-            state["formatted_prompts"] = []
-        state["formatted_prompts"].append(formatted_prompt)
+        if not isinstance(state.get("history"), list):
+            state["history"] = []
+        
+        # Smart history management: avoid duplicate SystemMessages
+        # formatted_prompt is typically [SystemMessage(...), HumanMessage(...)]
+        from langchain_core.messages import SystemMessage
+        
+        if formatted_prompt and len(formatted_prompt) > 0:
+            first_msg = formatted_prompt[0]
+            # Check if first message is a SystemMessage
+            if isinstance(first_msg, SystemMessage):
+                # Check if this SystemMessage already exists in history
+                system_exists = any(
+                    isinstance(msg, SystemMessage) and msg.content == first_msg.content 
+                    for msg in state["history"]
+                )
+                
+                if system_exists:
+                    # Skip the SystemMessage, only add the rest (e.g., HumanMessage)
+                    state["history"].extend(formatted_prompt[1:])
+                    logger.debug(f"Skipped duplicate SystemMessage, added {len(formatted_prompt) - 1} messages to history")
+                else:
+                    # Add all messages including the new SystemMessage
+                    state["history"].extend(formatted_prompt)
+                    logger.debug(f"Added all {len(formatted_prompt)} messages to history (new SystemMessage)")
+            else:
+                # No SystemMessage at start, add all messages
+                state["history"].extend(formatted_prompt)
+                logger.debug(f"Added all {len(formatted_prompt)} messages to history (no SystemMessage)")
+        
         logger.debug("pre ll hook formatted_prompt:",formatted_prompt)
 
         logger.debug(f"standard_pre_llm_hook: {full_node_name} prompts: {formatted_prompt}")
@@ -147,6 +174,17 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
         print("post llm hook input response:", type(response), response)
         state["metadata"] = _deep_merge(state["metadata"], response["llm_result"].get("meta_data", {}))
         state["messages"].append(f"llm:{response['llm_result'].get('next_prompt', '')}")
+        
+        # Add AI response to chat history
+        from langchain_core.messages import AIMessage
+        next_prompt_text = response['llm_result'].get('next_prompt', '')
+        if next_prompt_text:
+            ai_message = AIMessage(content=next_prompt_text)
+            if not isinstance(state.get("history"), list):
+                state["history"] = []
+            state["history"].append(ai_message)
+            logger.debug(f"Added AIMessage to history: {next_prompt_text[:100]}...")  # Log first 100 chars
+        
         logger.debug(f"standard_post_llm_hook: {post_hook_result}")
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPostLLMHook")
@@ -279,8 +317,8 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         # langchain_prompt = ChatPromptTemplate.from_messages(node_prompt)
         # formatted_prompt = langchain_prompt.format_messages(component_info=state["input"], categories=state["attributes"]["categories"])
 
-        if state["formatted_prompts"]:
-            formatted_prompt = state["formatted_prompts"][-1]
+        if state["history"]:
+            formatted_prompt = state["history"][-1]
         else:
             formatted_prompt = get_standard_prompt(state)            #STARDARD_PROMPT
 

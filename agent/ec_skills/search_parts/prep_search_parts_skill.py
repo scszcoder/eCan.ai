@@ -10,7 +10,7 @@ def prep_search_parts_skill(agent, task_id, msg=None, current_state=None):
         input=msg_txt,
         attachments=attachments,
         prompts=[],
-        formatted_prompts=[],
+        history=[],
         attributes={},
         result={},
         tool_input={

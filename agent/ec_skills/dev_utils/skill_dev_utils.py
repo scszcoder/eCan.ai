@@ -114,7 +114,7 @@ def run_dev_skill(mainwin, skill):
             input="",
             attachments=[],
             prompts=[],
-            formatted_prompts=[],
+            history=[],
             attributes={
             },
             result={},

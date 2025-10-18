@@ -68,6 +68,9 @@ from agent.db.services.db_agent_service import get_default_avatar
 
 load_dotenv()
 
+
+
+
 class EC_Agent(Agent):
 	@time_execution_sync('--init (agent)')
 	def __init__(
@@ -100,7 +103,7 @@ class EC_Agent(Agent):
 		
 		# Save card before calling super().__init__() to ensure it's preserved
 		self.card = card
-		
+
 		# Agent properties
 		self.supervisor_id = supervisor_id
 		self.rank = rank if rank is not None else ""
@@ -116,10 +119,27 @@ class EC_Agent(Agent):
 		self.images = [{"image_name":"", "image_source":"","text":""}]
 		self.avatar = avatar or (get_default_avatar(card.id) if card else None)
 
+		# Define profile structure
+		class UserProfile(BaseModel):
+			"""Represents the full representation of a user."""
+			name: Optional[str] = None
+			language: Optional[str] = None
+			timezone: Optional[str] = None
+
 		# Safely initialize embeddings in packaged environment
 		try:
+			# Configure extraction
+			from langmem import create_memory_manager
+
+			self.mem_manager = create_memory_manager(
+				"anthropic:claude-3-5-sonnet-latest",
+				schemas=[UserProfile],  # (optional) customize schema
+				instructions="Extract user profile information",
+				enable_inserts=False,  # Profiles update in-place
+			)
+
 			self.embeddings = init_embeddings("openai:text-embedding-3-small")
-			self.store = InMemoryStore(
+			self.mem_store = InMemoryStore(
 				index={
 					"embed": self.embeddings,
 					"dims": 1536,
@@ -220,7 +240,7 @@ class EC_Agent(Agent):
 		return {
 			# Card information (nested for frontend compatibility)
 			'card': self.card_to_dict(self.card) if self.card else {},
-			
+
 			# Agent profile
 			'id': self.card.id if self.card else None,
 			'name': self.card.name if self.card else '',
@@ -228,19 +248,19 @@ class EC_Agent(Agent):
 			'owner': owner or getattr(self, 'owner', None),
 			'gender': getattr(self, 'gender', 'male'),
 			'birthday': getattr(self, 'birthday', None),
-			
+
 			# Organization and hierarchy
 			'org_id': self.org_id,
 			'supervisor_id': self.supervisor_id,
 			'rank': self.rank,
-			
+
 			# Agent characteristics
 			'title': self.title,
 			'personalities': self.personalities or [],
 			# Use _db_skills/_db_tasks if available (from database), otherwise serialize runtime skills/tasks
 			'skills': getattr(self, '_db_skills', []) or serialize_items(getattr(self, 'skills', [])),
 			'tasks': getattr(self, '_db_tasks', []) or serialize_items(getattr(self, 'tasks', [])),
-			
+
 			# Configuration
 			'vehicle_id': getattr(self, 'vehicle_id', None),
 			'status': getattr(self, 'status', 'active'),

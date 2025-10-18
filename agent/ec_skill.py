@@ -9,6 +9,8 @@ from langgraph.graph import END, StateGraph, START
 from langchain_core.runnables import RunnableLambda
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain.prompts import ChatPromptTemplate
+from langmem.short_term import summarize_messages, RunningSummary
+
 from langchain_openai import ChatOpenAI
 import subprocess
 from dataclasses import dataclass
@@ -285,7 +287,8 @@ class NodeState(TypedDict):
     attachments: List[FileAttachment]
     prompts: List[dict]
     prompt_refs: dict
-    formatted_prompts: List[dict]
+    history: List[Any]
+    summary: RunningSummary | None
     messages: List[Any]
     threads: List[dict]
     this_node: str
@@ -415,7 +418,7 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         def _prune_result(res: Any) -> Any:
             # if isinstance(res, dict):
             #     forbidden = {
-            #         "input","attachments","prompts","formatted_prompts","messages","threads","metadata",
+            #         "input","attachments","prompts","history","messages","threads","metadata",
             #         "attributes","result","tool_input","tool_result","error","retries","condition","case","goals"
             #     }
             #     # keep only non-forbidden keys from result
@@ -428,7 +431,7 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
 
         def _safe_state_view(st: dict) -> dict:
             whitelist = [
-                "input","attachments","prompts","formatted_prompts","messages","threads","metadata",
+                "input","attachments","prompts","history","messages","threads","metadata",
                 "attributes","result","tool_input","tool_result","error","retries","condition","case","goals"
             ]
             out = {}

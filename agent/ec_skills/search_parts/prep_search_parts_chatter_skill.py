@@ -33,7 +33,7 @@ def prep_search_parts_chatter_skill(agent, task_id, msg, current_state=None):
         input=msg_txt,
         attachments=attachments,
         prompts=[],
-        formatted_prompts=[],
+        history=[],
         attributes={
             "preliminary_info": [
                 {

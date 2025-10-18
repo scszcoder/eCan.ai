@@ -63,8 +63,8 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         # langchain_prompt = ChatPromptTemplate.from_messages(node_prompt)
         # formatted_prompt = langchain_prompt.format_messages(component_info=state["input"], categories=state["attributes"]["categories"])
 
-        if state["formatted_prompts"]:
-            formatted_prompt = state["formatted_prompts"][-1]
+        if state["history"]:
+            formatted_prompt = state["history"][-1]
         else:
             formatted_prompt = get_standard_prompt(state)            #STARDARD_PROMPT
 
