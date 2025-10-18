@@ -18,7 +18,7 @@ def pre_more_analysis_app_hook(askid, full_node_name, agent, state):
         current_preliminary_info = state["attributes"].get("current_preliminary_info", {})
         langchain_prompt = ChatPromptTemplate.from_messages(state["prompts"])
         formatted_prompt = langchain_prompt.format_messages(boss_name="Guest User", human_input=state["input"], current_preliminary_info=current_preliminary_info)
-        state["formatted_prompts"].append(formatted_prompt)
+        state["history"].extend(formatted_prompt)
 
         logger.debug(f"pre_more_analysis_app: {full_node_name} prompts: {formatted_prompt}")
     except Exception as e:
@@ -38,7 +38,7 @@ def pre_examine_filled_specs(askid, full_node_name, agent, state):
         state["prompts"] = nodes_prompts[0]
         langchain_prompt = ChatPromptTemplate.from_messages(state["prompts"])
         formatted_prompt = langchain_prompt.format_messages(boss_name="Guest User", human_input=state["input"])
-        state["formatted_prompts"].append(formatted_prompt)
+        state["history"].extend(formatted_prompt)
 
         logger.debug(f"pre_examine_filled_specs: {full_node_name} prompts: {nodes_prompts}")
     except Exception as e:
@@ -59,7 +59,7 @@ def pre_confirm_FOM(askid, full_node_name, agent, state):
         state["prompts"] = nodes_prompts[0]
         langchain_prompt = ChatPromptTemplate.from_messages(state["prompts"])
         formatted_prompt = langchain_prompt.format_messages(boss_name="Guest User", input=state["input"])
-        state["formatted_prompts"].append(formatted_prompt)
+        state["history"].extend(formatted_prompt)
 
         logger.debug(f"pre_confirm_FOM: {full_node_name} prompts: {nodes_prompts}")
     except Exception as e:

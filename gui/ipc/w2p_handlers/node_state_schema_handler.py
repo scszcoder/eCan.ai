@@ -16,7 +16,7 @@ NODE_STATE_JSON_SCHEMA: Dict[str, Any] = {
         "attachments": {"type": "array", "items": {"type": "object"}},
         "prompts": {"type": "array", "items": {"type": "object"}},
         "prompt_refs": {"type": "object"},
-        "formatted_prompts": {"type": "array", "items": {"type": "object"}},
+        "history": {"type": "array", "items": {"type": "object"}},
         "messages": {"type": "array", "items": {"type": "object"}},
         "threads": {"type": "array", "items": {"type": "object"}},
         "metadata": {"type": "object", "additionalProperties": True},

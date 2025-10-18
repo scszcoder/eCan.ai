@@ -356,8 +356,8 @@ def all_requirement_filled(state: NodeState) -> str:
 #
 #         mm_content = prep_multi_modal_content(state, runtime)
 #
-#         if state["formatted_prompts"]:
-#             formatted_prompt = state["formatted_prompts"][-1]
+#         if state["history"]:
+#             formatted_prompt = state["history"][-1]
 #         else:
 #             formatted_prompt = get_standard_prompt(state)            #STARDARD_PROMPT
 #

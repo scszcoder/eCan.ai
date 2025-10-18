@@ -12,6 +12,48 @@ from agent.cloud_api.constants import Operation
 from agent.agent_converter import convert_agent_dict_to_ec_agent
 
 
+def _json_safe(value, depth: int = 0):
+    """Recursively convert values to JSON-serializable structures.
+
+    - Pydantic models: use model_dump(mode="python")
+    - Objects with __dict__: use vars()
+    - Dicts/lists/sets/tuples: sanitize recursively
+    - Fallback: str(value)
+    """
+    try:
+        # Prevent extremely deep recursion
+        if depth > 8:
+            return str(value)
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, dict):
+            safe_dict = {}
+            for k, v in value.items():
+                key = str(k)
+                safe_dict[key] = _json_safe(v, depth + 1)
+            return safe_dict
+        if isinstance(value, (list, tuple, set)):
+            return [_json_safe(v, depth + 1) for v in value]
+        # Pydantic BaseModel-like
+        if hasattr(value, 'model_dump') and callable(getattr(value, 'model_dump')):
+            try:
+                return _json_safe(value.model_dump(mode="python"), depth + 1)
+            except Exception:
+                pass
+        # Generic objects
+        if hasattr(value, '__dict__'):
+            try:
+                return _json_safe(vars(value), depth + 1)
+            except Exception:
+                pass
+        return str(value)
+    except Exception:
+        try:
+            return str(value)
+        except Exception:
+            return '<unserializable>'
+
+
 def _normalize_id(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -233,8 +275,13 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
             sample_agent = agents_data[0]
             logger.info(f"[agent_handler] Sample agent data: id={sample_agent.get('id')}, skills={len(sample_agent.get('skills', []))}, tasks={len(sample_agent.get('tasks', []))}")
         
+        # Sanitize for JSON serialization safety (handles Pydantic objects like TaskSendParams)
+        safe_result = _json_safe(resultJS)
+        if safe_result is not resultJS:
+            logger.debug("[agent_handler] Applied JSON-safe sanitation to get_agents result")
+        
         logger.debug(f"[agent_handler] Successfully retrieved {len(agents_data)} agents")
-        return create_success_response(request, resultJS)
+        return create_success_response(request, safe_result)
 
     except Exception as e:
         logger.error(f"[agent_handler] Error in get agents handler: {e} {traceback.format_exc()}")
@@ -390,10 +437,13 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
             return create_error_response(request, 'PARTIAL_SAVE_ERROR', f"Saved {saved_count} agents with errors: {'; '.join(errors)}")
         else:
             logger.info(f"[agent_handler] Successfully saved {saved_count} agents for user: {username}")
-            return create_success_response(request, {
+            result_data = {
                 'message': f'Successfully saved {saved_count} agents',
                 'agents': updated_agents  # 返回更新后的 agent 数据
-            })
+            }
+            # Sanitize for JSON serialization safety
+            safe_result = _json_safe(result_data)
+            return create_success_response(request, safe_result)
 
     except Exception as e:
         logger.error(f"[agent_handler] Error in save agents handler: {e} {traceback.format_exc()}")
@@ -631,13 +681,13 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         _sync_agent_avatar_to_cloud(created_agent, Operation.ADD)
 
         logger.info(f"[agent_handler] Successfully created agent '{created_agent.get('name')}' for user: {username}")
-        return create_success_response(
-            request,
-            {
-                'message': f"Successfully created agent '{created_agent.get('name')}'",
-                'agent': created_agent
-            }
-        )
+        result_data = {
+            'message': f"Successfully created agent '{created_agent.get('name')}'",
+            'agent': created_agent
+        }
+        # Sanitize for JSON serialization safety
+        safe_result = _json_safe(result_data)
+        return create_success_response(request, safe_result)
 
     except Exception as e:
         logger.error(f"[agent_handler] Error in create agents handler: {e} {traceback.format_exc()}")
@@ -763,9 +813,13 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
             'orgs': tree_root,  # Complete tree structure: root with children and agents
             'message': 'Successfully retrieved integrated organizations and agents tree'
         }
-        
+        # Sanitize for JSON serialization safety (handles Pydantic objects like TaskSendParams)
+        safe_result = _json_safe(result_data)
+        if safe_result is not result_data:
+            logger.debug("[agent_handler] Applied JSON-safe sanitation to get_all_org_agents result")
+
         logger.info(f"[agent_handler] Successfully retrieved integrated data for user: {username}")
-        return create_success_response(request, result_data)
+        return create_success_response(request, safe_result)
         
     except Exception as e:
         logger.error(f"[agent_handler] Error in get_all_org_agents: {e}")
