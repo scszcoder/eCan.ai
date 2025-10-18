@@ -1002,17 +1002,23 @@ jobs:
         cat checksums/SHA256SUMS
         cd ..
         
-        # Upload to S3 with public read access
+        # Configure optional ACL flag (buckets with Object Ownership=BucketOwnerEnforced reject ACLs)
+        ACL_ARGS=()
+        if [ "${S3_USE_ACL:-}" = "true" ]; then
+          ACL_ARGS+=(--acl public-read)
+        fi
+
+        # Upload to S3
         echo "=== Uploading to S3 ==="
         aws s3 sync upload/ s3://${S3_BUCKET}/${S3_VERSION_PATH}/ \
-          --acl public-read \
+          "${ACL_ARGS[@]}" \
           --cache-control "max-age=31536000" \
           --metadata "version=${VERSION}"
         
         # Upload to latest directory (for easy access to latest version)
         echo "=== Updating latest version ==="
         aws s3 sync upload/ s3://${S3_BUCKET}/${S3_BASE_PATH}/latest/ \
-          --acl public-read \
+          "${ACL_ARGS[@]}" \
           --cache-control "max-age=300" \
           --metadata "version=${VERSION}"
         
@@ -1090,8 +1096,13 @@ jobs:
         fi
         
         # Upload metadata to S3
+        ACL_ARGS=()
+        if [ "${S3_USE_ACL:-}" = "true" ]; then
+          ACL_ARGS+=(--acl public-read)
+        fi
+
         aws s3 cp version-metadata.json s3://${S3_BUCKET}/${S3_VERSION_PATH}/version-metadata.json \
-          --acl public-read \
+          "${ACL_ARGS[@]}" \
           --content-type "application/json"
         
         echo "Version metadata uploaded to: ${{ steps.upload.outputs.s3_base_url }}/version-metadata.json"
