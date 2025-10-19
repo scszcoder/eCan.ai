@@ -13,6 +13,7 @@ import { logger } from '../../utils/logger';
 import { get_ipc_api } from '@/services/ipc_api';
 import { DisplayNode, GetAllOrgAgentsResponse, OrgAgent, TreeOrgNode } from '../Orgs/types';
 import type { Agent } from './types';
+import { extractAllAgents } from './utils/orgTreeUtils';
 
 // 查找树节点
 function findTreeNodeById(node: TreeOrgNode, targetId: string): TreeOrgNode | null {
@@ -91,7 +92,11 @@ const buildDoorsForNode = (
 
   children.forEach((child) => {
     const hasChildren = !!(child.children && child.children.length > 0);
-
+    
+    // 递归统计当前节点及其所有子节点的 agent 总数
+    const allAgents = extractAllAgents(child);
+    const totalAgentCount = allAgents.length;
+    
     doors.push({
       id: child.id,
       name: child.name,
@@ -100,7 +105,7 @@ const buildDoorsForNode = (
       sort_order: child.sort_order,
       org: child,
       agents: child.agents,
-      agentCount: child.agents?.length || 0,
+      agentCount: totalAgentCount,  // 使用递归统计的总数
       hasChildren,
       childrenCount: child.children?.length || 0,
     });
@@ -457,9 +462,9 @@ const OrgNavigator: React.FC = () => {
                 displayName = t(displayName) || displayName;
               }
 
-              // 有子组织时，显示子组织数量；没有子组织时，显示 agents 数量
-              if (door.type === 'org_with_children' && typeof door.childrenCount === 'number') {
-                displayName = `${displayName} (${door.childrenCount})`;
+              // 显示该组织及其所有子组织的 agent 总数
+              if (door.type === 'org_with_children' && typeof door.agentCount === 'number') {
+                displayName = `${displayName} (${door.agentCount})`;
               } else if (door.type === 'org_with_agents' && typeof door.agentCount === 'number') {
                 displayName = `${displayName} (${door.agentCount})`;
               }
