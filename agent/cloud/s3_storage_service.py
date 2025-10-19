@@ -60,8 +60,17 @@ class S3StorageConfig:
 class S3StorageService:
     """AWS S3 storage service."""
     
-    def __init__(self, config: S3StorageConfig):
+    def __init__(self, config: S3StorageConfig, aws_credentials: dict = None):
+        """
+        Initialize S3 storage service.
+        
+        Args:
+            config: S3 storage configuration
+            aws_credentials: Optional AWS temporary credentials from Cognito
+                           {'AccessKeyId': str, 'SecretKey': str, 'SessionToken': str}
+        """
         self.config = config
+        self.aws_credentials = aws_credentials
         self._client = None
     
     def _init_client(self):
@@ -76,14 +85,29 @@ class S3StorageService:
                 retries={'max_attempts': 3, 'mode': 'standard'}
             )
             
-            self._client = boto3.client(
-                's3',
-                aws_access_key_id=self.config.access_key,
-                aws_secret_access_key=self.config.secret_key,
-                endpoint_url=self.config.endpoint if self.config.endpoint else None,
-                config=config,
-                use_ssl=self.config.use_ssl
-            )
+            # Use Cognito temporary credentials if available
+            if self.aws_credentials:
+                logger.info("[S3Storage] Using Cognito temporary credentials")
+                self._client = boto3.client(
+                    's3',
+                    aws_access_key_id=self.aws_credentials['AccessKeyId'],
+                    aws_secret_access_key=self.aws_credentials['SecretKey'],
+                    aws_session_token=self.aws_credentials['SessionToken'],
+                    endpoint_url=self.config.endpoint if self.config.endpoint else None,
+                    config=config,
+                    use_ssl=self.config.use_ssl
+                )
+            else:
+                # Use static credentials from config
+                logger.info("[S3Storage] Using static credentials from config")
+                self._client = boto3.client(
+                    's3',
+                    aws_access_key_id=self.config.access_key,
+                    aws_secret_access_key=self.config.secret_key,
+                    endpoint_url=self.config.endpoint if self.config.endpoint else None,
+                    config=config,
+                    use_ssl=self.config.use_ssl
+                )
             
             logger.info(f"[S3Storage] Initialized for bucket: {self.config.bucket}")
             return True
@@ -291,12 +315,16 @@ class S3StorageService:
             return False
 
 
-def create_s3_storage_service(config: S3StorageConfig = None) -> Optional[S3StorageService]:
+def create_s3_storage_service(
+    config: S3StorageConfig = None,
+    use_cognito_credentials: bool = True
+) -> Optional[S3StorageService]:
     """
     Create AWS S3 storage service.
     
     Args:
         config: S3 storage configuration. If None, loads from environment.
+        use_cognito_credentials: Whether to use Cognito temporary credentials
     
     Returns:
         S3StorageService instance or None if not configured
@@ -304,8 +332,39 @@ def create_s3_storage_service(config: S3StorageConfig = None) -> Optional[S3Stor
     if config is None:
         config = S3StorageConfig.from_env()
     
-    if not config.is_configured():
+    # Try to get Cognito credentials if enabled
+    aws_credentials = None
+    if use_cognito_credentials:
+        try:
+            from auth.aws_credentials_provider import create_credentials_provider
+            from app_context import AppContext
+            
+            # Get auth manager from app context
+            auth_manager = AppContext.get_auth_manager()
+            if auth_manager and auth_manager.is_signed_in():
+                tokens = auth_manager.get_tokens()
+                id_token = tokens.get('IdToken') or tokens.get('id_token')
+                
+                if id_token:
+                    credentials_provider = create_credentials_provider()
+                    if credentials_provider:
+                        aws_credentials = credentials_provider.get_credentials(id_token)
+                        if aws_credentials:
+                            logger.info("[S3Storage] ✅ Using Cognito temporary credentials")
+                        else:
+                            logger.warning("[S3Storage] Failed to get Cognito credentials, falling back to static config")
+        except Exception as e:
+            logger.warning(f"[S3Storage] Failed to get Cognito credentials: {e}")
+    
+    # Check if we have either Cognito credentials or static config
+    if not aws_credentials and not config.is_configured():
         logger.info("[S3Storage] Not configured, skipping initialization")
         return None
     
-    return S3StorageService(config)
+    # If we have Cognito credentials, we don't need static config to be fully configured
+    # Just need the bucket name
+    if aws_credentials and not config.bucket:
+        logger.warning("[S3Storage] Bucket name not configured")
+        return None
+    
+    return S3StorageService(config, aws_credentials)
