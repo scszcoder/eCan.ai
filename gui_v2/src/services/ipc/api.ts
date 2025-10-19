@@ -235,6 +235,14 @@ export class IPCAPI {
         return this.executeRequest<T>('avatar.get_uploaded_avatars', { username });
     }
 
+    public async uploadAvatar<T>(username: string, fileData: string, filename: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('avatar.upload_avatar', { username, fileData, filename });
+    }
+
+    public async deleteUploadedAvatar<T>(username: string, avatarId: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('avatar.delete_uploaded_avatar', { username, avatarId });
+    }
+
     /**
      * Refresh MCP tool schemas on the backend and return refreshed list
      */

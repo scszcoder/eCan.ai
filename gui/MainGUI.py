@@ -2915,6 +2915,28 @@ class MainWindow:
 
     def get_local_server_port(self):
         return self.config_manager.general_settings.local_server_port
+    
+    def get_server_base_url(self) -> str:
+        """
+        Get the base URL of the local server.
+        
+        This is the unified method for getting server URL across the application.
+        It directly uses the server_manager_instance to get the actual running server URL.
+        
+        Returns:
+            str: Base URL like "http://localhost:4668"
+        """
+        try:
+            from gui.LocalServer import server_manager_instance
+            if server_manager_instance:
+                return server_manager_instance.get_server_url()
+        except Exception as e:
+            from utils.logger_helper import logger_helper as logger
+            logger.warning(f"Failed to get server URL from server_manager: {e}")
+        
+        # Fallback: construct from config port
+        port = self.get_local_server_port()
+        return f"http://localhost:{port}"
 
     def is_debug_mode(self):
         return self.config_manager.general_settings.debug_mode

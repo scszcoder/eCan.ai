@@ -21,6 +21,9 @@ from agent.cloud_api.constants import DataType, Operation
 class OfflineSyncManager:
     """Offline Sync Manager - Handles online/offline synchronization"""
     
+    # Configuration variable for offline sync control
+    OFFLINE_SYNC_ENABLED = False  # 启用/禁用离线同步功能
+    
     def __init__(self):
         """Initialize offline sync manager"""
         self.sync_queue = get_offline_sync_queue()
@@ -31,6 +34,7 @@ class OfflineSyncManager:
         self._executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix='CloudSync')
         
         logger.info("[OfflineSyncManager] Initialized with thread pool (max_workers=5)")
+        logger.info(f"[OfflineSyncManager] OFFLINE_SYNC_ENABLED={self.OFFLINE_SYNC_ENABLED}")
     
     def sync_to_cloud(self, data_type: Union[DataType, str], data: Dict[str, Any], 
                      operation: Union[Operation, str] = Operation.ADD, timeout: float = None) -> Dict[str, Any]:
@@ -71,9 +75,23 @@ class OfflineSyncManager:
                     'response': result.get('response')
                 }
             else:
-                # Sync failed, add to queue
-                task_id = self.sync_queue.add(data_type, data, operation)
+                # Sync failed, check if we should add to queue
                 errors = result.get('errors', [])
+                
+                # Check if offline sync is disabled
+                if not self.OFFLINE_SYNC_ENABLED:
+                    logger.info(f"[OfflineSyncManager] ⚠️ Sync failed but offline sync is disabled: {data_type}.{operation} - {data_name}")
+                    logger.warning(f"[OfflineSyncManager] Errors: {errors}")
+                    return {
+                        'success': False,
+                        'synced': False,
+                        'cached': False,
+                        'message': 'Sync failed and offline sync is disabled',
+                        'errors': errors
+                    }
+                
+                # Add to queue
+                task_id = self.sync_queue.add(data_type, data, operation)
                 logger.warning(f"[OfflineSyncManager] ⚠️ Sync failed, cached to queue: {task_id}")
                 logger.warning(f"[OfflineSyncManager] Errors: {errors}")
                 return {
@@ -86,7 +104,20 @@ class OfflineSyncManager:
                 }
                 
         except Exception as e:
-            # Network error or other exception, add to queue
+            # Network error or other exception, check if we should add to queue
+            
+            # Check if offline sync is disabled
+            if not self.OFFLINE_SYNC_ENABLED:
+                logger.error(f"[OfflineSyncManager] ❌ Sync error but offline sync is disabled: {e}")
+                return {
+                    'success': False,
+                    'synced': False,
+                    'cached': False,
+                    'message': 'Sync error and offline sync is disabled',
+                    'error': str(e)
+                }
+            
+            # Add to queue
             task_id = self.sync_queue.add(data_type, data, operation)
             logger.error(f"[OfflineSyncManager] ❌ Sync error, cached to queue: {task_id} - {e}")
             return {
