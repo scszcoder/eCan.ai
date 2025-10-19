@@ -24,30 +24,40 @@ class AvatarHandler:
     """Handler for avatar-related IPC requests."""
     
     def __init__(self):
-        self.avatar_managers = {}  # Cache avatar managers per user
+        # Removed avatar_managers cache - create on-demand for better decoupling
         logger.info("[AvatarHandler] Initialized")
     
     def _get_avatar_manager(self, username: str) -> AvatarManager:
-        """Get or create avatar manager for user."""
-        if username not in self.avatar_managers:
-            # Get database service from AppContext
-            main_window = AppContext.get_main_window()
-            db_service = None
-            if main_window and hasattr(main_window, 'ec_db_mgr'):
-                db_service = main_window.ec_db_mgr
-            
-            self.avatar_managers[username] = AvatarManager(
-                user_id=username,
-                db_service=db_service
-            )
+        """
+        Create AvatarManager on-demand for each request.
         
-        return self.avatar_managers[username]
+        This ensures fresh instances with correct db_avatar_service,
+        avoiding stale cache issues and improving decoupling.
+        
+        Args:
+            username: User identifier
+            
+        Returns:
+            AvatarManager: Fresh instance with db_avatar_service
+        """
+        # Get avatar_service from ECDBMgr
+        main_window = AppContext.get_main_window()
+        avatar_service = None
+        if main_window and hasattr(main_window, 'ec_db_mgr'):
+            # Use the unified avatar_service from ECDBMgr
+            avatar_service = main_window.ec_db_mgr.avatar_service
+        
+        # Create fresh AvatarManager instance for each request
+        return AvatarManager(
+            user_id=username,
+            db_service=avatar_service
+        )
     
     # ==================== Get Avatar Resource ====================
     
     def get_avatar_resource(self, request: Dict) -> Dict:
         """
-        获取头像资源信息，自动检查并从云端恢复缺失的文件
+        Get avatar resource info, automatically check and restore missing files from cloud.
         
         Request:
         {
@@ -83,8 +93,8 @@ class AvatarHandler:
             
             avatar_manager = self._get_avatar_manager(username)
             
-            # 获取头像资源，自动检查并恢复缺失的文件
-            avatar_data = avatar_manager.get_avatar_resource(avatar_resource_id, auto_restore=True)
+            # Get avatar resource, automatically check and restore missing files
+            avatar_data = avatar_manager.get_avatar_info(avatar_resource_id, auto_restore=True)
             
             if avatar_data:
                 return {
@@ -136,27 +146,9 @@ class AvatarHandler:
             
             avatars = avatar_manager.get_system_avatars()
             
-            # Convert file paths to HTTP URLs
-            from gui.LocalServer import server_manager_instance
-            if server_manager_instance:
-                base_url = server_manager_instance.get_server_url()
-            else:
-                from app_context import AppContext
-                main_window = AppContext.get_main_window()
-                if main_window:
-                    port = main_window.get_local_server_port()
-                    base_url = f"http://localhost:{port}"
-                else:
-                    base_url = "http://localhost:4668"
-            
-            # Convert paths to HTTP URLs
-            for avatar in avatars:
-                if avatar.get('imageUrl'):
-                    avatar['imageUrl'] = f"{base_url}/api/avatar?path={urllib.parse.quote(avatar['imageUrl'])}"
-                if avatar.get('videoMp4Path'):
-                    avatar['videoMp4Path'] = f"{base_url}/api/avatar?path={urllib.parse.quote(avatar['videoMp4Path'])}"
-                if avatar.get('videoWebmPath'):
-                    avatar['videoWebmPath'] = f"{base_url}/api/avatar?path={urllib.parse.quote(avatar['videoWebmPath'])}"
+            # Convert paths to HTTP URLs using unified utility
+            from agent.avatar.avatar_url_utils import batch_convert_paths_to_urls
+            batch_convert_paths_to_urls(avatars, ['imageUrl', 'videoMp4Path', 'videoWebmPath'])
             
             return {
                 "success": True,
@@ -221,6 +213,10 @@ class AvatarHandler:
             result = await avatar_manager.upload_avatar(file_data, filename)
             
             if result["success"]:
+                # Convert paths to HTTP URLs using unified utility
+                from agent.avatar.avatar_url_utils import convert_paths_to_urls
+                convert_paths_to_urls(result, ['imageUrl', 'thumbnailUrl'])
+                
                 return {
                     "success": True,
                     "data": result
@@ -261,10 +257,15 @@ class AvatarHandler:
         }
         """
         try:
+            import urllib.parse
             username = request.get('username', 'default')
             avatar_manager = self._get_avatar_manager(username)
             
             avatars = avatar_manager.get_uploaded_avatars()
+            
+            # Convert paths to HTTP URLs using unified utility
+            from agent.avatar.avatar_url_utils import batch_convert_paths_to_urls
+            batch_convert_paths_to_urls(avatars, ['imageUrl', 'thumbnailUrl', 'videoUrl'])
             
             return {
                 "success": True,
@@ -272,6 +273,53 @@ class AvatarHandler:
             }
         except Exception as e:
             logger.error(f"[AvatarHandler] get_uploaded_avatars error: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    # ==================== Delete Uploaded Avatar ====================
+    
+    async def delete_uploaded_avatar(self, request: Dict) -> Dict:
+        """
+        Delete an uploaded avatar.
+        
+        Request:
+        {
+            "username": "user123",
+            "avatarId": "avatar_abc123"
+        }
+        
+        Response:
+        {
+            "success": true,
+            "data": {
+                "deleted_files": [...]
+            }
+        }
+        """
+        try:
+            username = request.get('username')
+            avatar_id = request.get('avatarId')
+            
+            if not username or not avatar_id:
+                return {
+                    "success": False,
+                    "error": "Missing required parameters: username, avatarId"
+                }
+            
+            avatar_manager = self._get_avatar_manager(username)
+            result = await avatar_manager.delete_uploaded_avatar(avatar_id)
+            
+            if result["success"]:
+                return {
+                    "success": True,
+                    "data": result
+                }
+            else:
+                return result
+        except Exception as e:
+            logger.error(f"[AvatarHandler] delete_uploaded_avatar error: {e}", exc_info=True)
             return {
                 "success": False,
                 "error": str(e)
@@ -443,15 +491,18 @@ def handle_get_system_avatars(request: IPCRequest, params: Optional[dict[str, An
 
 
 @IPCHandlerRegistry.background_handler('avatar.upload_avatar')
-async def handle_upload_avatar(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
+async def handle_upload_avatar(request: IPCRequest, params: Optional[dict[str, Any]]) -> IPCResponse:
     """Upload user avatar."""
     try:
-        if not params or len(params) < 3:
-            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters: username, fileData, filename')
+        if not params:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters')
         
-        username = params[0]
-        file_data_b64 = params[1]
-        filename = params[2] if len(params) > 2 else 'avatar.png'
+        username = params.get('username')
+        file_data_b64 = params.get('fileData')
+        filename = params.get('filename', 'avatar.png')
+        
+        if not username or not file_data_b64:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters: username, fileData')
         
         result = await avatar_handler.upload_avatar({
             'username': username,
@@ -484,19 +535,49 @@ def handle_get_uploaded_avatars(request: IPCRequest, params: Optional[dict[str, 
         return create_error_response(request, 'GET_UPLOADED_AVATARS_ERROR', str(e))
 
 
+@IPCHandlerRegistry.background_handler('avatar.delete_uploaded_avatar')
+async def handle_delete_uploaded_avatar(request: IPCRequest, params: Optional[dict[str, Any]]) -> IPCResponse:
+    """Delete an uploaded avatar."""
+    try:
+        if not params:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters')
+        
+        username = params.get('username')
+        avatar_id = params.get('avatarId')
+        
+        if not username or not avatar_id:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters: username, avatarId')
+        
+        result = await avatar_handler.delete_uploaded_avatar({
+            'username': username,
+            'avatarId': avatar_id
+        })
+        
+        if result.get('success'):
+            return create_success_response(request, result.get('data'))
+        else:
+            return create_error_response(request, 'DELETE_UPLOADED_AVATAR_ERROR', result.get('error', 'Unknown error'))
+    except Exception as e:
+        logger.error(f"[avatar_handler] Error in handle_delete_uploaded_avatar: {e}", exc_info=True)
+        return create_error_response(request, 'DELETE_UPLOADED_AVATAR_ERROR', str(e))
+
+
 @IPCHandlerRegistry.background_handler('avatar.set_agent_avatar')
-async def handle_set_agent_avatar(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
+async def handle_set_agent_avatar(request: IPCRequest, params: Optional[dict[str, Any]]) -> IPCResponse:
     """Set agent avatar."""
     try:
-        if not params or len(params) < 4:
-            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters: username, agentId, avatarType, imageUrl')
+        if not params:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters')
         
-        username = params[0]
-        agent_id = params[1]
-        avatar_type = params[2]
-        image_url = params[3]
-        video_url = params[4] if len(params) > 4 else None
-        metadata = params[5] if len(params) > 5 else None
+        username = params.get('username')
+        agent_id = params.get('agentId')
+        avatar_type = params.get('avatarType')
+        image_url = params.get('imageUrl')
+        video_url = params.get('videoUrl')
+        metadata = params.get('metadata')
+        
+        if not username or not agent_id or not avatar_type or not image_url:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters: username, agentId, avatarType, imageUrl')
         
         result = await avatar_handler.set_agent_avatar({
             'username': username,
@@ -517,16 +598,19 @@ async def handle_set_agent_avatar(request: IPCRequest, params: Optional[list[Any
 
 
 @IPCHandlerRegistry.background_handler('avatar.generate_avatar_video')
-async def handle_generate_avatar_video(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
+async def handle_generate_avatar_video(request: IPCRequest, params: Optional[dict[str, Any]]) -> IPCResponse:
     """Generate avatar video."""
     try:
-        if not params or len(params) < 2:
-            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters: username, imagePath')
+        if not params:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters')
         
-        username = params[0]
-        image_path = params[1]
-        model = params[2] if len(params) > 2 else 'stable-diffusion-video'
-        gen_params = params[3] if len(params) > 3 else None
+        username = params.get('username')
+        image_path = params.get('imagePath')
+        model = params.get('model', 'stable-diffusion-video')
+        gen_params = params.get('params')
+        
+        if not username or not image_path:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters: username, imagePath')
         
         result = await avatar_handler.generate_avatar_video({
             'username': username,

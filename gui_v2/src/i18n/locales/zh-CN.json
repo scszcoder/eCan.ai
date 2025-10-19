@@ -1079,6 +1079,11 @@
     "click_to_change": "点击更换头像",
     "select_avatar": "选择头像",
     "upload_new": "上传新头像",
-    "choose_existing": "从现有头像中选择"
+    "choose_existing": "从现有头像中选择",
+    "delete_confirm_title": "删除头像",
+    "delete_confirm_message": "确定要删除这个头像吗？此操作无法撤销。",
+    "delete_success": "头像删除成功",
+    "delete_failed": "删除头像失败",
+    "delete_no_id": "无法删除没有ID的头像"
   }
 }

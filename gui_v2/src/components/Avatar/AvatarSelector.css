@@ -47,6 +47,41 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
+.avatar-delete-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 77, 79, 0.9);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  opacity: 0;
+  transform: scale(0.8);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+}
+
+.avatar-card-cover:hover .avatar-delete-button {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.avatar-delete-button:hover {
+  background: rgba(255, 77, 79, 1);
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(255, 77, 79, 0.4);
+}
+
+.avatar-delete-button .anticon {
+  color: white;
+  font-size: 16px;
+}
+
 .avatar-tags {
   display: flex;
   flex-wrap: wrap;

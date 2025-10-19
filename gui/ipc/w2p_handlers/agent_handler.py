@@ -1077,7 +1077,7 @@ def _upload_avatar_files_to_cloud(avatar_resource: 'DBAvatarResource') -> None:
         avatar_resource: Avatar resource database model instance
     """
     try:
-        from agent.avatar.cloud_sync_manager import CloudSyncManager
+        from agent.avatar.avatar_cloud_sync import AvatarCloudSync
         
         main_window = AppContext.get_main_window()
         if not main_window or not main_window.ec_db_mgr:
@@ -1086,7 +1086,7 @@ def _upload_avatar_files_to_cloud(avatar_resource: 'DBAvatarResource') -> None:
         db_session = main_window.ec_db_mgr.get_session()
         
         # Create cloud sync manager
-        cloud_sync_manager = CloudSyncManager(db_session)
+        cloud_sync_manager = AvatarCloudSync(db_service=main_window.ec_db_mgr.avatar_service)
         
         if not cloud_sync_manager.is_enabled():
             logger.debug("[agent_handler] Cloud storage not configured, skipping file upload")

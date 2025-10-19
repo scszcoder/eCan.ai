@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Tabs, Card, Row, Col, Spin, App, Empty, Badge } from 'antd';
 import type { TabsProps } from 'antd';
-import { PlayCircleOutlined, PictureOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, PictureOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import './AvatarSelector.css';
@@ -24,21 +24,26 @@ interface AvatarSelectorProps {
   onChange?: (avatarData: AvatarData) => void;
   showVideo?: boolean;
   username: string;
+  defaultActiveTab?: string;
+  onTabChange?: (activeKey: string) => void;
 }
 
 export const AvatarSelector: React.FC<AvatarSelectorProps> = ({
   value,
   onChange,
   showVideo = true,
-  username
+  username,
+  defaultActiveTab = 'system',
+  onTabChange
 }) => {
   const { t } = useTranslation();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [systemAvatars, setSystemAvatars] = useState<AvatarData[]>([]);
   const [uploadedAvatars, setUploadedAvatars] = useState<AvatarData[]>([]);
   const [selectedAvatar, setSelectedAvatar] = useState<AvatarData | undefined>(value);
   const [hoveredAvatar, setHoveredAvatar] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<string>(defaultActiveTab);
 
   useEffect(() => {
     loadSystemAvatars();
@@ -88,7 +93,58 @@ export const AvatarSelector: React.FC<AvatarSelectorProps> = ({
     }
   };
 
-  const renderAvatarCard = (avatar: AvatarData, index: number) => {
+  const handleTabChange = (key: string) => {
+    setActiveTab(key);
+    if (onTabChange) {
+      onTabChange(key);
+    }
+  };
+
+  const handleDeleteAvatar = async (avatar: AvatarData, e: React.MouseEvent) => {
+    e.stopPropagation(); // 阻止事件冒泡到卡片的 onClick
+    
+    if (!avatar.id) {
+      message.error(t('avatar.delete_no_id') || 'Cannot delete avatar without ID');
+      return;
+    }
+
+    modal.confirm({
+      title: t('avatar.delete_confirm_title') || 'Delete Avatar',
+      content: t('avatar.delete_confirm_message') || 'Are you sure you want to delete this avatar? This action cannot be undone.',
+      okText: t('common.delete') || 'Delete',
+      okType: 'danger',
+      cancelText: t('common.cancel') || 'Cancel',
+      onOk: async () => {
+        try {
+          const api = get_ipc_api();
+          const response = await api.deleteUploadedAvatar<any>(username, avatar.id!);
+          
+          if (response.success) {
+            message.success(t('avatar.delete_success') || 'Avatar deleted successfully');
+            // 刷新上传的 Avatar 列表
+            await loadUploadedAvatars();
+            // 如果删除的是当前选中的 Avatar，清除选中状态
+            if (selectedAvatar?.id === avatar.id) {
+              setSelectedAvatar(undefined);
+              if (onChange) {
+                onChange(undefined as any);
+              }
+            }
+          } else {
+            const errorMsg = typeof response.error === 'string' 
+              ? response.error 
+              : (response.error?.message || t('avatar.delete_failed') || 'Failed to delete avatar');
+            message.error(errorMsg);
+          }
+        } catch (error) {
+          console.error('[AvatarSelector] Failed to delete avatar:', error);
+          message.error(t('avatar.delete_failed') || 'Failed to delete avatar');
+        }
+      },
+    });
+  };
+
+  const renderAvatarCard = (avatar: AvatarData, index: number, showDelete: boolean = false) => {
     const isSelected = selectedAvatar?.imageUrl === avatar.imageUrl;
     const isHovered = hoveredAvatar === avatar.imageUrl;
     const showVideoPreview = showVideo && isHovered && avatar.videoUrl && avatar.videoExists;
@@ -126,6 +182,14 @@ export const AvatarSelector: React.FC<AvatarSelectorProps> = ({
                   count={<PlayCircleOutlined style={{ color: '#1890ff' }} />}
                   className="avatar-video-badge"
                 />
+              )}
+              {showDelete && (
+                <div 
+                  className="avatar-delete-button"
+                  onClick={(e) => handleDeleteAvatar(avatar, e)}
+                >
+                  <CloseCircleOutlined />
+                </div>
               )}
             </div>
           }
@@ -181,7 +245,7 @@ export const AvatarSelector: React.FC<AvatarSelectorProps> = ({
       children: (
         uploadedAvatars.length > 0 ? (
           <Row gutter={[16, 16]}>
-            {uploadedAvatars.map((avatar, index) => renderAvatarCard(avatar, index))}
+            {uploadedAvatars.map((avatar, index) => renderAvatarCard(avatar, index, true))}
           </Row>
         ) : (
           <Empty description={t('avatar.no_uploaded_avatars') || 'No uploaded avatars yet'} />
@@ -192,7 +256,11 @@ export const AvatarSelector: React.FC<AvatarSelectorProps> = ({
 
   return (
     <div className="avatar-selector">
-      <Tabs defaultActiveKey="system" items={tabItems} />
+      <Tabs 
+        activeKey={activeTab}
+        onChange={handleTabChange}
+        items={tabItems} 
+      />
     </div>
   );
 };
