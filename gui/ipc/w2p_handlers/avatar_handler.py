@@ -10,6 +10,7 @@ This handler provides endpoints for:
 """
 
 import base64
+import time
 from typing import Dict, Optional, Any
 
 from agent.avatar.avatar_manager import AvatarManager
@@ -148,7 +149,7 @@ class AvatarHandler:
             
             # Convert paths to HTTP URLs using unified utility
             from agent.avatar.avatar_url_utils import batch_convert_paths_to_urls
-            batch_convert_paths_to_urls(avatars, ['imageUrl', 'videoMp4Path', 'videoWebmPath'])
+            batch_convert_paths_to_urls(avatars, ['imageUrl', 'videoUrl', 'videoMp4Path', 'videoWebmPath'])
             
             return {
                 "success": True,
@@ -217,44 +218,141 @@ class AvatarHandler:
                 from agent.avatar.avatar_url_utils import convert_paths_to_urls
                 convert_paths_to_urls(result, ['imageUrl', 'thumbnailUrl'])
                 
-                # Upload to S3 (async, non-blocking)
+                # Get additional context for video generation
+                org_name = request.get('orgName')  # Organization name from request
+                agent_id = request.get('agentId')  # Agent ID if available
+                avatar_id = result.get('id')  # Avatar resource ID
+                
+                # Generate avatar video in background (after response sent)
                 try:
-                    avatar_id = result.get('id')
-                    if avatar_id:
-                        from app_context import AppContext
-                        main_window = AppContext.get_main_window()
+                    # Check if MainWindow is available
+                    main_window = AppContext.get_main_window()
+                    if main_window:
+                        # Get organization name from agent if not provided
+                        if not org_name and agent_id and main_window.ec_db_mgr:
+                            try:
+                                agent_service = main_window.ec_db_mgr.agent_service
+                                agent = agent_service.get_agent(agent_id)
+                                if agent and agent.get('org_id'):
+                                    org_service = main_window.ec_db_mgr.org_service
+                                    org = org_service.get_organization(agent['org_id'])
+                                    if org:
+                                        org_name = org.get('name')
+                                        logger.info(f"[AvatarHandler] Retrieved org name from agent: {org_name}")
+                            except Exception as e:
+                                logger.warning(f"[AvatarHandler] Failed to get org name from agent: {e}")
                         
-                        if main_window and main_window.ec_db_mgr:
-                            avatar_service = main_window.ec_db_mgr.avatar_service
-                            avatar_resource = avatar_service.get_avatar_resource(avatar_id)
-                            
-                            if avatar_resource:
-                                # Convert dict to DBAvatarResource object if needed
-                                from agent.db.models.avatar_model import DBAvatarResource
-                                if isinstance(avatar_resource, dict):
-                                    # Create a minimal object for upload
-                                    db_avatar = DBAvatarResource(
-                                        id=avatar_resource['id'],
-                                        resource_type=avatar_resource['resource_type'],
-                                        name=avatar_resource.get('name'),
-                                        image_path=avatar_resource.get('image_path'),
-                                        image_hash=avatar_resource.get('image_hash'),
-                                        video_path=avatar_resource.get('video_path'),
-                                        avatar_metadata=avatar_resource.get('avatar_metadata', {}),
-                                        owner=avatar_resource.get('owner')
+                        # Trigger video generation in background
+                        logger.info(f"[AvatarHandler] Triggering video generation for avatar: {avatar_id}")
+                        logger.info(f"[AvatarHandler] Organization context: {org_name or 'None'}")
+                        
+                        # Import and call video generator
+                        from agent.avatar.video_generator import generate_avatar_video
+                        import asyncio
+                        import threading
+                        
+                        def generate_video_background():
+                                """Background thread for video generation"""
+                                try:
+                                    # Create new event loop for this thread
+                                    loop = asyncio.new_event_loop()
+                                    asyncio.set_event_loop(loop)
+                                    
+                                    # Get the actual file path (not HTTP URL)
+                                    # The image_path at this point is still local path
+                                    actual_image_path = result.get('imageUrl')
+                                    if actual_image_path and actual_image_path.startswith('http'):
+                                        # If already converted to URL, we need to get the original path
+                                        # from the avatar manager
+                                        from pathlib import Path
+                                        hash_value = result.get('hash')
+                                        if hash_value:
+                                            from config.app_info import app_info
+                                            resource_dir = Path(app_info.app_resources_path)
+                                            actual_image_path = str(resource_dir / "avatars" / "uploaded" / f"{hash_value}_original.png")
+                                    
+                                    # Generate video
+                                    video_result = loop.run_until_complete(
+                                        generate_avatar_video(
+                                            image_path=actual_image_path,
+                                            org_name=org_name,
+                                            llm=main_window.llm if hasattr(main_window, 'llm') else None,
+                                            output_dir=None,  # Use same directory as image
+                                            duration=5.0
+                                        )
                                     )
-                                else:
-                                    db_avatar = avatar_resource
-                                
-                                # Upload to S3 in background using unified function
-                                logger.info(f"[AvatarHandler] Triggering S3 upload for avatar: {avatar_id}")
-                                from agent.avatar.avatar_cloud_sync import upload_avatar_to_cloud_async
-                                upload_avatar_to_cloud_async(db_avatar, db_service=avatar_service)
-                            else:
-                                logger.warning(f"[AvatarHandler] Avatar resource not found for S3 upload: {avatar_id}")
+                                    
+                                    if video_result.get('success'):
+                                        webm_path = video_result.get('webm_path')
+                                        mp4_path = video_result.get('mp4_path')
+                                        
+                                        logger.info(f"[AvatarHandler] ✅ Video generation completed")
+                                        logger.info(f"[AvatarHandler]   - WebM: {webm_path}")
+                                        logger.info(f"[AvatarHandler]   - MP4: {mp4_path}")
+                                        
+                                        # Update avatar resource with both video paths
+                                        # Frontend will choose which format to use based on browser support
+                                        if main_window.ec_db_mgr:
+                                            avatar_service = main_window.ec_db_mgr.avatar_service
+                                            # Use WebM as primary video_path for backward compatibility
+                                            # But store both paths in metadata for frontend to choose
+                                            update_data = {
+                                                'video_path': webm_path if webm_path else mp4_path
+                                            }
+                                            
+                                            # Add metadata
+                                            avatar_resource = avatar_service.get_avatar_resource(avatar_id)
+                                            if avatar_resource:
+                                                metadata = avatar_resource.get('avatar_metadata', {})
+                                                metadata.update({
+                                                    'video_mp4_path': video_result.get('mp4_path'),
+                                                    'video_webm_path': video_result.get('webm_path'),
+                                                    'video_duration': video_result.get('duration'),
+                                                    'video_prompt': video_result.get('prompt'),
+                                                    'video_generated_at': time.time()
+                                                })
+                                                update_data['avatar_metadata'] = metadata
+                                            
+                                            avatar_service.update_avatar_resource(avatar_id, update_data)
+                                            logger.info(f"[AvatarHandler] ✅ Avatar resource updated with video paths")
+                                            
+                                            # Upload video to S3 if cloud sync is enabled
+                                            avatar_resource = avatar_service.get_avatar_resource(avatar_id)
+                                            if avatar_resource:
+                                                from agent.db.models.avatar_model import DBAvatarResource
+                                                if isinstance(avatar_resource, dict):
+                                                    db_avatar = DBAvatarResource(
+                                                        id=avatar_resource['id'],
+                                                        resource_type=avatar_resource['resource_type'],
+                                                        name=avatar_resource.get('name'),
+                                                        image_path=avatar_resource.get('image_path'),
+                                                        image_hash=avatar_resource.get('image_hash'),
+                                                        video_path=avatar_resource.get('video_path'),
+                                                        avatar_metadata=avatar_resource.get('avatar_metadata', {}),
+                                                        owner=avatar_resource.get('owner')
+                                                    )
+                                                else:
+                                                    db_avatar = avatar_resource
+                                                
+                                                # Upload to S3 in background
+                                                from agent.avatar.avatar_cloud_sync import upload_avatar_to_cloud_async
+                                                upload_avatar_to_cloud_async(db_avatar, db_service=avatar_service)
+                                    else:
+                                        logger.error(f"[AvatarHandler] ❌ Video generation failed: {video_result.get('error')}")
+                                    
+                                    loop.close()
+                                except Exception as e:
+                                    logger.error(f"[AvatarHandler] ❌ Error in background video generation: {e}", exc_info=True)
+                        
+                        # Start video generation in background thread
+                        video_thread = threading.Thread(target=generate_video_background, daemon=True)
+                        video_thread.start()
+                        logger.info("[AvatarHandler] Video generation started in background thread")
+                    else:
+                        logger.warning("[AvatarHandler] MainWindow not available, skipping video generation")
                 except Exception as e:
-                    # Don't fail the upload if S3 sync fails
-                    logger.warning(f"[AvatarHandler] Failed to trigger S3 upload: {e}")
+                    # Don't fail the upload if video generation fails
+                    logger.warning(f"[AvatarHandler] Failed to trigger video generation: {e}")
                 
                 return {
                     "success": True,
