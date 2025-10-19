@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
-from .cloud_storage import S3StorageService, create_s3_storage_service
+from ..cloud.s3_storage_service import S3StorageService, create_s3_storage_service
 from ..db.models.avatar_model import DBAvatarResource
 
 from utils.logger_helper import logger_helper as logger
@@ -110,7 +110,7 @@ class AvatarCloudSync:
         file_type: str  # 'image' or 'video'
     ) -> bool:
         """
-        Sync a single file to cloud.
+        Sync a single file to cloud using standardized S3 uploader.
 
         Args:
             avatar_resource: Avatar resource object
@@ -121,32 +121,40 @@ class AvatarCloudSync:
             Whether sync was successful
         """
         try:
-            # Build cloud key
+            # Use StandardS3Uploader for consistent path generation
+            from agent.cloud import StandardS3Uploader
+            
+            uploader = StandardS3Uploader(self.cloud_service)
+            
+            # Get file hash
             file_hash = avatar_resource.image_hash if file_type == 'image' else avatar_resource.video_hash
-            file_ext = Path(local_path).suffix
-            cloud_key = f"{avatar_resource.owner}/{file_type}s/{file_hash}{file_ext}"
-
-            # Detect file type
-            content_type = self._get_content_type(local_path)
-
-            # Prepare metadata
-            metadata = {
-                'resource_id': avatar_resource.id,
-                'resource_type': avatar_resource.resource_type,
-                'owner': avatar_resource.owner,
-                'file_type': file_type,
-                'upload_time': datetime.utcnow().isoformat()
-            }
-
-            # Upload to cloud
-            success, cloud_url, error = self.cloud_service.upload_file(
-                local_path,
-                cloud_key,
-                content_type=content_type,
-                metadata=metadata
+            
+            # Upload using standardized path: avatars/{owner}/{file_type}s/{file_hash}.{ext}
+            success, cloud_url, error = uploader.upload(
+                local_path=local_path,
+                owner=avatar_resource.owner,
+                resource_type='avatar',
+                resource_id=avatar_resource.id,
+                file_category=file_type,  # 'image' or 'video'
+                file_hash=file_hash,
+                extra_metadata={
+                    'avatar_type': avatar_resource.resource_type,
+                    'name': avatar_resource.name or ''
+                }
             )
 
             if success:
+                # Generate cloud key for database storage
+                from agent.cloud import S3PathGenerator
+                file_ext = Path(local_path).suffix
+                cloud_key = S3PathGenerator.generate_path(
+                    resource_type='avatar',
+                    owner=avatar_resource.owner,
+                    file_category=file_type,
+                    file_hash=file_hash,
+                    file_ext=file_ext
+                )
+                
                 # Update database record
                 if file_type == 'image':
                     avatar_resource.cloud_image_url = cloud_url
@@ -350,41 +358,16 @@ class AvatarCloudSync:
         Returns:
             Access URL, or None if not available
         """
-        if not self.is_enabled():
-            # Cloud not enabled, return local path
-            if file_type == 'image':
-                return avatar_resource.image_path
-            else:
-                return avatar_resource.video_path
-
-        try:
-            # Prefer cloud URL
-            if file_type == 'image' and avatar_resource.cloud_image_key:
-                return self.cloud_service.get_file_url(
-                    avatar_resource.cloud_image_key,
-                    expires_in=expires_in,
-                    use_cdn=use_cdn
-                )
-            elif file_type == 'video' and avatar_resource.cloud_video_key:
-                return self.cloud_service.get_file_url(
-                    avatar_resource.cloud_video_key,
-                    expires_in=expires_in,
-                    use_cdn=use_cdn
-                )
-            else:
-                # Cloud not available, return local path
-                if file_type == 'image':
-                    return avatar_resource.image_path
-                else:
-                    return avatar_resource.video_path
-
-        except Exception as e:
-            logger.error(f"❌ Failed to get avatar URL: {e}")
-            # Fallback to local path
-            if file_type == 'image':
-                return avatar_resource.image_path
-            else:
-                return avatar_resource.video_path
+        # Use the unified cloud utility function
+        from ..cloud.cloud_utils import get_resource_url
+        
+        return get_resource_url(
+            cloud_service=self.cloud_service if self.is_enabled() else None,
+            resource=avatar_resource,
+            file_type=file_type,
+            use_cdn=use_cdn,
+            expires_in=expires_in
+        )
 
     def sync_all_avatars(
         self,
@@ -436,20 +419,51 @@ class AvatarCloudSync:
             logger.error(f"❌ Failed to batch sync avatars: {e}")
             return {'total': 0, 'success': 0, 'failed': 0}
     
-    @staticmethod
-    def _get_content_type(file_path: str) -> str:
-        """Get Content-Type based on file extension"""
-        ext = Path(file_path).suffix.lower()
+    # Removed: _get_content_type() is now in agent.cloud.cloud_utils
+    # Use: from agent.cloud.cloud_utils import get_content_type
+
+
+# ==================== Unified Upload Function ====================
+
+def upload_avatar_to_cloud_async(avatar_resource: DBAvatarResource, db_service=None) -> None:
+    """
+    Asynchronously upload avatar files to cloud storage (background thread)
+    
+    This is the unified avatar upload entry point, replacing the previously scattered upload logic.
+    
+    Args:
+        avatar_resource: Avatar resource object (DBAvatarResource instance)
+        db_service: Database service (optional, used to update sync status)
         
-        content_types = {
-            '.png': 'image/png',
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.gif': 'image/gif',
-            '.webp': 'image/webp',
-            '.mp4': 'video/mp4',
-            '.webm': 'video/webm',
-            '.mov': 'video/quicktime'
-        }
+    Example:
+        >>> from agent.avatar.avatar_cloud_sync import upload_avatar_to_cloud_async
+        >>> upload_avatar_to_cloud_async(avatar_resource, db_service=avatar_service)
+    """
+    try:
+        # Create cloud sync manager
+        cloud_sync_manager = AvatarCloudSync(db_service=db_service)
         
-        return content_types.get(ext, 'application/octet-stream')
+        if not cloud_sync_manager.is_enabled():
+            logger.debug("[upload_avatar_to_cloud_async] Cloud storage not configured, skipping file upload")
+            return
+        
+        # Sync in background thread
+        import threading
+        
+        def _sync_files():
+            try:
+                success = cloud_sync_manager.sync_avatar_to_cloud(avatar_resource, force=False)
+                if success:
+                    logger.info(f"✅ Avatar files uploaded to cloud storage: {avatar_resource.id}")
+                else:
+                    logger.warning(f"⚠️  Avatar file upload failed or skipped: {avatar_resource.id}")
+            except Exception as e:
+                logger.error(f"❌ Error uploading avatar files: {e}")
+        
+        # Run in background thread to avoid blocking
+        thread = threading.Thread(target=_sync_files, daemon=True)
+        thread.start()
+        
+    except Exception as e:
+        logger.error(f"❌ Error in avatar file upload: {e}")
+        logger.debug(traceback.format_exc())

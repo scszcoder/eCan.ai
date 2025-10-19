@@ -217,6 +217,45 @@ class AvatarHandler:
                 from agent.avatar.avatar_url_utils import convert_paths_to_urls
                 convert_paths_to_urls(result, ['imageUrl', 'thumbnailUrl'])
                 
+                # Upload to S3 (async, non-blocking)
+                try:
+                    avatar_id = result.get('id')
+                    if avatar_id:
+                        from app_context import AppContext
+                        main_window = AppContext.get_main_window()
+                        
+                        if main_window and main_window.ec_db_mgr:
+                            avatar_service = main_window.ec_db_mgr.avatar_service
+                            avatar_resource = avatar_service.get_avatar_resource(avatar_id)
+                            
+                            if avatar_resource:
+                                # Convert dict to DBAvatarResource object if needed
+                                from agent.db.models.avatar_model import DBAvatarResource
+                                if isinstance(avatar_resource, dict):
+                                    # Create a minimal object for upload
+                                    db_avatar = DBAvatarResource(
+                                        id=avatar_resource['id'],
+                                        resource_type=avatar_resource['resource_type'],
+                                        name=avatar_resource.get('name'),
+                                        image_path=avatar_resource.get('image_path'),
+                                        image_hash=avatar_resource.get('image_hash'),
+                                        video_path=avatar_resource.get('video_path'),
+                                        avatar_metadata=avatar_resource.get('avatar_metadata', {}),
+                                        owner=avatar_resource.get('owner')
+                                    )
+                                else:
+                                    db_avatar = avatar_resource
+                                
+                                # Upload to S3 in background using unified function
+                                logger.info(f"[AvatarHandler] Triggering S3 upload for avatar: {avatar_id}")
+                                from agent.avatar.avatar_cloud_sync import upload_avatar_to_cloud_async
+                                upload_avatar_to_cloud_async(db_avatar, db_service=avatar_service)
+                            else:
+                                logger.warning(f"[AvatarHandler] Avatar resource not found for S3 upload: {avatar_id}")
+                except Exception as e:
+                    # Don't fail the upload if S3 sync fails
+                    logger.warning(f"[AvatarHandler] Failed to trigger S3 upload: {e}")
+                
                 return {
                     "success": True,
                     "data": result
