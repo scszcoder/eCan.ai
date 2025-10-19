@@ -1,6 +1,6 @@
 import { OrgAgent, TreeOrgNode, DisplayNode } from '../../Orgs/types';
 import type { Agent } from '../types';
-import { sortTreeChildren } from './orgTreeUtils';
+import { sortTreeChildren, extractAllAgents } from './orgTreeUtils';
 
 export const UNASSIGNED_NODE_ID = 'unassigned';
 
@@ -60,6 +60,10 @@ export function buildDoorsForNode(
 
   sortedChildren.forEach((child) => {
     const hasChildren = !!(child.children && child.children.length > 0);
+    
+    // 递归统计当前节点及其所有子节点的 agent 总数
+    const allAgents = extractAllAgents(child);
+    const totalAgentCount = allAgents.length;
 
     doors.push({
       id: child.id,
@@ -69,7 +73,7 @@ export function buildDoorsForNode(
       sort_order: child.sort_order,
       org: child,
       agents: child.agents,
-      agentCount: child.agents?.length || 0,
+      agentCount: totalAgentCount,  // 使用递归统计的总数
       hasChildren,
       childrenCount: child.children?.length || 0,
     });
