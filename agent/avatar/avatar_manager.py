@@ -170,13 +170,20 @@ class AvatarManager:
             if image_path.exists():
                 image_url = str(image_path)
             
+            # Prioritize WebM over MP4 for videoUrl (for frontend compatibility)
+            video_url = None
+            if video_webm_path.exists():
+                video_url = str(video_webm_path)
+            elif video_mp4_path.exists():
+                video_url = str(video_mp4_path)
+            
             avatar_data = {
                 "id": avatar_id,
                 "name": avatar_info["name"],
                 "tags": avatar_info["tags"],
                 "type": "system",
                 "imageUrl": image_url,  # File path, will be converted to HTTP URL
-                "videoUrl": None,  # Not used, use videoMp4Path/videoWebmPath instead
+                "videoUrl": video_url,  # Primary video URL (WebM preferred, MP4 fallback)
                 "videoMp4Path": str(video_mp4_path) if video_mp4_path.exists() else None,
                 "videoWebmPath": str(video_webm_path) if video_webm_path.exists() else None,
                 "imageExists": image_path.exists(),
@@ -606,14 +613,33 @@ class AvatarManager:
                 "imageUrl": str(image_path),
                 "thumbnailUrl": str(thumbnail_path) if thumbnail_path.exists() else None,
                 "imageExists": True,
-                "videoUrl": None  # Will be populated if video exists
+                "videoUrl": None,  # Will be populated if video exists
+                "videoExists": False
             }
 
-            # Check for associated video
-            video_path = self.generated_dir / f"{file_hash}_video.mp4"
-            if video_path.exists():
-                avatar_data["videoUrl"] = str(video_path)
-                avatar_data["videoExists"] = True
+            # Check for associated video from database (which prioritizes WebM)
+            if self.db_service:
+                try:
+                    avatar_resource = self.db_service.get_avatar_resource(avatar_id)
+                    if avatar_resource and avatar_resource.get('video_path'):
+                        avatar_data["videoUrl"] = avatar_resource['video_path']
+                        avatar_data["videoExists"] = True
+                except Exception as e:
+                    logger.debug(f"[AvatarManager] Could not get video from DB for {avatar_id}: {e}")
+            
+            # Fallback: check file system if not in database
+            if not avatar_data["videoExists"]:
+                # Video files are saved in the same directory as the original image
+                # with suffix "_original_video.webm" or "_original_video.mp4"
+                video_webm_path = self.uploaded_dir / f"{file_hash}_original_video.webm"
+                video_mp4_path = self.uploaded_dir / f"{file_hash}_original_video.mp4"
+                
+                if video_webm_path.exists():
+                    avatar_data["videoUrl"] = str(video_webm_path)
+                    avatar_data["videoExists"] = True
+                elif video_mp4_path.exists():
+                    avatar_data["videoUrl"] = str(video_mp4_path)
+                    avatar_data["videoExists"] = True
 
             avatars.append(avatar_data)
         
@@ -645,7 +671,8 @@ class AvatarManager:
             # File paths
             original_path = self.uploaded_dir / f"{file_hash}_original.png"
             thumbnail_path = self.uploaded_dir / f"{file_hash}_thumb.png"
-            video_path = self.generated_dir / f"{file_hash}_video.mp4"
+            video_mp4_path = self.uploaded_dir / f"{file_hash}_original_video.mp4"
+            video_webm_path = self.uploaded_dir / f"{file_hash}_original_video.webm"
             
             deleted_files = []
             
@@ -661,11 +688,16 @@ class AvatarManager:
                 deleted_files.append(str(thumbnail_path))
                 logger.debug(f"[AvatarManager] Deleted thumbnail: {thumbnail_path}")
             
-            # Delete associated video if exists
-            if video_path.exists():
-                video_path.unlink()
-                deleted_files.append(str(video_path))
-                logger.debug(f"[AvatarManager] Deleted video: {video_path}")
+            # Delete associated videos if exist (both MP4 and WebM)
+            if video_mp4_path.exists():
+                video_mp4_path.unlink()
+                deleted_files.append(str(video_mp4_path))
+                logger.debug(f"[AvatarManager] Deleted MP4 video: {video_mp4_path}")
+            
+            if video_webm_path.exists():
+                video_webm_path.unlink()
+                deleted_files.append(str(video_webm_path))
+                logger.debug(f"[AvatarManager] Deleted WebM video: {video_webm_path}")
             
             # Delete from database if db_service available
             if self.db_service:
