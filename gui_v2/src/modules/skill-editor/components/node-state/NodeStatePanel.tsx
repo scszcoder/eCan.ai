@@ -1,4 +1,4 @@
-import React, { Fragment, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { JSONSchema } from '../../../../stores/nodeStateSchemaStore';
 
 export interface NodeStatePanelProps {
@@ -31,14 +31,6 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
     padding: '4px 8px',
     width: '100%',
     boxSizing: 'border-box'
-  };
-  const buttonStyle: React.CSSProperties = {
-    color: '#333',
-    background: '#f5f5f5',
-    border: '1px solid #d9d9d9',
-    borderRadius: 4,
-    padding: '2px 8px',
-    cursor: 'pointer'
   };
 
   const selectStyle: React.CSSProperties = {
@@ -127,12 +119,12 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
       return (
         <div className="ns-node" key={p} style={{ paddingLeft: depth * 12 }}>
           <div className="ns-node-header" style={{ color: textColor }}>
-            <button className="ns-toggle" style={buttonStyle} onClick={() => toggle(p)}>{open ? '▾' : '▸'}</button>
-            <span className="ns-key" style={{ marginLeft: 6 }}>{keyLabel || nodeSchema?.title || p || 'root'}</span>
+            <button className="ns-toggle" onClick={() => toggle(p)}>{open ? '▾' : '▸'}</button>
+            <span className="ns-key">{keyLabel || nodeSchema?.title || p || 'root'}</span>
             {canAddRemove && (
               <button
                 className="ns-add"
-                style={{ ...buttonStyle, marginLeft: 8 }}
+                style={{ marginLeft: 8 }}
                 onClick={() => {
                   setPendingAdd((s) => ({ ...s, [p]: { key: '', type: 'string', tempValue: '' } }));
                   setExpanded((s) => ({ ...s, [p]: true }));
@@ -199,7 +191,7 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
                     )
                   )}
                   <button
-                    style={buttonStyle}
+                    className="ns-action-button"
                     onClick={() => {
                       const pad = pendingAdd[p]!;
                       const valueObj = isObject(nodeVal) ? (nodeVal as Record<string, any>) : {};
@@ -237,7 +229,7 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
                     }}
                   >Add</button>
                   <button
-                    style={buttonStyle}
+                    className="ns-action-button"
                     onClick={() => setPendingAdd((s) => ({ ...s, [p]: undefined }))}
                   >Cancel</button>
                   {pendingAdd[p]?.error && (
@@ -261,7 +253,7 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
                     <option value="dict">dict</option>
                   </select>
                   <button
-                    style={buttonStyle}
+                    className="ns-action-button"
                     onClick={() => {
                       const t = pendingArrayType[p] || 'string';
                       const next = Array.isArray(nodeVal) ? [...nodeVal] : [] as any[];
@@ -279,7 +271,7 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
                     <span className="ns-index">[{idx}]</span>
                     <button
                       className="ns-remove"
-                      style={{ ...buttonStyle, marginLeft: 8 }}
+                      style={{ marginLeft: 8 }}
                       onClick={() => {
                         const next = [...nodeVal];
                         next.splice(idx, 1);
@@ -314,7 +306,8 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
                         <span className="ns-key" style={{ color: textColor, marginRight: 6 }}>{k}</span>
                         {canAddRemove && (
                           <button
-                            style={{ ...buttonStyle, marginRight: 6 }}
+                            className="ns-action-button"
+                            style={{ marginRight: 6 }}
                             onClick={() => {
                               const newLabel = prompt('Rename key', k);
                               if (!newLabel || newLabel === k) return;
@@ -330,7 +323,7 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
                         {canAddRemove && (
                           <button
                             className="ns-remove"
-                            style={{ ...buttonStyle, marginLeft: 8 }}
+                            style={{ marginLeft: 8 }}
                             onClick={() => {
                               const next = { ...valueObj } as Record<string, any>;
                               delete next[k];
@@ -379,10 +372,8 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
       <div className="ns-title" style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, marginBottom: panelCollapsed ? 0 : 8, color: '#333' }}>
         <button
           type="button"
+          className="ns-toggle-panel"
           onClick={() => setPanelCollapsed((c) => !c)}
-          style={{
-            color: '#333', background: '#f5f5f5', border: '1px solid #d9d9d9', borderRadius: 4, padding: '2px 8px', cursor: 'pointer'
-          }}
         >{panelCollapsed ? '▸' : '▾'}</button>
         <span>{title}</span>
       </div>
