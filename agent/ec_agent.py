@@ -63,7 +63,7 @@ import concurrent.futures
 import base64
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
-from agent.db.services.db_agent_service import get_default_avatar
+from agent.db.services.db_avatar_service import DBAvatarService
 
 
 load_dotenv()
@@ -117,7 +117,7 @@ class EC_Agent(Agent):
 		self.vehicle = vehicle if vehicle is not None else ""
 		self.status = "active"
 		self.images = [{"image_name":"", "image_source":"","text":""}]
-		self.avatar = avatar or (get_default_avatar(card.id) if card else None)
+		self.avatar = avatar or (DBAvatarService.generate_default_avatar(card.id) if card else None)
 
 		super().__init__(*args, **kwargs)
 		# Configure extraction

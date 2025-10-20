@@ -123,7 +123,7 @@ def build_org_agent_tree(organizations, agents):
         default_root = {
             'id': '__virtual_root__',
             'name': 'eCan.ai',
-            'description': '根组织',
+            'description': 'Root Organization',
             'org_type': 'company',
             'level': 0,
             'sort_order': 0,
@@ -211,26 +211,26 @@ def build_org_agent_tree(organizations, agents):
 
 @IPCHandlerRegistry.handler('get_agents')
 def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
-    """处理登录请求
+    """Handle get agents request
 
-    验证用户凭据并返回访问令牌。
+    Retrieve agents for the specified user.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        request: IPC request object
+        params: Request parameters, must include 'username' field
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"[agent_handler] Get agents handler called with request: {request}")
 
-        # 获取用户名和 agent IDs
+        # Get username and agent IDs
         username = params.get('username')
         if not username:
             return create_error_response(request, 'INVALID_PARAMS', 'Missing username parameter')
         
-        # 获取 agent_id 参数（数组）
+        # Get agent_id parameter (array)
         agent_ids = params.get('agent_id', [])
         
         logger.info(f"[agent_handler] get agents request for user: {username}, agent_id: {agent_ids}")
@@ -376,7 +376,7 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                                     main_window.agents[agent_index] = updated_ec_agent
                                     logger.info(f"[agent_handler] ✅ Replaced agent in memory: {agent_id}")
                                 else:
-                                    # Agent 不在内存中，添加它（可能是新创建的或内存被清空）
+                                    # Agent not in memory, add it (might be newly created or memory was cleared)
                                     main_window.agents.append(updated_ec_agent)
                                     logger.info(f"[agent_handler] ✅ Added agent to memory (was missing): {agent_id}")
                             else:
@@ -439,7 +439,7 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
             logger.info(f"[agent_handler] Successfully saved {saved_count} agents for user: {username}")
             result_data = {
                 'message': f'Successfully saved {saved_count} agents',
-                'agents': updated_agents  # 返回更新后的 agent 数据
+                'agents': updated_agents  # Return updated agent data
             }
             # Sanitize for JSON serialization safety
             safe_result = _json_safe(result_data)
@@ -457,17 +457,17 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
 
 @IPCHandlerRegistry.handler('delete_agent')
 def handle_delete_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
-    """处理删除代理请求
+    """Handle delete agent request
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'agent_id' 字段
+        request: IPC request object
+        params: Request parameters, must include 'username' and 'agent_id' fields
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
-        # 获取用户名
+        # Get username
         username = params.get('username')
         if not username:
             return create_error_response(request, 'INVALID_PARAMS', 'Missing username parameter')
@@ -734,16 +734,16 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
             logger.warning(f"[agent_handler] MainWindow not available for user: {username}")
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'User session not available - please login again')
         
-        # 🔥 优化方案：优先使用内存，如果内存为空则从数据库同步
-        # 这样既保证性能，又保证数据一致性
+        # 🔥 Optimization: Prefer memory, sync from database if memory is empty
+        # This ensures both performance and data consistency
         all_agents = []
         
         if hasattr(main_window, 'agents') and main_window.agents:
-            # 内存中有数据，直接使用（性能最优）
+            # Data in memory, use directly (best performance)
             all_agents = [agent.to_dict(owner=username) for agent in main_window.agents]
             logger.info(f"[agent_handler] Retrieved {len(all_agents)} agents from memory")
         else:
-            # 内存为空，从数据库同步（确保数据可用）
+            # Memory empty, sync from database (ensure data availability)
             logger.warning(f"[agent_handler] Memory cache empty, syncing from database...")
             try:
                 # Get database service from main_window
@@ -758,7 +758,7 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
                     db_agents = db_result['data']
                     logger.info(f"[agent_handler] Retrieved {len(db_agents)} agents from database")
                     
-                    # 转换为 EC_Agent 并添加到内存
+                    # Convert to EC_Agent and add to memory
                     main_window.agents = []
                     for db_agent_dict in db_agents:
                         try:
@@ -1056,7 +1056,8 @@ def _sync_agent_avatar_to_cloud(agent_data: Dict[str, Any], operation: 'Operatio
                     (avatar_resource.video_path and avatar_resource.video_path.strip())
                 )
                 if has_local_files:
-                    _upload_avatar_files_to_cloud(avatar_resource)
+                    from agent.avatar.avatar_cloud_sync import upload_avatar_to_cloud_async
+                    upload_avatar_to_cloud_async(avatar_resource, db_service=main_window.ec_db_mgr.avatar_service)
                 else:
                     logger.debug(f"[agent_handler] No local files to upload for avatar: {avatar_id}")
             else:
@@ -1068,51 +1069,8 @@ def _sync_agent_avatar_to_cloud(agent_data: Dict[str, Any], operation: 'Operatio
         logger.debug(traceback.format_exc())
 
 
-def _upload_avatar_files_to_cloud(avatar_resource: 'DBAvatarResource') -> None:
-    """Upload avatar image/video files to cloud storage (S3)
-    
-    This is separate from AppSync data sync - it handles the actual file uploads.
-    
-    Args:
-        avatar_resource: Avatar resource database model instance
-    """
-    try:
-        from agent.avatar.cloud_sync_manager import CloudSyncManager
-        
-        main_window = AppContext.get_main_window()
-        if not main_window or not main_window.ec_db_mgr:
-            return
-        
-        db_session = main_window.ec_db_mgr.get_session()
-        
-        # Create cloud sync manager
-        cloud_sync_manager = CloudSyncManager(db_session)
-        
-        if not cloud_sync_manager.is_enabled():
-            logger.debug("[agent_handler] Cloud storage not configured, skipping file upload")
-            return
-        
-        # Sync avatar files to cloud storage (async, non-blocking)
-        import threading
-        
-        def _sync_files():
-            try:
-                success = cloud_sync_manager.sync_avatar_to_cloud(avatar_resource, force=False)
-                if success:
-                    logger.info(f"[agent_handler] ✅ Avatar files uploaded to cloud storage: {avatar_resource.id}")
-                else:
-                    logger.warning(f"[agent_handler] ⚠️  Avatar file upload failed or skipped: {avatar_resource.id}")
-            except Exception as e:
-                logger.error(f"[agent_handler] Error uploading avatar files: {e}")
-        
-        # Run in background thread to avoid blocking
-        thread = threading.Thread(target=_sync_files, daemon=True)
-        thread.start()
-        
-    except Exception as e:
-        logger.error(f"[agent_handler] Error in avatar file upload: {e}")
-        import traceback
-        logger.debug(traceback.format_exc())
+# Removed: _upload_avatar_files_to_cloud() is now in agent.avatar.avatar_cloud_sync
+# Use: from agent.avatar.avatar_cloud_sync import upload_avatar_to_cloud_async
 
 
 def _check_and_cleanup_orphaned_avatar(avatar_id: str, deleted_agent_id: str, username: str) -> bool:

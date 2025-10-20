@@ -15,10 +15,10 @@ if TYPE_CHECKING:
 
 
 class AppContextMeta(type):
-    """AppContext 的元类，支持类级别的属性访问"""
+    """Metaclass for AppContext, supports class-level attribute access"""
 
     def __getattr__(cls, name):
-        """支持 AppContext.xxx 直接访问属性"""
+        """Support direct attribute access via AppContext.xxx"""
         if name.startswith('_'):
             raise AttributeError(f"'{cls.__name__}' object has no attribute '{name}'")
 
@@ -41,31 +41,31 @@ class AppContext(metaclass=AppContextMeta):
         if self._initialized:
             return
         self._initialized = True
-        # 全局重要实例
-        self.app: Optional[QApplication] = None           # QApplication 实例
-        self.main_window: Optional[MainWindow] = None   # 主窗口实例
-        self.web_gui: Optional[WebGUI] = None       # web gui实例
-        self.logger: Optional[Logger] = None        # 日志实例
-        self.config: Optional[AppSettings] = None        # 配置对象
-        self.thread_pool: Optional[QThreadPool] = None   # 线程池
-        self.app_info: Optional[AppInfo] = None      # 应用信息
-        self.main_loop: Optional[AbstractEventLoop] = None     # 主循环实例
-        self.login: Optional[Login] = None  # 登录实例
-        self.playwright_browsers_path: Optional[str] = None    # Playwright 浏览器路径
-        # ... 其他全局对象
+        # Global important instances
+        self.app: Optional[QApplication] = None           # QApplication instance
+        self.main_window: Optional[MainWindow] = None   # Main window instance
+        self.web_gui: Optional[WebGUI] = None       # Web GUI instance
+        self.logger: Optional[Logger] = None        # Logger instance
+        self.config: Optional[AppSettings] = None        # Config object
+        self.thread_pool: Optional[QThreadPool] = None   # Thread pool
+        self.app_info: Optional[AppInfo] = None      # Application info
+        self.main_loop: Optional[AbstractEventLoop] = None     # Main loop instance
+        self.login: Optional[Login] = None  # Login instance
+        self.playwright_browsers_path: Optional[str] = None    # Playwright browsers path
+        # ... Other global objects
 
     @classmethod
     def get_instance(cls):
-        """获取单例实例"""
+        """Get singleton instance"""
         if not cls._instance:
             cls._instance = cls()
         return cls._instance
 
     def __getattr__(self, name):
-        """实例级别的属性访问"""
+        """Instance-level attribute access"""
         if name.startswith('_'):
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
-        # 如果属性不存在，返回 None（避免抛出异常）
+        # If attribute doesn't exist, return None (avoid raising exception)
         return None
 
     def set_app(self, app: QApplication):
@@ -99,8 +99,8 @@ class AppContext(metaclass=AppContextMeta):
         self.playwright_browsers_path = path
 
     def get_playwright_browsers_path(self) -> Optional[str]:
-        """获取 Playwright 浏览器路径（统一接口）"""
-        # 优先从环境变量获取（实时状态）
+        """Get Playwright browsers path (unified interface)"""
+        # Prefer getting from environment variable (real-time status)
         from agent.playwright.core.setup import get_playwright_browsers_path
         return get_playwright_browsers_path()
 
@@ -108,59 +108,67 @@ class AppContext(metaclass=AppContextMeta):
         """Set URL scheme handler"""
         self.url_scheme_handler = handler
 
-    # 类方法支持 - 可以直接使用 AppContext.get_xxx() 访问
+    # Class method support - can directly use AppContext.get_xxx() to access
     @classmethod
     def get_app(cls):
-        """获取 QApplication 实例"""
+        """Get QApplication instance"""
         return cls.get_instance().app
 
     @classmethod
     def get_logger(cls):
-        """获取日志器实例"""
+        """Get logger instance"""
         return cls.get_instance().logger
 
     @classmethod
     def get_config(cls):
-        """获取配置实例"""
+        """Get config instance"""
         return cls.get_instance().config
 
     @classmethod
     def get_main_window(cls):
-        """获取主窗口实例"""
+        """Get main window instance"""
         return cls.get_instance().main_window
 
     @classmethod
     def get_web_gui(cls):
-        """获取 Web GUI 实例"""
+        """Get Web GUI instance"""
         return cls.get_instance().web_gui
 
     @classmethod
     def get_app_info(cls):
-        """获取应用信息实例"""
+        """Get application info instance"""
         return cls.get_instance().app_info
 
     @classmethod
     def get_main_loop(cls):
-        """获取主循环实例"""
+        """Get main loop instance"""
         return cls.get_instance().main_loop
 
     @classmethod
     def get_login(cls):
-        """获取登录实例"""
+        """Get login instance"""
         return cls.get_instance().login
 
     @classmethod
     def get_thread_pool(cls):
-        """获取线程池实例"""
+        """Get thread pool instance"""
         return cls.get_instance().thread_pool
+    
+    @classmethod
+    def get_auth_manager(cls):
+        """Get authentication manager instance"""
+        login = cls.get_login()
+        if login and hasattr(login, 'auth_manager'):
+            return login.auth_manager
+        return None
 
     def cleanup(self):
-        """清理 AppContext 中的所有引用"""
+        """Clean up all references in AppContext"""
         try:
-            # 清理各种实例引用
+            # Clean up various instance references
             self.main_window = None
             
-            # 注意：不清理 app, logger, thread_pool, login，因为它们可能在应用完全退出前还需要使用
+            # Note: Don't clean up app, logger, thread_pool, login, as they may still be needed before application fully exits
             
             return True
         except Exception as e:
@@ -170,13 +178,13 @@ class AppContext(metaclass=AppContextMeta):
 
     @classmethod
     def cleanup_instance(cls):
-        """类方法：清理 AppContext 实例"""
+        """Class method: Clean up AppContext instance"""
         instance = cls.get_instance()
         return instance.cleanup()
 
     @classmethod
     def safe_get_login(cls):
-        """安全获取 login 对象，如果为 None 则抛出有意义的异常"""
+        """Safely get login object, raise meaningful exception if None"""
         login = cls.get_login()
         if login is None:
             raise RuntimeError("Login object is not available - user may have logged out or system not initialized")
@@ -184,7 +192,7 @@ class AppContext(metaclass=AppContextMeta):
 
     @classmethod
     def safe_get_main_window(cls):
-        """安全获取 main_window 对象，如果为 None 则抛出有意义的异常"""
+        """Safely get main_window object, raise meaningful exception if None"""
         main_window = cls.get_main_window()
         if main_window is None:
             raise RuntimeError("MainWindow is not available - user may have logged out or system not initialized")
@@ -192,13 +200,13 @@ class AppContext(metaclass=AppContextMeta):
 
     @classmethod
     def safe_get_web_gui(cls):
-        """安全获取 web_gui 对象，如果为 None 则抛出有意义的异常"""
+        """Safely get web_gui object, raise meaningful exception if None"""
         web_gui = cls.get_web_gui()
         if web_gui is None:
             raise RuntimeError("WebGUI is not available - user may have logged out or system not initialized")
         return web_gui
 
-    # 你可以继续添加更多 set/get 方法
+    # You can continue to add more set/get methods
 
     @classmethod
     def get_useful_context(cls) -> "RunContext":

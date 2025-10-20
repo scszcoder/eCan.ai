@@ -15,7 +15,7 @@ from agent.a2a.common.types import AgentCard, AgentCapabilities
 from agent.ec_agents.agent_utils import get_a2a_server_url
 from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
 from utils.logger_helper import logger_helper as logger
-from agent.db.services.db_agent_service import get_default_avatar
+from agent.db.services.db_avatar_service import DBAvatarService
 
 if TYPE_CHECKING:
     from gui.MainGUI import MainWindow
@@ -78,7 +78,7 @@ def convert_agent_dict_to_ec_agent(
             logger.warning(f"[AgentConverter] Failed to create BrowserUseChatOpenAI: {e}")
             browser_use_llm = None
         
-        avatar = agent_data.get('avatar') or get_default_avatar(agent_data.get('id'))
+        avatar = agent_data.get('avatar') or DBAvatarService.generate_default_avatar(agent_data.get('id'))
         
         # Extract relationship data from agent_data
         # IMPORTANT: Database returns relationship objects (dicts), but EC_Agent expects:

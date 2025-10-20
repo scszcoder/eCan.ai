@@ -217,8 +217,8 @@ def test_sync_manager():
     print("  ✅ Disaster recovery")
     
     print("\nUsage example:")
-    print("  from agent.avatar.cloud_sync_manager import CloudSyncManager")
-    print("  sync_manager = CloudSyncManager(db_session)")
+    print("  from agent.avatar.avatar_cloud_sync import AvatarCloudSync")
+    print("  sync_manager = AvatarCloudSync(db_service=avatar_service)")
     print("  sync_manager.sync_avatar_to_cloud(avatar_resource)")
 
 
