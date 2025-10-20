@@ -123,7 +123,7 @@ class EC_Agent(Agent):
 		# Configure extraction
 		from agent.memory.service import MemoryManager
 
-		self.mem_manager = MemoryManager(agent_id=self.card.id)
+		self.mem_manager = MemoryManager(agent_id=self.card.id, llm=self.skill_llm)
 
 		# LLM API connection setup
 		llm_api_env_vars = REQUIRED_LLM_API_ENV_VARS.get(self.llm.__class__.__name__, [])

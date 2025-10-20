@@ -267,4 +267,66 @@ def api_ecan_ai_ocr_read_screen(mainwin, nodes):
     return usable_prompts
 
 
+def add_ecan_ai_api_get_agent_status_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="ecan_ai_api_get_agent_status",
+        description="Get an agent's current status, such as running tasks, scheduled tasks, finished tasks, chat interactions etc.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["agent_id"],
+                    "properties": {
+                        "agent_id": {
+                            "type": "string",
+                            "description": "agent id",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)
+
+
+def ecan_ai_api_get_agent_status(mainwin, config):
+    try:
+        agent_id = config.get("agent_id", "")
+        status = {
+            "agent_id": agent_id,
+            "completed_tasks":[],
+            "running_tasks":[],
+            "unrun_tasks":[],
+            "chat_interactions":[],
+            "tool_calls": {}
+        }
+        if agent_id:
+            # get various agent's running status.
+            # 1) # of running task
+            # 2) for each finished or running task for today, get
+            #   2.1) task id
+            #   2.2) task status
+            #   2.3) task progress (percentage, which langgraph node is it on
+            #   2.4) task start time, end time(duration)
+            #   2.5) # of re-tries (retry reasons)
+            # 3) for each unrun task, get
+            #   3.1) task id
+            #   3.2) task schedule
+            # 4) # of chat interactions so far today (and with whom)
+            # 5) # of tool calls so far today.
+
+            logger.debug("api_ecan_ai_get_nodes_prompts: respnose:", status)
+        else:
+            status = "Error: Agent Not Found!"
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorEcanAiApiGetAgentStatus")
+        logger.error(err_trace)
+        status = err_trace
+    return status
+
 
