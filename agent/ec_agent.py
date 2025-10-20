@@ -119,36 +119,11 @@ class EC_Agent(Agent):
 		self.images = [{"image_name":"", "image_source":"","text":""}]
 		self.avatar = avatar or (DBAvatarService.generate_default_avatar(card.id) if card else None)
 
-		# Define profile structure
-		class UserProfile(BaseModel):
-			"""Represents the full representation of a user."""
-			name: Optional[str] = None
-			language: Optional[str] = None
-			timezone: Optional[str] = None
-
-		# Safely initialize embeddings in packaged environment
-		try:
-			# Configure extraction
-			from langmem import create_memory_manager
-
-			self.mem_manager = create_memory_manager(
-				"anthropic:claude-3-5-sonnet-latest",
-				schemas=[UserProfile],  # (optional) customize schema
-				instructions="Extract user profile information",
-				enable_inserts=False,  # Profiles update in-place
-			)
-
-			self.embeddings = init_embeddings("openai:text-embedding-3-small")
-			self.mem_store = InMemoryStore(
-				index={
-					"embed": self.embeddings,
-					"dims": 1536,
-				}
-			)
-		except Exception as e:
-			logger.warning(f"Failed to initialize embeddings in packaged environment: {e}")
-		# keep the old inits
 		super().__init__(*args, **kwargs)
+		# Configure extraction
+		from agent.memory.service import MemoryManager
+
+		self.mem_manager = MemoryManager(agent_id=self.card.id)
 
 		# LLM API connection setup
 		llm_api_env_vars = REQUIRED_LLM_API_ENV_VARS.get(self.llm.__class__.__name__, [])
@@ -364,6 +339,9 @@ class EC_Agent(Agent):
 	def start(self):
 		# Start A2A server in daemon thread
 		self.start_a2a_server_in_thread(self.a2a_server)
+
+		# kick off memory manager in background.
+		self.mem_manager.start()
 		logger.info("A2A server started....", self.card.name)
 		# loop = asyncio.get_running_loop()
 		# kick off TaskExecutor

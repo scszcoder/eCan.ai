@@ -12,8 +12,9 @@ import base64
 import asyncio
 import sys
 from threading import Thread
-from langgraph.types import Interrupt
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, BaseMessage
 from agent.ec_skills.dev_defs import BreakpointManager
+from agent.memory.models import MemoryItem
 
 
 def rough_token_count(text: str) -> int:
@@ -349,7 +350,54 @@ def _fallback_llm_selection(country):
         logger.error(f"Fallback LLM creation failed: {e}")
         return None
 
+def msg_role(msg: BaseMessage) -> str:
+    if isinstance(msg, SystemMessage):
+        return "system"
+    if isinstance(msg, HumanMessage):
+        c = getattr(msg, "content", "")
+        if isinstance(c, str) and c.startswith("[agent_"):
+            return "agent"
+        return "human"
+    if isinstance(msg, AIMessage):
+        return "ai"
+    return "unknown"
 
+def msg_text_extract(msg: BaseMessage) -> str:
+    # Content can be str or list of blocks (text/image/file)
+    c = getattr(msg, "content", "")
+    if isinstance(c, str):
+        return c
+    # If list of blocks, extract text-like parts
+    parts = []
+    for b in c if isinstance(c, list) else []:
+        t = b.get("type")
+        if t in ("text",):
+            parts.append(b.get("text", ""))
+        elif t == "image_url":
+            parts.append("[image]")
+        elif t in ("file", "audio", "input_audio"):
+            parts.append(f"[{t}]")
+    return " ".join(p for p in parts if p)
+
+def to_memory_item(
+    msg: BaseMessage,
+    namespace: Tuple[str, ...],
+    id: str,         # e.g. {"agent_id": ..., "chat_id": ..., "task_id": ..., "msg_id": ...}
+    extra_meta: Dict[str, Any] = None
+) -> MemoryItem:
+    text = msg_text_extract(msg)
+    meta = {
+        "role": msg_role(msg),
+        "msg_type": msg.__class__.__name__,
+        "content_raw": getattr(msg, "content", None),
+        **(extra_meta or {}),
+    }
+    return MemoryItem(
+        namespace=namespace,
+        id=id,
+        text=text,
+        metadata=meta
+    )
 
 def get_standard_prompt(state:NodeState) -> NodeState:
     logger.debug("get_standard_prompt===>", state)
