@@ -6,7 +6,7 @@ from agent.agent_service import get_agent_by_id
 from agent.ec_skills.search_parts.pre_llm_hooks import *
 from agent.ec_skills.search_parts.post_llm_hooks import *
 from agent.ec_skills.llm_utils.llm_utils import send_response_back, _deep_merge
-
+from agent.memory.models import MemoryItem, RetrievalQuery, RetrievedMemory
 
 
 
@@ -64,34 +64,42 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state):
         # Ensure list exists
         if not isinstance(state.get("history"), list):
             state["history"] = []
-        
+
         # Smart history management: avoid duplicate SystemMessages
         # formatted_prompt is typically [SystemMessage(...), HumanMessage(...)]
         from langchain_core.messages import SystemMessage
-        
+
         if formatted_prompt and len(formatted_prompt) > 0:
             first_msg = formatted_prompt[0]
             # Check if first message is a SystemMessage
             if isinstance(first_msg, SystemMessage):
-                # Check if this SystemMessage already exists in history
-                system_exists = any(
-                    isinstance(msg, SystemMessage) and msg.content == first_msg.content 
-                    for msg in state["history"]
+                # Find the most recent SystemMessage in history (from the end)
+                recent_system = None
+                for _msg in reversed(state["history"]):
+                    if isinstance(_msg, SystemMessage):
+                        recent_system = _msg
+                        break
+
+                is_duplicate_of_recent = (
+                    recent_system is not None and recent_system.content == first_msg.content
                 )
-                
-                if system_exists:
+
+                if is_duplicate_of_recent:
                     # Skip the SystemMessage, only add the rest (e.g., HumanMessage)
                     state["history"].extend(formatted_prompt[1:])
+                    state["prompts"] = formatted_prompt[1:]
                     logger.debug(f"Skipped duplicate SystemMessage, added {len(formatted_prompt) - 1} messages to history")
                 else:
                     # Add all messages including the new SystemMessage
                     state["history"].extend(formatted_prompt)
+                    state["prompts"] = formatted_prompt
                     logger.debug(f"Added all {len(formatted_prompt)} messages to history (new SystemMessage)")
             else:
                 # No SystemMessage at start, add all messages
                 state["history"].extend(formatted_prompt)
+                state["prompts"] = formatted_prompt
                 logger.debug(f"Added all {len(formatted_prompt)} messages to history (no SystemMessage)")
-        
+
         logger.debug("pre ll hook formatted_prompt:",formatted_prompt)
 
         logger.debug(f"standard_pre_llm_hook: {full_node_name} prompts: {formatted_prompt}")
@@ -174,17 +182,42 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
         print("post llm hook input response:", type(response), response)
         state["metadata"] = _deep_merge(state["metadata"], response["llm_result"].get("meta_data", {}))
         state["messages"].append(f"llm:{response['llm_result'].get('next_prompt', '')}")
-        
+
         # Add AI response to chat history
         from langchain_core.messages import AIMessage
         next_prompt_text = response['llm_result'].get('next_prompt', '')
+        work_related = response['llm_result'].get('work_related', False)
+        prelim = response['llm_result'].get('preliminary_info', {})
+        if work_related:
+            if prelim:
+                # "part name": "string", "oems": ["string"], "model_part_numbers": ["string"], "applications_usage": ["string"]
+                topic = f"search {prelim.get("part name")} for {prelim.get("applications_usage")}"
+                if prelim.get("oems"):
+                    topic = topic + f", given oems being: {prelim.get('oems')}"
+                if prelim.get("model_part_numbers"):
+                    topic += f", and part number being {prelim.get('applications_usage')}"
+            else:
+                topic = "search part"
+        else:
+            topic = "random chat"
+
         if next_prompt_text:
             ai_message = AIMessage(content=next_prompt_text)
             if not isinstance(state.get("history"), list):
                 state["history"] = []
             state["history"].append(ai_message)
+            msgs = state["prompts"].append(ai_message)
             logger.debug(f"Added AIMessage to history: {next_prompt_text[:100]}...")  # Log first 100 chars
-        
+
+        # save this back-and-forth message pair to memory
+        for msg in state["prompts"]:
+            msg_id = state["attributes"]["msg_id"]
+            skill_run_id = state["attributes"]["run_thread_id"]
+            topic = state["attributes"]["topic"]
+            ns = (agent.card.id, askid, skill_run_id, state["attributes"]["chat_id"], topic)
+            mem_item = to_memory_item(msg, ns, msg_id)
+            agent.mem_manager.put(mem_item)
+
         logger.debug(f"standard_post_llm_hook: {post_hook_result}")
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPostLLMHook")
