@@ -129,18 +129,40 @@ class AvatarCloudSync:
             # Get file hash
             file_hash = avatar_resource.image_hash if file_type == 'image' else avatar_resource.video_hash
             
-            # Upload using standardized path: avatars/{owner}/{file_type}s/{file_hash}.{ext}
+            # Use Cognito Identity ID as owner for S3 path (required for IAM policy)
+            # Format: avatars/{cognito-identity-id}/{file_type}s/{file_hash}.{ext}
+            owner = self.cloud_service.identity_id if self.cloud_service.identity_id else avatar_resource.owner
+            
+            if not self.cloud_service.identity_id:
+                logger.warning(f"[AvatarCloudSync] No Identity ID available, using username: {avatar_resource.owner}")
+                logger.warning("[AvatarCloudSync] This may cause permission issues with IAM policy!")
+            
+            # Upload using standardized path: avatars/{cognito-identity-id}/{file_type}s/{file_hash}.{ext}
+            # Prepare metadata (S3 metadata only supports ASCII)
+            import base64
+            metadata = {
+                'avatar_type': avatar_resource.resource_type,
+                'username': avatar_resource.owner
+            }
+            # Encode non-ASCII name in base64 if present
+            if avatar_resource.name:
+                try:
+                    # Try to encode as ASCII
+                    avatar_resource.name.encode('ascii')
+                    metadata['name'] = avatar_resource.name
+                except UnicodeEncodeError:
+                    # Contains non-ASCII, encode in base64
+                    name_b64 = base64.b64encode(avatar_resource.name.encode('utf-8')).decode('ascii')
+                    metadata['name_base64'] = name_b64
+            
             success, cloud_url, error = uploader.upload(
                 local_path=local_path,
-                owner=avatar_resource.owner,
+                owner=owner,  # Use Cognito Identity ID
                 resource_type='avatar',
                 resource_id=avatar_resource.id,
                 file_category=file_type,  # 'image' or 'video'
                 file_hash=file_hash,
-                extra_metadata={
-                    'avatar_type': avatar_resource.resource_type,
-                    'name': avatar_resource.name or ''
-                }
+                extra_metadata=metadata
             )
 
             if success:
@@ -149,7 +171,7 @@ class AvatarCloudSync:
                 file_ext = Path(local_path).suffix
                 cloud_key = S3PathGenerator.generate_path(
                     resource_type='avatar',
-                    owner=avatar_resource.owner,
+                    owner=owner,  # Use the same owner (Identity ID)
                     file_category=file_type,
                     file_hash=file_hash,
                     file_ext=file_ext

@@ -147,11 +147,13 @@ class AWSCredentialsProvider:
             
             credentials = response.get('Credentials', {})
             
+            # AWS Cognito Identity returns 'SecretKey', not 'SecretAccessKey'
             return {
                 'AccessKeyId': credentials.get('AccessKeyId'),
-                'SecretKey': credentials.get('SecretAccessKey'),
+                'SecretKey': credentials.get('SecretKey'),
                 'SessionToken': credentials.get('SessionToken'),
-                'Expiration': credentials.get('Expiration')
+                'Expiration': credentials.get('Expiration'),
+                'IdentityId': identity_id  # Add Identity ID for S3 path
             }
             
         except ClientError as e:

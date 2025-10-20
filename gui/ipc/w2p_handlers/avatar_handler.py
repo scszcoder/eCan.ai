@@ -11,6 +11,7 @@ This handler provides endpoints for:
 
 import base64
 import time
+from pathlib import Path
 from typing import Dict, Optional, Any
 
 from agent.avatar.avatar_manager import AvatarManager
@@ -166,26 +167,29 @@ class AvatarHandler:
     
     async def upload_avatar(self, request: Dict) -> Dict:
         """
-        Upload user avatar image.
+        Upload user avatar image OR video.
         
         Request:
         {
             "username": "user123",
-            "fileData": "base64_encoded_image_data",
-            "filename": "avatar.png"
+            "fileData": "base64_encoded_image_or_video_data",
+            "filename": "avatar.png" or "avatar.webm",
+            "fileType": "image" or "video"  // optional, auto-detected from filename
         }
         
         Response:
         {
             "success": true,
             "data": {
+                "id": "avatar_abc123",
                 "imageUrl": "/avatars/uploaded/abc123_original.png",
                 "thumbnailUrl": "/avatars/uploaded/abc123_thumb.png",
+                "videoUrl": "/avatars/uploaded/abc123_video.webm",  // if video uploaded
                 "hash": "abc123",
                 "metadata": {
-                    "format": "png",
+                    "format": "png" or "webm",
                     "size": 12345,
-                    "dimensions": [512, 512]
+                    "dimensions": [512, 512]  // for images
                 }
             }
         }
@@ -194,6 +198,7 @@ class AvatarHandler:
             username = request.get('username')
             file_data_b64 = request.get('fileData')
             filename = request.get('filename', 'avatar.png')
+            file_type = request.get('fileType')  # 'image' or 'video'
             
             if not username or not file_data_b64:
                 return {
@@ -210,13 +215,49 @@ class AvatarHandler:
                     "error": f"Invalid base64 data: {str(e)}"
                 }
             
+            # Auto-detect file type if not provided
+            if not file_type:
+                ext = Path(filename).suffix.lower().lstrip('.')
+                if ext in ['png', 'jpg', 'jpeg', 'gif', 'webp']:
+                    file_type = 'image'
+                elif ext in ['mp4', 'webm', 'mov', 'avi']:
+                    file_type = 'video'
+                else:
+                    return {
+                        "success": False,
+                        "error": f"Unknown file type: {ext}"
+                    }
+            
             avatar_manager = self._get_avatar_manager(username)
-            result = await avatar_manager.upload_avatar(file_data, filename)
+            
+            # Handle video upload
+            if file_type == 'video':
+                result = await avatar_manager.upload_avatar_video(file_data, filename)
+            else:
+                result = await avatar_manager.upload_avatar(file_data, filename)
             
             if result["success"]:
                 # Convert paths to HTTP URLs using unified utility
                 from agent.avatar.avatar_url_utils import convert_paths_to_urls
-                convert_paths_to_urls(result, ['imageUrl', 'thumbnailUrl'])
+                convert_paths_to_urls(result, ['imageUrl', 'thumbnailUrl', 'videoUrl'])
+                
+                # For video uploads, skip video generation
+                if file_type == 'video':
+                    logger.info("[AvatarHandler] Video uploaded directly, skipping video generation")
+                    return {
+                        "success": True,
+                        "data": result
+                    }
+                
+                # Check if video generation is enabled (for image uploads)
+                from agent.avatar.video_generator import ENABLE_AVATAR_VIDEO_GENERATION
+                
+                if not ENABLE_AVATAR_VIDEO_GENERATION:
+                    logger.info("[AvatarHandler] Video generation is disabled by configuration")
+                    return {
+                        "success": True,
+                        "data": result
+                    }
                 
                 # Get additional context for video generation
                 org_name = request.get('orgName')  # Organization name from request
