@@ -130,15 +130,15 @@ class MemoryManager:
 		"""Placeholder: create episodic (summarized) memory from recent items.
 		Wire to LangGraph summarization utilities later.
 		"""
-		logger.debug("[MemoryManager] generate_episodic_summary: placeholder executed")
+		logger.trace("[MemoryManager] generate_episodic_summary: placeholder executed")
 
 	def accumulate_procedural_memory(self) -> None:
 		"""Placeholder: detect flows/repetition and store procedural knowledge."""
-		logger.debug("[MemoryManager] accumulate_procedural_memory: placeholder executed")
+		logger.trace("[MemoryManager] accumulate_procedural_memory: placeholder executed")
 
 	def compress_and_prune(self) -> None:
 		"""Placeholder: compress vectors, prune low-utility items, maintain budget."""
-		logger.debug("[MemoryManager] compress_and_prune: placeholder executed")
+		logger.trace("[MemoryManager] compress_and_prune: placeholder executed")
 
 	# ---------- internal ----------
 	def _worker_loop(self) -> None:

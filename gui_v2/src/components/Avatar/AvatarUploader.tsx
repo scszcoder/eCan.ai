@@ -27,24 +27,32 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
   const [previewImage, setPreviewImage] = useState('');
 
   // Supported formats
-  const SUPPORTED_FORMATS = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
-  const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+  const SUPPORTED_IMAGE_FORMATS = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
+  const SUPPORTED_VIDEO_FORMATS = ['video/webm', 'video/mp4', 'video/quicktime', 'video/x-msvideo'];
+  const SUPPORTED_FORMATS = [...SUPPORTED_IMAGE_FORMATS, ...SUPPORTED_VIDEO_FORMATS];
+  
+  const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB for images
+  const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB for videos
 
-  const validateImage = (file: RcFile): boolean => {
+  const validateFile = (file: RcFile): boolean => {
+    const isImage = SUPPORTED_IMAGE_FORMATS.includes(file.type);
+    const isVideo = SUPPORTED_VIDEO_FORMATS.includes(file.type);
+
     // Check file type
-    if (!SUPPORTED_FORMATS.includes(file.type)) {
+    if (!isImage && !isVideo) {
       message.error(
         t('avatar.unsupported_format') || 
-        'Unsupported format. Please upload PNG, JPG, GIF, or WebP.'
+        'Unsupported format. Please upload PNG, JPG, GIF, WebP, WebM, or MP4.'
       );
       return false;
     }
 
-    // Check file size
-    if (file.size > MAX_SIZE) {
+    // Check file size based on type
+    const maxSize = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+    if (file.size > maxSize) {
       message.error(
         t('avatar.file_too_large') || 
-        `File size exceeds ${MAX_SIZE / 1024 / 1024}MB limit.`
+        `File size exceeds ${maxSize / 1024 / 1024}MB limit.`
       );
       return false;
     }
@@ -70,7 +78,7 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
   };
 
   const handleUpload = async (file: RcFile): Promise<void> => {
-    if (!validateImage(file)) {
+    if (!validateFile(file)) {
       return;
     }
 
@@ -131,7 +139,11 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
   };
 
   const uploadProps = {
-    accept: SUPPORTED_FORMATS.join(','),
+    accept: [
+      ...SUPPORTED_FORMATS,
+      '.png', '.jpg', '.jpeg', '.gif', '.webp',  // Image extensions
+      '.webm', '.mp4', '.mov', '.avi'            // Video extensions
+    ].join(','),
     beforeUpload: (file: RcFile) => {
       handleUpload(file);
       return false; // Prevent default upload behavior
@@ -152,7 +164,7 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
             {t('avatar.click_or_drag') || 'Click or drag file to upload'}
           </p>
           <p className="ant-upload-hint">
-            {t('avatar.upload_hint') || 'Support: PNG, JPG, GIF, WebP (Max 10MB)'}
+            {t('avatar.upload_hint') || 'Support: PNG, JPG, GIF, WebP (Max 10MB) or WebM, MP4 video (Max 50MB)'}
           </p>
         </Dragger>
         

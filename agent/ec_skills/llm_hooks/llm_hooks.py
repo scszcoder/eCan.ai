@@ -191,11 +191,11 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
         if work_related:
             if prelim:
                 # "part name": "string", "oems": ["string"], "model_part_numbers": ["string"], "applications_usage": ["string"]
-                topic = f"search {prelim.get("part name")} for {prelim.get("applications_usage")}"
-                if prelim.get("oems"):
+                topic = f"search {prelim.get('part name')} for {prelim.get('applications_usage')}"
+                if prelim.get('oems'):
                     topic = topic + f", given oems being: {prelim.get('oems')}"
-                if prelim.get("model_part_numbers"):
-                    topic += f", and part number being {prelim.get('applications_usage')}"
+                if prelim.get('model_part_numbers'):
+                    topic += f", and part number being {prelim.get('model_part_numbers')}"
             else:
                 topic = "search part"
         else:

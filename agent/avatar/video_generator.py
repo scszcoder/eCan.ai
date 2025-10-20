@@ -14,10 +14,12 @@ from typing import Optional, Dict, Any
 from utils.logger_helper import logger_helper as logger
 
 # ==================== Video Generation Settings ====================
-# Set to True to enable LLM-based video generation (calls LLM API, may be slow and costly)
-# Set to False to use ffmpeg placeholder video only (fast, simple animation)
-# Note: ffmpeg placeholder video will always be generated regardless of this setting
-ENABLE_LLM_VIDEO_GENERATION = False
+# Control avatar video generation behavior
+
+# Enable/disable automatic video generation when uploading images
+# False = Skip video generation (recommended, fast performance)
+# True = Generate video from uploaded images (requires ffmpeg)
+ENABLE_AVATAR_VIDEO_GENERATION = False
 
 
 class AvatarVideoGenerator:
@@ -215,131 +217,26 @@ class AvatarVideoGenerator:
             Path to generated MP4 file, or None if failed
         """
         try:
-            # Check if LLM video generation is enabled
-            if not ENABLE_LLM_VIDEO_GENERATION:
-                logger.info("[VideoGenerator] LLM video generation is disabled, using ffmpeg placeholder")
-                # Determine output path for placeholder
-                if not output_dir:
-                    output_dir = Path(image_path).parent
-                else:
-                    output_dir = Path(output_dir)
-                output_dir.mkdir(parents=True, exist_ok=True)
-                image_name = Path(image_path).stem
-                output_path = output_dir / f"{image_name}_video.mp4"
-                # Generate placeholder video directly
-                result = await self._generate_placeholder_video(image_path, output_path, duration)
-                return str(output_path) if result else None
+            # Always use ffmpeg placeholder for now
+            # LLM video generation requires API integration (future feature)
+            logger.info("[VideoGenerator] Generating video using ffmpeg placeholder")
             
-            if not self.llm:
-                logger.error("[VideoGenerator] No LLM instance available")
-                return None
-            
-            # Determine output path
+            # Determine output path for placeholder
             if not output_dir:
                 output_dir = Path(image_path).parent
             else:
                 output_dir = Path(output_dir)
-            
             output_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Generate output filename
             image_name = Path(image_path).stem
             output_path = output_dir / f"{image_name}_video.mp4"
             
-            logger.info(f"[VideoGenerator] Calling LLM API for video generation...")
-            logger.info(f"[VideoGenerator] Image: {image_path}")
-            logger.info(f"[VideoGenerator] Prompt: {prompt}")
-            logger.info(f"[VideoGenerator] Output: {output_path}")
-            
-            # TODO: Call actual LLM video generation API
-            # Different LLM providers have different video generation APIs:
-            # - OpenAI: Currently no native video generation API
-            # - DeepSeek: Check if they have video generation capability
-            # - Qwen: May have video generation through Alibaba Cloud
-            # - Stable Diffusion Video: Requires separate API
-            
-            # For now, we'll use a placeholder approach:
-            # 1. Check LLM provider type
-            # 2. Call appropriate video generation API
-            # 3. Save the generated video
-            
-            llm_type = type(self.llm).__name__.lower()
-            logger.info(f"[VideoGenerator] LLM type: {llm_type}")
-            
-            if 'openai' in llm_type:
-                # OpenAI doesn't have native video generation yet
-                # We could use DALL-E for image animation or integrate with RunwayML
-                result = await self._generate_with_openai_compatible(
-                    image_path, prompt, output_path, duration
-                )
-            elif 'deepseek' in llm_type:
-                # DeepSeek may have video generation capability
-                result = await self._generate_with_deepseek(
-                    image_path, prompt, output_path, duration
-                )
-            elif 'qwen' in llm_type or 'qwq' in llm_type:
-                # Qwen/Alibaba Cloud may have video generation
-                result = await self._generate_with_qwen(
-                    image_path, prompt, output_path, duration
-                )
-            else:
-                # Fallback: Use a generic approach or placeholder
-                logger.warning(f"[VideoGenerator] Video generation not supported for {llm_type}")
-                result = await self._generate_placeholder_video(
-                    image_path, output_path, duration
-                )
-            
-            if result and os.path.exists(output_path):
-                logger.info(f"[VideoGenerator] ✅ Video generated successfully: {output_path}")
-                return str(output_path)
-            else:
-                logger.error("[VideoGenerator] ❌ Video generation failed")
-                return None
+            # Generate placeholder video directly
+            result = await self._generate_placeholder_video(image_path, output_path, duration)
+            return str(output_path) if result else None
                 
         except Exception as e:
             logger.error(f"[VideoGenerator] ❌ Error in video generation: {e}", exc_info=True)
             return None
-    
-    async def _generate_with_openai_compatible(
-        self,
-        image_path: str,
-        prompt: str,
-        output_path: str,
-        duration: float
-    ) -> bool:
-        """
-        Generate video using OpenAI-compatible API
-        
-        Note: OpenAI doesn't have native video generation yet.
-        This is a placeholder for future implementation or third-party integration.
-        """
-        logger.warning("[VideoGenerator] OpenAI video generation not yet implemented")
-        # TODO: Integrate with RunwayML, Pika, or other video generation services
-        return await self._generate_placeholder_video(image_path, output_path, duration)
-    
-    async def _generate_with_deepseek(
-        self,
-        image_path: str,
-        prompt: str,
-        output_path: str,
-        duration: float
-    ) -> bool:
-        """Generate video using DeepSeek API"""
-        logger.warning("[VideoGenerator] DeepSeek video generation not yet implemented")
-        # TODO: Check DeepSeek API documentation for video generation capability
-        return await self._generate_placeholder_video(image_path, output_path, duration)
-    
-    async def _generate_with_qwen(
-        self,
-        image_path: str,
-        prompt: str,
-        output_path: str,
-        duration: float
-    ) -> bool:
-        """Generate video using Qwen/Alibaba Cloud API"""
-        logger.warning("[VideoGenerator] Qwen video generation not yet implemented")
-        # TODO: Integrate with Alibaba Cloud video generation service
-        return await self._generate_placeholder_video(image_path, output_path, duration)
     
     async def _generate_placeholder_video(
         self,
