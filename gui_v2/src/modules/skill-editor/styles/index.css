@@ -12,6 +12,10 @@
     --g-workflow-line-color-hover: #37d0ff;
     --g-workflow-line-color-selected: #37d0ff;
     --g-workflow-line-color-error: red;
+
+    /* Node colors - 确保不透明背景 */
+    --flow-node-bg-color: #ffffff;
+    --flow-node-border-color: #d9d9d9;
   }
   
   /* CodeMirror line color for skill-editor nodes */
@@ -87,4 +91,152 @@
   .demo-editor,
   .demo-editor * {
     cursor: default;
+  }
+
+  /* ===== Node State Panel Styles ===== */
+  
+  /* Collapse button - seamlessly integrated with background */
+  .ns-toggle,
+  .ns-toggle-panel {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: #555;
+    font-size: 22px;
+    line-height: 0;
+    letter-spacing: 0;
+    vertical-align: middle;
+    text-align: center;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 6px;
+    font-weight: 600;
+  }
+
+  .ns-toggle:hover,
+  .ns-toggle-panel:hover {
+    background-color: rgba(77, 83, 232, 0.08);
+    color: #4d53e8;
+    transform: scale(1.1);
+  }
+
+  .ns-toggle:active,
+  .ns-toggle-panel:active {
+    background-color: rgba(77, 83, 232, 0.15);
+    transform: scale(0.95);
+  }
+
+  /* Focus state only shows with keyboard navigation, not with mouse click */
+  .ns-toggle:focus:not(:focus-visible),
+  .ns-toggle-panel:focus:not(:focus-visible) {
+    outline: none;
+    box-shadow: none;
+  }
+
+  .ns-toggle:focus-visible,
+  .ns-toggle-panel:focus-visible {
+    outline: 2px solid #4d53e8;
+    outline-offset: 2px;
+  }
+
+  /* Smooth icon transition */
+  .ns-toggle::before,
+  .ns-toggle-panel::before {
+    content: '';
+  }
+
+  /* Node header layout - ensure proper alignment */
+  .ns-node-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* Key label styling */
+  .ns-key {
+    font-size: 13px;
+    color: #333;
+    line-height: 1.4;
+  }
+
+  /* Secondary button styles for node state panel */
+  .ns-add,
+  .ns-remove,
+  .ns-action-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 12px;
+    height: 28px;
+    background: #f5f5f5;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    color: #333;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+  }
+
+  .ns-add:hover,
+  .ns-remove:hover,
+  .ns-action-button:hover {
+    background: #efefef;
+    border-color: #d0d0d0;
+    color: #000;
+  }
+
+  .ns-add:active,
+  .ns-remove:active,
+  .ns-action-button:active {
+    background: #e5e5e5;
+    border-color: #c0c0c0;
+  }
+
+  .ns-add:focus,
+  .ns-remove:focus,
+  .ns-action-button:focus {
+    outline: 2px solid #4d53e8;
+    outline-offset: -2px;
+  }
+
+  /* Destructive action variant */
+  .ns-remove {
+    border-color: #f5a623;
+  }
+
+  .ns-remove:hover {
+    background: #fff5eb;
+    border-color: #ff7a45;
+  }
+
+  /* Form inputs and selects */
+  .ns-input,
+  .ns-select {
+    color: #333;
+    background: #fff;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    transition: all 0.2s ease;
+  }
+
+  .ns-input:hover,
+  .ns-select:hover {
+    border-color: #b3b3b3;
+  }
+
+  .ns-input:focus,
+  .ns-select:focus {
+    outline: none;
+    border-color: #4d53e8;
+    box-shadow: 0 0 0 2px rgba(77, 83, 232, 0.1);
   }
