@@ -1,19 +1,46 @@
 from __future__ import annotations
 
-import json
-import traceback
-import uuid
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Type
-
-from langchain_core.language_models.chat_models import BaseChatModel
-from openai import RateLimitError
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional, List, Tuple
+from pydantic import BaseModel
 
 
-class MemSettings(BaseModel):
-	"""Options for the agent"""
+class MemoryNamespaces:
+    """Common logical namespaces for routing memories.
+    Adjust/extend as needed by skills/tasks.
+    """
+    DEFAULT = "default"
+    CHAT = "chat"
+    TASK = "task"
+    DOCS = "docs"
 
-	use_vision: bool = True
-	use_vision_for_planner: bool = False
+
+@dataclass
+class MemoryItem:
+    """A single memory item to be stored in the vector DB.
+
+    - text: primary text content for embedding and retrieval
+    - metadata: arbitrary metadata (agent/task/chat ids, timestamps, types, etc.)
+    - namespace: logical partition, maps to a vector collection space
+    - id: optional stable id for upserts
+    """
+    text: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    namespace: Tuple[str, ...] = (MemoryNamespaces.DEFAULT,)
+    id: Optional[str] = None
+
+
+class RetrievalQuery(BaseModel):
+    """Query model for retrieval requests."""
+    query: str
+    k: int = 5
+    namespace: Tuple[str, ...] = (MemoryNamespaces.DEFAULT,)
+    filters: Optional[Dict[str, Any]] = None
+
+
+class RetrievedMemory(BaseModel):
+    """Standardized return structure for retrieved memories."""
+    id: Optional[str] = None
+    text: str
+    score: float
+    metadata: Dict[str, Any] = {}

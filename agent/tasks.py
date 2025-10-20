@@ -319,6 +319,7 @@ class ManagedTask(Task):
             in_args = self.metadata.get("state", {})
             print("in_args:", in_args)
             agen = self.skill.runnable.stream(in_args, config=effective_config, context=context, **kwargs)
+
         try:
             logger.debug("stream running skill:", self.skill.name, in_msg)
             logger.debug("stream_run config:", effective_config)

@@ -360,7 +360,8 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         result = None
         logger.info(f"[node_builder] ENTERING node={node_name}, skill={skill_name}")
         runtime.context["this_node"] = {"name": node_name, "skill_name": skill_name, "owner": owner}
-
+        state["attributes"]["run_thread_id"] = runtime.context["id"]
+        print("run thread id:", state["attributes"]["run_thread_id"])
         # Apply node-level state->state mapping (if provided in state)
         try:
             # Look for per-node mapping rules in state:
