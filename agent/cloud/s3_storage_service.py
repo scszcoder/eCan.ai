@@ -52,9 +52,44 @@ class S3StorageConfig:
             path_prefix=os.getenv('AVATAR_CLOUD_PATH_PREFIX', 'avatars/')
         )
     
+    @classmethod
+    def from_default(cls, resource_type: str = 'avatar') -> 'S3StorageConfig':
+        """
+        Load default S3 configuration (hardcoded in code).
+        
+        This configuration is used when environment variables are not set.
+        Uses Cognito temporary credentials by default (no static keys needed).
+        
+        Args:
+            resource_type: Type of resource ('avatar' or 'skill')
+        """
+        # Different buckets for different resource types
+        if resource_type == 'skill':
+            bucket = 'ecan-skills'
+            path_prefix = ''  # Skills are stored at bucket root level
+        else:  # avatar
+            bucket = 'ecan-avatars'
+            path_prefix = ''  # Avatars are stored at bucket root level
+        
+        return cls(
+            access_key='',  # Empty - will use Cognito temporary credentials
+            secret_key='',  # Empty - will use Cognito temporary credentials
+            bucket=bucket,  # Resource-specific bucket
+            region='us-east-1',  # AWS region
+            endpoint='',  # Empty for standard AWS S3
+            cdn_domain='',  # Optional: Set CloudFront domain for CDN
+            use_ssl=True,  # Always use HTTPS
+            path_prefix=path_prefix  # Path prefix (empty for root level)
+        )
+    
     def is_configured(self) -> bool:
-        """Check if S3 is configured."""
-        return bool(self.access_key and self.secret_key and self.bucket)
+        """
+        Check if S3 is configured.
+        
+        Note: When using Cognito credentials, we only need bucket name.
+        Static credentials (access_key/secret_key) are optional.
+        """
+        return bool(self.bucket)
 
 
 class S3StorageService:
@@ -67,11 +102,13 @@ class S3StorageService:
         Args:
             config: S3 storage configuration
             aws_credentials: Optional AWS temporary credentials from Cognito
-                           {'AccessKeyId': str, 'SecretKey': str, 'SessionToken': str}
+                           {'AccessKeyId': str, 'SecretKey': str, 'SessionToken': str, 'IdentityId': str}
         """
         self.config = config
         self.aws_credentials = aws_credentials
         self._client = None
+        # Store Identity ID for S3 path generation
+        self.identity_id = aws_credentials.get('IdentityId') if aws_credentials else None
     
     def _init_client(self):
         """Initialize S3 client."""
@@ -88,11 +125,12 @@ class S3StorageService:
             # Use Cognito temporary credentials if available
             if self.aws_credentials:
                 logger.info("[S3Storage] Using Cognito temporary credentials")
+                
                 self._client = boto3.client(
                     's3',
-                    aws_access_key_id=self.aws_credentials['AccessKeyId'],
-                    aws_secret_access_key=self.aws_credentials['SecretKey'],
-                    aws_session_token=self.aws_credentials['SessionToken'],
+                    aws_access_key_id=self.aws_credentials.get('AccessKeyId'),
+                    aws_secret_access_key=self.aws_credentials.get('SecretKey'),
+                    aws_session_token=self.aws_credentials.get('SessionToken'),
                     endpoint_url=self.config.endpoint if self.config.endpoint else None,
                     config=config,
                     use_ssl=self.config.use_ssl
@@ -323,14 +361,21 @@ def create_s3_storage_service(
     Create AWS S3 storage service.
     
     Args:
-        config: S3 storage configuration. If None, loads from environment.
+        config: S3 storage configuration. If None, loads from default config.
         use_cognito_credentials: Whether to use Cognito temporary credentials
     
     Returns:
         S3StorageService instance or None if not configured
     """
     if config is None:
-        config = S3StorageConfig.from_env()
+        # Try loading from environment first, fallback to default
+        env_config = S3StorageConfig.from_env()
+        if env_config.bucket:
+            config = env_config
+            logger.info("[S3Storage] Using configuration from environment variables")
+        else:
+            config = S3StorageConfig.from_default()
+            logger.info("[S3Storage] Using default hardcoded configuration")
     
     # Try to get Cognito credentials if enabled
     aws_credentials = None
