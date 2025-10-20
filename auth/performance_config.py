@@ -13,15 +13,15 @@ class AuthPerformanceConfig:
     DEFAULT_CONFIG = {
         # Cognito client configuration
         'cognito': {
-            'connect_timeout': 10,      # Connection timeout (seconds)
-            'read_timeout': 10,        # Read timeout (seconds)
-            'max_attempts': 2,         # Maximum retry attempts
+            'connect_timeout': 15,      # Connection timeout (seconds) - increased for stability
+            'read_timeout': 20,        # Read timeout (seconds) - increased for slow responses
+            'max_attempts': 3,         # Maximum retry attempts - increased for reliability
             'max_pool_connections': 10, # Connection pool size
         },
 
         # Authentication flow configuration
         'auth_flow': {
-            'total_timeout': 15,       # Total authentication timeout (seconds)
+            'total_timeout': 30,       # Total authentication timeout (seconds) - increased for stability
         },
 
         # Performance monitoring configuration
@@ -75,10 +75,9 @@ class AuthPerformanceConfig:
         )
 
         if is_dev:
-            # Development environment optimizations - shorter timeouts
-            config['cognito']['connect_timeout'] = 3
-            config['cognito']['read_timeout'] = 8
-            config['auth_flow']['total_timeout'] = 12
+            # Development environment - use same stable timeouts as production
+            # (Removed shorter timeouts to improve stability)
+            pass
 
         # Detect network environment
         region = os.getenv('AWS_REGION', 'us-east-1')

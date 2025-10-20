@@ -228,6 +228,81 @@ class StandardS3Uploader:
             logger.error(f"[StandardS3Uploader] {error_msg}")
             return False, "", error_msg
     
+    async def upload_async(
+        self,
+        local_path: str,
+        owner: str,
+        resource_type: str,
+        resource_id: str,
+        file_category: str,
+        file_hash: str,
+        extra_metadata: Dict[str, str] = None,
+        date_prefix: bool = False
+    ) -> Tuple[bool, str, str]:
+        """
+        Standardized asynchronous upload file to S3 (non-blocking).
+        
+        Args:
+            local_path: Local file path
+            owner: User identifier (email/username)
+            resource_type: Resource type (avatar, document, attachment)
+            resource_id: Resource ID
+            file_category: File category (image, video, audio, document)
+            file_hash: File hash (for deduplication and unique identification)
+            extra_metadata: Additional metadata
+            date_prefix: Whether to add date prefix
+        
+        Returns:
+            (success, cloud_url, error_message)
+        """
+        try:
+            # 1. Generate standardized S3 path
+            file_ext = Path(local_path).suffix
+            s3_key = S3PathGenerator.generate_path(
+                resource_type=resource_type,
+                owner=owner,
+                file_category=file_category,
+                file_hash=file_hash,
+                file_ext=file_ext,
+                date_prefix=date_prefix
+            )
+            
+            logger.info(f"[StandardS3Uploader] Generated S3 key: {s3_key}")
+            
+            # 2. Auto-detect content type
+            content_type = self._detect_content_type(local_path)
+            
+            # 3. Build standard metadata
+            metadata = self._build_standard_metadata(
+                owner=owner,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                file_category=file_category,
+                extra_metadata=extra_metadata
+            )
+            
+            # 4. Upload to S3 asynchronously (non-blocking)
+            logger.debug(f"[StandardS3Uploader] Calling s3_service.upload_file_async...")
+            success, url, error = await self.s3_service.upload_file_async(
+                local_path=local_path,
+                cloud_key=s3_key,
+                content_type=content_type,
+                metadata=metadata
+            )
+            logger.debug(f"[StandardS3Uploader] upload_file_async returned: success={success}")
+            
+            if success:
+                logger.info(f"[StandardS3Uploader] ✅ Async upload successful: {s3_key}")
+            else:
+                logger.error(f"[StandardS3Uploader] ❌ Async upload failed: {error}")
+            
+            return success, url, error
+            
+        except Exception as e:
+            error_msg = f"Async upload error: {str(e)}"
+            logger.error(f"[StandardS3Uploader] {error_msg}")
+            return False, "", error_msg
+    
     def download(
         self,
         owner: str,

@@ -38,7 +38,8 @@ export const AvatarDisplay: React.FC<AvatarDisplayProps> = ({
   };
 
   const sizeInPixels = getSizeInPixels();
-  const showVideoPreview = showVideo && videoUrl && isHovered && !videoError;
+  // Show video on hover, or always show if there's no image (video-only upload)
+  const showVideoPreview = showVideo && videoUrl && !videoError && (isHovered || !imageUrl);
 
   const containerStyle: React.CSSProperties = {
     width: sizeInPixels,
@@ -65,6 +66,7 @@ export const AvatarDisplay: React.FC<AvatarDisplayProps> = ({
       {showVideoPreview ? (
         <video
           src={videoUrl}
+          poster={imageUrl || undefined}  // Use image as poster if available
           autoPlay
           loop
           muted
