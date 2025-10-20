@@ -1079,6 +1079,11 @@
     "click_to_change": "Click to change avatar",
     "select_avatar": "Select Avatar",
     "upload_new": "Upload New Avatar",
-    "choose_existing": "Choose from Existing"
+    "choose_existing": "Choose from Existing",
+    "delete_confirm_title": "Delete Avatar",
+    "delete_confirm_message": "Are you sure you want to delete this avatar? This action cannot be undone.",
+    "delete_success": "Avatar deleted successfully",
+    "delete_failed": "Failed to delete avatar",
+    "delete_no_id": "Cannot delete avatar without ID"
   }
 }

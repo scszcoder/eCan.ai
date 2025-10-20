@@ -83,11 +83,15 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
 
   // 使用 useMemo 获取媒体 URL
   const mediaUrl = useMemo<string>(() => {
+    // 优先使用视频，如果没有则使用图片
     if (agentAvatar?.videoExists && agentAvatar.videoPath) {
       return agentAvatar.videoPath;
     }
+    if (agentAvatar?.imageUrl) {
+      return agentAvatar.imageUrl;
+    }
     return '';
-  }, [agentAvatar?.id, agentAvatar?.videoPath, agentAvatar?.videoExists]);
+  }, [agentAvatar?.id, agentAvatar?.videoPath, agentAvatar?.videoExists, agentAvatar?.imageUrl]);
   
   // 判断是否为视频
   const isVideo = Boolean(
@@ -227,7 +231,16 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
             border: '4px solid var(--primary-color, #3b82f6)',
             boxShadow: '0 4px 18px 0 rgba(59,130,246,0.13)'
           }}
-          onError={(e) => console.error(t('common.img_load_error') || 'img load error', mediaUrl, e)}
+          onError={() => {
+            if (process.env.NODE_ENV === 'development') {
+              console.error('[AgentCard] Image load error:', {
+                agentId: id,
+                agentName: name,
+                mediaUrl,
+                agentAvatar
+              });
+            }
+          }}
         />
       )}
       

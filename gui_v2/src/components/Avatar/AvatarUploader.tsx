@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, Button, message, Progress, Modal } from 'antd';
+import { Upload, Button, Progress, Modal, App } from 'antd';
 import { UploadOutlined, InboxOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { UploadFile, RcFile } from 'antd/es/upload/interface';
@@ -20,6 +20,7 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
   mode = 'button'
 }) => {
   const { t } = useTranslation();
+  const { message } = App.useApp();
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [previewVisible, setPreviewVisible] = useState(false);
@@ -85,11 +86,11 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
 
       // Upload to backend
       const api = get_ipc_api();
-      const response = await api.invoke('avatar.upload_avatar', {
+      const response = await api.uploadAvatar(
         username,
         fileData,
-        filename: file.name
-      });
+        file.name
+      );
 
       setUploadProgress(80);
 
@@ -101,7 +102,8 @@ export const AvatarUploader: React.FC<AvatarUploaderProps> = ({
           onUploadSuccess(response.data);
         }
       } else {
-        throw new Error(response.error || 'Upload failed');
+        const errorMsg = response.error?.message || 'Upload failed';
+        throw new Error(errorMsg);
       }
     } catch (error: any) {
       console.error('[AvatarUploader] Upload error:', error);

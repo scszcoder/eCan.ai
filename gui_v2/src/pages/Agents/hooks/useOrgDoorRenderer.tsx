@@ -47,8 +47,8 @@ export function useOrgDoorRenderer(levelDoors: DisplayNode[], actualOrgId?: stri
         displayName = `${displayName} (${door.agentCount})`;
       }
 
-      if (door.type === 'org_with_children' && typeof door.childrenCount === 'number') {
-        displayName = `${displayName} (${door.childrenCount})`;
+      if (door.type === 'org_with_children' && typeof door.agentCount === 'number') {
+        displayName = `${displayName} (${door.agentCount})`;
       }
 
       if (door.type === 'unassigned_agents') {

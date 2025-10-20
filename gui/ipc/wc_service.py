@@ -27,10 +27,33 @@ class Worker(QRunnable):
     @Slot()
     def run(self):
         """在后台线程中执行任务"""
+        import asyncio
+        import inspect
+        
         request_id = self.request.get('id', '')
         try:
             params = self.request.get('params')
-            response: IPCResponse = self.handler(self.request, params)
+            result = self.handler(self.request, params)
+            
+            # 检查是否返回了协程对象
+            if inspect.iscoroutine(result):
+                # 如果是协程，需要在事件循环中运行
+                try:
+                    # 尝试获取当前事件循环
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # 如果循环正在运行，创建新的循环
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                except RuntimeError:
+                    # 如果没有事件循环，创建新的
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                response: IPCResponse = loop.run_until_complete(result)
+            else:
+                response: IPCResponse = result
+            
             self.signals.result.emit(self.request, response)
         except Exception as e:
             logger.error(f"Error in background worker for request {request_id}: {e}", exc_info=True)

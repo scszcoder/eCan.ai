@@ -24,6 +24,7 @@ from .services.db_org_service import DBOrgService
 from .services.db_skill_service import DBSkillService
 from .services.db_chat_service import DBChatService
 from .services.db_task_service import DBTaskService
+from .services.db_avatar_service import DBAvatarService
 from utils.logger_helper import logger_helper as logger
 
 
@@ -231,6 +232,7 @@ class ECDBMgr:
             logger.info("[ECDBMgr] Initializing database services...")
 
             # Initialize all services with shared engine - direct instance creation
+            self.avatar_service = DBAvatarService(engine=self.engine)
             self.agent_service = DBAgentService(engine=self.engine)
             self.org_service = DBOrgService(engine=self.engine)
             self.skill_service = DBSkillService(engine=self.engine)

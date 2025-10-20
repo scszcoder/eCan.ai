@@ -19,6 +19,7 @@ agent/cloud_api/
 │
 └── docs/                          # Detailed documentation
     ├── OFFLINE_SYNC_GUIDE.md      # Offline sync detailed guide
+    ├── OFFLINE_SYNC_CONTROLS_SIMPLE.md   # Offline sync control switches (简化版) ⭐
     └── SCHEMA_SYNC_POLICY.md      # Schema sync policy ⭐
 ```
 
@@ -83,6 +84,23 @@ async def _async_cleanup_and_logout(self):
     manager = get_sync_manager()
     manager.stop_auto_retry()
 ```
+
+### 4. Offline Sync Control Switch ⭐ NEW
+
+**Control Offline Sync Behavior** - Simple class variable in OfflineSyncManager
+
+直接修改 `/agent/cloud_api/offline_sync_manager.py` 中的类变量：
+
+```python
+class OfflineSyncManager:
+    # Configuration variable for offline sync control
+    OFFLINE_SYNC_ENABLED = True  # 启用/禁用离线同步功能
+```
+
+**使用场景**：
+- **生产环境**：`OFFLINE_SYNC_ENABLED = True` - 启用离线同步，失败请求自动缓存
+- **开发调试**：`OFFLINE_SYNC_ENABLED = False` - 禁用离线同步，看到真实错误，避免队列污染
+- **测试**：`OFFLINE_SYNC_ENABLED = False` - 测试错误处理逻辑
 
 ---
 

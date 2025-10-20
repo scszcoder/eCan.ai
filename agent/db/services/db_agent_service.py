@@ -4,7 +4,6 @@ Agent database service.
 This module provides database service for agent management operations.
 """
 
-import urllib.parse
 from sqlalchemy.orm import sessionmaker, joinedload
 from ..models.skill_model import DBAgentSkill
 from ..models.agent_model import DBAgent, DBAgentTool, DBAgentTask, DBAgentKnowledge
@@ -24,140 +23,57 @@ from datetime import datetime, timezone
 import re
 import json
 from utils.logger_helper import logger_helper as logger
-from agent.avatar.avatar_manager import AvatarManager
 
 
-def _get_server_base_url() -> str:
-    """
-    Get server base URL dynamically from ServerManager.
-    Uses the same method as video URL generation for consistency.
+# def get_default_avatar(agent_id: str, owner: str = None) -> Optional[Dict[str, Any]]:
+#     """
+#     Public helper function to generate a default random system avatar
     
-    Returns:
-        str: Base URL like "http://localhost:4668"
-    """
-    try:
-        # Try to get from global server_manager_instance
-        from gui.LocalServer import server_manager_instance
-        if server_manager_instance:
-            return server_manager_instance.get_server_url()
+#     This is a simple wrapper that delegates to DBAvatarService.
+    
+#     Args:
+#         agent_id: Agent ID (used as seed for consistent random selection)
+#         owner: Owner username (optional)
         
-        # Fallback: get port from config and construct URL
-        from app_context import AppContext
-        main_window = AppContext.get_main_window()
-        if main_window:
-            port = main_window.get_local_server_port()
-            return f"http://localhost:{port}"
-            
-    except Exception as e:
-        logger.warning(f"Failed to get server URL: {e}, using default")
-    
-    # Last resort fallback (should rarely happen)
-    return "http://localhost:4668"
-
-
-def get_default_avatar(agent_id: str, owner: str = None) -> Optional[Dict[str, Any]]:
-    """
-    Public helper function to generate a default random system avatar
-    
-    This is a simple wrapper that can be imported and called from anywhere.
-    
-    Args:
-        agent_id: Agent ID (used as seed for consistent random selection)
-        owner: Owner username (optional)
-        
-    Returns:
-        dict: Avatar information or None
-    """
-    return DBAgentService.generate_default_avatar(agent_id, owner)
+#     Returns:
+#         dict: Avatar information or None
+#     """
+#     from .db_avatar_service import DBAvatarService
+#     return DBAvatarService.generate_default_avatar(agent_id, owner)
 
 
 class DBAgentService(BaseService):
     """Agent database service class providing all agent-related operations"""
     
-    # Class-level cache for AvatarManager instances (singleton per user)
-    _avatar_manager_cache = {}
-
     def __init__(self, engine=None, session=None):
         """
-        Initialize agent service
-
+        Initialize agent service.
+        
         Args:
             engine: SQLAlchemy engine instance (required)
             session: SQLAlchemy session instance (optional)
         """
         # Call parent class initialization
         super().__init__(engine, session)
-    
-    @classmethod
-    def _get_avatar_manager(cls, user_id: str, db_service=None) -> AvatarManager:
+
+
+    def _get_avatar_service(self):
         """
-        Get or create cached AvatarManager instance for user.
+        Get avatar service from ECDBMgr.
         
-        Args:
-            user_id: User ID
-            db_service: Database service (optional)
-            
         Returns:
-            AvatarManager: Cached or new instance
-        """
-        if user_id not in cls._avatar_manager_cache:
-            cls._avatar_manager_cache[user_id] = AvatarManager(user_id, db_service)
-        return cls._avatar_manager_cache[user_id]
-    
-    @classmethod
-    def generate_default_avatar(cls, agent_id: str, owner: str = None) -> Optional[Dict[str, Any]]:
-        """
-        Generate a default random system avatar for an agent
-
-        This is a public class method that can be called from anywhere to generate
-        a consistent random avatar based on agent_id.
-
-        Args:
-            agent_id: Agent ID (used as seed for consistent random selection)
-            owner: Owner username (optional, for AvatarManager initialization)
-
-        Returns:
-            dict: Avatar information with id, imageUrl, videoPath, videoExists
-            None: If avatar generation fails
+            DBAvatarService: Avatar service instance or None if not available
         """
         try:
-            # Use cached avatar manager (owner can be None for system avatars)
-            avatar_manager = cls._get_avatar_manager(owner or "system", None)
-
-            # Get system avatars
-            system_avatars = avatar_manager.get_system_avatars()
-            if not system_avatars:
-                logger.warning(f"[DBAgentService] No system avatars available")
-                return None
-
-            # Use agent ID as seed for consistent random selection
-            import hashlib
-            seed = int(hashlib.md5(agent_id.encode()).hexdigest(), 16)
-            random_avatar = system_avatars[seed % len(system_avatars)]
-
-            # Convert file paths to HTTP URLs for frontend access
-            base_url = _get_server_base_url()
-
-            # Convert image path to HTTP URL
-            image_file_path = random_avatar.get('imageUrl')
-            image_url = f"{base_url}/api/avatar?path={urllib.parse.quote(image_file_path)}" if image_file_path else None
-
-            # Convert video path to HTTP URL (use WebM first, fallback to MP4)
-            video_file_path = random_avatar.get('videoWebmPath') or random_avatar.get('videoMp4Path')
-            video_path = f"{base_url}/api/avatar?path={urllib.parse.quote(video_file_path)}" if video_file_path else None
-
-            return {
-                'id': random_avatar['id'],
-                'imageUrl': image_url,
-                'videoPath': video_path,
-                'videoExists': random_avatar.get('videoExists', False)
-            }
-
-        except Exception as e:
-            logger.error(f"[DBAgentService] Failed to generate default avatar: {e}")
+            from app_context import AppContext
+            main_window = AppContext.get_main_window()
+            if main_window and hasattr(main_window, 'ec_db_mgr'):
+                return main_window.ec_db_mgr.avatar_service
             return None
-
-
+        except Exception as e:
+            logger.warning(f"[DBAgentService] Failed to get avatar service: {e}")
+            return None
+    
     def session_scope(self):
         """
         Provide a transactional scope around a series of operations.
@@ -568,9 +484,11 @@ class DBAgentService(BaseService):
                     agent_dict['tasks'] = task_map.get(agent.id, [])
                     
                     # Add avatar information
-                    avatar_info = self._get_agent_avatar_info(agent, owner)
-                    if avatar_info:
-                        agent_dict['avatar'] = avatar_info
+                    avatar_service = self._get_avatar_service()
+                    if avatar_service:
+                        avatar_info = avatar_service.get_agent_avatar_info(agent, owner)
+                        if avatar_info:
+                            agent_dict['avatar'] = avatar_info
                     
                     agents_data.append(agent_dict)
                 
@@ -688,9 +606,11 @@ class DBAgentService(BaseService):
                     agent_dict['active_tasks_count'] = len([t for t in (agent.task_rels or []) if t.status in ['pending', 'running']])
                     
                     # Add avatar information (needed for agent_converter)
-                    avatar_info = self._get_agent_avatar_info(agent, owner=None)
-                    if avatar_info:
-                        agent_dict['avatar'] = avatar_info
+                    avatar_service = self._get_avatar_service()
+                    if avatar_service:
+                        avatar_info = avatar_service.get_agent_avatar_info(agent, owner=None)
+                        if avatar_info:
+                            agent_dict['avatar'] = avatar_info
 
                     result_data.append(agent_dict)
 
@@ -1403,11 +1323,28 @@ class DBAgentService(BaseService):
                         session.add(rel)
                         logger.debug(f"[DBAgentService] Added agent-org relationship: {agent_id} -> {org_id}")
                 
-                session.flush()
+                session.commit()
+                session.refresh(agent)
+                
+                # Convert to dict and add avatar information
+                agent_dict = agent.to_dict()
+                logger.debug(f"[DBAgentService] Agent after update - avatar_resource_id: {agent.avatar_resource_id}")
+                
+                # Add avatar information with HTTP URLs
+                avatar_service = self._get_avatar_service()
+                if avatar_service:
+                    avatar_info = avatar_service.get_agent_avatar_info(agent, owner=None)
+                    if avatar_info:
+                        agent_dict['avatar'] = avatar_info
+                        logger.debug(f"[DBAgentService] Avatar info added: {avatar_info.get('id')}")
+                    else:
+                        logger.warning(f"[DBAgentService] No avatar info returned for agent {agent_id}")
+                else:
+                    logger.warning(f"[DBAgentService] Avatar service not available")
                 
                 return {
                     "success": True,
-                    "data": agent.to_dict(),
+                    "data": agent_dict,
                     "error": None
                 }
         except SQLAlchemyError as e:
@@ -1456,77 +1393,6 @@ class DBAgentService(BaseService):
                 "data": [],
                 "error": str(e)
             }
-    
-    def _get_agent_avatar_info(self, agent: DBAgent, owner: str) -> Optional[Dict[str, Any]]:
-        """
-        Get avatar information for an agent
-
-        Args:
-            agent: DBAgent instance
-            owner: Owner username
-
-        Returns:
-            dict: Avatar information (returns random system avatar if agent has no avatar_resource_id)
-        """
-        try:
-            # Use cached avatar manager
-            avatar_manager = self._get_avatar_manager(owner, self)
-
-            # If agent has avatar_resource_id, try to get it
-            if agent.avatar_resource_id:
-                # Check if it's a system avatar (A001-A007)
-                if agent.avatar_resource_id.startswith('A00'):
-                    # Get system avatar info
-                    system_avatars = avatar_manager.get_system_avatars()
-                    for sys_avatar in system_avatars:
-                        if sys_avatar['id'] == agent.avatar_resource_id:
-                            # Convert file paths to HTTP URLs for frontend access
-                            base_url = _get_server_base_url()
-
-                            # Convert image path to HTTP URL
-                            image_file_path = sys_avatar.get('imageUrl')
-                            image_url = f"{base_url}/api/avatar?path={urllib.parse.quote(image_file_path)}" if image_file_path else None
-
-                            # Convert video path to HTTP URL (use WebM first, fallback to MP4)
-                            video_file_path = sys_avatar.get('videoWebmPath') or sys_avatar.get('videoMp4Path')
-                            video_path = f"{base_url}/api/avatar?path={urllib.parse.quote(video_file_path)}" if video_file_path else None
-
-                            return {
-                                'id': sys_avatar['id'],
-                                'imageUrl': image_url,
-                                'videoPath': video_path,
-                                'videoExists': sys_avatar.get('videoExists', False)
-                            }
-                else:
-                    # Get user uploaded avatar resource
-                    avatar_resource = avatar_manager.get_avatar_resource(agent.avatar_resource_id)
-                    if avatar_resource:
-                        # Convert file paths to HTTP URLs for frontend access
-                        base_url = _get_server_base_url()
-
-                        # Convert image path to HTTP URL
-                        image_file_path = avatar_resource.get('imageUrl')
-                        image_url = f"{base_url}/api/avatar?path={urllib.parse.quote(image_file_path)}" if image_file_path else None
-
-                        # Convert video path to HTTP URL (use WebM first, fallback to MP4)
-                        video_file_path = avatar_resource.get('videoWebmPath') or avatar_resource.get('videoMp4Path')
-                        video_path = f"{base_url}/api/avatar?path={urllib.parse.quote(video_file_path)}" if video_file_path else None
-
-                        return {
-                            'id': avatar_resource.get('id'),
-                            'imageUrl': image_url,
-                            'videoPath': video_path,
-                            'videoExists': avatar_resource.get('videoExists', False)
-                        }
-
-            # If no avatar_resource_id or avatar not found, return None
-            # Don't generate random avatar here - it should be handled by frontend or during agent creation
-            logger.debug(f"[DBAgentService] No avatar for agent {agent.id}")
-            return None
-
-        except Exception as e:
-            logger.error(f"[DBAgentService] Failed to get avatar info for agent {agent.id}: {e}")
-            return None
 
     def deactivate_agent_org_relations(self, agent_id: str) -> Dict[str, Any]:
         """

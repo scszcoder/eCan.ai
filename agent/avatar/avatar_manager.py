@@ -91,14 +91,17 @@ class AvatarManager:
         }
     ]
     
-    def __init__(self, user_id: str, db_service=None, enable_cloud_sync: bool = True):
+    def __init__(self, user_id: str, db_service=None):
         """
         Initialize Avatar Manager.
         
         Args:
             user_id: User identifier
             db_service: Database service for avatar resource tracking
-            enable_cloud_sync: Whether to enable cloud synchronization
+        
+        Note:
+            Cloud sync is handled at the agent level (agent new/save operations).
+            Avatar manager only handles local file operations and database storage.
         """
         self.user_id = user_id
         self.db_service = db_service
@@ -115,20 +118,8 @@ class AvatarManager:
         # Ensure directories exist
         self._ensure_directories()
         
-        # Initialize cloud sync manager (temporarily disabled)
-        self.cloud_sync_manager = None
-        # TODO: Re-enable cloud sync when session management is fixed
-        # if enable_cloud_sync and db_service:
-        #     try:
-        #         from .cloud_sync_manager import CloudSyncManager
-        #         self.cloud_sync_manager = CloudSyncManager(db_service.session)
-        #         if self.cloud_sync_manager.is_enabled():
-        #             logger.info(f"[AvatarManager] Cloud sync enabled for user: {user_id}")
-        #         else:
-        #             logger.info(f"[AvatarManager] Cloud sync not configured")
-        #     except Exception as e:
-        #         logger.warning(f"[AvatarManager] Failed to initialize cloud sync: {e}")
-        # Cloud sync disabled for now
+        # Note: Cloud sync is handled at the agent level (agent new/save operations)
+        # Avatar manager only handles local file operations and database storage
         logger.debug(f"[AvatarManager] Initialized for user: {user_id}")
     
     def _get_system_avatar_dir(self) -> Path:
@@ -165,7 +156,7 @@ class AvatarManager:
         Get list of system default avatars.
         
         Returns:
-            List of avatar information dictionaries with base64 encoded images
+            List of avatar information dictionaries with HTTP URLs
         """
         avatars = []
         for avatar_info in self.SYSTEM_AVATARS:
@@ -174,11 +165,17 @@ class AvatarManager:
             video_mp4_path = self.system_dir / f"{avatar_id}.mp4"
             video_webm_path = self.system_dir / f"{avatar_id}.webm"
             
-            # Use HTTP URL for image instead of base64 for better performance
+            # Return file path, will be converted to HTTP URL by handler
             image_url = None
             if image_path.exists():
-                # Return file path, will be converted to HTTP URL by caller
                 image_url = str(image_path)
+            
+            # Prioritize WebM over MP4 for videoUrl (for frontend compatibility)
+            video_url = None
+            if video_webm_path.exists():
+                video_url = str(video_webm_path)
+            elif video_mp4_path.exists():
+                video_url = str(video_mp4_path)
             
             avatar_data = {
                 "id": avatar_id,
@@ -186,7 +183,7 @@ class AvatarManager:
                 "tags": avatar_info["tags"],
                 "type": "system",
                 "imageUrl": image_url,  # File path, will be converted to HTTP URL
-                "videoUrl": None,  # Not used, use videoMp4Path/videoWebmPath instead
+                "videoUrl": video_url,  # Primary video URL (WebM preferred, MP4 fallback)
                 "videoMp4Path": str(video_mp4_path) if video_mp4_path.exists() else None,
                 "videoWebmPath": str(video_webm_path) if video_webm_path.exists() else None,
                 "imageExists": image_path.exists(),
@@ -213,92 +210,101 @@ class AvatarManager:
                     return image_path
         return None
     
-    def get_avatar_resource(self, avatar_resource_id: str, auto_restore: bool = True) -> Optional[Dict]:
+    def get_avatar_info(self, avatar_resource_id: str, auto_restore: bool = False) -> Optional[Dict]:
         """
-        获取头像资源信息，自动检查并恢复缺失的文件
+        Get avatar resource information with HTTP URLs for frontend.
+        
+        This is a high-level method that:
+        1. Fetches avatar data from database (via db_service)
+        2. Converts file paths to HTTP URLs
+        3. Checks file existence
+        4. Optionally restores missing files from cloud
         
         Args:
             avatar_resource_id: Avatar resource ID
-            auto_restore: 是否自动从云端恢复缺失的文件
+            auto_restore: Whether to automatically restore missing files from cloud
             
         Returns:
-            头像资源信息字典，如果不存在返回 None
+            Avatar info dict with HTTP URLs, or None if not found
         """
         if not self.db_service:
             logger.warning("[AvatarManager] No db_service, cannot get avatar resource")
             return None
         
         try:
-            from ..db.models.avatar_model import DBAvatarResource
+            # Get data using DBAvatarService
+            avatar_data = self.db_service.get_avatar_resource(avatar_resource_id)
             
-            # 查询 avatar resource
-            avatar_resource = self.db_service.session.query(DBAvatarResource).filter_by(
-                id=avatar_resource_id
-            ).first()
-            
-            if not avatar_resource:
+            if not avatar_data:
                 logger.warning(f"[AvatarManager] Avatar resource not found: {avatar_resource_id}")
                 return None
             
-            # 如果启用自动恢复，检查并恢复缺失的文件
+            # If auto-restore is enabled, check and restore missing files
             if auto_restore:
                 self.ensure_avatar_file_exists(avatar_resource_id)
             
-            # 返回头像资源信息（使用 pyqtfile:// 协议以便前端访问本地文件）
-            return {
-                "id": avatar_resource.id,
-                "type": avatar_resource.resource_type,
-                "name": avatar_resource.name,
-                "imageUrl": f"pyqtfile://{avatar_resource.image_path}" if avatar_resource.image_path else None,
-                "videoUrl": f"pyqtfile://{avatar_resource.video_path}" if avatar_resource.video_path else None,
-                "cloudImageUrl": avatar_resource.cloud_image_url,
-                "cloudVideoUrl": avatar_resource.cloud_video_url,
-                "cloudSynced": avatar_resource.cloud_synced,
-                "metadata": avatar_resource.avatar_metadata
-            }
+            # Return avatar resource info (using HTTP URLs for web frontend access)
+            from .avatar_url_utils import build_avatar_urls
             
+            thumbnail_path = avatar_data.get('avatar_metadata', {}).get('thumbnail_path') if avatar_data.get('avatar_metadata') else None
+            
+            # Use unified URL builder
+            urls = build_avatar_urls(
+                image_path=avatar_data.get('image_path'),
+                video_path=avatar_data.get('video_path'),
+                thumbnail_path=thumbnail_path
+            )
+            
+            return {
+                'id': avatar_data['id'],
+                'type': avatar_data['resource_type'],
+                'imageUrl': urls['imageUrl'],
+                'videoPath': urls['videoPath'],  # Use videoPath instead of videoUrl to match frontend
+                'thumbnailUrl': urls['thumbnailUrl'],
+                'hash': avatar_data.get('image_hash'),
+                'name': avatar_data.get('name'),
+                'imageExists': avatar_data.get('image_path') and os.path.exists(avatar_data['image_path']),
+                'videoExists': avatar_data.get('video_path') and os.path.exists(avatar_data['video_path']),
+                'metadata': avatar_data.get('avatar_metadata', {})
+            }
         except Exception as e:
             logger.error(f"[AvatarManager] Error getting avatar resource: {e}")
             return None
     
     def ensure_avatar_file_exists(self, avatar_resource_id: str) -> bool:
         """
-        确保头像文件存在，如果本地不存在则从云端恢复
+        Ensure avatar file exists, restore from cloud if not available locally.
         
         Args:
             avatar_resource_id: Avatar resource ID
             
         Returns:
-            文件是否可用
+            Whether the file is available
         """
         if not self.db_service:
             logger.warning("[AvatarManager] No db_service, cannot check avatar file")
             return False
         
         try:
-            from ..db.models.avatar_model import DBAvatarResource
+            # Get data using DBAvatarService
+            avatar_data = self.db_service.get_avatar_resource(avatar_resource_id)
             
-            # 查询 avatar resource
-            avatar_resource = self.db_service.session.query(DBAvatarResource).filter_by(
-                id=avatar_resource_id
-            ).first()
-            
-            if not avatar_resource:
+            if not avatar_data:
                 logger.warning(f"[AvatarManager] Avatar resource not found: {avatar_resource_id}")
                 return False
             
-            # 检查本地文件是否存在
-            image_exists = avatar_resource.image_path and os.path.exists(avatar_resource.image_path)
-            video_exists = avatar_resource.video_path and os.path.exists(avatar_resource.video_path)
+            # Check if local files exist
+            image_exists = avatar_data.get('image_path') and os.path.exists(avatar_data['image_path'])
+            video_exists = avatar_data.get('video_path') and os.path.exists(avatar_data['video_path'])
             
-            # 如果本地文件都存在，直接返回
-            if image_exists and (not avatar_resource.video_path or video_exists):
+            # If all local files exist, return directly
+            if image_exists and (not avatar_data.get('video_path') or video_exists):
                 return True
             
-            # 如果本地文件缺失，尝试从云端恢复
+            # If local files are missing, try to restore from cloud
             if self.cloud_sync_manager and self.cloud_sync_manager.is_enabled():
                 logger.info(f"[AvatarManager] Local files missing, restoring from cloud: {avatar_resource_id}")
-                success = self.cloud_sync_manager.sync_avatar_from_cloud(avatar_resource, force=False)
+                success = self.cloud_sync_manager.sync_avatar_from_cloud(avatar_data, force=False)
                 
                 if success:
                     logger.info(f"[AvatarManager] ✅ Successfully restored from cloud: {avatar_resource_id}")
@@ -409,7 +415,7 @@ class AvatarManager:
     
     async def upload_avatar(self, file_data: bytes, filename: str) -> Dict:
         """
-        Upload and process user avatar.
+        Upload and process user avatar with transaction rollback support.
         
         Args:
             file_data: Image file bytes
@@ -420,90 +426,167 @@ class AvatarManager:
         """
         logger.info(f"[AvatarManager] Uploading avatar: {filename}")
         
-        # Validate image
-        validation = self.validate_image(file_data, filename)
-        if not validation["success"]:
-            return {
-                "success": False,
-                "error": validation["error"]
-            }
+        # Track created files for rollback
+        local_files = []
         
-        # Calculate hash
-        file_hash = self.calculate_file_hash(file_data)
-        
-        # Check if already exists
-        existing_path = self.uploaded_dir / f"{file_hash}_original.png"
-        thumbnail_path = self.uploaded_dir / f"{file_hash}_thumb.png"
-        
-        if existing_path.exists():
-            logger.info(f"[AvatarManager] Avatar already exists: {file_hash}")
+        try:
+            # Validate image
+            validation = self.validate_image(file_data, filename)
+            if not validation["success"]:
+                return {
+                    "success": False,
+                    "error": validation["error"]
+                }
+            
+            # Calculate hash
+            file_hash = self.calculate_file_hash(file_data)
+            avatar_id = f"avatar_{file_hash}"  # Generate avatar resource ID
+
+            # Check if already exists
+            existing_path = self.uploaded_dir / f"{file_hash}_original.png"
+            thumbnail_path = self.uploaded_dir / f"{file_hash}_thumb.png"
+
+            if existing_path.exists():
+                logger.info(f"[AvatarManager] Avatar already exists: {avatar_id}")
+                # Return file paths, will be converted to HTTP URLs by handler
+                return {
+                    "success": True,
+                    "message": "Avatar already exists",
+                    "id": avatar_id,
+                    "imageUrl": str(existing_path),
+                    "thumbnailUrl": str(thumbnail_path) if thumbnail_path.exists() else None,
+                    "hash": file_hash
+                }
+            
+            # Save original image
+            with open(existing_path, 'wb') as f:
+                f.write(file_data)
+            local_files.append(existing_path)
+            logger.debug(f"[AvatarManager] Saved original image: {existing_path}")
+            
+            # Create thumbnail
+            thumbnail_data = self.create_thumbnail(file_data)
+            thumbnail_path = self.uploaded_dir / f"{file_hash}_thumb.png"
+            with open(thumbnail_path, 'wb') as f:
+                f.write(thumbnail_data)
+            local_files.append(thumbnail_path)
+            logger.debug(f"[AvatarManager] Saved thumbnail: {thumbnail_path}")
+            
+            # Save to database if db_service available
+            avatar_resource = None
+            if self.db_service:
+                try:
+                    avatar_resource = self._save_avatar_resource({
+                        "resource_type": "uploaded",
+                        "name": filename,
+                        "image_path": str(existing_path),
+                        "image_hash": file_hash,
+                        "avatar_metadata": {
+                            "image_format": validation["format"],
+                            "image_size": validation["size"],
+                            "image_width": validation["dimensions"][0],
+                            "image_height": validation["dimensions"][1],
+                            "thumbnail_path": str(thumbnail_path),
+                            "original_filename": filename
+                        },
+                        "owner": self.user_id
+                    })
+                    
+                    if not avatar_resource:
+                        # Database save failed, rollback local files
+                        logger.error(f"[AvatarManager] ❌ Failed to save avatar to database")
+                        raise Exception("Failed to save avatar resource to database")
+                    
+                    logger.info(f"[AvatarManager] ✅ Avatar resource saved to database: {avatar_id}")
+                except Exception as e:
+                    logger.error(f"[AvatarManager] ❌ Database save failed: {e}")
+                    # Rollback local files
+                    for file_path in local_files:
+                        try:
+                            if file_path.exists():
+                                file_path.unlink()
+                                logger.debug(f"[AvatarManager] Deleted file during rollback: {file_path}")
+                        except Exception as cleanup_error:
+                            logger.warning(f"[AvatarManager] Failed to delete file during rollback: {cleanup_error}")
+                    # Re-raise to let caller know upload failed
+                    raise
+
+            # Note: Cloud sync (S3 + AppSync) is handled at the agent level
+            # when creating or updating agents with this avatar
+
+            logger.info(f"[AvatarManager] ✅ Avatar uploaded successfully: {avatar_id}")
+
+            # Return file paths, will be converted to HTTP URLs by handler
             return {
                 "success": True,
-                "message": "Avatar already exists",
-                "imageUrl": f"pyqtfile://{existing_path}",
-                "thumbnailUrl": f"pyqtfile://{thumbnail_path}" if thumbnail_path.exists() else None,
-                "hash": file_hash
+                "id": avatar_id,  # Return avatar_resource_id for agent association
+                "imageUrl": str(existing_path),
+                "thumbnailUrl": str(thumbnail_path),
+                "hash": file_hash,
+                "metadata": validation
             }
-        
-        # Save original image
-        with open(existing_path, 'wb') as f:
-            f.write(file_data)
-        
-        # Create thumbnail
-        thumbnail_data = self.create_thumbnail(file_data)
-        thumbnail_path = self.uploaded_dir / f"{file_hash}_thumb.png"
-        with open(thumbnail_path, 'wb') as f:
-            f.write(thumbnail_data)
-        
-        # Save to database if db_service available
-        avatar_resource = None
-        if self.db_service:
-            try:
-                avatar_resource = await self._save_avatar_resource({
-                    "resource_type": "uploaded",
-                    "name": filename,
-                    "image_path": str(existing_path),
-                    "image_hash": file_hash,
-                    "metadata": {
-                        "image_format": validation["format"],
-                        "image_size": validation["size"],
-                        "image_width": validation["dimensions"][0],
-                        "image_height": validation["dimensions"][1],
-                        "thumbnail_path": str(thumbnail_path),
-                        "original_filename": filename
-                    },
-                    "owner": self.user_id
-                })
-            except Exception as e:
-                logger.error(f"[AvatarManager] Failed to save to database: {e}")
-        
-        # Sync to cloud if enabled
-        if self.cloud_sync_manager and avatar_resource:
-            try:
-                sync_success = self.cloud_sync_manager.sync_avatar_to_cloud(avatar_resource)
-                if sync_success:
-                    logger.info(f"[AvatarManager] Avatar synced to cloud: {file_hash}")
-                else:
-                    logger.warning(f"[AvatarManager] Failed to sync avatar to cloud: {file_hash}")
-            except Exception as e:
-                logger.error(f"[AvatarManager] Cloud sync error: {e}")
-        
-        logger.info(f"[AvatarManager] Avatar uploaded successfully: {file_hash}")
-        
-        return {
-            "success": True,
-            "imageUrl": f"pyqtfile://{existing_path}",
-            "thumbnailUrl": f"pyqtfile://{thumbnail_path}",
-            "hash": file_hash,
-            "metadata": validation
-        }
+            
+        except Exception as e:
+            # Rollback: delete local files on error
+            logger.error(f"[AvatarManager] ❌ Upload failed, rolling back: {e}")
+            for file_path in local_files:
+                try:
+                    if file_path.exists():
+                        file_path.unlink()
+                        logger.debug(f"[AvatarManager] Deleted file during rollback: {file_path}")
+                except Exception as cleanup_error:
+                    logger.warning(f"[AvatarManager] Failed to delete file during rollback: {cleanup_error}")
+            
+            return {
+                "success": False,
+                "error": f"Upload failed: {str(e)}"
+            }
     
-    async def _save_avatar_resource(self, resource_data: Dict) -> Dict:
-        """Save avatar resource to database."""
-        # This will be implemented when db_service is integrated
-        # For now, just log
-        logger.info(f"[AvatarManager] Would save avatar resource: {resource_data.get('name')}")
-        return {"success": True}
+    def _save_avatar_resource(self, resource_data: Dict) -> Optional[Dict]:
+        """
+        Save avatar resource to database.
+        
+        Args:
+            resource_data: Avatar resource data dictionary
+            
+        Returns:
+            DBAvatarResource instance if successful, None otherwise
+        """
+        if not self.db_service:
+            logger.warning("[AvatarManager] No db_service available, cannot save to database")
+            return None
+        
+        try:
+            # Generate avatar resource ID
+            avatar_id = f"avatar_{resource_data['image_hash']}"
+            
+            # Prepare data for DBAvatarService
+            avatar_data = {
+                'id': avatar_id,
+                'owner': resource_data.get('owner', self.user_id),
+                'resource_type': resource_data.get('resource_type', 'uploaded'),
+                'name': resource_data.get('name'),
+                'image_path': resource_data.get('image_path'),
+                'image_hash': resource_data['image_hash'],
+                'video_path': resource_data.get('video_path'),
+                'avatar_metadata': resource_data.get('avatar_metadata', {})
+            }
+            
+            # Use DBAvatarService to create resource
+            created_id = self.db_service.create_avatar_resource(avatar_data)
+            
+            if created_id:
+                logger.info(f"[AvatarManager] ✅ Saved avatar resource to database: {created_id}")
+                # Return the created resource data
+                return self.db_service.get_avatar_resource(created_id)
+            else:
+                logger.error(f"[AvatarManager] ❌ Failed to save avatar resource to database")
+                return None
+            
+        except Exception as e:
+            logger.error(f"[AvatarManager] ❌ Failed to save avatar resource to database: {e}")
+            # Session rollback is handled automatically by context manager
+            return None
     
     # ==================== Get Uploaded Avatars ====================
     
@@ -519,27 +602,132 @@ class AvatarManager:
         # Scan uploaded directory for original images
         for image_path in self.uploaded_dir.glob("*_original.png"):
             file_hash = image_path.stem.replace("_original", "")
+            avatar_id = f"avatar_{file_hash}"  # Generate avatar resource ID
             thumbnail_path = self.uploaded_dir / f"{file_hash}_thumb.png"
-            
+
+            # Return file paths, will be converted to HTTP URLs by handler
             avatar_data = {
                 "type": "uploaded",
+                "id": avatar_id,  # Avatar resource ID for agent association
                 "hash": file_hash,
-                "imageUrl": f"pyqtfile://{image_path}",
-                "thumbnailUrl": f"pyqtfile://{thumbnail_path}" if thumbnail_path.exists() else None,
+                "imageUrl": str(image_path),
+                "thumbnailUrl": str(thumbnail_path) if thumbnail_path.exists() else None,
                 "imageExists": True,
-                "videoUrl": None  # Will be populated if video exists
+                "videoUrl": None,  # Will be populated if video exists
+                "videoExists": False
             }
+
+            # Check for associated video from database (which prioritizes WebM)
+            if self.db_service:
+                try:
+                    avatar_resource = self.db_service.get_avatar_resource(avatar_id)
+                    if avatar_resource and avatar_resource.get('video_path'):
+                        avatar_data["videoUrl"] = avatar_resource['video_path']
+                        avatar_data["videoExists"] = True
+                except Exception as e:
+                    logger.debug(f"[AvatarManager] Could not get video from DB for {avatar_id}: {e}")
             
-            # Check for associated video
-            video_path = self.generated_dir / f"{file_hash}_video.mp4"
-            if video_path.exists():
-                avatar_data["videoUrl"] = f"pyqtfile://{video_path}"
-                avatar_data["videoExists"] = True
-            
+            # Fallback: check file system if not in database
+            if not avatar_data["videoExists"]:
+                # Video files are saved in the same directory as the original image
+                # with suffix "_original_video.webm" or "_original_video.mp4"
+                video_webm_path = self.uploaded_dir / f"{file_hash}_original_video.webm"
+                video_mp4_path = self.uploaded_dir / f"{file_hash}_original_video.mp4"
+                
+                if video_webm_path.exists():
+                    avatar_data["videoUrl"] = str(video_webm_path)
+                    avatar_data["videoExists"] = True
+                elif video_mp4_path.exists():
+                    avatar_data["videoUrl"] = str(video_mp4_path)
+                    avatar_data["videoExists"] = True
+
             avatars.append(avatar_data)
         
         logger.debug(f"[AvatarManager] Retrieved {len(avatars)} uploaded avatars")
         return avatars
+    
+    # ==================== Delete Uploaded Avatar ====================
+    
+    async def delete_uploaded_avatar(self, avatar_id: str) -> Dict:
+        """
+        Delete an uploaded avatar.
+        
+        Args:
+            avatar_id: Avatar ID (format: avatar_{hash})
+            
+        Returns:
+            Result dictionary
+        """
+        try:
+            # Extract hash from avatar_id
+            if not avatar_id.startswith("avatar_"):
+                return {
+                    "success": False,
+                    "error": "Invalid avatar ID format"
+                }
+            
+            file_hash = avatar_id.replace("avatar_", "")
+            
+            # File paths
+            original_path = self.uploaded_dir / f"{file_hash}_original.png"
+            thumbnail_path = self.uploaded_dir / f"{file_hash}_thumb.png"
+            video_mp4_path = self.uploaded_dir / f"{file_hash}_original_video.mp4"
+            video_webm_path = self.uploaded_dir / f"{file_hash}_original_video.webm"
+            
+            deleted_files = []
+            
+            # Delete original image
+            if original_path.exists():
+                original_path.unlink()
+                deleted_files.append(str(original_path))
+                logger.debug(f"[AvatarManager] Deleted original: {original_path}")
+            
+            # Delete thumbnail
+            if thumbnail_path.exists():
+                thumbnail_path.unlink()
+                deleted_files.append(str(thumbnail_path))
+                logger.debug(f"[AvatarManager] Deleted thumbnail: {thumbnail_path}")
+            
+            # Delete associated videos if exist (both MP4 and WebM)
+            if video_mp4_path.exists():
+                video_mp4_path.unlink()
+                deleted_files.append(str(video_mp4_path))
+                logger.debug(f"[AvatarManager] Deleted MP4 video: {video_mp4_path}")
+            
+            if video_webm_path.exists():
+                video_webm_path.unlink()
+                deleted_files.append(str(video_webm_path))
+                logger.debug(f"[AvatarManager] Deleted WebM video: {video_webm_path}")
+            
+            # Delete from database if db_service available
+            if self.db_service:
+                try:
+                    # Use DBAvatarService to delete resource
+                    if self.db_service.delete_avatar_resource(avatar_id):
+                        logger.info(f"[AvatarManager] Deleted from database: {avatar_id}")
+                    else:
+                        logger.warning(f"[AvatarManager] Avatar not found in database: {avatar_id}")
+                except Exception as e:
+                    logger.warning(f"[AvatarManager] Failed to delete from database: {e}")
+            
+            if not deleted_files:
+                return {
+                    "success": False,
+                    "error": "Avatar not found"
+                }
+            
+            logger.info(f"[AvatarManager] ✅ Avatar deleted successfully: {avatar_id}")
+            return {
+                "success": True,
+                "deleted_files": deleted_files
+            }
+            
+        except Exception as e:
+            logger.error(f"[AvatarManager] ❌ Failed to delete avatar: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
     
     # ==================== Set Agent Avatar ====================
     
@@ -603,3 +791,140 @@ class AvatarManager:
             "success": False,
             "error": "Video generation feature coming soon"
         }
+
+
+# ==================== System Avatar Initialization ====================
+# Merged from init_system_avatars.py for better cohesion
+
+def init_system_avatars(force: bool = False) -> bool:
+    """
+    Initialize system default avatars by copying them to project resource directory.
+    
+    System avatars are stored in the project's resource/avatars directory,
+    not in user's AppData directory.
+    
+    Args:
+        force: If True, overwrite existing files
+        
+    Returns:
+        bool: True if successful
+    """
+    try:
+        from config.app_info import app_info
+        import shutil
+        
+        # Source: frontend assets
+        project_root = Path(__file__).parent.parent.parent
+        image_source_dir = project_root / "gui_v2" / "src" / "assets"
+        video_source_dir = project_root / "gui_v2" / "src" / "assets" / "gifs"
+        
+        # Destination: project resource/avatars/system directory (system avatars)
+        resource_dir = Path(app_info.app_resources_path)
+        dest_dir = resource_dir / "avatars" / "system"
+        
+        # Create destination directory
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        
+        # System avatar files (images from assets/, videos from assets/gifs/)
+        # Note: A004 is missing, agent videos map to: agent0->A001, agent1->A002, etc.
+        system_avatars = [
+            ("A001.png", image_source_dir, "A001.png"),
+            ("A001.mp4", video_source_dir, "agent0.mp4"),
+            ("A001.webm", video_source_dir, "agent0.webm"),
+            ("A002.png", image_source_dir, "A002.png"),
+            ("A002.mp4", video_source_dir, "agent1.mp4"),
+            ("A002.webm", video_source_dir, "agent1.webm"),
+            ("A003.png", image_source_dir, "A003.png"),
+            ("A003.mp4", video_source_dir, "agent2.mp4"),
+            ("A003.webm", video_source_dir, "agent2.webm"),
+            # A004 is missing
+            ("A005.png", image_source_dir, "A005.png"),
+            ("A005.mp4", video_source_dir, "agent3.mp4"),
+            ("A005.webm", video_source_dir, "agent3.webm"),
+            ("A006.png", image_source_dir, "A006.png"),
+            ("A006.mp4", video_source_dir, "agent4.mp4"),
+            ("A006.webm", video_source_dir, "agent4.webm"),
+            ("A007.png", image_source_dir, "A007.png"),
+            ("A007.mp4", video_source_dir, "agent5.mp4"),
+            ("A007.webm", video_source_dir, "agent5.webm"),
+        ]
+        
+        copied_count = 0
+        skipped_count = 0
+        missing_count = 0
+        
+        for dest_filename, source_dir, source_filename in system_avatars:
+            source_file = source_dir / source_filename
+            dest_file = dest_dir / dest_filename
+            
+            # Check if source exists
+            if not source_file.exists():
+                logger.warning(f"[InitAvatars] Source file not found: {source_file}")
+                missing_count += 1
+                continue
+            
+            # Check if destination exists
+            if dest_file.exists() and not force:
+                logger.debug(f"[InitAvatars] File already exists, skipping: {dest_filename}")
+                skipped_count += 1
+                continue
+            
+            # Copy file
+            try:
+                shutil.copy2(source_file, dest_file)
+                logger.info(f"[InitAvatars] Copied: {source_filename} -> {dest_filename}")
+                copied_count += 1
+            except Exception as e:
+                logger.error(f"[InitAvatars] Failed to copy {dest_filename}: {e}")
+        
+        # Summary
+        logger.info(
+            f"[InitAvatars] Summary: "
+            f"Copied={copied_count}, Skipped={skipped_count}, Missing={missing_count}"
+        )
+        
+        if missing_count > 0:
+            logger.warning(
+                f"[InitAvatars] {missing_count} avatar files are missing. "
+                f"Please ensure all A001-A007 images and videos are present in gui_v2/src/assets/"
+            )
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"[InitAvatars] Failed to initialize system avatars: {e}", exc_info=True)
+        return False
+
+
+def check_system_avatars() -> dict:
+    """
+    Check which system avatars are available.
+    
+    Returns:
+        dict: Status of each avatar file
+    """
+    try:
+        from config.app_info import app_info
+        
+        resource_dir = Path(app_info.app_resources_path)
+        avatars_dir = resource_dir / "avatars" / "system"
+        
+        status = {}
+        
+        for i in range(1, 8):
+            avatar_id = f"A{i:03d}"
+            image_file = avatars_dir / f"{avatar_id}.png"
+            video_file = avatars_dir / f"{avatar_id}.mp4"
+            
+            status[avatar_id] = {
+                "image_exists": image_file.exists(),
+                "image_path": str(image_file) if image_file.exists() else None,
+                "video_exists": video_file.exists(),
+                "video_path": str(video_file) if video_file.exists() else None
+            }
+        
+        return status
+        
+    except Exception as e:
+        logger.error(f"[InitAvatars] Failed to check system avatars: {e}")
+        return {}

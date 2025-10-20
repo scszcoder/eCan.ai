@@ -421,13 +421,15 @@ const AgentDetails: React.FC = () => {
             setSelectedOrgId(orgId);
           }
           
-          // 设置 Avatar 数据
+          // 设置 Avatar 数据 - 保留完整的数据结构
           if (agent.avatar?.imageUrl) {
             setAvatarData({
-              type: 'system',
+              type: agent.avatar.type || 'system',
               imageUrl: agent.avatar.imageUrl,
-              videoUrl: agent.avatar.videoPath,
-              id: agent.avatar.id
+              videoUrl: agent.avatar.videoPath || agent.avatar.videoUrl || '',
+              thumbnailUrl: agent.avatar.thumbnailUrl || agent.avatar.imageUrl || '',
+              id: agent.avatar.id || agent.avatar_resource_id || '',
+              hash: agent.avatar.hash || ''
             });
           }
           
@@ -987,20 +989,48 @@ const AgentDetails: React.FC = () => {
       if (res.success) {
         message.success(t('common.saved_successfully') || 'Saved');
         
-        // 保存成功后，延迟一下再刷新组织和代理数据（确保后端已更新）
+        // 策略：先用返回的数据快速更新 UI，然后刷新完整数据确保一致性
+        let savedAgentData: any = null;
         try {
-          // 添加短暂延迟确保后端数据已更新
-          await new Promise(resolve => setTimeout(resolve, 300));
+          const responseData = res.data as any;
           
-          const api = get_ipc_api();
+          // 第一步：使用返回的 agent 数据立即更新 UI（快速响应）
+          if (responseData?.agents && Array.isArray(responseData.agents) && responseData.agents.length > 0) {
+            savedAgentData = responseData.agents[0];
+            console.log('[AgentDetails] Step 1: Using updated agent from response:', savedAgentData.id);
+            
+            // 临时更新 agentStore 中的这个 agent（仅用于立即显示）
+            const agentStore = useAgentStore.getState();
+            const currentAgents = agentStore.agents;
+            const agentIndex = currentAgents.findIndex((a: any) => a.id === savedAgentData.id);
+            
+            if (agentIndex !== -1) {
+              const newAgents = [...currentAgents];
+              newAgents[agentIndex] = savedAgentData;
+              agentStore.setAgents(newAgents);
+              console.log('[AgentDetails] Temporarily updated agent in agentStore for immediate UI update');
+            }
+          }
+          
+          // 第二步：等待后端数据完全更新后，刷新完整的组织和 agent 数据
+          // 这样可以确保：
+          // 1. 组织关系正确（如果 agent 移动到了不同组织）
+          // 2. 统计数据正确（组织的 agent 数量等）
+          // 3. 所有关联数据都是最新的
+          console.log('[AgentDetails] Step 2: Waiting for backend to complete, then refresh all data...');
+          await new Promise(resolve => setTimeout(resolve, 500)); // 增加延迟确保后端完成
+          
           const refreshResponse = await api.getAllOrgAgents(username);
           
           if (refreshResponse?.success && refreshResponse.data) {
-            // 手动更新 OrgStore 中的数据
+            // 这会更新 orgStore 和 agentStore，确保所有数据一致
             useOrgStore.getState().setAllOrgAgents(refreshResponse.data as any);
+            console.log('[AgentDetails] Step 2 completed: All org and agent data refreshed');
+          } else {
+            console.error('[AgentDetails] Failed to refresh org data:', refreshResponse);
           }
         } catch (error) {
-          console.error('[AgentDetails] Error refreshing org data:', error);
+          console.error('[AgentDetails] Error updating agent data:', error);
         }
         
         // 如果是创建模式，跳转到 agent 列表或组织页面
@@ -1019,17 +1049,20 @@ const AgentDetails: React.FC = () => {
           return;
         }
         
-        // 如果是编辑模式，从 agentStore 获取最新数据更新表单（保留在编辑页面）
+        // 如果是编辑模式，使用保存返回的数据更新表单（保留在编辑页面）
         if (!isNew && id) {
-          // 注意：上面的 getAllOrgAgents 已经完成并更新了 store
-          // 但 Zustand 的状态更新可能需要一个 tick，所以等待下一个微任务
-          await Promise.resolve();
-          
-          // 从 agentStore 获取最新的 agent 数据
+          // 优先使用 savedAgentData（来自 save_agent 响应），避免从 store 获取可能的旧数据
           try {
-            const updatedAgent = getAgentById(id) as any; // Type assertion for dynamic agent data
+            let updatedAgent = savedAgentData;
+            
+            // 如果没有 savedAgentData（不应该发生），fallback 到 store
+            if (!updatedAgent) {
+              console.warn('[AgentDetails] No savedAgentData, trying to get from agentStore...');
+              updatedAgent = getAgentById(id) as any;
+            }
             
             if (updatedAgent) {
+              console.log('[AgentDetails] Updating form with agent data:', updatedAgent.id);
               
               // Convert skills and tasks from objects to names (for Select component)
               // Skills/tasks from backend are objects with {id, name, ...}
@@ -1079,13 +1112,15 @@ const AgentDetails: React.FC = () => {
                 setSelectedOrgId(updatedAgent.org_id);
               }
               
-              // 更新 Avatar 数据
+              // 更新 Avatar 数据 - 保留完整的 avatar 数据结构
               if (updatedAgent.avatar) {
                 setAvatarData({
-                  type: 'system',
+                  type: updatedAgent.avatar.type || 'system',
                   imageUrl: updatedAgent.avatar.imageUrl || '',
-                  videoUrl: updatedAgent.avatar.videoPath || '',
-                  id: updatedAgent.avatar.id || ''
+                  videoUrl: updatedAgent.avatar.videoPath || updatedAgent.avatar.videoUrl || '',
+                  thumbnailUrl: updatedAgent.avatar.thumbnailUrl || updatedAgent.avatar.imageUrl || '',
+                  id: updatedAgent.avatar.id || updatedAgent.avatar_resource_id || '',
+                  hash: updatedAgent.avatar.hash || ''
                 });
               }
               
@@ -1145,10 +1180,12 @@ const AgentDetails: React.FC = () => {
                 
                 if (apiAgent.avatar?.imageUrl) {
                   setAvatarData({
-                    type: 'system',
+                    type: apiAgent.avatar.type || 'system',
                     imageUrl: apiAgent.avatar.imageUrl,
-                    videoUrl: apiAgent.avatar.videoPath,
-                    id: apiAgent.avatar.id
+                    videoUrl: apiAgent.avatar.videoPath || apiAgent.avatar.videoUrl || '',
+                    thumbnailUrl: apiAgent.avatar.thumbnailUrl || apiAgent.avatar.imageUrl || '',
+                    id: apiAgent.avatar.id || apiAgent.avatar_resource_id || '',
+                    hash: apiAgent.avatar.hash || ''
                   });
                 }
                 

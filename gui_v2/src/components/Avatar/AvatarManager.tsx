@@ -21,6 +21,8 @@ export const AvatarManager: React.FC<AvatarManagerProps> = ({
   const { t } = useTranslation();
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedAvatar, setSelectedAvatar] = useState<AvatarData | undefined>(value);
+  const [refreshKey, setRefreshKey] = useState(0);  // Key to trigger AvatarSelector refresh
+  const [activeTab, setActiveTab] = useState('system');  // Control active tab in AvatarSelector
 
   // 同步外部 value 的变化
   useEffect(() => {
@@ -40,16 +42,23 @@ export const AvatarManager: React.FC<AvatarManagerProps> = ({
     // The selector will automatically reload uploaded avatars
     const newAvatar: AvatarData = {
       type: 'uploaded',
+      id: uploadData.id,  // Avatar resource ID for agent association
       hash: uploadData.hash,
       imageUrl: uploadData.imageUrl,
       thumbnailUrl: uploadData.thumbnailUrl,
       videoUrl: uploadData.videoUrl
     };
-    
+
     setSelectedAvatar(newAvatar);
     if (onChange) {
       onChange(newAvatar);
     }
+
+    // Switch to "My Avatars" tab to show the newly uploaded avatar
+    setActiveTab('uploaded');
+    
+    // Trigger AvatarSelector to refresh uploaded avatars list
+    setRefreshKey(prev => prev + 1);
   };
 
   return (
@@ -95,10 +104,13 @@ export const AvatarManager: React.FC<AvatarManagerProps> = ({
             <div>
               <h4>{t('avatar.choose_existing') || 'Choose from Existing'}</h4>
               <AvatarSelector
+                key={refreshKey}  // Force re-render when refreshKey changes
                 username={username}
                 value={selectedAvatar}
                 onChange={handleAvatarSelect}
                 showVideo={showVideo}
+                defaultActiveTab={activeTab}
+                onTabChange={setActiveTab}
               />
             </div>
           </Space>
