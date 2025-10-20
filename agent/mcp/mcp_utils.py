@@ -114,3 +114,14 @@ async def check_server_port(host: str = "127.0.0.1", port: int = None, timeout: 
     except Exception as e:
         logger.debug(f"❌ Server port {host}:{port} check failed: {e}")
         return False
+
+
+def mcp_result_to_lc_tool_message(tool_name, mcp_result):
+    from langchain_core.messages import ToolMessage
+    lc_tool_message = ToolMessage(
+                content=mcp_result[0].text,
+                artifact=mcp_result[0].meta,
+                tool_call_id=tool_name,
+            )
+
+    return lc_tool_message

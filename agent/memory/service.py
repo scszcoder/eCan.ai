@@ -20,6 +20,7 @@ import base64
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from agent.run_utils import time_execution_sync
+from langchain_core.language_models.chat_models import BaseChatModel
 from agent.memory.models import MemoryItem, RetrievalQuery, RetrievedMemory
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
@@ -32,7 +33,23 @@ class MemorySettings(BaseModel):
 	interval: int = 10
 	config: Optional[dict] | None = None
 
+DEFAULT_EPISODIC_SUMMERY_PROMPT = """
+Given the provided messsages in the context, summarize dialogs, Your goal is simply to reduce 
+the size of the context(tokens) as much as possible but still captures the essence of the 
+tasks at hand, such that what was requested to search, what paramters are most critical to the component
+being searched, what tools have been used and results, where have we searched, what have we found. what
+intermediate goals have we achieved, what are the final results.
+Context: {context}
+"""
 
+DEFAULT_PROCEDURAL_SUMMERY_PROMPT = """
+Given the provided messsages in the context, summarize dialogs, Your goal is simply to reduce 
+the size of the context(tokens) as much as possible but still captures the essence of the 
+tasks at hand, such that what was requested to search, what paramters are most critical to the component
+being searched, what tools have been used and results, where have we searched, what have we found. what
+intermediate goals have we achieved, what are the final results.
+Context: {context}
+"""
 class MemoryManager:
 	"""Background memory manager that ingests items via a queue and
     persists them into a Chroma vector store per hierarchical namespace.
@@ -46,13 +63,14 @@ class MemoryManager:
         persist_dir: str = ".cache/chroma",
         embedding_model: str = "text-embedding-3-small",
         collection_prefix: str = "ecan_mem_",
+		llm: BaseChatModel = None,
     ) -> None:
 		self.agent_id = agent_id
 		self.persist_dir = persist_dir
 		os.makedirs(self.persist_dir, exist_ok=True)
-
+		self.llm = llm
 		self._embeddings = OpenAIEmbeddings(model=embedding_model)
-
+		self.max_context_size = 65536
 		self._collection_prefix = collection_prefix
 
 		# One Chroma instance per namespace key (lazy init)
@@ -130,14 +148,17 @@ class MemoryManager:
 		"""Placeholder: create episodic (summarized) memory from recent items.
 		Wire to LangGraph summarization utilities later.
 		"""
+
 		logger.trace("[MemoryManager] generate_episodic_summary: placeholder executed")
 
 	def accumulate_procedural_memory(self) -> None:
 		"""Placeholder: detect flows/repetition and store procedural knowledge."""
+
 		logger.trace("[MemoryManager] accumulate_procedural_memory: placeholder executed")
 
 	def compress_and_prune(self) -> None:
 		"""Placeholder: compress vectors, prune low-utility items, maintain budget."""
+
 		logger.trace("[MemoryManager] compress_and_prune: placeholder executed")
 
 	# ---------- internal ----------

@@ -1460,6 +1460,28 @@ async def api_ecan_ai_rerank_results(mainwin, args):
 
 
 
+async def api_ecan_ai_show_status(mainwin, args):
+    # call put work received from A2A channel, put into today's work data structure
+    # the runbotworks task will then take over.....
+    # including put reactive work into it.
+    try:
+        print("api_ecan_ai_show_status args: ", args['input'])
+        agent_status = ecan_ai_api_get_agent_status(mainwin, args['input'])
+
+        msg = f"Get agent current status completed- with agent id of {agent_id}"
+
+        result = TextContent(type="text", text=msg)
+        # meta must be a dict – wrap components list under a key to satisfy pydantic
+        result.meta = {"agent_status": agent_status}
+        print("api_ecan_ai_show_status about to return: ", result)
+        return [result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorAPIECANAIReRankResults")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
+
 
 async def ecan_local_search_components(mainwin, args):
     logger.debug(f"ecan_local_search_components initial state: {args}")
@@ -1652,6 +1674,7 @@ tool_function_mapping = {
         "api_ecan_ai_ocr_read_screen": api_ecan_ai_ocr_read_screen,
         "api_ecan_ai_cloud_search": api_ecan_ai_cloud_search,
         "api_ecan_ai_rerank_results": api_ecan_ai_rerank_results,
+        "api_ecan_ai_show_status": api_ecan_ai_show_status,
         "mouse_act_on_screen": mouse_act_on_screen,
         "ecan_local_search_components": ecan_local_search_components,
         "ecan_local_sort_search_results": ecan_local_sort_search_results,
