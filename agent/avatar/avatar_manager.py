@@ -118,6 +118,9 @@ class AvatarManager:
         # Ensure directories exist
         self._ensure_directories()
         
+        # Track background tasks to prevent garbage collection
+        self._background_tasks = set()
+        
         # Note: Cloud sync is handled at the agent level (agent new/save operations)
         # Avatar manager only handles local file operations and database storage
         logger.debug(f"[AvatarManager] Initialized for user: {user_id}")
@@ -511,8 +514,15 @@ class AvatarManager:
                     # Re-raise to let caller know upload failed
                     raise
 
-            # Note: Cloud sync (S3 + AppSync) is handled at the agent level
-            # when creating or updating agents with this avatar
+            # Trigger S3 upload in background (non-blocking)
+            if avatar_resource:
+                logger.info(f"[AvatarManager] Triggering S3 upload for: {avatar_id}")
+                self._upload_to_s3_background(
+                    avatar_id=avatar_id,
+                    image_path=str(existing_path),
+                    video_path=None,
+                    file_hash=file_hash
+                )
 
             logger.info(f"[AvatarManager] ✅ Avatar uploaded successfully: {avatar_id}")
 
@@ -540,6 +550,160 @@ class AvatarManager:
             return {
                 "success": False,
                 "error": f"Upload failed: {str(e)}"
+            }
+    
+    async def upload_avatar_video(self, file_data: bytes, filename: str) -> Dict:
+        """
+        Upload user avatar video and optionally extract first frame as thumbnail.
+        
+        Args:
+            file_data: Video file bytes (webm, mp4, etc.)
+            filename: Original filename
+            
+        Returns:
+            Result dictionary with avatar information including video and extracted image
+        """
+        logger.info(f"[AvatarManager] Uploading avatar video: {filename}")
+        
+        # Track created files for rollback
+        local_files = []
+        
+        try:
+            # Import video utilities
+            from agent.avatar.avatar_video_utils import validate_video, extract_first_frame
+            
+            # Validate video
+            SUPPORTED_VIDEO_FORMATS = ['webm', 'mp4', 'mov', 'avi']
+            MAX_VIDEO_SIZE = 50 * 1024 * 1024  # 50MB
+            validation = validate_video(file_data, filename, MAX_VIDEO_SIZE)
+            if not validation["success"]:
+                return {
+                    "success": False,
+                    "error": validation["error"]
+                }
+            
+            # Calculate hash
+            file_hash = self.calculate_file_hash(file_data)
+            avatar_id = f"avatar_{file_hash}"
+            
+            # Save video
+            video_ext = Path(filename).suffix.lower()
+            video_path = self.uploaded_dir / f"{file_hash}_video{video_ext}"
+            
+            with open(video_path, 'wb') as f:
+                f.write(file_data)
+            local_files.append(video_path)
+            logger.debug(f"[AvatarManager] Saved video: {video_path}")
+            
+            # Try to extract first frame (optional, requires ffmpeg)
+            frame_path = None
+            thumbnail_path = None
+            logger.info(f"[AvatarManager] Attempting to extract first frame from video...")
+            
+            # Generate output path for the frame
+            frame_output = self.uploaded_dir / f"{file_hash}_original.png"
+            extracted_frame = await extract_first_frame(str(video_path), str(frame_output))
+            
+            if extracted_frame:
+                frame_path = Path(extracted_frame)
+                local_files.append(frame_path)
+                logger.info(f"[AvatarManager] ✅ First frame extracted: {frame_path}")
+                
+                # Create thumbnail from extracted frame
+                with open(frame_path, 'rb') as f:
+                    frame_data = f.read()
+                thumbnail_data = self.create_thumbnail(frame_data)
+                thumbnail_path = self.uploaded_dir / f"{file_hash}_thumb.png"
+                with open(thumbnail_path, 'wb') as f:
+                    f.write(thumbnail_data)
+                local_files.append(thumbnail_path)
+                logger.debug(f"[AvatarManager] Saved thumbnail: {thumbnail_path}")
+            else:
+                logger.warning(f"[AvatarManager] Could not extract frame (ffmpeg not available or failed)")
+                logger.info(f"[AvatarManager] Video will be used without poster image")
+            
+            # Save to database
+            avatar_resource = None
+            if self.db_service:
+                try:
+                    avatar_data = {
+                        "resource_type": "uploaded",
+                        "name": filename,
+                        "image_path": str(frame_path) if frame_path else None,
+                        "image_hash": file_hash,
+                        "video_path": str(video_path),
+                        "avatar_metadata": {
+                            "video_format": validation["format"],
+                            "video_size": validation["size"],
+                            "original_filename": filename,
+                            "has_extracted_frame": frame_path is not None
+                        },
+                        "owner": self.user_id
+                    }
+                    
+                    avatar_resource = self._save_avatar_resource(avatar_data)
+                    
+                    if not avatar_resource:
+                        logger.error(f"[AvatarManager] ❌ Failed to save avatar to database")
+                        raise Exception("Failed to save avatar resource to database")
+                    
+                    logger.info(f"[AvatarManager] ✅ Avatar resource saved to database: {avatar_id}")
+                except Exception as e:
+                    logger.error(f"[AvatarManager] ❌ Database save failed: {e}")
+                    # Rollback local files
+                    for file_path in local_files:
+                        try:
+                            if file_path.exists():
+                                file_path.unlink()
+                                logger.debug(f"[AvatarManager] Deleted file during rollback: {file_path}")
+                        except Exception as cleanup_error:
+                            logger.warning(f"[AvatarManager] Failed to delete file during rollback: {cleanup_error}")
+                    raise
+            
+            # Trigger S3 upload in background (non-blocking)
+            if avatar_resource:
+                logger.info(f"[AvatarManager] Triggering S3 upload for video: {avatar_id}")
+                self._upload_to_s3_background(
+                    avatar_id=avatar_id,
+                    image_path=str(frame_path) if frame_path else None,
+                    video_path=str(video_path),
+                    file_hash=file_hash
+                )
+            
+            logger.info(f"[AvatarManager] ✅ Avatar video uploaded successfully: {avatar_id}")
+            
+            # Return file paths, will be converted to HTTP URLs by handler
+            return {
+                "success": True,
+                "id": avatar_id,
+                "imageUrl": str(frame_path) if frame_path else None,
+                "thumbnailUrl": str(thumbnail_path) if thumbnail_path else None,
+                "videoUrl": str(video_path),
+                "hash": file_hash,
+                "metadata": {
+                    "success": True,
+                    "error": None,
+                    "format": validation["format"],
+                    "size": validation["size"],
+                    "source": "video_upload",
+                    "has_extracted_frame": frame_path is not None
+                }
+            }
+            
+        except Exception as e:
+            # Rollback: delete local files on error
+            logger.error(f"[AvatarManager] ❌ Video upload failed, rolling back: {e}")
+            for file_path in local_files:
+                try:
+                    if file_path.exists():
+                        file_path.unlink()
+                        logger.debug(f"[AvatarManager] Deleted file during rollback: {file_path}")
+                except Exception as cleanup_error:
+                    logger.warning(f"[AvatarManager] Failed to delete file during rollback: {cleanup_error}")
+            
+            return {
+                "success": False,
+                "error": f"Video upload failed: {str(e)}"
             }
     
     def _save_avatar_resource(self, resource_data: Dict) -> Optional[Dict]:
@@ -630,9 +794,9 @@ class AvatarManager:
             # Fallback: check file system if not in database
             if not avatar_data["videoExists"]:
                 # Video files are saved in the same directory as the original image
-                # with suffix "_original_video.webm" or "_original_video.mp4"
-                video_webm_path = self.uploaded_dir / f"{file_hash}_original_video.webm"
-                video_mp4_path = self.uploaded_dir / f"{file_hash}_original_video.mp4"
+                # with suffix "_video.webm" or "_video.mp4"
+                video_webm_path = self.uploaded_dir / f"{file_hash}_video.webm"
+                video_mp4_path = self.uploaded_dir / f"{file_hash}_video.mp4"
                 
                 if video_webm_path.exists():
                     avatar_data["videoUrl"] = str(video_webm_path)
@@ -650,7 +814,7 @@ class AvatarManager:
     
     async def delete_uploaded_avatar(self, avatar_id: str) -> Dict:
         """
-        Delete an uploaded avatar.
+        Delete an uploaded avatar (local files + S3 + database).
         
         Args:
             avatar_id: Avatar ID (format: avatar_{hash})
@@ -668,11 +832,19 @@ class AvatarManager:
             
             file_hash = avatar_id.replace("avatar_", "")
             
+            # Get avatar info from database BEFORE deleting (for S3 deletion)
+            avatar_data = None
+            if self.db_service:
+                try:
+                    avatar_data = self.db_service.get_avatar_resource(avatar_id)
+                except Exception as e:
+                    logger.warning(f"[AvatarManager] Failed to get avatar data: {e}")
+            
             # File paths
             original_path = self.uploaded_dir / f"{file_hash}_original.png"
             thumbnail_path = self.uploaded_dir / f"{file_hash}_thumb.png"
-            video_mp4_path = self.uploaded_dir / f"{file_hash}_original_video.mp4"
-            video_webm_path = self.uploaded_dir / f"{file_hash}_original_video.webm"
+            video_mp4_path = self.uploaded_dir / f"{file_hash}_video.mp4"
+            video_webm_path = self.uploaded_dir / f"{file_hash}_video.webm"
             
             deleted_files = []
             
@@ -680,24 +852,24 @@ class AvatarManager:
             if original_path.exists():
                 original_path.unlink()
                 deleted_files.append(str(original_path))
-                logger.debug(f"[AvatarManager] Deleted original: {original_path}")
             
             # Delete thumbnail
             if thumbnail_path.exists():
                 thumbnail_path.unlink()
                 deleted_files.append(str(thumbnail_path))
-                logger.debug(f"[AvatarManager] Deleted thumbnail: {thumbnail_path}")
             
             # Delete associated videos if exist (both MP4 and WebM)
             if video_mp4_path.exists():
                 video_mp4_path.unlink()
                 deleted_files.append(str(video_mp4_path))
-                logger.debug(f"[AvatarManager] Deleted MP4 video: {video_mp4_path}")
             
             if video_webm_path.exists():
                 video_webm_path.unlink()
                 deleted_files.append(str(video_webm_path))
-                logger.debug(f"[AvatarManager] Deleted WebM video: {video_webm_path}")
+            
+            # Delete from S3 in background (non-blocking)
+            if avatar_data:
+                self._delete_from_s3_background(avatar_id, file_hash, avatar_data)
             
             # Delete from database if db_service available
             if self.db_service:
@@ -728,6 +900,287 @@ class AvatarManager:
                 "success": False,
                 "error": str(e)
             }
+    
+    # ==================== S3 Delete Helper ====================
+    
+    def _delete_from_s3_background(
+        self,
+        avatar_id: str,
+        file_hash: str,
+        avatar_data: Dict
+    ):
+        """
+        Delete avatar files from S3 in background (non-blocking, async).
+        
+        Creates S3 uploader on-demand and runs deletion in background task.
+        
+        Args:
+            avatar_id: Avatar resource ID
+            file_hash: File hash
+            avatar_data: Avatar data from database (contains S3 URLs/keys)
+        """
+        import asyncio
+        
+        # Create async task (fire and forget)
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            # No event loop in current thread, create new one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        # Create background task
+        task = loop.create_task(
+            self._delete_from_s3_async(avatar_id, file_hash, avatar_data)
+        )
+        
+        # Add to background tasks set to prevent garbage collection
+        self._background_tasks.add(task)
+        # Remove from set when done
+        task.add_done_callback(lambda t: self._background_tasks.discard(t))
+    
+    async def _delete_from_s3_async(
+        self,
+        avatar_id: str,
+        file_hash: str,
+        avatar_data: Dict
+    ):
+        """
+        Async task to delete avatar files from S3.
+        
+        Creates fresh S3 uploader on-demand for deletion.
+        Runs in background without blocking the main thread.
+        
+        Args:
+            avatar_id: Avatar resource ID
+            file_hash: File hash
+            avatar_data: Avatar data from database
+        """
+        try:
+            logger.info(f"[AvatarManager] Starting async S3 deletion for: {avatar_id}")
+            
+            # Create S3 uploader on-demand (fresh credentials)
+            s3_uploader = self._create_s3_uploader()
+            
+            if not s3_uploader:
+                logger.warning(f"[AvatarManager] S3 uploader not available, skipping deletion: {avatar_id}")
+                return
+            
+            # Get Cognito Identity ID for S3 path
+            owner_id = s3_uploader.s3_service.identity_id if s3_uploader.s3_service.identity_id else self.user_id
+            
+            # Generate S3 keys for deletion
+            from agent.cloud.standard_s3_uploader import S3PathGenerator
+            
+            deleted_count = 0
+            
+            # Delete image from S3
+            image_key = S3PathGenerator.generate_path(
+                resource_type='avatar',
+                owner=owner_id,
+                file_category='images',
+                file_hash=file_hash,
+                file_ext='.png'
+            )
+            
+            success, error = s3_uploader.s3_service.delete_file(image_key)
+            if success:
+                deleted_count += 1
+                logger.info(f"[AvatarManager] ✅ Deleted image from S3: {image_key}")
+            else:
+                logger.warning(f"[AvatarManager] Failed to delete image from S3: {error}")
+            
+            # Delete video from S3 (try both webm and mp4)
+            for video_ext in ['.webm', '.mp4']:
+                video_key = S3PathGenerator.generate_path(
+                    resource_type='avatar',
+                    owner=owner_id,
+                    file_category='videos',
+                    file_hash=file_hash,
+                    file_ext=video_ext
+                )
+                
+                success, error = s3_uploader.s3_service.delete_file(video_key)
+                if success:
+                    deleted_count += 1
+                    logger.info(f"[AvatarManager] ✅ Deleted video from S3: {video_key}")
+                # Silently ignore if file doesn't exist (expected if not uploaded)
+            
+            logger.info(f"[AvatarManager] ✅ S3 deletion completed: {avatar_id} ({deleted_count} files)")
+            
+        except Exception as e:
+            logger.error(f"[AvatarManager] ❌ S3 deletion error: {e}", exc_info=True)
+    
+    def _create_s3_uploader(self):
+        """
+        Create S3 uploader on-demand (fresh instance each time).
+        
+        This method creates a new StandardS3Uploader instance every time it's called,
+        ensuring fresh AWS credentials and avoiding caching issues.
+        
+        Returns:
+            StandardS3Uploader instance or None if not available
+        """
+        try:
+            from agent.cloud.s3_storage_service import create_s3_storage_service
+            from agent.cloud.standard_s3_uploader import StandardS3Uploader
+            
+            # Create fresh S3 service (with fresh credentials)
+            s3_service = create_s3_storage_service()
+            
+            if not s3_service:
+                logger.warning("[AvatarManager] S3 service not available")
+                return None
+            
+            # Create uploader with the service
+            uploader = StandardS3Uploader(s3_service)
+            
+            return uploader
+            
+        except Exception as e:
+            logger.error(f"[AvatarManager] Failed to create S3 uploader: {e}")
+            return None
+    
+    # ==================== S3 Upload Helper ====================
+    
+    def _upload_to_s3_background(
+        self,
+        avatar_id: str,
+        image_path: Optional[str],
+        video_path: Optional[str],
+        file_hash: str
+    ):
+        """
+        Upload avatar files to S3 in background (non-blocking, async).
+        
+        Creates S3 uploader on-demand and runs upload in background task.
+        Fresh uploader is created each time to ensure fresh credentials.
+        
+        Args:
+            avatar_id: Avatar resource ID
+            image_path: Path to image file (optional)
+            video_path: Path to video file (optional)
+            file_hash: File hash for S3 path generation
+        """
+        import asyncio
+        
+        # Create async task (fire and forget)
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            # No event loop in current thread, create new one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        # Create background task
+        task = loop.create_task(
+            self._upload_to_s3_async(avatar_id, image_path, video_path, file_hash)
+        )
+        
+        # Add to background tasks set to prevent garbage collection
+        self._background_tasks.add(task)
+        # Remove from set when done
+        task.add_done_callback(lambda t: self._background_tasks.discard(t))
+    
+    async def _upload_to_s3_async(
+        self,
+        avatar_id: str,
+        image_path: Optional[str],
+        video_path: Optional[str],
+        file_hash: str
+    ):
+        """
+        Async task to upload avatar files to S3.
+        
+        Creates fresh S3 uploader on-demand to ensure fresh credentials.
+        Runs in background without blocking the main thread.
+        
+        Args:
+            avatar_id: Avatar resource ID
+            image_path: Path to image file (optional)
+            video_path: Path to video file (optional)
+            file_hash: File hash for S3 path generation
+        """
+        try:
+            logger.info(f"[AvatarManager] Starting async S3 upload for: {avatar_id}")
+            
+            # Create S3 uploader on-demand (fresh credentials each time)
+            s3_uploader = self._create_s3_uploader()
+            
+            if not s3_uploader:
+                logger.warning(f"[AvatarManager] S3 uploader not available, skipping upload: {avatar_id}")
+                return
+            
+            # Get Cognito Identity ID for S3 path (required by IAM policy)
+            owner_id = s3_uploader.s3_service.identity_id if s3_uploader.s3_service.identity_id else self.user_id
+            
+            if not s3_uploader.s3_service.identity_id:
+                logger.warning(f"[AvatarManager] No Cognito Identity ID, using username: {self.user_id}")
+                logger.warning("[AvatarManager] This may cause S3 permission errors!")
+            
+            cloud_image_url = None
+            cloud_video_url = None
+            
+            # Upload image to S3 (using synchronous method since we're already in background task)
+            if image_path and Path(image_path).exists():
+                logger.info(f"[AvatarManager] Uploading image to S3: {image_path}")
+                try:
+                    success, url, error = s3_uploader.upload(
+                        local_path=image_path,
+                        owner=owner_id,
+                        resource_type='avatar',
+                        resource_id=avatar_id,
+                        file_category='images',
+                        file_hash=file_hash,
+                        extra_metadata={'type': 'avatar_image'}
+                    )
+                    
+                    if success:
+                        cloud_image_url = url
+                        logger.info(f"[AvatarManager] ✅ Image uploaded to S3: {url}")
+                    else:
+                        logger.error(f"[AvatarManager] ❌ Failed to upload image: {error}")
+                except Exception as e:
+                    logger.error(f"[AvatarManager] ❌ Image upload exception: {e}", exc_info=True)
+            
+            # Upload video to S3 (using synchronous method since we're already in background task)
+            if video_path and Path(video_path).exists():
+                logger.info(f"[AvatarManager] Uploading video to S3: {video_path}")
+                success, url, error = s3_uploader.upload(
+                    local_path=video_path,
+                    owner=owner_id,
+                    resource_type='avatar',
+                    resource_id=avatar_id,
+                    file_category='videos',
+                    file_hash=file_hash,
+                    extra_metadata={'type': 'avatar_video'}
+                )
+                
+                if success:
+                    cloud_video_url = url
+                    logger.info(f"[AvatarManager] ✅ Video uploaded to S3: {url}")
+                else:
+                    logger.error(f"[AvatarManager] ❌ Failed to upload video: {error}")
+            
+            # Update database with S3 URLs if db_service available
+            if self.db_service and (cloud_image_url or cloud_video_url):
+                try:
+                    update_data = {}
+                    if cloud_image_url:
+                        update_data['cloud_image_url'] = cloud_image_url
+                    if cloud_video_url:
+                        update_data['cloud_video_url'] = cloud_video_url
+                    
+                    # Update avatar resource with cloud URLs
+                    self.db_service.update_avatar_resource(avatar_id, update_data)
+                    logger.info(f"[AvatarManager] ✅ Updated database with S3 URLs: {avatar_id}")
+                except Exception as e:
+                    logger.error(f"[AvatarManager] Failed to update database with S3 URLs: {e}")
+            
+            logger.info(f"[AvatarManager] ✅ S3 upload completed: {avatar_id}")
+            
+        except Exception as e:
+            logger.error(f"[AvatarManager] ❌ S3 upload error: {e}", exc_info=True)
     
     # ==================== Set Agent Avatar ====================
     

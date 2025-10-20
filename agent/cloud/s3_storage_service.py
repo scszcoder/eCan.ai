@@ -165,7 +165,7 @@ class S3StorageService:
         metadata: Dict[str, str] = None
     ) -> Tuple[bool, str, str]:
         """
-        Upload file to S3.
+        Upload file to S3 (synchronous version).
         
         Args:
             local_path: Local file path
@@ -210,9 +210,45 @@ class S3StorageService:
             logger.error(f"[S3Storage] {error_msg}")
             return False, "", error_msg
     
+    async def upload_file_async(
+        self,
+        local_path: str,
+        cloud_key: str,
+        content_type: str = None,
+        metadata: Dict[str, str] = None
+    ) -> Tuple[bool, str, str]:
+        """
+        Upload file to S3 asynchronously (non-blocking).
+        
+        Runs upload in thread pool to avoid blocking the event loop.
+        
+        Args:
+            local_path: Local file path
+            cloud_key: S3 object key
+            content_type: File MIME type
+            metadata: File metadata
+        
+        Returns:
+            (success, cloud_url, error_message)
+        """
+        import asyncio
+        
+        try:
+            # Run synchronous upload in thread pool
+            loop = asyncio.get_running_loop()
+            
+            result = await loop.run_in_executor(
+                None,  # Use default executor instead of creating new one
+                lambda: self.upload_file(local_path, cloud_key, content_type, metadata)
+            )
+            return result
+        except Exception as e:
+            logger.error(f"[S3Storage] upload_file_async exception: {e}", exc_info=True)
+            return False, "", str(e)
+    
     def download_file(self, cloud_key: str, local_path: str) -> Tuple[bool, str]:
         """
-        Download file from S3.
+        Download file from S3 (synchronous version).
         
         Args:
             cloud_key: S3 object key
@@ -246,9 +282,29 @@ class S3StorageService:
             logger.error(f"[S3Storage] {error_msg}")
             return False, error_msg
     
+    async def download_file_async(self, cloud_key: str, local_path: str) -> Tuple[bool, str]:
+        """
+        Download file from S3 asynchronously (non-blocking).
+        
+        Args:
+            cloud_key: S3 object key
+            local_path: Local save path
+        
+        Returns:
+            (success, error_message)
+        """
+        import asyncio
+        
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,  # Use default executor
+            lambda: self.download_file(cloud_key, local_path)
+        )
+        return result
+    
     def delete_file(self, cloud_key: str) -> Tuple[bool, str]:
         """
-        Delete file from S3.
+        Delete file from S3 (synchronous version).
         
         Args:
             cloud_key: S3 object key
@@ -275,6 +331,25 @@ class S3StorageService:
             error_msg = f"Delete failed: {e}"
             logger.error(f"[S3Storage] {error_msg}")
             return False, error_msg
+    
+    async def delete_file_async(self, cloud_key: str) -> Tuple[bool, str]:
+        """
+        Delete file from S3 asynchronously (non-blocking).
+        
+        Args:
+            cloud_key: S3 object key
+        
+        Returns:
+            (success, error_message)
+        """
+        import asyncio
+        
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,  # Use default executor
+            lambda: self.delete_file(cloud_key)
+        )
+        return result
     
     def get_file_url(
         self,
