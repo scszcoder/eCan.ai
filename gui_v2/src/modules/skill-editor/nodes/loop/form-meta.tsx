@@ -25,10 +25,58 @@ interface LoopNodeJSON extends FlowNodeJSON {
 
 export const LoopFormRender = ({}: FormRenderProps<LoopNodeJSON>) => {
   const isSidebar = useIsSidebar();
-  const { readonly } = useNodeRenderContext();
+  const { readonly, expanded } = useNodeRenderContext();
   const formHeight = 85;
 
-  // Loop mode + while expression row
+  // Note: All size updates are handled in toggleLoopExpanded function to avoid double updates
+
+  // Loop mode + while expression row (collapsed view: vertical compact layout)
+  const loopModeAndExprCollapsed = (
+    <>
+      {/* Loop mode selector */}
+      <FormItem name={'loopMode'} type={'string'} vertical>
+        <Field<string> name={'loopMode'}>
+          {({ field }) => (
+            <Select
+              value={field.value || 'loopFor'}
+              onChange={(val) => field.onChange(val as string)}
+              optionList={[
+                { label: 'loopFor', value: 'loopFor' },
+                { label: 'loopWhile', value: 'loopWhile' },
+              ]}
+              style={{ width: '100%' }}
+              size="small"
+              disabled={readonly}
+            />
+          )}
+        </Field>
+      </FormItem>
+
+      {/* While exit condition expression */}
+      <Field<string> name={'loopMode'}>
+        {({ field: modeField }) => (
+          modeField.value === 'loopWhile' ? (
+            <FormItem name={'loopWhileExpr'} type={'string'} vertical>
+              <Field<string> name={'loopWhileExpr'}>
+                {({ field }) => (
+                  <Input
+                    value={field.value || ''}
+                    onChange={(val) => field.onChange(val)}
+                    placeholder="Exit condition"
+                    disabled={readonly}
+                    style={{ width: '100%' }}
+                    size="small"
+                  />
+                )}
+              </Field>
+            </FormItem>
+          ) : <></>
+        )}
+      </Field>
+    </>
+  );
+
+  // Loop mode + while expression row (expanded view: horizontal layout)
   const loopModeAndExpr = (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
       {/* Loop mode selector */}
@@ -105,6 +153,22 @@ export const LoopFormRender = ({}: FormRenderProps<LoopNodeJSON>) => {
     </Field>
   );
 
+  // Determine if we should show collapsed view
+  // expanded=true means show expanded view (button shows ↓), expanded=false means show collapsed view (button shows ←)
+  const shouldShowCollapsed = !isSidebar && !expanded;
+
+  if (shouldShowCollapsed) {
+    return (
+      <>
+        <FormHeader />
+        {/* Collapsed: show title, loopMode, loopWhileExpr and loopOutputs */}
+        {loopModeAndExprCollapsed}
+        {loopOutputs}
+      </>
+    );
+  }
+
+  // Sidebar: show all controls but no canvas
   if (isSidebar) {
     return (
       <>
@@ -122,6 +186,8 @@ export const LoopFormRender = ({}: FormRenderProps<LoopNodeJSON>) => {
       </>
     );
   }
+
+  // Expanded state: show everything including subcanvas
   return (
     <>
       <FormHeader />

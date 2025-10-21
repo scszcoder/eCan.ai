@@ -6,7 +6,7 @@
 import React, { useState, useContext, useCallback, useEffect } from 'react';
 
 import { WorkflowPortRender } from '@flowgram.ai/free-layout-editor';
-import { useClientContext, useNode } from '@flowgram.ai/free-layout-editor';
+import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import classnames from 'classnames';
 
 import { FlowNodeMeta } from '../../typings';
