@@ -528,12 +528,12 @@ class CallableStorage:
             
             # Apply filters if provided
             if params is not None:
-                # 确保 params 是字典类型
+                # Ensure params is dict type
                 if not isinstance(params, dict):
                     logger.warning(f"Invalid params type: {type(params)}, expected dict")
                     return [func.to_dict() for func in functions]
-                
-                # 安全地获取和转换搜索文本
+
+                # Safely get and convert search text
                 search_text = str(params.get('text', '')).lower()
                 func_type = params.get('type')
                 

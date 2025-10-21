@@ -8,16 +8,16 @@ from utils.logger_helper import logger_helper as logger
 
 @IPCHandlerRegistry.handler('get_schedules')
 def handle_get_schedules(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理登录请求
+    """Handle login request
 
-    验证用户凭据并返回访问令牌。
+    Validate user credentials and return access token.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数
+        request: IPC request object
+        params: Request parameters
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Get Schedule handler called with request: {request}")

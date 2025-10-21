@@ -6,7 +6,6 @@ export const ChatDetailWrapper = styled.div`
     height: 100%;
     min-height: 0;
     overflow: hidden;
-    /* 保证撑满父容器 */
 
     /* Semi UI 深色主题变量覆盖 */
     --semi-color-bg-0: #0f172a;
@@ -79,17 +78,17 @@ export const ChatDetailWrapper = styled.div`
         color: white;
     }
 
-    .custom-attachment-file:hover .attachment-icon {
-        color: white !important;
-    }
-
+    .custom-attachment-file:hover .attachment-icon,
     .custom-attachment-file:hover .attachment-name {
         color: white !important;
     }
 
-    /* 只针对自定义附件中的图标和名称 */
     .custom-attachment .attachment-icon {
         font-size: 16px;
+    }
+
+    .custom-attachment-file .attachment-icon {
+        font-size: 18px;
     }
 
     .custom-attachment .attachment-name {
@@ -97,9 +96,21 @@ export const ChatDetailWrapper = styled.div`
         word-break: break-all;
     }
 
-    /* 文件类型图标样式 */
-    .custom-attachment-file .attachment-icon {
-        font-size: 18px;
+    /* 聊天气泡最大宽度限制为70% */
+    .semi-chat-chatBox-wrap {
+        max-width: 70% !important;
+    }
+
+    /* 左侧消息（接收的消息）：右侧留出30%空间 */
+    .semi-chat-chatBox-wrap[style*="justify-content: flex-start"],
+    .semi-chat-chatBox-wrap[style*="justify-content:flex-start"] {
+        margin-right: 30% !important;
+    }
+
+    /* 右侧消息（发送的消息）：左侧留出30%空间 */
+    .semi-chat-chatBox-wrap[style*="justify-content: flex-end"],
+    .semi-chat-chatBox-wrap[style*="justify-content:flex-end"] {
+        margin-left: 30% !important;
     }
 `;
 

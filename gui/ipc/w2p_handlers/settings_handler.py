@@ -9,21 +9,21 @@ from utils.logger_helper import logger_helper as logger
 
 @IPCHandlerRegistry.handler('get_settings')
 def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理登录请求
+    """Handle login request
 
-    验证用户凭据并返回访问令牌。
+    Validate user credentials and return access token.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        request: IPC request object
+        params: Request parameters, must contain 'username' and 'password' fields
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"get settings handler called with request: {request}")
 
-        # 验证参数
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
             logger.warning(f"Invalid parameters for get settings: {error}")
@@ -33,9 +33,9 @@ def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                 error
             )
 
-        # 获取用户名和密码
+        # Get username and password
         username = data['username']
-        # 简单的密码验证
+        # Simple password validation
         logger.info(f"get settings successful for user: {username}")
         main_window = AppContext.get_main_window()
         settings = main_window.config_manager.general_settings.data
@@ -53,24 +53,24 @@ def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             'LOGIN_ERROR',
             f"Error during get settings: {str(e)}"
         )
-    
+
 @IPCHandlerRegistry.handler('save_settings')
 def handle_save_settings(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
-    """处理保存设置请求
+    """Handle save settings request
 
-    保存用户设置到配置文件。
+    Save user settings to configuration file.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，包含设置数据
+        request: IPC request object
+        params: Request parameters, containing settings data
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Save settings handler called with request: {request}")
 
-        # 验证参数
+        # Validate parameters
         if not params or len(params) == 0:
             logger.warning("No settings data provided")
             return create_error_response(
@@ -79,7 +79,7 @@ def handle_save_settings(request: IPCRequest, params: Optional[list[Any]]) -> IP
                 'No settings data provided'
             )
 
-        # 获取设置数据
+        # Get settings data
         settings_data = params[0] if isinstance(params, list) else params
 
         if not isinstance(settings_data, dict):
@@ -92,13 +92,13 @@ def handle_save_settings(request: IPCRequest, params: Optional[list[Any]]) -> IP
 
         logger.info(f"Saving settings: {list(settings_data.keys())}")
 
-        # 获取主窗口实例
+        # Get main window instance
         main_window = AppContext.get_main_window()
         if not main_window:
             logger.error("Main window not available - user may have logged out")
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'User session not available - please login again')
 
-        # 获取配置管理器
+        # Get config manager
         if not main_window.config_manager:
             logger.error("Config manager not available")
             return create_error_response(
@@ -107,10 +107,10 @@ def handle_save_settings(request: IPCRequest, params: Optional[list[Any]]) -> IP
                 'Config manager not available'
             )
 
-        # 保存设置到 general_settings
+        # Save settings to general_settings
         general_settings = main_window.config_manager.general_settings
 
-        # 使用 update_data 方法统一处理所有设置数据
+        # Use update_data method to handle all settings data uniformly
         try:
             general_settings.update_data(settings_data)
             logger.info(f"Settings updated successfully. Fields: {list(settings_data.keys())}")
@@ -122,7 +122,7 @@ def handle_save_settings(request: IPCRequest, params: Optional[list[Any]]) -> IP
                 f"Failed to update settings: {str(e)}"
             )
 
-        # 保存到文件
+        # Save to file
         try:
             general_settings.save()
             logger.info(f"Settings saved successfully")

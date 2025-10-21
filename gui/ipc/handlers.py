@@ -1,6 +1,6 @@
 """
-IPC 处理器实现模块
-提供各种 IPC 请求的具体处理实现
+IPC Handler Implementation Module
+Provides specific implementations for various IPC requests
 """
 
 from typing import Any, Optional, Dict
@@ -14,42 +14,42 @@ import asyncio
 
 
 def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
-    """验证请求参数
-    
+    """Validate request parameters
+
     Args:
-        params: 请求参数
-        required: 必需参数列表
-        
+        params: Request parameters
+        required: List of required parameters
+
     Returns:
-        tuple[bool, Optional[Dict[str, Any]], Optional[str]]: (是否有效, 参数数据, 错误信息)
+        tuple[bool, Optional[Dict[str, Any]], Optional[str]]: (is valid, parameter data, error message)
     """
     if not params:
         return False, None, f"Missing required parameters: {', '.join(required)}"
-    
+
     missing = [param for param in required if param not in params]
     if missing:
         return False, None, f"Missing required parameters: {', '.join(missing)}"
-    
+
     return True, params, None
 
 
 @IPCHandlerRegistry.handler('get_all')
 def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理登录请求
+    """Handle get all request
 
-    验证用户凭据并返回访问令牌。
+    Retrieve all data for the user.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        request: IPC request object
+        params: Request parameters, must contain 'username' field
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Get all called with request: {request}")
 
-        # 验证参数
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
             logger.warning(f"Invalid parameters for get all: {error}")
@@ -60,7 +60,7 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
             )
 
         logger.debug("user name:" + data['username'])
-        # 获取用户名和密码
+        # Get username
         username = data['username']
 
         main_window = AppContext.get_main_window()
@@ -103,21 +103,21 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
 
 @IPCHandlerRegistry.handler('save_all')
 def handle_save_all(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
-    """处理登录请求
+    """Handle save all request
 
-    验证用户凭据并返回访问令牌。
+    Save all data for the user.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        request: IPC request object
+        params: Request parameters, must contain 'username' and 'password' fields
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Save all handler called with request: {request}")
 
-        # 验证参数
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
             logger.warning(f"Invalid parameters for save all: {error}")
@@ -127,7 +127,7 @@ def handle_save_all(request: IPCRequest, params: Optional[list[Any]]) -> IPCResp
                 error
             )
 
-        # 获取用户名和密码
+        # Get username
         username = data['username']
 
 
@@ -146,14 +146,14 @@ def handle_save_all(request: IPCRequest, params: Optional[list[Any]]) -> IPCResp
 
 @IPCHandlerRegistry.handler('get_available_tests')
 def handle_get_available_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理获取可用测试项请求
+    """Handle get available tests request
 
     Args:
-        request: IPC 请求对象
+        request: IPC request object
         params: None
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Get available tests handler called with request: {request}")
@@ -174,14 +174,14 @@ def handle_get_available_tests(request: IPCRequest, params: Optional[Any]) -> IP
 
 @IPCHandlerRegistry.background_handler('run_tests')
 def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理跑测试请求
+    """Handle run tests request
 
     Args:
-        request: IPC 请求对象
+        request: IPC request object
         params: None
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     # from tests.main_test import run_default_tests  # Commented out to prevent UI freeze
 
@@ -289,7 +289,7 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
 
                     # loop = asyncio.get_event_loop()
                     # # asyncio.set_event_loop(loop)
-                    # # 在独立的后台线程中，可以安全使用 asyncio.run()
+                    # # In separate background thread, can safely use asyncio.run()
                     # # result = await runner_method(params["message"])
                     # result = loop.run_until_complete(runner_method(params["message"]))
                 else:
@@ -319,14 +319,14 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
 
 @IPCHandlerRegistry.handler('stop_tests')
 def handle_stop_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理停止测试项请求
+    """Handle stop tests request
 
     Args:
-        request: IPC 请求对象
-        params: 测试项
+        request: IPC request object
+        params: Test items
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Stop tests handler called with request: {request}")
@@ -390,8 +390,8 @@ def handle_get_initialization_progress(request: IPCRequest, params: Optional[Any
         )
 
 
-# 打印所有已注册的处理器
+# Print all registered handlers
 logger.info(f"Registered handlers: {IPCHandlerRegistry.list_handlers()}")
 
-# 导入文件处理器以注册相关的 IPC 处理方法
+# Import file handlers to register related IPC handling methods
 from . import file_handlers

@@ -1,6 +1,6 @@
 """
 Callable management module
-提供可调用函数的管理接口
+Provides management interface for callable functions
 """
 
 from .manager import CallableManager

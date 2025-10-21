@@ -1,5 +1,5 @@
 """
-LLM管理相关的IPC处理器 - 使用原有的LLM管理器架构
+LLM management related IPC handlers - Using original LLM manager architecture
 """
 from typing import Optional, Dict, Any
 from ..types import IPCRequest, IPCResponse, create_success_response, create_error_response
@@ -9,7 +9,7 @@ from app_context import AppContext
 
 
 def validate_params(params: Optional[Dict[str, Any]], required_keys: list) -> tuple[bool, Dict[str, Any], str]:
-    """验证参数"""
+    """Validate parameters"""
     if not params:
         return False, {}, "Missing parameters"
 
@@ -21,14 +21,14 @@ def validate_params(params: Optional[Dict[str, Any]], required_keys: list) -> tu
 
 
 def get_llm_manager():
-    """获取LLM管理器实例"""
+    """Get LLM manager instance"""
     main_window = AppContext.get_main_window()
     return main_window.config_manager.llm_manager
 
 
 @IPCHandlerRegistry.handler('get_llm_providers')
 def handle_get_llm_providers(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
-    """获取所有LLM提供商"""
+    """Get all LLM providers"""
     try:
         llm_manager = get_llm_manager()
         providers = llm_manager.get_all_providers()
@@ -46,22 +46,22 @@ def handle_get_llm_providers(request: IPCRequest, params: Optional[Dict[str, Any
 
 @IPCHandlerRegistry.handler('get_llm_provider')
 def handle_get_llm_provider(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """获取指定的LLM提供商"""
+    """Get specified LLM provider"""
     try:
         is_valid, data, error = validate_params(params, ['name'])
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
-        
+
         llm_manager = get_llm_manager()
         provider = llm_manager.get_provider(data['name'])
         if not provider:
             return create_error_response(request, 'LLM_ERROR', f"Provider {data['name']} not found")
-        
+
         return create_success_response(request, {
             'provider': provider,
             'message': 'LLM provider retrieved successfully'
         })
-        
+
     except Exception as e:
         logger.error(f"Error getting LLM provider: {e}")
         return create_error_response(request, 'LLM_ERROR', f"Failed to get LLM provider: {str(e)}")
@@ -69,62 +69,62 @@ def handle_get_llm_provider(request: IPCRequest, params: Optional[Dict[str, Any]
 
 @IPCHandlerRegistry.handler('update_llm_provider')
 def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """更新LLM提供商配置"""
+    """Update LLM provider configuration"""
     try:
         is_valid, data, error = validate_params(params, ['name'])
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
-        
+
         llm_manager = get_llm_manager()
         provider_name = data['name']
         api_key = data.get('api_key')
         azure_endpoint = data.get('azure_endpoint')
 
-        # 获取提供商信息
+        # Get provider information
         provider = llm_manager.get_provider(provider_name)
         if not provider:
             return create_error_response(request, 'LLM_ERROR', f"Provider {provider_name} not found")
 
-        # 获取该提供商的环境变量名
+        # Get environment variable names for this provider
         env_vars = provider.get('api_key_env_vars', [])
-        
-        # 处理需要多个凭据的特殊情况
+
+        # Handle special cases requiring multiple credentials
         if provider_name == 'AzureOpenAI':
             if azure_endpoint:
-                # 存储Azure endpoint
+                # Store Azure endpoint
                 if 'AZURE_ENDPOINT' in env_vars:
                     success, error_msg = llm_manager.store_api_key('AZURE_ENDPOINT', azure_endpoint)
                     if not success:
                         return create_error_response(request, 'LLM_ERROR', f"Failed to store Azure endpoint: {error_msg}")
-            
+
             if api_key:
-                # 存储Azure OpenAI API key
+                # Store Azure OpenAI API key
                 if 'AZURE_OPENAI_API_KEY' in env_vars:
                     success, error_msg = llm_manager.store_api_key('AZURE_OPENAI_API_KEY', api_key)
                     if not success:
                         return create_error_response(request, 'LLM_ERROR', f"Failed to store API key: {error_msg}")
-        
+
         elif provider_name == 'ChatBedrockConverse':
-            # AWS Bedrock需要两个凭据：AWS_ACCESS_KEY_ID 和 AWS_SECRET_ACCESS_KEY
+            # AWS Bedrock requires two credentials: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
             aws_access_key_id = data.get('aws_access_key_id')
             aws_secret_access_key = data.get('aws_secret_access_key')
-            
+
             if aws_access_key_id:
                 if 'AWS_ACCESS_KEY_ID' in env_vars:
                     success, error_msg = llm_manager.store_api_key('AWS_ACCESS_KEY_ID', aws_access_key_id)
                     if not success:
                         return create_error_response(request, 'LLM_ERROR', f"Failed to store AWS Access Key ID: {error_msg}")
-            
+
             if aws_secret_access_key:
                 if 'AWS_SECRET_ACCESS_KEY' in env_vars:
                     success, error_msg = llm_manager.store_api_key('AWS_SECRET_ACCESS_KEY', aws_secret_access_key)
                     if not success:
                         return create_error_response(request, 'LLM_ERROR', f"Failed to store AWS Secret Access Key: {error_msg}")
-        
+
         else:
-            # 处理其他提供商 - 使用第一个环境变量存储API key
+            # Handle other providers - use first environment variable to store API key
             if api_key and env_vars:
-                env_var = env_vars[0]  # 使用第一个环境变量
+                env_var = env_vars[0]  # Use first environment variable
                 success, error_msg = llm_manager.store_api_key(env_var, api_key)
                 if not success:
                     return create_error_response(request, 'LLM_ERROR', f"Failed to store API key: {error_msg}")
@@ -133,7 +133,7 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
         return create_success_response(request, {
             'message': f'LLM provider {provider_name} updated successfully'
         })
-        
+
     except Exception as e:
         logger.error(f"Error updating LLM provider: {e}")
         return create_error_response(request, 'LLM_ERROR', f"Failed to update LLM provider: {str(e)}")
@@ -141,21 +141,21 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
 
 @IPCHandlerRegistry.handler('delete_llm_provider_config')
 def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """删除LLM提供商配置"""
+    """Delete LLM provider configuration"""
     try:
         is_valid, data, error = validate_params(params, ['name'])
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
-        
+
         llm_manager = get_llm_manager()
         provider_name = data['name']
 
-        # 获取提供商信息
+        # Get provider information
         provider = llm_manager.get_provider(provider_name)
         if not provider:
             return create_error_response(request, 'LLM_ERROR', f"Provider {provider_name} not found")
 
-        # 删除环境变量中的API key和其他凭据
+        # Delete API key and other credentials from environment variables
         env_vars = provider.get('api_key_env_vars', [])
         deleted_vars = []
         for env_var in env_vars:
@@ -167,7 +167,7 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
             'message': f'LLM provider {provider_name} configuration deleted successfully',
             'deleted_env_vars': deleted_vars
         })
-        
+
     except Exception as e:
         logger.error(f"Error deleting LLM provider config: {e}")
         return create_error_response(request, 'LLM_ERROR', f"Failed to delete LLM provider config: {str(e)}")
@@ -175,51 +175,51 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
 
 @IPCHandlerRegistry.handler('add_custom_llm_provider')
 def handle_add_custom_llm_provider(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """添加自定义LLM提供商 - 当前版本不支持"""
+    """Add custom LLM provider - Not supported in current version"""
     return create_error_response(request, 'NOT_SUPPORTED', "Adding custom LLM providers is not supported in current version")
 
 
 @IPCHandlerRegistry.handler('remove_custom_llm_provider')
 def handle_remove_custom_llm_provider(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """删除自定义LLM提供商 - 当前版本不支持"""
+    """Remove custom LLM provider - Not supported in current version"""
     return create_error_response(request, 'NOT_SUPPORTED', "Removing custom LLM providers is not supported in current version")
 
 
 @IPCHandlerRegistry.handler('set_default_llm')
 def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """设置默认LLM提供商"""
+    """Set default LLM provider"""
     try:
         is_valid, data, error = validate_params(params, ['name'])
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
-        
+
         name = data['name']
-        
+
         llm_manager = get_llm_manager()
 
-        # 验证provider是否存在且已配置
+        # Verify provider exists and is configured
         provider = llm_manager.get_provider(name)
         if not provider:
             return create_error_response(request, 'LLM_ERROR', f"Provider {name} not found")
-        
+
         if not provider['api_key_configured']:
             return create_error_response(request, 'LLM_ERROR', f"Provider {name} is not configured")
-        
-        # 更新general_settings中的default_llm字段
+
+        # Update default_llm field in general_settings
         main_window = AppContext.get_main_window()
         main_window.config_manager.general_settings.default_llm = name
         save_result = main_window.config_manager.general_settings.save()
 
         if not save_result:
             return create_error_response(request, 'LLM_ERROR', f"Failed to save default LLM setting")
-        
+
         logger.info(f"Default LLM set to {name}")
-        
+
         return create_success_response(request, {
             'default_llm': name,
             'message': f'Default LLM set to {name} successfully'
         })
-        
+
     except Exception as e:
         logger.error(f"Error setting default LLM: {e}")
         return create_error_response(request, 'LLM_ERROR', f"Failed to set default LLM: {str(e)}")
@@ -227,16 +227,16 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
 
 @IPCHandlerRegistry.handler('get_default_llm')
 def handle_get_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
-    """获取当前默认的LLM提供商"""
+    """Get current default LLM provider"""
     try:
         main_window = AppContext.get_main_window()
         default_llm = main_window.config_manager.general_settings.default_llm
-        
+
         return create_success_response(request, {
             'default_llm': default_llm,
             'message': 'Default LLM retrieved successfully'
         })
-        
+
     except Exception as e:
         logger.error(f"Error getting default LLM: {e}")
         return create_error_response(request, 'LLM_ERROR', f"Failed to get default LLM: {str(e)}")
@@ -244,12 +244,12 @@ def handle_get_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
 
 @IPCHandlerRegistry.handler('get_configured_llm_providers')
 def handle_get_configured_llm_providers(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
-    """获取已配置的LLM提供商"""
+    """Get configured LLM providers"""
     try:
         llm_manager = get_llm_manager()
         all_providers = llm_manager.get_all_providers()
 
-        # 过滤出已配置的提供商
+        # Filter out configured providers
         configured_providers = [p for p in all_providers if p.get('api_key_configured', False)]
         logger.info(f"Retrieved {len(configured_providers)} configured LLM providers")
 
@@ -265,28 +265,28 @@ def handle_get_configured_llm_providers(request: IPCRequest, params: Optional[Di
 
 @IPCHandlerRegistry.handler('get_llm_provider_api_key')
 def handle_get_llm_provider_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """获取LLM提供商的API key（masked或完整）"""
+    """Get LLM provider's API key (masked or full)"""
     try:
         is_valid, data, error = validate_params(params, ['name'])
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
 
         provider_name = data['name']
-        show_full = data.get('show_full', False)  # 是否显示完整的API key
+        show_full = data.get('show_full', False)  # Whether to show full API key
 
         llm_manager = get_llm_manager()
 
-        # 获取提供商信息
+        # Get provider information
         provider = llm_manager.get_provider(provider_name)
         if not provider:
             return create_error_response(request, 'LLM_ERROR', f"Provider {provider_name} not found")
 
-        # 获取API key环境变量
+        # Get API key environment variables
         env_vars = provider.get('api_key_env_vars', [])
         if not env_vars:
             return create_error_response(request, 'LLM_ERROR', f"Provider {provider_name} has no API key environment variables")
 
-        # 处理需要多个凭据的特殊情况
+        # Handle special cases requiring multiple credentials
         if provider_name == 'AzureOpenAI':
             result = {
                 'provider_name': provider_name,
@@ -294,25 +294,25 @@ def handle_get_llm_provider_api_key(request: IPCRequest, params: Optional[Dict[s
                 'is_masked': not show_full,
                 'message': f'Credentials retrieved for {provider_name}'
             }
-            
-            # 获取Azure endpoint
+
+            # Get Azure endpoint
             if 'AZURE_ENDPOINT' in env_vars:
                 if show_full:
                     endpoint = llm_manager.retrieve_api_key('AZURE_ENDPOINT')
                 else:
                     endpoint = llm_manager._get_masked_api_key('AZURE_ENDPOINT')
                 result['credentials']['azure_endpoint'] = endpoint
-            
-            # 获取Azure OpenAI API key
+
+            # Get Azure OpenAI API key
             if 'AZURE_OPENAI_API_KEY' in env_vars:
                 if show_full:
                     api_key = llm_manager.retrieve_api_key('AZURE_OPENAI_API_KEY')
                 else:
                     api_key = llm_manager._get_masked_api_key('AZURE_OPENAI_API_KEY')
                 result['credentials']['api_key'] = api_key
-            
+
             return create_success_response(request, result)
-        
+
         elif provider_name == 'ChatBedrockConverse':
             result = {
                 'provider_name': provider_name,
@@ -320,34 +320,34 @@ def handle_get_llm_provider_api_key(request: IPCRequest, params: Optional[Dict[s
                 'is_masked': not show_full,
                 'message': f'Credentials retrieved for {provider_name}'
             }
-            
-            # 获取AWS Access Key ID
+
+            # Get AWS Access Key ID
             if 'AWS_ACCESS_KEY_ID' in env_vars:
                 if show_full:
                     access_key_id = llm_manager.retrieve_api_key('AWS_ACCESS_KEY_ID')
                 else:
                     access_key_id = llm_manager._get_masked_api_key('AWS_ACCESS_KEY_ID')
                 result['credentials']['aws_access_key_id'] = access_key_id
-            
-            # 获取AWS Secret Access Key
+
+            # Get AWS Secret Access Key
             if 'AWS_SECRET_ACCESS_KEY' in env_vars:
                 if show_full:
                     secret_access_key = llm_manager.retrieve_api_key('AWS_SECRET_ACCESS_KEY')
                 else:
                     secret_access_key = llm_manager._get_masked_api_key('AWS_SECRET_ACCESS_KEY')
                 result['credentials']['aws_secret_access_key'] = secret_access_key
-            
+
             return create_success_response(request, result)
-        
+
         else:
-            # 处理其他提供商 - 使用第一个环境变量
-            env_var = env_vars[0]  # 使用第一个环境变量
+            # Handle other providers - use first environment variable
+            env_var = env_vars[0]  # Use first environment variable
 
             if show_full:
-                # 返回完整的API key（仅用于显示，需要谨慎使用）
+                # Return full API key (for display only, use with caution)
                 api_key = llm_manager.retrieve_api_key(env_var)
             else:
-                # 返回masked的API key
+                # Return masked API key
                 api_key = llm_manager._get_masked_api_key(env_var)
 
             if api_key is None:

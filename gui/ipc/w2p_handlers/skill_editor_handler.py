@@ -47,14 +47,14 @@ from app_context import AppContext
 
 @IPCHandlerRegistry.handler('run_skill')
 def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理获取可用测试项请求
+    """Handle get available test items request
 
     Args:
-        request: IPC 请求对象
+        request: IPC request object
         params: None
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Get start skill run handler called with request: {request}")
@@ -92,14 +92,14 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
 
 @IPCHandlerRegistry.handler('cancel_run_skill')
 def handle_cancel_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理获取可用测试项请求
+    """Handle get available test items request
 
     Args:
-        request: IPC 请求对象
+        request: IPC request object
         params: None
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Get cancel skill run called with request: {request}")
@@ -124,14 +124,14 @@ def handle_cancel_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCRe
 
 @IPCHandlerRegistry.handler('pause_run_skill')
 def handle_pause_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理获取可用测试项请求
+    """Handle get available test items request
 
     Args:
-        request: IPC 请求对象
+        request: IPC request object
         params: None
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Get pause skill run request: {request}")
@@ -156,14 +156,14 @@ def handle_pause_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCRes
 
 @IPCHandlerRegistry.handler('resume_run_skill')
 def handle_resume_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理获取可用测试项请求
+    """Handle get available test items request
 
     Args:
-        request: IPC 请求对象
+        request: IPC request object
         params: None
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Get resume skill run called with request: {request}")
@@ -188,14 +188,14 @@ def handle_resume_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCRe
 
 @IPCHandlerRegistry.handler('step_run_skill')
 def handle_step_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理获取可用测试项请求
+    """Handle get available test items request
 
     Args:
-        request: IPC 请求对象
+        request: IPC request object
         params: None
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Get single step skill run called with request: {request}")
@@ -220,14 +220,14 @@ def handle_step_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResp
 
 @IPCHandlerRegistry.handler('set_skill_breakpoints')
 def handle_set_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理获取可用测试项请求
+    """Handle get available test items request
 
     Args:
-        request: IPC 请求对象
+        request: IPC request object
         params: None
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Get setting skill breakpoints with request: {request}")
@@ -255,14 +255,14 @@ def handle_set_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -> 
 
 @IPCHandlerRegistry.handler('clear_skill_breakpoints')
 def handle_clear_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理获取可用测试项请求
+    """Handle get available test items request
 
     Args:
-        request: IPC 请求对象
+        request: IPC request object
         params: None
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Get clearing skill breakpoints with request: {request}")
@@ -287,14 +287,14 @@ def handle_clear_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -
 
 @IPCHandlerRegistry.handler('request_skill_state')
 def handle_request_skill_state(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理获取可用测试项请求
+    """Handle get available test items request
 
     Args:
-        request: IPC 请求对象
+        request: IPC request object
         params: None
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Get current skill run state: {request}")
@@ -314,14 +314,14 @@ def handle_request_skill_state(request: IPCRequest, params: Optional[Any]) -> IP
 
 @IPCHandlerRegistry.handler('inject_skill_state')
 def handle_inject_skill_state(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理获取可用测试项请求
+    """Handle get available test items request
 
     Args:
-        request: IPC 请求对象
+        request: IPC request object
         params: None
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"injecting skill state: {request}")
@@ -342,14 +342,14 @@ def handle_inject_skill_state(request: IPCRequest, params: Optional[Any]) -> IPC
 
 @IPCHandlerRegistry.handler('load_skill_schemas')
 def handle_load_skill_schemas(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理获取可用测试项请求
+    """Handle get available test items request
 
     Args:
-        request: IPC 请求对象
+        request: IPC request object
         params: None
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"loading skill schemas: {request}")
