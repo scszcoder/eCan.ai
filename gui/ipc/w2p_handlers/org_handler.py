@@ -218,7 +218,7 @@ def handle_delete_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
 
         username = data['username']
         organization_id = data['organization_id']
-        force = data.get('force', False)  # 获取force参数，默认为False
+        force = data.get('force', False)  # Get force parameter, default to False
         
         logger.info(f"[organizations_handler] Deleting organization {organization_id} for user: {username}, force: {force}")
         

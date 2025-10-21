@@ -402,7 +402,8 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                         initialMsgs = (res.data as any).data;
                     }
                     
-                    setPageMessages(initialMsgs);
+                    // 使用 mergeAndSortMessages 确保消息按时间升序排列（老消息在前，新消息在后）
+                    setPageMessages(mergeAndSortMessages(initialMsgs));
                     setOffset(initialMsgs.length);
                     setHasMore(initialMsgs.length === PAGE_SIZE);
                     

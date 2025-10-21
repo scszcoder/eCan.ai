@@ -12,21 +12,21 @@ from agent.mcp.server import tool_schemas as mcp_tool_schemas
 
 @IPCHandlerRegistry.handler('get_tools')
 def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理登录请求
+    """Handle login request
 
-    验证用户凭据并返回访问令牌。
+    Validate user credentials and return access token.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        request: IPC request object
+        params: Request parameters, must contain 'username' and 'password' fields
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Get tools handler called with request: {request}")
 
-        # 验证参数
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
             logger.warning(f"Invalid parameters for get tools: {error}")
@@ -36,7 +36,7 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
                 error
             )
 
-        # 获取用户名和密码
+        # Get username and password
         username = data['username']
         logger.info(f"get tools successful for user: {username}")
 
@@ -61,21 +61,21 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
 
 @IPCHandlerRegistry.handler('new_tools')
 def handle_new_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理登录请求
+    """Handle login request
 
-    验证用户凭据并返回访问令牌。
+    Validate user credentials and return access token.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        request: IPC request object
+        params: Request parameters, must contain 'username' and 'password' fields
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Create tools handler called with request: {request}")
 
-        # 验证参数
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
             logger.warning(f"Invalid parameters for create tools: {error}")
@@ -85,7 +85,7 @@ def handle_new_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
                 error
             )
 
-        # 获取用户名和密码
+        # Get username and password
         username = data['username']
         logger.info(f"create tools successful for user: {username}")
 
@@ -112,21 +112,21 @@ def handle_new_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
 
 @IPCHandlerRegistry.handler('delete_tools')
 def handle_delete_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理登录请求
+    """Handle login request
 
-    验证用户凭据并返回访问令牌。
+    Validate user credentials and return access token.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        request: IPC request object
+        params: Request parameters, must contain 'username' and 'password' fields
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Delete tools handler called with request: {request}")
 
-        # 验证参数
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
             logger.warning(f"Invalid parameters for delete tools: {error}")
@@ -136,7 +136,7 @@ def handle_delete_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                 error
             )
 
-        # 获取用户名和密码
+        # Get username and password
         username = data['username']
         logger.info(f"delete tools successful for user: {username}")
 
