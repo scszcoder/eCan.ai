@@ -10,7 +10,6 @@ import {
   createBatchOutputsFormPlugin,
   DisplayOutputs,
   IFlowRefValue,
-  provideBatchInputEffect,
 } from '@flowgram.ai/form-materials';
 
 import { defaultFormMeta } from '../default-form-meta';
@@ -24,7 +23,7 @@ interface LoopNodeJSON extends FlowNodeJSON {
   };
 }
 
-export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
+export const LoopFormRender = ({}: FormRenderProps<LoopNodeJSON>) => {
   const isSidebar = useIsSidebar();
   const { readonly } = useNodeRenderContext();
   const formHeight = 85;
@@ -115,7 +114,7 @@ export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
           {/* Show loopFor selector only when loopMode is loopFor */}
           <Field<string> name={'loopMode'}>
             {({ field: modeField }) => (
-              modeField.value === 'loopFor' ? loopFor : null
+              modeField.value === 'loopFor' ? loopFor : <></>
             )}
           </Field>
           {loopOutputs}
@@ -130,7 +129,7 @@ export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
         {loopModeAndExpr}
         <Field<string> name={'loopMode'}>
           {({ field: modeField }) => (
-            modeField.value === 'loopFor' ? loopFor : null
+            modeField.value === 'loopFor' ? loopFor : <></>
           )}
         </Field>
         <SubCanvasRender offsetY={-formHeight} />

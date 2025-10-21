@@ -3,18 +3,15 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { FormRenderProps, FormMeta, ValidateTrigger, Field } from '@flowgram.ai/free-layout-editor';
-import { IFlowValue, InputsValues, createInferInputsPlugin, DisplayOutputs } from '@flowgram.ai/form-materials';
+import { FormRenderProps, FormMeta, ValidateTrigger } from '@flowgram.ai/free-layout-editor';
+import { createInferInputsPlugin, DisplayOutputs } from '@flowgram.ai/form-materials';
 
 import { FlowNodeJSON } from '../../typings';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormHeader, FormContent, FormInputs } from '../../form-components';
 import { FormCallable } from '../../form-components/form-callable';
-import { useNodeStateSchema } from '../../../../stores/nodeStateSchemaStore';
-import NodeStatePanel from '../../components/node-state/NodeStatePanel';
 
 export const renderForm = (_props: FormRenderProps<FlowNodeJSON>) => {
-  const { schema, loading } = useNodeStateSchema();
 
   return (
     <>
@@ -46,7 +43,7 @@ export const formMeta: FormMeta<FlowNodeJSON> = {
   effect: {
     ...defaultFormMeta.effect,
     // When tool selection changes, project its params schema into data.inputs
-    'data.callable': [({ form, formValues }) => {
+    'data.callable': [({ form, formValues }: any) => {
       try { console.log('[MCP] MCP effect data.callable triggered with:', (formValues as any)?.data?.callable); } catch {}
       try {
         const callable = (formValues as any)?.data?.callable;
@@ -72,7 +69,8 @@ export const formMeta: FormMeta<FlowNodeJSON> = {
         };
         const properties: Record<string, any> = {};
         Object.keys(rawProperties).forEach((k) => {
-          const def = { ...(rawProperties as any)[k] } || {};
+          const rawDef = (rawProperties as any)[k];
+          const def = rawDef ? { ...rawDef } : {};
           const nt = normalizeType(def.type);
           if (typeof nt === 'object' && nt && 'type' in nt) {
             properties[k] = { ...def, ...nt };
@@ -122,7 +120,7 @@ export const formMeta: FormMeta<FlowNodeJSON> = {
         try { console.log('[MCP] Prefilled inputsValues(required):', currentInputsValues); } catch {}
       } catch {}
     }],
-  },
+  } as any,
   plugins: [
     createInferInputsPlugin({ sourceKey: 'inputsValues', targetKey: 'inputs' }),
   ],
