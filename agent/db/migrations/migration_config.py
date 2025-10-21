@@ -6,10 +6,10 @@ avoiding the need to load all migration scripts just to determine
 the latest version.
 """
 
-# 当前支持的最新数据库版本
+# Current supported latest database version
 LATEST_DATABASE_VERSION = "3.0.5"
 
-# 版本历史记录 (用于快速版本比较和路径计算)
+# Version history (for quick version comparison and path calculation)
 VERSION_HISTORY = [
     "1.0.0",
     "1.0.1",
@@ -22,7 +22,7 @@ VERSION_HISTORY = [
     "3.0.5"
 ]
 
-# 版本依赖关系 (version -> previous_version)
+# Version dependencies (version -> previous_version)
 VERSION_DEPENDENCIES = {
     "1.0.1": "1.0.0",
     "2.0.0": "1.0.1",

@@ -106,9 +106,9 @@ class HardwareDetector:
             if result.returncode == 0:
                 printer_lines = result.stdout.strip().split('\n')
                 for line in printer_lines:
-                    if line and ('正在接受请求' in line or 'accepting requests' in line):
+                    if line and ('accepting requests' in line or 'idle' in line):
                         # Extract printer name (first word before space or status text)
-                        printer_name = line.split('正在接受请求')[0].split('accepting requests')[0].strip()
+                        printer_name = line.split('accepting requests')[0].split('idle')[0].strip()
                         if printer_name and printer_name not in printers:
                             printers.append(printer_name)
                 logger.debug(f"Found {len(printers)} printers via lpstat -a")

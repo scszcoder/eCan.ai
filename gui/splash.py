@@ -355,12 +355,12 @@ class ThemedSplashScreen(QWidget):
                 "VERSION",  # Current directory
             ]
 
-        # 使用统一的版本读取函数
+        # Use unified version reading function
         try:
             from utils.app_setup_helper import read_version_file
             return read_version_file(try_paths)
         except ImportError:
-            # 如果导入失败，使用原来的逻辑作为备用
+            # If import fails, use original logic as fallback
             for p in try_paths:
                 try:
                     # Check if it's a file

@@ -44,11 +44,11 @@ class BotService:
         self.main_win = main_win
         self.session = session
         self.engine = engine
-        # 传递 engine 参数给 sync_table_columns
+        # Pass engine parameter to sync_table_columns
         sync_table_columns(BotModel, "bots", engine)
 
     def delete_bots_by_botid(self, botid):
-        # 构建删除表达式
+        # Build delete statement
         delete_stmt = delete(BotModel).where(BotModel.botid == botid)
         # 执行删除
         result = self.session.execute(delete_stmt)
@@ -198,7 +198,7 @@ class BotService:
 
     def describe_table(self):
         inspector = inspect(BotModel)
-        # 打印表结构信息
+        # Print table structure information
         print(f"{BotModel.__tablename__} Table column definitions:")
         for column in inspector.columns:
             logger_helper.debug(

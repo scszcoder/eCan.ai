@@ -123,7 +123,7 @@ class UnifiedBrowserManager:
         if self._playwright_manager and self._playwright_manager.is_initialized():
             browsers_path = self._playwright_manager.get_browsers_path()
             if browsers_path:
-                # 使用统一的环境变量设置函数
+                # Use unified environment variable setting function
                 core_utils.set_environment_variables(Path(browsers_path))
                 logger.debug(f"Set crawler environment variables using core_utils: {browsers_path}")
             else:

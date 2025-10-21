@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-LLM Provider Types - 简化的数据结构
+LLM Provider Types - Simplified data structures
 """
 
 from typing import List, Dict, Any, Optional
@@ -10,13 +10,13 @@ from dataclasses import dataclass
 
 @dataclass
 class LLMProvider:
-    """LLM Provider数据结构 - 简化版"""
+    """LLM Provider data structure - simplified version"""
     name: str
     display_name: str
-    api_key: Optional[str]  # 直接存储API key值，从环境变量获取
+    api_key: Optional[str]  # Store API key value directly, obtained from environment variables
 
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
+        """Convert to dictionary"""
         return {
             'name': self.name,
             'display_name': self.display_name,
@@ -26,7 +26,7 @@ class LLMProvider:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'LLMProvider':
-        """从字典创建实例"""
+        """Create instance from dictionary"""
         return cls(
             name=data['name'],
             display_name=data['display_name'],
@@ -35,11 +35,11 @@ class LLMProvider:
 
 
 class LLMProviderManager:
-    """LLM Provider管理器 - 简化版"""
+    """LLM Provider manager - simplified version"""
 
     @staticmethod
     def mask_api_key(api_key: Optional[str]) -> str:
-        """掩码显示API key"""
+        """Mask display API key"""
         if not api_key:
             return ''
         if len(api_key) <= 10:
@@ -48,10 +48,10 @@ class LLMProviderManager:
 
     @staticmethod
     def providers_to_dict_list(providers: List[LLMProvider]) -> List[Dict[str, Any]]:
-        """将providers列表转换为字典列表"""
+        """Convert providers list to dictionary list"""
         return [provider.to_dict() for provider in providers]
 
     @staticmethod
     def providers_from_dict_list(data: List[Dict[str, Any]]) -> List[LLMProvider]:
-        """从字典列表创建providers列表"""
+        """Create providers list from dictionary list"""
         return [LLMProvider.from_dict(item) for item in data]

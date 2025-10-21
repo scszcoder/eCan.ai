@@ -10,10 +10,10 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, declarative_base
 from typing import Optional
 
-# 统一 Base，所有表都继承这个 Base
+# Unified Base, all tables inherit from this Base
 Base = declarative_base()
 
-# 默认数据库文件名
+# Default database filename
 ECAN_BASE_DB = "ecan_base.db"
 
 

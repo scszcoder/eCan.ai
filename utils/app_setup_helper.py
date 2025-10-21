@@ -12,10 +12,10 @@ except ImportError:
 
 def get_app_user_model_id():
     """
-    统一获取 AppUserModelID 的函数
+    Unified function to get AppUserModelID
 
     Returns:
-        str: AppUserModelID，如果读取失败则返回默认值
+        str: AppUserModelID, returns default value if reading fails
     """
     try:
         import json
@@ -30,13 +30,13 @@ def get_app_user_model_id():
 
 def set_windows_app_user_model_id(logger=None):
     """
-    统一设置 Windows AppUserModelID 的函数
+    Unified function to set Windows AppUserModelID
 
     Args:
-        logger: 可选的日志记录器
+        logger: Optional logger
 
     Returns:
-        tuple: (app_id, result) - AppUserModelID 和设置结果
+        tuple: (app_id, result) - AppUserModelID and setting result
     """
     if sys.platform != 'win32':
         return None, False
@@ -59,25 +59,25 @@ def set_windows_app_user_model_id(logger=None):
 
 def read_version_file(version_paths, logger=None):
     """
-    统一的版本文件读取函数，支持开发环境和打包环境
+    Unified version file reading function, supports development and packaged environments
 
     Args:
-        version_paths: 要尝试的版本文件路径列表
-        logger: 可选的日志记录器
+        version_paths: List of version file paths to try
+        logger: Optional logger
 
     Returns:
-        str: 读取到的版本号，如果失败返回 "1.0.0"
+        str: Version number read, returns "1.0.0" if failed
     """
     for version_path in version_paths:
         if logger:
             logger.debug(f"Trying VERSION file path: {version_path}")
 
-        # 检查是否是文件
+        # Check if it's a file
         if os.path.exists(version_path) and os.path.isfile(version_path):
             try:
                 with open(version_path, "r", encoding="utf-8") as f:
                     version_content = f.read().strip()
-                    if version_content:  # 确保不为空
+                    if version_content:  # Ensure not empty
                         if logger:
                             logger.info(f"VERSION file found at: {version_path}, version: {version_content}")
                         return version_content
@@ -85,7 +85,7 @@ def read_version_file(version_paths, logger=None):
                 if logger:
                     logger.warning(f"Failed to read VERSION file at {version_path}: {read_error}")
                 continue
-        # 检查是否是包含 VERSION 文件的目录（PyInstaller 打包情况）
+        # Check if it's a directory containing VERSION file (PyInstaller packaged case)
         elif os.path.exists(version_path) and os.path.isdir(version_path):
             nested_version_path = os.path.join(version_path, "VERSION")
             if logger:
@@ -94,7 +94,7 @@ def read_version_file(version_paths, logger=None):
                 try:
                     with open(nested_version_path, "r", encoding="utf-8") as f:
                         version_content = f.read().strip()
-                        if version_content:  # 确保不为空
+                        if version_content:  # Ensure not empty
                             if logger:
                                 logger.info(f"VERSION file found in directory at: {nested_version_path}, version: {version_content}")
                             return version_content
@@ -109,7 +109,7 @@ def read_version_file(version_paths, logger=None):
             if logger:
                 logger.debug(f"VERSION file not found at: {version_path}")
 
-    # 如果所有路径都失败，返回默认版本
+    # If all paths fail, return default version
     if logger:
         logger.warning(f"VERSION file not found in any of the attempted paths: {version_paths}")
     return "1.0.0"
@@ -185,7 +185,7 @@ def setup_application_info(app, logger=None):
                     "VERSION",  # Current directory
                 ]
 
-            # 使用统一的版本读取函数
+            # Use unified version reading function
             version = read_version_file(version_paths, logger)
 
         except Exception as e:
@@ -336,26 +336,26 @@ def set_windows_taskbar_icon(app, icon_path, logger=None, target_window=None):
         return False
 
     try:
-        # 设置应用程序用户模型ID
+        # Set application user model ID
         app_id, _ = set_windows_app_user_model_id(logger)
 
-        # 只处理ICO文件
+        # Only handle ICO files
         if not icon_path.endswith('.ico'):
             return False
 
         user32 = ctypes.windll.user32
 
-        # 获取窗口句柄
+        # Get window handle
         hwnd = None
 
-        # 优先使用指定的目标窗口
+        # Prefer using specified target window
         if target_window:
             try:
                 hwnd = int(target_window.winId())
             except:
                 pass
 
-        # 备选方案：从Qt应用获取活动窗口
+        # Fallback: get active window from Qt application
         if not hwnd:
             try:
                 main_window = app.activeWindow()
@@ -364,7 +364,7 @@ def set_windows_taskbar_icon(app, icon_path, logger=None, target_window=None):
             except:
                 pass
 
-        # 最后方案：遍历顶级窗口
+        # Last resort: iterate through top-level windows
         if not hwnd:
             try:
                 for widget in app.topLevelWidgets():
@@ -379,12 +379,12 @@ def set_windows_taskbar_icon(app, icon_path, logger=None, target_window=None):
                 logger.warning("Could not get window handle")
             return False
 
-        # 加载并设置图标（标准实现：优先使用EXE资源，其次文件，最后后备）
+        # Load and set icon (standard implementation: prefer EXE resource, then file, finally fallback)
         try:
             user32 = ctypes.windll.user32
             success = False
 
-            # 1) 优先从可执行文件资源中提取图标（EXE 内嵌，多尺寸，最稳定）
+            # 1) Prefer extracting icon from executable resource (EXE embedded, multi-size, most stable)
             try:
                 exe_path = sys.executable if getattr(sys, 'frozen', False) else None
                 if exe_path and os.path.exists(exe_path):
@@ -408,7 +408,7 @@ def set_windows_taskbar_icon(app, icon_path, logger=None, target_window=None):
                 if logger:
                     logger.debug(f"Resource icon extract failed: {e}")
 
-            # 2) 若资源方式未成功，退回基于文件路径加载（eCan.ico）
+            # 2) If resource method unsuccessful, fall back to file path loading (eCan.ico)
             if not success:
                 LR_LOADFROMFILE = 0x00000010
                 LR_DEFAULTSIZE = 0x00000040
@@ -433,7 +433,7 @@ def set_windows_taskbar_icon(app, icon_path, logger=None, target_window=None):
                     if logger:
                         logger.debug("Set small icon for title bar")
 
-                # 3) 文件方式仍失败 => 使用资源目录中的多尺寸ICO作为后备
+                # 3) File method still failed => use multi-size ICO in resource directory as fallback
                 if not success:
                     try:
                         from config.app_info import app_info as _ai
@@ -459,7 +459,7 @@ def set_windows_taskbar_icon(app, icon_path, logger=None, target_window=None):
                         pass
 
             if success:
-                # 刷新窗口与任务栏
+                # Refresh window and taskbar
                 user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0020 | 0x0004 | 0x0001)  # SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOSIZE
                 try:
                     user32.UpdateWindow(hwnd)
@@ -485,14 +485,13 @@ def set_windows_taskbar_icon(app, icon_path, logger=None, target_window=None):
 
 def check_ico_quality(logger=None):
     """
-    简单检查ICO文件质量
     Simple ICO file quality check
     """
     if sys.platform != 'win32':
         return True
 
     try:
-        # 查找主ICO文件
+        # Find main ICO file
         ico_path = os.path.join(os.path.dirname(app_info.app_resources_path), "eCan.ico")
 
         if not os.path.exists(ico_path):
@@ -500,10 +499,10 @@ def check_ico_quality(logger=None):
                 logger.warning("eCan.ico not found")
             return False
 
-        # 简单的大小检查（处理PyInstaller一体包启动早期的解压延迟）
+        # Simple size check (handle PyInstaller one-file package early startup extraction delay)
         file_size = os.path.getsize(ico_path)
         if file_size == 0 and "_internal" in ico_path:
-            # 在一体包中，启动早期可能文件尚未完全写入；重试几次
+            # In one-file package, file may not be fully written during early startup; retry a few times
             for _ in range(10):
                 time.sleep(0.1)
                 try:
@@ -513,7 +512,7 @@ def check_ico_quality(logger=None):
                 except Exception:
                     pass
 
-        if file_size < 5000:  # 5KB minimum（过小的ICO通常缺少16/32尺寸或仅含PNG）
+        if file_size < 5000:  # 5KB minimum (too small ICO usually lacks 16/32 sizes or only contains PNG)
             if logger:
                 logger.warning(f"ICO file too small ({file_size} bytes)")
             return False
@@ -563,7 +562,7 @@ def clear_windows_icon_cache(logger=None):
             if logger:
                 logger.debug(f"Registry cache clear failed: {e}")
 
-        # 删除文件系统图标缓存
+        # Delete file system icon cache
         cache_dir = os.path.expandvars(r'%LOCALAPPDATA%\Microsoft\Windows\Explorer')
         import glob
 
@@ -574,7 +573,7 @@ def clear_windows_icon_cache(logger=None):
                     os.remove(cache_file)
                     deleted_count += 1
                 except Exception:
-                    pass  # 文件可能正在使用，忽略错误
+                    pass  # File may be in use, ignore error
 
         # Force icon refresh using Windows API
         try:
@@ -603,12 +602,12 @@ def clear_windows_icon_cache(logger=None):
             logger.warning(f"Icon cache clearing failed: {e}")
         return False
 
-# 全局标志，避免重复执行图标修复
+# Global flag to avoid repeated icon fix execution
 _icon_fix_executed = False
 
 def verify_taskbar_icon_setting(target_window=None, logger=None):
     """
-    验证taskbar图标是否正确设置
+    Verify if taskbar icon is correctly set
     """
     if sys.platform != 'win32':
         return True
@@ -617,7 +616,7 @@ def verify_taskbar_icon_setting(target_window=None, logger=None):
         import ctypes
         user32 = ctypes.windll.user32
 
-        # 获取窗口句柄
+        # Get window handle
         hwnd = None
         if target_window:
             try:
@@ -630,7 +629,7 @@ def verify_taskbar_icon_setting(target_window=None, logger=None):
                 logger.debug("No window handle available for verification")
             return False
 
-        # 检查窗口图标是否已设置
+        # Check if window icon is set
         hicon_large = user32.SendMessageW(hwnd, 0x007F, 1, 0)  # WM_GETICON, ICON_LARGE
         hicon_small = user32.SendMessageW(hwnd, 0x007F, 0, 0)  # WM_GETICON, ICON_SMALL
 
@@ -653,7 +652,7 @@ def set_app_icon(app, logger=None):
     """
     global _icon_fix_executed
 
-    # Windows图标修复：检查ICO质量并清除缓存（只执行一次）
+    # Windows icon fix: check ICO quality and clear cache (execute only once)
     if sys.platform == 'win32' and not _icon_fix_executed:
         check_ico_quality(logger)
         clear_windows_icon_cache(logger)
@@ -841,7 +840,7 @@ def set_app_icon_delayed(app, logger=None):
     from PySide6.QtCore import QTimer
 
     def delayed_setup():
-        # 尝试找到WebGUI主窗口
+        # Try to find WebGUI main window
         main_window = None
         for widget in app.topLevelWidgets():
             if widget.isVisible() and widget.__class__.__name__ == 'WebGUI':
@@ -862,7 +861,7 @@ def set_app_icon_delayed(app, logger=None):
                 if logger:
                     logger.warning(f"Delayed icon setup failed: {e}")
 
-    # 更短首延迟+有界重试，尽早设置且确保主窗体就绪
+    # Shorter initial delay + bounded retry, set early and ensure main window is ready
     _attempts = {'n': 0}
     def _try_set():
         _attempts['n'] += 1

@@ -20,17 +20,17 @@ class DBAgentSkill(BaseModel, TimestampMixin, ExtensibleMixin):
     name = Column(String(128), nullable=False)
     owner = Column(String(128), nullable=False)
     description = Column(Text)
-    version = Column(String(128), nullable=False)  # 改为 version，与 EC_Skill 一致
+    version = Column(String(128), nullable=False)  # Changed to version, consistent with EC_Skill
     path = Column(Text)
-    level = Column(String(64))  # 改为 String，与 EC_Skill 一致 (entry/intermediate/advanced)
+    level = Column(String(64))  # Changed to String, consistent with EC_Skill (entry/intermediate/advanced)
     config = Column(JSON)
     diagram = Column(JSON)  # Flowgram diagram data (nodes, edges, etc.)
-    # 添加 EC_Skill 中的字段
+    # Fields added from EC_Skill
     tags = Column(JSON)  # List[str] | None
     examples = Column(JSON)  # List[str] | None
     inputModes = Column(JSON)  # List[str] | None
     outputModes = Column(JSON)  # List[str] | None
-    # 保留原有的扩展字段
+    # Keep original extension fields
     apps = Column(JSON)
     limitations = Column(JSON)
     price = Column(Integer, default=0)

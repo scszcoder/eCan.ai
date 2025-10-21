@@ -426,7 +426,7 @@ class MenuManager:
                         "VERSION",  # Current directory
                     ]
 
-                # 使用统一的版本读取函数
+                # Use unified version reading function
                 from utils.app_setup_helper import read_version_file
                 version = read_version_file(version_paths)
             except Exception:
@@ -510,8 +510,8 @@ class MenuManager:
             # Local server URL input
             local_url_layout = QHBoxLayout()
             local_url_label = QLabel("Local Server URL:")
-            
-            # 从配置中获取默认URL
+
+            # Get default URL from config
             try:
                 from ota.core.config import ota_config
                 default_url = ota_config.config.get("local_server_url", "http://127.0.0.1:8080")
@@ -568,15 +568,15 @@ class MenuManager:
             QMessageBox.warning(self.main_window, "Error", "Failed to open settings")
     
     def save_ota_settings(self, dialog=None):
-        """保存OTA设置"""
+        """Save OTA settings"""
         try:
             from ota.core.config import ota_config
-            
-            # 保存服务器选择
+
+            # Save server selection
             use_local = self.local_server_radio.isChecked()
             ota_config.set_use_local_server(use_local)
-            
-            # 保存本地服务器URL
+
+            # Save local server URL
             local_url = self.local_url_input.text().strip()
             if local_url:
                 ota_config.set_local_server_url(local_url)
@@ -592,26 +592,26 @@ class MenuManager:
             QMessageBox.warning(self.main_window, "Error", f"Failed to save settings: {e}")
     
     def start_local_ota_server(self):
-        """启动本地OTA测试服务器"""
+        """Start local OTA test server"""
         try:
             import subprocess
             import sys
             from pathlib import Path
-            
-            # 获取启动脚本路径
+
+            # Get startup script path
             project_root = Path(__file__).parent.parent
             start_script = project_root / "ota" / "start_local_server.py"
-            
+
             if not start_script.exists():
                 QMessageBox.warning(self.main_window, "Error", f"Local server script not found: {start_script}")
                 return
-            
-            # 在新的命令行窗口中启动服务器
+
+            # Start server in new command line window
             from utils.subprocess_helper import popen_no_window
             if sys.platform == "win32":
                 # Windows
                 popen_no_window([
-                    "cmd", "/c", "start", "cmd", "/k", 
+                    "cmd", "/c", "start", "cmd", "/k",
                     f"python \"{start_script}\""
                 ], shell=True)
             else:
@@ -619,8 +619,8 @@ class MenuManager:
                 popen_no_window([
                     "gnome-terminal", "--", "python", str(start_script)
                 ])
-            
-            # 获取本地服务器URL用于显示
+
+            # Get local server URL for display
             try:
                 from ota.core.config import ota_config
                 server_url = ota_config.config.get("local_server_url", "http://127.0.0.1:8080")

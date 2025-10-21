@@ -1,7 +1,7 @@
 """
-系统信息管理模块
+System Information Management Module
 
-提供系统信息获取、设备识别、性能监控等功能
+Provides system information retrieval, device identification, and performance monitoring
 """
 
 import os
@@ -15,15 +15,15 @@ from utils.logger_helper import logger_helper as logger
 
 
 class SystemInfoManager:
-    """系统信息管理器"""
+    """System Information Manager"""
     
     def __init__(self):
         self._cache = {}
-        self._cache_timeout = 300  # 5分钟缓存
+        self._cache_timeout = 300  # 5-minute cache
         self._last_update = 0
     
     def get_friendly_machine_name(self) -> str:
-        """获取用户友好的机器名称"""
+        """Get user-friendly machine name"""
         cache_key = 'machine_name'
         if self._is_cache_valid(cache_key):
             return self._cache[cache_key]
@@ -31,7 +31,7 @@ class SystemInfoManager:
         try:
             machine_name = None
             
-            # 方法1: 尝试获取系统显示名称 (macOS)
+            # Method 1: Try to get system display name (macOS)
             if platform.system() == 'Darwin':
                 try:
                     result = subprocess.run(['scutil', '--get', 'ComputerName'], 
@@ -41,13 +41,13 @@ class SystemInfoManager:
                 except Exception as e:
                     logger.debug(f"Failed to get macOS computer name: {e}")
             
-            # 方法2: 尝试获取 Windows 计算机名
+            # Method 2: Try to get Windows computer name
             elif platform.system() == 'Windows':
                 try:
-                    # 优先使用 COMPUTERNAME 环境变量
+                    # Prefer COMPUTERNAME environment variable
                     machine_name = os.environ.get('COMPUTERNAME')
                     
-                    # 如果没有，尝试使用 wmic 获取更友好的名称
+                    # If not available, try using wmic for friendlier name
                     if not machine_name:
                         result = subprocess.run(['wmic', 'computersystem', 'get', 'name'], 
                                               capture_output=True, text=True, timeout=2)
@@ -56,21 +56,21 @@ class SystemInfoManager:
                             if len(lines) > 1:
                                 machine_name = lines[1].strip()
                     
-                    # 尝试获取用户友好的显示名称
+                    # Try to get user-friendly display name
                     if machine_name:
                         try:
-                            # 获取当前用户名
+                            # Get current username
                             username = os.environ.get('USERNAME', '')
                             if username and machine_name != username:
-                                # 如果机器名不是用户名，组合显示
-                                machine_name = f"{username} 的 {machine_name}"
+                                # If machine name is not username, combine for display
+                                machine_name = f"{username}'s {machine_name}"
                         except Exception:
                             pass
                             
                 except Exception as e:
                     logger.debug(f"Failed to get Windows computer name: {e}")
             
-            # 方法3: 使用用户名 + 系统类型
+            # Method 3: Use username + system type
             if not machine_name:
                 try:
                     username = os.getlogin()
@@ -79,11 +79,11 @@ class SystemInfoManager:
                 except Exception as e:
                     logger.debug(f"Failed to generate username-based name: {e}")
             
-            # 方法4: 回退到主机名
+            # Method 4: Fallback to hostname
             if not machine_name:
                 machine_name = platform.node() or socket.gethostname()
             
-            # 清理名称 (移除域名后缀等)
+            # Clean name (remove domain suffix, etc.)
             if machine_name and '.' in machine_name:
                 machine_name = machine_name.split('.')[0]
             
@@ -97,7 +97,7 @@ class SystemInfoManager:
             return socket.gethostname() or "Unknown-Computer"
     
     def get_device_type(self) -> str:
-        """智能识别设备类型"""
+        """Intelligently identify device type"""
         cache_key = 'device_type'
         if self._is_cache_valid(cache_key):
             return self._cache[cache_key]
@@ -105,7 +105,7 @@ class SystemInfoManager:
         try:
             system = platform.system()
             
-            # macOS 设备类型识别
+            # macOS device type identification
             if system == 'Darwin':
                 try:
                     result = subprocess.run(['sysctl', '-n', 'hw.model'], 
@@ -131,70 +131,70 @@ class SystemInfoManager:
                             else:
                                 device_type = "Mac"
                         else:
-                            device_type = "Mac 电脑"
+                            device_type = "Mac Computer"
                     else:
-                        device_type = "Mac 电脑"
+                        device_type = "Mac Computer"
                 except Exception as e:
                     logger.debug(f"Failed to get macOS device model: {e}")
-                    device_type = "Mac 电脑"
+                    device_type = "Mac Computer"
             
-            # Windows 设备类型识别
+            # Windows device type identification
             elif system == 'Windows':
                 try:
-                    # 方法1: 检查系统类型
+                    # Method 1: Check system type
                     result = subprocess.run(['wmic', 'computersystem', 'get', 'PCSystemType'], 
                                           capture_output=True, text=True, timeout=2)
                     if result.returncode == 0 and '2' in result.stdout:  # 2 = Mobile
-                        device_type = "Windows 笔记本"
+                        device_type = "Windows Laptop"
                     else:
-                        # 方法2: 检查电池存在性
+                        # Method 2: Check battery presence
                         try:
                             battery_result = subprocess.run(['wmic', 'path', 'win32_battery', 'get', 'name'], 
                                                           capture_output=True, text=True, timeout=2)
                             if battery_result.returncode == 0 and battery_result.stdout.strip():
-                                # 有电池信息，可能是笔记本
+                                # Has battery info, likely a laptop
                                 lines = battery_result.stdout.strip().split('\n')
                                 if len(lines) > 1 and any(line.strip() for line in lines[1:]):
-                                    device_type = "Windows 笔记本"
+                                    device_type = "Windows Laptop"
                                 else:
-                                    device_type = "Windows 台式机"
+                                    device_type = "Windows Desktop"
                             else:
-                                device_type = "Windows 台式机"
+                                device_type = "Windows Desktop"
                         except Exception:
-                            device_type = "Windows 台式机"
+                            device_type = "Windows Desktop"
                 except Exception as e:
                     logger.debug(f"Failed to get Windows system type: {e}")
-                    # 方法3: 回退检查 - 检查是否有电源管理
+                    # Method 3: Fallback check - check for power management
                     try:
                         import os
                         if os.path.exists('C:\\Windows\\System32\\powercfg.exe'):
                             power_result = subprocess.run(['powercfg', '/batteryreport', '/output', 'NUL'], 
                                                         capture_output=True, text=True, timeout=2)
-                            # 如果命令成功执行，说明有电池
+                            # If command succeeds, has battery
                             if power_result.returncode == 0:
-                                device_type = "Windows 笔记本"
+                                device_type = "Windows Laptop"
                             else:
-                                device_type = "Windows 台式机"
+                                device_type = "Windows Desktop"
                         else:
-                            device_type = "Windows 电脑"
+                            device_type = "Windows Computer"
                     except Exception:
-                        device_type = "Windows 电脑"
+                        device_type = "Windows Computer"
             
-            # Linux 设备类型识别
+            # Linux device type identification
             elif system == 'Linux':
                 try:
-                    # 检查是否有电池 (笔记本电脑的标志)
+                    # Check for battery (laptop indicator)
                     if os.path.exists('/sys/class/power_supply/BAT0') or os.path.exists('/sys/class/power_supply/BAT1'):
-                        device_type = "Linux 笔记本"
+                        device_type = "Linux Laptop"
                     else:
-                        device_type = "Linux 台式机"
+                        device_type = "Linux Desktop"
                 except Exception as e:
                     logger.debug(f"Failed to detect Linux device type: {e}")
-                    device_type = "Linux 电脑"
+                    device_type = "Linux Computer"
             
-            # 其他系统
+            # Other systems
             else:
-                device_type = f"{system} 电脑"
+                device_type = f"{system} Computer"
             
             self._cache[cache_key] = device_type
             logger.info(f"[SystemInfo] Device type detected: {device_type}")
@@ -202,23 +202,23 @@ class SystemInfoManager:
                 
         except Exception as e:
             logger.warning(f"[SystemInfo] Failed to detect device type: {e}")
-            return "电脑"
+            return "Computer"
     
     def get_system_architecture(self) -> str:
-        """获取系统架构信息"""
+        """Get system architecture information"""
         cache_key = 'architecture'
         if self._is_cache_valid(cache_key):
             return self._cache[cache_key]
         
         try:
-            # 获取处理器信息用于架构判断
+            # Get processor info for architecture determination
             processor_info = self.get_processor_info()
             processor = processor_info.get('brand_raw', '').lower()
             
-            # 获取架构信息
+            # Get architecture info
             architecture = platform.architecture()[0]
             
-            # 架构映射逻辑
+            # Architecture mapping logic
             arch_mapping = {
                 '64bit': 'x86_64' if 'intel' in processor or 'amd' in processor else 'arm64',
                 '32bit': 'x86'
@@ -226,7 +226,7 @@ class SystemInfoManager:
             
             result = arch_mapping.get(architecture, architecture)
             
-            # 备用检测方法
+            # Fallback detection method
             if not result or result == architecture:
                 machine = platform.machine().lower()
                 if machine in ['x86_64', 'amd64']:
@@ -245,7 +245,7 @@ class SystemInfoManager:
             return 'unknown'
     
     def get_processor_info(self) -> Dict[str, Any]:
-        """获取处理器信息"""
+        """Get processor information"""
         cache_key = 'processor_info'
         if self._is_cache_valid(cache_key):
             return self._cache[cache_key]
@@ -270,7 +270,7 @@ class SystemInfoManager:
             
         except ImportError:
             logger.warning("[SystemInfo] cpuinfo package not available, using basic info")
-            # 回退到基础信息
+            # Fallback to basic info
             try:
                 import psutil
                 processor_info = {
@@ -308,7 +308,7 @@ class SystemInfoManager:
             }
     
     def get_memory_info(self) -> Dict[str, Any]:
-        """获取内存信息"""
+        """Get memory information"""
         try:
             import psutil
             
@@ -335,18 +335,18 @@ class SystemInfoManager:
             }
     
     def get_system_performance(self) -> Dict[str, Any]:
-        """获取系统性能指标"""
+        """Get system performance metrics"""
         try:
             import psutil
             
-            # CPU 使用率 - 减少等待时间
-            cpu_usage = psutil.cpu_percent(interval=0.05)  # 从0.1秒减少到0.05秒
+            # CPU usage - reduced wait time
+            cpu_usage = psutil.cpu_percent(interval=0.05)  # Reduced from 0.1s to 0.05s
             
-            # 内存使用率
+            # Memory usage
             memory = psutil.virtual_memory()
             memory_usage = memory.percent
             
-            # 磁盘使用率 - 跨平台兼容
+            # Disk usage - cross-platform compatible
             try:
                 if platform.system() == 'Windows':
                     disk = psutil.disk_usage('C:\\')
@@ -357,10 +357,10 @@ class SystemInfoManager:
                 logger.debug(f"Failed to get disk usage: {e}")
                 disk_usage = 0.0
             
-            # 网络状态检测
+            # Network status detection
             network_status = self._check_network_connectivity()
             
-            # 系统运行时间
+            # System uptime
             uptime = int(time.time() - psutil.boot_time())
             
             return {
@@ -384,7 +384,7 @@ class SystemInfoManager:
             }
     
     def get_complete_system_info(self) -> Dict[str, Any]:
-        """获取完整的系统信息"""
+        """Get complete system information"""
         try:
             system = platform.system()
             release = platform.release()
@@ -396,7 +396,7 @@ class SystemInfoManager:
             performance = self.get_system_performance()
             
             return {
-                # 基础系统信息
+                # Basic system info
                 'system': system,
                 'release': release,
                 'version': version,
@@ -404,19 +404,19 @@ class SystemInfoManager:
                 'os_info': f"{system} {release} ({architecture}), Version: {version}",
                 'platform': system.lower()[:3],
                 
-                # 机器识别信息
+                # Machine identification info
                 'machine_name': self.get_friendly_machine_name(),
                 'device_type': self.get_device_type(),
                 'system_arch': self.get_system_architecture(),
                 
-                # 硬件信息
+                # Hardware info
                 'processor': processor_info,
                 'memory': memory_info,
                 
-                # 性能指标
+                # Performance metrics
                 'performance': performance,
                 
-                # 时间戳
+                # Timestamp
                 'collected_at': time.time()
             }
             
@@ -425,16 +425,16 @@ class SystemInfoManager:
             return {}
     
     def _check_network_connectivity(self) -> str:
-        """检查网络连接状态"""
+        """Check network connectivity status"""
         try:
-            # 减少超时时间，提升响应速度
+            # Reduce timeout for faster response
             socket.create_connection(("8.8.8.8", 53), timeout=1)
             return "connected"
         except Exception:
             return "disconnected"
     
     def _is_cache_valid(self, key: str) -> bool:
-        """检查缓存是否有效"""
+        """Check if cache is valid"""
         if key not in self._cache:
             return False
         
@@ -447,55 +447,55 @@ class SystemInfoManager:
         return True
     
     def clear_cache(self):
-        """清除缓存"""
+        """Clear cache"""
         self._cache.clear()
         self._last_update = 0
         logger.info("[SystemInfo] Cache cleared")
 
 
-# 全局实例
+# Global instance
 _system_info_manager = None
 
 
 def get_system_info_manager() -> SystemInfoManager:
-    """获取系统信息管理器实例 (单例模式)"""
+    """Get system info manager instance (singleton pattern)"""
     global _system_info_manager
     if _system_info_manager is None:
         _system_info_manager = SystemInfoManager()
     return _system_info_manager
 
 
-# 便捷函数
+# Convenience functions
 def get_friendly_machine_name() -> str:
-    """获取用户友好的机器名称"""
+    """Get user-friendly machine name"""
     return get_system_info_manager().get_friendly_machine_name()
 
 
 def get_device_type() -> str:
-    """获取设备类型"""
+    """Get device type"""
     return get_system_info_manager().get_device_type()
 
 
 def get_system_architecture() -> str:
-    """获取系统架构"""
+    """Get system architecture"""
     return get_system_info_manager().get_system_architecture()
 
 
 def get_processor_info() -> Dict[str, Any]:
-    """获取处理器信息"""
+    """Get processor information"""
     return get_system_info_manager().get_processor_info()
 
 
 def get_memory_info() -> Dict[str, Any]:
-    """获取内存信息"""
+    """Get memory information"""
     return get_system_info_manager().get_memory_info()
 
 
 def get_system_performance() -> Dict[str, Any]:
-    """获取系统性能指标"""
+    """Get system performance metrics"""
     return get_system_info_manager().get_system_performance()
 
 
 def get_complete_system_info() -> Dict[str, Any]:
-    """获取完整系统信息"""
+    """Get complete system information"""
     return get_system_info_manager().get_complete_system_info()

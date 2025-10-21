@@ -5,7 +5,7 @@ import platform
 from pathlib import Path
 from config.constants import *
 
-# 只在 Windows 平台导入 winreg
+# Only import winreg on Windows platform
 if platform.system() == 'Windows':
     import winreg
     proc_arch = os.environ['PROCESSOR_ARCHITECTURE'].lower()
@@ -20,23 +20,23 @@ class AppInfo:
         self.appdata_temp_path = self._appdata_temp_path()
         self.version = self._get_version()
 
-    # 在打包后的可执行文件中运行,获取每次运行时解压的临时文件路径
+    # Running in packaged executable, get temporary file path extracted at each run
     def _prod_app_home_path(self):
         return getattr(sys, '_MEIPASS', os.path.abspath(os.path.dirname(__file__)))
 
     def _dev_app_home_path(self):
-        # 获取当前脚本的绝对路径
+        # Get absolute path of current script
         script_path = os.path.abspath(__file__)
-        # 获取当前脚本所在的目录
+        # Get directory containing current script
         script_dir = os.path.dirname(script_path)
-        # 获取当前运行项目的根目录
+        # Get root directory of current running project
         root_dir = os.path.dirname(script_dir)
         # print(f"ecbot execute home path:{root_dir}")
 
         return root_dir
 
     def _app_home_path(self):
-        # pyinstaller 打包程序运行后解压的临时文件根目录
+        # PyInstaller packaged program's temporary file root directory after extraction
         if getattr(sys, 'frozen', False):
             root_dir = self._prod_app_home_path()
         else:
@@ -52,19 +52,19 @@ class AppInfo:
         return ecbot_resource_dir
 
     def _prod_appdata_path(self):
-        # 检查操作系统类型，并确定 APPDATA 路径
+        # Check OS type and determine APPDATA path
         if platform.system() == 'Windows':
             ecb_data_home = ""
 
-            # 获取处理器架构
+            # Get processor architecture
             current_proc_arch = os.environ.get('PROCESSOR_ARCHITECTURE', '').lower()
             print(f"Processor architecture: {current_proc_arch}")
 
-            # 设置注册表访问键
+            # Set registry access keys
             if current_proc_arch in ['x86', 'amd64']:
                 arch_keys = {winreg.KEY_WOW64_32KEY, winreg.KEY_WOW64_64KEY}
             else:
-                # 默认使用标准访问
+                # Use standard access by default
                 arch_keys = {0}
 
             print("arch_keys: ", arch_keys)
@@ -87,7 +87,7 @@ class AppInfo:
                         print("ECBot DATA Home: ", ecb_data_home)
                         return ecb_data_home
 
-            # 如果没有找到环境变量，使用默认路径
+            # If environment variable not found, use default path
             default_path = os.path.join(os.environ.get('LOCALAPPDATA', ''), APP_NAME)
             print(f"Using default Windows appdata path: {default_path}")
             if not os.path.exists(default_path):
@@ -95,17 +95,17 @@ class AppInfo:
             return default_path
 
         elif platform.system() == 'Darwin':  # macOS
-            # 获取当前用户的主目录路径
+            # Get current user's home directory path
             home_dir = str(Path.home())
             appdata_os_path = os.path.join(home_dir, 'Library', 'Application Support')
-            # 在 Application Support 文件夹中创建一个名为 "ecbot" 的子文件夹
+            # Create a subfolder named "ecbot" in Application Support folder
             ecbot_appdata_path = os.path.join(appdata_os_path, APP_NAME)
             if not os.path.exists(ecbot_appdata_path):
                 os.makedirs(ecbot_appdata_path, exist_ok=True)
             return ecbot_appdata_path
 
         else:  # Linux
-            # 使用 XDG Base Directory 规范
+            # Use XDG Base Directory specification
             home_dir = str(Path.home())
             xdg_data_home = os.environ.get('XDG_DATA_HOME', os.path.join(home_dir, '.local', 'share'))
             ecbot_appdata_path = os.path.join(xdg_data_home, APP_NAME)
