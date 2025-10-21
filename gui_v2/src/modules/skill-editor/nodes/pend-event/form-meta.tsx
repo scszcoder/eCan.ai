@@ -1,8 +1,7 @@
 /**
  * Pend Event Node form
  */
-import React from 'react';
-import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
+import { Field, FormMeta, FormRenderProps, FlowNodeJSON } from '@flowgram.ai/free-layout-editor';
 import { Divider, Select, InputNumber, Radio } from '@douyinfe/semi-ui';
 import { FormHeader, FormContent, FormItem } from '../../form-components';
 import { defaultFormMeta } from '../default-form-meta';
@@ -11,12 +10,12 @@ const EVENT_TYPES = [
   'human_chat', 'a2a', 'webhook', 'websocket', 'mqtt', 'sse', 'timer', 'other'
 ];
 
-export const PendEventFormRender = ({ form }: FormRenderProps) => {
+export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
   return (
     <>
       <FormHeader />
       <FormContent>
-        <FormItem name="eventType" type="string" label="Event Type" vertical>
+        <FormItem name="Event Type" type="string" vertical>
           <Field<any> name="inputsValues.eventType">
             {({ field }) => (
               <Select
@@ -28,7 +27,7 @@ export const PendEventFormRender = ({ form }: FormRenderProps) => {
           </Field>
         </FormItem>
         <Divider />
-        <FormItem name="timeoutSec" type="number" label="Timeout (sec)" vertical>
+        <FormItem name="Timeout (sec)" type="number" vertical>
           <Field<any> name="inputsValues.timeoutSec">
             {({ field }) => (
               <InputNumber
@@ -40,7 +39,7 @@ export const PendEventFormRender = ({ form }: FormRenderProps) => {
           </Field>
         </FormItem>
         <Divider />
-        <FormItem name="resumePolicy" type="string" label="Resume Policy" vertical>
+        <FormItem name="Resume Policy" type="string" vertical>
           <Field<any> name="inputsValues.resumePolicy">
             {({ field }) => (
               <Radio.Group
