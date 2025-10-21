@@ -30,12 +30,36 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
      */
     isContainer: true,
     /**
+     * Enable expand/collapse - default to expanded
+     * 启用展开/折叠 - 默认展开
+     */
+    expandable: true,
+    defaultExpanded: true,
+    /**
+     * Enable manual resizing
+     * 启用手动调整大小
+     */
+    resizable: true,
+    /**
+     * Auto fit to children - container grows to include all child nodes
+     * 自动适应子节点 - 容器自动增长以包含所有子节点
+     */
+    autoFit: true,
+    /**
      * The subcanvas default size setting
      * 子画布默认大小设置
      */
     size: {
-      width: 424,
-      height: 244,
+      width: 500,
+      height: 300,
+    },
+    /**
+     * Minimum size when resizing
+     * 调整大小时的最小尺寸
+     */
+    minSize: {
+      width: 300,
+      height: 200,
     },
     /**
      * The subcanvas padding setting
@@ -59,16 +83,34 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
       // 鼠标开始时所在位置不包括当前节点时才可选中
       return !transform.bounds.contains(mousePos.x, mousePos.y);
     },
-    // expandable: false, // disable expanded
     wrapperStyle: {
       minWidth: 'unset',
       width: '100%',
     },
   },
   onAdd() {
+    const containerWidth = 500;
+    const containerHeight = 300;
+    const padding = { top: 120, bottom: 60, left: 60, right: 60 };
+    
+    // Calculate internal canvas size
+    const canvasWidth = containerWidth - padding.left - padding.right; // 380
+    const canvasHeight = containerHeight - padding.top - padding.bottom; // 120
+    
+    // Calculate vertical center of internal canvas
+    const verticalCenter = canvasHeight / 2; // 60
+    
+    // Calculate horizontal positions in internal canvas coordinate system
+    const leftX = 0; // Input port: left edge of canvas
+    const rightX = canvasWidth; // Output port: right edge of canvas (380)
+    
     return {
       id: `loop_${nanoid(5)}`,
       type: WorkflowNodeType.Loop,
+      meta: {
+        collapsed: false, // Start in expanded state
+        expanded: true,   // Explicitly set expanded=true
+      },
       data: {
         title: `Loop_${++index}`,
         // loop settings
@@ -82,8 +124,8 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
           type: WorkflowNodeType.BlockStart,
           meta: {
             position: {
-              x: -80,
-              y: 120,
+              x: leftX,  // 0: at left edge (input port)
+              y: verticalCenter,   // 122: vertically centered
             },
           },
           data: {},
@@ -93,8 +135,8 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
           type: WorkflowNodeType.BlockEnd,
           meta: {
             position: {
-              x: 80,
-              y: 120,
+              x: rightX,   // 424: at right edge (output port)
+              y: verticalCenter,   // 122: vertically centered (same as block_start)
             },
           },
           data: {},

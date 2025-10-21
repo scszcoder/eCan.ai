@@ -14,6 +14,7 @@ import SkillLevelMappingEditor, { type SkillLevelMappingConfig } from '../mappin
 import { IPCAPI } from '../../../../services/ipc/api';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useRuntimeStateStore } from '../../stores/runtime-state-store';
+import { WorkflowNodeType } from '../../nodes/constants';
 
 export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
   const { node } = props;
@@ -24,11 +25,31 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
   
   // Detect if this is the START node (skill-level mapping editor)
   const isStartNode = useMemo(() => {
-    const nodeType = node.data?.type || node.type;
+    const nodeType = node.type;
     const nodeId = node.id;
     // START node can be: type='start', type='event', or id='start'
     return nodeType === 'start' || nodeType === 'event' || nodeId === 'start';
   }, [node]);
+  
+  // Check if node state should be hidden (for Loop, BlockStart, BlockEnd)
+  const shouldShowNodeState = useMemo(() => {
+    // Get the actual node type from the JSON data
+    // Extract type from node ID (e.g., "loop_xxx" -> "loop", "block_start_xxx" -> "block-start")
+    const extractTypeFromId = (id: string) => {
+      if (id.startsWith('block_start_')) return 'block-start';
+      if (id.startsWith('block_end_')) return 'block-end';
+      return id.split('_')[0];
+    };
+    const nodeType = (node as any).json?.type || extractTypeFromId(node.id);
+    
+    const shouldHide = 
+      nodeType === WorkflowNodeType.Loop || 
+      nodeType === 'block-start' || 
+      nodeType === 'block-end';
+    
+    return !shouldHide;
+  }, [node]);
+  
   // live runtime state for this node (from backend updates)
   const runtimeEntry = useRuntimeStateStore((s) => s.byNodeId[node.id]);
   // dev: log when runtime entry changes for this node
@@ -127,8 +148,9 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
         <div style={{ padding: '8px 12px 0 12px' }}>
           {nodeRender.form?.render()}
         </div>
-        <div style={{ marginTop: 8, borderTop: '1px solid #eee', padding: '8px 12px', background: '#fff' }}>
-          <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>Node State</div>
+        {shouldShowNodeState && (
+          <div style={{ marginTop: 8, borderTop: '1px solid #eee', padding: '8px 12px', background: '#fff' }}>
+            <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>Node State</div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
             <button
               type="button"
@@ -212,8 +234,10 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
               <div style={{ fontSize: 12, color: '#999' }}>No runtime data for this node yet. Make sure this exact node is being executed.</div>
             )}
           </div>
-          {/* Mapping rules editor - different for START node vs other nodes */}
-          <div style={{ marginTop: 16, borderTop: '1px solid #eee', paddingTop: 12 }}>
+        </div>
+        )}
+        {/* Mapping rules editor - different for START node vs other nodes */}
+        <div style={{ marginTop: 16, borderTop: '1px solid #eee', paddingTop: 12, padding: '12px' }}>
             {isStartNode ? (
               <>
                 <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>Skill-Level Mapping Rules</div>
@@ -235,7 +259,6 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
               </>
             )}
           </div>
-        </div>
       </div>
     </NodeRenderContext.Provider>
   );
