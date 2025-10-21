@@ -15,7 +15,7 @@ class VehicleService:
         self.main_win = main_win
         self.session = session
         self.engine = engine
-        # 传递 engine 参数给 sync_table_columns
+        # Pass engine parameter to sync_table_columns
         sync_table_columns(VehicleModel, 'vehicle', engine)
 
     def insert_vehicle(self, vehicle: VehicleModel):
@@ -48,7 +48,7 @@ class VehicleService:
 
     def describe_table(self):
         inspector = inspect(VehicleModel)
-        # 打印表结构信息
+        # Print table structure information
         print(f"{VehicleModel.__tablename__} Table column definitions: ")
         columns = inspector.columns
         for column in columns:

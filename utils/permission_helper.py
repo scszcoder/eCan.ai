@@ -158,13 +158,13 @@ class PermissionHelper:
             Dictionary containing installation information
         """
         if getattr(sys, 'frozen', False):
-            # 打包后的应用
+            # Packaged application
             if hasattr(sys, '_MEIPASS'):
                 app_path = sys._MEIPASS
             else:
                 app_path = os.path.dirname(sys.executable)
         else:
-            # 开发环境
+            # Development environment
             app_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         
         is_system_install = False

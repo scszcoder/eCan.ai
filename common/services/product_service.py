@@ -12,7 +12,7 @@ class ProductService:
         self.main_win = main_win
         self.session = session
         self.engine = engine
-        # 传递 engine 参数给 sync_table_columns
+        # Pass engine parameter to sync_table_columns
         sync_table_columns(ProductsModel, "products", engine)
 
 
@@ -24,7 +24,7 @@ class ProductService:
 
     def describe_table(self):
         inspector = inspect(ProductsModel)
-        # 打印表结构信息
+        # Print table structure information
         print(f"{ProductsModel.__tablename__} Table column definitions: ")
         columns = inspector.columns
         for column in columns:

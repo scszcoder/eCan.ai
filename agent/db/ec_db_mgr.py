@@ -203,8 +203,8 @@ class ECDBMgr:
         try:
             # Use new MigrationManager for automatic migration management
             migrator = MigrationManager(self.engine)
-            
-            # 直接迁移到最新版本，内部会处理版本检查
+
+            # Migrate directly to latest version, version check handled internally
             success = migrator.migrate_to_latest()
             if success:
                 logger.info("[ECDBMgr] Database migrations completed successfully")

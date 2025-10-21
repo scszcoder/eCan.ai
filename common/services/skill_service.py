@@ -13,7 +13,7 @@ class SkillService:
         self.main_win = main_win
         self.session = session
         self.engine = engine
-        # 传递 engine 参数给 sync_table_columns
+        # Pass engine parameter to sync_table_columns
         sync_table_columns(SkillModel, 'skills', engine)
 
     def insert_skill(self, api_skills):
@@ -41,7 +41,7 @@ class SkillService:
 
     def describe_table(self):
         inspector = inspect(SkillModel)
-        # 打印表结构信息
+        # Print table structure information
         print(f"{SkillModel.__tablename__} Table column definitions: ")
         columns = inspector.columns
         for column in columns:

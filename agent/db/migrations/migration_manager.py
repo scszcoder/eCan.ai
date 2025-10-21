@@ -45,25 +45,25 @@ class MigrationManager:
         self.migrations_package = migrations_package
         self._migration_classes: Dict[str, Type[BaseMigration]] = {}
         self._migration_graph: Dict[str, str] = {}  # version -> previous_version
-        
-        # 延迟加载：不在初始化时加载所有迁移脚本
-        # 只在真正需要迁移时才加载相关脚本
-    
+
+        # Lazy loading: don't load all migration scripts during initialization
+        # Only load relevant scripts when migration is actually needed
+
     def _load_migration(self, version: str) -> Optional[Type[BaseMigration]]:
         """
-        按需加载特定版本的迁移脚本。
-        
+        Load migration script for specific version on demand.
+
         Args:
-            version: 要加载的版本号
-            
+            version: Version number to load
+
         Returns:
-            Optional[Type[BaseMigration]]: 迁移类，如果加载失败返回 None
+            Optional[Type[BaseMigration]]: Migration class, returns None if loading fails
         """
-        # 如果已经加载过，直接返回
+        # If already loaded, return directly
         if version in self._migration_classes:
             return self._migration_classes[version]
-        
-        # 根据版本号推断文件名模式
+
+        # Infer filename pattern based on version number
         version_patterns = {
             "1.0.1": "migration_001_to_101",
             "2.0.0": "migration_101_to_200",
@@ -81,11 +81,11 @@ class MigrationManager:
             return None
         
         try:
-            # 导入特定的迁移模块
+            # Import specific migration module
             full_module_name = f"{self.migrations_package}.{module_name}"
             module = importlib.import_module(full_module_name)
-            
-            # 查找迁移类
+
+            # Find migration class
             for name, obj in inspect.getmembers(module, inspect.isclass):
                 if (issubclass(obj, BaseMigration) and 
                     obj != BaseMigration and 
@@ -389,8 +389,8 @@ class MigrationManager:
                 from ..core import create_all_tables
                 create_all_tables(self.engine)
                 return True
-            
-            # 使用配置中的路径计算，避免加载所有迁移脚本
+
+            # Use path calculation from config, avoiding loading all migration scripts
             migration_path = get_version_path(current_version, target_version)
             
             if not migration_path:
@@ -443,7 +443,7 @@ class MigrationManager:
         Returns:
             bool: True if migration successful, False otherwise
         """
-        # 使用静态配置获取最新版本，无需加载所有迁移脚本
+        # Use static config to get latest version, no need to load all migration scripts
         latest_version = self._get_latest_version()
         
         # Check current version first to avoid unnecessary migration attempts
@@ -515,7 +515,7 @@ class MigrationManager:
         Returns:
             bool: True if successful, False otherwise
         """
-        # 按需加载迁移脚本
+        # Load migration script on demand
         migration_class = self._load_migration(version)
         if not migration_class:
             logger.error(f"Migration not found for version {version}")
@@ -603,8 +603,8 @@ class MigrationManager:
             current_version = '1.0.0'
         
         available_migrations = self.get_available_migrations()
-        
-        # 使用静态配置获取最新版本
+
+        # Use static config to get latest version
         latest_version = self._get_latest_version()
         
         return {

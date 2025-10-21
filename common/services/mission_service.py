@@ -60,7 +60,7 @@ class MissionService:
         self.main_win = main_win
         self.session = session
         self.engine = engine
-        # 传递 engine 参数给 sync_table_columns
+        # Pass engine parameter to sync_table_columns
         sync_table_columns(MissionModel, 'missions', engine)
 
     def find_missions_by_createon(self):
@@ -279,7 +279,7 @@ class MissionService:
 
     def delete_missions_by_mid(self, mid):
         delete_stmt = delete(MissionModel).where(MissionModel.mid == mid)
-        # 执行删除
+        # Execute deletion
         result = self.session.execute(delete_stmt)
         logger.debug("result:", result)
         self.session.commit()
@@ -390,7 +390,7 @@ class MissionService:
 
     def describe_table(self):
         inspector = inspect(MissionModel)
-        # 打印表结构信息
+        # Print table structure information
         logger.debug(f"{MissionModel.__tablename__} Table column definitions: ")
         columns = inspector.columns
         for column in columns:

@@ -19,7 +19,7 @@ class SingletonMeta(type):
 
     def __init__(cls, name, bases, attrs):
         super().__init__(name, bases, attrs)
-        # 每个类都有自己的实例字典和锁
+        # Each class has its own instance dictionary and lock
         cls._instances = weakref.WeakValueDictionary()
         cls._lock = threading.Lock()
 
@@ -30,13 +30,13 @@ class SingletonMeta(type):
         Uses database path, engine, or session as unique identifier
         to support multiple database connections.
         """
-        # 使用数据库路径作为实例的唯一标识
+        # Use database path as unique identifier for instance
         db_manager = kwargs.get('db_manager')
         db_path = kwargs.get('db_path')
         engine = kwargs.get('engine')
         session = kwargs.get('session')
 
-        # 生成唯一键，包含类名以确保不同类的实例不会冲突
+        # Generate unique key, including class name to ensure instances of different classes don't conflict
         class_name = cls.__name__
         if db_manager:
             key = f"{class_name}_db_manager_{id(db_manager)}"

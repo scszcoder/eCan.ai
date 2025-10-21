@@ -54,18 +54,18 @@ class DBChatService(BaseService):
 
     def create_chat(
         self,
-        members: list,              # 必须，成员列表
-        name: str,                  # 必须，会话名称
-        type: str = "user-agent",  # 可选，会话类型，默认 user-agent
-        avatar: str = None,         # 可选，会话头像
-        lastMsg: str = None,        # 可选，最后一条消息内容
-        lastMsgTime: int = None,    # 可选，最后一条消息时间戳
-        unread: int = 0,            # 可选，未读数，默认0
-        pinned: bool = False,       # 可选，是否置顶，默认False
-        muted: bool = False,        # 可选，是否静音，默认False
-        ext: dict = None,           # 可选，扩展字段，默认空字典
-        id: str = None,             # 可选，会话ID，不传则自动生成
-        agent_id: str = None        # 可选，关联的 agent ID
+        members: list,              # Required, list of members
+        name: str,                  # Required, chat name
+        type: str = "user-agent",  # Optional, chat type, default user-agent
+        avatar: str = None,         # Optional, chat avatar
+        lastMsg: str = None,        # Optional, last message content
+        lastMsgTime: int = None,    # Optional, last message timestamp
+        unread: int = 0,            # Optional, unread count, default 0
+        pinned: bool = False,       # Optional, whether pinned, default False
+        muted: bool = False,        # Optional, whether muted, default False
+        ext: dict = None,           # Optional, extension fields, default empty dict
+        id: str = None,             # Optional, chat ID, auto-generated if not provided
+        agent_id: str = None        # Optional, associated agent ID
     ) -> Dict[str, Any]:
         """
         Create a new chat conversation.
@@ -592,7 +592,7 @@ class DBChatService(BaseService):
         if not chatId or not messageId or not formId or formData is None:
             return {
                 "success": False,
-                "error": "chatId, messageId, formId, formData 必填",
+                "error": "chatId, messageId, formId, formData are required",
                 "data": None
             }
         with self.session_scope() as session:
@@ -600,14 +600,14 @@ class DBChatService(BaseService):
             if not message or message.chatId != chatId:
                 return {
                     "success": False,
-                    "error": "消息不存在或不属于指定会话",
+                    "error": "Message does not exist or does not belong to specified chat",
                     "data": None
                 }
             content = message.content
             if not isinstance(content, dict) or content.get('type') != 'form':
                 return {
                     "success": False,
-                    "error": "消息类型不是表单(form)",
+                    "error": "Message type is not form",
                     "data": None
                 }
             # Replace content['form']

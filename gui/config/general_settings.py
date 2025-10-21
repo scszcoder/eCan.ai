@@ -80,10 +80,10 @@ class GeneralSettings:
             "default_llm": ""  # Default LLM provider to use
         }
 
-        # 加载基础设置
+        # Load basic settings
         settings = self.config_manager.load_json(self.settings_file, default_settings)
 
-        # 确保所有必需的字段都存在
+        # Ensure all required fields exist
         for key, value in default_settings.items():
             if key not in settings:
                 settings[key] = value
