@@ -658,7 +658,11 @@ def sync_skill_from_file(file_path: str) -> Dict[str, Any]:
     try:
         # Get username from AppContext
         main_window = AppContext.get_main_window()
-        username = main_window.current_user if main_window and hasattr(main_window, 'current_user') else 'default'
+        if not main_window or not hasattr(main_window, 'user'):
+            raise ValueError("Cannot get username: main_window or main_window.user not available")
+        
+        username = main_window.user
+        logger.debug(f"[skill_handler] Using username: {username}")
         
         # Read skill data from file
         with open(file_path, 'r', encoding='utf-8') as f:

@@ -10,5 +10,6 @@ try:
     from . import node_state_schema_handler  # noqa: F401
     from . import agent_handler  # noqa: F401 - Ensure agent_handler is imported
     from . import skill_handler  # noqa: F401 - Ensure skill_handler is imported (new_skill/save_skill)
+    from . import file_handlers  # noqa: F401 - Ensure file_handlers is imported (read/write/dialog)
 except Exception:
     pass

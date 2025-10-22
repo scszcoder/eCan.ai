@@ -609,7 +609,9 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         agent_data = agents_data[0]
 
         # Get username from params or from agent's owner field
-        username = params.get('username') or agent_data.get('owner', 'unknown')
+        username = params.get('username') or agent_data.get('owner')
+        if not username:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing username parameter')
 
         logger.info(f"[agent_handler] Creating agent '{agent_data.get('name')}' for user: {username}")
 

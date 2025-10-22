@@ -8,8 +8,8 @@ import json
 from typing import Any, Optional, Dict
 # Lazy import extern_skills to avoid blocking during module initialization
 # from agent.ec_skills.extern_skills.extern_skills import scaffold_skill, rename_skill, user_skills_root
-from .types import IPCRequest, IPCResponse, create_success_response, create_error_response
-from .registry import IPCHandlerRegistry
+from ..types import IPCRequest, IPCResponse, create_success_response, create_error_response
+from ..registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper as logger
 
 

@@ -255,7 +255,11 @@ async def _load_skills_from_database_async(mainwin):
         logger.info("[build_agent_skills] Loading skills from database...")
 
         # Get current user from mainwin
-        username = getattr(mainwin, 'user', 'default_user') if mainwin else 'default_user'
+        if not mainwin or not hasattr(mainwin, 'user'):
+            logger.error("[build_agent_skills] Cannot get username: mainwin or mainwin.user not available")
+            return []
+        
+        username = mainwin.user
         logger.info(f"[build_agent_skills] Querying skills for user: {username}")
 
         # Get database service from mainwin (uses correct user-specific database path)
@@ -354,7 +358,11 @@ async def _update_database_with_cloud_skills(cloud_skills, mainwin):
         logger.info(f"[build_agent_skills] Updating database with {len(cloud_skills)} cloud skills...")
 
         # Get current user from mainwin
-        username = getattr(mainwin, 'user', 'default_user') if mainwin else 'default_user'
+        if not mainwin or not hasattr(mainwin, 'user'):
+            logger.error("[build_agent_skills] Cannot get username: mainwin or mainwin.user not available")
+            return
+        
+        username = mainwin.user
 
         # Get database service from mainwin (uses correct user-specific database path)
         if mainwin and hasattr(mainwin, 'ec_db_mgr'):
