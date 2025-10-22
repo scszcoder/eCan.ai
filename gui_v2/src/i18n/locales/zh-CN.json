@@ -166,7 +166,10 @@
       "deleteSuccess": "代理删除成功",
       "deleteError": "删除代理失败",
       "no_items": "暂无组织或代理",
-      "avatar": "头像"
+      "avatar": "头像",
+      "search_placeholder": "请输入名称或其他关键字",
+      "no_search_results": "未找到搜索结果",
+      "try_different_search": "请尝试其他关键字或清除搜索"
     },
     "analytics": {
       "activeAgents": "活跃代理",

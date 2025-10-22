@@ -43,9 +43,29 @@ const StyledInnerLayout = styled(Layout)`
 
 const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [collapsed, setCollapsed] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
     const navigate = useNavigate();
     const location = useLocation();
     const { t, i18n } = useTranslation();
+    
+    // 从 window 对象获取搜索状态（由 OrgNavigator 设置）
+    useEffect(() => {
+        const interval = setInterval(() => {
+            const query = (window as any).__agentsSearchQuery;
+            if (query !== undefined && query !== searchQuery) {
+                setSearchQuery(query);
+            }
+        }, 100);
+        return () => clearInterval(interval);
+    }, [searchQuery]);
+    
+    // 处理搜索变化
+    const handleSearchChange = (query: string) => {
+        setSearchQuery(query);
+        if ((window as any).__setAgentsSearchQuery) {
+            (window as any).__setAgentsSearchQuery(query);
+        }
+    };
 
     useEffect(() => {
         const savedLanguage = localStorage.getItem('i18nextLng');
@@ -133,7 +153,10 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                             borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
                             boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)'
                         }}>
-                            <PageBackBreadcrumb />
+                            <PageBackBreadcrumb 
+                                searchQuery={searchQuery}
+                                onSearchChange={handleSearchChange}
+                            />
                             <QuickActionMenu />
                         </div>
                     )}
