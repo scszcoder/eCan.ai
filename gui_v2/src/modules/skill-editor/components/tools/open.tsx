@@ -25,15 +25,9 @@ export const Open = ({ disabled }: OpenProps) => {
   const loadBundle = useSheetsStore((s) => s.loadBundle);
 
   const handleOpen = useCallback(async () => {
-    let ipcHandled = false;
-    
-    // In web mode, skip IPC and use browser file picker directly
-    if (!hasIPCSupport()) {
-      console.log('[SKILL_IO][FRONTEND][WEB_MODE] Skipping IPC, using browser file picker');
-      // Fall through to web fallback below
-    } else {
-      // Try IPC path first (desktop mode)
-      try {
+    // Always try IPC first, regardless of hasIPCSupport()
+    // The function will detect if IPC is available at runtime
+    try {
         const { IPCAPI } = await import('../../../../services/ipc/api');
         const ipcApi = IPCAPI.getInstance();
         console.log('[SKILL_IO][FRONTEND][IPC_ATTEMPT] showOpenDialog');
@@ -42,16 +36,14 @@ export const Open = ({ disabled }: OpenProps) => {
           { name: 'All Files', extensions: ['*'] }
         ]);
 
-        // Mark as handled if dialog was shown (even if cancelled)
-        if (dialogResponse.success) {
-          ipcHandled = true;
-        }
-      
         if (dialogResponse.success && dialogResponse.data && !dialogResponse.data.cancelled) {
         const filePath = (dialogResponse.data as any).filePaths?.[0] || (dialogResponse.data as any).filePath;
+        // 需求2: 获取后端返回的 skillName（从文件夹名称提取）
+        const skillNameFromBackend = (dialogResponse.data as any).skillName;
         if (!filePath) { console.warn('[Open] No filePath from dialog'); return; }
         console.log('[SKILL_IO][FRONTEND][SELECTED_MAIN_JSON]', filePath);
-        try { Toast.info({ content: `Opening: ${String(filePath).split('\\').pop()}` }); } catch {}
+        console.log('[SKILL_IO][FRONTEND][SKILL_NAME_FROM_BACKEND]', skillNameFromBackend);
+        try { Toast.info({ content: `Opening: ${skillNameFromBackend || String(filePath).split('\\').pop()}` }); } catch {}
 
         // Read file content through IPC
         const fileResponse = await ipcApi.readSkillFile(filePath);
@@ -59,30 +51,29 @@ export const Open = ({ disabled }: OpenProps) => {
 
         if (fileResponse.success && fileResponse.data) {
           const raw = JSON.parse(fileResponse.data.content);
-          // Enforce filename matches skillName (strip _skill suffix)
-          try {
-            const base = (String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '');
-            const baseNoSuffix = base.replace(/_skill$/i, '');
-            const nameInFile = String((raw && (raw as any).skillName) || '').trim();
-            if (nameInFile && baseNoSuffix.toLowerCase() !== nameInFile.toLowerCase()) {
-              console.error('[SKILL_IO][FRONTEND][NAME_MISMATCH]', { fileBase: baseNoSuffix, skillName: nameInFile });
-              try { Toast.error({ content: `Skill name mismatch: file '${baseNoSuffix}' vs skillName '${nameInFile}'.` }); } catch {}
-              return; // abort load
-            }
-          } catch {}
+          // 需求2: 不再检查文件名和 skillName 是否匹配
+          // 因为我们会用后端返回的 skillName（从文件夹名称提取）覆盖文件中的 skillName
+          const nameInFile = String((raw && (raw as any).skillName) || '').trim();
+          if (nameInFile && skillNameFromBackend && nameInFile !== skillNameFromBackend) {
+            console.log('[SKILL_IO][FRONTEND][WILL_OVERRIDE_SKILL_NAME]', { 
+              fromFile: nameInFile, 
+              fromFolder: skillNameFromBackend 
+            });
+          }
+          
           // Case A: primary file itself is a bundle
           const isBundle = raw && typeof raw === 'object' && 'mainSheetId' in raw && Array.isArray(raw.sheets);
           if (isBundle) {
             const bundle = raw as SheetsBundle;
             console.log('[SKILL_IO][FRONTEND][PRIMARY_IS_BUNDLE] Loading primary bundle file:', filePath);
             loadBundle(bundle);
-            // Derive a user-facing skill name from file name (strip _skill suffix)
+            // 需求2: 使用后端返回的 skillName（从文件夹名称提取）
             try {
-              const base = (String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '');
-              const baseNoSuffix = base.replace(/_skill$/i, '');
+              const skillName = skillNameFromBackend || ((String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '').replace(/_skill$/i, ''));
+              console.log('[SKILL_IO][FRONTEND][SET_SKILL_NAME]', skillName);
               const current = skillInfoFromStore;
-              if (current?.skillName !== baseNoSuffix) {
-                setSkillInfo({ ...(current || { skillId: (current as any)?.skillId || '', skillName: baseNoSuffix, version: '1.0.0', lastModified: new Date().toISOString(), workFlow: workflowDocument.toJSON() as any }), skillName: baseNoSuffix });
+              if (current?.skillName !== skillName) {
+                setSkillInfo({ ...(current || { skillId: (current as any)?.skillId || '', skillName: skillName, version: '1.0.0', lastModified: new Date().toISOString(), workFlow: workflowDocument.toJSON() as any }), skillName: skillName });
               }
             } catch {}
             setCurrentFilePath(filePath);
@@ -98,13 +89,13 @@ export const Open = ({ disabled }: OpenProps) => {
             if (looksLikeBundle) {
               console.log('[SKILL_IO][FRONTEND][PRIMARY_HAS_EMBEDDED_BUNDLE] Loading embedded bundle inside primary:', filePath);
               loadBundle(embedded as SheetsBundle);
-              // Derive and set skill info
+              // 需求2: 使用后端返回的 skillName
               try {
-                const base = (String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '');
-                const baseNoSuffix = base.replace(/_skill$/i, '');
+                const skillName = skillNameFromBackend || ((String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '').replace(/_skill$/i, ''));
+                console.log('[SKILL_IO][FRONTEND][SET_SKILL_NAME]', skillName);
                 const current = skillInfoFromStore;
-                if (current?.skillName !== baseNoSuffix) {
-                  setSkillInfo({ ...(current || { skillId: (current as any)?.skillId || '', skillName: baseNoSuffix, version: '1.0.0', lastModified: new Date().toISOString(), workFlow: workflowDocument.toJSON() as any }), skillName: baseNoSuffix });
+                if (current?.skillName !== skillName) {
+                  setSkillInfo({ ...(current || { skillId: (current as any)?.skillId || '', skillName: skillName, version: '1.0.0', lastModified: new Date().toISOString(), workFlow: workflowDocument.toJSON() as any }), skillName: skillName });
                 }
               } catch {}
               setCurrentFilePath(filePath);
@@ -136,13 +127,13 @@ export const Open = ({ disabled }: OpenProps) => {
                   if (isSiblingBundle) {
                     console.log('[SKILL_IO][FRONTEND][FOUND_BUNDLE_JSON]', bundlePath);
                     loadBundle(maybeBundle as SheetsBundle);
-                    // Update skill name using the primary JSON base name
+                    // 需求2: 使用后端返回的 skillName
                     try {
-                      const base = (String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '');
-                      const baseNoSuffix = base.replace(/_skill$/i, '');
+                      const skillName = skillNameFromBackend || ((String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '').replace(/_skill$/i, ''));
+                      console.log('[SKILL_IO][FRONTEND][SET_SKILL_NAME]', skillName);
                       const current = skillInfoFromStore;
-                      if (current?.skillName !== baseNoSuffix) {
-                        setSkillInfo({ ...(current || { skillId: (current as any)?.skillId || '', skillName: baseNoSuffix, version: '1.0.0', lastModified: new Date().toISOString(), workFlow: workflowDocument.toJSON() as any }), skillName: baseNoSuffix });
+                      if (current?.skillName !== skillName) {
+                        setSkillInfo({ ...(current || { skillId: (current as any)?.skillId || '', skillName: skillName, version: '1.0.0', lastModified: new Date().toISOString(), workFlow: workflowDocument.toJSON() as any }), skillName: skillName });
                       }
                     } catch {}
                     // Keep currentFilePath as the main skill JSON path
@@ -162,6 +153,14 @@ export const Open = ({ disabled }: OpenProps) => {
           }
 
           const data = raw as SkillInfo;
+          // 需求2: 使用后端返回的 skillName 覆盖文件中的 skillName
+          if (skillNameFromBackend) {
+            console.log('[SKILL_IO][FRONTEND][OVERRIDE_SKILL_NAME]', {
+              fromFile: data.skillName,
+              fromBackend: skillNameFromBackend
+            });
+            data.skillName = skillNameFromBackend;
+          }
           const diagram = data.workFlow;
           if (diagram) {
             console.log('[Open] Loading single-skill diagram. Nodes=', Array.isArray(diagram.nodes) ? diagram.nodes.length : 'n/a');
@@ -183,17 +182,11 @@ export const Open = ({ disabled }: OpenProps) => {
         } else {
           console.error('[Open] Failed to read primary file:', fileResponse.error);
         }
-          return; // handled IPC path
-        }
-      } catch (e) {
-        console.warn('[SKILL_IO][FRONTEND][IPC_ERROR]', e);
+        return; // handled IPC path
       }
-    }
-
-    // Only use web fallback if IPC was not handled
-    if (ipcHandled) {
-      console.log('[SKILL_IO][FRONTEND] IPC handled, skipping web fallback');
-      return;
+    } catch (e) {
+      console.warn('[SKILL_IO][FRONTEND][IPC_ERROR]', e);
+      // Fall through to web fallback
     }
 
     // Web fallback path

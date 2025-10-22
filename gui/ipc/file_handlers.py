@@ -69,8 +69,11 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
             skills_root = user_skills_root()
             os.makedirs(skills_root, exist_ok=True)
             initial_dir = str(skills_root)
-        except Exception:
-            initial_dir = None
+            logger.info(f"[SKILL_IO][BACKEND][OPEN_DIALOG] Default directory: {initial_dir}")
+            logger.info(f"[SKILL_IO][BACKEND][OPEN_DIALOG] Directory exists: {os.path.exists(initial_dir)}")
+        except Exception as e:
+            logger.error(f"[SKILL_IO][BACKEND][OPEN_DIALOG] Failed to get skills root: {e}", exc_info=True)
+            initial_dir = ""
 
         # Ensure we're on the main thread for Qt dialogs
         def show_dialog():
@@ -83,11 +86,16 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
                 temp_app = False
 
             try:
+                # 允许用户选择文件或文件夹
+                start_dir = initial_dir if initial_dir and os.path.exists(initial_dir) else os.getcwd()
+                logger.info(f"[SKILL_IO][BACKEND][OPEN_DIALOG] Opening dialog with directory: {start_dir}")
+                
+                # 使用文件选择对话框，允许选择 JSON 文件
                 file_path, _ = QFileDialog.getOpenFileName(
                     None,  # parent
-                    "Open Skill File",  # caption
-                    initial_dir or "",  # directory
-                    ";;".join(filter_strings)  # filter
+                    "Select Skill File",  # caption
+                    start_dir,  # directory
+                    "Skill Files (*.json);;All Files (*.*)"  # filter
                 )
                 return file_path
             finally:
@@ -96,12 +104,24 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
 
         # Execute dialog on main thread if needed
         if QThread.currentThread() == QApplication.instance().thread() if QApplication.instance() else False:
-            file_path = show_dialog()
+            folder_path = show_dialog()
         else:
             # Use a simple approach for cross-thread dialog
-            file_path = show_dialog()
+            folder_path = show_dialog()
         
-        if file_path:
+        if folder_path:
+            # 用户选择了文件
+            file_path = folder_path
+            logger.info(f"[SKILL_IO][BACKEND][FILE_SELECTED] {file_path}")
+            
+            # 验证文件存在
+            if not os.path.exists(file_path):
+                logger.warning(f"[SKILL_IO][BACKEND][FILE_NOT_FOUND] {file_path}")
+                return create_error_response(
+                    request,
+                    'FILE_NOT_FOUND',
+                    f'Selected file does not exist: {file_path}'
+                )
             # Validate that the selected file is under the skills root
             try:
                 _, _, user_skills_root = _get_extern_skills()
@@ -125,9 +145,26 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
                 )
             # Distinct marker for selected main json path
             logger.info(f"[SKILL_IO][BACKEND][SELECTED_MAIN_JSON] {file_path}")
+            
+            # 提取 skillName：从文件路径向上查找 skill 文件夹
+            # 例如：my_skills/abcd/diagram_dir/abcd_skill.json → skillName = "abcd"
+            # 或者：my_skills/abcd/abcd_skill.json → skillName = "abcd"
+            file_dir = os.path.dirname(file_path)
+            parent_dir = os.path.dirname(file_dir)
+            
+            # 如果文件在 diagram_dir 中，skill 文件夹是 diagram_dir 的父目录
+            if os.path.basename(file_dir) == 'diagram_dir':
+                skill_folder_name = os.path.basename(parent_dir)
+            else:
+                # 否则，skill 文件夹就是文件所在目录
+                skill_folder_name = os.path.basename(file_dir)
+            
+            logger.info(f"[SKILL_IO][BACKEND][SKILL_NAME_FROM_PATH] {skill_folder_name}")
+            
             return create_success_response(request, {
                 'filePath': file_path,
-                'fileName': os.path.basename(file_path)
+                'fileName': os.path.basename(file_path),
+                'skillName': skill_folder_name
             })
         else:
             return create_success_response(request, {
@@ -154,22 +191,22 @@ def handle_show_save_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
 
         # Resolve parameters
         default_filename = params.get('defaultFilename', 'untitled.json') if params else 'untitled.json'
+        
+        # Remove .json suffix for display
+        display_name = default_filename[:-5] if default_filename.endswith('.json') else default_filename
+        logger.info(f"[SKILL_IO][BACKEND][SAVE_DIALOG] Default filename: {display_name}")
+        
+
+        # Get per-user skills root directory
         try:
-            logger.info(f"[SKILL_IO][BACKEND][SAVE_DIALOG_DEFAULT] {default_filename}")
-        except Exception:
-            pass
-        filters = params.get('filters', []) if params else []
-        filter_strings = []
-
-        for filter_item in filters:
-            name = filter_item.get('name', 'All Files')
-            extensions = filter_item.get('extensions', ['*'])
-            # Convert to Qt format
-            ext_pattern = ' '.join([f'*.{ext}' for ext in extensions])
-            filter_strings.append(f"{name} ({ext_pattern})")
-
-        if not filter_strings:
-            filter_strings = ['JSON Files (*.json)', 'All Files (*.*)']
+            _, _, user_skills_root = _get_extern_skills()
+            skills_root = user_skills_root()
+            os.makedirs(skills_root, exist_ok=True)
+            initial_dir = str(skills_root)
+            logger.info(f"[SKILL_IO][BACKEND][SAVE_DIALOG] Skills directory: {initial_dir}")
+        except Exception as e:
+            logger.error(f"[SKILL_IO][BACKEND][SAVE_DIALOG] Failed to get skills root: {e}", exc_info=True)
+            initial_dir = ""
 
         # Ensure we're on the main thread for Qt dialogs
         def show_dialog():
@@ -182,12 +219,36 @@ def handle_show_save_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
                 temp_app = False
 
             try:
+                start_dir = initial_dir if initial_dir and os.path.exists(initial_dir) else os.getcwd()
+                os.makedirs(start_dir, exist_ok=True)
+                
+                # Generate unique default name if directory already exists
+                # This prevents macOS from entering an existing directory
+                default_skill_name = display_name
+                counter = 1
+                while os.path.isdir(os.path.join(start_dir, default_skill_name)) and counter <= 100:
+                    counter += 1
+                    default_skill_name = f"{display_name}_{counter}"
+                
+                if default_skill_name != display_name:
+                    logger.info(f"[SKILL_IO][BACKEND][SAVE_DIALOG] Using unique name: {default_skill_name}")
+                
+                dialog_path = os.path.join(start_dir, default_skill_name)
+                
                 file_path, _ = QFileDialog.getSaveFileName(
-                    None,  # parent
-                    "Save Skill File",  # caption
-                    default_filename,  # directory/filename
-                    ";;".join(filter_strings)  # filter
+                    None,
+                    "Save Skill",
+                    dialog_path,
+                    "",
+                    None,
+                    QFileDialog.Option.DontConfirmOverwrite
                 )
+                
+                # Add .json suffix if not present
+                if file_path and not file_path.endswith('.json'):
+                    file_path = file_path + '.json'
+                
+                logger.info(f"[SKILL_IO][BACKEND][SAVE_DIALOG] Selected: {file_path or 'cancelled'}")
                 return file_path
             finally:
                 if temp_app:
@@ -315,7 +376,7 @@ def handle_write_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]
         IPCResponse: Write result
     """
     try:
-        logger.debug(f"Write skill file handler called with request: {request}")
+        # logger.debug(f"Write skill file handler called with request: {request}")
         
         # Validate parameters
         is_valid, data, error = validate_params(params, ['filePath', 'content'])
@@ -329,6 +390,51 @@ def handle_write_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]
         
         file_path = data['filePath']
         content = data['content']
+        
+        # Extract skill name from file path and create proper folder structure
+        # 正确理解：用户输入 test → 创建 my_skills/test/diagram_dir/
+        # 所有相关文件（_skill.json, _data_mapping.json, _skill_bundle.json）都保存到同一个文件夹
+        file_name = os.path.basename(file_path)
+        
+        # Check if this is a skill file (ends with .json)
+        if file_name.endswith('.json'):
+            # Extract base skill name by removing all known suffixes
+            skill_name = file_name[:-5]  # Remove '.json' first
+            
+            # Remove known suffixes to get the base skill name
+            if skill_name.endswith('_data_mapping'):
+                skill_name = skill_name[:-13]  # Remove '_data_mapping'
+            elif skill_name.endswith('_skill_bundle'):
+                skill_name = skill_name[:-13]  # Remove '_skill_bundle'
+            elif skill_name.endswith('_skill'):
+                skill_name = skill_name[:-6]   # Remove '_skill'
+            
+            # Check if the file path already contains the correct folder structure
+            # e.g., my_skills/fff/diagram_dir/fff_skill.json
+            parent_dir = os.path.dirname(file_path)
+            original_name = os.path.basename(file_path)
+            
+            # Check if already in diagram_dir (Save scenario)
+            if os.path.basename(parent_dir) == 'diagram_dir':
+                diagram_dir = parent_dir
+                skill_folder = os.path.dirname(diagram_dir)
+                new_file_name = original_name
+            else:
+                # New scenario: create folder structure
+                skill_folder = os.path.join(parent_dir, skill_name)
+                diagram_dir = os.path.join(skill_folder, "diagram_dir")
+                
+                # Determine file type based on original filename
+                if '_data_mapping' in original_name:
+                    new_file_name = f"{skill_name}_data_mapping.json"
+                elif '_skill_bundle' in original_name:
+                    new_file_name = f"{skill_name}_skill_bundle.json"
+                else:
+                    new_file_name = f"{skill_name}_skill.json"
+                
+                file_path = os.path.join(diagram_dir, new_file_name)
+            
+            logger.info(f"[SKILL_IO][BACKEND] Skill: {skill_name}, Path: {file_path}")
         
         # Validate JSON content
         try:
@@ -348,42 +454,39 @@ def handle_write_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]
         
         # Write file
         try:
-            # Distinct write attempt marker with byte length
-            try:
-                byte_len = len(content.encode('utf-8')) if isinstance(content, str) else len(json.dumps(content, ensure_ascii=False).encode('utf-8'))
-            except Exception:
-                byte_len = -1
-            logger.info(f"[SKILL_IO][BACKEND][WRITE_ATTEMPT] {file_path} bytes={byte_len}")
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
-            size = os.path.getsize(file_path)
-            logger.info(f"[SKILL_IO][BACKEND][WRITE_OK] {file_path} size={size}")
             
-            # After successfully writing the file, sync with skill database if it's a skill workflow JSON file
-            # Only process files ending with _skill.json (not _data_mapping.json, _skill_bundle.json, etc.)
+            if not os.path.exists(file_path):
+                logger.error(f"[SKILL_IO][BACKEND] File does not exist after write: {file_path}")
+                raise IOError(f"Failed to write file: {file_path}")
+            
+            # Sync with skill database if it's a skill workflow JSON file
             if file_path.endswith('_skill.json'):
                 try:
-                    # Import and call the standard skill sync function
                     from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
-                    
-                    logger.info(f"[SKILL_IO][BACKEND][SYNC_START] Syncing skill from file: {file_path}")
                     result = sync_skill_from_file(file_path)
                     
-                    if result.get('success'):
-                        operation = result.get('operation', 'unknown')
-                        skill_id = result.get('skill_id')
-                        logger.info(f"[SKILL_IO][BACKEND][SYNC_SUCCESS] Skill {operation}d successfully (ID: {skill_id})")
-                    else:
-                        error = result.get('error', 'Unknown error')
-                        logger.warning(f"[SKILL_IO][BACKEND][SYNC_ERROR] Failed to sync skill: {error}")
-                        
+                    if not result.get('success'):
+                        logger.warning(f"[SKILL_IO][BACKEND] Failed to sync skill: {result.get('error')}")
                 except Exception as sync_error:
-                    # Don't fail the file write if database sync fails
-                    logger.warning(f"[SKILL_IO][BACKEND][SYNC_EXCEPTION] Error syncing skill to database: {sync_error}")
+                    logger.warning(f"[SKILL_IO][BACKEND] Error syncing skill to database: {sync_error}")
+            
+            # Extract skill name without suffix for frontend
+            final_file_name = os.path.basename(file_path)
+            if final_file_name.endswith('_skill.json'):
+                skill_name_only = final_file_name[:-11]
+            elif final_file_name.endswith('_data_mapping.json'):
+                skill_name_only = final_file_name[:-18]
+            elif final_file_name.endswith('_skill_bundle.json'):
+                skill_name_only = final_file_name[:-18]
+            else:
+                skill_name_only = final_file_name[:-5] if final_file_name.endswith('.json') else final_file_name
             
             return create_success_response(request, {
                 'filePath': file_path,
                 'fileName': os.path.basename(file_path),
+                'skillName': skill_name_only,  # 需求4: 返回不带后缀的 skill 名称
                 'fileSize': os.path.getsize(file_path),
                 'success': True
             })

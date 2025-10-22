@@ -23,64 +23,110 @@ export const NewPage = ({ disabled }: NewPageProps) => {
   const breakpoints = useSkillInfoStore((state) => state.breakpoints);
 
   const handleNewPage = useCallback(async () => {
-    // 0. Scaffold a new diagram-based skill via IPC (backend will create <name>_skill/diagram_dir/...)
-    const client = IPCWCClient.getInstance();
-    const defaultName = `skill_${Date.now()}`;
-    let scaffoldedName = defaultName;
+    // 1. 先保存当前 skill（如果有且有文件路径）- 不弹出对话框
+    const currentFilePath = useSkillInfoStore.getState().currentFilePath;
+    if (skillInfo && currentFilePath) {
+      try {
+        const diagram = workflowDocument.toJSON();
+        diagram.nodes.forEach((node: any) => {
+          if (breakpoints.includes(node.id)) {
+            if (!node.data) {
+              node.data = {};
+            }
+            node.data.break_point = true;
+          } else {
+            if (node.data?.break_point) {
+              delete node.data.break_point;
+            }
+          }
+        });
+
+        const updatedSkillInfo = {
+          ...skillInfo,
+          workFlow: diagram,
+          lastModified: new Date().toISOString(),
+        };
+
+        // 直接保存到当前文件路径，不弹出对话框
+        const { IPCAPI } = await import('../../../../services/ipc/api');
+        const ipcApi = IPCAPI.getInstance();
+        const jsonString = JSON.stringify(updatedSkillInfo, null, 2);
+        await ipcApi.writeSkillFile(currentFilePath, jsonString);
+        console.log('[NEW_SKILL] Saved current skill to:', currentFilePath);
+      } catch (e) {
+        console.warn('[NEW_SKILL] Failed to save current skill:', e);
+      }
+    }
+
+    // 2. 弹出对话框让用户输入新 skill 的名称（只弹出一次）
+    let scaffoldedName = 'untitled';
     let diagramJsonPath: string | null = null;
+    
     try {
-      const resp: any = await client.sendRequest('skills.scaffold', { name: defaultName, kind: 'diagram' });
-      if (resp?.status === 'success' && resp.result?.skillRoot) {
-        scaffoldedName = defaultName;
-        const root: string = resp.result.skillRoot;
-        diagramJsonPath = `${root.replace(/\\/g, '/')}/diagram_dir/${scaffoldedName}_skill.json`;
+      const { IPCAPI } = await import('../../../../services/ipc/api');
+      const ipcApi = IPCAPI.getInstance();
+      
+      const defaultFileName = `untitled.json`;
+      console.log('[SKILL_IO][FRONTEND][NEW_SKILL] Opening save dialog');
+      const dialogResponse = await ipcApi.showSaveDialog(defaultFileName, [
+        { name: 'Skill Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]);
+      
+      if (dialogResponse.success && dialogResponse.data && !dialogResponse.data.cancelled) {
+        const filePath = (dialogResponse.data as any).filePath;
+        if (filePath) {
+          const fileName = filePath.split(/[/\\]/).pop() || 'untitled.json';
+          scaffoldedName = fileName.replace(/\.json$/i, '');
+          diagramJsonPath = filePath;
+          console.log('[SKILL_IO][FRONTEND][NEW_SKILL] User selected:', scaffoldedName);
+        } else {
+          console.log('[SKILL_IO][FRONTEND][NEW_SKILL] User cancelled');
+          return;
+        }
+      } else {
+        console.log('[SKILL_IO][FRONTEND][NEW_SKILL] Dialog cancelled');
+        return;
       }
     } catch (e) {
-      // Proceed even if scaffold fails, editor will still clear to empty
-      // eslint-disable-next-line no-console
-      console.warn('[NewSkill] scaffold failed, proceeding with empty canvas', e);
+      console.warn('[NewSkill] Failed to show dialog, using default name', e);
+      return; // 如果对话框失败，直接返回
     }
 
-    // 1. Save the current data using the CORRECT, up-to-date logic
-    if (skillInfo) {
-      const diagram = workflowDocument.toJSON();
-      diagram.nodes.forEach((node: any) => {
-        if (breakpoints.includes(node.id)) {
-          if (!node.data) {
-            node.data = {};
-          }
-          node.data.break_point = true;
-        } else {
-          if (node.data?.break_point) {
-            delete node.data.break_point;
-          }
-        }
-      });
-
-      const updatedSkillInfo = {
-        ...skillInfo,
-        workFlow: diagram,
-        lastModified: new Date().toISOString(),
-      };
-
-      setSkillInfo(updatedSkillInfo);
-      await saveFile(updatedSkillInfo, username || undefined);
-    }
-
-    // 2. Clear the existing canvas data
+    // 3. Clear the existing canvas data
     workflowDocument.clear && workflowDocument.clear();
-    // 3. Load empty data
+    // 4. Load empty data
     workflowDocument.fromJSON(emptyFlow);
-    // 4. Fit the canvas view
+    // 5. Fit the canvas view
     tools.fitView && tools.fitView();
-    // 5. Generate and save the new SkillInfo, set name and optional path
+    // 6. Generate new SkillInfo
     const info = createSkillInfo(emptyFlow);
     info.skillName = scaffoldedName;
     setSkillInfo(info);
+    
+    // 7. 立即保存新创建的 skill 到文件系统
     if (diagramJsonPath) {
       try {
-        useSkillInfoStore.getState().setCurrentFilePath(diagramJsonPath);
-      } catch {}
+        // 保存新 skill 到文件
+        const { IPCAPI } = await import('../../../../services/ipc/api');
+        const ipcApi = IPCAPI.getInstance();
+        const jsonString = JSON.stringify(info, null, 2);
+        const writeResponse = await ipcApi.writeSkillFile(diagramJsonPath, jsonString);
+        
+        if (writeResponse.success) {
+          // 使用后端返回的实际文件路径（包含完整的文件夹结构）
+          const actualFilePath = (writeResponse.data as any)?.filePath || diagramJsonPath;
+          console.log('[NEW_SKILL] Created new skill file:', actualFilePath);
+          
+          // 设置正确的文件路径
+          useSkillInfoStore.getState().setCurrentFilePath(actualFilePath);
+          useSkillInfoStore.getState().setHasUnsavedChanges(false);
+        } else {
+          console.error('[NEW_SKILL] Failed to create skill file:', writeResponse.error);
+        }
+      } catch (e) {
+        console.error('[NEW_SKILL] Error saving new skill:', e);
+      }
     }
   }, [workflowDocument, username, tools, setSkillInfo, skillInfo, breakpoints]);
 
