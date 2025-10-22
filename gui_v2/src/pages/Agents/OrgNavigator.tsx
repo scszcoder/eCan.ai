@@ -1,6 +1,6 @@
-import React, { useMemo, useCallback, useEffect } from 'react';
+import React, { useMemo, useCallback, useEffect, useState } from 'react';
 import { Alert, Button, Spin, FloatButton } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { PlusOutlined, InboxOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useUserStore } from '../../stores/userStore';
@@ -115,12 +115,75 @@ const buildDoorsForNode = (
   return doors;
 };
 
+// 搜索匹配函数：检查文本是否包含搜索关键字
+const matchesSearchQuery = (text: string | undefined | null, query: string): boolean => {
+  if (!text || !query) return true;
+  return text.toLowerCase().includes(query.toLowerCase());
+};
+
+// 递归搜索组织树，返回匹配的组织和其中的 agents
+const searchInOrgTree = (
+  node: TreeOrgNode,
+  query: string,
+  allAgentsMap: Map<string, OrgAgent[]>
+): { matchedOrgs: TreeOrgNode[], matchedAgents: OrgAgent[] } => {
+  if (!query.trim()) {
+    return { matchedOrgs: [], matchedAgents: [] };
+  }
+
+  const results: { matchedOrgs: TreeOrgNode[], matchedAgents: OrgAgent[] } = {
+    matchedOrgs: [],
+    matchedAgents: []
+  };
+
+  // 检查当前组织是否匹配
+  const orgMatches = matchesSearchQuery(node.name, query) || 
+                     matchesSearchQuery(node.description, query);
+
+  // 获取当前组织的 agents
+  const orgAgents = allAgentsMap.get(node.id) || [];
+  
+  // 检查 agents 是否匹配
+  const matchedAgentsInOrg = orgAgents.filter(agent => 
+    matchesSearchQuery(agent.name, query) || 
+    matchesSearchQuery(agent.description, query)
+  );
+
+  // 如果组织名称匹配，或者有匹配的 agents，则包含这个组织
+  if (orgMatches || matchedAgentsInOrg.length > 0) {
+    results.matchedOrgs.push(node);
+    results.matchedAgents.push(...matchedAgentsInOrg);
+  }
+
+  // 递归搜索子组织
+  if (node.children && node.children.length > 0) {
+    node.children.forEach(child => {
+      const childResults = searchInOrgTree(child, query, allAgentsMap);
+      results.matchedOrgs.push(...childResults.matchedOrgs);
+      results.matchedAgents.push(...childResults.matchedAgents);
+    });
+  }
+
+  return results;
+};
+
 const OrgNavigator: React.FC = () => {
   const navigate = useNavigate();
   const { orgId } = useParams<{ orgId?: string }>();
   const location = useLocation();
   const { t } = useTranslation();
   const username = useUserStore((state) => state.username);
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  // 将搜索状态暴露给父组件（通过 window 对象）
+  useEffect(() => {
+    (window as any).__agentsSearchQuery = searchQuery;
+    (window as any).__setAgentsSearchQuery = setSearchQuery;
+    return () => {
+      delete (window as any).__agentsSearchQuery;
+      delete (window as any).__setAgentsSearchQuery;
+    };
+  }, [searchQuery]);
 
   // 解析嵌套路径中的实际 orgId
   const actualOrgId = useMemo(() => {
@@ -155,6 +218,14 @@ const OrgNavigator: React.FC = () => {
   const rootNode = useOrgStore((state) => state.treeOrgs[0]);
   const isRootView = !actualOrgId || actualOrgId === 'root';
   const isUnassignedView = false;
+
+  // 当开始搜索时，自动跳转到主页显示全局搜索结果
+  useEffect(() => {
+    if (searchQuery && searchQuery.trim() && !isRootView) {
+      console.log('[OrgNavigator] Search query detected, navigating to root for global search');
+      navigate('/agents');
+    }
+  }, [searchQuery, isRootView, navigate]);
 
   const currentNode = useMemo(() => {
     if (!rootNode) return null;
@@ -202,35 +273,112 @@ const OrgNavigator: React.FC = () => {
     return filteredAgents.map((agent) => mapOrgAgentToAgent(agent, actualOrgId));
   }, [allAgentsFromStore, actualOrgId, isRootView]);
 
+
+  // 搜索结果：全局搜索整个组织树
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim() || !rootNode) {
+      return null; // 没有搜索时返回 null
+    }
+
+    console.log('[OrgNavigator] Performing GLOBAL search for:', searchQuery);
+    console.log('[OrgNavigator] Current location:', location.pathname);
+    console.log('[OrgNavigator] isRootView:', isRootView);
+
+    // 全局搜索：始终从根节点开始搜索
+    console.log('[OrgNavigator] Searching from ROOT node:', rootNode.name, rootNode.id);
+
+    // 构建 agents 映射：orgId -> agents[]
+    const agentsMap = new Map<string, OrgAgent[]>();
+    allAgentsFromStore.forEach(agent => {
+      const orgId = agent.org_id || 'root';
+      if (!agentsMap.has(orgId)) {
+        agentsMap.set(orgId, []);
+      }
+      agentsMap.get(orgId)!.push(agent);
+    });
+
+    // 从根节点开始搜索（全局搜索）
+    const results = searchInOrgTree(rootNode, searchQuery, agentsMap);
+    
+    console.log('[OrgNavigator] GLOBAL search results:', {
+      matchedOrgs: results.matchedOrgs.length,
+      matchedAgents: results.matchedAgents.length,
+      orgNames: results.matchedOrgs.map(o => o.name)
+    });
+    
+    return results;
+  }, [searchQuery, rootNode, allAgentsFromStore]);
+
   // 合并doors和agents到统一的items列表，用于统一渲染
   const allItems = useMemo(() => {
     const items: Array<{type: 'door' | 'agent', data: any, sortOrder: number}> = [];
     
-    // 添加所有doors（子组织）
-    levelDoors.forEach(door => {
-      items.push({
-        type: 'door',
-        data: door,
-        sortOrder: door.sort_order || 0
-      });
-    });
-    
-    // 添加所有agents，排序值设置为较大值，让agents显示在doors之后
-    // 过滤掉系统后台 agent (My Twin Agent)
-    agentsForDisplay
-      .filter(agent => {
-        const agentId = (agent as any)?.card?.id ?? (agent as any)?.id;
-        const agentName = (agent as any)?.card?.name ?? (agent as any)?.name;
-        // 过滤掉 My Twin Agent（通过 ID 或 name）
-        return agentId !== 'system_my_twin_agent' && agentName !== 'My Twin Agent';
-      })
-      .forEach((agent, index) => {
+    // 如果有搜索结果，显示搜索结果
+    if (searchResults) {
+      // 添加匹配的组织
+      searchResults.matchedOrgs.forEach((org, index) => {
+        const hasChildren = !!(org.children && org.children.length > 0);
+        const orgAgents = searchResults.matchedAgents.filter(a => a.org_id === org.id);
+        
         items.push({
-          type: 'agent',
-          data: agent,
-          sortOrder: 1000000 + index  // 确保agents排在doors后面
+          type: 'door',
+          data: {
+            id: org.id,
+            name: org.name,
+            type: hasChildren ? 'org_with_children' : 'org_with_agents',
+            description: org.description || '',
+            sort_order: index,
+            org: org,
+            agents: orgAgents,
+            agentCount: orgAgents.length,
+            hasChildren,
+            childrenCount: org.children?.length || 0,
+          },
+          sortOrder: index
         });
       });
+      
+      // 添加匹配的 agents
+      searchResults.matchedAgents
+        .filter(agent => {
+          const agentId = agent.id;
+          const agentName = agent.name;
+          return agentId !== 'system_my_twin_agent' && agentName !== 'My Twin Agent';
+        })
+        .forEach((agent, index) => {
+          items.push({
+            type: 'agent',
+            data: mapOrgAgentToAgent(agent, agent.org_id),
+            sortOrder: 1000000 + index
+          });
+        });
+    } else {
+      // 没有搜索时，显示当前层级的内容
+      // 添加所有doors（子组织）
+      levelDoors.forEach(door => {
+        items.push({
+          type: 'door',
+          data: door,
+          sortOrder: door.sort_order || 0
+        });
+      });
+      
+      // 添加所有agents，排序值设置为较大值，让agents显示在doors之后
+      // 过滤掉系统后台 agent (My Twin Agent)
+      agentsForDisplay
+        .filter(agent => {
+          const agentId = (agent as any)?.card?.id ?? (agent as any)?.id;
+          const agentName = (agent as any)?.card?.name ?? (agent as any)?.name;
+          return agentId !== 'system_my_twin_agent' && agentName !== 'My Twin Agent';
+        })
+        .forEach((agent, index) => {
+          items.push({
+            type: 'agent',
+            data: agent,
+            sortOrder: 1000000 + index
+          });
+        });
+    }
     
     // 按sortOrder排序
     items.sort((a, b) => a.sortOrder - b.sortOrder);
@@ -242,28 +390,72 @@ const OrgNavigator: React.FC = () => {
       agents: items.filter(i => i.type === 'agent').length,
       agentsForDisplayCount: agentsForDisplay.length,
       isRootView,
-      actualOrgId
+      actualOrgId,
+      searchQuery,
+      hasSearchResults: !!searchResults
     });
     
     return items;
-  }, [levelDoors, agentsForDisplay, isRootView, actualOrgId]);
+  }, [levelDoors, agentsForDisplay, isRootView, actualOrgId, searchQuery, searchResults, rootNode, allAgentsFromStore]);
 
 
   const handleDoorClick = useCallback(
     (door: DisplayNode) => {
-      // 移除未分配agents门的处理逻辑
+      console.log('[OrgNavigator] handleDoorClick called with door:', door);
+      console.log('[OrgNavigator] searchQuery:', searchQuery);
+      console.log('[OrgNavigator] rootNode:', rootNode?.id);
+      
+      // 如果在搜索模式下，清除搜索并导航
+      if (searchQuery) {
+        console.log('[OrgNavigator] In search mode, clearing search and navigating...');
+        
+        // 先清除搜索
+        setSearchQuery('');
+        if ((window as any).__setAgentsSearchQuery) {
+          (window as any).__setAgentsSearchQuery('');
+        }
+        
+        // 构建完整路径
+        if (rootNode) {
+          const buildOrgPath = (targetId: string, node: TreeOrgNode, path: string[] = []): string[] | null => {
+            if (node.id === targetId) {
+              return [...path, node.id];
+            }
+            if (node.children) {
+              for (const child of node.children) {
+                const result = buildOrgPath(targetId, child, [...path, node.id]);
+                if (result) return result;
+              }
+            }
+            return null;
+          };
 
-      // 构建正确的嵌套路径：当前路径 + /organization/:orgId
-      // 这样 PageBackBreadcrumb 组件就能正确解析路径层级
+          const orgPath = buildOrgPath(door.id, rootNode);
+          console.log('[OrgNavigator] Found org path:', orgPath);
+          
+          if (orgPath && orgPath.length > 0) {
+            // 构建完整路径：/agents/organization/id1/organization/id2/...
+            let fullPath = '/agents';
+            orgPath.slice(1).forEach(id => {
+              fullPath += `/organization/${id}`;
+            });
+            console.log('[OrgNavigator] Search mode - Navigating to:', fullPath);
+            navigate(fullPath);
+            return;
+          }
+        }
+      }
+
+      // 正常模式：构建相对路径
       const currentPath = location.pathname.replace(/\/$/, ''); // 移除末尾斜杠
       const newPath = `${currentPath}/organization/${door.id}`;
       
-      console.log('[OrgNavigator] Navigating from:', currentPath, 'to:', newPath);
+      console.log('[OrgNavigator] Normal mode - Navigating from:', currentPath, 'to:', newPath);
       console.log('[OrgNavigator] Current actualOrgId:', actualOrgId, 'Target door.id:', door.id);
       
       navigate(newPath);
     },
-    [navigate, location.pathname, actualOrgId]
+    [navigate, location.pathname, actualOrgId, searchQuery, rootNode, setSearchQuery]
   );
 
 
@@ -473,7 +665,11 @@ const OrgNavigator: React.FC = () => {
 
               return (
                 <div key={`door-${door.id}`} onClick={() => handleDoorClick(door)}>
-                  <OrgDoor name={displayName} />
+                  <OrgDoor 
+                    name={displayName} 
+                    hasChildren={door.hasChildren}
+                    isActive={actualOrgId === door.id}
+                  />
                 </div>
               );
             } else {
@@ -495,7 +691,21 @@ const OrgNavigator: React.FC = () => {
 
       {allItems.length === 0 && !isUnassignedView && (
         <div className="empty-state">
-          {t('pages.agents.no_items') || 'No organizations or agents available.'}
+          <InboxOutlined style={{ fontSize: 64, color: 'rgba(59, 130, 246, 0.3)', marginBottom: 16 }} />
+          <div style={{ fontSize: 18, color: 'rgba(255, 255, 255, 0.7)', marginBottom: 8 }}>
+            {searchQuery ? (
+              <>
+                {t('pages.agents.no_search_results') || 'No results found for'} "{searchQuery}"
+              </>
+            ) : (
+              t('pages.agents.no_items') || 'No organizations or agents available'
+            )}
+          </div>
+          {searchQuery && (
+            <div style={{ fontSize: 14, color: 'rgba(255, 255, 255, 0.5)' }}>
+              {t('pages.agents.try_different_search') || 'Try a different search term or clear the search'}
+            </div>
+          )}
         </div>
       )}
 

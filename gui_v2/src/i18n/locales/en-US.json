@@ -166,7 +166,10 @@
       "deleteSuccess": "Agent deleted successfully",
       "deleteError": "Failed to delete agent",
       "no_items": "No organizations or agents available",
-      "avatar": "Avatar"
+      "avatar": "Avatar",
+      "search_placeholder": "Enter name or other keywords",
+      "no_search_results": "No results found",
+      "try_different_search": "Try a different search term or clear the search"
     },
     "analytics": {
       "activeAgents": "Active Agents",
