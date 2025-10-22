@@ -463,14 +463,19 @@ def handle_write_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]
             
             # Sync with skill database if it's a skill workflow JSON file
             if file_path.endswith('_skill.json'):
+                logger.info(f"[SKILL_IO][BACKEND] Syncing skill to database: {file_path}")
                 try:
                     from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
                     result = sync_skill_from_file(file_path)
                     
-                    if not result.get('success'):
-                        logger.warning(f"[SKILL_IO][BACKEND] Failed to sync skill: {result.get('error')}")
+                    if result.get('success'):
+                        operation = result.get('operation', 'unknown')
+                        skill_id = result.get('skill_id', 'unknown')
+                        logger.info(f"[SKILL_IO][BACKEND] ✅ Skill {operation}d successfully (ID: {skill_id})")
+                    else:
+                        logger.warning(f"[SKILL_IO][BACKEND] ❌ Failed to sync skill: {result.get('error')}")
                 except Exception as sync_error:
-                    logger.warning(f"[SKILL_IO][BACKEND] Error syncing skill to database: {sync_error}")
+                    logger.error(f"[SKILL_IO][BACKEND] ❌ Error syncing skill to database: {sync_error}", exc_info=True)
             
             # Extract skill name without suffix for frontend
             final_file_name = os.path.basename(file_path)
