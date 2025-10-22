@@ -66,7 +66,7 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
      * 子画布 padding 设置
      */
     padding: () => ({
-      top: 120,
+      top: 180,
       bottom: 60,
       left: 60,
       right: 60,
@@ -91,7 +91,7 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
   onAdd() {
     const containerWidth = 500;
     const containerHeight = 300;
-    const padding = { top: 120, bottom: 60, left: 60, right: 60 };
+    const padding = { top: 180, bottom: 60, left: 60, right: 60 };
     
     // Calculate internal canvas size
     const canvasWidth = containerWidth - padding.left - padding.right; // 380
