@@ -84,8 +84,14 @@ class AvatarHandler:
         }
         """
         try:
-            username = request.get('username', 'default')
+            username = request.get('username')
             avatar_resource_id = request.get('avatarResourceId')
+            
+            if not username:
+                return {
+                    "success": False,
+                    "error": "Missing required parameter: username"
+                }
             
             if not avatar_resource_id:
                 return {
@@ -143,7 +149,14 @@ class AvatarHandler:
         """
         try:
             import urllib.parse
-            username = request.get('username', 'default')
+            username = request.get('username')
+            
+            if not username:
+                return {
+                    "success": False,
+                    "error": "Missing required parameter: username"
+                }
+            
             avatar_manager = self._get_avatar_manager(username)
             
             avatars = avatar_manager.get_system_avatars()
@@ -436,7 +449,14 @@ class AvatarHandler:
         """
         try:
             import urllib.parse
-            username = request.get('username', 'default')
+            username = request.get('username')
+            
+            if not username:
+                return {
+                    "success": False,
+                    "error": "Missing required parameter: username"
+                }
+            
             avatar_manager = self._get_avatar_manager(username)
             
             avatars = avatar_manager.get_uploaded_avatars()
@@ -656,7 +676,9 @@ def handle_get_avatar_resource(request: IPCRequest, params: Optional[list[Any]])
 def handle_get_system_avatars(request: IPCRequest, params: Optional[dict[str, Any]]) -> IPCResponse:
     """Get system default avatars."""
     try:
-        username = params.get('username', 'default') if params else 'default'
+        if not params or 'username' not in params:
+            return create_error_response(request, 'MISSING_PARAM', 'Missing required parameter: username')
+        username = params['username']
         result = avatar_handler.get_system_avatars({'username': username})
         
         if result.get('success'):
@@ -701,7 +723,9 @@ async def handle_upload_avatar(request: IPCRequest, params: Optional[dict[str, A
 def handle_get_uploaded_avatars(request: IPCRequest, params: Optional[dict[str, Any]]) -> IPCResponse:
     """Get user uploaded avatars."""
     try:
-        username = params.get('username', 'default') if params else 'default'
+        if not params or 'username' not in params:
+            return create_error_response(request, 'MISSING_PARAM', 'Missing required parameter: username')
+        username = params['username']
         result = avatar_handler.get_uploaded_avatars({'username': username})
         
         if result.get('success'):

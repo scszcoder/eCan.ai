@@ -392,6 +392,3 @@ def handle_get_initialization_progress(request: IPCRequest, params: Optional[Any
 
 # Print all registered handlers
 logger.info(f"Registered handlers: {IPCHandlerRegistry.list_handlers()}")
-
-# Import file handlers to register related IPC handling methods
-from . import file_handlers
