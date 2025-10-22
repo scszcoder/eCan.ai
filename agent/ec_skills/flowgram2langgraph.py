@@ -25,7 +25,6 @@ function_registry = {
     "basic": build_basic_node,
     "code": build_basic_node,
     # HTTP/API
-    "http-api": build_api_node,
     "http": build_api_node,
     # Flow control
     "loop": build_loop_node,

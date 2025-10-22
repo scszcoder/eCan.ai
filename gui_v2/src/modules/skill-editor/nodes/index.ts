@@ -20,7 +20,6 @@ import { BlockStartNodeRegistry } from './block-start';
 import { BlockEndNodeRegistry } from './block-end';
 import { BasicNodeRegistry } from './basic';
 import { MCPNodeRegistry } from './mcp';
-import { HttpApiNodeRegistry } from './http-api';
 import { RAGNodeRegistry } from './rag';
 import { ChatNodeRegistry } from './chat';
 import { PendInputNodeRegistry } from './pend-input';
@@ -49,7 +48,6 @@ export const nodeRegistries: FlowNodeRegistry[] = [
   GroupNodeRegistry,
   BasicNodeRegistry,
   MCPNodeRegistry,
-  HttpApiNodeRegistry,
   RAGNodeRegistry,
   ChatNodeRegistry,
   // Keep PendInput for backward compatibility; prefer PendEvent
