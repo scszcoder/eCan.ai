@@ -21,14 +21,44 @@ IS_FROZEN = getattr(sys, 'frozen', False)
 
 # ===============================================================================
 def user_skills_root() -> Path:
-    """Return the per-user skills root dir."""
-    if sys.platform == "win32":
-        base = Path(os.getenv("APPDATA", Path.home() / "AppData" / "Roaming"))
-        return base / APP_NAME / SKILLS_DIRNAME
-    elif sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / APP_NAME / SKILLS_DIRNAME
-    else:
-        return Path.home() / ".local" / "share" / APP_NAME / SKILLS_DIRNAME
+    """Return the per-user skills root dir.
+    
+    Uses app_info.appdata_path + SKILLS_DIRNAME:
+    - Development environment: <project_root>/my_skills
+    - Production environment: <system_appdata>/eCan.ai/my_skills
+    """
+    try:
+        # Import app_info to get the configured appdata path
+        from config.app_info import app_info
+        
+        # Get appdata path from app_info (handles dev/prod automatically)
+        appdata_path = Path(app_info.appdata_path)
+        skills_root = appdata_path / SKILLS_DIRNAME
+        
+        # Log the path based on environment
+        env_mode = "DEV MODE" if not IS_FROZEN else "PRODUCTION MODE"
+        logger.info(f"[{env_mode}] Using skills directory: {skills_root}")
+        
+        # Ensure directory exists
+        skills_root.mkdir(parents=True, exist_ok=True)
+        
+        return skills_root
+        
+    except Exception as e:
+        # Fallback: use simple platform-specific path if app_info is not available
+        logger.warning(f"Failed to get appdata path from app_info: {e}, using fallback")
+        
+        if sys.platform == "win32":
+            base = Path(os.getenv("APPDATA", Path.home() / "AppData" / "Roaming"))
+            fallback_path = base / APP_NAME / SKILLS_DIRNAME
+        elif sys.platform == "darwin":
+            fallback_path = Path.home() / "Library" / "Application Support" / APP_NAME / SKILLS_DIRNAME
+        else:
+            fallback_path = Path.home() / ".local" / "share" / APP_NAME / SKILLS_DIRNAME
+        
+        logger.info(f"[FALLBACK] Using fallback skills directory: {fallback_path}")
+        fallback_path.mkdir(parents=True, exist_ok=True)
+        return fallback_path
 
 
 def scaffold_skill(skill_name: str = "abc", description: str = "This skill ....", kind: str = "code") -> Path:

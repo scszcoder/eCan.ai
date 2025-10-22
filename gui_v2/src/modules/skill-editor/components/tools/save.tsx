@@ -56,7 +56,10 @@ export async function saveFile(dataToSave: SkillInfo, username?: string, current
         console.log('[SKILL_IO][FRONTEND][IPC_ATTEMPT] showSaveDialog');
         let filePath = currentFilePath;
         if (!filePath) {
-          const fileName = (dataToSave.skillName || 'skill') + '_skill.json';
+          // 问题2修复: 不要在默认文件名中添加 _skill 后缀
+          // 用户输入的名称就是文件夹名称，后端会自动添加 _skill 后缀到文件夹
+          const fileName = (dataToSave.skillName || 'untitled') + '.json';
+          console.log('[SKILL_IO][FRONTEND][DEFAULT_FILENAME]', fileName);
           const dialogResponse = await ipcApi.showSaveDialog(fileName, [
             { name: 'Skill Files', extensions: ['json'] },
             { name: 'All Files', extensions: ['*'] }
@@ -82,7 +85,14 @@ export async function saveFile(dataToSave: SkillInfo, username?: string, current
           const writeResponse = await ipcApi.writeSkillFile(filePath, jsonString);
           if (writeResponse.success) {
             console.log('[SKILL_IO][FRONTEND][MAIN_SAVE_OK]', filePath);
-            return { success: true, filePath };
+            // 需求4: 使用后端返回的 skillName 更新前端
+            const savedSkillName = writeResponse.data?.skillName;
+            console.log('[SKILL_IO][FRONTEND][SKILL_NAME_FROM_BACKEND]', savedSkillName);
+            return { 
+              success: true, 
+              filePath,
+              skillName: savedSkillName  // 返回 skillName 用于更新
+            };
           }
           console.error('[SKILL_IO][FRONTEND][MAIN_SAVE_ERROR]', writeResponse.error);
           throw new Error(writeResponse.error || 'Failed to write file');
@@ -264,8 +274,22 @@ export const Save = ({ disabled }: SaveProps) => {
       const saveResult = await saveFile(updatedSkillInfo, username || undefined, effectivePath);
 
       if (saveResult && !saveResult.cancelled) {
+        // 需求4: 如果后端返回了新的 skillName，使用它更新 skillInfo
+        let finalSkillInfo = updatedSkillInfo;
+        const savedSkillName = (saveResult as any).skillName;  // 使用 any 绕过类型检查
+        if (savedSkillName && savedSkillName !== updatedSkillInfo.skillName) {
+          console.log('[SKILL_IO][FRONTEND][UPDATE_SKILL_NAME]', {
+            old: updatedSkillInfo.skillName,
+            new: savedSkillName
+          });
+          finalSkillInfo = {
+            ...updatedSkillInfo,
+            skillName: savedSkillName
+          };
+        }
+        
         // Update the skill info store
-        setSkillInfo(updatedSkillInfo);
+        setSkillInfo(finalSkillInfo);
         setHasUnsavedChanges(false);
 
         // Update file path if we got a new one (from Save As dialog)
