@@ -2,15 +2,15 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   cursor: pointer;
   /* 性能优化：只过渡必要的属性 */
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
               box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
               border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 2;
-  width: 220px;
-  height: 340px;
+  width: 260px;
+  height: 420px;
   border-radius: 20px;
   background: linear-gradient(145deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
   border: 1px solid rgba(59, 130, 246, 0.3);
@@ -18,9 +18,8 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   position: relative;
   overflow: visible;
-  padding: 18px 12px;
+  padding: 20px 16px;
   /* 性能优化：移除 backdrop-filter，非常耗 GPU */
-  margin-bottom: 20px;
   /* GPU 加速 */
   transform: translateZ(0);
   will-change: transform;
@@ -92,8 +91,8 @@
 
 /* CSS 门容器 */
 .css-door-container {
-  width: 150px;
-  height: 180px;
+  width: 200px;
+  height: 320px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -104,21 +103,22 @@
 
 /* 门框 */
 .door-frame {
-  width: 120px;
-  height: 160px;
+  width: 100%;
+  height: 100%;
   background: linear-gradient(135deg,
-    rgba(15, 23, 42, 0.98) 0%,
-    rgba(30, 41, 59, 0.95) 100%);
-  border-radius: 12px;
-  padding: 8px;
-  box-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.6),
-    inset 0 2px 6px rgba(139, 92, 246, 0.2);
+    rgba(71, 85, 105, 0.4) 0%,
+    rgba(51, 65, 85, 0.5) 50%,
+    rgba(30, 41, 59, 0.6) 100%);
+  border-radius: 16px;
+  padding: 10px;
   position: relative;
-  border: 2px solid rgba(139, 92, 246, 0.45);
-  transition: border-color 0.6s ease-out, box-shadow 0.6s ease-out;
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.3),
+    inset 0 2px 8px rgba(148, 163, 184, 0.1);
+  border: 2px solid rgba(100, 116, 139, 0.4);
+  transition: box-shadow 0.6s ease-out, border-color 0.6s ease-out;
   overflow: hidden;
-  /* 只在非移动设备上启用脉动 */
+  border-radius: 12px;
 }
 
 /* 性能优化：移除门框脉动动画 */
@@ -244,10 +244,96 @@
   border-right: 3px solid rgba(255, 255, 255, 0.8);
 }
 
+/* 门上的铭牌 */
+.door-nameplate {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 85%;
+  background: linear-gradient(135deg, 
+    rgba(30, 41, 59, 0.95) 0%, 
+    rgba(15, 23, 42, 0.98) 100%);
+  border: 2px solid rgba(167, 139, 250, 0.6);
+  border-radius: 12px;
+  padding: 12px 16px;
+  box-shadow: 
+    0 4px 16px rgba(0, 0, 0, 0.4),
+    inset 0 1px 3px rgba(196, 181, 253, 0.3),
+    0 0 20px rgba(139, 92, 246, 0.3);
+  z-index: 10;
+  transition: all 0.4s ease;
+  backdrop-filter: blur(8px);
+}
+
+.door-panel.open .door-nameplate {
+  border-color: rgba(196, 181, 253, 0.9);
+  box-shadow: 
+    0 6px 24px rgba(139, 92, 246, 0.6),
+    inset 0 2px 6px rgba(255, 255, 255, 0.4),
+    0 0 30px rgba(167, 139, 250, 0.5);
+  transform: translateX(-50%) scale(1.05);
+}
+
+/* 铭牌名称 */
+.nameplate-name {
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1.3;
+  text-align: center;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  margin-bottom: 6px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+}
+
+.door-panel.open .nameplate-name {
+  color: rgba(196, 181, 253, 1);
+  text-shadow: 0 0 12px rgba(167, 139, 250, 0.8);
+}
+
+/* 铭牌计数 - 优化版本，更协调整体 */
+.nameplate-count {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: rgba(148, 163, 184, 0.85);
+  font-weight: 500;
+  font-size: 13px;
+  padding: 0;
+  margin-top: 2px;
+  background: transparent;
+  border: none;
+  transition: all 0.3s ease;
+}
+
+.nameplate-count span {
+  font-family: 'SF Mono', 'Monaco', 'Courier New', monospace;
+  font-weight: 600;
+  color: rgba(167, 139, 250, 0.9);
+}
+
+.door-panel.open .nameplate-count {
+  color: rgba(196, 181, 253, 0.9);
+}
+
+.door-panel.open .nameplate-count span {
+  color: rgba(255, 255, 255, 1);
+  text-shadow: 0 0 8px rgba(167, 139, 250, 0.8);
+}
+
 /* 门板装饰区域 */
 .door-decoration {
   position: absolute;
   inset: 12px;
+  top: 140px;
   border: 2px solid rgba(167, 139, 250, 0.4);
   border-radius: 6px;
   display: flex;
@@ -370,89 +456,6 @@
   height: min(34vw, 340px);
   max-width: 220px;
   max-height: 320px;
-}
-
-.org-door-label {
-  width: 100%;
-  text-align: center;
-  margin: 0;
-  padding: 12px;
-  min-height: 60px;
-  max-height: 80px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.9));
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  pointer-events: none;
-  user-select: none;
-  transition: transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  flex-shrink: 0;
-  box-sizing: border-box;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-}
-
-/* 门标签名称部分 - 支持2行文字 */
-.org-door-label-name {
-  color: rgba(255, 255, 255, 0.95);
-  font-weight: 600;
-  font-size: 0.9em;
-  line-height: 1.4;
-  width: 100%;
-  text-align: center;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  word-wrap: break-word;
-  word-break: break-word;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-  transition: color 0.3s ease;
-  min-height: 2.8em; /* 确保有足够空间显示2行 */
-  max-height: 2.8em;
-}
-
-.org-door:hover .org-door-label-name {
-  color: rgba(96, 165, 250, 1);
-}
-
-/* 门标签计数部分 */
-.org-door-label-count {
-  color: rgba(59, 130, 246, 0.9);
-  font-weight: 500;
-  font-size: 0.85em;
-  line-height: 1.2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 4px 12px;
-  background: rgba(59, 130, 246, 0.1);
-  border-radius: 12px;
-  border: 1px solid rgba(59, 130, 246, 0.2);
-  transition: all 0.3s ease;
-}
-
-.org-door:hover .org-door-label-count {
-  background: rgba(59, 130, 246, 0.2);
-  border-color: rgba(59, 130, 246, 0.4);
-  color: rgba(96, 165, 250, 1);
-  transform: scale(1.05);
-}
-
-/* 门标签悬停效果 */
-.org-door:hover .org-door-label {
-  background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
-  border-color: rgba(59, 130, 246, 0.6);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  transform: translateY(-2px);
 }
 
 @media (max-width: 768px) {
