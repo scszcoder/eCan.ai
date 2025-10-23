@@ -187,19 +187,26 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
         from langchain_core.messages import AIMessage
         next_prompt_text = response['llm_result'].get('next_prompt', '')
         work_related = response['llm_result'].get('work_related', False)
-        prelim = response['llm_result'].get('preliminary_info', {})
+        prelim = response['llm_result'].get('preliminary_info', [{}])[0]
         if work_related:
             if prelim:
-                # "part name": "string", "oems": ["string"], "model_part_numbers": ["string"], "applications_usage": ["string"]
-                topic = f"search {prelim.get('part name')} for {prelim.get('applications_usage')}"
-                if prelim.get('oems'):
-                    topic = topic + f", given oems being: {prelim.get('oems')}"
-                if prelim.get('model_part_numbers'):
-                    topic += f", and part number being {prelim.get('model_part_numbers')}"
+                print("prelim:", prelim)
+                if "part name" in prelim:
+                    apps = prelim.get('applications_usage', "")
+                    # "part name": "string", "oems": ["string"], "model_part_numbers": ["string"], "applications_usage": ["string"]
+                    topic = f"search {prelim.get('part name')}"
+                    if apps:
+                        topic = topic + f" for {prelim.get('applications_usage')}"
+                    if prelim.get('oems'):
+                        topic = topic + f", given oems being: {prelim.get('oems')}"
+                    if prelim.get('model_part_numbers'):
+                        topic += f", and part number being {prelim.get('model_part_numbers')}"
+                else:
+                    topic = state["attributes"].get("topic", "random")
             else:
-                topic = "search part"
+                topic = state["attributes"].get("topic", "random")
         else:
-            topic = "random chat"
+            topic = state["attributes"].get("topic", "random")
 
         if next_prompt_text:
             ai_message = AIMessage(content=next_prompt_text)
@@ -213,7 +220,6 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
         for msg in state["prompts"]:
             msg_id = state["attributes"]["msg_id"]
             skill_run_id = state["attributes"]["run_thread_id"]
-            topic = state["attributes"]["topic"]
             ns = (agent.card.id, askid, skill_run_id, state["attributes"]["chat_id"], topic)
             mem_item = to_memory_item(msg, ns, msg_id)
             agent.mem_manager.put(mem_item)
