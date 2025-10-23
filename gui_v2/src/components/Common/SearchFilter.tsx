@@ -17,14 +17,14 @@ import { useTranslation } from 'react-i18next';
 
 const { Text } = Typography;
 
-// 主容器 - 与现有设计系统协调
+// 主容器 - 简化版本，去掉边框和内边距
 const SearchContainer = styled.div`
-  margin-bottom: 12px;
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 12px;
-  box-shadow: var(--shadow-sm);
+  margin-bottom: 0;
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
   transition: var(--transition-normal);
 `;
 
@@ -471,6 +471,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
             <FilterSectionTitle>{option.label}</FilterSectionTitle>
             <div style={{ padding: '8px 12px' }}>
               <Select
+                id={`filter-select-${option.key}`}
                 style={{ width: '100%' }}
                 placeholder={t('search.selectFilter', { filter: option.label })}
                 value={activeFilters[option.key]}
@@ -510,11 +511,19 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
         <SearchInputWrapper>
           <StyledInput
             ref={inputRef}
+            id="chat-search-input"
             value={searchValue}
             onChange={handleSearchInput}
             placeholder={placeholder || t('search.placeholder')}
             prefix={<SearchOutlined />}
-            suffix={value && <CloseOutlined onClick={() => onSearch('')} />}
+            suffix={value && <CloseOutlined onClick={() => {
+              setSearchValue('');
+              onSearch('');
+              // 延迟重新聚焦，确保在状态更新后
+              setTimeout(() => {
+                inputRef.current?.focus();
+              }, 0);
+            }} />}
             aria-label={t('search.ariaSearch')}
           />
         </SearchInputWrapper>

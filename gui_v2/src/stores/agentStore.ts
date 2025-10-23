@@ -104,7 +104,19 @@ export const useAgentStore = create<AgentStoreState>()(
       
       getMyTwinAgent: () => {
         const agents = get().agents;
-        return agents.find(agent => agent.card?.name === 'My Twin Agent') || null;
+        // 优先通过 ID 查找（更可靠）
+        const myTwinById = agents.find(agent => 
+          agent.card?.id?.startsWith('system_my_twin') || 
+          agent.card?.id === 'system_my_twin_agent'
+        );
+        if (myTwinById) return myTwinById;
+        
+        // 备用：通过名称查找
+        const myTwinByName = agents.find(agent => 
+          agent.card?.name === 'My Twin Agent' ||
+          agent.card?.name?.includes('Twin')
+        );
+        return myTwinByName || null;
       },
       
       getAgentsByRank: (rank) => {
