@@ -466,6 +466,138 @@ class DBChatService(BaseService):
                 "error": None
             }
 
+    def search_chats_by_message_content(
+        self, 
+        userId: Optional[str] = None, 
+        searchText: Optional[str] = None,
+        deep: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Search chats by message content for a specific user.
+        
+        This method finds all chats where:
+        1. The user is a member (via userId)
+        2. Any message in the chat contains the search text
+        
+        Args:
+            userId (str, optional): User ID to filter chats
+            searchText (str, optional): Text to search in message content
+            deep (bool): Whether to include messages in response
+            
+        Returns:
+            dict: Standard response with filtered chat list
+        """
+        if not userId:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "userId is required"
+            }
+        
+        if not searchText or not searchText.strip():
+            # If no search text, return all chats for the user
+            return self.query_chats_by_user(userId=userId, deep=deep)
+        
+        with self.session_scope() as session:
+            try:
+                # Find all chats where user is a member
+                user_chats_stmt = select(Chat).join(Member).where(Member.userId == userId)
+                user_chats = session.execute(user_chats_stmt).scalars().all()
+                
+                # Filter chats that have messages containing the search text
+                matching_chats = []
+                search_lower = searchText.lower().strip()
+                
+                logger.debug(f"[search_chats] Total user chats: {len(user_chats)}, searching for: '{search_lower}'")
+                
+                for chat in user_chats:
+                    # Query messages for this chat
+                    messages_stmt = select(Message).where(Message.chatId == chat.id)
+                    messages = session.execute(messages_stmt).scalars().all()
+                    
+                    logger.trace(f"[search_chats] Chat {chat.id}: {len(messages)} messages")
+                    
+                    # Check if any message contains the search text
+                    has_match = False
+                    for msg in messages:
+                        if msg.content:
+                            # Handle different content types
+                            searchable_text = ""
+                            
+                            if isinstance(msg.content, str):
+                                searchable_text = msg.content
+                            elif isinstance(msg.content, dict):
+                                # 提取所有可能包含文本的字段
+                                text_fields = []
+                                
+                                # 主要文本字段
+                                if msg.content.get('text'):
+                                    text_fields.append(str(msg.content.get('text')))
+                                if msg.content.get('content'):
+                                    text_fields.append(str(msg.content.get('content')))
+                                
+                                # form 字段（递归提取所有文本）
+                                if msg.content.get('form'):
+                                    form_data = msg.content.get('form')
+                                    if isinstance(form_data, dict):
+                                        # 递归提取 form 中的所有字符串值
+                                        def extract_strings(obj):
+                                            if isinstance(obj, str):
+                                                return [obj]
+                                            elif isinstance(obj, dict):
+                                                result = []
+                                                for v in obj.values():
+                                                    result.extend(extract_strings(v))
+                                                return result
+                                            elif isinstance(obj, list):
+                                                result = []
+                                                for item in obj:
+                                                    result.extend(extract_strings(item))
+                                                return result
+                                            else:
+                                                return [str(obj)] if obj is not None else []
+                                        
+                                        text_fields.extend(extract_strings(form_data))
+                                    elif isinstance(form_data, str):
+                                        text_fields.append(form_data)
+                                
+                                # 其他可能的文本字段
+                                for field in ['title', 'description', 'label', 'value', 'message']:
+                                    if msg.content.get(field):
+                                        text_fields.append(str(msg.content.get(field)))
+                                
+                                # 合并所有文本字段
+                                searchable_text = ' '.join(filter(None, text_fields))
+                            
+                            # 模糊匹配
+                            if searchable_text and search_lower in searchable_text.lower():
+                                logger.debug(f"[search_chats] Match found in chat {chat.id}, searchable_text: {searchable_text[:100]}...")
+                                has_match = True
+                                break
+                    
+                    if has_match:
+                        matching_chats.append(chat)
+                    else:
+                        logger.info(f"[search_chats] No match in chat {chat.id}")
+                
+                logger.info(f"[search_chats_by_message_content] Found {len(matching_chats)} chats matching '{searchText}' for user {userId}")
+                
+                return {
+                    "success": True,
+                    "id": None,
+                    "data": [chat.to_dict(deep=deep) for chat in matching_chats],
+                    "error": None
+                }
+            except Exception as e:
+                logger.error(f"[search_chats_by_message_content] Error: {e}")
+                return {
+                    "success": False,
+                    "id": None,
+                    "data": None,
+                    "error": str(e)
+                }
+
     def delete_chat(self, chatId: str) -> Dict[str, Any]:
         """
         Delete a chat and all related data.

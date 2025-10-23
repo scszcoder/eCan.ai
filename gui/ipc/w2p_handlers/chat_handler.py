@@ -300,6 +300,35 @@ def handle_get_chats(request: IPCRequest, params: Optional[dict]) -> IPCResponse
         logger.error(f"Error in get chats handler: {e}")
         return create_error_response(request, 'GET_CHATS_ERROR', str(e))
 
+@IPCHandlerRegistry.handler('search_chats')
+def handle_search_chats(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
+    """
+    Handle search chats by message content request.
+    
+    Params:
+        userId (str): User ID to filter chats
+        searchText (str): Text to search in message content
+        deep (bool): Whether to include messages in response
+    """
+    try:
+        logger.debug(f"search chats handler called with request: {request}")
+        userId = params.get('userId')
+        searchText = params.get('searchText', '')
+        deep = params.get('deep', False)
+        
+        main_window = AppContext.get_main_window()
+        db_chat_service = main_window.db_chat_service
+        
+        result = db_chat_service.search_chats_by_message_content(
+            userId=userId,
+            searchText=searchText,
+            deep=deep
+        )
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"Error in search chats handler: {e}")
+        return create_error_response(request, 'SEARCH_CHATS_ERROR', str(e))
+
 @IPCHandlerRegistry.handler('create_chat')
 def handle_create_chat(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
     """
@@ -335,7 +364,7 @@ def handle_create_chat(request: IPCRequest, params: Optional[dict]) -> IPCRespon
             muted=muted,
             ext=ext
         )
-        logger.debug("create chat result" + str(result))
+        logger.trace("create chat result" + str(result))
         return create_success_response(request, result)
     except Exception as e:
         logger.error(f"Error in create_chat handler: {e}")

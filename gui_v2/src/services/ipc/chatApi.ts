@@ -13,6 +13,13 @@ export function createChatApi(apiInstance: IPCAPI) {
             return apiInstance['executeRequest']('get_chats', { userId, deep });
         },
         /**
+         * 搜索聊天（按消息内容）
+         * 查询用户参与的会话中包含指定文本的会话
+         */
+        searchChats<T>(userId: string, searchText: string, deep?: boolean): Promise<APIResponse<T>> {
+            return apiInstance['executeRequest']('search_chats', { userId, searchText, deep });
+        },
+        /**
          * 创建新会话
          */
         createChat<T>(chat_data: any): Promise<APIResponse<T>> {
