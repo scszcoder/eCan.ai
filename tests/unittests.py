@@ -2102,11 +2102,15 @@ def testSyncPrivateCloudImageAPI(parent):
     # x_api_key = scramble_api_key(api_key)
     print("TESTING Private Cloud IMG API....", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
-    # Ensure ECB_HOME is set
+    # Ensure ECAN_AI_HOME is set, or auto-detect project root
     ecb_home = os.getenv("ECAN_AI_HOME")
-    print("ecb_home:", ecb_home)
     if not ecb_home:
-        raise ValueError("Environment variable ECB_HOME is not set!")
+        # Auto-detect: project root is two levels up from this file
+        ecb_home = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        os.environ["ECAN_AI_HOME"] = ecb_home
+        print(f"Auto-detected ECAN_AI_HOME: {ecb_home}")
+    
+    print("ecb_home:", ecb_home)
 
     print(f"ecb_home: {ecb_home}")  # Debugging print
 
