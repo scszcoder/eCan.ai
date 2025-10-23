@@ -1,14 +1,9 @@
 import sys
-import os, errno
+import os
 import tempfile
 import platform
 from pathlib import Path
 from config.constants import *
-
-# Only import winreg on Windows platform
-if platform.system() == 'Windows':
-    import winreg
-    proc_arch = os.environ['PROCESSOR_ARCHITECTURE'].lower()
 
 
 class AppInfo:
@@ -52,66 +47,43 @@ class AppInfo:
         return ecbot_resource_dir
 
     def _prod_appdata_path(self):
-        # Check OS type and determine APPDATA path
+        """Get production application data path.
+        
+        Uses standard OS-specific paths (matches build_config.json):
+        - Windows: %LOCALAPPDATA%\eCan
+        - macOS: ~/Library/Application Support/eCan
+        - Linux: ~/.local/share/eCan (XDG Base Directory)
+        """
         if platform.system() == 'Windows':
-            ecb_data_home = ""
-
-            # Get processor architecture
-            current_proc_arch = os.environ.get('PROCESSOR_ARCHITECTURE', '').lower()
-            print(f"Processor architecture: {current_proc_arch}")
-
-            # Set registry access keys
-            if current_proc_arch in ['x86', 'amd64']:
-                arch_keys = {winreg.KEY_WOW64_32KEY, winreg.KEY_WOW64_64KEY}
-            else:
-                # Use standard access by default
-                arch_keys = {0}
-
-            print("arch_keys: ", arch_keys)
-
-            for arch_key in arch_keys:
-                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_READ | arch_key)
-                # print("key: ", key)
-                # print("range: ", winreg.QueryInfoKey(key)[0])
-
-                try:
-                    ecb_data_home = winreg.QueryValueEx(key, 'ECBOT_DATA_HOME')[0]
-                except OSError as e:
-                    if e.errno == errno.ENOENT:
-                        # DisplayName doesn't exist in this skey
-                        pass
-                finally:
-                    key.Close()
-                    if ecb_data_home:
-                        ecb_data_home = ecb_data_home.replace('\\', '/')
-                        print("ECBot DATA Home: ", ecb_data_home)
-                        return ecb_data_home
-
-            # If environment variable not found, use default path
-            default_path = os.path.join(os.environ.get('LOCALAPPDATA', ''), APP_NAME)
-            print(f"Using default Windows appdata path: {default_path}")
-            if not os.path.exists(default_path):
-                os.makedirs(default_path, exist_ok=True)
-            return default_path
-
+            # Windows: Use %LOCALAPPDATA%\eCan
+            localappdata = os.environ.get('LOCALAPPDATA', '')
+            if not localappdata:
+                # Fallback to %USERPROFILE%\AppData\Local if LOCALAPPDATA not set
+                userprofile = os.environ.get('USERPROFILE', '')
+                localappdata = os.path.join(userprofile, 'AppData', 'Local')
+            
+            appdata_path = os.path.join(localappdata, APP_NAME)
+            print(f"Windows appdata path: {appdata_path}")
+            
         elif platform.system() == 'Darwin':  # macOS
-            # Get current user's home directory path
+            # macOS: Use ~/Library/Application Support/eCan
             home_dir = str(Path.home())
-            appdata_os_path = os.path.join(home_dir, 'Library', 'Application Support')
-            # Create a subfolder named "ecbot" in Application Support folder
-            ecbot_appdata_path = os.path.join(appdata_os_path, APP_NAME)
-            if not os.path.exists(ecbot_appdata_path):
-                os.makedirs(ecbot_appdata_path, exist_ok=True)
-            return ecbot_appdata_path
-
+            appdata_path = os.path.join(home_dir, 'Library', 'Application Support', APP_NAME)
+            print(f"macOS appdata path: {appdata_path}")
+            
         else:  # Linux
-            # Use XDG Base Directory specification
+            # Linux: Use XDG Base Directory specification (~/.local/share/eCan)
             home_dir = str(Path.home())
             xdg_data_home = os.environ.get('XDG_DATA_HOME', os.path.join(home_dir, '.local', 'share'))
-            ecbot_appdata_path = os.path.join(xdg_data_home, APP_NAME)
-            if not os.path.exists(ecbot_appdata_path):
-                os.makedirs(ecbot_appdata_path, exist_ok=True)
-            return ecbot_appdata_path
+            appdata_path = os.path.join(xdg_data_home, APP_NAME)
+            print(f"Linux appdata path: {appdata_path}")
+        
+        # Create directory if it doesn't exist
+        if not os.path.exists(appdata_path):
+            os.makedirs(appdata_path, exist_ok=True)
+            print(f"Created appdata directory: {appdata_path}")
+        
+        return appdata_path
 
     def _dev_appdata_path(self):
         root_dir = self._dev_app_home_path()

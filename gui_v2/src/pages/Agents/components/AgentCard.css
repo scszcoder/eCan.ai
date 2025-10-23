@@ -4,7 +4,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  margin: 28px;
+  margin: 8px;
   width: 340px;
   min-height: 300px;
   background: var(--bg-secondary, #1e293b);
