@@ -260,8 +260,18 @@ const OrgNavigator: React.FC = () => {
     let filteredAgents: OrgAgent[];
     
     if (isRootView) {
-      // 根视图：显示没有 org_id 的 agents（未分配）
-      filteredAgents = allAgentsFromStore.filter(agent => !agent.org_id);
+      // 根视图：显示根组织的 agents 和未分配的 agents
+      // 1. 属于根组织的 agents（org_id === rootNode.id）
+      // 2. 未分配的 agents（!agent.org_id 或 org_id === null/undefined）
+      const rootOrgId = rootNode?.id;
+      if (rootOrgId) {
+        filteredAgents = allAgentsFromStore.filter(agent => 
+          agent.org_id === rootOrgId || !agent.org_id
+        );
+      } else {
+        // 如果没有根节点，只显示未分配的 agents
+        filteredAgents = allAgentsFromStore.filter(agent => !agent.org_id);
+      }
     } else if (actualOrgId) {
       // 特定组织：显示该组织的 agents
       filteredAgents = allAgentsFromStore.filter(agent => agent.org_id === actualOrgId);
@@ -271,7 +281,7 @@ const OrgNavigator: React.FC = () => {
 
     // 转换为前端格式
     return filteredAgents.map((agent) => mapOrgAgentToAgent(agent, actualOrgId));
-  }, [allAgentsFromStore, actualOrgId, isRootView]);
+  }, [allAgentsFromStore, actualOrgId, isRootView, rootNode]);
 
 
   // 搜索结果：全局搜索整个组织树
