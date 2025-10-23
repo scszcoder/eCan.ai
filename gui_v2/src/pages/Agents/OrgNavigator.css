@@ -1,7 +1,8 @@
 .org-navigator {
   position: relative;
   background: linear-gradient(135deg, var(--ant-bg-color-inverse, #181c2a) 0%, var(--ant-primary-1, #1e293b) 60%, var(--ant-primary-2, #1677ff22) 100%);
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   font-family: var(--ant-font-family, inherit);
   width: 100%;
   height: 100%;
@@ -140,31 +141,37 @@
 }
 
 
-/* 统一网格布局 - 同时显示doors和agents */
+/* 统一网格布局 - 同时显示doors和agents，自动换行 */
 .unified-grid {
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-wrap: wrap;
   justify-content: center;
+  align-items: flex-start;
   position: relative;
   z-index: 2;
   padding: 40px 48px 48px;
-  gap: 32px 48px;
-  max-width: 1800px;
+  gap: 36px 24px;
+  max-width: 1400px;
   margin: 0 auto;
   width: 100%;
   min-height: calc(100vh - 80px);
-  
-  /* 响应式网格布局 - 自动适应窗口大小 */
-  /* 每个item最小280px，最大1fr，自动填充可用空间 */
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  box-sizing: border-box;
 }
 
-/* agent卡片包装器，确保与door对齐 */
+/* 组织门卡片固定宽度 */
+.unified-grid > div:not(.agent-card-wrapper) {
+  flex: 0 0 220px;
+  width: 220px;
+}
+
+/* agent卡片包装器，自适应宽度，自动换行 */
 .agent-card-wrapper {
-  width: 100%;
   display: flex;
   justify-content: center;
   align-items: center;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 100%;
 }
 
 /* 空状态样式 */
