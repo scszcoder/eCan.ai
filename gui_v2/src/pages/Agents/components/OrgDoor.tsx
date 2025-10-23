@@ -162,6 +162,17 @@ const OrgDoor: React.FC<OrgDoorProps> = ({ name, isActive = false }) => {
           
           {/* 门板 */}
           <div className={`door-panel ${hovered ? 'open' : ''}`}>
+            {/* 门上的铭牌 */}
+            <div className="door-nameplate">
+              <div className="nameplate-name">{doorName}</div>
+              {count && (
+                <div className="nameplate-count">
+                  <TeamOutlined style={{ fontSize: 14, marginRight: 4 }} />
+                  <span>{count}</span>
+                </div>
+              )}
+            </div>
+            
             {/* 门板装饰线 */}
             <div className="door-decoration">
               <div className="door-line door-line-1" />
@@ -172,16 +183,6 @@ const OrgDoor: React.FC<OrgDoorProps> = ({ name, isActive = false }) => {
             <div className="door-handle" />
           </div>
         </div>
-      </div>
-      
-      <div className="org-door-label">
-        <div className="org-door-label-name">{doorName}</div>
-        {count && (
-          <div className="org-door-label-count">
-            <TeamOutlined style={{ fontSize: 12, marginRight: 4 }} />
-            {count}
-          </div>
-        )}
       </div>
     </div>
   );

@@ -149,8 +149,8 @@
   align-items: flex-start;
   position: relative;
   z-index: 2;
-  padding: 40px 48px 48px;
-  gap: 36px 24px;
+  padding: 100px 48px 48px; /* 增加顶部内边距到100px，确保第一行hover不超出 */
+  gap: 100px 48px; /* 增加上下间距到100px，左右48px，确保视觉舒适且hover不重叠 */
   max-width: 1400px;
   margin: 0 auto;
   width: 100%;
@@ -158,10 +158,10 @@
   box-sizing: border-box;
 }
 
-/* 组织门卡片固定宽度 */
+/* 组织门卡片固定宽度 - 增大尺寸 */
 .unified-grid > div:not(.agent-card-wrapper) {
-  flex: 0 0 220px;
-  width: 220px;
+  flex: 0 0 260px;
+  width: 260px;
 }
 
 /* agent卡片包装器，自适应宽度，自动换行 */
