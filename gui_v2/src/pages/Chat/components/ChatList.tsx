@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { List, Badge, Avatar, Space, Typography, Tag, Button, Popconfirm, Modal } from 'antd';
-import { UserOutlined, RobotOutlined, TeamOutlined, MinusOutlined } from '@ant-design/icons';
+import { UserOutlined, RobotOutlined, TeamOutlined, MinusOutlined, FilterOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { Chat } from '../types/chat';
@@ -9,6 +9,28 @@ import AgentAnimation from './AgentAnimation';
 import { useAgentStore } from '../../../stores/agentStore';
 
 const { Text } = Typography;
+
+// 辅助函数：格式化 lastMsg 显示
+const formatLastMsg = (lastMsg: any): string => {
+    if (!lastMsg) return '';
+    
+    // 如果是字符串，尝试解析
+    if (typeof lastMsg === 'string') {
+        try {
+            const parsed = JSON.parse(lastMsg);
+            return parsed.text || parsed.content || lastMsg;
+        } catch {
+            return lastMsg;
+        }
+    }
+    
+    // 如果是对象，提取 text 或 content
+    if (typeof lastMsg === 'object') {
+        return lastMsg.text || lastMsg.content || JSON.stringify(lastMsg);
+    }
+    
+    return String(lastMsg);
+};
 
 const ChatItem = styled.div<{ $isActive: boolean }>`
     padding: 12px;
@@ -159,6 +181,8 @@ interface ChatListProps {
     onImport?: () => void;
     onSettings?: () => void;
     currentAgentId?: string;
+    onFilterClick?: () => void;
+    filterAgentId?: string | null;
 }
 
 const ChatList: React.FC<ChatListProps> = ({
@@ -177,7 +201,9 @@ const ChatList: React.FC<ChatListProps> = ({
     onExport = () => {},
     onImport = () => {},
     onSettings = () => {},
-    currentAgentId
+    currentAgentId,
+    onFilterClick,
+    filterAgentId,
 }) => {
     const { t } = useTranslation();
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -283,10 +309,33 @@ const ChatList: React.FC<ChatListProps> = ({
                     />
                 </div>
             ) : null}
-            <SearchFilter
-                onSearch={onSearch}
-                placeholder={t('pages.chat.searchPlaceholder')}
-            />
+            <div style={{ 
+                display: 'flex', 
+                gap: 4, 
+                marginBottom: 12, 
+                alignItems: 'center' 
+            }}>
+                <div style={{ flex: 1 }}>
+                    <SearchFilter
+                        onSearch={onSearch}
+                        placeholder={t('pages.chat.searchMessages')}
+                    />
+                </div>
+                {onFilterClick && (
+                    <Button
+                        icon={<FilterOutlined />}
+                        onClick={onFilterClick}
+                        type={filterAgentId ? 'primary' : 'text'}
+                        title={t('pages.chat.filterByAgent')}
+                        size="middle"
+                        style={{
+                            border: 'none',
+                            boxShadow: 'none',
+                            padding: '4px 8px'
+                        }}
+                    />
+                )}
+            </div>
             <ChatListArea>
                 <List
                     rowKey={(chat) => (chat as any).id}
@@ -334,7 +383,7 @@ const ChatList: React.FC<ChatListProps> = ({
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                         <Text type="secondary" className="chat-message">
-                                            {chat.lastMsg || t('pages.chat.noMessages')}
+                                            {formatLastMsg(chat.lastMsg) || t('pages.chat.noMessages')}
                                         </Text>
                                         <Text type="secondary" className="chat-time">
                                             {formatTime(chat.lastMsgTime)}

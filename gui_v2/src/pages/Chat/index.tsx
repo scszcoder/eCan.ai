@@ -7,6 +7,7 @@ import { Chat, Message, Attachment } from './types/chat';
 import { logger } from '@/utils/logger';
 import ChatLayout from './components/ChatLayout';
 const ChatNotification = lazy(() => import('./components/ChatNotification'));
+import AgentFilterModal from './components/AgentFilterModal';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
 import { useAppDataStore } from '@/stores/appDataStore';
@@ -34,12 +35,12 @@ const ChatPage: React.FC = () => {
     const agentId = searchParams.get('agentId');
     const username = useUserStore(state => state.username) || 'default_user';
     const agents = useAgentStore(state => state.agents);
+    const getMyTwinAgent = useAgentStore(state => state.getMyTwinAgent);
     
-    // Use useMemo to recalculate myTwinAgentId when agents array changes
-    const myTwinAgentId = useMemo(() => {
-        const myTwinAgent = useAgentStore.getState().getMyTwinAgent();
-        return myTwinAgent?.card?.id;
-    }, [agents]);
+    // 直接从 store 获取 myTwinAgent，确保始终是最新的
+    const myTwinAgent = getMyTwinAgent();
+    const myTwinAgentId = myTwinAgent?.card?.id;
+    
     const initialized = useAppDataStore(state => state.initialized);
 
     const [chats, setChats] = useState<Chat[]>([]);
@@ -57,6 +58,7 @@ const ChatPage: React.FC = () => {
     const isFetchingRef = useRef(false);
     const isCreatingChatRef = useRef(false);
     const effectsCompletedRef = useRef(false);
+    const allChatsCache = useRef<Chat[]>([]); // 缓存所有聊天（无搜索时）
 
     // 使用全局通知管理器和消息管理器
     const { hasNew, markAsRead } = useChatNotifications(activeChatId || '');
@@ -64,26 +66,29 @@ const ChatPage: React.FC = () => {
 
     // 新增独立的 loading 状态
     const [isInitialLoadingNotifications, setIsInitialLoadingNotifications] = useState(false);
+    
+    // 过滤器和搜索状态
+    const [searchText, setSearchText] = useState('');
+    const searchTextRef = useRef(''); // 保存最新的搜索文本
+    const [showFilterModal, setShowFilterModal] = useState(false);
 
     // 组件挂载时初始化并确保 agents 已加载
     useEffect(() => {
-        // 组件挂载完成后设置标志
-        setTimeout(() => {
-            effectsCompletedRef.current = true;
-        }, 100);
-        
-        // 如果 agents 为空，主动加载
-        const loadAgentsIfNeeded = async () => {
+        const initializeComponent = async () => {
             const agentStore = useAgentStore.getState();
             if (agentStore.agents.length === 0 && username) {
                 await agentStore.fetchAgents(username);
             }
+            
+            // agents 加载完成后，设置标志
+            setTimeout(() => {
+                effectsCompletedRef.current = true;
+            }, 100);
         };
         
-        loadAgentsIfNeeded();
+        initializeComponent();
         
         return () => {
-            // 重置所有状态
             effectsCompletedRef.current = false;
             isFetchingRef.current = false;
             isCreatingChatRef.current = false;
@@ -114,15 +119,19 @@ const ChatPage: React.FC = () => {
     useEffect(() => {
         if (!effectsCompletedRef.current) return;
         
-        if (agentId && agentId !== lastFetchedAgentId.current) {
-            lastFetchedAgentId.current = agentId;
-            if (chats.length > 0) {
-                handleAgentIdChange(agentId);
-            } else if (!isFetchingRef.current) {
-                fetchChats();
+        // 当 agentId 改变时（包括从有值变为 null），重新获取聊天
+        if (agentId !== lastFetchedAgentId.current) {
+            logger.info(`[Chat] agentId changed from ${lastFetchedAgentId.current} to ${agentId}, fetching chats...`);
+            lastFetchedAgentId.current = agentId || undefined;
+            
+            if (!isFetchingRef.current) {
+                // 延迟调用 fetchChats，确保它已经定义
+                setTimeout(() => {
+                    fetchChats();
+                }, 0);
             }
         }
-    }, [agentId, chats.length]);
+    }, [agentId]);
 
     // 同步消息管理器中的消息到聊天列表
     useEffect(() => {
@@ -168,16 +177,95 @@ const ChatPage: React.FC = () => {
         isFetchingRef.current = true;
         
         try {
-            // 获取 myTwinAgentId - 使用标准方法，不需要 fallback
-            const currentTwinAgentId = myTwinAgentId;
+            // 确定要查询的用户ID：
+            // 1. 如果有 agentId 参数（过滤器选择），使用该 agentId
+            // 2. 否则使用 myTwinAgentId（默认显示 MyTwin 参与的聊天）
+            // 注意：从 store 重新获取最新的 myTwinAgentId，避免闭包问题
+            const currentMyTwinAgent = useAgentStore.getState().getMyTwinAgent();
+            const currentMyTwinAgentId = currentMyTwinAgent?.card?.id;
+            const targetUserId = agentId || currentMyTwinAgentId;
             
-            if (!currentTwinAgentId) {
-                logger.error("MyTwinAgent ID not available");
+            if (!targetUserId) {
+                logger.error("[fetchChats] No userId available (agentId or myTwinAgentId)");
                 return;
             }
             
-            // 拉取聊天列表
-            await getChatsAndSetState(currentTwinAgentId);
+            // 使用 ref 获取最新的搜索文本
+            const currentSearchText = searchTextRef.current;
+            logger.info(`[fetchChats] Fetching chats for userId: ${targetUserId} (agentId: ${agentId}, myTwinAgentId: ${myTwinAgentId}), searchText: "${currentSearchText}"`);
+            
+            // 如果清空搜索且有缓存，直接使用缓存（避免闪烁）
+            if ((!currentSearchText || currentSearchText.trim() === '') && allChatsCache.current.length > 0) {
+                logger.info(`[fetchChats] Using cached chats (${allChatsCache.current.length} items)`);
+                setChats(prevChats => {
+                    // 如果缓存和当前数据相同，不更新（避免重新渲染）
+                    if (prevChats === allChatsCache.current) {
+                        return prevChats;
+                    }
+                    return allChatsCache.current;
+                });
+                return;
+            }
+            
+            // 根据是否有搜索文本选择不同的 API
+            if (currentSearchText && currentSearchText.trim()) {
+                // 使用搜索 API
+                const response = await get_ipc_api().chatApi.searchChats(
+                    targetUserId,
+                    currentSearchText,
+                    false
+                );
+                
+                if (response.success && response.data) {
+                    let chatData: Chat[] = Array.isArray((response.data as any).data)
+                        ? (response.data as any).data
+                        : Array.isArray(response.data)
+                            ? response.data as Chat[]
+                            : [];
+                    
+                    // 解析并格式化 lastMsg 字段
+                    chatData = chatData.map(chat => {
+                        let parsedMsg = chat.lastMsg;
+                        
+                        // 如果是字符串，先解析
+                        if (typeof parsedMsg === 'string') {
+                            try {
+                                parsedMsg = JSON.parse(parsedMsg);
+                            } catch (e) {
+                                logger.warn(`[fetchChats] Failed to parse lastMsg for chat ${chat.id}`);
+                            }
+                        }
+                        
+                        // 使用 getDisplayMsg 格式化显示
+                        return {
+                            ...chat,
+                            lastMsg: getDisplayMsg(parsedMsg, t),
+                        };
+                    });
+                    
+                    logger.info(`[fetchChats] Found ${chatData.length} chats matching search`);
+                    
+                    // 智能更新：保持现有聊天的引用，只更新变化的部分
+                    setChats(prevChats => {
+                        // 如果数据相同，不更新（避免闪烁）
+                        if (prevChats.length === chatData.length && 
+                            prevChats.every((chat, i) => chat.id === chatData[i]?.id)) {
+                            return prevChats;
+                        }
+                        // 如果搜索结果为空且之前有数据，也保持引用（避免闪烁）
+                        if (chatData.length === 0 && prevChats.length > 0) {
+                            return prevChats;
+                        }
+                        return chatData;
+                    });
+                } else {
+                    logger.error('[fetchChats] Failed to search chats:', response.error);
+                    setChats([]);
+                }
+            } else {
+                // 使用普通查询 API
+                await getChatsAndSetState(targetUserId);
+            }
         } catch (error) {
             logger.error("Error in fetchChats:", error);
         } finally {
@@ -235,10 +323,15 @@ const ChatPage: React.FC = () => {
                 }
                 
                 // 这里直接对 lastMsg 做 display 解析
-                setChats(chatData.map(chat => ({
+                const processedChats = chatData.map(chat => ({
                     ...chat,
                     lastMsg: getDisplayMsg(chat.lastMsg, t),
-                })));
+                }));
+                
+                // 更新缓存
+                allChatsCache.current = processedChats;
+                
+                setChats(processedChats);
                 
                 // 处理agentId相关逻辑
                 if (agentId) {
@@ -299,12 +392,20 @@ const ChatPage: React.FC = () => {
             const my_twin_agent = useAgentStore.getState().getAgentById(currentMyTwinAgentId);
             const receiver_agent = useAgentStore.getState().getAgentById(targetAgentId);
             
+            // 检查是否是和自己聊天（targetAgentId === currentMyTwinAgentId）
+            const isSelfChat = targetAgentId === currentMyTwinAgentId;
+            
             // 创建聊天数据
             const chatData = {
-                members: [
-                    {"userId": currentMyTwinAgentId, "role": "user", "name": my_twin_agent?.card.name || "you"},
-                    {"userId": targetAgentId, "role": "agent", "name": receiver_agent?.card.name || "receiver agent"}
-                ],
+                members: isSelfChat 
+                    ? [
+                        // 和自己聊天时，只添加一个成员记录
+                        {"userId": currentMyTwinAgentId, "role": "user", "name": my_twin_agent?.card.name || "you"}
+                      ]
+                    : [
+                        {"userId": currentMyTwinAgentId, "role": "user", "name": my_twin_agent?.card.name || "you"},
+                        {"userId": targetAgentId, "role": "agent", "name": receiver_agent?.card.name || "receiver agent"}
+                      ],
                 name: receiver_agent?.card.name || `Chat with ${targetAgentId}`,
                 type: 'user-agent',
                 agent_id: targetAgentId,  // ✅ 添加 agent_id
@@ -643,47 +744,69 @@ const ChatPage: React.FC = () => {
         ? null
         : chats.find((c) => c.id === activeChatId) || null;
 
-    // Compute left panel header agentId: prefer selected chat's agent member, fallback to URL agentId
-    // Note: This is only for displaying avatar, not for chat functionality
+    // Compute left panel header agentId: 显示当前过滤的 agent 的视频
+    // 视频不跟随选中的 chat 改变，只跟随过滤器（agentId 参数）改变
     const headerAgentId = useMemo(() => {
-        if (activeChatId) {
-            const c = chats.find(c => c.id === activeChatId);
-            
-            if (c && Array.isArray(c.members)) {
-                // 1) Prefer explicit agent role
-                const agentMember: any = c.members.find((mm: any) => (mm?.role || '').toLowerCase() === 'agent');
-                if (agentMember) {
-                    return agentMember.userId || agentMember?.ext?.agentId;
-                }
-                // 2) Otherwise pick the member that is not me (myTwinAgentId)
-                const otherMember: any = c.members.find((mm: any) => mm?.userId && mm.userId !== myTwinAgentId);
-                if (otherMember) {
-                    return otherMember.userId || otherMember?.ext?.agentId;
-                }
-            }
-            
-            // Try chat.agent_id (the other member in the conversation)
-            if (c && (c as any).agent_id) {
-                return (c as any).agent_id;
-            }
-            
-            // Fallback: No agent_id found, cannot determine which agent to show
-            return undefined;
+        // 优先级：URL agentId（过滤器选择）> myTwinAgentId（默认）> fallback
+        if (agentId) {
+            logger.debug(`[headerAgentId] Using URL agentId (filter): ${agentId}`);
+            return agentId;
         }
         
-        // No active chat
+        if (myTwinAgentId) {
+            logger.debug(`[headerAgentId] Using myTwinAgentId (default): ${myTwinAgentId}`);
+            return myTwinAgentId;
+        }
+        
+        // Fallback：随机选择一个系统 agent
         if (chats.length === 0) {
-            // 当 chatlist 为空时，随机选择一个系统 agent
             const systemAgents = agents.filter(a => a.card?.id?.startsWith('system_') || a.id?.startsWith('system_'));
             if (systemAgents.length > 0) {
                 const randomIndex = Math.floor(Math.random() * systemAgents.length);
-                return systemAgents[randomIndex].card?.id || systemAgents[randomIndex].id;
+                const fallbackId = systemAgents[randomIndex].card?.id || systemAgents[randomIndex].id;
+                logger.debug(`[headerAgentId] Using random system agent: ${fallbackId}`);
+                return fallbackId;
             }
         }
         
-        // Fallback for avatar display only: use URL agentId or first available agent
-        return agentId || (agents && agents.length > 0 ? agents[0].card?.id || agents[0].id : undefined);
-    }, [activeChatId, chats, agentId, myTwinAgentId, agents]);
+        // 最终 fallback
+        const fallbackId = agents && agents.length > 0 ? agents[0].card?.id || agents[0].id : undefined;
+        logger.debug(`[headerAgentId] Using final fallback: ${fallbackId}`);
+        return fallbackId;
+    }, [agentId, myTwinAgentId, agents, chats.length]);
+    
+    // 处理搜索
+    const handleSearch = useCallback((text: string) => {
+        setSearchText(text);
+        searchTextRef.current = text;
+        
+        // 如果清空搜索，立即执行（不延迟）
+        if (!text || text.trim() === '') {
+            if (effectsCompletedRef.current) {
+                fetchChats();
+            }
+        } else {
+            // 有搜索文本时，延迟调用以实现防抖
+            setTimeout(() => {
+                if (effectsCompletedRef.current) {
+                    fetchChats();
+                }
+            }, 300);
+        }
+    }, []);
+    
+    // 处理过滤器选择
+    const handleFilterSelect = useCallback((selectedAgentId: string | null) => {
+        logger.info(`[Chat] Filter agent selected: ${selectedAgentId}`);
+        setShowFilterModal(false);
+        
+        // 更新 URL 参数
+        if (selectedAgentId) {
+            setSearchParams({ agentId: selectedAgentId });
+        } else {
+            setSearchParams({});
+        }
+    }, [setSearchParams]);
 
     const renderListContent = () => {
         // console.log('[renderListContent] chats:', chats);
@@ -696,6 +819,9 @@ const ChatPage: React.FC = () => {
                 onChatPin={handleChatPin}
                 onChatMute={handleChatMute}
                 onFilterChange={handleFilterChange}
+                onSearch={handleSearch}
+                onFilterClick={() => setShowFilterModal(true)}
+                filterAgentId={agentId}
                 currentAgentId={headerAgentId}
             />
         );
@@ -730,20 +856,30 @@ const ChatPage: React.FC = () => {
 
     // 优化：无论 chats 是否为空，都渲染 ChatLayout，只是 detailsContent 为空时显示提示
     return (
-        <ChatLayout
-            listTitle={t('pages.chat.title')}
-            detailsTitle={currentChat ? currentChat.name : t('pages.chat.chatDetails')}
-            listContent={renderListContent()}
-            detailsContent={currentChat ? renderDetailsContent() : <div className="empty-chat-placeholder">{t('pages.chat.selectAChat')}</div>}
-            chatNotificationTitle={t('pages.chat.chatNotificationTitle')}
-            chatNotificationContent={renderRightPanel()}
-            hasNewAgentNotifications={hasNew}
-            onRightPanelToggle={(collapsed) => {
-                if (!collapsed) {
-                    markAsRead();
-                }
-            }}
-        />
+        <>
+            <ChatLayout
+                listTitle={t('pages.chat.title')}
+                detailsTitle={currentChat ? currentChat.name : t('pages.chat.chatDetails')}
+                listContent={renderListContent()}
+                detailsContent={currentChat ? renderDetailsContent() : <div className="empty-chat-placeholder">{t('pages.chat.selectAChat')}</div>}
+                chatNotificationTitle={t('pages.chat.chatNotificationTitle')}
+                chatNotificationContent={renderRightPanel()}
+                hasNewAgentNotifications={hasNew}
+                onRightPanelToggle={(collapsed) => {
+                    if (!collapsed) {
+                        markAsRead();
+                    }
+                }}
+            />
+            
+            {/* Agent 过滤器模态框 */}
+            <AgentFilterModal
+                visible={showFilterModal}
+                selectedAgentId={agentId}
+                onSelect={handleFilterSelect}
+                onCancel={() => setShowFilterModal(false)}
+            />
+        </>
     );
 };
 
