@@ -198,6 +198,15 @@ class MainWindow:
         # 8. Database initialization (essential for data persistence)
         self._init_database()
 
+        # 9. Setup local web server
+        os.environ["NO_PROXY"] = "localhost,127.0.0.1"
+
+        from agent.mcp.server.server import set_server_main_win
+        from gui.LocalServer import start_local_server_in_thread
+
+        set_server_main_win(self)
+        start_local_server_in_thread(self)
+
         # Mark UI as ready for display and sync init complete
         self._initialization_status['ui_ready'] = True
         self._initialization_status['sync_init_complete'] = True
@@ -1041,16 +1050,10 @@ class MainWindow:
         """Initialize servers and agent systems"""
         logger.info("[MainWindow] 🤖 Initializing servers and agents...")
 
-        # Setup local web server and MCP server
-        os.environ["NO_PROXY"] = "localhost,127.0.0.1"
 
-        from agent.mcp.server.server import set_server_main_win
-        from gui.LocalServer import start_local_server_in_thread
         from agent.mcp.server.tool_schemas import build_agent_mcp_tools_schemas
         from agent.ec_skills.build_node import get_default_node_schemas
 
-        set_server_main_win(self)
-        start_local_server_in_thread(self)
 
         # Initialize LLM with proper error handling
         try:
