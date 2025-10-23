@@ -93,11 +93,15 @@ The Skill Editor lets you build flows by placing nodes on a canvas and connectin
 ### Saving & Loading
 
 - Save the current flow to JSON; load an existing flow from JSON.
+- The directory to store skills are fixed, it will be $SKILL_ROOT/my_skills/
+- If you use skill editor to create a skill, it will be stored under "diagram_dir" sub-dir in your skill directory. If you directly code up the skill, it will need to be stored under "code_dir" sub-dir in your skill directory.
+- data mapping rule json file will be stored at the same level as "diagram_dir" and "code_dir".
+- If you code up your skill (langgraph based workflow) and wish to be able to view the topology graphically, you will need to call the langgraph2flowgram() function to do the translation, once done, the "diagram_dir" and the flowgram files will be generated, in which case, you can load and run to debug graphically.
 
 ### Data Movements （between nodes & between external event and node）
 
 - A workflow node will sometimes generate new data for other nodes to use, the carrier for the data exchange is the node state data structure. but since the node state data structure is generic, but every workflow is different, there needs to be a way to describe the data move scheme, and we use a simple mapping DSL (domain specific language) to manage this.
-- Quite often a workflow involves external events, the situation could be a human-in-loop action where we pend for human input and the human chat message arrived, or in a multi-agent screnario a workflow may pend on data from another agent and this data just arrived, or simply some type of timer based wait and wait expired or an incoming webhook callback event, when an event happens and trigger the workflow to resume, some data carried along with the event may need to injected back into the workflow (i.e. the node state), again there needs to be a way to describe/specify such data flow, and we use the same mapping DSL to describe this. the mapping DSL is json based, the details can be found [here](./mapping-dsl.md).
+- Quite often a workflow involves external events, an example situation could be a human-in-loop action where we pend for human input and the human chat message arrived, or in a multi-agent screnario a workflow may pend on data from another agent and this data just arrived, or simply some type of timer based wait and wait expired or an incoming webhook callback event, when an event happens and trigger the workflow to resume, some data carried along with the event may need to injected back into the workflow (i.e. the node state), again there needs to be a way to describe/specify such data flow, and we use the same mapping DSL to describe this. the mapping DSL is json based, the details can be found [here](./mapping-dsl.md).
 
 ---
 

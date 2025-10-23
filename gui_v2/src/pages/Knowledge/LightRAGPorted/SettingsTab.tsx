@@ -53,10 +53,10 @@ const SettingsTab: React.FC = () => {
   return (
     <div style={{ padding: 16 }} data-ec-scope="lightrag-ported">
       <h3 style={{ marginBottom: 12 }}>Settings</h3>
-      <Select label="VectorDB" value={vectorDB} onChange={setVectorDB} options={["Faiss", "MongoDB"]} />
-      <Select label="Embedding Models" value={embeddingModel} onChange={setEmbeddingModel} options={["openai", "gemini"]} />
-      <Select label="LLM Model" value={llmModel} onChange={setLlmModel} options={["openai", "gemini"]} />
-      <Select label="Rerank Models" value={rerankModel} onChange={setRerankModel} options={["openai", "gemini"]} />
+      <Select label="VectorDB" value={vectorDB} onChange={setVectorDB} options={["Faiss", "Chroma", "MongoDB", "Postgres", "Redis", "Milvus"]} />
+      <Select label="Embedding Models" value={embeddingModel} onChange={setEmbeddingModel} options={["openai", "gemini", "nvidia", "deepseek"]} />
+      <Select label="LLM Model" value={llmModel} onChange={setLlmModel} options={["openai", "claude", "gemini"]} />
+      <Select label="Rerank Models" value={rerankModel} onChange={setRerankModel} options={["openai", "claude", "gemini"]} />
 
       <TextInput label="Max Token Size" value={maxTokenSize} onChange={setMaxTokenSize} />
       <TextInput label="Embedding Dimension" value={embeddingDim} onChange={setEmbeddingDim} />
