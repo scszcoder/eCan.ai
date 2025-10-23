@@ -33,6 +33,8 @@ def user_skills_root() -> Path:
         
         # Get appdata path from app_info (handles dev/prod automatically)
         appdata_path = Path(app_info.appdata_path)
+        # switch debug read prod install appdata path
+        # appdata_path = Path(app_info._prod_appdata_path())
         skills_root = appdata_path / SKILLS_DIRNAME
         
         # Log the path based on environment

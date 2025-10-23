@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Button, Breadcrumb, Tooltip, App } from 'antd';
-import { ArrowLeftOutlined, HomeOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Button, Breadcrumb, Tooltip, App, Input } from 'antd';
+import { ArrowLeftOutlined, HomeOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useOrgStore } from '../../stores/orgStore';
 import { useTaskStore } from '../../stores/domain/taskStore';
@@ -233,7 +233,12 @@ const pathHandlers: PathHandler[] = [
 ];
 
 // ==================== 主组件 ====================
-const PageBackBreadcrumb: React.FC = () => {
+interface PageBackBreadcrumbProps {
+    searchQuery?: string;
+    onSearchChange?: (query: string) => void;
+}
+
+const PageBackBreadcrumb: React.FC<PageBackBreadcrumbProps> = ({ searchQuery = '', onSearchChange }) => {
     const navigate = useNavigate();
     const location = useLocation();
     const { t } = useTranslation();
@@ -361,6 +366,9 @@ const PageBackBreadcrumb: React.FC = () => {
     // 只有在非根目录时显示返回按钮
     const showBackButton = segments.length >= 2;
     
+    // 判断是否在 agents 页面（显示搜索框）
+    const isAgentsPage = segments[0] === 'agents';
+    
     return (
         <div style={{ 
             display: 'flex', 
@@ -417,20 +425,37 @@ const PageBackBreadcrumb: React.FC = () => {
                 )}
             </div>
             
-            {/* 刷新按钮 */}
-            <Tooltip title={t('common.refresh') || '刷新数据'}>
-                <Button
-                    type="text"
-                    icon={<ReloadOutlined spin={refreshing} />}
-                    onClick={handleRefresh}
-                    disabled={refreshing}
-                    style={{ 
-                        color: 'rgba(255, 255, 255, 0.85)',
-                        fontSize: '16px',
-                        marginRight: '16px'
-                    }}
-                />
-            </Tooltip>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {/* 搜索框 - 仅在 agents 页面显示 */}
+                {isAgentsPage && onSearchChange && (
+                    <Input
+                        placeholder={t('pages.agents.search_placeholder') || '请输入名称或其他关键字'}
+                        prefix={<SearchOutlined />}
+                        value={searchQuery}
+                        onChange={(e) => onSearchChange(e.target.value)}
+                        allowClear
+                        style={{ 
+                            width: 280,
+                            background: 'rgba(30, 41, 59, 0.6)',
+                            borderColor: 'rgba(59, 130, 246, 0.3)'
+                        }}
+                    />
+                )}
+                
+                {/* 刷新按钮 */}
+                <Tooltip title={t('common.refresh') || '刷新数据'}>
+                    <Button
+                        type="text"
+                        icon={<ReloadOutlined spin={refreshing} />}
+                        onClick={handleRefresh}
+                        disabled={refreshing}
+                        style={{ 
+                            color: 'rgba(255, 255, 255, 0.85)',
+                            fontSize: '16px'
+                        }}
+                    />
+                </Tooltip>
+            </div>
         </div>
     );
 };
