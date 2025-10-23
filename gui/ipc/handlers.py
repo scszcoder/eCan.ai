@@ -269,32 +269,10 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
                 twin_agent = next((ag for ag in agents if ag.card.name == "My Twin Agent"), None)
                 print("twin:", twin_agent.card.name, "procurement:", procurement_agent.card.name)
 
-                runner_method = twin_agent.runner.chat_wait_in_line
-                if asyncio.iscoroutinefunction(runner_method):
-                    logger.debug("Runner method is a coroutine, running with asyncio.run()")
-
-                    def run_async():
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        try:
-                            return loop.run_until_complete(runner_method(request))
-                        finally:
-                            loop.close()
-
-                    # Run the coroutine in a separate thread
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor() as executor:
-                        future = executor.submit(run_async)
-                        result = future.result()
-
-                    # loop = asyncio.get_event_loop()
-                    # # asyncio.set_event_loop(loop)
-                    # # In separate background thread, can safely use asyncio.run()
-                    # # result = await runner_method(params["message"])
-                    # result = loop.run_until_complete(runner_method(params["message"]))
-                else:
-                    logger.debug("Runner method is synchronous, calling directly.")
-                    result = runner_method(request)
+                # Use sync_task_wait_in_line instead of deprecated chat_wait_in_line
+                # This is a synchronous method that takes (event_type, request) parameters
+                logger.debug("Calling sync_task_wait_in_line for human_chat event")
+                result = twin_agent.runner.sync_task_wait_in_line("human_chat", request)
 
                 logger.info(f"Background task 'send_chat' completed with result: {result}")
 
