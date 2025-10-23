@@ -162,6 +162,12 @@
 .unified-grid > div:not(.agent-card-wrapper) {
   flex: 0 0 260px;
   width: 260px;
+  pointer-events: none; /* 禁用外层容器的点击事件 */
+}
+
+/* 门卡片本身可以点击 */
+.unified-grid > div:not(.agent-card-wrapper) > * {
+  pointer-events: auto; /* 恢复内部元素的点击事件 */
 }
 
 /* agent卡片包装器，自适应宽度，自动换行 */

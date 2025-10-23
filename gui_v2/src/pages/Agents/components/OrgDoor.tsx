@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { TeamOutlined } from '@ant-design/icons';
 import { IPCWCClient } from '@/services/ipc/ipcWCClient';
 import './OrgDoor.css';
@@ -71,6 +71,26 @@ const OrgDoor: React.FC<OrgDoorProps> = ({ name, isActive = false }) => {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [sceneType] = useState(() => Math.floor(Math.random() * 4)); // 随机选择场景类型
   const [videoLoaded, setVideoLoaded] = useState(false);
+  const [isOverflow, setIsOverflow] = useState(false);
+  const nameRef = useRef<HTMLDivElement>(null);
+
+  // 检测文本是否溢出（用于添加overflow类名）
+  useEffect(() => {
+    const checkOverflow = () => {
+      if (nameRef.current) {
+        const element = nameRef.current;
+        const isTextOverflow = element.scrollHeight > element.clientHeight;
+        setIsOverflow(isTextOverflow);
+      }
+    };
+
+    const timer = setTimeout(checkOverflow, 100);
+    window.addEventListener('resize', checkOverflow);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', checkOverflow);
+    };
+  }, [name]);
 
   // 开门后才加载视频（懒加载优化）
   useEffect(() => {
@@ -97,6 +117,28 @@ const OrgDoor: React.FC<OrgDoorProps> = ({ name, isActive = false }) => {
     setHovered(false);
   }, []);
 
+  // 铭牌hover时阻止开门
+  const handleNameplateMouseEnter = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setHovered(false);
+  }, []);
+
+  const handleNameplateMouseLeave = useCallback((e: React.MouseEvent) => {
+    // 检查鼠标是否还在门的区域内
+    const doorElement = e.currentTarget.closest('.org-door');
+    if (doorElement) {
+      const rect = doorElement.getBoundingClientRect();
+      const mouseX = e.clientX;
+      const mouseY = e.clientY;
+      
+      // 如果鼠标还在门的区域内，恢复开门状态
+      if (mouseX >= rect.left && mouseX <= rect.right && 
+          mouseY >= rect.top && mouseY <= rect.bottom) {
+        setHovered(true);
+      }
+    }
+  }, []);
+
   const handleClick = useCallback(() => {
     setClicked(true);
     setTimeout(() => setClicked(false), 300);
@@ -109,16 +151,18 @@ const OrgDoor: React.FC<OrgDoorProps> = ({ name, isActive = false }) => {
     if (match) {
       return {
         name: match[1].trim(),
-        count: match[2]
+        count: match[2],
+        fullName: match[1].trim() // 完整名称（不含计数）
       };
     }
     return {
       name: displayName,
-      count: null
+      count: null,
+      fullName: displayName
     };
   }, []);
 
-  const { name: doorName, count } = parseNameAndCount(name);
+  const { name: doorName, count, fullName } = parseNameAndCount(name);
 
   return (
     <div
@@ -163,8 +207,25 @@ const OrgDoor: React.FC<OrgDoorProps> = ({ name, isActive = false }) => {
           {/* 门板 */}
           <div className={`door-panel ${hovered ? 'open' : ''}`}>
             {/* 门上的铭牌 */}
-            <div className="door-nameplate">
-              <div className="nameplate-name">{doorName}</div>
+            <div 
+              className="door-nameplate"
+              onMouseEnter={handleNameplateMouseEnter}
+              onMouseLeave={handleNameplateMouseLeave}
+            >
+              <div 
+                ref={nameRef}
+                className={`nameplate-name ${isOverflow ? 'overflow' : ''}`}
+              >
+                {doorName}
+                {/* 跑马灯容器 */}
+                {isOverflow && (
+                  <div className="nameplate-name-marquee">
+                    <div className="nameplate-name-marquee-text" data-text={fullName}>
+                      {fullName}
+                    </div>
+                  </div>
+                )}
+              </div>
               {count && (
                 <div className="nameplate-count">
                   <TeamOutlined style={{ fontSize: 14, marginRight: 4 }} />
