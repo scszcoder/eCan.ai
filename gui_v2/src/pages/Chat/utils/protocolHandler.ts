@@ -22,6 +22,7 @@ export class ProtocolHandler {
     private static instance: ProtocolHandler;
     private isInitialized = false;
     private processingFiles = new Set<string>(); // 防重复处理
+    private beforeUnloadHandler: (() => void) | null = null; // 存储 beforeunload 处理器引用
 
     private constructor() {}
 
@@ -111,12 +112,48 @@ export class ProtocolHandler {
             }
         }
 
-        // 监听 beforeunload 事件，处理页面加载时的协议检查
-        window.addEventListener('beforeunload', () => {
-            // 这里可以添加清理逻辑
-        });
+        // 创建并保存 beforeunload 处理器引用
+        this.beforeUnloadHandler = () => {
+            // 页面卸载时的清理逻辑
+            logger.info('Protocol handler cleaning up on page unload');
+            this.processingFiles.clear();
+        };
+
+        // 监听 beforeunload 事件
+        window.addEventListener('beforeunload', this.beforeUnloadHandler);
 
         logger.info('Direct access handler setup completed');
+    }
+
+    /**
+     * 清理协议处理器
+     * 移除所有事件监听器，防止内存泄漏
+     */
+    public cleanup(): void {
+        if (!this.isInitialized) {
+            return;
+        }
+
+        try {
+            // 移除 beforeunload 监听器
+            if (this.beforeUnloadHandler) {
+                window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+                this.beforeUnloadHandler = null;
+            }
+
+            // 清理处理中的文件集合
+            this.processingFiles.clear();
+
+            // 移除 window 对象上的引用
+            if ((window as any).protocolHandler) {
+                delete (window as any).protocolHandler;
+            }
+
+            this.isInitialized = false;
+            logger.info('Protocol handler cleaned up successfully');
+        } catch (error) {
+            logger.error('Failed to cleanup protocol handler:', error);
+        }
     }
 
     /**

@@ -49,15 +49,16 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { t, i18n } = useTranslation();
     
     // 从 window 对象获取搜索状态（由 OrgNavigator 设置）
+    // 优化：移除依赖项避免重复创建定时器，增加轮询间隔减少 CPU 占用
     useEffect(() => {
         const interval = setInterval(() => {
             const query = (window as any).__agentsSearchQuery;
             if (query !== undefined && query !== searchQuery) {
                 setSearchQuery(query);
             }
-        }, 100);
+        }, 300); // 从 100ms 增加到 300ms，减少 CPU 占用
         return () => clearInterval(interval);
-    }, [searchQuery]);
+    }, []); // 移除 searchQuery 依赖，避免每次状态变化都重新创建定时器
     
     // 处理搜索变化
     const handleSearchChange = (query: string) => {

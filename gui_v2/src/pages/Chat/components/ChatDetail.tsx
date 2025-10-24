@@ -71,6 +71,10 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     // Scroll position restoration
     const scrollPositionRestoredRef = useRef(false);
     const saveScrollPositionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    
+    // Timer management refs for cleanup
+    const scrollTimersRef = useRef<NodeJS.Timeout[]>([]);
+    const focusTimersRef = useRef<NodeJS.Timeout[]>([]);
 
     // Check if user is at the bottom of the chat
     const isAtBottom = useCallback(() => {
@@ -96,6 +100,14 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             top: chatBox.scrollHeight,
             behavior: smooth ? 'smooth' : 'auto'
         });
+    }, []);
+    
+    // Clear all timers - cleanup function
+    const clearAllTimers = useCallback(() => {
+        scrollTimersRef.current.forEach(timer => clearTimeout(timer));
+        focusTimersRef.current.forEach(timer => clearTimeout(timer));
+        scrollTimersRef.current = [];
+        focusTimersRef.current = [];
     }, []);
     
     // 加载更多消息
@@ -288,13 +300,16 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         };
         setPageMessages(prev => mergeAndSortMessages(prev, [userMessage]));
         
+        // Clear previous timers before creating new ones
+        clearAllTimers();
+        
         // Scroll to bottom after sending message - use multiple attempts with different timings
         const scrollAttempts = [50, 100, 200, 300];
-        scrollAttempts.forEach(delay => {
+        scrollTimersRef.current = scrollAttempts.map(delay => 
             setTimeout(() => {
                 scrollToBottom(true);
-            }, delay);
-        });
+            }, delay)
+        );
         
         if (onSend) {
             onSend(content, attachments);
@@ -303,43 +318,44 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         
         // 使用多次尝试确保聚焦成功
         const attempts = [100, 200, 300, 500, 1000];
-        attempts.forEach(delay => {
+        focusTimersRef.current = attempts.map(delay => 
             setTimeout(() => {
                 if (justSentMessageRef.current) {
                     focusInputArea();
                 }
-            }, delay);
-        });
+            }, delay)
+        );
         
         // 最后一次尝试后重置标志
-        setTimeout(() => {
+        const resetTimer = setTimeout(() => {
             justSentMessageRef.current = false;
         }, Math.max(...attempts) + 100);
-    }, [chatId, onSend, focusInputArea, scrollToBottom]);
+        focusTimersRef.current.push(resetTimer);
+    }, [chatId, onSend, focusInputArea, scrollToBottom, clearAllTimers]);
 
     // 添加事件监听，防止输入框失去焦点
+    // 优化：在 useEffect 内部定义处理函数，避免闭包陷阱
     useEffect(() => {
-        // 找到输入框的容器
         const chatContainer = wrapperRef.current?.querySelector('.semi-chat-container');
-        
         if (!chatContainer) return;
         
-        // 创建事件处理函数
-        const preventFocusLoss = (e: Event) => {
-            // 如果刚刚发送了消息，确保输入框保持焦点
+        // 在 useEffect 内部定义处理函数，避免闭包问题
+        const preventFocusLoss = () => {
             if (justSentMessageRef.current) {
-                setTimeout(focusInputArea, 0);
+                // 直接访问 DOM 元素聚焦，避免依赖外部函数
+                const inputArea = wrapperRef.current?.querySelector('.semi-chat-input');
+                if (inputArea instanceof HTMLElement) {
+                    setTimeout(() => inputArea.focus(), 0);
+                }
             }
         };
         
-        // 添加事件监听
         chatContainer.addEventListener('click', preventFocusLoss, true);
         
         return () => {
-            // 移除事件监听
             chatContainer.removeEventListener('click', preventFocusLoss, true);
         };
-    }, [focusInputArea]);
+    }, []); // 移除依赖，避免重复创建监听器
 
     // Chat title - show member names with priority agent first, with length limit
     const chatTitle = useMemo(() => {
@@ -724,6 +740,13 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         const timer = setTimeout(focusInputArea, 200);
         return () => clearTimeout(timer);
     }, [chatId, focusInputArea]); // 当聊天ID变化时重新聚焦
+    
+    // 组件卸载时清理所有定时器
+    useEffect(() => {
+        return () => {
+            clearAllTimers();
+        };
+    }, [clearAllTimers]);
 
     return (
         <ChatDetailWrapper ref={wrapperRef}>

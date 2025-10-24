@@ -12,6 +12,8 @@ class InitializationProgressManager {
   private isPolling = false;
   private intervalId: NodeJS.Timeout | null = null;
   private pollInterval = 1000; // Default 1 second
+  private maxPollingDuration = 60000; // 60 seconds timeout
+  private pollingStartTime: number | null = null;
 
   static getInstance(): InitializationProgressManager {
     if (!InitializationProgressManager.instance) {
@@ -99,6 +101,7 @@ class InitializationProgressManager {
     }
 
     this.isPolling = true;
+    this.pollingStartTime = Date.now(); // 记录开始时间
     logger.debug(`[InitProgressManager] Starting polling... (subscribers: ${this.subscribers.size})`);
 
     // Initial fetch
@@ -107,8 +110,27 @@ class InitializationProgressManager {
         return;
       }
 
-      // Start interval polling
+      // Start interval polling with timeout protection
       this.intervalId = setInterval(async () => {
+        // 检查是否超时
+        if (this.pollingStartTime && Date.now() - this.pollingStartTime > this.maxPollingDuration) {
+          logger.warn('[InitProgressManager] ⚠️ Polling timeout after 60s, stopping...');
+          this.stopPolling();
+          
+          // 通知订阅者超时状态
+          const timeoutProgress: InitializationProgress = {
+            ui_ready: false,
+            critical_services_ready: false,
+            async_init_complete: false,
+            fully_ready: false,
+            sync_init_complete: false,
+            message: 'Initialization timeout - please refresh the page'
+          };
+          this.currentProgress = timeoutProgress;
+          this.subscribers.forEach(callback => callback(timeoutProgress));
+          return;
+        }
+        
         logger.debug(`[InitProgressManager] Interval fetch (subscribers: ${this.subscribers.size})`);
         const shouldStop = await this.fetchProgress();
         if (shouldStop) {
@@ -124,6 +146,7 @@ class InitializationProgressManager {
     }
 
     this.isPolling = false;
+    this.pollingStartTime = null; // 重置开始时间
 
     if (this.intervalId) {
       clearInterval(this.intervalId);
