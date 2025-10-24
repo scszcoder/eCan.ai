@@ -832,17 +832,14 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         try:
             # Use the utility to run the async function from a sync context
             tool_result = run_async_in_sync(run_tool_call())
-            
-            # Add the result to the state
-            state.setdefault('results', []).append(tool_result)
+            logger.debug("mcp tool call results:", tool_result)
+            # Add the result to the state (result is a dict, not a list)
+            state['tool_result'] = tool_result
 
             # Also update attributes for easier access by subsequent nodes
-            attributes = state.get('attributes', {})
-            attributes[f'{tool_name}_result'] = tool_result
-            state['attributes'] = attributes
-
+            logger.debug("state tool_result:", state['tool_result'])
         except Exception as e:
-            error_msg = f"MCP tool call '{tool_name}' failed: {e}"
+            error_msg = get_traceback(e, f"ErrorMCPToolCallable({tool_name})")
             print(error_msg)
             state['error'] = error_msg
 
