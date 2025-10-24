@@ -7,11 +7,10 @@ import ProductSearchNotification from './ProductSearchNotification';
 import i18n from '../../../i18n';
 
 // 日期格式化函数
-const formatDate = (timestamp: string | number, t: (key: string) => string) => {
+const formatDate = (timestamp: string | number) => {
   if (!timestamp) return '';
   
   const date = new Date(timestamp);
-  const format = t('pages.chat.chatNotification.dateFormat');
   
   // 简单的日期格式化实现
   const year = date.getFullYear();
@@ -76,9 +75,12 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
   const bottomRef = useRef<HTMLDivElement>(null);
   const loadMoreLock = useRef(false);
   const autoFillActiveRef = useRef(true);
+  const autoLoadCooldownRef = useRef(0); // 自动加载冷却时间戳
+  const recursiveLoadCount = useRef(0); // 递归加载计数器
+  const maxRecursiveLoads = 5; // 最大递归加载次数
 
   // 平滑分页：加载更多前记录 scrollHeight 和 scrollTop，加载后补偿 scrollTop，保持用户当前视图不跳动（新数据加载在底部）
-  const handleLoadMore = async () => {
+  const handleLoadMore = React.useCallback(async () => {
     if (loadMoreLock.current) {
       return;
     }
@@ -90,7 +92,7 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
     }
     await loadMore();
     loadMoreLock.current = false;
-  };
+  }, [loadMore]);
 
   // 只在首次加载时自动滚到顶部
   useEffect(() => {
@@ -106,6 +108,7 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
   useEffect(() => {
     autoFillActiveRef.current = true;
     hasInitLoadedRef.current = false;
+    recursiveLoadCount.current = 0; // 重置递归计数器
   }, [chatId]);
 
   // 监听 scroll 事件，用户向下滚动到底部时自动加载更多
@@ -135,28 +138,50 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
     const container = containerRef.current;
     if (!container) return;
     if (prevScrollHeightRef.current > 0) {
-      const newScrollHeight = container.scrollHeight;
       container.scrollTop = prevScrollTopRef.current;
       prevScrollHeightRef.current = 0;
       prevScrollTopRef.current = 0;
       if (autoFillActiveRef.current && container.scrollHeight <= container.clientHeight && hasMore) {
-        handleLoadMore();
+        const now = Date.now();
+        if (now - autoLoadCooldownRef.current > 250) {
+          autoLoadCooldownRef.current = now;
+          handleLoadMore();
+        }
       } else {
         autoFillActiveRef.current = false;
       }
     }
-  }, [chatNotificationItems, loadingMore]);
+  }, [chatNotificationItems, loadingMore, hasMore, handleLoadMore]);
 
-  // 数据和界面更新后再检查 bottomRef 是否可见，递归触发 handleLoadMore
+  // 数据和界面更新后再检查 bottomRef 是否可见，递归触发 handleLoadMore（带保护机制）
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !bottomRef.current || loadingMore || !hasMore) return;
+    
+    // 检查递归加载次数限制
+    if (recursiveLoadCount.current >= maxRecursiveLoads) {
+      console.warn('[ChatNotification] Recursive load limit reached, stopping auto-load');
+      return;
+    }
+    
     const containerRect = container.getBoundingClientRect();
     const bottomRect = bottomRef.current.getBoundingClientRect();
     if (bottomRect.top < containerRect.bottom && bottomRect.bottom > containerRect.top) {
-      setTimeout(handleLoadMore, 0);
+      const now = Date.now();
+      if (now - autoLoadCooldownRef.current <= 250) {
+        return;
+      }
+      autoLoadCooldownRef.current = now;
+      recursiveLoadCount.current += 1;
+      console.debug(`[ChatNotification] Auto-loading more (${recursiveLoadCount.current}/${maxRecursiveLoads})`);
+      handleLoadMore().then(() => {
+        // 加载完成后，如果还有更多数据且未达到限制，允许继续
+        if (!hasMore) {
+          recursiveLoadCount.current = 0; // 没有更多数据时重置计数器
+        }
+      });
     }
-  }, [chatNotificationItems, loadingMore, hasMore]);
+  }, [chatNotificationItems, loadingMore, hasMore, handleLoadMore]);
 
   const displayChatNotifications = chatNotificationItems.filter((n: any) => !!n);
 
@@ -185,7 +210,7 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
           </div>
           {i < displayChatNotifications.length - 1 && (
             <Divider orientation="center" style={{ color: '#aaa', fontSize: 12 }}>
-              {n.timestamp ? formatDate(n.timestamp, t) : ''}
+              {n.timestamp ? formatDate(n.timestamp) : ''}
             </Divider>
           )}
         </React.Fragment>

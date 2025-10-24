@@ -37,6 +37,19 @@ const DataCard: React.FC<DataCardProps> = ({ title, value, icon, color, loading 
     </Card>
 );
 
+// 在组件外部注册 stores，只执行一次
+let storesRegistered = false;
+const registerStores = () => {
+    if (!storesRegistered) {
+        storeSyncManager.register('agent', useAgentStore);
+        storeSyncManager.register('task', useTaskStore);
+        storeSyncManager.register('skill', useSkillStore);
+        storeSyncManager.register('vehicle', useVehicleStore);
+        storesRegistered = true;
+        logger.info('[Dashboard] Stores registered:', storeSyncManager.getRegisteredStores());
+    }
+};
+
 const Dashboard: React.FC = () => {
     const { t } = useTranslation();
     const username = useUserStore((state) => state.username);
@@ -59,11 +72,9 @@ const Dashboard: React.FC = () => {
     const tools = useToolStore((state) => state.tools);
     const toolsLoading = useToolStore((state) => state.loading);
 
-    // 从 appDataStore 获取全局设置
-    const {
-        settings,
-        isLoading: appDataLoading,
-    } = useAppDataStore();
+    // 从 appDataStore 获取全局状态
+    const appDataLoading = useAppDataStore((state) => state.isLoading);
+    const initialized = useAppDataStore((state) => state.initialized);
 
     // 综合 loading 状态
     const isLoading = isSyncing || agentsLoading || skillsLoading || tasksLoading || vehiclesLoading || toolsLoading || appDataLoading;
@@ -75,19 +86,14 @@ const Dashboard: React.FC = () => {
                 return;
             }
 
+            // 确保 stores 已注册（只会执行一次）
+            registerStores();
+
             logger.info('[Dashboard] Starting data synchronization...');
             setIsSyncing(true);
             setSyncError(null);
 
             try {
-                // 注册所有需要同步的 stores
-                storeSyncManager.register('agent', useAgentStore);
-                storeSyncManager.register('task', useTaskStore);
-                storeSyncManager.register('skill', useSkillStore);
-                storeSyncManager.register('vehicle', useVehicleStore);
-
-                logger.info('[Dashboard] Registered stores:', storeSyncManager.getRegisteredStores());
-
                 // 统一同步所有数据
                 const results = await storeSyncManager.syncAll(username, {
                     parallel: true,  // 并行同步，提高性能
@@ -130,7 +136,7 @@ const Dashboard: React.FC = () => {
         { title: t("pages.dashboard.toolsCount"), value: (tools || []).length, icon: <SettingOutlined />, color: '#722ed1' },
         { title: t("pages.dashboard.tasksCount"), value: (tasks || []).length, icon: <ScheduleOutlined />, color: '#fa8c16' },
         { title: t("pages.dashboard.vehiclesCount"), value: (vehicles || []).length, icon: <CarOutlined />, color: '#eb2f96' },
-        { title: t("pages.dashboard.systemStatus"), value: settings ? t("pages.dashboard.statusOnline") : t("pages.dashboard.statusOffline"), icon: <SettingOutlined />, color: settings ? '#52c41a' : '#ff4d4f' }
+        { title: t("pages.dashboard.systemStatus"), value: initialized ? t("pages.dashboard.statusOnline") : t("pages.dashboard.statusOffline"), icon: <SettingOutlined />, color: initialized ? '#52c41a' : '#ff4d4f' }
     ];
 
     if (syncError) {

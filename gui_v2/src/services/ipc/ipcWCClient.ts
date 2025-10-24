@@ -95,6 +95,10 @@ export class IPCWCClient {
     private processingQueue = false;
     private maxConcurrentRequests = 5;
     private activeRequests = new Set<string>();
+    
+    // 队列大小限制（防止内存泄漏）
+    private readonly MAX_PENDING_REQUESTS = 1000;
+    private readonly MAX_QUEUE_SIZE = 500;
 
     private constructor() {
         this.requestHandlers = getHandlers();
@@ -237,6 +241,14 @@ export class IPCWCClient {
      */
     private async enqueueRequest(method: string, params?: unknown, options: IPCRequestOptions = {}): Promise<any> {
         return new Promise((resolve, reject) => {
+            // 检查队列大小限制
+            if (this.requestQueue.length >= this.MAX_QUEUE_SIZE) {
+                const error = new Error(`Request queue is full (${this.MAX_QUEUE_SIZE} requests). Cannot enqueue new request: ${method}`);
+                logger.error('[IPCWCClient] Queue size limit exceeded:', error);
+                reject(error);
+                return;
+            }
+            
             const queuedRequest: QueuedRequest = {
                 id: generateRequestId(),
                 method,
@@ -335,6 +347,13 @@ export class IPCWCClient {
 
         if (!this.ipcWebChannel) {
             throw createErrorResponse(generateRequestId(), 'INIT_ERROR', 'IPC not initialized');
+        }
+
+        // 检查 pendingRequests 大小限制
+        if (this.pendingRequests.size >= this.MAX_PENDING_REQUESTS) {
+            const error = `Too many pending requests (${this.MAX_PENDING_REQUESTS}). Cannot send new request: ${method}`;
+            logger.error('[IPCWCClient] Pending requests limit exceeded:', error);
+            throw createErrorResponse(generateRequestId(), 'QUEUE_FULL', error);
         }
 
         const request = createRequest(method, this.addAuthToken(method, params));

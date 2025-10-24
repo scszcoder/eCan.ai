@@ -7,6 +7,11 @@ class MessageManager {
   private listeners: Set<(messages: Map<string, Message[]>) => void> = new Set();
   private messages: Map<string, Message[]> = new Map(); // chatId -> messages[]
   private unreadCounts: Map<string, number> = new Map(); // chatId -> unread count
+  private chatAccessOrder: string[] = []; // LRU 追踪聊天访问顺序
+  
+  // 内存限制配置
+  private readonly maxMessagesPerChat = 500; // 每个聊天最多保存 500 条消息
+  private readonly maxChats = 100; // 最多保存 100 个聊天的消息
 
   constructor() {
     this.initEventListeners();
@@ -71,6 +76,33 @@ class MessageManager {
     });
   }
 
+  /**
+   * 更新聊天访问顺序（LRU）
+   */
+  private updateAccessOrder(chatId: string): void {
+    // 移除旧位置
+    const index = this.chatAccessOrder.indexOf(chatId);
+    if (index > -1) {
+      this.chatAccessOrder.splice(index, 1);
+    }
+    // 添加到末尾（最新访问）
+    this.chatAccessOrder.push(chatId);
+  }
+
+  /**
+   * 清理最旧的聊天（LRU）
+   */
+  private evictOldestChat(): void {
+    if (this.chatAccessOrder.length > 0) {
+      const oldestChatId = this.chatAccessOrder.shift();
+      if (oldestChatId) {
+        this.messages.delete(oldestChatId);
+        this.unreadCounts.delete(oldestChatId);
+        logger.debug(`[MessageManager] Evicted old chat ${oldestChatId} from memory (LRU)`);
+      }
+    }
+  }
+
   // 订阅消息更新
   subscribe(listener: (messages: Map<string, Message[]>) => void): () => void {
     this.listeners.add(listener);
@@ -86,6 +118,8 @@ class MessageManager {
 
   // 获取指定聊天的消息
   getMessages(chatId: string): Message[] {
+    // 更新访问顺序
+    this.updateAccessOrder(chatId);
     return this.messages.get(chatId) || [];
   }
 
@@ -111,9 +145,26 @@ class MessageManager {
 
   // 设置聊天消息（用于初始化或更新）
   setMessages(chatId: string, messages: Message[]): void {
+    // 限制单个聊天的消息数量
+    const limitedMessages = messages.slice(-this.maxMessagesPerChat);
+    
     // 强制排序，保证老→新
-    this.messages.set(chatId, sortMessagesByTime(messages));
+    this.messages.set(chatId, sortMessagesByTime(limitedMessages));
+    
+    // 更新访问顺序
+    this.updateAccessOrder(chatId);
+    
+    // 限制聊天数量（LRU）
+    if (this.messages.size > this.maxChats) {
+      this.evictOldestChat();
+    }
+    
     this.notifyListeners();
+    
+    // 记录内存使用情况
+    if (messages.length > this.maxMessagesPerChat) {
+      logger.debug(`[MessageManager] Trimmed chat ${chatId} from ${messages.length} to ${this.maxMessagesPerChat} messages`);
+    }
   }
 
   // 添加消息到聊天（用于发送新消息时）

@@ -20,6 +20,11 @@ export class AvatarEventManager {
   private isProcessing = false;
   private eventIdCounter = 0;
   private processorIntervalId: NodeJS.Timeout | null = null;
+  
+  // 队列限制配置
+  private readonly maxQueueSize = 1000; // 最大队列大小
+  private readonly maxEventsPerAgent = 100; // 每个 agent 最多保留的事件数
+  private readonly maxProcessPerTick = 10; // 每个 tick 处理的最大事件数，避免长帧
 
   constructor() {
     this.startEventProcessor();
@@ -111,6 +116,21 @@ export class AvatarEventManager {
       source
     };
 
+    // 检查队列大小限制
+    if (this.eventQueue.length >= this.maxQueueSize) {
+      // 移除最旧的低优先级事件
+      this.evictOldestLowPriorityEvent();
+      logger.warn(`[AvatarEventManager] Queue size limit reached (${this.maxQueueSize}), evicted oldest low-priority event`);
+    }
+    
+    // 检查单个 agent 的事件数量
+    const agentEventCount = this.eventQueue.filter(e => e.agentId === agentId).length;
+    if (agentEventCount >= this.maxEventsPerAgent) {
+      // 移除该 agent 最旧的低优先级事件
+      this.evictOldestEventForAgent(agentId);
+      logger.warn(`[AvatarEventManager] Agent ${agentId} event limit reached (${this.maxEventsPerAgent}), evicted oldest event`);
+    }
+
     this.eventQueue.push(event);
     
     // Sort queue by priority (highest first)
@@ -182,6 +202,71 @@ export class AvatarEventManager {
   }
 
   /**
+   * 移除最旧的低优先级事件
+   */
+  private evictOldestLowPriorityEvent(): void {
+    // 优先淘汰非 HIGH 优先级中最旧的事件；若不存在，则淘汰全局最旧的事件作为回退
+    let candidateIndex = -1;
+    let candidateTimestamp = Date.now();
+
+    // 第一轮：寻找非 HIGH 的最旧事件
+    for (let i = 0; i < this.eventQueue.length; i++) {
+      const event = this.eventQueue[i];
+      if (event.priority < ScenePriority.HIGH) {
+        if (event.timestamp < candidateTimestamp) {
+          candidateTimestamp = event.timestamp;
+          candidateIndex = i;
+        }
+      }
+    }
+
+    // 第二轮：若没有非 HIGH，回退为全局最旧
+    if (candidateIndex === -1 && this.eventQueue.length > 0) {
+      candidateIndex = 0;
+      candidateTimestamp = this.eventQueue[0].timestamp;
+      for (let i = 1; i < this.eventQueue.length; i++) {
+        if (this.eventQueue[i].timestamp < candidateTimestamp) {
+          candidateTimestamp = this.eventQueue[i].timestamp;
+          candidateIndex = i;
+        }
+      }
+      logger.warn('[AvatarEventManager] Queue full with HIGH priority events only, evicting oldest HIGH event');
+    }
+
+    if (candidateIndex !== -1) {
+      const removed = this.eventQueue.splice(candidateIndex, 1)[0];
+      logger.debug(`[AvatarEventManager] Evicted event ${removed.eventId} (priority: ${removed.priority})`);
+    }
+  }
+
+  /**
+   * 移除指定 agent 最旧的低优先级事件
+   */
+  private evictOldestEventForAgent(agentId: string): void {
+    // 找到该 agent 的最旧低优先级事件
+    let lowestPriority = ScenePriority.HIGH;
+    let oldestIndex = -1;
+    let oldestTimestamp = Date.now();
+
+    for (let i = 0; i < this.eventQueue.length; i++) {
+      const event = this.eventQueue[i];
+      if (event.agentId === agentId) {
+        if (event.priority < lowestPriority || 
+            (event.priority === lowestPriority && event.timestamp < oldestTimestamp)) {
+          lowestPriority = event.priority;
+          oldestTimestamp = event.timestamp;
+          oldestIndex = i;
+        }
+      }
+    }
+
+    if (oldestIndex !== -1) {
+      const removed = this.eventQueue.splice(oldestIndex, 1)[0];
+      logger.debug(`[AvatarEventManager] Evicted agent ${agentId} event ${removed.eventId} (priority: ${removed.priority})`);
+    }
+  }
+
+  /**
    * Process event queue
    */
   private async processEventQueue(): Promise<void> {
@@ -192,9 +277,12 @@ export class AvatarEventManager {
     this.isProcessing = true;
 
     try {
-      while (this.eventQueue.length > 0) {
+      // 每个 tick 最多处理 maxProcessPerTick 个事件，避免长帧
+      let processed = 0;
+      while (this.eventQueue.length > 0 && processed < this.maxProcessPerTick) {
         const event = this.eventQueue.shift()!;
         await this.processEvent(event);
+        processed++;
       }
     } catch (error) {
       logger.error('[AvatarEventManager] Error processing event queue', error);

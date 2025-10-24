@@ -134,10 +134,8 @@ const ChatPage: React.FC = () => {
                 chatStateManager.clearExpiredScrollStates(username);
             }
             
-            // agents 加载完成后，设置标志
-            setTimeout(() => {
-                effectsCompletedRef.current = true;
-            }, 100);
+            // agents 加载完成后，设置标志（移除 setTimeout，直接设置）
+            effectsCompletedRef.current = true;
         };
         
         initializeComponent();
@@ -149,47 +147,82 @@ const ChatPage: React.FC = () => {
         };
     }, [username]);
     
-    // 等待 myTwinAgentId 可用后再调用 fetchChats
+    // 统一的数据获取 effect - 合并 myTwinAgentId、initialized 和 agentId 的监听
     useEffect(() => {
-        if (myTwinAgentId && !fetchOnceRef.current) {
-            fetchOnceRef.current = true;
-            fetchChats();
-        }
-    }, [myTwinAgentId]);
-    
-    // 监听initialized变化
-    useEffect(() => {
-        if (!effectsCompletedRef.current) return;
+        // 检查是否需要获取数据
+        const shouldFetch = (
+            myTwinAgentId && // 必须有 myTwinAgentId
+            !isFetchingRef.current && // 不在获取中
+            (
+                !fetchOnceRef.current || // 首次获取
+                (initialized && !hasFetched) || // initialized 变化
+                agentId !== lastFetchedAgentId.current // agentId 变化
+            )
+        );
         
-        prevInitialized.current = initialized;
-        
-        if (initialized && !hasFetched) {
-            setHasFetched(true);
-            fetchChats();
-        }
-    }, [initialized, hasFetched]);
-    
-    // 监听agentId变化
-    useEffect(() => {
-        // When agentId changes, always fetch chats (even if effects not completed)
-        // This ensures filter selection works immediately
-        if (agentId !== lastFetchedAgentId.current) {
-            lastFetchedAgentId.current = agentId || undefined;
+        if (shouldFetch) {
+            // 更新标志
+            if (!fetchOnceRef.current) {
+                fetchOnceRef.current = true;
+            }
+            if (initialized && !hasFetched) {
+                setHasFetched(true);
+            }
+            if (agentId !== lastFetchedAgentId.current) {
+                lastFetchedAgentId.current = agentId || undefined;
+            }
             
-            // Always fetch when agentId changes, regardless of effectsCompletedRef
-            if (!isFetchingRef.current && myTwinAgentId) {
-                // Delay to ensure fetchChats is defined
-                setTimeout(() => {
-                    fetchChats();
-                }, 0);
+            // 直接调用 fetchChats（移除 setTimeout）
+            fetchChats();
+        }
+        
+        // 更新 prevInitialized
+        prevInitialized.current = initialized;
+    }, [myTwinAgentId, initialized, hasFetched, agentId]);
+
+    // 追踪上一次的消息和未读数，避免不必要的更新
+    const prevMessagesRef = useRef<Map<string, Message[]>>(new Map());
+    const prevUnreadRef = useRef<Map<string, number>>(new Map());
+
+    // 同步消息管理器中的消息到聊天列表（优化版本：只在真正变化时更新）
+    useEffect(() => {
+        // 检查是否有真正的变化
+        let hasChanges = false;
+        
+        for (const chat of chats) {
+            const currentMessages = allMessages.get(chat.id) || [];
+            const prevMessages = prevMessagesRef.current.get(chat.id) || [];
+            const currentUnread = unreadCounts.get(chat.id) || 0;
+            const prevUnread = prevUnreadRef.current.get(chat.id) || 0;
+            
+            // 比较消息数量和未读数
+            if (currentMessages.length !== prevMessages.length || currentUnread !== prevUnread) {
+                hasChanges = true;
+                break;
+            }
+            
+            // 如果数量相同，检查最后一条消息是否变化
+            if (currentMessages.length > 0 && prevMessages.length > 0) {
+                const lastCurrent = currentMessages[currentMessages.length - 1];
+                const lastPrev = prevMessages[prevMessages.length - 1];
+                if (lastCurrent.id !== lastPrev.id || lastCurrent.status !== lastPrev.status) {
+                    hasChanges = true;
+                    break;
+                }
             }
         }
-    }, [agentId, myTwinAgentId]);
-
-    // 同步消息管理器中的消息到聊天列表
-    useEffect(() => {
+        
+        // 只在有变化时才更新
+        if (!hasChanges) {
+            return;
+        }
+        
+        // 更新引用
+        prevMessagesRef.current = new Map(allMessages);
+        prevUnreadRef.current = new Map(unreadCounts);
+        
+        // 更新 chats
         setChats(prevChats => {
-            // console.log('[setChats] prevChats:', prevChats);
             return prevChats.map(chat => {
                 const messages = allMessages.get(chat.id) || [];
                 const unreadCount = unreadCounts.get(chat.id) || 0;
@@ -215,8 +248,7 @@ const ChatPage: React.FC = () => {
                 };
             });
         });
-        // console.log('[setChats] newChats:', chats);
-    }, [allMessages, unreadCounts]);
+    }, [allMessages, unreadCounts, chats, t]);
 
     // 抽取获取聊天的函数，可以在多个地方调用
     const fetchChats = async () => {
@@ -594,12 +626,10 @@ const ChatPage: React.FC = () => {
         }
         
         setActiveChatId(chatId);
-        // 获取消息 - 使用 ref 避免依赖问题
-        setTimeout(() => {
-            if (handleChatSelectRef.current) {
-                handleChatSelectRef.current(chatId);
-            }
-        }, 0);
+        // 直接调用 handleChatSelect（移除 setTimeout，使用 ref 确保最新函数）
+        if (handleChatSelectRef.current) {
+            handleChatSelectRef.current(chatId);
+        }
     }, [username, agentId, chats, myTwinAgentId]);
 
     // 设置活动聊天ID
@@ -897,10 +927,19 @@ const ChatPage: React.FC = () => {
         return fallbackId;
     }, [agentId, myTwinAgentId, agents, chats.length]);
     
+    // 搜索防抖定时器 ref
+    const searchDebounceTimer = useRef<NodeJS.Timeout | null>(null);
+    
     // 处理搜索
     const handleSearch = useCallback((text: string) => {
         setSearchText(text);
         searchTextRef.current = text;
+        
+        // 清除之前的定时器
+        if (searchDebounceTimer.current) {
+            clearTimeout(searchDebounceTimer.current);
+            searchDebounceTimer.current = null;
+        }
         
         // 如果清空搜索，立即执行（不延迟）
         if (!text || text.trim() === '') {
@@ -908,13 +947,23 @@ const ChatPage: React.FC = () => {
                 fetchChats();
             }
         } else {
-            // 有搜索文本时，延迟调用以实现防抖
-            setTimeout(() => {
+            // 有搜索文本时，使用防抖定时器
+            searchDebounceTimer.current = setTimeout(() => {
                 if (effectsCompletedRef.current) {
                     fetchChats();
                 }
+                searchDebounceTimer.current = null;
             }, 300);
         }
+    }, []);
+    
+    // 清理搜索防抖定时器
+    useEffect(() => {
+        return () => {
+            if (searchDebounceTimer.current) {
+                clearTimeout(searchDebounceTimer.current);
+            }
+        };
     }, []);
     
     // 处理过滤器选择
