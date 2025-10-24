@@ -1,14 +1,62 @@
-import React, { useState, useMemo } from 'react';
-import { List, Badge, Avatar, Space, Typography, Tag, Button, Popconfirm, Modal } from 'antd';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { List, Badge, Avatar, Space, Typography, Tag, Button, Popconfirm, Modal, Tooltip } from 'antd';
 import { UserOutlined, RobotOutlined, TeamOutlined, MinusOutlined, FilterOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
-import { Chat } from '../types/chat';
+import { Chat, Member } from '../types/chat';
 import SearchFilter from '../../../components/Common/SearchFilter';
 import AgentAnimation from './AgentAnimation';
 import { useAgentStore } from '../../../stores/agentStore';
 
 const { Text } = Typography;
+
+// Group Avatar Component - shows multiple member avatars stacked
+const GroupAvatar = styled.div`
+    position: relative;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    
+    .avatar-item {
+        position: absolute;
+        border: 2px solid var(--bg-secondary);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .avatar-item:nth-of-type(1) {
+        top: 0;
+        left: 0;
+        z-index: 2;
+    }
+    
+    .avatar-item:nth-of-type(2) {
+        top: 8px;
+        left: 8px;
+        z-index: 1;
+    }
+    
+    .avatar-item:nth-of-type(3) {
+        top: 16px;
+        left: 16px;
+        z-index: 0;
+    }
+`;
+
+// Member count badge
+const MemberCountBadge = styled.div`
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    background: var(--bg-tertiary);
+    border-radius: 10px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    
+    .anticon {
+        font-size: 10px;
+    }
+`;
 
 // 辅助函数：格式化 lastMsg 显示
 const formatLastMsg = (lastMsg: any): string => {
@@ -213,6 +261,28 @@ const ChatList: React.FC<ChatListProps> = ({
     // Get agents from store
     const agents = useAgentStore((state) => state.agents);
     
+    // Ref to store chat item DOM elements for scrolling
+    const chatItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+    
+    // Auto-scroll to active chat item when activeChatId changes
+    useEffect(() => {
+        if (!activeChatId) return;
+        
+        // Small delay to ensure DOM is rendered
+        const timer = setTimeout(() => {
+            const chatElement = chatItemRefs.current.get(activeChatId);
+            if (chatElement) {
+                chatElement.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'nearest', // Scroll only if needed
+                    inline: 'nearest'
+                });
+            }
+        }, 100);
+        
+        return () => clearTimeout(timer);
+    }, [activeChatId]);
+    
     // Get current agent's avatar data
     const currentAgentAvatar = useMemo(() => {
         if (!currentAgentId || !agents) return undefined;
@@ -238,6 +308,82 @@ const ChatList: React.FC<ChatListProps> = ({
             default:
                 return <UserOutlined />;
         }
+    };
+    
+    // Get My Twin Agent ID
+    const getMyTwinAgent = useAgentStore((state) => state.getMyTwinAgent);
+    const myTwinAgent = getMyTwinAgent();
+    const myTwinAgentId = myTwinAgent?.card?.id;
+    
+    // Get member names combined, with priority agent first
+    const getMemberNames = (members: Member[], chatName?: string, priorityAgentId?: string): string => {
+        if (!members || members.length === 0) return chatName || '';
+        
+        // Filter out My Twin Agent from members
+        const filteredMembers = members.filter(m => m.userId !== myTwinAgentId);
+        
+        if (filteredMembers.length === 0) {
+            // If only My Twin Agent, show chat name
+            return chatName || '';
+        }
+        
+        // Sort members: priority agent first, then others
+        const sortedMembers = [...filteredMembers].sort((a, b) => {
+            if (priorityAgentId) {
+                if (a.userId === priorityAgentId) return -1;
+                if (b.userId === priorityAgentId) return 1;
+            }
+            return 0;
+        });
+        
+        const memberNames = sortedMembers.map(m => m.agentName || m.name).filter(Boolean).join(', ');
+        // If no member names, fallback to chat name
+        return memberNames || chatName || '';
+    };
+    
+    // Get short member names for display (truncated)
+    const getShortMemberNames = (members: Member[], chatName?: string, priorityAgentId?: string, maxLength: number = 30): string => {
+        const fullNames = getMemberNames(members, chatName, priorityAgentId);
+        if (!fullNames) return chatName || '';
+        if (fullNames.length <= maxLength) return fullNames;
+        return fullNames.substring(0, maxLength) + '...';
+    };
+    
+    // Render group avatar with stacked member avatars
+    const renderGroupAvatar = (members: Member[]) => {
+        if (!members || members.length === 0) {
+            return <Avatar icon={<TeamOutlined />} size={32} />;
+        }
+        
+        // Show up to 3 member avatars stacked
+        const displayMembers = members.slice(0, 3);
+        
+        if (displayMembers.length === 1) {
+            // Single member - show normal avatar
+            const member = displayMembers[0];
+            return (
+                <Avatar 
+                    src={member.avatar} 
+                    icon={<RobotOutlined />} 
+                    size={32}
+                />
+            );
+        }
+        
+        // Multiple members - show stacked avatars
+        return (
+            <GroupAvatar>
+                {displayMembers.map((member, index) => (
+                    <Avatar
+                        key={member.userId}
+                        className="avatar-item"
+                        src={member.avatar}
+                        icon={<RobotOutlined />}
+                        size={24}
+                    />
+                ))}
+            </GroupAvatar>
+        );
     };
 
     const handleConfirmDelete = () => {
@@ -323,15 +469,16 @@ const ChatList: React.FC<ChatListProps> = ({
                 </div>
                 {onFilterClick && (
                     <Button
-                        icon={<FilterOutlined />}
+                        icon={<FilterOutlined style={{ fontSize: '18px' }} />}
                         onClick={onFilterClick}
-                        type={filterAgentId ? 'primary' : 'text'}
+                        type="text"
                         title={t('pages.chat.filterByAgent')}
                         size="middle"
                         style={{
                             border: 'none',
                             boxShadow: 'none',
-                            padding: '4px 8px'
+                            padding: '4px 8px',
+                            color: 'var(--semi-color-primary)'
                         }}
                     />
                 )}
@@ -344,6 +491,13 @@ const ChatList: React.FC<ChatListProps> = ({
                         return (
                             <ChatItem
                                 key={chat.id}
+                                ref={(el) => {
+                                    if (el) {
+                                        chatItemRefs.current.set(chat.id, el);
+                                    } else {
+                                        chatItemRefs.current.delete(chat.id);
+                                    }
+                                }}
                                 $isActive={chat.id === activeChatId}
                                 onClick={() => onChatSelect(chat.id)}
                             >
@@ -375,19 +529,33 @@ const ChatList: React.FC<ChatListProps> = ({
                                 </div>
                                 <div className="chat-content">
                                     <div className="chat-header">
-                                        <Avatar icon={getAvatarIcon(chat.type)} size="small" />
-                                        <Text strong className="chat-name">{chat.name}</Text>
-                                        {chat.unread > 0 && (
-                                            <Badge count={chat.unread} />
-                                        )}
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                        <Text type="secondary" className="chat-message">
-                                            {formatLastMsg(chat.lastMsg) || t('pages.chat.noMessages')}
-                                        </Text>
-                                        <Text type="secondary" className="chat-time">
-                                            {formatTime(chat.lastMsgTime)}
-                                        </Text>
+                                        {renderGroupAvatar(chat.members)}
+                                        <div style={{ flex: 1, minWidth: 0, marginLeft: 8 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                                                <Tooltip title={getMemberNames(chat.members, chat.name, filterAgentId || undefined)}>
+                                                    <Text strong className="chat-name">
+                                                        {getShortMemberNames(chat.members, chat.name, filterAgentId || undefined, 25)}
+                                                    </Text>
+                                                </Tooltip>
+                                                {chat.members && chat.members.length > 1 && (
+                                                    <MemberCountBadge>
+                                                        <TeamOutlined />
+                                                        <span>{chat.members.length}</span>
+                                                    </MemberCountBadge>
+                                                )}
+                                                {chat.unread > 0 && (
+                                                    <Badge count={chat.unread} />
+                                                )}
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                <Text type="secondary" className="chat-message">
+                                                    {formatLastMsg(chat.lastMsg) || t('pages.chat.noMessages')}
+                                                </Text>
+                                                <Text type="secondary" className="chat-time">
+                                                    {formatTime(chat.lastMsgTime)}
+                                                </Text>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </ChatItem>

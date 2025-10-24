@@ -199,7 +199,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
               {comp.tooltip && <Tooltip content={comp.tooltip}><IconInfoCircle style={{ marginLeft: 6, verticalAlign: 'middle', cursor: 'pointer' }} /></Tooltip>}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <label style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</label>
+              <span style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</span>
               <Input
                 value={comp.weight ?? ''}
                 onChange={v => {
@@ -274,7 +274,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
                 )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <label style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</label>
+                <span style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</span>
                 <Input
                   value={comp.weight ?? ''}
                   onChange={v => {
@@ -298,7 +298,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
                 {/* 父组件字段 */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <label style={{ minWidth: 64, color: 'var(--semi-color-text-2)', textAlign: 'left' }}>{t('pages.chat.scoreForm.scoreFormula')}</label>
+                    <span style={{ minWidth: 64, color: 'var(--semi-color-text-2)', textAlign: 'left' }}>{t('pages.chat.scoreForm.scoreFormula')}</span>
                     <Input
                       value={comp.score_formula ?? ''}
                       onChange={v => {
@@ -441,7 +441,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
             {comp.tooltip && <Tooltip content={comp.tooltip}><IconInfoCircle style={{ marginLeft: 6, verticalAlign: 'middle', cursor: 'pointer' }} /></Tooltip>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <label style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</label>
+            <span style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</span>
             <Input
               value={comp.weight ?? ''}
               onChange={v => {
@@ -463,7 +463,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
         {!isCollapsed && (
           <>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                <label style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.rawValue')}</label>
+                <span style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.rawValue')}</span>
               <span style={{ color: '#fff' }}>
                 {(typeof comp.raw_value === 'string' || typeof comp.raw_value === 'number')
                   ? `${comp.raw_value} ${comp.unit || ''}`
@@ -471,7 +471,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
               </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <label style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.targetValue')}</label>
+              <span style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.targetValue')}</span>
               <Input
                 value={comp.target_value ?? comp.raw_value ?? ''}
                 onChange={v => {
@@ -503,7 +503,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
               )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <label style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.scoreFormula')}</label>
+              <span style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.scoreFormula')}</span>
               <Input
                 value={comp.score_formula ?? ''}
                 onChange={v => {
