@@ -4,6 +4,7 @@ Handles user authentication token generation, validation, storage and expiration
 """
 import uuid
 import time
+import threading
 from typing import Dict, Optional, Set
 from utils.logger_helper import logger_helper as logger
 
@@ -14,6 +15,10 @@ class TokenManager:
         self._tokens: Dict[str, Dict] = {}  # token -> {user, created_at, expires_at, permissions}
         self._user_tokens: Dict[str, str] = {}  # username -> current_token
         self._token_expiry = 24 * 60 * 60  # 24 hours expiration
+        
+        # Cleanup thread control
+        self._cleanup_stop_event = threading.Event()
+        self._cleanup_thread: Optional[threading.Thread] = None
 
     def generate_token(self, username: str, role: str = 'user', permissions: Set[str] = None) -> str:
         """Generate new token"""
@@ -146,23 +151,71 @@ class TokenManager:
             stats['tokens_by_role'][role] = stats['tokens_by_role'].get(role, 0) + 1
 
         return stats
+    
+    def start_cleanup_thread(self):
+        """Start background cleanup thread"""
+        if self._cleanup_thread and self._cleanup_thread.is_alive():
+            logger.warning("[TokenManager] Cleanup thread already running")
+            return
+        
+        self._cleanup_stop_event.clear()
+        self._cleanup_thread = threading.Thread(
+            target=self._cleanup_loop,
+            daemon=True,
+            name="TokenCleanup"
+        )
+        self._cleanup_thread.start()
+        logger.info("[TokenManager] Cleanup thread started")
+    
+    def stop_cleanup_thread(self, timeout: float = 5.0):
+        """Stop background cleanup thread gracefully"""
+        if not self._cleanup_thread or not self._cleanup_thread.is_alive():
+            return
+        
+        logger.info("[TokenManager] Stopping cleanup thread...")
+        self._cleanup_stop_event.set()
+        
+        # Wait for thread to finish
+        self._cleanup_thread.join(timeout=timeout)
+        
+        if self._cleanup_thread.is_alive():
+            logger.warning(f"[TokenManager] Cleanup thread did not stop within {timeout}s")
+        else:
+            logger.info("[TokenManager] Cleanup thread stopped successfully")
+        
+        self._cleanup_thread = None
+    
+    def _cleanup_loop(self):
+        """Background cleanup loop - can be interrupted"""
+        cleanup_interval = 3600  # 1 hour
+        
+        while not self._cleanup_stop_event.is_set():
+            try:
+                # Use wait instead of sleep - can be interrupted immediately
+                if self._cleanup_stop_event.wait(timeout=cleanup_interval):
+                    # Received stop signal
+                    logger.debug("[TokenManager] Cleanup thread received stop signal")
+                    break
+                
+                # Perform cleanup
+                removed = self.cleanup_expired_tokens()
+                if removed > 0:
+                    logger.info(f"[TokenManager] Cleaned up {removed} expired tokens")
+            
+            except Exception as e:
+                logger.error(f"[TokenManager] Error in cleanup loop: {e}")
+                # Short wait before continuing
+                if self._cleanup_stop_event.wait(timeout=60):
+                    break
+        
+        logger.debug("[TokenManager] Cleanup thread exiting")
 
 # Global token manager instance
 token_manager = TokenManager()
 
-# Periodically clean up expired tokens
-import threading
-import time
+# Start background cleanup thread automatically
+token_manager.start_cleanup_thread()
 
-def cleanup_expired_tokens_periodically():
-    """Periodically clean up expired tokens"""
-    while True:
-        try:
-            time.sleep(3600)  # Clean up every hour
-            token_manager.cleanup_expired_tokens()
-        except Exception as e:
-            logger.error(f"[TokenManager] Error in periodic cleanup: {e}")
-
-# Start background cleanup thread
-cleanup_thread = threading.Thread(target=cleanup_expired_tokens_periodically, daemon=True)
-cleanup_thread.start()
+# Register cleanup on exit
+import atexit
+atexit.register(lambda: token_manager.stop_cleanup_thread(timeout=5.0))
