@@ -679,6 +679,7 @@ const OrgNavigator: React.FC = () => {
                     name={displayName} 
                     hasChildren={door.hasChildren}
                     isActive={actualOrgId === door.id}
+                    agentCount={door.agentCount || 0}
                   />
                 </div>
               );
