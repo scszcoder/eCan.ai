@@ -14,6 +14,7 @@ from bot.Logger import log3
 import xml.etree.ElementTree as ET
 import traceback
 import requests
+from utils.logger_helper import logger_helper as logger
 
 # Wan Chat Logic
 # Commander will connect to websocket and subscribe, and wan logging is default off, then sit in a loop
@@ -224,211 +225,238 @@ def getSignedHeaders(url, credentials):
     return dict(request.headers.items())
 
 # Function to subscribe to commands
-async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody"):
+async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody", max_retries=50):
+    """
+    Subscribe to WAN Chat with WebSocket
+    
+    Args:
+        mainwin: Main window instance
+        auth_token: Authentication token
+        chat_id: Chat ID to subscribe to
+        max_retries: Maximum number of retry attempts (default: 50)
+    """
     WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
     WS_API_HOST = '3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com'
     id_token = auth_token
     ka_timeout_sec = 300
-    try:
-        api_headers = {
-            'content-type': 'application/json',
-            'host': WS_API_HOST,
-            'Authorization': id_token
-        }
-        # Convert the dictionary to a JSON string
-        json_str = json.dumps(api_headers)
+    retry_count = 0
+    base_backoff = 5
+    
+    # Use loop instead of recursion to prevent stack overflow
+    while retry_count < max_retries:
+        try:
+            api_headers = {
+                'content-type': 'application/json',
+                'host': WS_API_HOST,
+                'Authorization': id_token
+            }
+            # Convert the dictionary to a JSON string
+            json_str = json.dumps(api_headers)
 
-        # Encode the JSON string to bytes
-        json_bytes = json_str.encode('utf-8')
+            # Encode the JSON string to bytes
+            json_bytes = json_str.encode('utf-8')
 
-        # Encode the bytes to a Base64 string
-        base64_bytes = base64.b64encode(json_bytes)
+            # Encode the bytes to a Base64 string
+            base64_bytes = base64.b64encode(json_bytes)
 
-        # Convert the Base64 bytes back to a string
-        base64_str = base64_bytes.decode('utf-8')
+            # Convert the Base64 bytes back to a string
+            base64_str = base64_bytes.decode('utf-8')
 
-        ws_url = f"{WS_URL}?header={base64_str}&payload=e30="
+            ws_url = f"{WS_URL}?header={base64_str}&payload=e30="
 
-        # Create SSL context to handle certificate verification
-        ssl_context = ssl.create_default_context()
-        # For AWS AppSync, we can safely disable hostname checking
-        # as we're connecting to a known AWS service
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
+            # Create SSL context and disable verification for AWS AppSync
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
 
-        # Open WS connection (use subprotocols only; AppSync auth is in query header param)
-        async with websockets.connect(
-            ws_url,
-            subprotocols=['graphql-ws'],
-            open_timeout=30,
-            ssl=ssl_context,
-        ) as websocket:
-            print("Connected to Wan Chat WebSocket")
-            # Send connection init message
-            init_msg = {"type": "connection_init"}
-            await websocket.send(json.dumps(init_msg))
+            # Open WS connection (use subprotocols only; AppSync auth is in query header param)
+            async with websockets.connect(
+                ws_url,
+                subprotocols=['graphql-ws'],
+                open_timeout=30,
+                ssl=ssl_context,
+            ) as websocket:
+                print("Connected to Wan Chat WebSocket")
+                # Send connection init message
+                init_msg = {"type": "connection_init"}
+                await websocket.send(json.dumps(init_msg))
 
-            # Wait for connection ack
-            while True:
-                try:
-                    response = await websocket.recv()
-                    response_data = json.loads(response)
-                    print(f"RECEIVED: {response_data}")
-                    if response_data.get("type") == "connection_ack":
-                        print("WAN CHAT WEBSOCKET CONNECTED!!!!")
-                        mainwin.set_wan_connected(True)
-                        mainwin.set_websocket(websocket)
-                        ka_timeout_sec = response_data["payload"]["connectionTimeoutMs"]/1000
-                        last_connected_ts = datetime.now()
-                        break
-                except asyncio.CancelledError:
-                    logger.info("WAN Chat connection cancelled during setup (logout/shutdown)")
-                    mainwin.set_wan_connected(False)
-                    raise  # Re-raise to propagate cancellation
-                except websockets.exceptions.ConnectionClosedError as e:
-                    logger.error(f"Wan Chat Connection closed with error: {e}")
-                    mainwin.set_wan_connected(False)
-                    break
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to decode JSON: {e}")
-                    break
-
-            if mainwin.get_wan_connected():
-                # now request to subscribe to the API
-                logger.debug("NOW start to wan chat subscribe1")
-                sub_data = {
-                    "query": gen_wan_subscription_connection_string(),
-                    "variables": {"chatID": chat_id}
-                }
-                logger.debug("NOW start to wan chat subscribe2")
-
-                sub_data_string = json.dumps(sub_data)
-                logger.debug("NOW start to wan chat subscribe3"+sub_data_string)
-
-                SUB_REG = {
-                    "id": "1",
-                    "payload": {
-                        "data": sub_data_string,
-                        "extensions": {
-                            "authorization": {
-                                "Authorization": id_token,
-                                "host": WS_API_HOST
-                            }
-                        }
-                    },
-                    "type": "start"
-                }
-                logger.debug("SENDING WAN CHATWEBSOCKET SUBSCRIPTION REGISTRATION REQUEST!!!!"+json.dumps(SUB_REG))
-
-                await websocket.send(json.dumps(SUB_REG))
-
+                # Wait for connection ack
                 while True:
                     try:
                         response = await websocket.recv()
                         response_data = json.loads(response)
-                        print(f"ACK RECEIVED: {response_data}")
-                        if response_data.get("type") == "start_ack":
-                            print("WAN CHATMESSAGE SUBSCRIPTION TO "+"SUCCEEDED!!!!")
-                            print(chat_id)
-
-                            mainwin.set_wan_msg_subscribed(True)
-                            last_subscribed_ts = datetime.now()
+                        print(f"RECEIVED: {response_data}")
+                        if response_data.get("type") == "connection_ack":
+                            print("WAN CHAT WEBSOCKET CONNECTED!!!!")
+                            mainwin.set_wan_connected(True)
+                            mainwin.set_websocket(websocket)
+                            ka_timeout_sec = response_data["payload"]["connectionTimeoutMs"]/1000
+                            last_connected_ts = datetime.now()
+                            recv_timeout = ka_timeout_sec + 10
+                            logger.info(f"Keep Alive: server={ka_timeout_sec}s, client recv timeout={recv_timeout}s")
                             break
                     except asyncio.CancelledError:
-                        logger.info("WAN Chat subscription cancelled during ack wait (logout/shutdown)")
+                        logger.info("WAN Chat connection cancelled during setup (logout/shutdown)")
                         mainwin.set_wan_connected(False)
-                        mainwin.set_wan_msg_subscribed(False)
                         raise  # Re-raise to propagate cancellation
                     except websockets.exceptions.ConnectionClosedError as e:
-                        logger.error(f"Connection closed with error: {e}")
+                        logger.error(f"Wan Chat Connection closed with error: {e}")
                         mainwin.set_wan_connected(False)
                         break
                     except json.JSONDecodeError as e:
-                        print(f"Failed to decode JSON: {e}")
-                        mainwin.set_wan_connected(False)
+                        logger.error(f"Failed to decode JSON: {e}")
                         break
 
-                while True:
-                    try:
-                        # Add timeout to recv to prevent hanging during shutdown
-                        message = await asyncio.wait_for(websocket.recv(), timeout=30.0)
-                        print(f"WAN CHAT SUBSCRIBE Received message: {message}", type(message))  # this is string.
-                        # send the message to
-                        rcvd = json.loads(message)
-                        if "payload" in rcvd:
-                            if "onMessageReceived" in rcvd["payload"]["data"]:
-                                print("actual msg:", type(rcvd["payload"]["data"]["onMessageReceived"]))
-                                # route the message either to chat or RPA
-                                # possible types: chat/command/ping/loopback/pong/logs/request/heartbeat/chat
-                                if rcvd["payload"]["data"]["onMessageReceived"]["type"] == "chat":
-                                    asyncio.create_task(mainwin.gui_chat_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
-                                elif rcvd["payload"]["data"]["onMessageReceived"]["type"] == "command" and rcvd["payload"]["data"]["onMessageReceived"]["contents"]["cmd"] in ["cancel", "pause", "suspend", "resume"]:
-                                    asyncio.create_task(mainwin.gui_rpa_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
-                                elif rcvd["payload"]["data"]["onMessageReceived"]["type"] in ["logs", "heartbeat"]:
-                                    asyncio.create_task(mainwin.gui_monitor_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
-                                else:
-                                    asyncio.create_task(mainwin.gui_monitor_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
-                        else:
-                            if "type" in rcvd:
-                                if rcvd["type"] == "ka":
-                                    this_ts = datetime.now()
-                                    td = this_ts - last_connected_ts
-                                    # Get the time difference in seconds
-                                    td_seconds = td.total_seconds()
-                                    if td_seconds > ka_timeout_sec:
-                                        # Keep alive timeout - this is normal for long-running connections
-                                        print(f"INFO: Keep Alive timeout after {td_seconds:.1f}s (limit: {ka_timeout_sec}s)")
-                                        print("INFO: This is normal behavior - connection will be re-established")
-                                        raise Exception("Keep Alive Timeout")
+                if mainwin.get_wan_connected():
+                    # now request to subscribe to the API
+                    logger.debug("NOW start to wan chat subscribe1")
+                    sub_data = {
+                        "query": gen_wan_subscription_connection_string(),
+                        "variables": {"chatID": chat_id}
+                    }
+                    logger.debug("NOW start to wan chat subscribe2")
+
+                    sub_data_string = json.dumps(sub_data)
+                    logger.debug("NOW start to wan chat subscribe3"+sub_data_string)
+
+                    SUB_REG = {
+                        "id": "1",
+                        "payload": {
+                            "data": sub_data_string,
+                            "extensions": {
+                                "authorization": {
+                                    "Authorization": id_token,
+                                    "host": WS_API_HOST
+                                }
+                            }
+                        },
+                        "type": "start"
+                    }
+                    logger.debug("SENDING WAN CHATWEBSOCKET SUBSCRIPTION REGISTRATION REQUEST!!!!"+json.dumps(SUB_REG))
+
+                    await websocket.send(json.dumps(SUB_REG))
+
+                    while True:
+                        try:
+                            response = await websocket.recv()
+                            response_data = json.loads(response)
+                            print(f"ACK RECEIVED: {response_data}")
+                            if response_data.get("type") == "start_ack":
+                                print("WAN CHATMESSAGE SUBSCRIPTION TO "+"SUCCEEDED!!!!")
+                                print(chat_id)
+
+                                mainwin.set_wan_msg_subscribed(True)
+                                last_subscribed_ts = datetime.now()
+                                break
+                        except asyncio.CancelledError:
+                            logger.info("WAN Chat subscription cancelled during ack wait (logout/shutdown)")
+                            mainwin.set_wan_connected(False)
+                            mainwin.set_wan_msg_subscribed(False)
+                            raise  # Re-raise to propagate cancellation
+                        except websockets.exceptions.ConnectionClosedError as e:
+                            logger.error(f"Connection closed with error: {e}")
+                            mainwin.set_wan_connected(False)
+                            break
+                        except json.JSONDecodeError as e:
+                            print(f"Failed to decode JSON: {e}")
+                            mainwin.set_wan_connected(False)
+                            break
+
+                    while True:
+                        try:
+                            # Use recv_timeout configured at connection time
+                            message = await asyncio.wait_for(websocket.recv(), timeout=recv_timeout)
+                            print(f"WAN CHAT SUBSCRIBE Received message: {message}", type(message))  # this is string.
+                            # send the message to
+                            rcvd = json.loads(message)
+                            if "payload" in rcvd:
+                                if "onMessageReceived" in rcvd["payload"]["data"]:
+                                    print("actual msg:", type(rcvd["payload"]["data"]["onMessageReceived"]))
+                                    # route the message either to chat or RPA
+                                    # possible types: chat/command/ping/loopback/pong/logs/request/heartbeat/chat
+                                    if rcvd["payload"]["data"]["onMessageReceived"]["type"] == "chat":
+                                        asyncio.create_task(mainwin.gui_chat_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
+                                    elif rcvd["payload"]["data"]["onMessageReceived"]["type"] == "command" and rcvd["payload"]["data"]["onMessageReceived"]["contents"]["cmd"] in ["cancel", "pause", "suspend", "resume"]:
+                                        asyncio.create_task(mainwin.gui_rpa_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
+                                    elif rcvd["payload"]["data"]["onMessageReceived"]["type"] in ["logs", "heartbeat"]:
+                                        asyncio.create_task(mainwin.gui_monitor_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
                                     else:
-                                        last_connected_ts = this_ts
-                    except asyncio.CancelledError:
-                        logger.info("WAN Chat message loop cancelled (logout/shutdown)")
-                        mainwin.set_wan_connected(False)
-                        raise  # Re-raise to propagate cancellation
-                    except asyncio.TimeoutError:
-                        logger.info("WebSocket recv timeout - connection may be closing")
-                        mainwin.set_wan_connected(False)
-                        break
-                    except websockets.exceptions.ConnectionClosedOK:
-                        logger.info("WebSocket connection closed normally")
-                        mainwin.set_wan_connected(False)
-                        break
-                    except websockets.exceptions.ConnectionClosed as e:
-                        logger.warning(f"WebSocket connection closed: {e}")
-                        mainwin.set_wan_connected(False)
-                        break
-                    except Exception as e:
-                        traceback_info = traceback.extract_tb(e.__traceback__)
-                        ex_stat = "ErrorsubscribeReceive:" + traceback.format_exc() + " " + str(e)
-                        log3(ex_stat)
-                        mainwin.set_wan_connected(False)
-                        break
+                                        asyncio.create_task(mainwin.gui_monitor_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
+                            else:
+                                if "type" in rcvd:
+                                    if rcvd["type"] == "ka":
+                                        # Keep alive received - update timestamp
+                                        # This is normal, just update the last connected time
+                                        last_connected_ts = datetime.now()
+                                        logger.trace(f"Keep Alive received, connection healthy")
+                        except asyncio.CancelledError:
+                            logger.info("WAN Chat message loop cancelled (logout/shutdown)")
+                            mainwin.set_wan_connected(False)
+                            raise  # Re-raise to propagate cancellation
+                        except asyncio.TimeoutError:
+                            logger.info("WebSocket recv timeout - connection may be closing")
+                            mainwin.set_wan_connected(False)
+                            break
+                        except websockets.exceptions.ConnectionClosedOK:
+                            logger.info("WebSocket connection closed normally")
+                            mainwin.set_wan_connected(False)
+                            break
+                        except websockets.exceptions.ConnectionClosed as e:
+                            logger.warning(f"WebSocket connection closed: {e}")
+                            mainwin.set_wan_connected(False)
+                            break
+                        except Exception as e:
+                            traceback_info = traceback.extract_tb(e.__traceback__)
+                            ex_stat = "ErrorsubscribeReceive:" + traceback.format_exc() + " " + str(e)
+                            log3(ex_stat)
+                            mainwin.set_wan_connected(False)
+                            break
 
-                if not mainwin.get_wan_connected():
-                    raise Exception("Keep Alive Timeout")
-    except asyncio.CancelledError:
-        logger.info("WAN Chat subscription cancelled (logout/shutdown)")
-        mainwin.set_wan_connected(False)
-        # Don't retry when cancelled - this is intentional shutdown
-        return
-    except Exception as e:
-        if "Keep Alive Timeout" in str(e):
-            logger.warning(f"INFO: WebSocket Keep Alive timeout - reconnecting in 5 seconds...")
-        else:
-            logger.error(f"Websocket Connection error: {e}. Retrying in 5 seconds...")
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        ex_stat = "ErrorsubscribeToWanChat:" + traceback.format_exc() + " " + str(e)
-        log3(ex_stat)
-        mainwin.set_wan_connected(False)
-        
-        # Check if we should retry - don't retry if the main window is shutting down
-        if hasattr(mainwin, '_shutting_down') and mainwin._shutting_down:
-            logger.warning("INFO: Main window is shutting down, not retrying WAN Chat connection")
-            return
+                    if not mainwin.get_wan_connected():
+                        # Connection was lost, will retry
+                        logger.info("WAN Chat connection lost, will retry...")
+                        raise Exception("Connection Lost")
             
-        await asyncio.sleep(5)
-        await subscribeToWanChat(mainwin, auth_token, chat_id)
+            # If we got here, connection was successful and closed normally
+            logger.info("WAN Chat connection completed successfully")
+            return
+        
+        except asyncio.CancelledError:
+            logger.info("WAN Chat subscription cancelled (logout/shutdown)")
+            mainwin.set_wan_connected(False)
+            # Don't retry when cancelled - this is intentional shutdown
+            return
+        
+        except Exception as e:
+            retry_count += 1
+            
+            if "Connection Lost" in str(e):
+                logger.info(f"WebSocket connection lost, retrying... (attempt {retry_count}/{max_retries})")
+            else:
+                logger.error(f"Websocket Connection error: {e} (attempt {retry_count}/{max_retries})")
+            
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            ex_stat = "ErrorsubscribeToWanChat:" + traceback.format_exc() + " " + str(e)
+            log3(ex_stat)
+            mainwin.set_wan_connected(False)
+            
+            # Check if we should retry
+            if hasattr(mainwin, '_shutting_down') and mainwin._shutting_down:
+                logger.warning("INFO: Main window is shutting down, not retrying WAN Chat connection")
+                return
+            
+            if retry_count >= max_retries:
+                logger.error(f"Max retries ({max_retries}) reached, giving up WAN Chat connection")
+                return
+            
+            # Exponential backoff with max cap
+            backoff = min(base_backoff * (2 ** (retry_count - 1)), 60)
+            logger.info(f"Retrying WAN Chat connection in {backoff}s...")
+            await asyncio.sleep(backoff)
+    
+    # If we exit the loop without returning, we've hit max retries
+    logger.error(f"WAN Chat connection failed after {max_retries} attempts")
 
 
 def parseCommandString(input_str):

@@ -341,14 +341,33 @@ async def tcpServer(topgui):
     async with commanderServer:
         await commanderServer.serve_forever()
 
-def udp_receiver():
+def udp_receiver(stop_event=None):
+    """
+    UDP receiver with graceful shutdown support
+    
+    Args:
+        stop_event: threading.Event to signal when to stop
+    """
     # Create a UDP socket
     usock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     usock.bind(('', UDP_PORT))
-
-    while True:
-        data, addr = usock.recvfrom(1024)
-        print(f"Received data: {data.decode()} from {addr}")
+    # Set timeout to allow checking stop_event
+    usock.settimeout(1.0)
+    
+    try:
+        while stop_event is None or not stop_event.is_set():
+            try:
+                data, addr = usock.recvfrom(1024)
+                print(f"Received data: {data.decode()} from {addr}")
+            except socket.timeout:
+                # Timeout is normal, continue loop
+                continue
+            except Exception as e:
+                print(f"UDP receive error: {e}")
+                break
+    finally:
+        usock.close()
+        print("UDP receiver closed")
 
 
 async def udpBroadcaster(topgui):

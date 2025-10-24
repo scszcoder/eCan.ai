@@ -19,6 +19,7 @@ from .core import (
     ECAN_BASE_DB,
     MigrationManager
 )
+from .migrations.migration_config import LATEST_DATABASE_VERSION
 from .services.db_agent_service import DBAgentService
 from .services.db_org_service import DBOrgService
 from .services.db_skill_service import DBSkillService
@@ -163,7 +164,7 @@ class ECDBMgr:
                     return True
                 
                 # Create version record for latest version using direct SQL
-                latest_version = "3.0.0"
+                latest_version = LATEST_DATABASE_VERSION
                 import uuid
                 from datetime import datetime
                 

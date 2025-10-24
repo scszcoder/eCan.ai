@@ -167,7 +167,7 @@ class HardwareDetector:
     def _linux_list_printers(self):
         """Linux printer enumeration"""
         try:
-            result = subprocess.run(['lpstat', '-p'], capture_output=True, text=True)
+            result = subprocess.run(['lpstat', '-p'], capture_output=True, text=True, timeout=10)
             printer_lines = result.stdout.strip().split('\n')
             printers = []
             for line in printer_lines:
