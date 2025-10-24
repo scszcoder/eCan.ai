@@ -443,16 +443,16 @@ class EC_Agent(Agent):
 			a2a_end_point = recipient_agent.get_card().url + "/a2a/"
 			logger.info("[ec_agent] a2a end point: ", a2a_end_point)
 			self.a2a_client.set_recipient(url=a2a_end_point)
-			if isinstance(message['attributes']['params']['content'], str):
-				msg_text = message['attributes']['params']['content']
-			elif isinstance(message['attributes']['params']['content'], dict):
-				msg_text = message['attributes']['params']['content']['text']
+			if isinstance(message["attributes"]['params']['content'], str):
+				msg_text = message["attributes"]['params']['content']
+			elif isinstance(message["attributes"]['params']['content'], dict):
+				msg_text = message["attributes"]['params']['content']['text']
 			else:
 				msg_text = message['attributes']['params']['content']['text']
 			msg_parts = [TextPart(type="text", text=msg_text)]
 
-			if message['attributes']['params']['attachments']:
-				for attachment in message['attributes']['params']['attachments']:
+			if message["attributes"]['params']['attachments']:
+				for attachment in message["attributes"]['params']['attachments']:
 					file_data = attachment['data']
 					if isinstance(file_data, bytes):
 						file_data = base64.b64encode(file_data).decode('utf-8')
