@@ -7,6 +7,7 @@ interface OrgDoorProps {
   name: string;
   hasChildren?: boolean;
   isActive?: boolean;
+  agentCount?: number; // Total agent count in this org and its children
 }
 
 // 全局缓存：系统视频列表（页面生命周期内永久有效）
@@ -65,14 +66,17 @@ const getRandomSystemVideo = async (): Promise<string | null> => {
   }
 };
 
-const OrgDoor: React.FC<OrgDoorProps> = ({ name, isActive = false }) => {
+const OrgDoor: React.FC<OrgDoorProps> = ({ name, isActive = false, agentCount = 0 }) => {
   const [hovered, setHovered] = useState(false);
   const [clicked, setClicked] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [sceneType] = useState(() => Math.floor(Math.random() * 4)); // 随机选择场景类型
+  const [sceneType] = useState(() => Math.floor(Math.random() * 4)); // Random scene type
   const [videoLoaded, setVideoLoaded] = useState(false);
   const [isOverflow, setIsOverflow] = useState(false);
   const nameRef = useRef<HTMLDivElement>(null);
+  
+  // Determine if video should be shown: only when agentCount > 0
+  const shouldShowVideo = agentCount > 0;
 
   // 检测文本是否溢出（用于添加overflow类名）
   useEffect(() => {
@@ -92,22 +96,23 @@ const OrgDoor: React.FC<OrgDoorProps> = ({ name, isActive = false }) => {
     };
   }, [name]);
 
-  // 开门后才加载视频（懒加载优化）
+  // Load video after door opens (lazy loading optimization)
+  // Only load video when agentCount > 0
   useEffect(() => {
-    // 只在门打开（hovered 或 clicked）且视频未加载时才请求
-    if ((hovered || clicked) && !videoLoaded) {
+    // Only load when door is open (hovered or clicked), video not loaded, and should show video
+    if ((hovered || clicked) && !videoLoaded && shouldShowVideo) {
       const loadVideo = async () => {
         const video = await getRandomSystemVideo();
         if (video) {
           setVideoUrl(video);
           setVideoLoaded(true);
-          console.log('[OrgDoor] Video loaded on demand:', video);
+          console.log('[OrgDoor] Video loaded on demand (agentCount:', agentCount, '):', video);
         }
       };
 
       loadVideo();
     }
-  }, [hovered, clicked, videoLoaded]);
+  }, [hovered, clicked, videoLoaded, shouldShowVideo, agentCount]);
 
   const handleMouseEnter = useCallback(() => {
     setHovered(true);

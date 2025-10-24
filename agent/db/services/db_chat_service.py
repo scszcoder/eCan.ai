@@ -227,9 +227,14 @@ class DBChatService(BaseService):
             # Update chat.lastMsg and lastMsgTime
             chat.lastMsg = json.dumps(content, ensure_ascii=False)
             chat.lastMsgTime = createAt
-            # Increment unread count
-            chat.unread = (chat.unread or 0) + 1
-            logger.debug(f"[db_chat_service] chat.unread: {message}")
+            
+            # Only increment unread count when receiving messages from others
+            # User's own messages (role="user") should not increment unread
+            if role != "user":
+                chat.unread = (chat.unread or 0) + 1
+                logger.debug(f"[add_message] Incremented unread for chat {chatId}, role={role}, new unread={chat.unread}")
+            else:
+                logger.debug(f"[add_message] Not incrementing unread for user message in chat {chatId}")
             chat.messages.append(message)
             session.add(message)
             session.flush()
@@ -637,12 +642,17 @@ class DBChatService(BaseService):
         """
         Mark messages as read and update chat unread count.
         
+        只标记 isRead=False 的消息，并更新对应 chat 的 unread 计数。
+        
         Args:
             messageIds (list): List of message IDs
             userId (str): User ID
             
         Returns:
-            dict: Standard response with processed message IDs
+            dict: Standard response with {
+                "updated_ids": [实际更新的消息ID],
+                "chat_updates": {chatId: unread_count_decreased}
+            }
         """
         if not messageIds or not userId:
             return {
@@ -651,24 +661,48 @@ class DBChatService(BaseService):
                 "data": None,
                 "error": "message_ids and user_id are required"
             }
-        updated_ids = []
+        
         with self.session_scope() as session:
+            # 统计每个 chat 需要减少的 unread 数量
+            chat_unread_decrease = {}
+            updated_ids = []
+            
             for message_id in messageIds:
                 message = session.get(Message, message_id)
                 if not message:
+                    logger.debug(f"[mark_message_as_read] Message {message_id} not found")
                     continue
+                
+                # 只处理未读消息
                 if not message.isRead:
                     message.isRead = True
-                    # Update chat unread count
-                    chat = session.get(Chat, message.chatId)
-                    if chat and chat.unread > 0:
-                        chat.unread = max(0, chat.unread - 1)
-                updated_ids.append(message_id)
+                    updated_ids.append(message_id)
+                    
+                    # 统计该 chat 的未读数减少
+                    chat_id = message.chatId
+                    chat_unread_decrease[chat_id] = chat_unread_decrease.get(chat_id, 0) + 1
+                    
+                    logger.debug(f"[mark_message_as_read] Marked message {message_id} as read in chat {chat_id}")
+            
+            # 批量更新 chat 的 unread 计数
+            for chat_id, decrease_count in chat_unread_decrease.items():
+                chat = session.get(Chat, chat_id)
+                if chat:
+                    old_unread = chat.unread
+                    chat.unread = max(0, chat.unread - decrease_count)
+                    logger.info(f"[mark_message_as_read] Chat {chat_id} unread: {old_unread} -> {chat.unread} (-{decrease_count})")
+            
             session.flush()
+            
+            logger.info(f"[mark_message_as_read] Updated {len(updated_ids)} messages across {len(chat_unread_decrease)} chats")
+            
             return {
                 "success": True,
                 "id": None,
-                "data": updated_ids,
+                "data": {
+                    "updated_ids": updated_ids,
+                    "chat_updates": chat_unread_decrease
+                },
                 "error": None
             }
 

@@ -808,11 +808,50 @@ const ChatPage: React.FC = () => {
         }
     }, [setSearchParams]);
 
+    // Filter out chats containing My Twin Agent
+    // My Twin Agent should never appear in the chat list
+    const filteredChats = useMemo(() => {
+        if (!myTwinAgentId) {
+            logger.warn('[filteredChats] myTwinAgentId is not available, showing all chats');
+            return chats;
+        }
+        
+        logger.info(`[filteredChats] Filtering chats, myTwinAgentId: ${myTwinAgentId}, total chats: ${chats.length}`);
+        
+        const filtered = chats.filter(chat => {
+            // Check if chat name is "My Twin Agent"
+            if (chat.name === 'My Twin Agent') {
+                logger.info(`[filteredChats] Filtering out chat by name: ${chat.name} (id: ${chat.id})`);
+                return false;
+            }
+            
+            // Check if chat members contain My Twin Agent
+            const hasMemberWithMyTwinAgent = chat.members?.some(
+                member => {
+                    const matches = member.userId === myTwinAgentId;
+                    if (matches) {
+                        logger.info(`[filteredChats] Found My Twin Agent in chat ${chat.id} members, userId: ${member.userId}`);
+                    }
+                    return matches;
+                }
+            );
+            
+            if (hasMemberWithMyTwinAgent) {
+                logger.info(`[filteredChats] Filtering out chat: ${chat.name} (id: ${chat.id})`);
+            }
+            
+            // Only keep chats that don't contain My Twin Agent
+            return !hasMemberWithMyTwinAgent;
+        });
+        
+        logger.info(`[filteredChats] After filtering: ${filtered.length} chats remaining`);
+        return filtered;
+    }, [chats, myTwinAgentId]);
+
     const renderListContent = () => {
-        // console.log('[renderListContent] chats:', chats);
         return (
             <ChatList
-                chats={chats}
+                chats={filteredChats}
                 activeChatId={activeChatId}
                 onChatSelect={setActiveChatIdAndFetchMessages}
                 onChatDelete={handleChatDelete}
@@ -827,6 +866,19 @@ const ChatPage: React.FC = () => {
         );
     };
 
+    // 处理消息已读回调
+    const handleMessagesRead = useCallback((chatId: string, count: number) => {
+        setChats(prevChats => {
+            return prevChats.map(chat => {
+                if (chat.id === chatId) {
+                    const newUnread = Math.max(0, (chat.unread || 0) - count);
+                    return { ...chat, unread: newUnread };
+                }
+                return chat;
+            });
+        });
+    }, []);
+
     const renderDetailsContent = () => (
         <Suspense fallback={<div className="loading-container">{t('common.loading')}</div>}>
             <ChatDetail 
@@ -834,6 +886,7 @@ const ChatPage: React.FC = () => {
                 chats={chats}
                 onSend={handleMessageSend}
                 setIsInitialLoading={setIsInitialLoading}
+                onMessagesRead={handleMessagesRead}
             />
         </Suspense>
     );

@@ -13,6 +13,8 @@ import { get_ipc_api } from '@/services/ipc_api';
 import { Toast } from '@douyinfe/semi-ui';
 import { removeMessageFromList } from '../utils/messageHandlers';
 import { useMessages } from '../hooks/useMessages';
+import { useUserStore } from '@/stores/userStore';
+import { useAgentStore } from '@/stores/agentStore';
 
 interface ChatDetailProps {
     chatId?: string | null;
@@ -20,6 +22,7 @@ interface ChatDetailProps {
     onSend?: (content: string, attachments: any[]) => void;
     onMessageDelete?: (messageId: string) => void;
     setIsInitialLoading?: (loading: boolean) => void;
+    onMessagesRead?: (chatId: string, count: number) => void;
 }
 
 function mergeAndSortMessages(...msgArrays: any[][]) {
@@ -31,7 +34,7 @@ function mergeAndSortMessages(...msgArrays: any[][]) {
   return Array.from(map.values()).sort((a, b) => (a.createAt || 0) - (b.createAt || 0));
 }
 
-const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], onSend, onMessageDelete, setIsInitialLoading }) => {
+const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], onSend, onMessageDelete, setIsInitialLoading, onMessagesRead }) => {
     const chatId = rawChatId || '';
     const { t } = useTranslation();
     const wrapperRef = useRef<HTMLDivElement>(null);
@@ -48,6 +51,12 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     const isInitialLoading = typeof setIsInitialLoading === 'function' ? undefined : isInitialLoadingState;
     const chatBoxRef = useRef<HTMLDivElement | null>(null);
     const prevMsgCountRef = useRef(pageMessages.length);
+    
+    // 获取当前用户信息
+    const username = useUserStore(state => state.username);
+    const getMyTwinAgent = useAgentStore(state => state.getMyTwinAgent);
+    const myTwinAgent = getMyTwinAgent();
+    const currentUserId = myTwinAgent?.card?.id || `system_${username}`;
     const prevScrollHeightRef = useRef(0);
     const prevScrollTopRef = useRef(0);
     const isLoadingMoreRef = useRef(false);
@@ -406,6 +415,37 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                     setPageMessages(mergeAndSortMessages(initialMsgs));
                     setOffset(initialMsgs.length);
                     setHasMore(initialMsgs.length === PAGE_SIZE);
+                    
+                    // 标记未读消息为已读
+                    if (initialMsgs.length > 0 && currentUserId) {
+                        // 只提取未读消息的 ID
+                        const unreadMessageIds = initialMsgs
+                            .filter(msg => msg.isRead === false)
+                            .map(msg => msg.id)
+                            .filter(Boolean);
+                        
+                        if (unreadMessageIds.length > 0) {
+                            console.log(`[ChatDetail] Marking ${unreadMessageIds.length} unread messages as read`);
+                            get_ipc_api().chatApi.markMessageAsRead(unreadMessageIds, currentUserId)
+                                .then((response: any) => {
+                                    // 后端返回实际更新的消息数量
+                                    if (response.success && response.data) {
+                                        const actualUpdatedCount = response.data.updated_ids?.length || unreadMessageIds.length;
+                                        console.log(`[ChatDetail] Successfully marked ${actualUpdatedCount} messages as read`);
+                                        
+                                        // 通知父组件更新 unread 计数
+                                        if (onMessagesRead) {
+                                            onMessagesRead(chatId, actualUpdatedCount);
+                                        }
+                                    }
+                                })
+                                .catch(err => {
+                                    console.error('Failed to mark messages as read:', err);
+                                });
+                        } else {
+                            console.log('[ChatDetail] No unread messages to mark');
+                        }
+                    }
                     
                     // Scroll to bottom after initial load
                     setTimeout(() => {
