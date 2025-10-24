@@ -211,7 +211,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
     // 有些组件需要字符串类型的 label，有些可以接受 React 元素
     const labelText = label; // 纯文本标签
     const labelNode = (
-      <label className="semi-form-field-label">
+      <label className="semi-form-field-label" htmlFor={fieldId}>
         {required && <span className="semi-form-field-label-asterisk">*</span>}
         {label}
         {field.tooltip && (
@@ -267,7 +267,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
           if (customInputMode[fieldId]) {
             return (
               <div key={fieldId} className="semi-form-field">
-                <label className="semi-form-field-label">
+                <label className="semi-form-field-label" htmlFor={`custom-input-select-${fieldId}`}>
                   {required && <span className="semi-form-field-label-asterisk">*</span>}
                   {label}
                   {field.tooltip && (
@@ -278,6 +278,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
                 </label>
                 <div className="semi-form-field-control">
                   <Input
+                    id={`custom-input-select-${fieldId}`}
                     ref={el => customInputRefs.current[fieldId] = el}
                     value={customInputValue[fieldId] || ''}
                     placeholder={placeholder || t('pages.chat.customInputPlaceholder')}
@@ -348,7 +349,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
           }
           return (
             <div key={fieldId} className="semi-form-field">
-              <label className="semi-form-field-label">
+              <label className="semi-form-field-label" htmlFor={`select-${fieldId}`}>
                 {required && <span className="semi-form-field-label-asterisk">*</span>}
                 {label}
                 {field.tooltip && (
@@ -360,6 +361,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
               <div className="semi-form-field-control">
                 <Tooltip content={t('pages.chat.doubleClickToEdit')} position="right">
                   <Select
+                    id={`select-${fieldId}`}
                     value={selectValue[fieldId]}
                     onChange={v => {
                       setSelectValue(sv => {
@@ -427,7 +429,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
           if (customInputMode[fieldId]) {
             return (
               <div key={fieldId} className="semi-form-field">
-                <label className="semi-form-field-label">
+                <label className="semi-form-field-label" htmlFor={`custom-input-pulldown-${fieldId}`}>
                   {required && <span className="semi-form-field-label-asterisk">*</span>}
                   {label}
                   {field.tooltip && (
@@ -438,6 +440,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
                 </label>
                 <div className="semi-form-field-control">
                   <Input
+                    id={`custom-input-pulldown-${fieldId}`}
                     ref={el => customInputRefs.current[fieldId] = el}
                     value={customInputValue[fieldId] || ''}
                     placeholder={placeholder || t('pages.chat.customInputPlaceholder')}
@@ -508,7 +511,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
           }
           return (
             <div key={fieldId} className="semi-form-field">
-              <label className="semi-form-field-label">
+              <label className="semi-form-field-label" htmlFor={`pulldown-${fieldId}`}>
                 {required && <span className="semi-form-field-label-asterisk">*</span>}
                 {label}
                 {field.tooltip && (
@@ -520,6 +523,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
               <div className="semi-form-field-control">
                 <Tooltip content={t('pages.chat.doubleClickToEdit')} position="right">
                   <Select
+                    id={`pulldown-${fieldId}`}
                     value={selectValue[fieldId]}
                     onChange={v => {
                       setSelectValue(sv => {

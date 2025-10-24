@@ -15,6 +15,7 @@ import { removeMessageFromList } from '../utils/messageHandlers';
 import { useMessages } from '../hooks/useMessages';
 import { useUserStore } from '@/stores/userStore';
 import { useAgentStore } from '@/stores/agentStore';
+import { chatStateManager } from '../managers/ChatStateManager';
 
 interface ChatDetailProps {
     chatId?: string | null;
@@ -23,6 +24,7 @@ interface ChatDetailProps {
     onMessageDelete?: (messageId: string) => void;
     setIsInitialLoading?: (loading: boolean) => void;
     onMessagesRead?: (chatId: string, count: number) => void;
+    filterAgentId?: string | null;
 }
 
 function mergeAndSortMessages(...msgArrays: any[][]) {
@@ -34,7 +36,7 @@ function mergeAndSortMessages(...msgArrays: any[][]) {
   return Array.from(map.values()).sort((a, b) => (a.createAt || 0) - (b.createAt || 0));
 }
 
-const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], onSend, onMessageDelete, setIsInitialLoading, onMessagesRead }) => {
+const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], onSend, onMessageDelete, setIsInitialLoading, onMessagesRead, filterAgentId }) => {
     const chatId = rawChatId || '';
     const { t } = useTranslation();
     const wrapperRef = useRef<HTMLDivElement>(null);
@@ -53,7 +55,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     const prevMsgCountRef = useRef(pageMessages.length);
     
     // 获取当前用户信息
-    const username = useUserStore(state => state.username);
+    const username = useUserStore(state => state.username) || 'default_user';
     const getMyTwinAgent = useAgentStore(state => state.getMyTwinAgent);
     const myTwinAgent = getMyTwinAgent();
     const currentUserId = myTwinAgent?.card?.id || `system_${username}`;
@@ -65,6 +67,10 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     const isAtBottomRef = useRef(true);
     const shouldAutoScrollRef = useRef(true);
     const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    
+    // Scroll position restoration
+    const scrollPositionRestoredRef = useRef(false);
+    const saveScrollPositionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     // Check if user is at the bottom of the chat
     const isAtBottom = useCallback(() => {
@@ -121,6 +127,30 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         setLoadingMore(false);
     }, [loadingMore, isInitialLoading, hasMore, chatId, pageMessages.length, offset]);
 
+    // Save scroll position to state manager
+    const saveScrollPosition = useCallback(() => {
+        if (!chatId || !username) return;
+        
+        const chatBox = chatBoxRef.current;
+        if (!chatBox) return;
+        
+        const scrollTop = chatBox.scrollTop;
+        const scrollHeight = chatBox.scrollHeight;
+        
+        // 🚫 Skip saving if scrollHeight is 0 (DOM is being destroyed or not ready)
+        if (scrollHeight === 0) {
+            return;
+        }
+        
+        // Use username (real user ID) instead of currentUserId (agent ID) to match Chat page
+        chatStateManager.saveScrollPosition(
+            username,
+            chatId,
+            scrollTop,
+            scrollHeight
+        );
+    }, [chatId, username]);
+    
     // Handle scroll position detection
     const handleScroll = useCallback((e: Event) => {
         const target = e.target as HTMLElement;
@@ -134,11 +164,19 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             clearTimeout(scrollTimeoutRef.current);
         }
         
+        // Save scroll position (debounced)
+        if (saveScrollPositionTimeoutRef.current) {
+            clearTimeout(saveScrollPositionTimeoutRef.current);
+        }
+        saveScrollPositionTimeoutRef.current = setTimeout(() => {
+            saveScrollPosition();
+        }, 300);
+        
         // Load more messages when scrolled to top
         if (target.scrollTop === 0) {
             handleLoadMore();
         }
-    }, [isAtBottom, handleLoadMore]);
+    }, [isAtBottom, handleLoadMore, saveScrollPosition]);
     
     // 懒加载可见内容：仅在可见时渲染消息内容，减少首屏渲染压力
     const LazyVisible = React.memo<{ children: React.ReactNode }>(({ children }) => {
@@ -303,14 +341,56 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         };
     }, [focusInputArea]);
 
-    // 聊天标题
-    const chatTitle = currentChat ? currentChat.name : t('pages.chat.defaultTitle');
+    // Chat title - show member names with priority agent first, with length limit
+    const chatTitle = useMemo(() => {
+        if (!currentChat) {
+            return t('pages.chat.defaultTitle');
+        }
+        
+        // If chat has members, show member names with priority sorting
+        if (currentChat.members && currentChat.members.length > 0) {
+            // Filter out My Twin Agent (current user) from members
+            const filteredMembers = currentChat.members.filter(m => m.userId !== currentUserId);
+            
+            if (filteredMembers.length === 0) {
+                // If only My Twin Agent, show chat name
+                return currentChat.name;
+            }
+            
+            // Sort members: priority agent (filterAgentId) first, then others
+            const sortedMembers = [...filteredMembers].sort((a, b) => {
+                if (filterAgentId) {
+                    if (a.userId === filterAgentId) return -1;
+                    if (b.userId === filterAgentId) return 1;
+                }
+                return 0;
+            });
+            
+            const memberNames = sortedMembers
+                .map(m => m.agentName || m.name)
+                .filter(Boolean)
+                .join(', ');
+            
+            // Limit length to 50 characters for title display
+            if (memberNames.length > 50) {
+                return memberNames.substring(0, 50) + '...';
+            }
+            
+            return memberNames || currentChat.name;
+        }
+        
+        return currentChat.name;
+    }, [currentChat, t, filterAgentId, currentUserId]);
 
     // 为 Semi UI Chat 生成稳定的 key
+    // Use a hash of chatTitle to avoid special characters in key
     const chatKey = useMemo(() => {
-        // 保持 key 随 chatId 稳定，避免每条消息都导致整个 Chat 组件重挂载
-        return `chat_${chatId}`;
-    }, [chatId]);
+        // Create a simple hash from chatTitle to ensure key changes when title changes
+        const titleHash = chatTitle.split('').reduce((acc, char) => {
+            return ((acc << 5) - acc) + char.charCodeAt(0);
+        }, 0);
+        return `chat_${chatId}_${titleHash}`;
+    }, [chatId, chatTitle]);
 
     // 处理表单提交
     const handleFormSubmit = useCallback(async (formId: string, values: any, chatId: string, messageId: string, processedForm: any) => {
@@ -384,14 +464,60 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         };
     }, [handleScroll]);
 
+    // 恢复滚动位置
+    const restoreScrollPosition = useCallback(() => {
+        if (!chatId || !username) return;
+        
+        // Use username (real user ID) instead of currentUserId (agent ID) to match Chat page
+        const savedScrollState = chatStateManager.getScrollPosition(username, chatId);
+        if (!savedScrollState) {
+            return;
+        }
+        
+        const chatBox = chatBoxRef.current;
+        if (!chatBox) {
+            return;
+        }
+        
+        // 等待内容渲染完成后恢复滚动位置
+        // 使用多次 requestAnimationFrame 确保 DOM 完全渲染
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    // 如果内容高度发生变化，按比例恢复滚动位置
+                    const currentScrollHeight = chatBox.scrollHeight;
+                    const savedScrollHeight = savedScrollState.scrollHeight;
+                    
+                    let targetScrollTop = savedScrollState.scrollTop;
+                    
+                    // 如果滚动高度变化了，按比例调整滚动位置
+                    if (savedScrollHeight > 0 && currentScrollHeight !== savedScrollHeight) {
+                        const scrollRatio = savedScrollState.scrollTop / savedScrollHeight;
+                        targetScrollTop = scrollRatio * currentScrollHeight;
+                    }
+                    
+                    chatBox.scrollTop = targetScrollTop;
+                    scrollPositionRestoredRef.current = true;
+                    
+                    // 更新 auto-scroll 相关状态
+                    shouldAutoScrollRef.current = false; // 禁用自动滚动，保持用户位置
+                    isAtBottomRef.current = false; // 用户不在底部
+                });
+            });
+        });
+    }, [chatId, username]);
+    
     // 初始化加载第一页
     useEffect(() => {
         setOffset(0);
         setHasMore(true);
         setPageMessages([]);
-        // Reset auto-scroll state when switching chats
-        shouldAutoScrollRef.current = true;
-        isAtBottomRef.current = true;
+        // Reset scroll position restoration flag
+        scrollPositionRestoredRef.current = false;
+        
+        // Don't reset auto-scroll state - we'll determine it based on saved state
+        // shouldAutoScrollRef.current = true;
+        // isAtBottomRef.current = true;
         
         if (setIsInitialLoading) setIsInitialLoading(true); else _setIsInitialLoading(true);
         
@@ -425,13 +551,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                             .filter(Boolean);
                         
                         if (unreadMessageIds.length > 0) {
-                            console.log(`[ChatDetail] Marking ${unreadMessageIds.length} unread messages as read`);
                             get_ipc_api().chatApi.markMessageAsRead(unreadMessageIds, currentUserId)
                                 .then((response: any) => {
                                     // 后端返回实际更新的消息数量
                                     if (response.success && response.data) {
                                         const actualUpdatedCount = response.data.updated_ids?.length || unreadMessageIds.length;
-                                        console.log(`[ChatDetail] Successfully marked ${actualUpdatedCount} messages as read`);
                                         
                                         // 通知父组件更新 unread 计数
                                         if (onMessagesRead) {
@@ -442,15 +566,25 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                                 .catch(err => {
                                     console.error('Failed to mark messages as read:', err);
                                 });
-                        } else {
-                            console.log('[ChatDetail] No unread messages to mark');
                         }
                     }
                     
-                    // Scroll to bottom after initial load
+                    // 尝试恢复滚动位置，如果没有保存的位置则滚动到底部
+                    // 增加延迟确保消息和 DOM 完全渲染
                     setTimeout(() => {
-                        scrollToBottom(false); // Use instant scroll for initial load
-                    }, 200);
+                        // Use username (real user ID) to match Chat page
+                        const savedScrollState = chatStateManager.getScrollPosition(username, chatId);
+                        
+                        if (savedScrollState && savedScrollState.scrollTop > 0) {
+                            // 有保存的滚动位置，恢复它
+                            restoreScrollPosition();
+                        } else {
+                            // 没有保存的位置，滚动到底部（新聊天或首次打开）
+                            shouldAutoScrollRef.current = true;
+                            isAtBottomRef.current = true;
+                            scrollToBottom(false);
+                        }
+                    }, 300); // 增加延迟从 200ms 到 300ms
                 } catch (error) {
                     console.error('Failed to load initial messages:', error);
                 } finally {
@@ -462,8 +596,16 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         } else {
             if (setIsInitialLoading) setIsInitialLoading(false); else _setIsInitialLoading(false);
         }
+        
+        // Cleanup: save scroll position when component unmounts or chatId changes
+        return () => {
+            if (saveScrollPositionTimeoutRef.current) {
+                clearTimeout(saveScrollPositionTimeoutRef.current);
+            }
+            saveScrollPosition();
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [chatId, scrollToBottom]);
+    }, [chatId, scrollToBottom, restoreScrollPosition, saveScrollPosition, username]);
 
     // Sync allMessages from useMessages hook to pageMessages for display
     useEffect(() => {
@@ -487,7 +629,8 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                 const wasAtBottom = isAtBottomRef.current;
                 
                 // If there are new messages and user was at bottom, auto-scroll
-                if (newMsgs.length > 0 && wasAtBottom) {
+                // BUT only if we haven't just restored scroll position (to preserve user's viewing position)
+                if (newMsgs.length > 0 && wasAtBottom && !scrollPositionRestoredRef.current) {
                     // Use requestAnimationFrame for better performance and timing
                     requestAnimationFrame(() => {
                         scrollToBottom(false); // Use instant scroll first
@@ -503,6 +646,12 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                             }, delay);
                         });
                     });
+                } else if (scrollPositionRestoredRef.current && newMsgs.length > 0) {
+                    // If we just restored scroll position, reset the flag after processing new messages
+                    // This allows future new messages to trigger auto-scroll if user scrolls to bottom
+                    setTimeout(() => {
+                        scrollPositionRestoredRef.current = false;
+                    }, 1000);
                 }
                 
                 return merged;
