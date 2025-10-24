@@ -58,7 +58,8 @@ const ChatPage: React.FC = () => {
     const isFetchingRef = useRef(false);
     const isCreatingChatRef = useRef(false);
     const effectsCompletedRef = useRef(false);
-    const allChatsCache = useRef<Chat[]>([]); // 缓存所有聊天（无搜索时）
+    const allChatsCache = useRef<Chat[]>([]); // Cache all chats (when no search)
+    const cachedUserId = useRef<string | undefined>(); // Track which userId the cache is for
 
     // 使用全局通知管理器和消息管理器
     const { hasNew, markAsRead } = useChatNotifications(activeChatId || '');
@@ -117,21 +118,21 @@ const ChatPage: React.FC = () => {
     
     // 监听agentId变化
     useEffect(() => {
-        if (!effectsCompletedRef.current) return;
-        
-        // 当 agentId 改变时（包括从有值变为 null），重新获取聊天
+        // When agentId changes, always fetch chats (even if effects not completed)
+        // This ensures filter selection works immediately
         if (agentId !== lastFetchedAgentId.current) {
             logger.info(`[Chat] agentId changed from ${lastFetchedAgentId.current} to ${agentId}, fetching chats...`);
             lastFetchedAgentId.current = agentId || undefined;
             
-            if (!isFetchingRef.current) {
-                // 延迟调用 fetchChats，确保它已经定义
+            // Always fetch when agentId changes, regardless of effectsCompletedRef
+            if (!isFetchingRef.current && myTwinAgentId) {
+                // Delay to ensure fetchChats is defined
                 setTimeout(() => {
                     fetchChats();
                 }, 0);
             }
         }
-    }, [agentId]);
+    }, [agentId, myTwinAgentId]);
 
     // 同步消息管理器中的消息到聊天列表
     useEffect(() => {
@@ -177,10 +178,9 @@ const ChatPage: React.FC = () => {
         isFetchingRef.current = true;
         
         try {
-            // 确定要查询的用户ID：
-            // 1. 如果有 agentId 参数（过滤器选择），使用该 agentId
-            // 2. 否则使用 myTwinAgentId（默认显示 MyTwin 参与的聊天）
-            // 注意：从 store 重新获取最新的 myTwinAgentId，避免闭包问题
+            // Determine which userId to query:
+            // 1. If agentId is provided (filter selected), use that agentId
+            // 2. Otherwise use myTwinAgentId (default: show MyTwin's chats)
             const currentMyTwinAgent = useAgentStore.getState().getMyTwinAgent();
             const currentMyTwinAgentId = currentMyTwinAgent?.card?.id;
             const targetUserId = agentId || currentMyTwinAgentId;
@@ -192,11 +192,13 @@ const ChatPage: React.FC = () => {
             
             // 使用 ref 获取最新的搜索文本
             const currentSearchText = searchTextRef.current;
-            logger.info(`[fetchChats] Fetching chats for userId: ${targetUserId} (agentId: ${agentId}, myTwinAgentId: ${myTwinAgentId}), searchText: "${currentSearchText}"`);
+            logger.info(`[fetchChats] Fetching chats for userId: ${targetUserId} (agentId: ${agentId || 'none'}, myTwinAgentId: ${currentMyTwinAgentId}), searchText: "${currentSearchText}"`);
             
-            // 如果清空搜索且有缓存，直接使用缓存（避免闪烁）
-            if ((!currentSearchText || currentSearchText.trim() === '') && allChatsCache.current.length > 0) {
-                logger.info(`[fetchChats] Using cached chats (${allChatsCache.current.length} items)`);
+            // Only use cache if: no search text, cache exists, AND cache is for the same userId
+            if ((!currentSearchText || currentSearchText.trim() === '') && 
+                allChatsCache.current.length > 0 && 
+                cachedUserId.current === targetUserId) {
+                logger.info(`[fetchChats] Using cached chats for userId ${targetUserId} (${allChatsCache.current.length} items)`);
                 setChats(prevChats => {
                     // 如果缓存和当前数据相同，不更新（避免重新渲染）
                     if (prevChats === allChatsCache.current) {
@@ -205,6 +207,13 @@ const ChatPage: React.FC = () => {
                     return allChatsCache.current;
                 });
                 return;
+            }
+            
+            // If userId changed, clear cache
+            if (cachedUserId.current !== targetUserId) {
+                logger.info(`[fetchChats] userId changed from ${cachedUserId.current} to ${targetUserId}, clearing cache`);
+                allChatsCache.current = [];
+                cachedUserId.current = targetUserId;
             }
             
             // 根据是否有搜索文本选择不同的 API
@@ -808,15 +817,23 @@ const ChatPage: React.FC = () => {
         }
     }, [setSearchParams]);
 
-    // Filter out chats containing My Twin Agent
-    // My Twin Agent should never appear in the chat list
+    // Filter chats based on agentId parameter
+    // When agentId is provided: show all chats (backend already filtered by userId)
+    // When agentId is not provided: filter out My Twin Agent chats
     const filteredChats = useMemo(() => {
+        // When filtering by agentId, backend already filtered, show all results
+        if (agentId) {
+            logger.info(`[filteredChats] agentId filter active (${agentId}), showing all ${chats.length} chats from backend`);
+            return chats;
+        }
+        
         if (!myTwinAgentId) {
             logger.warn('[filteredChats] myTwinAgentId is not available, showing all chats');
             return chats;
         }
         
-        logger.info(`[filteredChats] Filtering chats, myTwinAgentId: ${myTwinAgentId}, total chats: ${chats.length}`);
+        // Default: filter out My Twin Agent chats
+        logger.info(`[filteredChats] Default filtering (no agentId), myTwinAgentId: ${myTwinAgentId}, total chats: ${chats.length}`);
         
         const filtered = chats.filter(chat => {
             // Check if chat name is "My Twin Agent"
@@ -844,9 +861,9 @@ const ChatPage: React.FC = () => {
             return !hasMemberWithMyTwinAgent;
         });
         
-        logger.info(`[filteredChats] After filtering: ${filtered.length} chats remaining`);
+        logger.info(`[filteredChats] After default filtering: ${filtered.length} chats remaining`);
         return filtered;
-    }, [chats, myTwinAgentId]);
+    }, [chats, myTwinAgentId, agentId]);
 
     const renderListContent = () => {
         return (
