@@ -1,11 +1,102 @@
 import React, { useMemo, useState } from 'react';
 import { Typography, Tooltip, Input } from '@douyinfe/semi-ui';
+import { IconEdit } from '@douyinfe/semi-icons';
+import styled from 'styled-components';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
+
+const SkillNameContainer = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  margin: 0 8px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%);
+  border: none;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  
+  &:hover {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%);
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.15);
+  }
+`;
+
+const SkillNameText = styled(Typography.Text)`
+  cursor: text;
+  user-select: none;
+  font-weight: 600;
+  font-size: 14px;
+  color: #4338ca;
+  letter-spacing: 0.3px;
+  transition: color 0.2s ease;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  
+  &:hover {
+    color: #5b21b6;
+  }
+`;
+
+const EditIconWrapper = styled.div`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  
+  &:hover {
+    background: rgba(99, 102, 241, 0.15);
+  }
+  
+  &:active {
+    transform: scale(0.95);
+  }
+`;
+
+const EditIcon = styled(IconEdit)`
+  color: rgba(99, 102, 241, 0.6);
+  font-size: 14px;
+  transition: all 0.2s ease;
+  
+  ${EditIconWrapper}:hover & {
+    color: rgba(99, 102, 241, 1);
+  }
+`;
+
+const StyledInput = styled(Input)`
+  .semi-input {
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 14px;
+    color: #4338ca;
+    background: rgba(255, 255, 255, 0.95);
+    padding: 4px 8px;
+    transition: all 0.2s ease;
+    box-shadow: none;
+    
+    &:hover {
+      background: #ffffff;
+      box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.1);
+    }
+    
+    &:focus {
+      background: #ffffff;
+      box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2), 0 1px 4px rgba(99, 102, 241, 0.08);
+    }
+  }
+`;
 
 /**
  * Inline skill name display/editor to place on the main tools bar.
  * - Shows current `skillInfo.skillName`
  * - Double-click to edit, Enter/Escape to confirm/cancel
+ * - Beautiful gradient background with hover effects
  */
 export const SkillNameBadge: React.FC = () => {
   const skillInfo = useSkillInfoStore((s) => s.skillInfo);
@@ -31,10 +122,15 @@ export const SkillNameBadge: React.FC = () => {
     setEditing(false);
   };
 
+  const startEditing = () => {
+    setDraft(value);
+    setEditing(true);
+  };
+
   return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', margin: '0 8px' }}>
+    <SkillNameContainer>
       {editing ? (
-        <Input
+        <StyledInput
           autoFocus
           size="small"
           value={draft}
@@ -47,22 +143,23 @@ export const SkillNameBadge: React.FC = () => {
               setDraft(value);
             }
           }}
-          style={{ width: 220 }}
+          style={{ width: 200 }}
+          placeholder="Enter skill name..."
         />
       ) : (
-        <Tooltip content="Double-click to rename skill">
-          <Typography.Text
-            strong
-            onDoubleClick={() => {
-              setDraft(value);
-              setEditing(true);
-            }}
-            style={{ cursor: 'text', userSelect: 'none' }}
-          >
-            {display}
-          </Typography.Text>
-        </Tooltip>
+        <>
+          <Tooltip content={value} position="bottom">
+            <SkillNameText onDoubleClick={startEditing}>
+              {display}
+            </SkillNameText>
+          </Tooltip>
+          <Tooltip content="Click to edit" position="bottom">
+            <EditIconWrapper onClick={startEditing}>
+              <EditIcon />
+            </EditIconWrapper>
+          </Tooltip>
+        </>
       )}
-    </div>
+    </SkillNameContainer>
   );
 };

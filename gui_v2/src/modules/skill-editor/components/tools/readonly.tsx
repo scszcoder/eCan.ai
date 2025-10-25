@@ -2,7 +2,7 @@ import { useCallback, useEffect } from 'react';
 
 import { usePlayground } from '@flowgram.ai/free-layout-editor';
 import { IconButton, Tooltip, Toast } from '@douyinfe/semi-ui';
-import { IconUnlock, IconLock } from '@douyinfe/semi-icons';
+import { IconLockColored, IconUnlockColored } from './colored-icons';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 
 /**
@@ -56,7 +56,7 @@ export const Readonly = () => {
       <IconButton
         theme="borderless"
         type="tertiary"
-        icon={<IconLock size="default" />}
+        icon={<IconLockColored size={18} />}
         onClick={toggleMode}
       />
     </Tooltip>
@@ -65,7 +65,7 @@ export const Readonly = () => {
       <IconButton
         theme="borderless"
         type="tertiary"
-        icon={<IconUnlock size="default" />}
+        icon={<IconUnlockColored size={18} />}
         onClick={toggleMode}
       />
     </Tooltip>

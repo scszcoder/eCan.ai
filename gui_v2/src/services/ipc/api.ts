@@ -489,6 +489,31 @@ export class IPCAPI {
         return this.executeRequest('get_initialization_progress');
     }
 
+    /**
+     * Save skill editor cache to Python backend
+     * @param cacheData - Cache data to save
+     * @returns Promise with save result
+     */
+    public async saveEditorCache<T>(cacheData: any): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('save_editor_cache', { cacheData });
+    }
+
+    /**
+     * Load skill editor cache from Python backend
+     * @returns Promise with cache data
+     */
+    public async loadEditorCache<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('load_editor_cache', {});
+    }
+
+    /**
+     * Clear skill editor cache from Python backend
+     * @returns Promise with clear result
+     */
+    public async clearEditorCache<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('clear_editor_cache', {});
+    }
+
     // Org Management APIs - New simplified names
     public async getOrgs<T>(username: string): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_orgs', { username });

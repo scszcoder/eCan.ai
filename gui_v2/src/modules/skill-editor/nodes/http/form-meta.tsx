@@ -6,6 +6,7 @@
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
 import { createInferInputsPlugin, DisplayOutputs, IJsonSchema, validateFlowValue } from '@flowgram.ai/form-materials';
 import { Divider, Input } from '@douyinfe/semi-ui';
+import styled from 'styled-components';
 
 import { FormHeader, FormContent, FormItem } from '../../form-components';
 import { HTTPNodeJSON } from './types';
@@ -16,34 +17,41 @@ import { Body } from './components/body';
 import { Api } from './components/api';
 import { defaultFormMeta } from '../default-form-meta';
 
+// Wrapper to set min-width for HTTP node content when expanded
+const HTTPFormContentWrapper = styled.div`
+  min-width: 300px;
+`;
+
 export const FormRender = ({ form }: FormRenderProps<HTTPNodeJSON>) => (
   <>
     <FormHeader />
     <FormContent>
-      <Api />
-      <Divider />
-      {/* API Key input */}
-      <FormItem name="apiKey" type="string" vertical>
-        <Field<string> name="inputsValues.apiKey">
-          {({ field }) => (
-            <Input
-              value={field.value}
-              onChange={(val) => field.onChange(val)}
-              placeholder="Enter API Key"
-              mode="password"
-            />
-          )}
-        </Field>
-      </FormItem>
-      <Divider />
-      <Headers />
-      <Divider />
-      <Params />
-      <Divider />
-      <Body />
-      <Divider />
-      <Timeout />
-      <DisplayOutputs displayFromScope />
+      <HTTPFormContentWrapper>
+        <Api />
+        <Divider />
+        {/* API Key input */}
+        <FormItem name="apiKey" type="string" vertical>
+          <Field<string> name="inputsValues.apiKey">
+            {({ field }) => (
+              <Input
+                value={field.value}
+                onChange={(val) => field.onChange(val)}
+                placeholder="Enter API Key"
+                mode="password"
+              />
+            )}
+          </Field>
+        </FormItem>
+        <Divider />
+        <Headers />
+        <Divider />
+        <Params />
+        <Divider />
+        <Body />
+        <Divider />
+        <Timeout />
+        <DisplayOutputs displayFromScope />
+      </HTTPFormContentWrapper>
     </FormContent>
   </>
 );

@@ -3,7 +3,7 @@ import { useCallback } from 'react';
 import { usePlayground, usePlaygroundTools } from '@flowgram.ai/free-layout-editor';
 import { IconButton, Tooltip } from '@douyinfe/semi-ui';
 
-import { IconAutoLayout } from '../../assets/icon-auto-layout';
+import { IconAutoLayoutColored } from './colored-icons';
 
 export const AutoLayout = () => {
   const tools = usePlaygroundTools();
@@ -19,7 +19,7 @@ export const AutoLayout = () => {
         type="tertiary"
         theme="borderless"
         onClick={autoLayout}
-        icon={IconAutoLayout}
+        icon={<IconAutoLayoutColored size={18} />}
       />
     </Tooltip>
   );

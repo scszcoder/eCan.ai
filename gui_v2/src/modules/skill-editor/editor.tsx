@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { EditorRenderer, FreeLayoutEditorProvider, useClientContext } from '@flowgram.ai/free-layout-editor';
+import { EditorRenderer, FreeLayoutEditorProvider } from '@flowgram.ai/free-layout-editor';
 import { useEffect, useMemo, useRef } from 'react';
 import React from 'react';
 
@@ -31,6 +31,7 @@ import { SheetsMenu } from './components/menu/SheetsMenu';
 import { ActiveSheetBinder } from './components/tabs/ActiveSheetBinder';
 import { RunningNodeNavigator } from './components/tabs/RunningNodeNavigator';
 import { isValidationDisabled } from './services/validation-config';
+import { useEditorCacheStore, useAutoSaveCache } from './stores/editor-cache-store';
 
 const EditorContainer = styled.div`
   position: relative;
@@ -58,6 +59,66 @@ export const Editor = () => {
   const shouldLoadInitialData = process.env.NODE_ENV === 'development' ? true : false;
   const { skillInfo } = useSkillInfoStore();
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
+  const setBreakpoints = useSkillInfoStore((state) => state.setBreakpoints);
+  const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
+
+  // Cache store
+  const loadCache = useEditorCacheStore((state) => state.loadCache);
+  
+  // Load cached data ASYNCHRONOUSLY on mount
+  const [cacheLoaded, setCacheLoaded] = React.useState(false);
+  const cachedDataRef = useRef<any>(null);
+  
+  useEffect(() => {
+    let mounted = true;
+    
+    const loadCacheData = async () => {
+      try {
+        const cachedData = await loadCache();
+        
+        if (!mounted) return;
+        
+        cachedDataRef.current = cachedData;
+        
+        if (cachedData) {
+          console.log('[Editor] Restoring from cache:', {
+            timestamp: new Date(cachedData.timestamp).toLocaleString(),
+            hasSkillInfo: !!cachedData.skillInfo,
+            sheetsCount: Object.keys(cachedData.sheets.sheets).length,
+          });
+
+          // Restore skill info
+          if (cachedData.skillInfo && !skillInfo) {
+            setSkillInfo(cachedData.skillInfo);
+          }
+
+          // Restore breakpoints
+          if (cachedData.breakpoints) {
+            setBreakpoints(cachedData.breakpoints);
+          }
+
+          // Restore file path
+          if (cachedData.currentFilePath) {
+            setCurrentFilePath(cachedData.currentFilePath);
+          }
+        } else {
+          console.log('[Editor] No cache found, using initial data');
+        }
+      } catch (error) {
+        console.error('[Editor] Failed to load cache:', error);
+      } finally {
+        if (mounted) {
+          setCacheLoaded(true);
+        }
+      }
+    };
+    
+    loadCacheData();
+    
+    return () => {
+      mounted = false;
+    };
+  }, [loadCache, skillInfo, setSkillInfo, setBreakpoints, setCurrentFilePath]);
 
   // Auto-load the most recent file on startup
   // (RouteFileLoader component will override this if there's a route file)
@@ -113,19 +174,68 @@ export const Editor = () => {
 
   // Sheets store: ensure main sheet exists with initial document
   const initMain = useSheetsStore((s) => s.initMain);
+  const sheets = useSheetsStore((s) => s.sheets);
+  const order = useSheetsStore((s) => s.order);
+  const openTabs = useSheetsStore((s) => s.openTabs);
   const activeSheetId = useSheetsStore((s) => s.activeSheetId);
   const openSheet = useSheetsStore((s) => s.openSheet);
-  const saveActiveDocument = useSheetsStore((s) => s.saveActiveDocument);
-  const getActiveDocument = useSheetsStore((s) => s.getActiveDocument);
+  const loadBundle = useSheetsStore((s) => s.loadBundle);
 
-  // Initialize main sheet once when skill info is ready
+  // Get current state for auto-save
+  const breakpoints = useSkillInfoStore((state) => state.breakpoints);
+  const currentFilePath = useSkillInfoStore((state) => state.currentFilePath);
+
+  // Initialize main sheet once when cache is loaded
+  const sheetsInitializedRef = useRef(false);
   useEffect(() => {
-    // Seed main sheet with preferredDoc so it matches current editor
-    initMain(preferredDoc);
-    // Ensure main tab is open/active
-    openSheet('main');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!cacheLoaded || sheetsInitializedRef.current) return;
+    sheetsInitializedRef.current = true;
+
+    // Use the cached data that was loaded asynchronously
+    const cachedData = cachedDataRef.current;
+    if (cachedData && cachedData.sheets && Object.keys(cachedData.sheets.sheets).length > 0) {
+      console.log('[Editor] Restoring sheets from cache');
+      try {
+        // Convert cache format to bundle format
+        const bundle = {
+          mainSheetId: 'main',
+          sheets: Object.values(cachedData.sheets.sheets) as any[],
+          openTabs: cachedData.sheets.openTabs,
+          activeSheetId: cachedData.sheets.activeSheetId,
+        };
+        loadBundle(bundle as any);
+        console.log('[Editor] Sheets restored successfully from cache', {
+          sheetsCount: bundle.sheets.length,
+          activeSheetId: bundle.activeSheetId
+        });
+      } catch (error) {
+        console.error('[Editor] Failed to restore sheets from cache:', error);
+        // Fallback to initial data
+        initMain(preferredDoc);
+        openSheet('main');
+      }
+    } else {
+      // No cache, use initial data
+      console.log('[Editor] No cached sheets, initializing with preferredDoc');
+      initMain(preferredDoc);
+      openSheet('main');
+    }
+  }, [cacheLoaded, preferredDoc, initMain, openSheet, loadBundle]);
+
+  // Auto-save all editor state to cache
+  useAutoSaveCache(
+    skillInfo,
+    {
+      sheets,
+      order,
+      openTabs,
+      activeSheetId,
+    },
+    breakpoints,
+    currentFilePath,
+    null, // viewState - can be added later if needed
+    [] // selectionIds - can be added later if needed
+  );
 
   return (
     <EditorContainer>

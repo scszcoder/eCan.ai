@@ -1,14 +1,12 @@
 import { useCallback } from 'react';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { Tooltip, IconButton } from '@douyinfe/semi-ui';
-import { IconFile } from '@douyinfe/semi-icons';
+import { IconNewColored } from './colored-icons';
 import emptyFlow from '../../data/empty-flow.json';
-import { saveFile } from './save';
 import { useUserStore } from '../../../../stores/userStore';
 import { usePlaygroundTools } from '@flowgram.ai/free-layout-editor';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { createSkillInfo } from '../../typings/skill-info';
-import { IPCWCClient } from '@/services/ipc/ipcWCClient';
 
 interface NewPageProps {
   disabled?: boolean;
@@ -131,11 +129,11 @@ export const NewPage = ({ disabled }: NewPageProps) => {
   }, [workflowDocument, username, tools, setSkillInfo, skillInfo, breakpoints]);
 
   return (
-    <Tooltip content="New Skill">
+    <Tooltip content="New Page">
       <IconButton
         type="tertiary"
         theme="borderless"
-        icon={<IconFile />}
+        icon={<IconNewColored size={18} />}
         disabled={disabled}
         onClick={handleNewPage}
       />

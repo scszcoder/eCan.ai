@@ -34,6 +34,7 @@ import { WorkflowNodeType } from '../nodes';
 import { SelectorBoxPopover } from '../components/selector-box-popover';
 import { BaseNode, CommentRender, GroupNodeRender, LineAddButton, NodePanel } from '../components';
 import { useSkillInfoStore } from '../stores/skill-info-store';
+import { useSheetsStore } from '../stores/sheets-store';
 
 export function useEditorProps(
   initialData: FlowDocumentJSON,
@@ -275,6 +276,14 @@ export function useEditorProps(
         const skillInfo = useSkillInfoStore.getState().skillInfo;
         if (skillInfo) {
           setSkillInfo({ ...skillInfo, workFlow: cleaned, lastModified: new Date().toISOString() });
+        }
+
+        // 🔥 IMPORTANT: Also save to the active sheet's document
+        // This ensures multi-sheet data is correctly cached
+        const saveActiveDocument = useSheetsStore.getState().saveActiveDocument;
+        const activeSheetId = useSheetsStore.getState().activeSheetId;
+        if (saveActiveDocument && activeSheetId) {
+          saveActiveDocument(cleaned);
         }
       }, 1000),
       /**

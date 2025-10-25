@@ -1,4 +1,7 @@
 from typing import Any, Optional, Dict
+import os
+import json
+from pathlib import Path
 
 from gui.ipc.types import IPCRequest, IPCResponse, create_success_response, create_error_response
 from gui.ipc.registry import IPCHandlerRegistry
@@ -592,4 +595,165 @@ def handle_test_langgraph2flowgram(request: IPCRequest, params: Optional[Dict[st
     except Exception as e:
         logger.error(f"Error in test_langgraph2flowgram: {e} {traceback.format_exc()}")
         return create_error_response(request, 'TEST_LG2FG_ERROR', str(e))
+
+
+# ----------------------
+# Skill Editor Cache Handlers
+# ----------------------
+
+def _get_cache_directory() -> Path:
+    """Get the cache directory path in appdata.
+    
+    Returns:
+        Path: Cache directory path (e.g., ~/Library/Application Support/eCan/skill-editor-cache)
+    """
+    try:
+        # Use app_info.appdata_path as base directory
+        from config.app_info import app_info
+        
+        base_dir = Path(app_info.appdata_path)
+        cache_dir = base_dir / 'skill-editor-cache'
+        
+        # Create directory if it doesn't exist
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"[EditorCache] Cache directory: {cache_dir}")
+        return cache_dir
+    except Exception as e:
+        logger.error(f"[EditorCache] Failed to get cache directory: {e}")
+        # Fallback to temp directory
+        import tempfile
+        fallback = Path(tempfile.gettempdir()) / 'eCan' / 'skill-editor-cache'
+        fallback.mkdir(parents=True, exist_ok=True)
+        logger.warning(f"[EditorCache] Using fallback cache directory: {fallback}")
+        return fallback
+
+
+@IPCHandlerRegistry.handler('save_editor_cache')
+def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Save skill editor cache data to local storage.
+    
+    Args:
+        request: IPC request object
+        params: Cache data to save
+        
+    Returns:
+        IPCResponse: Success or error response
+    """
+    try:
+        logger.debug("[EditorCache] Saving editor cache")
+        
+        if not params or 'cacheData' not in params:
+            return create_error_response(request, 'INVALID_PARAMS', 'cacheData is required')
+        
+        cache_data = params['cacheData']
+        
+        # Get cache directory
+        cache_dir = _get_cache_directory()
+        cache_file = cache_dir / 'editor-cache.json'
+        
+        # Save cache data to file
+        with open(cache_file, 'w', encoding='utf-8') as f:
+            json.dump(cache_data, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"[EditorCache] Cache saved successfully to {cache_file}")
+        logger.debug(f"[EditorCache] Cache data: hasSkillInfo={bool(cache_data.get('skillInfo'))}, "
+                    f"sheetsCount={len(cache_data.get('sheets', {}).get('sheets', {}))}, "
+                    f"timestamp={cache_data.get('timestamp')}")
+        
+        return create_success_response(request, {
+            'success': True,
+            'filePath': str(cache_file),
+            'message': 'Editor cache saved successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"[EditorCache] Error saving cache: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'SAVE_CACHE_ERROR', f"Failed to save cache: {str(e)}")
+
+
+@IPCHandlerRegistry.handler('load_editor_cache')
+def handle_load_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Load skill editor cache data from local storage.
+    
+    Args:
+        request: IPC request object
+        params: Optional parameters
+        
+    Returns:
+        IPCResponse: Cache data or error response
+    """
+    try:
+        logger.debug("[EditorCache] Loading editor cache")
+        
+        # Get cache directory
+        cache_dir = _get_cache_directory()
+        cache_file = cache_dir / 'editor-cache.json'
+        
+        # Check if cache file exists
+        if not cache_file.exists():
+            logger.info("[EditorCache] No cache file found")
+            return create_success_response(request, {
+                'success': True,
+                'cacheData': None,
+                'message': 'No cache data found'
+            })
+        
+        # Load cache data from file
+        with open(cache_file, 'r', encoding='utf-8') as f:
+            cache_data = json.load(f)
+        
+        logger.info(f"[EditorCache] Cache loaded successfully from {cache_file}")
+        logger.debug(f"[EditorCache] Cache data: hasSkillInfo={bool(cache_data.get('skillInfo'))}, "
+                    f"sheetsCount={len(cache_data.get('sheets', {}).get('sheets', {}))}, "
+                    f"timestamp={cache_data.get('timestamp')}")
+        
+        return create_success_response(request, {
+            'success': True,
+            'cacheData': cache_data,
+            'filePath': str(cache_file),
+            'message': 'Editor cache loaded successfully'
+        })
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"[EditorCache] Invalid JSON in cache file: {e}")
+        return create_error_response(request, 'INVALID_CACHE_DATA', f"Cache file is corrupted: {str(e)}")
+    except Exception as e:
+        logger.error(f"[EditorCache] Error loading cache: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'LOAD_CACHE_ERROR', f"Failed to load cache: {str(e)}")
+
+
+@IPCHandlerRegistry.handler('clear_editor_cache')
+def handle_clear_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Clear skill editor cache data from local storage.
+    
+    Args:
+        request: IPC request object
+        params: Optional parameters
+        
+    Returns:
+        IPCResponse: Success or error response
+    """
+    try:
+        logger.debug("[EditorCache] Clearing editor cache")
+        
+        # Get cache directory
+        cache_dir = _get_cache_directory()
+        cache_file = cache_dir / 'editor-cache.json'
+        
+        # Delete cache file if it exists
+        if cache_file.exists():
+            cache_file.unlink()
+            logger.info(f"[EditorCache] Cache file deleted: {cache_file}")
+        else:
+            logger.info("[EditorCache] No cache file to delete")
+        
+        return create_success_response(request, {
+            'success': True,
+            'message': 'Editor cache cleared successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"[EditorCache] Error clearing cache: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'CLEAR_CACHE_ERROR', f"Failed to clear cache: {str(e)}")
 

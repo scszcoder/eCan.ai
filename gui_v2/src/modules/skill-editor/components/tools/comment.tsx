@@ -11,7 +11,7 @@ import {
 import { IconButton, Tooltip } from '@douyinfe/semi-ui';
 
 import { WorkflowNodeType } from '../../nodes';
-import { IconComment } from '../../assets/icon-comment';
+import { IconCommentColored } from './colored-icons';
 
 export const Comment = () => {
   const playground = usePlayground();
@@ -60,14 +60,7 @@ export const Comment = () => {
     >
       <IconButton
         disabled={playground.config.readonly}
-        icon={
-          <IconComment
-            style={{
-              width: 16,
-              height: 16,
-            }}
-          />
-        }
+        icon={<IconCommentColored size={18} />}
         type="tertiary"
         theme="borderless"
         onClick={createComment}
