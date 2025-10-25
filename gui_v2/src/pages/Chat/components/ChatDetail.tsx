@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import { Chat as SemiChat } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
+import { useEffectOnActive } from 'keepalive-for-react';
 import { Chat } from '../types/chat';
 import { defaultRoleConfig } from '../types/chat';
 import { getUploadProps } from '../utils/attachmentHandler';
@@ -15,7 +16,6 @@ import { removeMessageFromList } from '../utils/messageHandlers';
 import { useMessages } from '../hooks/useMessages';
 import { useUserStore } from '@/stores/userStore';
 import { useAgentStore } from '@/stores/agentStore';
-import { chatStateManager } from '../managers/ChatStateManager';
 
 interface ChatDetailProps {
     chatId?: string | null;
@@ -71,6 +71,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     // Scroll position restoration
     const scrollPositionRestoredRef = useRef(false);
     const saveScrollPositionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const savedScrollPositionRef = useRef<number>(0); // 保存滚动位置
     
     // Timer management refs for cleanup
     const scrollTimersRef = useRef<NodeJS.Timeout[]>([]);
@@ -139,29 +140,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         setLoadingMore(false);
     }, [loadingMore, isInitialLoading, hasMore, chatId, pageMessages.length, offset]);
 
-    // Save scroll position to state manager
+    // 注意：滚动位置由 KeepAlive 自动保持，不需要手动保存
+    // 这个回调保留是为了兼容性，但实际上不做任何事情
     const saveScrollPosition = useCallback(() => {
-        if (!chatId || !username) return;
-        
-        const chatBox = chatBoxRef.current;
-        if (!chatBox) return;
-        
-        const scrollTop = chatBox.scrollTop;
-        const scrollHeight = chatBox.scrollHeight;
-        
-        // 🚫 Skip saving if scrollHeight is 0 (DOM is being destroyed or not ready)
-        if (scrollHeight === 0) {
-            return;
-        }
-        
-        // Use username (real user ID) instead of currentUserId (agent ID) to match Chat page
-        chatStateManager.saveScrollPosition(
-            username,
-            chatId,
-            scrollTop,
-            scrollHeight
-        );
-    }, [chatId, username]);
+        // KeepAlive 会自动保持滚动位置
+    }, []);
     
     // Handle scroll position detection
     const handleScroll = useCallback((e: Event) => {
@@ -480,48 +463,12 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         };
     }, [handleScroll]);
 
-    // 恢复滚动位置
+    // 注意：滚动位置由 KeepAlive 自动保持，不需要手动恢复
+    // 这个函数保留是为了兼容性，但实际上不做任何事情
     const restoreScrollPosition = useCallback(() => {
-        if (!chatId || !username) return;
-        
-        // Use username (real user ID) instead of currentUserId (agent ID) to match Chat page
-        const savedScrollState = chatStateManager.getScrollPosition(username, chatId);
-        if (!savedScrollState) {
-            return;
-        }
-        
-        const chatBox = chatBoxRef.current;
-        if (!chatBox) {
-            return;
-        }
-        
-        // 等待内容渲染完成后恢复滚动位置
-        // 使用多次 requestAnimationFrame 确保 DOM 完全渲染
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    // 如果内容高度发生变化，按比例恢复滚动位置
-                    const currentScrollHeight = chatBox.scrollHeight;
-                    const savedScrollHeight = savedScrollState.scrollHeight;
-                    
-                    let targetScrollTop = savedScrollState.scrollTop;
-                    
-                    // 如果滚动高度变化了，按比例调整滚动位置
-                    if (savedScrollHeight > 0 && currentScrollHeight !== savedScrollHeight) {
-                        const scrollRatio = savedScrollState.scrollTop / savedScrollHeight;
-                        targetScrollTop = scrollRatio * currentScrollHeight;
-                    }
-                    
-                    chatBox.scrollTop = targetScrollTop;
-                    scrollPositionRestoredRef.current = true;
-                    
-                    // 更新 auto-scroll 相关状态
-                    shouldAutoScrollRef.current = false; // 禁用自动滚动，保持用户位置
-                    isAtBottomRef.current = false; // 用户不在底部
-                });
-            });
-        });
-    }, [chatId, username]);
+        // KeepAlive 会自动保持滚动位置
+        return;
+    }, []);
     
     // 初始化加载第一页
     useEffect(() => {
@@ -588,11 +535,10 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                     // 尝试恢复滚动位置，如果没有保存的位置则滚动到底部
                     // 增加延迟确保消息和 DOM 完全渲染
                     setTimeout(() => {
-                        // Use username (real user ID) to match Chat page
-                        const savedScrollState = chatStateManager.getScrollPosition(username, chatId);
-                        
-                        if (savedScrollState && savedScrollState.scrollTop > 0) {
-                            // 有保存的滚动位置，恢复它
+                        // 注意：滚动位置由 KeepAlive 自动保持
+                        // 这里只需要处理新消息的滚动
+                        if (false) {
+                            // 旧的滚动恢复逻辑已移除
                             restoreScrollPosition();
                         } else {
                             // 没有保存的位置，滚动到底部（新聊天或首次打开）
@@ -747,6 +693,31 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             clearAllTimers();
         };
     }, [clearAllTimers]);
+
+    // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+    useEffectOnActive(
+        () => {
+            // 组件激活时：恢复滚动位置
+            const chatBox = chatBoxRef.current;
+            if (chatBox && savedScrollPositionRef.current > 0) {
+                // 使用 requestAnimationFrame 确保 DOM 已经渲染
+                requestAnimationFrame(() => {
+                    chatBox.scrollTop = savedScrollPositionRef.current;
+                    // console.log('[ChatDetail] Restored scroll position:', savedScrollPositionRef.current);
+                });
+            }
+            
+            // 返回清理函数，在组件失活前保存滚动位置
+            return () => {
+                const chatBox = chatBoxRef.current;
+                if (chatBox) {
+                    savedScrollPositionRef.current = chatBox.scrollTop;
+                    // console.log('[ChatDetail] Saved scroll position:', savedScrollPositionRef.current);
+                }
+            };
+        },
+        []
+    );
 
     return (
         <ChatDetailWrapper ref={wrapperRef}>

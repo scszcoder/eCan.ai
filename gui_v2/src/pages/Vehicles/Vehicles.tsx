@@ -172,6 +172,7 @@ const Vehicles: React.FC = () => {
         listContent={
           <VehicleList
             vehicles={vehicles}
+            selectedVehicle={selectedVehicle}
             onSelect={selectItem}
             filters={filters}
             onFilterChange={handleFilterChange}

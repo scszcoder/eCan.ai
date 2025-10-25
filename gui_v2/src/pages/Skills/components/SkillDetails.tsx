@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Typography, Space, Button, Progress, Tooltip, Tag, Form, Input, Row, Col, Checkbox, Select, Tabs, Modal, App } from 'antd';
+import { useEffectOnActive } from 'keepalive-for-react';
 import type { TabsProps } from 'antd';
 import {
     ThunderboltOutlined,
@@ -148,10 +149,14 @@ const fromJsonString = (value: string): any => {
 const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRefresh, onSave, onCancel, onDelete }) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
-    const { message } = App.useApp();  // Use App context for message
+    const { message, modal } = App.useApp();  // Use App context for message
     const username = useUserStore((s) => s.username) || '';
     const addItem = useSkillStore((s) => s.addItem);
     const updateItem = useSkillStore((s) => s.updateItem);
+
+    // 滚动位置保存
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const savedScrollPositionRef = useRef<number>(0);
 
     const [form] = Form.useForm<ExtendedSkill>();
     const [editMode, setEditMode] = React.useState(isNew);
@@ -660,9 +665,29 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         },
     ];
 
+    // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+    useEffectOnActive(
+        () => {
+            const container = scrollContainerRef.current;
+            if (container && savedScrollPositionRef.current > 0) {
+                requestAnimationFrame(() => {
+                    container.scrollTop = savedScrollPositionRef.current;
+                });
+            }
+            
+            return () => {
+                const container = scrollContainerRef.current;
+                if (container) {
+                    savedScrollPositionRef.current = container.scrollTop;
+                }
+            };
+        },
+        []
+    );
+
     return (
         <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <FormContainer style={{ flex: 1, overflowY: 'auto', paddingBottom: '20px' }}>
+            <FormContainer ref={scrollContainerRef} style={{ flex: 1, overflowY: 'auto', paddingBottom: '20px' }}>
                 <Space direction="vertical" style={{ width: '100%' }} size={24}>
                 {/* Header Card */}
                 <StyledCard

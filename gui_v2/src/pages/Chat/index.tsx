@@ -129,10 +129,7 @@ const ChatPage: React.FC = () => {
                 await agentStore.fetchAgents(username);
             }
             
-            // 清理过期的滚动状态
-            if (username) {
-                chatStateManager.clearExpiredScrollStates(username);
-            }
+            // 注意：滚动状态由 KeepAlive 自动管理，不需要手动清理
             
             // agents 加载完成后，设置标志（移除 setTimeout，直接设置）
             effectsCompletedRef.current = true;
@@ -595,35 +592,7 @@ const ChatPage: React.FC = () => {
 
     // 新增：设置activeChatId并获取消息的函数，避免重复调用handleChatSelect
     const setActiveChatIdAndFetchMessages = useCallback((chatId: string) => {
-        const chat = chats.find(c => c.id === chatId);
-        
-        // 检查这个聊天是否应该保存（不是只有 My Twin Agent 的聊天）
-        let shouldSave = false;
-        
-        if (chat) {
-            // 首先检查名称
-            if (chat.name === 'My Twin Agent') {
-                shouldSave = false;
-            } 
-            // 检查 members（如果存在）
-            else if (chat.members && chat.members.length > 0) {
-                const nonMyTwinMembers = chat.members.filter(m => m.userId !== myTwinAgentId);
-                shouldSave = nonMyTwinMembers.length > 0; // 有非 My Twin Agent 的成员
-            }
-            // 检查 agent_id
-            else if ((chat as any).agent_id) {
-                shouldSave = (chat as any).agent_id !== myTwinAgentId;
-            }
-            // 如果没有 members 和 agent_id，默认保存（假设是有效聊天）
-            else {
-                shouldSave = true;
-            }
-        }
-        
-        // 使用 ChatStateManager 保存选中的聊天ID（只有当它不会被过滤时才保存）
-        if (username && shouldSave) {
-            chatStateManager.saveActiveChatId(username, chatId, agentId);
-        }
+        // 注意：选中的聊天ID由 KeepAlive 自动保持，不需要手动保存
         
         setActiveChatId(chatId);
         // 直接调用 handleChatSelect（移除 setTimeout，使用 ref 确保最新函数）
@@ -1041,12 +1010,13 @@ const ChatPage: React.FC = () => {
         // Check if current activeChatId is in filteredChats
         const isActiveChatInFiltered = activeChatId && filteredChats.some(chat => chat.id === activeChatId);
         
-        // Scenario 0: restore last selected chat from ChatStateManager if available and valid
+        // 注意：由于启用了 KeepAlive，activeChatId 会自动保持
+        // 不需要从 ChatStateManager 恢复状态
         let restoredFromSavedState = false;
         try {
-            const savedState = chatStateManager.loadPageState(username);
-            const savedChatId = savedState?.activeChatId;
-            const savedAgentId = savedState?.agentId;
+            // 旧的状态恢复逻辑已移除
+            const savedChatId = null;
+            const savedAgentId = null;
             
             logger.info(`[Auto-select] Restore check - current activeChatId: ${activeChatId}, saved: ${savedChatId}, currentAgentId: ${agentId}, savedAgentId: ${savedAgentId}, hasAutoSelected: ${hasAutoSelectedRef.current}`);
             
@@ -1077,9 +1047,8 @@ const ChatPage: React.FC = () => {
                 restoredFromSavedState = true;
                 return;
             } else if (savedChatId && !isSavedChatInFilteredList) {
-                // Saved chat exists but not in filtered list - clear it and force select first chat
-                logger.info(`[Auto-select] Saved chat ${savedChatId} not in filtered list (agentIdMatches: ${agentIdMatches}), clearing saved state and selecting first chat`);
-                chatStateManager.saveActiveChatId(username, null, agentId);
+                // Saved chat exists but not in filtered list - force select first chat
+                logger.info(`[Auto-select] Saved chat ${savedChatId} not in filtered list (agentIdMatches: ${agentIdMatches}), selecting first chat`);
                 // Force select first chat even if activeChatId is same as savedChatId
                 if (activeChatId === savedChatId || !isActiveChatInFiltered) {
                     const firstChatId = filteredChats[0].id;

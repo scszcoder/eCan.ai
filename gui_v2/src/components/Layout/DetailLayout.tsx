@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Card } from 'antd';
 import styled from '@emotion/styled';
+import { useEffectOnActive } from 'keepalive-for-react';
 
 const Container = styled.div`
     display: flex;
@@ -65,9 +66,34 @@ const DetailLayout: React.FC<DetailLayoutProps> = ({
     listContent,
     detailsContent,
 }) => {
+    // 列表滚动位置保存
+    const listCardRef = useRef<HTMLDivElement>(null);
+    const savedListScrollPosition = useRef<number>(0);
+    
+    // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+    useEffectOnActive(
+        () => {
+            // 获取实际的滚动容器（Card body）
+            const container = listCardRef.current?.querySelector('.ant-card-body') as HTMLDivElement;
+            if (container && savedListScrollPosition.current > 0) {
+                requestAnimationFrame(() => {
+                    container.scrollTop = savedListScrollPosition.current;
+                });
+            }
+            
+            return () => {
+                const container = listCardRef.current?.querySelector('.ant-card-body') as HTMLDivElement;
+                if (container) {
+                    savedListScrollPosition.current = container.scrollTop;
+                }
+            };
+        },
+        []
+    );
+    
     return (
         <Container>
-            <ListCard variant="borderless" title={listTitle}>
+            <ListCard ref={listCardRef} variant="borderless" title={listTitle}>
                 {listContent}
             </ListCard>
             <DetailsCard variant="borderless" title={detailsTitle}>
