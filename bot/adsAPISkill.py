@@ -43,7 +43,7 @@ def startAdspowerProfile(api_key, profile_id, port):
     headers = {
         'Authorization': f'Bearer {api_key}'
     }
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, timeout=10)
     print("response:", response)
     if response.status_code == 200:
         data = response.json()
@@ -60,7 +60,7 @@ def stopAdspowerProfile(api_key, profile_id, port):
     headers = {
         'Authorization': f'Bearer {api_key}'
     }
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, timeout=10)
     print("response:", response)
     if response.status_code == 200:
         data = response.json()
@@ -79,7 +79,7 @@ def checkAdspowerProfileBrowserStatus(api_key, profile_id, port):
     headers = {
         'Authorization': f'Bearer {api_key}'
     }
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, timeout=10)
     print("response:", response)
     if response.status_code == 200:
         data = response.json()
@@ -97,7 +97,7 @@ def deleteAdspowerProfiles(api_key, users, port):
     headers = {
         'Authorization': f'Bearer {api_key}'
     }
-    response = requests.post(url, headers=headers, data=users)
+    response = requests.post(url, headers=headers, data=users, timeout=10)
     print("response:", response)
     if response.status_code == 200:
         data = response.json()
@@ -162,7 +162,7 @@ def createAdspowerProfile(api_key, port, profile):
         # 'Authorization': f'Bearer {api_key}',
         'Content-Type': 'application/json'
     }
-    response = requests.request("POST", url, headers=headers, json=payload)
+    response = requests.request("POST", url, headers=headers, json=payload, timeout=10)
     print("response:", response)
     if response.status_code == 200:
         data = response.json()
@@ -183,7 +183,7 @@ def createAdspowerGroup(api_key, port, group):
         # 'Authorization': f'Bearer {api_key}',
         'Content-Type': 'application/json'
     }
-    response = requests.request("POST", url, headers=headers, json=payload)
+    response = requests.request("POST", url, headers=headers, json=payload, timeout=10)
     print("response:", response)
     if response.status_code == 200:
         data = response.json()
@@ -206,7 +206,7 @@ def regroupAdspowerProfiles(api_key, group_id, uids, port):
         'Authorization': f'Bearer {api_key}'
     }
 
-    response = requests.request("POST", url, headers=headers, json=payload)
+    response = requests.request("POST", url, headers=headers, json=payload, timeout=10)
     print("response:", response)
     if response.status_code == 200:
         data = response.json()

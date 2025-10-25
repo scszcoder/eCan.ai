@@ -980,7 +980,7 @@ class AuthManager:
                     break
 
             except asyncio.CancelledError:
-                logger.error("AuthManager: Token refresh task was cancelled.")
+                logger.info("AuthManager: Token refresh task was cancelled (normal during logout).")
                 break
             except Exception as e:
                 logger.error(f"AuthManager: An error occurred in the token refresh loop: {e}")

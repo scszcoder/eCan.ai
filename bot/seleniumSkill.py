@@ -24,7 +24,7 @@ from bot.seleniumScrapeAmzShop import search_phrase
 
 
 def getChromeOpenTabs():
-    response = requests.get('http://localhost:9222/json')
+    response = requests.get('http://localhost:9222/json', timeout=10)
     return response.json()
 
 def getTabWsUrl(tab_index=0):
@@ -2006,7 +2006,7 @@ def solveGmailCaptcha(driver, api_key):
     # Step 1: Send CAPTCHA solving request to 2Captcha
     captcha_request_url = f"http://2captcha.com/in.php?key={api_key}&method=userrecaptcha&googlekey={site_key}&pageurl={driver.current_url}&json=1"
 
-    response = requests.get(captcha_request_url)
+    response = requests.get(captcha_request_url, timeout=30)
     request_result = response.json()
 
     if request_result["status"] != 1:
@@ -2023,7 +2023,7 @@ def solveGmailCaptcha(driver, api_key):
     captcha_result_url = f"http://2captcha.com/res.php?key={api_key}&action=get&id={captcha_id}&json=1"
 
     while True:
-        solution_response = requests.get(captcha_result_url)
+        solution_response = requests.get(captcha_result_url, timeout=30)
         solution_result = solution_response.json()
 
         if solution_result["status"] == 1:
@@ -2142,7 +2142,7 @@ def webDriverDownloadFile(driver, ele_type, ele_text, downloaded_file_dir, downl
 
         # Use requests to download the file
         import requests
-        response = requests.get(file_url)
+        response = requests.get(file_url, timeout=60)
         filename = file_url.split('/')[-1]
         if downloaded_file_name:
             filename = downloaded_file_name

@@ -6,11 +6,12 @@ Provides printer and WiFi network detection functionality across platforms
 """
 
 import sys
+import threading
 import subprocess
 import platform
 import time
 import traceback
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 from utils.logger_helper import logger_helper as logger
 
 # Platform-specific imports
@@ -44,6 +45,10 @@ class HardwareDetector:
         """Initialize hardware detector"""
         self._printers = []
         self._wifi_networks = []
+        # Background WiFi scan state
+        self._wifi_scan_thread: Optional[threading.Thread] = None
+        self._wifi_scan_lock = threading.Lock()
+        self._wifi_scan_in_progress: bool = False
 
     # ==================== Printer Detection ====================
 
@@ -250,10 +255,16 @@ class HardwareDetector:
 
             iface = interfaces[0]
             iface.scan()
-            # Allow background scan to complete
-            time.sleep(1.5)
-
-            networks = iface.scan_results()
+            
+            # Poll for scan results with short delays to avoid UI blocking
+            # Maximum wait: 1.5s, but check every 100ms
+            max_attempts = 15
+            networks = []
+            for attempt in range(max_attempts):
+                networks = iface.scan_results()
+                if networks:  # Got results, exit early
+                    break
+                time.sleep(0.1)  # 100ms increments
             ssids: List[str] = []
             for network in networks:
                 ssid = getattr(network, 'ssid', None)
@@ -293,7 +304,33 @@ class HardwareDetector:
             # Fallback to networksetup command on macOS
             logger.debug("Trying networksetup command as fallback on macOS.")
             try:
-                result = subprocess.run(['networksetup', '-getairportnetwork', 'en0'],
+                # Detect actual Wi‑Fi device (en0/en1/...) via networksetup to avoid hardcoding
+                wifi_device = 'en0'
+                try:
+                    dev_result = subprocess.run(
+                        ['networksetup', '-listallhardwareports'],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    if dev_result.returncode == 0:
+                        lines = dev_result.stdout.split('\n')
+                        for i, line in enumerate(lines):
+                            if 'Hardware Port: Wi-Fi' in line or 'Hardware Port: Wi‑Fi' in line:
+                                # Find following line starting with "Device:"
+                                j = i + 1
+                                while j < len(lines):
+                                    dev_line = lines[j].strip()
+                                    if dev_line.startswith('Device:'):
+                                        wifi_device = dev_line.split(':', 1)[1].strip()
+                                        break
+                                    if dev_line.startswith('Hardware Port:'):
+                                        break
+                                    j += 1
+                                break
+                        logger.debug(f"Detected Wi‑Fi device: {wifi_device}")
+                except Exception as e:
+                    logger.debug(f"Failed to detect Wi‑Fi device, fallback to en0: {e}")
+
+                result = subprocess.run(['networksetup', '-getairportnetwork', wifi_device],
                                       capture_output=True, text=True, timeout=10)
                 if result.returncode == 0:
                     output = result.stdout.strip()
@@ -310,6 +347,23 @@ class HardwareDetector:
             except Exception as e:
                 logger.debug(f"networksetup command failed: {e}")
 
+            # Try private 'airport -I' utility which often reports current SSID reliably
+            logger.debug("Trying 'airport -I' as additional fallback on macOS.")
+            try:
+                airport_path = '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport'
+                result = subprocess.run([airport_path, '-I'], capture_output=True, text=True, timeout=10)
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        line = line.strip()
+                        # Typical format: 'SSID: Oliver_Su'
+                        if line.startswith('SSID:'):
+                            ssid = line.split(':', 1)[1].strip()
+                            if ssid:
+                                logger.debug(f"Found WiFi SSID via airport -I: {ssid}")
+                                return ssid
+            except Exception as e:
+                logger.debug(f"airport -I failed: {e}")
+
             # Try system_profiler as another fallback
             logger.debug("Trying system_profiler as additional fallback on macOS.")
             try:
@@ -319,17 +373,30 @@ class HardwareDetector:
                     output = result.stdout
                     # Look for current network information
                     lines = output.split('\n')
-                    for i, line in enumerate(lines):
+                    i = 0
+                    while i < len(lines):
+                        line = lines[i]
                         if "Current Network Information:" in line:
-                            # The next line should contain the SSID
-                            if i + 1 < len(lines):
-                                next_line = lines[i + 1].strip()
-                                # Extract SSID from format like "SSID-NAME:"
-                                if ':' in next_line:
-                                    ssid = next_line.split(':')[0].strip()
+                            # Scan following few lines for 'SSID:' key
+                            for j in range(1, 8):
+                                if i + j >= len(lines):
+                                    break
+                                kv = lines[i + j].strip()
+                                # Expected format like: 'SSID: Oliver_Su'
+                                if kv.startswith('SSID:'):
+                                    ssid = kv.split(':', 1)[1].strip()
                                     if ssid and ssid != "Current Network Information":
                                         logger.debug(f"Found WiFi SSID via system_profiler: {ssid}")
                                         return ssid
+                            # If no SSID key found, try older format like '<ssid_name>:' on the next line
+                            if i + 1 < len(lines):
+                                nl = lines[i + 1].strip()
+                                if ':' in nl:
+                                    candidate = nl.split(':', 1)[0].strip()
+                                    if candidate and candidate != "Current Network Information":
+                                        logger.debug(f"Found WiFi SSID via system_profiler (legacy parse): {candidate}")
+                                        return candidate
+                        i += 1
             except Exception as e:
                 logger.debug(f"system_profiler command failed: {e}")
 
@@ -420,13 +487,18 @@ class HardwareDetector:
                                     for network in network_list:
                                         try:
                                             ssid = network.ssid()
+                                            logger.debug(f"Network SSID raw value: {repr(ssid)} (type: {type(ssid).__name__})")
                                             if ssid and ssid not in ssid_list:
                                                 ssid_list.append(ssid)
                                                 logger.debug(f"Added WiFi network: {ssid}")
+                                            elif not ssid:
+                                                logger.debug(f"Skipped network with empty SSID")
                                         except Exception as e:
                                             logger.debug(f"Error getting SSID from network object: {e}")
                                             continue
-                                    corewlan_success = True
+                                    corewlan_success = len(ssid_list) > 0 if ssid_list else False
+                                    if not corewlan_success:
+                                        logger.warning(f"CoreWLAN found {len(network_list)} networks but extracted 0 SSIDs")
                                 except Exception as e:
                                     logger.error(f"Error converting NSSet to list: {e}")
                                     # Fall back to trying direct iteration
@@ -530,6 +602,55 @@ class HardwareDetector:
     def get_wifi_networks(self) -> List[str]:
         """Get detected WiFi network list"""
         return self._wifi_networks.copy()
+
+    def start_wifi_scan_background(self, on_complete: Optional[Callable[[List[str]], None]] = None) -> bool:
+        """Start WiFi scan on a background thread to avoid UI blocking.
+
+        Returns True if a new scan was started, False if a scan is already running.
+        """
+        with self._wifi_scan_lock:
+            if self._wifi_scan_thread is not None and self._wifi_scan_thread.is_alive():
+                logger.debug("WiFi scan request ignored: scan already in progress")
+                self._wifi_scan_in_progress = True
+                return False
+
+            self._wifi_scan_in_progress = True
+
+            def _worker():
+                try:
+                    results = self.detect_wifi_networks()
+                    if on_complete:
+                        try:
+                            on_complete(results)
+                        except Exception as cb_err:
+                            logger.error(f"WiFi scan callback error: {cb_err}")
+                except Exception as e:
+                    logger.error(f"Background WiFi scan failed: {e}")
+                finally:
+                    with self._wifi_scan_lock:
+                        self._wifi_scan_in_progress = False
+                        self._wifi_scan_thread = None
+
+            self._wifi_scan_thread = threading.Thread(target=_worker, name="WiFiScanThread", daemon=True)
+            self._wifi_scan_thread.start()
+            return True
+
+    def is_wifi_scan_in_progress(self) -> bool:
+        """Check if a background WiFi scan is currently running."""
+        with self._wifi_scan_lock:
+            return self._wifi_scan_in_progress and self._wifi_scan_thread is not None and self._wifi_scan_thread.is_alive()
+
+    def wait_for_wifi_scan(self, timeout: Optional[float] = None) -> List[str]:
+        """Wait for the current background WiFi scan to finish and return results.
+
+        If no scan is running, returns current cached results immediately.
+        """
+        thread = None
+        with self._wifi_scan_lock:
+            thread = self._wifi_scan_thread
+        if thread is not None:
+            thread.join(timeout=timeout)
+        return self.get_wifi_networks()
 
     def get_current_wifi(self) -> Optional[str]:
         """Get current connected WiFi"""

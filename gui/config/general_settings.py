@@ -481,30 +481,67 @@ class GeneralSettings:
             self._hardware_initialized = True
 
     def detect_hardware(self):
-        """Detect hardware devices"""
+        """Detect hardware devices - now uses background WiFi scan"""
         try:
             detector = get_hardware_detector()
 
-            # Detect all hardware
-            hardware_info = detector.detect_all_hardware()
-            logger.info(f"Hardware detection completed using shared detector: {hardware_info}")
+            # Detect printers synchronously (fast)
+            self._printers = detector.detect_printers()
+            logger.debug(f"Detected {len(self._printers)} printers")
 
-            # Update internal state
-            self._printers = hardware_info['printers']
-            self._wifi_networks = hardware_info['wifi_networks']
+            # Start background WiFi scan (non-blocking)
+            def _on_wifi_complete(ssids):
+                try:
+                    self._wifi_networks = ssids or []
+                    logger.info(f"WiFi scan completed (background): {len(self._wifi_networks)} networks")
+                    
+                    # Always update default_wifi to current connected WiFi
+                    current_wifi = detector.get_current_wifi()
+                    if current_wifi:
+                        # Update to current WiFi (overwrite old value)
+                        if self.default_wifi != current_wifi:
+                            old_wifi = self.default_wifi
+                            self.default_wifi = current_wifi
+                            logger.info(f"Updated default WiFi: '{old_wifi}' -> '{current_wifi}'")
+                            try:
+                                self.save()
+                                logger.info("WiFi settings saved successfully")
+                            except Exception as save_err:
+                                logger.error(f"Failed to save WiFi settings: {save_err}")
+                        else:
+                            logger.debug(f"Default WiFi already up to date: {current_wifi}")
+                    else:
+                        logger.debug("No current WiFi detected, keeping existing default_wifi")
+                except Exception as e:
+                    logger.error(f"Error handling WiFi scan completion: {e}")
 
-            # Auto-set default WiFi
-            if not self.default_wifi and hardware_info['current_wifi']:
-                self.default_wifi = hardware_info['current_wifi']
+            started = detector.start_wifi_scan_background(on_complete=_on_wifi_complete)
+            if started:
+                logger.debug("Started background WiFi scan")
+            else:
+                # Scan already running, get cached results
+                self._wifi_networks = detector.get_wifi_networks()
+                logger.debug(f"Using cached WiFi networks: {len(self._wifi_networks)} networks")
 
-            # Auto-set default printer
-            printer_names = hardware_info['printer_names']
-            if not self.default_printer and printer_names:
-                # Set the first available printer as default
-                self.default_printer = printer_names[0]
-                logger.info(f"Auto-set default printer to: {self.default_printer}")
+            # Always update default printer to first detected printer
+            printer_names = detector.get_printer_names()
+            if printer_names:
+                first_printer = printer_names[0]
+                if self.default_printer != first_printer:
+                    old_printer = self.default_printer
+                    self.default_printer = first_printer
+                    logger.info(f"Updated default printer: '{old_printer}' -> '{first_printer}'")
+                    try:
+                        self.save()
+                        logger.info("Printer settings saved successfully")
+                    except Exception as save_err:
+                        logger.error(f"Failed to save printer settings: {save_err}")
+                else:
+                    logger.debug(f"Default printer already up to date: {first_printer}")
+            else:
+                logger.debug("No printers detected, keeping existing default_printer")
 
-            logger.info("Hardware detection completed using shared detector")
+            logger.info("Hardware detection initiated (WiFi scan in background)")
         except Exception as e:
             logger.error(f"Error detecting hardware: {e}")
 
@@ -536,3 +573,23 @@ class GeneralSettings:
         """Refresh hardware detection"""
         self._hardware_initialized = False
         self.detect_hardware()
+
+    def wait_for_wifi_scan(self, timeout: Optional[float] = 5.0) -> List[str]:
+        """Wait for WiFi scan to complete and return results.
+        
+        Args:
+            timeout: Maximum time to wait in seconds (default: 5s)
+            
+        Returns:
+            List of WiFi network SSIDs
+        """
+        try:
+            detector = get_hardware_detector()
+            # Wait for scan to complete
+            results = detector.wait_for_wifi_scan(timeout=timeout)
+            # Update internal cache
+            self._wifi_networks = results
+            return results
+        except Exception as e:
+            logger.error(f"Error waiting for WiFi scan: {e}")
+            return self._wifi_networks.copy()

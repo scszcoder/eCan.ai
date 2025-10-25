@@ -20,7 +20,7 @@ def start_adspower_profile(api_key, profile_id):
     headers = {
         'Authorization': f'Bearer {api_key}'
     }
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, timeout=10)
     if response.status_code == 200:
         data = response.json()
         return data['data']['webdriver']

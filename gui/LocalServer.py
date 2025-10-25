@@ -226,11 +226,12 @@ class MCPHandler:
         try:
             if MCPHandler._session_manager_context:
                 logger.info("🧹 [MCP] Cleaning up session manager context...")
-                await MCPHandler._session_manager_context.__aexit__(None, None, None)
+                # Avoid __aexit__ in a different task - just reset the reference
+                # The context manager will be cleaned up when the original task exits
                 MCPHandler._session_manager_context = None
                 logger.info("✅ [MCP] Session manager context cleaned up")
         except Exception as e:
-            logger.warning(f"⚠️  [MCP] Error cleaning up session manager context: {e}")
+            logger.debug(f"⚠️  [MCP] Error cleaning up session manager context: {e}")
         
         try:
             if MCPHandler._session_manager_instance:

@@ -26,7 +26,7 @@ def localBusinessAddRow(data):
         Response JSON with status or error message.
     """
     try:
-        response = requests.post(API_BASE_URL, json=data)
+        response = requests.post(API_BASE_URL, json=data, timeout=10)
         response.raise_for_status()  # Raises an error for non-2xx responses
         return response.json()
     except requests.RequestException as e:
@@ -52,7 +52,7 @@ def localBusinessUpdateRow(bid, data):
     """
     try:
         url = f"{API_BASE_URL}/{bid}"
-        response = requests.put(url, json=data)
+        response = requests.put(url, json=data, timeout=10)
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
@@ -72,7 +72,7 @@ def localBusinessQueryByAsin(order_asin):
     try:
         url = f"{API_BASE_URL}/query"
         params = {"order_asin": order_asin}
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
@@ -98,7 +98,7 @@ def localBusinessQueryAcctForPast7Days():
             "endDate": end_date
         }
 
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
