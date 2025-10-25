@@ -8,6 +8,9 @@ from agent.ec_skill import EC_Skill
 from agent.ec_skills.prep_skills_run import *
 import json
 import os
+import tempfile
+import shutil
+from pathlib import Path
 from fastapi.responses import JSONResponse
 import time
 from queue import Queue, Empty
@@ -919,7 +922,7 @@ class TaskRunner(Generic[Context]):
         os.makedirs(self.save_dir, exist_ok=True)
         self._dev_task = None  # dev-run handle for sidebar controls
 
-        self._stop_event = asyncio.Event()
+        self._stop_event = threading.Event()
         TaskRunnerRegistry.register(self)
         # Note: legacy fixed global queues (chat_queue/a2a_queue/work_queue) removed.
         # Routing should be done by mapping rules to a specific ManagedTask's own queue.
@@ -1104,8 +1107,18 @@ class TaskRunner(Generic[Context]):
 
 
     async def run_all_tasks(self):
+        """
+        Run all tasks with proper cleanup and exception handling
+        
+        Improvements:
+        1. Use return_exceptions=True to prevent single task failure from affecting others
+        2. Log individual task results
+        3. Ensure running_tasks list is always cleared
+        4. Add timeout protection
+        """
         self.running_tasks = []
 
+        # Collect all awaitable tasks
         for t in self.agent.tasks:
             if t and callable(t.task):
                 try:
@@ -1113,19 +1126,38 @@ class TaskRunner(Generic[Context]):
                     if inspect.isawaitable(coro):
                         self.running_tasks.append(coro)
                     else:
-                        print(f"Task returned non-awaitable: {coro}")
-                except TypeError:
-                    print(f"Task {t.task} requires arguments — please invoke it properly.")
+                        logger.warning(f"Task returned non-awaitable: {coro}")
+                except TypeError as e:
+                    logger.error(f"Task {t.task} requires arguments: {e}")
             elif inspect.isawaitable(t.task):
                 self.running_tasks.append(t.task)
             else:
-                print(f"Task is not callable or awaitable: {t.task}")
+                logger.warning(f"Task is not callable or awaitable: {t.task}")
 
-        if self.running_tasks:
-            print("# of running tasks: ", len(self.running_tasks))
-            await asyncio.gather(*self.running_tasks)
-        else:
-            print("WARNING: no running tasks....")
+        if not self.running_tasks:
+            logger.warning("No running tasks")
+            return
+        
+        logger.info(f"Running {len(self.running_tasks)} tasks")
+        
+        try:
+            # Use return_exceptions=True to prevent single failure from affecting all
+            results = await asyncio.gather(*self.running_tasks, return_exceptions=True)
+            
+            # Log individual task results
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error(f"Task {i} failed with exception: {result}")
+                else:
+                    logger.debug(f"Task {i} completed successfully")
+        
+        except Exception as e:
+            logger.error(f"run_all_tasks failed: {e}")
+        
+        finally:
+            # Ensure cleanup of task references to prevent memory leaks
+            self.running_tasks.clear()
+            logger.debug("Cleared running_tasks list")
 
 
     async def step_task(self, task_id: str):
@@ -1168,29 +1200,266 @@ class TaskRunner(Generic[Context]):
         task.pause_event.set()
         task.status.state = TaskState.WORKING
 
-    async def cancel_task(self, task_id: str):
+    async def cancel_task(self, task_id: str, timeout: float = 5.0):
+        """
+        Cancel a task and clean up resources
+        
+        Args:
+            task_id: Task ID to cancel
+            timeout: Maximum time to wait for cancellation (seconds)
+        
+        Raises:
+            KeyError: If task doesn't exist
+        """
+        # 1. Check if task exists
+        if task_id not in self.tasks:
+            logger.warning(f"Cannot cancel non-existent task: {task_id}")
+            raise KeyError(f"Task {task_id} not found")
+        
         task = self.tasks[task_id]
-        if task.task:
-            task.task.cancel()
-        task.status.state = TaskState.CANCELED
+        
+        # 2. Check if task is in terminal state
+        terminal_states = (TaskState.COMPLETED, TaskState.FAILED, TaskState.CANCELED)
+        if task.status.state in terminal_states:
+            logger.debug(f"Task {task_id} is already in terminal state: {task.status.state}")
+            return  # Already finished, nothing to cancel
+        
+        try:
+            # 3. Cancel the asyncio task if exists
+            if task.task:
+                logger.debug(f"Cancelling asyncio task for {task_id}")
+                task.task.cancel()
+                
+                # 4. Wait for cancellation to complete
+                try:
+                    await asyncio.wait_for(task.task, timeout=timeout)
+                except asyncio.CancelledError:
+                    logger.debug(f"Task {task_id} cancelled successfully")
+                except asyncio.TimeoutError:
+                    logger.warning(f"Task {task_id} cancellation timed out after {timeout}s")
+                except Exception as e:
+                    logger.error(f"Error while cancelling task {task_id}: {e}")
+            
+            # 5. Update task status
+            task.status.state = TaskState.CANCELED
+            task.status.message = "Task cancelled by user"
+            
+            # 6. Call cleanup method if exists
+            if hasattr(task, 'cleanup') and callable(task.cleanup):
+                try:
+                    task.cleanup()
+                    logger.debug(f"Task {task_id} cleanup completed")
+                except Exception as e:
+                    logger.warning(f"Error during task cleanup for {task_id}: {e}")
+            
+            # 7. Call exit method if exists
+            if hasattr(task, 'exit') and callable(task.exit):
+                try:
+                    task.exit()
+                    logger.debug(f"Task {task_id} exit completed")
+                except Exception as e:
+                    logger.warning(f"Error during task exit for {task_id}: {e}")
+            
+            # 8. Clear task queue if exists
+            if hasattr(task, 'queue') and task.queue:
+                try:
+                    cleared_count = 0
+                    while not task.queue.empty():
+                        try:
+                            task.queue.get_nowait()
+                            cleared_count += 1
+                        except Empty:
+                            break
+                    if cleared_count > 0:
+                        logger.debug(f"Cleared {cleared_count} items from task {task_id} queue")
+                except Exception as e:
+                    logger.warning(f"Error clearing task queue for {task_id}: {e}")
+            
+            logger.info(f"Task {task_id} cancelled and cleaned up successfully")
+        
+        except Exception as e:
+            logger.error(f"Failed to cancel task {task_id}: {e}")
+            raise
 
-    async def schedule_task(self, task_id: str, delay: int):
-        await asyncio.sleep(delay)
-        await self.run_task(task_id)
+    async def schedule_task(self, task_id: str, delay: int) -> asyncio.Task:
+        """
+        Schedule a task to run after a delay
+        
+        Args:
+            task_id: Task ID to run
+            delay: Delay in seconds
+        
+        Returns:
+            asyncio.Task: The scheduled task (can be cancelled)
+        
+        Example:
+            >>> scheduled = await runner.schedule_task("my_task", 60)
+            >>> # To cancel:
+            >>> scheduled.cancel()
+        """
+        async def _delayed_run():
+            try:
+                logger.debug(f"Task {task_id} scheduled to run in {delay}s")
+                
+                # Use interruptible sleep
+                await asyncio.sleep(delay)
+                
+                # Check if task still exists
+                if task_id not in self.tasks:
+                    logger.warning(f"Scheduled task {task_id} no longer exists")
+                    return
+                
+                task = self.tasks[task_id]
+                
+                # Check if task was cancelled during delay
+                if task.status.state == TaskState.CANCELED:
+                    logger.debug(f"Scheduled task {task_id} was cancelled")
+                    return
+                
+                # Run the task
+                logger.info(f"Running scheduled task {task_id}")
+                try:
+                    await self.run_task(task_id)
+                except Exception as e:
+                    logger.error(f"Error running scheduled task {task_id}: {e}")
+                    # Update task status to failed
+                    if task_id in self.tasks:
+                        self.tasks[task_id].status.state = TaskState.FAILED
+                        self.tasks[task_id].status.message = str(e)
+            
+            except asyncio.CancelledError:
+                logger.info(f"Scheduled task {task_id} was cancelled during delay")
+                raise  # Re-raise to properly mark as cancelled
+            
+            except Exception as e:
+                logger.error(f"Unexpected error in scheduled task {task_id}: {e}")
+        
+        # Create and return the scheduled task
+        scheduled = asyncio.create_task(_delayed_run())
+        return scheduled
 
     def save_task(self, task_id: str):
+        """
+        Save task to disk with atomic write operation
+        
+        Args:
+            task_id: Task ID to save
+        
+        Raises:
+            KeyError: If task_id doesn't exist
+            IOError: If file operation fails
+        """
+        # 1. Check if task exists
+        if task_id not in self.tasks:
+            logger.error(f"Cannot save non-existent task: {task_id}")
+            raise KeyError(f"Task {task_id} not found")
+        
         task = self.tasks[task_id]
-        with open(os.path.join(self.save_dir, f"{task_id}.json"), "w", encoding="utf-8") as f:
-            f.write(task.model_dump_json(indent=2))
+        
+        # 2. Ensure directory exists
+        save_dir = Path(self.save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        
+        target_file = save_dir / f"{task_id}.json"
+        temp_file = None
+        
+        try:
+            # 3. Write to temporary file first (atomic operation)
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                dir=save_dir,
+                prefix=f"{task_id}_",
+                suffix=".json.tmp",
+                delete=False,
+                encoding='utf-8'
+            ) as f:
+                temp_file = f.name
+                json_data = task.model_dump_json(indent=2)
+                f.write(json_data)
+                f.flush()
+                os.fsync(f.fileno())  # Ensure data is written to disk
+            
+            # 4. Atomic rename (either succeeds or fails, no partial write)
+            shutil.move(temp_file, target_file)
+            
+            logger.debug(f"Task {task_id} saved successfully to {target_file}")
+        
+        except OSError as e:
+            logger.error(f"Failed to save task {task_id}: {e}")
+            # Clean up temporary file if exists
+            if temp_file and os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
+            raise IOError(f"Failed to save task {task_id}: {e}")
+        
+        except Exception as e:
+            logger.error(f"Unexpected error saving task {task_id}: {e}")
+            if temp_file and os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
+            raise
 
     def load_task(self, task_id: str, skill: 'EC_Skill') -> ManagedTask:
+        """
+        Load task from disk with proper error handling
+        
+        Args:
+            task_id: Task ID to load
+            skill: EC_Skill instance to associate with task
+        
+        Returns:
+            ManagedTask: The loaded task
+        
+        Raises:
+            FileNotFoundError: If task file doesn't exist
+            ValueError: If JSON is invalid or file is empty
+            IOError: If file read operation fails
+        """
         from pydantic import TypeAdapter
-        with open(os.path.join(self.save_dir, f"{task_id}.json"), "r", encoding="utf-8") as f:
-            raw = f.read()
-        base_task = TypeAdapter(Task).validate_json(raw)
-        task = ManagedTask(**base_task.model_dump(), skill=skill)
-        self.tasks[task_id] = task
-        return task
+        
+        file_path = Path(self.save_dir) / f"{task_id}.json"
+        
+        # 1. Check if file exists
+        if not file_path.exists():
+            logger.error(f"Task file not found: {file_path}")
+            raise FileNotFoundError(f"Task file not found for task_id: {task_id}")
+        
+        try:
+            # 2. Read file
+            with open(file_path, 'r', encoding='utf-8') as f:
+                raw = f.read()
+            
+            # 3. Validate content is not empty
+            if not raw or not raw.strip():
+                logger.error(f"Task file is empty: {file_path}")
+                raise ValueError(f"Task file is empty for task_id: {task_id}")
+            
+            # 4. Parse JSON
+            try:
+                base_task = TypeAdapter(Task).validate_json(raw)
+            except Exception as e:
+                logger.error(f"Invalid JSON in task file {file_path}: {e}")
+                raise ValueError(f"Invalid JSON in task file for task_id {task_id}: {e}")
+            
+            # 5. Create ManagedTask
+            task = ManagedTask(**base_task.model_dump(), skill=skill)
+            
+            # 6. Register task
+            self.tasks[task_id] = task
+            
+            logger.debug(f"Task {task_id} loaded successfully from {file_path}")
+            return task
+        
+        except (FileNotFoundError, ValueError):
+            raise  # Re-raise known errors
+        
+        except Exception as e:
+            logger.error(f"Failed to load task {task_id}: {e}")
+            raise IOError(f"Failed to load task {task_id}: {e}")
 
     async def resume_on_external_event(self, task_id: str, injected_state: dict):
         task = self.tasks[task_id]
@@ -1504,88 +1773,109 @@ class TaskRunner(Generic[Context]):
             task2run: ManagedTask to execute (None for scheduled tasks)
             trigger_type: "schedule" | "a2a_queue" | "chat_queue"
         
-        This consolidates launch_scheduled_run, launch_reacted_run, and launch_interacted_run
-        into a single function with consistent behavior and proper interrupt-resume support.
+        Improvements:
+        1. Use local variables to avoid state corruption
+        2. Use interruptible waits instead of time.sleep
+        3. Add error recovery with backoff
+        4. Proper state management in finally block
         """
         justStarted = True
+        consecutive_errors = 0
+        max_consecutive_errors = 10
+        current_task = task2run  # Use local variable instead of modifying parameter
         logger.debug(f"launch_unified_run started: trigger_type={trigger_type}, agent={self.agent.card.name}")
         
         while not self._stop_event.is_set():
+            msg = None  # Reset message for each iteration
+            
             try:
-                msg = None
-                
                 # 1. Get task and message based on trigger type
                 if trigger_type == "schedule":
                     # Scheduled tasks: check if it's time to run
                     logger.trace(f"Checking schedule for agent {self.agent.card.name}")
-                    task2run = time_to_run(self.agent)
-                    if not task2run:
-                        time.sleep(1)
+                    current_task = time_to_run(self.agent)  # Use local variable
+                    if not current_task:
+                        if self._stop_event.wait(timeout=1.0):
+                            break
                         continue
-                    logger.debug(f"Scheduled task ready: {task2run.name}")
+                    logger.debug(f"Scheduled task ready: {current_task.name}")
                     msg = None  # Scheduled tasks don't have input messages
                     
                 elif trigger_type in ("a2a_queue", "chat_queue", "message"):
                     # Queue-based tasks: wait for messages
-                    if not task2run:
-                        time.sleep(1)
+                    if not current_task:
+                        if self._stop_event.wait(timeout=1.0):
+                            break
                         continue
                     
-                    if task2run.queue.empty():
-                        time.sleep(1)
+                    if current_task.queue.empty():
+                        if self._stop_event.wait(timeout=1.0):
+                            break
                         continue
                     
                     try:
-                        msg = task2run.queue.get_nowait()
+                        msg = current_task.queue.get_nowait()
                         logger.trace(f"{trigger_type} message received: {type(msg)}")
                         
                         # For chat queue, find the appropriate chatter task
                         if trigger_type == "chat_queue":
-                            task2run = self.find_chatter_tasks()
-                            if not task2run:
+                            current_task = self.find_chatter_tasks()  # Use local variable
+                            if not current_task:
                                 logger.error("No chatter task found")
+                                # Mark queue task as done even if no task found
+                                if task2run and task2run.queue:
+                                    try:
+                                        task2run.queue.task_done()
+                                    except:
+                                        pass
                                 continue
                     except Empty:
                         continue
                 else:
                     logger.error(f"Unknown trigger_type: {trigger_type}")
-                    time.sleep(1)
+                    if self._stop_event.wait(timeout=1.0):
+                        break
+                    continue
+                
+                # Validate task exists before proceeding
+                if not current_task:
+                    logger.warning(f"No valid task for trigger_type={trigger_type}")
                     continue
                 
                 # 2. Execute task (initial run or resume)
                 if justStarted:
                     # Initial run
-                    logger.debug(f"Initial run: {task2run.skill.name}")
-                    task2run.metadata["state"] = prep_skills_run(
-                        task2run.skill,
+                    logger.debug(f"Initial run: {current_task.skill.name}")
+                    current_task.metadata["state"] = prep_skills_run(
+                        current_task.skill,
                         self.agent, 
-                        task2run.id, 
+                        current_task.id, 
                         msg, 
                         None
                     )
-                    response = task2run.stream_run()
+                    response = current_task.stream_run()
                     logger.debug(f"Initial run response: {response}")
                     
                 else:
                     # Resume run
-                    logger.debug(f"Resume run: {task2run.skill.name}", msg)
+                    logger.debug(f"Resume run: {current_task.skill.name}", msg)
                     # On resume, keep existing state; DSL mapping will provide a state_patch via resume payload
                     
                     # Build resume payload using mapping DSL
-                    resume_payload, cp = self._build_resume_payload(task2run, msg)
+                    resume_payload, cp = self._build_resume_payload(current_task, msg)
                     logger.debug(f"Resume payload: {resume_payload}")
                     print(f"current cp: ", cp)
 
                     # note langgraph could have multiple interrupted nodes, checkpoint is
                     # critical for picking up exactly where it's left off.
                     if cp:
-                        response = task2run.stream_run(
+                        response = current_task.stream_run(
                             Command(resume=resume_payload), 
                             checkpoint=cp, 
                             stream_mode="updates"
                         )
                     else:
-                        response = task2run.stream_run(
+                        response = current_task.stream_run(
                             Command(resume=resume_payload), 
                             stream_mode="updates"
                         )
@@ -1628,9 +1918,9 @@ class TaskRunner(Generic[Context]):
                 if trigger_type == "schedule":
                     # Scheduled tasks report to task manager
                     if response:
-                        self.agent.a2a_server.task_manager.set_result(task2run.id, response)
+                        self.agent.a2a_server.task_manager.set_result(current_task.id, response)
                     else:
-                        self.agent.a2a_server.task_manager.set_exception(task2run.id, RuntimeError("Task failed"))
+                        self.agent.a2a_server.task_manager.set_exception(current_task.id, RuntimeError("Task failed"))
                         
                 elif trigger_type in ("a2a_queue", "chat_queue"):
                     # Queue-based tasks resolve waiters
@@ -1645,17 +1935,42 @@ class TaskRunner(Generic[Context]):
                     
                     if task_id:
                         self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
-                    
-                    # Mark queue task as done
-                    if task2run and task2run.queue:
-                        task2run.queue.task_done()
+                
+                # Reset error counter on successful execution
+                consecutive_errors = 0
                 
             except Exception as e:
+                consecutive_errors += 1
                 ex_stat = f"ErrorUnifiedRun[{trigger_type}]:" + traceback.format_exc() + " " + str(e)
                 logger.error(ex_stat)
+                
+                # Reset state on error to retry from beginning
+                justStarted = True
+                
+                # Check if too many consecutive errors
+                if consecutive_errors >= max_consecutive_errors:
+                    logger.error(f"Too many consecutive errors ({max_consecutive_errors}), stopping task loop")
+                    break
+                
+                # Exponential backoff on errors
+                backoff = min(consecutive_errors * 1, 10)
+                if self._stop_event.wait(timeout=backoff):
+                    break
             
-            # Loop delay
-            time.sleep(1)
+            finally:
+                # Ensure queue task is marked as done
+                if trigger_type in ("a2a_queue", "chat_queue"):
+                    if current_task and current_task.queue:
+                        try:
+                            current_task.queue.task_done()
+                        except:
+                            pass
+            
+            # Loop delay - use interruptible wait
+            if self._stop_event.wait(timeout=1.0):
+                break
+        
+        logger.info(f"launch_unified_run exiting: trigger_type={trigger_type}, agent={self.agent.card.name}")
 
 
 

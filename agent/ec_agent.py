@@ -134,14 +134,14 @@ class EC_Agent(Agent):
 
 		# Start non-blocking LLM connection verification
 		# Show first 8 and last 4 characters, mask the middle
-		openai_api_key: str = os.getenv("OPENAI_API_KEY")
-		if openai_api_key and len(openai_api_key) > 12:
-			mask_openai_api_key = openai_api_key[:8] + "*" * (len(openai_api_key) - 12) + openai_api_key[-4:]
-		elif openai_api_key:
-			mask_openai_api_key = openai_api_key[:2] + "*" * (len(openai_api_key) - 2)
-		else:
-			mask_openai_api_key = "Not set"
-		logger.info("OPENAI API KEY IS::::::::", mask_openai_api_key)
+		# openai_api_key: str = os.getenv("OPENAI_API_KEY")
+		# if openai_api_key and len(openai_api_key) > 12:
+		# 	mask_openai_api_key = openai_api_key[:8] + "*" * (len(openai_api_key) - 12) + openai_api_key[-4:]
+		# elif openai_api_key:
+		# 	mask_openai_api_key = openai_api_key[:2] + "*" * (len(openai_api_key) - 2)
+		# else:
+		# 	mask_openai_api_key = "Not set"
+		# logger.info("OPENAI API KEY IS::::::::", mask_openai_api_key)
 
 		capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
 		def get_lan_ip():
