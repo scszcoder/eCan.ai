@@ -1,8 +1,10 @@
 import React, { Suspense } from 'react';
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import MainLayout from '../components/Layout/MainLayout';
 import { Spin } from 'antd';
 import { userStorageManager } from '../services/storage/UserStorageManager';
+import AgentsRouteWrapper from './AgentsRouteWrapper';
+import MainRouteWrapper from './MainRouteWrapper';
 
 // 页面组件懒加载
 const Login = React.lazy(() => import('../pages/Login/index'));
@@ -47,6 +49,7 @@ export interface RouteConfig {
     element: React.ReactNode;
     children?: RouteConfig[];
     auth?: boolean;
+    keepAlive?: boolean; // 是否启用页面持久化
 }
 
 // 检查认证状态
@@ -74,7 +77,7 @@ export const publicRoutes: RouteConfig[] = [
 export const protectedRoutes: RouteConfig[] = [
     {
         path: '/',
-        element: <ProtectedRoute><Outlet /></ProtectedRoute>,
+        element: <ProtectedRoute><MainRouteWrapper /></ProtectedRoute>,
         children: [
             {
                 path: '',
@@ -83,84 +86,105 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'dashboard',
                 element: <LazyWrapper><Dashboard /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'vehicles',
                 element: <LazyWrapper><Vehicles /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'schedule',
                 element: <LazyWrapper><Schedule /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'chat',
                 element: <LazyWrapper><Chat /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'skills',
                 element: <LazyWrapper><Skills /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'skill_editor',
                 element: <LazyWrapper><SkillEditor /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'agents',
-                element: <Outlet />,
+                element: <AgentsRouteWrapper />,
                 children: [
                     {
                         path: '',
                         element: <LazyWrapper><OrgNavigator /></LazyWrapper>,
+                        keepAlive: true,
                     },
                     {
                         path: 'details/:id',
                         element: <LazyWrapper><AgentDetails /></LazyWrapper>,
+                        keepAlive: false, // 详情页不需要保活，每次都重新加载
                     },
                     {
                         path: 'add',
                         element: <LazyWrapper><AgentDetails /></LazyWrapper>,
+                        keepAlive: false, // 添加页不需要保活
                     },
                     {
                         path: 'organization/:orgId/*',
                         element: <LazyWrapper><OrgNavigator /></LazyWrapper>,
+                        keepAlive: true,
+                        // 注意：所有 organization 路径共享同一个缓存实例（通过 AgentsRouteWrapper 实现）
+                        // 这样在不同组织间切换时，OrgNavigator 会保持状态
                     },
                 ],
             },
             {
                 path: 'analytics',
                 element: <LazyWrapper><Analytics /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'tasks',
                 element: <LazyWrapper><Tasks /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'tools',
                 element: <LazyWrapper><Tools /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'settings',
                 element: <LazyWrapper><Settings /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'console',
                 element: <LazyWrapper><Console /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'knowledge',
                 element: <LazyWrapper><KnowledgePlatform /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'knowledge-ported',
                 element: <LazyWrapper><KnowledgePorted /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'tests',
                 element: <LazyWrapper><Tests /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'orgs',
                 element: <LazyWrapper><Orgs /></LazyWrapper>,
+                keepAlive: true,
             },
         ],
     },

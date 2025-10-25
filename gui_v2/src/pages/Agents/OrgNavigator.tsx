@@ -1,8 +1,9 @@
-import React, { useMemo, useCallback, useEffect, useState } from 'react';
+import React, { useMemo, useCallback, useEffect, useState, useRef } from 'react';
+import { useEffectOnActive } from 'keepalive-for-react';
 import { Alert, Button, Spin, FloatButton } from 'antd';
 import { PlusOutlined, InboxOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useUserStore } from '../../stores/userStore';
 import { useOrgStore } from '../../stores/orgStore';
 import { useAgentStore } from '../../stores/agentStore';
@@ -169,11 +170,37 @@ const searchInOrgTree = (
 
 const OrgNavigator: React.FC = () => {
   const navigate = useNavigate();
-  const { orgId } = useParams<{ orgId?: string }>();
   const location = useLocation();
+  // ⚠️ 关键优化：提取 pathname 字符串，避免 location 对象引用变化导致重复渲染
+  const pathname = location.pathname;
+  
   const { t } = useTranslation();
   const username = useUserStore((state) => state.username);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // 滚动位置保存
+  const navigatorRef = useRef<HTMLDivElement>(null);
+  const savedScrollPosition = useRef<number>(0);
+  
+  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  useEffectOnActive(
+    () => {
+      const container = navigatorRef.current;
+      if (container && savedScrollPosition.current > 0) {
+        requestAnimationFrame(() => {
+          container.scrollTop = savedScrollPosition.current;
+        });
+      }
+      
+      return () => {
+        const container = navigatorRef.current;
+        if (container) {
+          savedScrollPosition.current = container.scrollTop;
+        }
+      };
+    },
+    []
+  );
   
   // 将搜索状态暴露给父组件（通过 window 对象）
   useEffect(() => {
@@ -184,23 +211,22 @@ const OrgNavigator: React.FC = () => {
       delete (window as any).__setAgentsSearchQuery;
     };
   }, [searchQuery]);
-
-  // 解析嵌套路径中的实际 orgId
+  
+  // 从 URL 路径中提取 orgId，而不是使用 useParams
+  // 因为 useParams 在不同缓存实例间可能保留旧值
+  // ⚠️ 重要：只依赖 pathname 字符串，避免 location 对象引用变化
   const actualOrgId = useMemo(() => {
-    // 从完整路径中提取最后一个 organization 后面的 orgId
-    const orgMatches = location.pathname.match(/organization\/([^/]+)/g);
-    console.log('[OrgNavigator] Current path:', location.pathname);
-    console.log('[OrgNavigator] Org matches:', orgMatches);
-    console.log('[OrgNavigator] useParams orgId:', orgId);
+    // 使用正则表达式从 pathname 中提取 orgId
+    const orgMatches = pathname.match(/organization\/([^/]+)/g);
     
     if (orgMatches && orgMatches.length > 0) {
       const lastMatch = orgMatches[orgMatches.length - 1];
       const extractedOrgId = lastMatch.replace('organization/', '');
-      console.log('[OrgNavigator] Extracted orgId:', extractedOrgId);
       return extractedOrgId;
     }
-    return orgId;
-  }, [location.pathname, orgId]);
+    // 如果路径中没有 organization，返回 undefined（表示根节点）
+    return undefined;
+  }, [pathname]); // ⚠️ 只依赖 pathname 字符串，不依赖 location 对象
 
   const {
     loading,
@@ -216,13 +242,17 @@ const OrgNavigator: React.FC = () => {
   // 🔥 简化：直接使用扁平的 agents 列表，不再从树中提取
   const allAgentsFromStore = useOrgStore((state) => state.agents);
   const rootNode = useOrgStore((state) => state.treeOrgs[0]);
-  const isRootView = !actualOrgId || actualOrgId === 'root';
+  
+  // 使用 useMemo 确保 isRootView 和 actualOrgId 同步更新
+  const isRootView = useMemo(() => {
+    return !actualOrgId || actualOrgId === 'root';
+  }, [actualOrgId]); // ⚠️ 只依赖 actualOrgId，不依赖 pathname（避免重复触发）
+  
   const isUnassignedView = false;
 
   // 当开始搜索时，自动跳转到主页显示全局搜索结果
   useEffect(() => {
     if (searchQuery && searchQuery.trim() && !isRootView) {
-      console.log('[OrgNavigator] Search query detected, navigating to root for global search');
       navigate('/agents');
     }
   }, [searchQuery, isRootView, navigate]);
@@ -290,12 +320,7 @@ const OrgNavigator: React.FC = () => {
       return null; // 没有搜索时返回 null
     }
 
-    console.log('[OrgNavigator] Performing GLOBAL search for:', searchQuery);
-    console.log('[OrgNavigator] Current location:', location.pathname);
-    console.log('[OrgNavigator] isRootView:', isRootView);
-
     // 全局搜索：始终从根节点开始搜索
-    console.log('[OrgNavigator] Searching from ROOT node:', rootNode.name, rootNode.id);
 
     // 构建 agents 映射：orgId -> agents[]
     const agentsMap = new Map<string, OrgAgent[]>();
@@ -309,18 +334,12 @@ const OrgNavigator: React.FC = () => {
 
     // 从根节点开始搜索（全局搜索）
     const results = searchInOrgTree(rootNode, searchQuery, agentsMap);
-    
-    console.log('[OrgNavigator] GLOBAL search results:', {
-      matchedOrgs: results.matchedOrgs.length,
-      matchedAgents: results.matchedAgents.length,
-      orgNames: results.matchedOrgs.map(o => o.name)
-    });
-    
     return results;
   }, [searchQuery, rootNode, allAgentsFromStore]);
 
   // 合并doors和agents到统一的items列表，用于统一渲染
   const allItems = useMemo(() => {
+    
     const items: Array<{type: 'door' | 'agent', data: any, sortOrder: number}> = [];
     
     // 如果有搜索结果，显示搜索结果
@@ -392,32 +411,17 @@ const OrgNavigator: React.FC = () => {
     
     // 按sortOrder排序
     items.sort((a, b) => a.sortOrder - b.sortOrder);
-    
-    // 调试日志
-    console.log('[OrgNavigator] allItems:', {
-      totalItems: items.length,
-      doors: items.filter(i => i.type === 'door').length,
-      agents: items.filter(i => i.type === 'agent').length,
-      agentsForDisplayCount: agentsForDisplay.length,
-      isRootView,
-      actualOrgId,
-      searchQuery,
-      hasSearchResults: !!searchResults
-    });
-    
     return items;
-  }, [levelDoors, agentsForDisplay, isRootView, actualOrgId, searchQuery, searchResults, rootNode, allAgentsFromStore]);
+  }, [levelDoors, agentsForDisplay, searchResults]);
+  // 注意：移除了 isRootView, actualOrgId, searchQuery, rootNode, allAgentsFromStore
+  // 因为它们已经通过 levelDoors, agentsForDisplay, searchResults 间接包含
+  // 避免不必要的重新计算
 
 
   const handleDoorClick = useCallback(
     (door: DisplayNode) => {
-      console.log('[OrgNavigator] handleDoorClick called with door:', door);
-      console.log('[OrgNavigator] searchQuery:', searchQuery);
-      console.log('[OrgNavigator] rootNode:', rootNode?.id);
-      
       // 如果在搜索模式下，清除搜索并导航
       if (searchQuery) {
-        console.log('[OrgNavigator] In search mode, clearing search and navigating...');
         
         // 先清除搜索
         setSearchQuery('');
@@ -441,7 +445,6 @@ const OrgNavigator: React.FC = () => {
           };
 
           const orgPath = buildOrgPath(door.id, rootNode);
-          console.log('[OrgNavigator] Found org path:', orgPath);
           
           if (orgPath && orgPath.length > 0) {
             // 构建完整路径：/agents/organization/id1/organization/id2/...
@@ -449,7 +452,6 @@ const OrgNavigator: React.FC = () => {
             orgPath.slice(1).forEach(id => {
               fullPath += `/organization/${id}`;
             });
-            console.log('[OrgNavigator] Search mode - Navigating to:', fullPath);
             navigate(fullPath);
             return;
           }
@@ -457,15 +459,11 @@ const OrgNavigator: React.FC = () => {
       }
 
       // 正常模式：构建相对路径
-      const currentPath = location.pathname.replace(/\/$/, ''); // 移除末尾斜杠
+      const currentPath = pathname.replace(/\/$/, ''); // 移除末尾斜杠
       const newPath = `${currentPath}/organization/${door.id}`;
-      
-      console.log('[OrgNavigator] Normal mode - Navigating from:', currentPath, 'to:', newPath);
-      console.log('[OrgNavigator] Current actualOrgId:', actualOrgId, 'Target door.id:', door.id);
-      
       navigate(newPath);
     },
-    [navigate, location.pathname, actualOrgId, searchQuery, rootNode, setSearchQuery]
+    [navigate, pathname, actualOrgId, searchQuery, rootNode, setSearchQuery]
   );
 
 
@@ -535,7 +533,6 @@ const OrgNavigator: React.FC = () => {
     const searchParams = new URLSearchParams(location.search);
     const refreshParam = searchParams.get('refresh');
     if (refreshParam && username) {
-      console.log('[OrgNavigator] Refresh parameter detected, force reloading data');
       
       // 强制刷新数据，不检查shouldFetchData
       const forceRefresh = async () => {
@@ -631,7 +628,7 @@ const OrgNavigator: React.FC = () => {
   }
 
   return (
-    <div className="org-navigator">
+    <div ref={navigatorRef} className="org-navigator">
       {/* 简化的科技感背景 */}
       <svg className="navigator-bg-svg" width="100%" height="100%" viewBox="0 0 1200 800" style={{position:'absolute',left:0,top:0,zIndex:0}}>
         {/* 简化的地板网格 - 只保留3层 */}
@@ -730,22 +727,13 @@ const OrgNavigator: React.FC = () => {
           // 传递当前组织ID作为查询参数
           // 如果在根视图，使用根组织的ID；否则使用当前组织ID
           const targetOrgId = isRootView && rootNode ? rootNode.id : actualOrgId;
-          console.log('[OrgNavigator] Add button clicked');
-          console.log('[OrgNavigator] - isRootView:', isRootView);
-          console.log('[OrgNavigator] - actualOrgId:', actualOrgId);
-          console.log('[OrgNavigator] - rootNode.id:', rootNode?.id);
-          console.log('[OrgNavigator] - targetOrgId:', targetOrgId);
 
           const queryParams = new URLSearchParams();
           if (targetOrgId && targetOrgId !== 'root') {
-            console.log('[OrgNavigator] Setting orgId query param:', targetOrgId);
             queryParams.set('orgId', targetOrgId);
-          } else {
-            console.log('[OrgNavigator] Not setting orgId - targetOrgId:', targetOrgId);
           }
           const queryString = queryParams.toString();
           const targetUrl = `/agents/add${queryString ? `?${queryString}` : ''}`;
-          console.log('[OrgNavigator] Navigating to:', targetUrl);
           navigate(targetUrl);
         }}
       />

@@ -11,30 +11,12 @@ const ListContainer = styled.div`
   height: 100%;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 `;
 
 const TasksScrollArea = styled.div`
   flex: 1;
-  overflow-y: auto;
   padding: 0 8px 8px;
-
-  &::-webkit-scrollbar {
-    width: 8px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: var(--scrollbar-thumb);
-    border-radius: 4px;
-
-    &:hover {
-      background: var(--scrollbar-thumb-hover);
-    }
-  }
+  /* 移除 overflow-y: auto，让 DetailLayout 统一处理滚动 */
 `;
 
 const EmptyContainer = styled.div`

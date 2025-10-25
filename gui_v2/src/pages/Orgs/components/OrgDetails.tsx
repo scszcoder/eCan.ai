@@ -2,7 +2,8 @@
  * Org Details Component
  */
 
-import React from 'react';
+import React, { useRef } from 'react';
+import { useEffectOnActive } from 'keepalive-for-react';
 import { Card, Button, Space, Typography, Tag, Popconfirm, Tooltip } from 'antd';
 import { EditOutlined, DeleteOutlined, TeamOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -33,6 +34,30 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
   onChatWithAgent,
 }) => {
   const { t } = useTranslation();
+  
+  // 滚动位置保存
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const savedScrollPositionRef = useRef<number>(0);
+  
+  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  useEffectOnActive(
+    () => {
+      const container = scrollContainerRef.current;
+      if (container && savedScrollPositionRef.current > 0) {
+        requestAnimationFrame(() => {
+          container.scrollTop = savedScrollPositionRef.current;
+        });
+      }
+      
+      return () => {
+        const container = scrollContainerRef.current;
+        if (container) {
+          savedScrollPositionRef.current = container.scrollTop;
+        }
+      };
+    },
+    []
+  );
 
   if (!org) {
     return (
@@ -131,8 +156,9 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
         </div>
       }
       style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
-      styles={{ body: { flex: 1, overflowX: 'hidden', overflowY: 'auto', padding: '16px' } }}
+      styles={{ body: { flex: 1, overflowX: 'hidden', padding: 0 } }}
     >
+      <div ref={scrollContainerRef} style={{ height: '100%', overflowY: 'auto', padding: '16px' }}>
       {/* Org Info */}
       <DetailCard
         title={t('pages.org.info.title')}
@@ -160,6 +186,7 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
             onChatWithAgent={onChatWithAgent}
           />
         )}
+      </div>
       </div>
     </Card>
   );

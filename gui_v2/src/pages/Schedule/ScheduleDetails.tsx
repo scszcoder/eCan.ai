@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useRef } from 'react';
+import { useEffectOnActive } from 'keepalive-for-react';
 import { Space, Typography, Button, Row, Col } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -132,6 +133,30 @@ interface ScheduleDetailsProps {
 const ScheduleDetails: React.FC<ScheduleDetailsProps> = ({ schedule }) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
+    
+    // 滚动位置保存
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const savedScrollPositionRef = useRef<number>(0);
+    
+    // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+    useEffectOnActive(
+        () => {
+            const container = scrollContainerRef.current;
+            if (container && savedScrollPositionRef.current > 0) {
+                requestAnimationFrame(() => {
+                    container.scrollTop = savedScrollPositionRef.current;
+                });
+            }
+            
+            return () => {
+                const container = scrollContainerRef.current;
+                if (container) {
+                    savedScrollPositionRef.current = container.scrollTop;
+                }
+            };
+        },
+        []
+    );
 
     const handleNavigateToTask = () => {
         if (schedule?.taskId) {
@@ -147,7 +172,7 @@ const ScheduleDetails: React.FC<ScheduleDetailsProps> = ({ schedule }) => {
         );
     }
     return (
-        <DetailContainer>
+        <DetailContainer ref={scrollContainerRef}>
             <Space direction="vertical" style={{ width: '100%' }} size={16}>
                 {/* Task Information Card */}
                 {schedule.taskId && (

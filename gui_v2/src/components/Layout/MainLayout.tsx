@@ -48,6 +48,16 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const location = useLocation();
     const { t, i18n } = useTranslation();
     
+    // 记住最后访问的 agents 路径（用于从其他页面返回时恢复）
+    const lastAgentsPathRef = React.useRef<string>('/agents');
+    
+    // 监听路径变化，记录最后访问的 agents 路径
+    useEffect(() => {
+        if (location.pathname.startsWith('/agents')) {
+            lastAgentsPathRef.current = location.pathname;
+        }
+    }, [location.pathname]);
+    
     // 从 window 对象获取搜索状态（由 OrgNavigator 设置）
     // 优化：移除依赖项避免重复创建定时器，增加轮询间隔减少 CPU 占用
     useEffect(() => {
@@ -114,7 +124,14 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         { key: 'profile', icon: <UserOutlined />, label: t('common.profile') },
     ], [t]) as NonNullable<MenuProps['items']>;
 
-    const onMenuClick = ({ key }: { key: string }) => navigate(key);
+    const onMenuClick = ({ key }: { key: string }) => {
+        // 如果点击 Agents 菜单，恢复到最后访问的 agents 路径
+        if (key === '/agents') {
+            navigate(lastAgentsPathRef.current);
+        } else {
+            navigate(key);
+        }
+    };
 
     const isSkillEditor = location.pathname.startsWith('/skill_editor');
     // 检查是否在 agents 相关页面，只有这些页面才显示右侧快速操作菜单

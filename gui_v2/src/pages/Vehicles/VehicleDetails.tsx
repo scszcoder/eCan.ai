@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useRef } from 'react';
+import { useEffectOnActive } from 'keepalive-for-react';
 import { Space, Button, Statistic } from 'antd';
 import { ClusterOutlined, CheckCircleOutlined, EnvironmentOutlined, ThunderboltOutlined, ToolOutlined, ClockCircleOutlined, PlusOutlined, HistoryOutlined } from '@ant-design/icons';
 import type { Vehicle } from '@/stores';
@@ -22,11 +23,34 @@ const DetailContent = styled.div`
 `;
 
 const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange, onMaintenance, t }) => {
+  // 滚动位置保存
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const savedScrollPositionRef = useRef<number>(0);
+  
+  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  useEffectOnActive(
+    () => {
+      const container = scrollContainerRef.current;
+      if (container && savedScrollPositionRef.current > 0) {
+        requestAnimationFrame(() => {
+          container.scrollTop = savedScrollPositionRef.current;
+        });
+      }
+      
+      return () => {
+        const container = scrollContainerRef.current;
+        if (container) {
+          savedScrollPositionRef.current = container.scrollTop;
+        }
+      };
+    },
+    []
+  );
     if (!vehicle) {
         return <span style={{ color: '#888' }}>{t('pages.vehicles.selectVehicle')}</span>;
     }
     return (
-        <DetailContent>
+        <DetailContent ref={scrollContainerRef}>
             <Space direction="vertical" style={{ width: '100%' }} size={24}>
                 {/* 新增：基础信息卡片 */}
                 <DetailCard

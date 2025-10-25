@@ -7,6 +7,7 @@ import ActionButtons from '../../components/Common/ActionButtons';
 
 interface VehicleListProps {
     vehicles: Vehicle[];
+    selectedVehicle?: Vehicle | null;
     onSelect: (vehicle: Vehicle) => void;
     filters: Record<string, any>;
     onFilterChange: (filters: Record<string, any>) => void;
@@ -20,7 +21,8 @@ interface VehicleListProps {
 }
 
 const VehicleList: React.FC<VehicleListProps> = ({ 
-    vehicles, 
+    vehicles,
+    selectedVehicle,
     onSelect, 
     filters, 
     onFilterChange, 
@@ -80,7 +82,12 @@ const VehicleList: React.FC<VehicleListProps> = ({
             itemLayout="vertical"
             split={false}
             renderItem={vehicle => (
-                <VehicleItem vehicle={vehicle} onClick={onSelect} t={t} />
+                <VehicleItem 
+                    vehicle={vehicle} 
+                    selected={selectedVehicle?.id === vehicle.id}
+                    onClick={onSelect} 
+                    t={t} 
+                />
             )}
         />
     </>

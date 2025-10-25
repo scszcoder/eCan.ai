@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Card, Form, Select, Switch, Button, App, Input, Row, Col } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
+import { useEffectOnActive } from 'keepalive-for-react';
 
 import { useUserStore } from '../../stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
@@ -71,6 +72,8 @@ const Settings: React.FC = () => {
   const username = useUserStore((state) => state.username);
 
   const isMountedRef = useRef(false);
+  const settingsContentRef = useRef<HTMLDivElement | null>(null);
+  const savedScrollPositionRef = useRef<number>(0);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -189,9 +192,33 @@ const Settings: React.FC = () => {
     }
   }, [username, loadSettings]);
 
+  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  useEffectOnActive(
+    () => {
+      // 组件激活时：恢复滚动位置
+      const container = settingsContentRef.current;
+      if (container && savedScrollPositionRef.current > 0) {
+        requestAnimationFrame(() => {
+          container.scrollTop = savedScrollPositionRef.current;
+          // console.log('[Settings] Restored scroll position:', savedScrollPositionRef.current);
+        });
+      }
+      
+      // 返回清理函数，在组件失活前保存滚动位置
+      return () => {
+        const container = settingsContentRef.current;
+        if (container) {
+          savedScrollPositionRef.current = container.scrollTop;
+          //console.log('[Settings] Saved scroll position:', savedScrollPositionRef.current);
+        }
+      };
+    },
+    []
+  );
+
   return (
     <SettingsContainer>
-      <SettingsContent>
+      <SettingsContent ref={settingsContentRef}>
         <Card
           title={t('common.settings')}
           extra={

@@ -81,6 +81,7 @@ const Schedule: React.FC = () => {
             listContent={
                 <ScheduleList
                     schedules={schedules}
+                    selectedSchedule={selectedSchedule}
                     onSelect={selectItem}
                     onSearch={handleSearch}
                     onFilter={handleFilter}

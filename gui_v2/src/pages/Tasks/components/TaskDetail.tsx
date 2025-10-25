@@ -7,7 +7,8 @@ import {
 } from '@ant-design/icons';
 import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App, Modal } from 'antd';
 import { useTranslation } from 'react-i18next';
-import React from 'react';
+import React, { useRef } from 'react';
+import { useEffectOnActive } from 'keepalive-for-react';
 import { Task } from '../types';
 import dayjs from 'dayjs';
 import { get_ipc_api } from '@/services/ipc_api';
@@ -95,6 +96,10 @@ const toDayjs = (date: string | Date | null | undefined) => {
 
 export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as any, isNew = false, onSave, onCancel, onDelete }) => {
   const { message } = App.useApp();
+  
+  // 滚动位置保存
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const savedScrollPositionRef = useRef<number>(0);
 
   // Pre-process the task data to ensure dates are valid Dayjs objects or undefined
   const task = React.useMemo(() => {
@@ -289,9 +294,29 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     );
   }
 
+  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  useEffectOnActive(
+    () => {
+      const container = scrollContainerRef.current;
+      if (container && savedScrollPositionRef.current > 0) {
+        requestAnimationFrame(() => {
+          container.scrollTop = savedScrollPositionRef.current;
+        });
+      }
+      
+      return () => {
+        const container = scrollContainerRef.current;
+        if (container) {
+          savedScrollPositionRef.current = container.scrollTop;
+        }
+      };
+    },
+    []
+  );
+
   return (
     <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <FormContainer style={{ flex: 1, overflowY: 'auto', paddingBottom: '20px' }}>
+      <FormContainer ref={scrollContainerRef} style={{ flex: 1, overflowY: 'auto', paddingBottom: '20px' }}>
         <Form
           form={form}
           layout="vertical"

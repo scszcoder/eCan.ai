@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useEffectOnActive } from 'keepalive-for-react';
 import { List, Badge, Avatar, Space, Typography, Tag, Button, Popconfirm, Modal, Tooltip } from 'antd';
 import { UserOutlined, RobotOutlined, TeamOutlined, MinusOutlined, FilterOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
@@ -258,6 +259,30 @@ const ChatList: React.FC<ChatListProps> = ({
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
     const [hoveredDeleteButton, setHoveredDeleteButton] = useState<string | null>(null);
     
+    // 滚动位置保存
+    const chatListAreaRef = useRef<HTMLDivElement>(null);
+    const savedScrollPosition = useRef<number>(0);
+    
+    // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+    useEffectOnActive(
+        () => {
+            const container = chatListAreaRef.current;
+            if (container && savedScrollPosition.current > 0) {
+                requestAnimationFrame(() => {
+                    container.scrollTop = savedScrollPosition.current;
+                });
+            }
+            
+            return () => {
+                const container = chatListAreaRef.current;
+                if (container) {
+                    savedScrollPosition.current = container.scrollTop;
+                }
+            };
+        },
+        []
+    );
+    
     // Get agents from store
     const agents = useAgentStore((state) => state.agents);
     
@@ -483,7 +508,7 @@ const ChatList: React.FC<ChatListProps> = ({
                     />
                 )}
             </div>
-            <ChatListArea>
+            <ChatListArea ref={chatListAreaRef}>
                 <List
                     rowKey={(chat) => (chat as any).id}
                     dataSource={safeChats}

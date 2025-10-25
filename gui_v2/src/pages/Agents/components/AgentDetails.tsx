@@ -10,6 +10,7 @@ import { useTaskStore, useSkillStore, useVehicleStore, useAgentStore } from '@/s
 import { get_ipc_api } from '@/services/ipc_api';
 import { StyledFormItem } from '@/components/Common/StyledForm';
 import { AvatarManager, AvatarData } from '@/components/Avatar';
+import { useEffectOnActive } from 'keepalive-for-react';
 
 type Gender = 'gender_options.male' | 'gender_options.female';
 
@@ -64,11 +65,35 @@ const knownTasks = ['task_001', 'task_002', 'task_003'];
 const knownSkills = ['skill_001', 'skill_002', 'skill_003'];
 
 const AgentDetails: React.FC = () => {
-  const { t } = useTranslation();
   const { message, modal } = App.useApp();
   const navigate = useNavigate();
-  const { id } = useParams();
   const location = useLocation();
+  const { id } = useParams<{ id: string }>();
+  const { t } = useTranslation();
+  
+  // 滚动位置保存
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const savedScrollPositionRef = useRef<number>(0);
+  
+  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  useEffectOnActive(
+    () => {
+      const container = scrollContainerRef.current;
+      if (container && savedScrollPositionRef.current > 0) {
+        requestAnimationFrame(() => {
+          container.scrollTop = savedScrollPositionRef.current;
+        });
+      }
+      
+      return () => {
+        const container = scrollContainerRef.current;
+        if (container) {
+          savedScrollPositionRef.current = container.scrollTop;
+        }
+      };
+    },
+    []
+  );
   // 支持两种新建模式：/agents/add 和 /agents/details/new
   const isNew = id === 'new' || location.pathname === '/agents/add';
   const username = useUserStore((s: any) => s.username);
@@ -225,32 +250,6 @@ const AgentDetails: React.FC = () => {
     // 回退到翻译键
     return t(orgId) || orgId;
   }, [treeOrgs, t]);
-
-  // 根据组织ID获取完整路径
-  const getOrgFullPath = useCallback((orgId: string): string => {
-    const findNodePath = (node: any, targetId: string, parentPath: string = ''): string | null => {
-      const currentPath = parentPath ? `${parentPath} / ${node.name}` : node.name;
-      
-      if (node.id === targetId) {
-        return currentPath;
-      }
-      
-      if (node.children && Array.isArray(node.children)) {
-        for (const child of node.children) {
-          const found = findNodePath(child, targetId, currentPath);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
-
-    if (treeOrgs && treeOrgs.length > 0) {
-      const path = findNodePath(treeOrgs[0], orgId);
-      if (path) return path;
-    }
-    
-    return getOrgName(orgId);
-  }, [treeOrgs, getOrgName]);
 
   // Proactively fetch tasks/skills if empty so dropdowns populate without visiting their pages first
   useEffect(() => {
@@ -1262,7 +1261,7 @@ const AgentDetails: React.FC = () => {
       `}</style>
       <div style={{ padding: 12, height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden', marginTop: '16px' }} styles={{ body: { padding: 12, height: '100%', overflow: 'hidden' } }}>
-          <div style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', paddingRight: 8 }}>
+          <div ref={scrollContainerRef} style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', paddingRight: 8 }}>
           <Form
             form={form}
             layout="vertical"

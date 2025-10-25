@@ -5,14 +5,14 @@ import SearchFilter from '../../components/Common/SearchFilter';
 import type { TaskSchedule } from './Schedule.types';
 import styled from '@emotion/styled';
 
-const ScheduleItem = styled.div`
+const ScheduleItem = styled.div<{ $selected: boolean }>`
     padding: 12px;
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     background: var(--bg-secondary);
     border-radius: 12px;
     margin: 6px 0;
-    border: 2px solid transparent;
+    border: 1px solid transparent;
     position: relative;
     overflow: hidden;
 
@@ -30,13 +30,34 @@ const ScheduleItem = styled.div`
     &:hover {
         background: var(--bg-tertiary);
         transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+        border-color: rgba(255, 255, 255, 0.1);
 
         &::before {
             width: 3px;
             background: var(--primary-color);
         }
     }
+    
+    ${props => props.$selected && `
+        background: linear-gradient(135deg, rgba(24, 144, 255, 0.15) 0%, rgba(24, 144, 255, 0.05) 100%);
+        border: 1px solid rgba(24, 144, 255, 0.4);
+        box-shadow: 0 2px 8px rgba(24, 144, 255, 0.2);
+        
+        &::before {
+            background: var(--primary-color);
+        }
+        
+        &:hover {
+            background: linear-gradient(135deg, rgba(24, 144, 255, 0.2) 0%, rgba(24, 144, 255, 0.08) 100%);
+            border-color: rgba(24, 144, 255, 0.6);
+            box-shadow: 0 4px 16px rgba(24, 144, 255, 0.3);
+            
+            &::before {
+                width: 4px;
+            }
+        }
+    `}
     
     .ant-typography {
         color: var(--text-primary);
@@ -97,6 +118,7 @@ const ScheduleTitle = styled.div`
 
 interface ScheduleListProps {
     schedules: TaskSchedule[];
+    selectedSchedule?: TaskSchedule | null;
     onSelect: (schedule: TaskSchedule) => void;
     onSearch: (value: string) => void;
     onFilter: (filters: Record<string, any>) => void;
@@ -104,7 +126,7 @@ interface ScheduleListProps {
     filters: Record<string, any>;
 }
 
-const ScheduleList: React.FC<ScheduleListProps> = ({ schedules, onSelect, onSearch, onFilter, onFilterReset }) => {
+const ScheduleList: React.FC<ScheduleListProps> = ({ schedules, selectedSchedule, onSelect, onSearch, onFilter, onFilterReset }) => {
     const { t } = useTranslation();
 
     return (
@@ -124,12 +146,15 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ schedules, onSelect, onSear
                 />
             </div>
 
-            {/* Scrollable List Content */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
+            {/* Scrollable List Content - 移除 overflowY，让 DetailLayout 统一处理滚动 */}
+            <div style={{ flex: 1, padding: '8px' }}>
                 <List
                     dataSource={schedules}
                     renderItem={(schedule) => (
-                    <ScheduleItem onClick={() => onSelect(schedule)}>
+                    <ScheduleItem 
+                        $selected={selectedSchedule?.taskId === schedule.taskId}
+                        onClick={() => onSelect(schedule)}
+                    >
                         {/* Task Name as Title */}
                         {schedule.taskName && (
                             <ScheduleTitle>{schedule.taskName}</ScheduleTitle>
