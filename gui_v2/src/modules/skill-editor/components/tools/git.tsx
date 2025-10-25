@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { Dropdown, Button, Toast } from '@douyinfe/semi-ui';
-import { IconBranch } from '@douyinfe/semi-icons';
+import { IconGitColored } from './colored-icons';
 
 export const GitMenu: React.FC = () => {
   const [visible, setVisible] = useState(false);
@@ -44,7 +44,7 @@ export const GitMenu: React.FC = () => {
       <Button
         type="tertiary"
         theme="borderless"
-        icon={<IconBranch />}
+        icon={<IconGitColored size={18} />}
         aria-label="Git"
         title="Git"
         onMouseDown={(e) => {

@@ -204,7 +204,7 @@ def build_org_agent_tree(organizations, agents):
     logger.info(f"  - Total organizations processed: {len(organizations)}")
     logger.info(f"  - Unassigned agents: {len(unassigned_agents)}")
     logger.info(f"Tree structure:")
-    log_tree_structure(tree_root)
+    # log_tree_structure(tree_root)
     
     return tree_root
 

@@ -1,7 +1,8 @@
 import { useState, useCallback } from 'react';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { Tooltip, IconButton, Modal, Input, Button, Typography } from '@douyinfe/semi-ui';
-import { IconInfoCircle, IconCodeStroked } from '@douyinfe/semi-icons';
+import { IconCodeStroked } from '@douyinfe/semi-icons';
+import { IconInfoColored } from './colored-icons';
 import { useCodeEditor } from '../code-editor';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 
@@ -56,11 +57,11 @@ export const Info = () => {
 
   return (
     <>
-      <Tooltip content={skillName || 'Edit Skill'}>
+      <Tooltip content="Info">
         <IconButton
           type="tertiary"
           theme="borderless"
-          icon={<IconInfoCircle />}
+          icon={<IconInfoColored size={18} />}
           onClick={() => setVisible(true)}
         />
       </Tooltip>

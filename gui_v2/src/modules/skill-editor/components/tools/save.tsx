@@ -2,12 +2,10 @@ import { useCallback } from 'react';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 
 import { Tooltip, IconButton, Toast } from '@douyinfe/semi-ui';
-import { IconSave, IconCopy } from '@douyinfe/semi-icons';
+import { IconSaveColored, IconSaveAsColored } from './colored-icons';
 import { useUserStore } from '../../../../stores/userStore';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
-import { get_ipc_api } from '@/services/ipc_api';
 import { SkillInfo } from '../../typings/skill-info';
-import { hasIPCSupport, hasFullFilePaths } from '../../../../config/platform';
 import '../../../../services/ipc/file-api'; // Import file API extensions
 import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files-store';
 import { IPCWCClient } from '@/services/ipc/ipcWCClient';
@@ -393,7 +391,7 @@ export const Save = ({ disabled }: SaveProps) => {
       <IconButton
         type="tertiary"
         theme="borderless"
-        icon={<IconSave />}
+        icon={<IconSaveColored size={18} />}
         disabled={disabled}
         onClick={handleSave}
       />
@@ -553,7 +551,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
       <IconButton
         type="tertiary"
         theme="borderless"
-        icon={<IconCopy />}
+        icon={<IconSaveAsColored size={18} />}
         disabled={disabled}
         onClick={handleSaveAs}
       />

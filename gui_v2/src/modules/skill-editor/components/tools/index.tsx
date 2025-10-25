@@ -8,7 +8,7 @@ import { useState, useEffect } from 'react';
 import { useRefresh } from '@flowgram.ai/free-layout-editor';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { Tooltip, IconButton, Divider } from '@douyinfe/semi-ui';
-import { IconUndo, IconRedo, IconPause, IconStop, IconForward, IconPlay, IconHelpCircle } from '@douyinfe/semi-icons';
+import { IconUndoColored, IconRedoColored, IconPauseColored, IconStopColored, IconStepColored, IconResumeColored, IconHelpColored } from './colored-icons';
 
 import { TestRunButton } from '../testrun/testrun-button';
 import { TestRunControlButton } from '../testrun/testrun-controls';
@@ -99,7 +99,7 @@ export const Tools = () => {
           <IconButton
             type="tertiary"
             theme="borderless"
-            icon={<IconUndo />}
+            icon={<IconUndoColored size={18} />}
             disabled={!canUndo || playground.config.readonly}
             onClick={() => history.undo()}
           />
@@ -108,7 +108,7 @@ export const Tools = () => {
           <IconButton
             type="tertiary"
             theme="borderless"
-            icon={<IconRedo />}
+            icon={<IconRedoColored size={18} />}
             disabled={!canRedo || playground.config.readonly}
             onClick={() => history.redo()}
           />
@@ -129,31 +129,31 @@ export const Tools = () => {
           <IconButton
             type="tertiary"
             theme="borderless"
-            icon={<IconHelpCircle />}
+            icon={<IconHelpColored size={18} />}
             onClick={() => setHelpVisible(true)}
           />
         </Tooltip>
         <TestRunButton disabled={playground.config.readonly} />
         <TestRunControlButton
-          icon={<IconPause size="small" />}
+          icon={<IconPauseColored size={16} />}
           onClick={() => handleRunControl('pause')}
           tooltip="Pause Run"
           disabled={playground.config.readonly}
         />
         <TestRunControlButton
-          icon={<IconForward size="small" />}
+          icon={<IconStepColored size={16} />}
           onClick={() => handleRunControl('step')}
           tooltip="Step Run"
           disabled={playground.config.readonly}
         />
         <TestRunControlButton
-          icon={<IconPlay size="small" />}
+          icon={<IconResumeColored size={16} />}
           onClick={() => handleRunControl('resume')}
           tooltip="Resume Run"
           disabled={playground.config.readonly}
         />
         <TestRunControlButton
-          icon={<IconStop size="small" />}
+          icon={<IconStopColored size={16} />}
           onClick={() => handleRunControl('cancel')}
           tooltip="Stop Run"
           disabled={playground.config.readonly}

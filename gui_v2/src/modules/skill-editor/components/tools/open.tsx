@@ -1,10 +1,9 @@
 import { useCallback } from 'react';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { Tooltip, IconButton, Toast } from '@douyinfe/semi-ui';
-import { IconFolderOpen } from '@douyinfe/semi-icons';
+import { IconOpenColored } from './colored-icons';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { SkillInfo } from '../../typings/skill-info';
-import { hasIPCSupport, hasFullFilePaths } from '../../../../config/platform';
 import '../../../../services/ipc/file-api'; // Import file API extensions
 import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files-store';
 import { useSheetsStore } from '../../stores/sheets-store';
@@ -259,7 +258,7 @@ export const Open = ({ disabled }: OpenProps) => {
       <IconButton
         type="tertiary"
         theme="borderless"
-        icon={<IconFolderOpen />}
+        icon={<IconOpenColored size={18} />}
         disabled={disabled}
         onClick={handleOpen}
       />

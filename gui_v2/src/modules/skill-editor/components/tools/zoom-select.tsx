@@ -4,6 +4,7 @@ import { usePlayground, usePlaygroundTools } from '@flowgram.ai/free-layout-edit
 import { Divider, Dropdown } from '@douyinfe/semi-ui';
 
 import { SelectZoom } from './styles';
+import { IconZoomColored } from './colored-icons';
 
 export const ZoomSelect = () => {
   const tools = usePlaygroundTools({ maxZoom: 2, minZoom: 0.25 });
@@ -35,7 +36,10 @@ export const ZoomSelect = () => {
         </Dropdown.Menu>
       }
     >
-      <SelectZoom onClick={() => openDropDown(true)}>{Math.floor(tools.zoom * 100)}%</SelectZoom>
+      <SelectZoom onClick={() => openDropDown(true)}>
+        <IconZoomColored size={14} />
+        <span style={{ marginLeft: '4px' }}>{Math.floor(tools.zoom * 100)}%</span>
+      </SelectZoom>
     </Dropdown>
   );
 };
