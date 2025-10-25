@@ -38,7 +38,32 @@ def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         # Simple password validation
         logger.info(f"get settings successful for user: {username}")
         main_window = AppContext.get_main_window()
-        settings = main_window.config_manager.general_settings.data
+        general_settings = main_window.config_manager.general_settings
+        settings = general_settings.data.copy()
+        
+        # Add cached hardware detection info (no real-time probing here)
+        try:
+            # Use cached value updated by background scan
+            cached_wifi = general_settings.default_wifi or None
+            settings['current_wifi'] = cached_wifi
+            logger.debug(f"Current WiFi (cached): {cached_wifi}")
+
+            # Cached or last-scan results
+            available_wifi_networks = general_settings.get_wifi_networks()
+            settings['available_wifi_networks'] = available_wifi_networks
+            logger.debug(f"Available WiFi networks (cached): {len(available_wifi_networks)}")
+
+            available_printers = general_settings.get_printer_names()
+            settings['available_printers'] = available_printers
+            logger.debug(f"Available printers (cached): {len(available_printers)}")
+
+        except Exception as hw_error:
+            logger.warning(f"Failed to get cached hardware info: {hw_error}")
+            # Don't fail the entire request if cache is unavailable
+            settings['current_wifi'] = None
+            settings['available_wifi_networks'] = []
+            settings['available_printers'] = []
+        
         resultJS = {
             'settings': settings,
             'message': 'Get settings successful'

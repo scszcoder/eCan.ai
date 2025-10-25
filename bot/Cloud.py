@@ -40,8 +40,9 @@ def get_appsync_endpoint() -> str:
 #resp is the response from requesting the presigned_url
 def send_file_with_presigned_url(src_file, resp):
     #Upload file to S3 using presigned URL
-    files = { 'file': open(src_file, 'rb')}
-    r = requests.post(resp['url'], data=resp['fields'], files=files)
+    with open(src_file, 'rb') as f:
+        files = { 'file': f}
+        r = requests.post(resp['url'], data=resp['fields'], files=files, timeout=60)
     #r = requests.post(resp['body'][0], files=files)
     logger_helper.debug(str(r.status_code))
 
@@ -49,7 +50,7 @@ def send_file_with_presigned_url(src_file, resp):
 def get_file_with_presigned_url(dest_file, url):
     #Download file to S3 using presigned URL
     # POST to S3 presigned url
-    http_response = requests.get(url, stream=True)
+    http_response = requests.get(url, stream=True, timeout=60)
     print("DL presigned:", http_response)
     if http_response.status_code == 200:
         dest_dir = os.path.dirname(dest_file)

@@ -352,18 +352,31 @@ class SettingsManager:
 
     def list_wifi_networks(self) -> bool:
         """
-        Detect and list available WiFi networks using shared hardware detector
+        Detect and list available WiFi networks using shared hardware detector.
+        This method now triggers a background scan to avoid blocking the UI.
 
         Returns:
-            True if WiFi networks detected successfully, False otherwise
+            True if a scan was started or data already available, False otherwise
         """
         try:
-            # Use shared hardware detector
             detector = get_hardware_detector()
-            self.wifi_list = detector.detect_wifi_networks()
 
-            logger.info(f"Found {len(self.wifi_list)} WiFi networks.")
-            return len(self.wifi_list) > 0
+            def _on_complete(ssids):
+                try:
+                    self.wifi_list = ssids or []
+                    logger.info(f"WiFi scan completed (background): {len(self.wifi_list)} networks")
+                except Exception as e:
+                    logger.warning(f"Failed to handle WiFi scan completion: {e}")
+
+            started = detector.start_wifi_scan_background(on_complete=_on_complete)
+            if started:
+                logger.debug("Started background WiFi scan")
+                # Return True to indicate the scan is in progress
+                return True
+            else:
+                # Scan already running; return whether we have cached data
+                logger.debug("Background WiFi scan already in progress")
+                return len(self.wifi_list) > 0
 
         except Exception as e:
             logger.error(f"An unexpected error occurred while listing WiFi networks: {e}")
@@ -517,8 +530,9 @@ class SettingsManager:
 
                 # Detect hardware in background with timeout protection
                 try:
+                    # Trigger background WiFi scan; do not block here
                     self.list_wifi_networks()
-                    logger.debug("WiFi networks detection completed")
+                    logger.debug("WiFi networks detection started (background)")
                 except Exception as e:
                     logger.warning(f"WiFi detection failed in async mode: {e}")
 
@@ -534,25 +548,34 @@ class SettingsManager:
                         general_settings = self.parent.config_manager.general_settings
                         settings_changed = False
 
-                        # Set current WiFi if not already set
+                        # Always update WiFi to current connected WiFi
                         try:
                             current_wifi = get_default_wifi_ssid()
-                            if current_wifi and not general_settings.default_wifi:
-                                general_settings.default_wifi = current_wifi
-                                settings_changed = True
-                                logger.info(f"Auto-set default WiFi to: {current_wifi}")
+                            if current_wifi:
+                                if general_settings.default_wifi != current_wifi:
+                                    old_wifi = general_settings.default_wifi
+                                    general_settings.default_wifi = current_wifi
+                                    settings_changed = True
+                                    logger.info(f"Updated default WiFi: '{old_wifi}' -> '{current_wifi}'")
+                            else:
+                                logger.debug("No current WiFi detected")
                         except Exception as e:
-                            logger.warning(f"Failed to auto-set WiFi: {e}")
+                            logger.warning(f"Failed to update WiFi: {e}")
 
-                        # Set default printer if not already set
+                        # Always update printer to first detected printer
                         try:
                             printer_names = self.get_printer_names()
-                            if printer_names and not general_settings.default_printer:
-                                general_settings.default_printer = printer_names[0]
-                                settings_changed = True
-                                logger.info(f"Auto-set default printer to: {printer_names[0]}")
+                            if printer_names:
+                                first_printer = printer_names[0]
+                                if general_settings.default_printer != first_printer:
+                                    old_printer = general_settings.default_printer
+                                    general_settings.default_printer = first_printer
+                                    settings_changed = True
+                                    logger.info(f"Updated default printer: '{old_printer}' -> '{first_printer}'")
+                            else:
+                                logger.debug("No printers detected")
                         except Exception as e:
-                            logger.warning(f"Failed to auto-set printer: {e}")
+                            logger.warning(f"Failed to update printer: {e}")
 
                         # Save settings if any changes were made
                         if settings_changed:

@@ -20,11 +20,15 @@ import os
 import platform
 import requests
 import socket
+import random
+import shutil
+import re
 import threading
 import time
 import traceback
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from csv import reader
 from os.path import exists
 from typing import List
 
@@ -2007,26 +2011,14 @@ class MainWindow:
                 logger.error("[MainWindow] ❌ No agents available after merge")
                 return False
             
-            # Step 3: Convert DB/Cloud agent dicts to EC_Agent objects
-            logger.info("[MainWindow] 🔄 Converting DB/Cloud agents to EC_Agent objects...")
-            converted_agents = await self._convert_db_agents_to_objects()
-            logger.info(f"[MainWindow] ✅ Converted {len(converted_agents)} DB/Cloud agents")
+            # Step 3: Verify all agents are EC_Agent objects (already converted in _merge_all_agent_sources)
+            dict_count = sum(1 for a in self.agents if isinstance(a, dict))
+            ec_agent_count = len(self.agents) - dict_count
             
-            # Replace dict agents with EC_Agent objects
-            new_agents_list = []
-            for agent in self.agents:
-                if isinstance(agent, dict):
-                    agent_id = agent.get('id')
-                    converted = next((a for a in converted_agents if hasattr(a, 'card') and a.card.id == agent_id), None)
-                    if converted:
-                        new_agents_list.append(converted)
-                    else:
-                        logger.warning(f"[MainWindow] ⚠️ Failed to convert agent {agent.get('name')}")
-                else:
-                    new_agents_list.append(agent)
+            if dict_count > 0:
+                logger.warning(f"[MainWindow] ⚠️ Found {dict_count} unconverted dict agents (expected 0)")
             
-            self.agents = new_agents_list
-            logger.info(f"[MainWindow] ✅ Final agent list: {len(self.agents)} EC_Agent objects")
+            logger.info(f"[MainWindow] ✅ Final agent list: {ec_agent_count} EC_Agent objects")
             
             # Step 4: Launch agents in background (non-blocking)
             self._launch_agents_async(self.agents)
@@ -2315,46 +2307,6 @@ class MainWindow:
             import traceback
             logger.debug(f"[MainWindow] Merge error traceback: {traceback.format_exc()}")
             return 0, 0, len(self.agent_tasks)
-    
-    async def _convert_db_agents_to_objects(self):
-        """
-        Convert DB/Cloud agent dicts to EC_Agent objects with A2A support
-        Returns: List of EC_Agent objects
-        """
-        try:
-            from agent.ec_agent import EC_Agent
-            from agent.a2a.common.types import AgentCard
-            from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
-            
-            converted_agents = []
-            
-            # Get all dict agents from self.agents
-            logger.info(f"[MainWindow] 🔍 DEBUG: self.agents has {len(self.agents)} total items")
-            logger.info(f"[MainWindow] 🔍 DEBUG: Types in self.agents: {[type(a).__name__ for a in self.agents[:5]]}")
-            dict_agents = [agent for agent in self.agents if isinstance(agent, dict)]
-            
-            logger.info(f"[MainWindow] 🔄 Converting {len(dict_agents)} dict agents to EC_Agent objects...")
-            
-            # Use common converter function for consistency
-            from agent.agent_converter import convert_agent_dict_to_ec_agent
-            
-            for agent_data in dict_agents:
-                # Debug: log agent data
-                logger.debug(f"[MainWindow] 🔍 Converting agent: {agent_data.get('name')}, org_id from DB: {agent_data.get('org_id')}")
-                
-                # Convert using common function
-                agent = convert_agent_dict_to_ec_agent(agent_data, self)
-                
-                if agent:
-                    converted_agents.append(agent)
-            
-            logger.info(f"[MainWindow] ✅ Successfully converted {len(converted_agents)}/{len(dict_agents)} agents")
-            return converted_agents
-            
-        except Exception as e:
-            logger.error(f"[MainWindow] ❌ Failed to convert DB agents: {e}")
-            logger.error(f"[MainWindow] Traceback: {traceback.format_exc()}")
-            return []
     
     async def _fetch_cloud_agents(self):
         """
@@ -8470,7 +8422,8 @@ class MainWindow:
 
                         # sync finger print profiles from that vehicle.
                         if  msg["type"] == "pong":
-                            self.syncFingerPrintOnConnectedVehicle(found_vehicle)
+                            # Launch async function without blocking
+                            asyncio.ensure_future(self.syncFingerPrintOnConnectedVehicle(found_vehicle))
 
             elif msg["type"] == "status":
                 # update vehicle status display.
@@ -10222,15 +10175,16 @@ class MainWindow:
             asyncio.ensure_future(self.wan_send_heartbeat())
 
 
-    def wan_chat_test(self):
+    async def wan_chat_test(self):
+        """Non-blocking WAN chat test - converted to async to avoid UI freeze"""
         if self.host_role == "Staff Officer":
             asyncio.ensure_future(self.wan_ping())
-            time.sleep(1)
+            await asyncio.sleep(1.0)  # Non-blocking wait
             asyncio.ensure_future(self.wan_self_ping())
         elif self.host_role != "Platoon":
             asyncio.ensure_future(self.wan_pong())
             # asyncio.ensure_future(self.wan_c_send_chat("got it!!!"))
-            # time.sleep(1)
+            # await asyncio.sleep(1.0)
             # asyncio.ensure_future(self.wan_self_ping())
             # self.think_about_a_reponse("[abc]'hello?'")
 
@@ -10937,7 +10891,8 @@ class MainWindow:
     # all the latest finger print profiles of the troop members on that team.
     # we will stores them onto the local dir, if there is existing ones, compare the time stamp of incoming file and existing file,
     # if the incoming file has a later time stamp, then overwrite the existing one.
-    def syncFingerPrintRequest(self):
+    async def syncFingerPrintRequest(self):
+        """Sync fingerprint request - converted to async to avoid UI freeze"""
         try:
             self.botFingerPrintsReady = False
             if self.machine_role == "Commander":
@@ -10961,11 +10916,7 @@ class MainWindow:
                 sync_time_out =  len(self.expected_vehicle_responses.keys())*VTIMEOUT
                 sync_time_out = VTIMEOUT
                 print("waiting for ", sync_time_out, "seconds...")
-                time.sleep(8)
-                # while not( sync_time_out == 0):
-                #     time.sleep(2)
-                #     sync_time_out = sync_time_out-1
-                #     print("tick...", sync_time_out)
+                await asyncio.sleep(8.0)  # Non-blocking wait for responses
 
 
         except Exception as e:
@@ -10979,7 +10930,8 @@ class MainWindow:
             log3(ex_stat)
 
 
-    def syncFingerPrintOnConnectedVehicle(self, vehicle):
+    async def syncFingerPrintOnConnectedVehicle(self, vehicle):
+        """Sync fingerprint on connected vehicle - converted to async to avoid UI freeze"""
         try:
             self.botFingerPrintsReady = False
             if self.machine_role == "Commander":
@@ -11002,10 +10954,10 @@ class MainWindow:
                 VTIMEOUT = 12
                 sync_time_out = VTIMEOUT
                 print("waiting for ", sync_time_out, "seconds....")
-                while not( sync_time_out == 0):
-                    time.sleep(1)
-                    sync_time_out = sync_time_out-1
-                    print("tick...", sync_time_out)
+                # Non-blocking wait with progress indication
+                for i in range(sync_time_out):
+                    await asyncio.sleep(1.0)
+                    print("tick...", sync_time_out - i - 1)
 
 
         except Exception as e:
