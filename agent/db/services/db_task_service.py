@@ -113,8 +113,29 @@ class DBTaskService(BaseService):
         return self._add(DBAgentTask, data)
 
     def delete_task(self, task_id):
-        """Delete a task"""
-        return self._delete(DBAgentTask, task_id)
+        """Delete a task and its related associations"""
+        try:
+            with self.session_scope() as s:
+                # First, delete all agent-task relationships
+                s.query(DBAgentTaskRel).filter(
+                    DBAgentTaskRel.task_id == task_id
+                ).delete(synchronize_session=False)
+                
+                # Then, delete all task-skill relationships
+                s.query(DBAgentTaskSkillRel).filter(
+                    DBAgentTaskSkillRel.task_id == task_id
+                ).delete(synchronize_session=False)
+                
+                # Finally, delete the task itself
+                task = s.get(DBAgentTask, task_id)
+                if task:
+                    s.delete(task)
+                    s.flush()
+                    return {"success": True, "id": task_id, "data": None, "error": None}
+                else:
+                    return {"success": False, "id": task_id, "data": None, "error": "Task not found"}
+        except SQLAlchemyError as e:
+            return {"success": False, "id": task_id, "data": None, "error": str(e)}
 
     def update_task(self, task_id, fields):
         """Update a task"""

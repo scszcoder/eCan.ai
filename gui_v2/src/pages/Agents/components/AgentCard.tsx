@@ -18,6 +18,7 @@ import { useAgentStore } from '@/stores/agentStore';
 import { useOrgStore } from '@/stores/orgStore';
 import { useUserStore } from '@/stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
+import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
 import './AgentCard.css';
 
 interface AgentCardProps {
@@ -57,6 +58,7 @@ function getAgentDescription(agent: Agent | AgentCardType): string {
  */
 function AgentCard({ agent, onChat }: AgentCardProps) {
   const { t } = useTranslation();
+  const showDeleteConfirm = useDeleteConfirm();
   const navigate = useNavigate();
   const location = useLocation();
   const username = useUserStore((state) => state.username);
@@ -121,7 +123,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
   };
   
   // 使用 App 组件的上下文
-  const { modal, message } = App.useApp();
+  const { message } = App.useApp();
   
   // 处理删除
   const handleDelete = () => {
@@ -130,12 +132,11 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
       return;
     }
     
-    modal.confirm({
-      title: t('common.confirm_delete') || 'Confirm Delete',
-      content: t('common.confirm_delete_desc') || 'Are you sure you want to delete this agent?',
-      okText: t('common.ok') || 'OK',
-      cancelText: t('common.cancel') || 'Cancel',
-      okButtonProps: { danger: true },
+    showDeleteConfirm({
+      title: t('pages.agents.deleteConfirmTitle', 'Delete Agent'),
+      message: t('pages.agents.deleteConfirmMessage', `Are you sure you want to delete "${name}"? This action cannot be undone.`),
+      okText: t('common.delete', 'Delete'),
+      cancelText: t('common.cancel', 'Cancel'),
       onOk: async () => {
         try {
           const api = get_ipc_api();
