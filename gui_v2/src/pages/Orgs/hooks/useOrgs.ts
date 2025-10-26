@@ -100,7 +100,40 @@ export const useOrgs = () => {
       if (response.success && response.data) {
         const agents = (response.data as any).agents || [];
         const validAgents = agents.filter((agent: any) => agent && agent.id && agent.name);
-        updateDataState({ orgAgents: validAgents, loading: false });
+        
+        // 额外加载完整的 agent 数据（包括 avatar）
+        if (validAgents.length > 0) {
+          const agentIds = validAgents.map((a: any) => a.id || a.card?.id).filter(Boolean);
+          const fullAgentsResponse = await api.getAgents(username, agentIds);
+          
+          if (fullAgentsResponse.success && fullAgentsResponse.data) {
+            const fullAgents = (fullAgentsResponse.data as any).agents || [];
+            
+            // 合并数据：将 avatar 信息合并到原始 agent 数据中
+            const mergedAgents = validAgents.map((agent: any) => {
+              const fullAgent = fullAgents.find((fa: any) => 
+                (fa.id || fa.card?.id) === (agent.id || agent.card?.id)
+              );
+              
+              if (fullAgent) {
+                return {
+                  ...agent,
+                  avatar: fullAgent.avatar,
+                  avatar_resource_id: fullAgent.avatar_resource_id,
+                };
+              }
+              
+              return agent;
+            });
+            
+            updateDataState({ orgAgents: mergedAgents, loading: false });
+          } else {
+            // 如果获取完整数据失败，使用原始数据
+            updateDataState({ orgAgents: validAgents, loading: false });
+          }
+        } else {
+          updateDataState({ orgAgents: validAgents, loading: false });
+        }
       } else {
         message.error(t('pages.org.messages.loadFailed'));
         updateDataState({ loading: false });
