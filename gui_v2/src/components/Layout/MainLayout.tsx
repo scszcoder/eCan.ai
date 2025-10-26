@@ -165,7 +165,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                             left: 0, 
                             right: 0,
                             zIndex: 10,
-                            padding: '14px 24px',
+                            padding: '10px 24px',
                             background: 'rgba(30, 41, 59, 0.95)',
                             borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
                             boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)'

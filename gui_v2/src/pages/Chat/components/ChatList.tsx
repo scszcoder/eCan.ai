@@ -570,12 +570,13 @@ const ChatList: React.FC<ChatListProps> = ({
                     />
                 </div>
                 {onFilterClick && (
-                    <StyledFilterButton
-                        icon={<FilterOutlined />}
-                        onClick={onFilterClick}
-                        type="text"
-                        title={t('pages.chat.filterByAgent')}
-                    />
+                    <Tooltip title={t('pages.chat.filterByAgent')}>
+                        <StyledFilterButton
+                            icon={<FilterOutlined />}
+                            onClick={onFilterClick}
+                            type="text"
+                        />
+                    </Tooltip>
                 )}
             </div>
             <ChatListArea ref={chatListAreaRef}>

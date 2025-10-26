@@ -191,7 +191,7 @@ const Vehicles: React.FC = () => {
 
   const listTitle = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-      <span>{t('pages.vehicles.title')}</span>
+      <span style={{ fontSize: '16px', fontWeight: 600, lineHeight: '24px' }}>{t('pages.vehicles.title')}</span>
       <Space size={0}>
         <Tooltip title={t('pages.vehicles.refreshVehicles', '刷新')}>
           <StyledActionButton

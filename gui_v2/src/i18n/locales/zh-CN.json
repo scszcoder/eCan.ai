@@ -211,6 +211,7 @@
       "userRating": "用户评分"
     },
     "chat": {
+      "title": "聊天记录",
       "addChat": "添加聊天",
       "busy": "忙碌",
       "chatDetails": "聊天详情",
@@ -302,7 +303,6 @@
       "myself": "自己",
       "statistics": "统计",
       "submit": "提交",
-      "title": "标题",
       "typeMessage": "输入消息",
       "userCancelledSave": "用户取消保存",
       "viewDetails": "查看详情",
@@ -351,6 +351,7 @@
       "zoneA": "A区域"
     },
     "dashboard": {
+      "title": "总揽",
       "activeAgents": "活跃代理",
       "agentsCount": "代理数量",
       "errorTitle": "错误标题",
@@ -367,6 +368,7 @@
       "welcome": "欢迎"
     },
     "schedule": {
+      "title": "日程管理",
       "repeatSettings": "重复设置",
       "timeRange": "时间范围",
       "searchSchedulePlaceholder": "搜索日程...",
@@ -406,7 +408,6 @@
       },
       "timeAndLocation": "时间和地点",
       "timeOut": "超时",
-      "title": "标题",
       "twoWeeksFromNow": "两周后",
       "weekDays": "工作日"
     },
@@ -492,6 +493,7 @@
       "ocr_api_key": "OCR API 密钥"
     },
     "skills": {
+      "title": "技能列表",
       "addSkill": "添加技能",
       "category": "分类",
       "deleteSkill": "删除技能",
@@ -593,17 +595,16 @@
       "time": {
         "justNow": "刚刚"
       },
-      "title": "标题",
       "usageCount": "使用次数",
       "viewHistory": "查看历史"
     },
     "tasks": {
+      "title": "任务管理",
       "add": "添加",
       "details": "详情",
       "name": "名称",
       "namePlaceholder": "名称占位符",
       "refresh": "刷新",
-      "title": "标题",
       "skill": "技能",
       "skillPlaceholder": "选择技能",
       "priorityLabel": "优先级",
@@ -717,6 +718,7 @@
       "testsToRun": "要运行的测试"
     },
     "tools": {
+      "title": "工具列表",
       "addTool": "添加工具",
       "deleteTool": "删除工具",
       "description": "描述",
@@ -729,7 +731,6 @@
       "refresh": "刷新",
       "refreshTools": "刷新工具",
       "selectTool": "选择工具",
-      "title": "标题",
       "toolSettings": "工具设置"
     },
     "vehicles": {
@@ -779,7 +780,7 @@
         "offline": "离线"
       },
       "testDisabled": "测试禁用",
-      "title": "设备管理",
+      "title": "电脑管理",
       "totalDistance": "总距离",
       "type": "类型",
       "vehicleInformation": "设备信息",

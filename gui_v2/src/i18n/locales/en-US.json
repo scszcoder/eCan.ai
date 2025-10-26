@@ -211,6 +211,7 @@
       "userRating": "User Rating"
     },
     "chat": {
+      "title": "Chat History",
       "addChat": "Add Chat",
       "busy": "Busy",
       "chatDetails": "Chat Details",
@@ -302,7 +303,6 @@
       "myself": "Myself",
       "statistics": "Statistics",
       "submit": "Submit",
-      "title": "Title",
       "typeMessage": "Type Message",
       "userCancelledSave": "User Cancelled Save",
       "viewDetails": "View Details",
@@ -351,6 +351,7 @@
       "zoneA": "Zone A"
     },
     "dashboard": {
+      "title": "Overview",
       "activeAgents": "Active Agents",
       "agentsCount": "Agents Count",
       "errorTitle": "Error Title",
@@ -367,6 +368,7 @@
       "welcome": "Welcome"
     },
     "schedule": {
+      "title": "Schedule Management",
       "repeatSettings": "Repeat Settings",
       "timeRange": "Time Range",
       "searchSchedulePlaceholder": "Search schedules...",
@@ -407,7 +409,6 @@
       },
       "timeAndLocation": "Time And Location",
       "timeOut": "Time Out",
-      "title": "Title",
       "twoWeeksFromNow": "Two Weeks From Now"
     },
     "settings": {
@@ -492,6 +493,7 @@
       "ocr_api_key": "OCR API Key"
     },
     "skills": {
+      "title": "Skills List",
       "addSkill": "Add Skill",
       "category": "Category",
       "deleteSkill": "Delete Skill",
@@ -593,17 +595,16 @@
       "time": {
         "justNow": "Just Now"
       },
-      "title": "Title",
       "usageCount": "Usage Count",
       "viewHistory": "View History"
     },
     "tasks": {
+      "title": "Task Management",
       "add": "Add",
       "details": "Details",
       "name": "Name",
       "namePlaceholder": "Name Placeholder",
       "refresh": "Refresh",
-      "title": "Title",
       "skill": "Skill",
       "skillPlaceholder": "Select a skill",
       "priorityLabel": "Priority",
@@ -717,6 +718,7 @@
       "testsToRun": "Tests to Run"
     },
     "tools": {
+      "title": "Tools List",
       "addTool": "Add Tool",
       "deleteTool": "Delete Tool",
       "description": "Description",
@@ -779,7 +781,7 @@
         "offline": "Offline"
       },
       "testDisabled": "Test Disabled",
-      "title": "Vehicle Management",
+      "title": "Computer Management",
       "totalDistance": "Total Distance",
       "type": "Type",
       "vehicleInformation": "Vehicle Information",

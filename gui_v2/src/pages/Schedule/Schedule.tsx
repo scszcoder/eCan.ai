@@ -86,7 +86,7 @@ const Schedule: React.FC = () => {
 
     const listTitle = (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-            <span>{t('pages.schedule.title')}</span>
+            <span style={{ fontSize: '16px', fontWeight: 600, lineHeight: '24px' }}>{t('pages.schedule.title')}</span>
             <Tooltip title={t('pages.schedule.refresh', '刷新')}>
                 <StyledRefreshButton
                     shape="circle"

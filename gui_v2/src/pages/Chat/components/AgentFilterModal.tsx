@@ -288,9 +288,10 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
         <div style={{ 
           maxHeight: 400, 
           overflow: 'auto',
-          backgroundColor: 'var(--bg-primary)',
+          background: 'rgba(15, 23, 42, 0.5)',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
           borderRadius: '8px',
-          padding: '8px'
+          padding: '12px'
         }}>
           <Tree
             treeData={treeData}

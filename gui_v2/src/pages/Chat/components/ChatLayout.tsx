@@ -216,7 +216,7 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
               title={listTitle}
               variant="borderless"
               style={{ height: '100%', width: '100%', borderRadius: 0 }}
-              styles={{ body: { height: 'calc(100% - 56px)', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
+              styles={{ body: { height: 'calc(100% - 48px)', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
             >
               {listContent}
             </Card>
@@ -239,7 +239,7 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
               title={centerTitle}
               variant="borderless"
               style={{ height: '100%', width: '100%', borderRadius: 0 }}
-              styles={{ body: { height: 'calc(100% - 56px)', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
+              styles={{ body: { height: 'calc(100% - 48px)', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
             >
               {detailsContent}
             </Card>
@@ -250,7 +250,7 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
                 title={chatNotificationTitle}
                 variant="borderless"
                 style={{ height: '100%', width: '100%', borderRadius: 0, flex: 1 }}
-                styles={{ body: { height: 'calc(100% - 56px)', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
+                styles={{ body: { height: 'calc(100% - 48px)', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
               >
                 {chatNotificationContent}
               </Card>
