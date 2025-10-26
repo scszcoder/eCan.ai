@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { App, Button, Card, Col, DatePicker, Form, Input, Modal, Radio, Row, Select, Tag, Tooltip, TreeSelect } from 'antd';
+import { App, Button, Card, Col, DatePicker, Form, Input, Radio, Row, Select, Tag, Tooltip, TreeSelect } from 'antd';
 import { EditOutlined, SaveOutlined, InfoCircleOutlined, DeleteOutlined, CloseOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
@@ -11,6 +11,7 @@ import { get_ipc_api } from '@/services/ipc_api';
 import { StyledFormItem } from '@/components/Common/StyledForm';
 import { AvatarManager, AvatarData } from '@/components/Avatar';
 import { useEffectOnActive } from 'keepalive-for-react';
+import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
 
 type Gender = 'gender_options.male' | 'gender_options.female';
 
@@ -65,7 +66,8 @@ const knownTasks = ['task_001', 'task_002', 'task_003'];
 const knownSkills = ['skill_001', 'skill_002', 'skill_003'];
 
 const AgentDetails: React.FC = () => {
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
+  const showDeleteConfirm = useDeleteConfirm();
   const navigate = useNavigate();
   const location = useLocation();
   const { id } = useParams<{ id: string }>();
@@ -905,13 +907,13 @@ const AgentDetails: React.FC = () => {
   const handleDelete = async () => {
     if (!id || !username) return;
     
-    modal.confirm({
+    const agentName = form.getFieldValue('name') || 'this agent';
+    
+    showDeleteConfirm({
       title: t('pages.agents.deleteConfirmTitle', 'Delete Agent'),
-      content: t('pages.agents.deleteConfirmMessage', 'Are you sure you want to delete this agent? This action cannot be undone.'),
+      message: t('pages.agents.deleteConfirmMessage', `Are you sure you want to delete "${agentName}"? This action cannot be undone.`),
       okText: t('common.delete', 'Delete'),
-      okType: 'danger',
       cancelText: t('common.cancel', 'Cancel'),
-      centered: true,
       onOk: async () => {
         try {
           setLoading(true);

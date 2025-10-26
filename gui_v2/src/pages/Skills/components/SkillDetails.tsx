@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { Typography, Space, Button, Progress, Tooltip, Tag, Form, Input, Row, Col, Checkbox, Select, Tabs, Modal, App } from 'antd';
+import { Typography, Space, Button, Progress, Tooltip, Tag, Form, Input, Row, Col, Checkbox, Select, Tabs, App } from 'antd';
 import { useEffectOnActive } from 'keepalive-for-react';
 import type { TabsProps } from 'antd';
 import {
@@ -14,7 +14,6 @@ import {
     AppstoreOutlined,
     TagsOutlined,
     DeleteOutlined,
-    ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { Skill, SkillRunMode, SkillNeedInput } from '@/types/domain/skill';
@@ -25,6 +24,7 @@ import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
 import { IPCWCClient } from '@/services/ipc/ipcWCClient';
 import { StyledFormItem, StyledCard, FormContainer, buttonStyle, primaryButtonStyle } from '@/components/Common/StyledForm';
+import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -149,7 +149,8 @@ const fromJsonString = (value: string): any => {
 const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRefresh, onSave, onCancel, onDelete }) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
-    const { message, modal } = App.useApp();  // Use App context for message
+    const { message } = App.useApp();  // Use App context for message
+    const showDeleteConfirm = useDeleteConfirm();
     const username = useUserStore((s) => s.username) || '';
     const addItem = useSkillStore((s) => s.addItem);
     const updateItem = useSkillStore((s) => s.updateItem);
@@ -349,12 +350,10 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     const handleDelete = () => {
         if (!skill || !username) return;
 
-        Modal.confirm({
+        showDeleteConfirm({
             title: t('pages.skills.deleteConfirmTitle', 'Delete Skill'),
-            icon: <ExclamationCircleOutlined />,
-            content: t('pages.skills.deleteConfirmMessage', `Are you sure you want to delete "${(skill as any)?.name}"? This action cannot be undone.`),
+            message: t('pages.skills.deleteConfirmMessage', `Are you sure you want to delete "${(skill as any)?.name}"? This action cannot be undone.`),
             okText: t('common.delete', 'Delete'),
-            okType: 'danger',
             cancelText: t('common.cancel', 'Cancel'),
             onOk: async () => {
                 try {

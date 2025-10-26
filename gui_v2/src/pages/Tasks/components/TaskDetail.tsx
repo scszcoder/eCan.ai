@@ -3,9 +3,8 @@ import {
   SaveOutlined,
   CloseOutlined,
   DeleteOutlined,
-  ExclamationCircleOutlined,
 } from '@ant-design/icons';
-import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App, Modal } from 'antd';
+import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App } from 'antd';
 import { useTranslation } from 'react-i18next';
 import React, { useRef } from 'react';
 import { useEffectOnActive } from 'keepalive-for-react';
@@ -14,6 +13,7 @@ import dayjs from 'dayjs';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
 import { useSkillStore } from '@/stores';
+import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
 import {
   StyledFormItem,
   StyledCard,
@@ -96,6 +96,7 @@ const toDayjs = (date: string | Date | null | undefined) => {
 
 export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as any, isNew = false, onSave, onCancel, onDelete }) => {
   const { message } = App.useApp();
+  const showDeleteConfirm = useDeleteConfirm();
   
   // 滚动位置保存
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -245,12 +246,11 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   const handleDelete = () => {
     if (!task || isNew) return;
 
-    Modal.confirm({
+    showDeleteConfirm({
       title: t('pages.tasks.deleteConfirmTitle', 'Delete Task'),
-      icon: <ExclamationCircleOutlined />,
-      content: t('pages.tasks.deleteConfirmMessage', `Are you sure you want to delete "${(task as any)?.name}"? This action cannot be undone.`),
+      message: t('pages.tasks.deleteConfirmMessage', `Are you sure you want to delete "${(task as any)?.name}"? This action cannot be undone.`),
+      warningText: t('pages.tasks.deleteWarning', '此操作无法撤销'),
       okText: t('common.delete', 'Delete'),
-      okType: 'danger',
       cancelText: t('common.cancel', 'Cancel'),
       onOk: async () => {
         try {
