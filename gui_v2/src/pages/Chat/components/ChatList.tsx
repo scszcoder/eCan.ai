@@ -83,21 +83,41 @@ const formatLastMsg = (lastMsg: any): string => {
 
 const ChatItem = styled.div<{ $isActive: boolean }>`
     padding: 12px;
+    padding-left: ${props => props.$isActive ? '16px' : '12px'};
     border-bottom: 1px solid var(--border-color);
     cursor: pointer;
-    transition: all 0.3s ease;
-    background-color: ${props => props.$isActive ? 'var(--bg-tertiary)' : 'var(--bg-secondary)'};
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    background: ${props => props.$isActive 
+        ? 'linear-gradient(90deg, rgba(59, 130, 246, 0.15) 0%, rgba(51, 65, 85, 0.6) 100%)' 
+        : 'var(--bg-secondary)'};
     border-radius: 8px;
-    margin: 4px 0;
+    margin: 2px 0;
     min-height: 60px;
     display: flex;
     align-items: center;
     position: relative;
+    border-left: ${props => props.$isActive ? '3px solid rgba(59, 130, 246, 0.8)' : '3px solid transparent'};
+    box-shadow: ${props => props.$isActive ? '0 2px 12px rgba(59, 130, 246, 0.2)' : 'none'};
+
+    &::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        background: ${props => props.$isActive 
+            ? 'linear-gradient(180deg, rgba(59, 130, 246, 0.9) 0%, rgba(96, 165, 250, 0.7) 100%)' 
+            : 'transparent'};
+        border-radius: 8px 0 0 8px;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
 
     &:hover {
-        background-color: var(--bg-tertiary);
-        transform: translateX(4px);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        background: ${props => props.$isActive 
+            ? 'linear-gradient(90deg, rgba(59, 130, 246, 0.2) 0%, rgba(51, 65, 85, 0.7) 100%)' 
+            : 'var(--bg-tertiary)'};
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     }
 
     .ant-typography {
@@ -128,10 +148,12 @@ const ChatItem = styled.div<{ $isActive: boolean }>`
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        font-weight: ${props => props.$isActive ? '600' : '500'};
+        color: ${props => props.$isActive ? 'rgba(248, 250, 252, 0.98)' : 'var(--text-primary)'};
     }
 
     .chat-message {
-        color: var(--text-secondary);
+        color: ${props => props.$isActive ? 'rgba(203, 213, 225, 0.9)' : 'var(--text-secondary)'};
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -140,7 +162,7 @@ const ChatItem = styled.div<{ $isActive: boolean }>`
     }
 
     .chat-time {
-        color: var(--text-secondary);
+        color: ${props => props.$isActive ? 'rgba(148, 163, 184, 0.9)' : 'var(--text-secondary)'};
         font-size: 12px;
         white-space: nowrap;
         flex-shrink: 0;
@@ -211,6 +233,56 @@ const ChatListArea = styled.div`
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
+`;
+
+const StyledFilterButton = styled(Button)`
+    height: 36px !important;
+    width: 36px !important;
+    border-radius: 8px !important;
+    background: rgba(51, 65, 85, 0.5) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 !important;
+
+    &:hover {
+        background: rgba(51, 65, 85, 0.7) !important;
+        border-color: rgba(59, 130, 246, 0.3) !important;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15) !important;
+    }
+
+    &:active {
+        opacity: 0.8 !important;
+    }
+
+    &.ant-btn-primary {
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(99, 102, 241, 0.9) 100%) !important;
+        border-color: rgba(59, 130, 246, 0.5) !important;
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
+
+        &:hover {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 1) 0%, rgba(99, 102, 241, 1) 100%) !important;
+            border-color: rgba(59, 130, 246, 0.7) !important;
+            box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4) !important;
+        }
+    }
+
+    .anticon {
+        color: rgba(59, 130, 246, 0.9) !important;
+        font-size: 16px !important;
+        transition: all 0.3s ease !important;
+    }
+
+    &:hover .anticon {
+        color: rgba(96, 165, 250, 1) !important;
+    }
+
+    &.ant-btn-primary .anticon {
+        color: white !important;
+    }
 `;
 
 interface ChatListProps {
@@ -468,10 +540,13 @@ const ChatList: React.FC<ChatListProps> = ({
                 <div style={{ 
                     display: 'flex', 
                     justifyContent: 'center', 
-                    padding: '8px 12px',
+                    padding: '4px 12px 0',
+                    paddingBottom: '8px',
+                    marginBottom: '8px',
                     flexShrink: 0,
                     height: 'auto',
-                    maxHeight: '150px'
+                    maxHeight: '150px',
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
                 }}>
                     <AgentAnimation 
                         key={currentAgentId} 
@@ -483,8 +558,10 @@ const ChatList: React.FC<ChatListProps> = ({
             <div style={{ 
                 display: 'flex', 
                 gap: 4, 
-                marginBottom: 12, 
-                alignItems: 'center' 
+                marginBottom: 8, 
+                paddingBottom: 8,
+                alignItems: 'center',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
             }}>
                 <div style={{ flex: 1 }}>
                     <SearchFilter
@@ -493,18 +570,11 @@ const ChatList: React.FC<ChatListProps> = ({
                     />
                 </div>
                 {onFilterClick && (
-                    <Button
-                        icon={<FilterOutlined style={{ fontSize: '18px' }} />}
+                    <StyledFilterButton
+                        icon={<FilterOutlined />}
                         onClick={onFilterClick}
                         type="text"
                         title={t('pages.chat.filterByAgent')}
-                        size="middle"
-                        style={{
-                            border: 'none',
-                            boxShadow: 'none',
-                            padding: '4px 8px',
-                            color: 'var(--semi-color-primary)'
-                        }}
                     />
                 )}
             </div>

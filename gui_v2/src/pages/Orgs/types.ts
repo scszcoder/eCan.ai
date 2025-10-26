@@ -57,7 +57,12 @@ export interface OrgAgent {
   id: string;
   name: string;
   description?: string;
-  avatar?: string;
+  avatar?: string | {
+    id: string;
+    imageUrl: string;
+    videoPath?: string;
+    videoExists: boolean;
+  };
   status: string;
   org_id?: string;
   created_at?: string;
@@ -438,3 +443,6 @@ export type OrganizationAgent = OrgAgent;
 export type GetOrganizationsResponse = GetOrgsResponse;
 export const buildOrganizationTree = buildOrgTree;
 export const findOrganizationById = findOrgById;
+
+// Re-export Agent type for convenience
+export type { Agent } from '../Agents/types';

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { List, Tag, Typography, Space, Empty } from 'antd';
 import {
     RobotOutlined,
@@ -11,8 +11,23 @@ import {
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import type { Skill } from '@/stores';
+import { SkillFilters, SkillFilterOptions } from './SkillFilters';
 
 const { Text } = Typography;
+
+const ListContainer = styled.div`
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+`;
+
+const SkillsScrollArea = styled.div`
+  flex: 1;
+  padding: 0 8px 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+`;
 
 const SkillItem = styled.div`
     padding: 12px;
@@ -213,6 +228,55 @@ interface SkillListProps {
 
 const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, selectedSkillId }) => {
     const { t } = useTranslation();
+    const [filters, setFilters] = useState<SkillFilterOptions>({
+        sortBy: 'name',
+    });
+
+    // 筛选和排序技能
+    const filteredAndSortedSkills = useMemo(() => {
+        let result = [...skills];
+
+        // 1. 先按状态过滤（如果有选择状态）
+        // 没选择状态时，filters.status 为 undefined，默认显示所有状态
+        if (filters.status) {
+            result = result.filter(skill => skill.status === filters.status);
+        }
+
+        // 2. 在状态过滤结果中，再按搜索关键字匹配名称、描述和类别
+        if (filters.search) {
+            const searchLower = filters.search.toLowerCase();
+            result = result.filter(skill =>
+                skill.name?.toLowerCase().includes(searchLower) ||
+                skill.description?.toLowerCase().includes(searchLower) ||
+                skill.category?.toLowerCase().includes(searchLower)
+            );
+        }
+
+        // 排序
+        result.sort((a, b) => {
+            switch (filters.sortBy) {
+                case 'name': {
+                    const nameA = a.name || '';
+                    const nameB = b.name || '';
+                    return nameA.localeCompare(nameB);
+                }
+                case 'status': {
+                    const statusA = a.status || '';
+                    const statusB = b.status || '';
+                    return statusA.localeCompare(statusB);
+                }
+                case 'level': {
+                    const levelA = typeof a.level === 'string' ? parseInt(a.level, 10) : (a.level || 0);
+                    const levelB = typeof b.level === 'string' ? parseInt(b.level, 10) : (b.level || 0);
+                    return levelB - levelA; // 高级别在前
+                }
+                default:
+                    return 0;
+            }
+        });
+
+        return result;
+    }, [skills, filters]);
 
     if (!loading && skills.length === 0) {
         return (
@@ -235,10 +299,22 @@ const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, s
     }
 
     return (
-        <List
-            dataSource={skills}
-            loading={loading}
-            renderItem={skill => {
+        <ListContainer>
+            <SkillFilters filters={filters} onChange={setFilters} />
+            
+            <SkillsScrollArea>
+                {filteredAndSortedSkills.length === 0 ? (
+                    <EmptyContainer>
+                        <Empty
+                            image={Empty.PRESENTED_IMAGE_SIMPLE}
+                            description={t('pages.skills.noMatchingSkills', '未找到匹配的技能')}
+                        />
+                    </EmptyContainer>
+                ) : (
+                    <List
+                        dataSource={filteredAndSortedSkills}
+                        loading={loading}
+                        renderItem={skill => {
                 const statusConfig = getStatusConfig(skill.status);
                 // 确保两边都是字符串类型进行比较
                 const skillIdStr = String(skill.id);
@@ -328,8 +404,11 @@ const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, s
                         )}
                     </SkillItem>
                 );
-            }}
-        />
+                        }}
+                    />
+                )}
+            </SkillsScrollArea>
+        </ListContainer>
     );
 };
 

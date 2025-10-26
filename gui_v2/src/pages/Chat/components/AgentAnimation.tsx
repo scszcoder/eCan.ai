@@ -5,7 +5,7 @@ import { useAvatarSceneStore } from '@/stores/avatarSceneStore';
 
 const AnimationContainer = styled.div`
   width: 100%;
-  padding: 8px 12px;
+  padding: 0;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -18,8 +18,8 @@ const AnimationWrapper = styled.div`
   aspect-ratio: 16/9;
   border-radius: 12px;
   background: rgba(34, 34, 34, 0.8);
-  border: 2px solid var(--primary-color, #3b82f6);
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+  border: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   display: flex;
   align-items: center;
   justify-content: center;

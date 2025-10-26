@@ -29,8 +29,7 @@ const ScheduleItem = styled.div<{ $selected: boolean }>`
 
     &:hover {
         background: var(--bg-tertiary);
-        transform: translateY(-2px);
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
         border-color: rgba(255, 255, 255, 0.1);
 
         &::before {
@@ -116,6 +115,23 @@ const ScheduleTitle = styled.div`
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 `;
 
+const FilterContainer = styled.div`
+    padding: 8px;
+    padding-bottom: 12px;
+    background: transparent;
+    margin-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+`;
+
+const ListScrollArea = styled.div`
+    flex: 1;
+    padding: 0 8px 8px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+`;
+
 interface ScheduleListProps {
     schedules: TaskSchedule[];
     selectedSchedule?: TaskSchedule | null;
@@ -132,11 +148,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ schedules, selectedSchedule
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             {/* Fixed Header - Search */}
-            <div style={{ 
-                padding: '8px',
-                borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-                flexShrink: 0
-            }}>
+            <FilterContainer>
                 <SearchFilter
                     onSearch={onSearch}
                     onFilter={onFilter}
@@ -144,10 +156,10 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ schedules, selectedSchedule
                     filterOptions={[]}
                     placeholder={t('pages.schedule.searchSchedulePlaceholder', '搜索日程...')}
                 />
-            </div>
+            </FilterContainer>
 
-            {/* Scrollable List Content - 移除 overflowY，让 DetailLayout 统一处理滚动 */}
-            <div style={{ flex: 1, padding: '8px' }}>
+            {/* Scrollable List Content */}
+            <ListScrollArea>
                 <List
                     dataSource={schedules}
                     renderItem={(schedule) => (
@@ -227,7 +239,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ schedules, selectedSchedule
                     </ScheduleItem>
                 )}
                 />
-            </div>
+            </ListScrollArea>
         </div>
     );
 };

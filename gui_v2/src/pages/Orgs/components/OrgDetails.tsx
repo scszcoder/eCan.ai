@@ -6,22 +6,51 @@ import React, { useRef } from 'react';
 import { useEffectOnActive } from 'keepalive-for-react';
 import { Card, Button, Space, Typography, Tag, Popconfirm, Tooltip } from 'antd';
 import { EditOutlined, DeleteOutlined, TeamOutlined } from '@ant-design/icons';
+import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
-import type { Org, Agent } from '../types';
+import type { Org, OrgAgent } from '../types';
 import { ORG_STATUSES, ORG_TYPES } from '../constants';
 import AgentList from './AgentList';
 import DetailCard from '../../../components/Common/DetailCard';
 
 const { Text } = Typography;
 
+const StyledIconButton = styled(Button, {
+  shouldForwardProp: (prop) => prop !== '$iconColor'
+})<{ $iconColor?: string }>`
+  &.ant-btn {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.1) !important;
+    }
+
+    &:active {
+      opacity: 0.8 !important;
+    }
+
+    .anticon {
+      color: ${props => props.$iconColor || 'rgba(96, 165, 250, 0.9)'} !important;
+      transition: all 0.3s ease !important;
+    }
+
+    &:hover .anticon {
+      color: ${props => props.$iconColor ? props.$iconColor : 'rgba(96, 165, 250, 1)'} !important;
+    }
+  }
+`;
+
 interface OrgDetailsProps {
   org: Org | null;
-  agents: Agent[];
+  agents: OrgAgent[];
   onEdit: (org: Org) => void;
   onDelete: (orgId: string) => void;
   onBindAgents: () => void;
   onUnbindAgent: (agentId: string) => void;
-  onChatWithAgent: (agent: Agent) => void;
+  onChatWithAgent: (agent: OrgAgent) => void;
 }
 
 const OrgDetails: React.FC<OrgDetailsProps> = ({
@@ -131,7 +160,7 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
               mouseLeaveDelay={0.1}
               placement="bottom"
             >
-              <Button
+              <StyledIconButton
                 size="small"
                 icon={<EditOutlined />}
                 onClick={() => onEdit(org)}
@@ -144,9 +173,9 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
               mouseLeaveDelay={0.1}
               placement="bottom"
             >
-              <Button
+              <StyledIconButton
                 size="small"
-                danger
+                $iconColor="rgba(239, 68, 68, 0.9)"
                 icon={<DeleteOutlined />}
                 shape="circle"
                 onClick={() => onDelete(org.id)}

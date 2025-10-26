@@ -160,7 +160,6 @@ export const useAddNode = () => {
     el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.12)';
     el.style.display = 'flex';
     el.style.flexDirection = 'column';
-    el.style.backdropFilter = 'saturate(100%) blur(2px)';
     // simple pulse animation
     el.style.animation = 'ghostPulse 1.2s ease-in-out infinite';
     const style = document.createElement('style');

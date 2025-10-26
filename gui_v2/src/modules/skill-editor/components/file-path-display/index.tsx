@@ -14,8 +14,7 @@ const FilePathContainer = styled.div`
   position: absolute;
   top: 10px;
   left: 10px;
-  background-color: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(8px);
+  background-color: rgba(255, 255, 255, 0.98);
   padding: 8px 12px;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);

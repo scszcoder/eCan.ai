@@ -10,6 +10,7 @@ import {
   SyncOutlined,
   ExclamationCircleOutlined,
   StopOutlined,
+  CheckSquareOutlined,
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
@@ -207,18 +208,21 @@ const TaskItem = styled.div`
     }
 
     &.selected {
-        background: linear-gradient(135deg, rgba(24, 144, 255, 0.15) 0%, rgba(24, 144, 255, 0.05) 100%);
-        border: 2px solid var(--primary-color);
+        background: linear-gradient(90deg, rgba(59, 130, 246, 0.15) 0%, rgba(51, 65, 85, 0.6) 100%);
+        border: 1px solid rgba(59, 130, 246, 0.6);
+        box-shadow: 0 2px 12px rgba(59, 130, 246, 0.2);
 
         &::before {
-            background: var(--primary-color);
+            width: 3px;
+            background: linear-gradient(180deg, rgba(59, 130, 246, 0.9) 0%, rgba(96, 165, 250, 0.7) 100%);
         }
 
         &:hover {
-            background: linear-gradient(135deg, rgba(24, 144, 255, 0.2) 0%, rgba(24, 144, 255, 0.08) 100%);
+            background: linear-gradient(90deg, rgba(59, 130, 246, 0.2) 0%, rgba(51, 65, 85, 0.7) 100%);
+            border: 1px solid rgba(59, 130, 246, 0.8);
 
             &::before {
-                width: 4px;
+                width: 3px;
             }
         }
     }
@@ -232,17 +236,18 @@ const TaskHeader = styled.div`
 `;
 
 const TaskIcon = styled.div<{ gradient?: string }>`
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 20px;
-    color: white;
-    background: ${props => props.gradient || 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'};
+    font-size: 18px;
+    color: rgba(59, 130, 246, 0.9);
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.2);
     flex-shrink: 0;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);
 `;
 
 const TaskMeta = styled.div`
@@ -347,9 +352,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     >
       <TaskHeader>
         <Space align="start" style={{ flex: 1 }}>
-          {/* 状态图标 */}
-          <TaskIcon gradient={statusConfig.gradient}>
-            {statusConfig.icon}
+          {/* 任务图标 */}
+          <TaskIcon>
+            <CheckSquareOutlined />
           </TaskIcon>
 
           {/* 任务信息 */}

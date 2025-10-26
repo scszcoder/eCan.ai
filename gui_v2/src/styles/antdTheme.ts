@@ -2,7 +2,7 @@ import { ThemeConfig } from 'antd';
 
 /**
  * Ant Design 主题配置
- * 包含 zIndex 层级管理，避免 zIndex 警告
+ * 包含 zIndex 层级管理和完整的设计系统配置
  */
 export const antdTheme: ThemeConfig = {
   token: {
@@ -10,30 +10,92 @@ export const antdTheme: ThemeConfig = {
     zIndexBase: 1000,
     zIndexPopupBase: 1000,
     
-    // 其他主题配置
-    colorPrimary: '#1890ff',
-    borderRadius: 6,
+    // 主色调 - 蓝紫渐变
+    colorPrimary: '#3b82f6',
+    colorSuccess: '#22c55e',
+    colorWarning: '#fbbf24',
+    colorError: '#ef4444',
+    colorInfo: '#06b6d4',
+    
+    // 圆角配置
+    borderRadius: 10,
+    borderRadiusLG: 16,
+    borderRadiusSM: 8,
     
     // 字体配置
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji"',
+    fontSize: 14,
+    fontSizeHeading1: 32,
+    fontSizeHeading2: 24,
+    fontSizeHeading3: 20,
+    fontSizeHeading4: 16,
+    fontSizeHeading5: 14,
+    
+    // 阴影配置
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+    boxShadowSecondary: '0 4px 16px rgba(0, 0, 0, 0.2)',
+    
+    // 动画配置
+    motionDurationSlow: '0.3s',
+    motionDurationMid: '0.2s',
+    motionDurationFast: '0.1s',
+    
+    // 间距配置
+    padding: 16,
+    paddingLG: 24,
+    paddingSM: 12,
+    paddingXS: 8,
+    margin: 16,
+    marginLG: 24,
+    marginSM: 12,
+    marginXS: 8,
   },
   
   components: {
-    // 只配置确实存在的属性
     Modal: {
-      // Modal 相关配置
+      borderRadiusLG: 20,
+      paddingContentHorizontalLG: 24,
     },
     
     Drawer: {
-      // Drawer 相关配置
+      paddingLG: 24,
     },
     
     Menu: {
-      // Menu 相关配置
+      itemBorderRadius: 10,
+      itemHeight: 44,
+      itemMarginBlock: 6,
+      itemMarginInline: 12,
+    },
+    
+    Button: {
+      borderRadiusLG: 10,
+      controlHeight: 40,
+      controlHeightLG: 48,
+      controlHeightSM: 32,
+      fontWeight: 600,
+    },
+    
+    Input: {
+      borderRadiusLG: 10,
+      controlHeight: 40,
+      paddingBlock: 0,
+      paddingInline: 12,
+      lineHeight: 1.5,
+    },
+    
+    Card: {
+      borderRadiusLG: 16,
+      paddingLG: 24,
+    },
+    
+    Table: {
+      borderRadiusLG: 16,
+      padding: 16,
     },
     
     Tooltip: {
-      // Tooltip 相关配置
+      borderRadius: 8,
     },
   },
 };
