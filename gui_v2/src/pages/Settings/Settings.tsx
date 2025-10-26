@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Card, Form, Select, Switch, Button, App, Input, Row, Col } from 'antd';
+import { Card, Form, Select, Switch, Button, App, Input, Row, Col, Tooltip } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useEffectOnActive } from 'keepalive-for-react';
@@ -23,6 +23,24 @@ const SettingsContent = styled.div`
   flex: 1;
   overflow-y: auto;
   padding: 20px;
+`;
+
+const StyledRefreshButton = styled(Button)`
+  &.ant-btn {
+    background: transparent !important;
+    border: none !important;
+    color: rgba(203, 213, 225, 0.9) !important;
+    box-shadow: none !important;
+
+    &:hover {
+      color: rgba(255, 255, 255, 1) !important;
+      transform: scale(1.1);
+    }
+
+    &:active {
+      transform: scale(0.95);
+    }
+  }
 `;
 
 const initialSettings: Settings = {
@@ -222,13 +240,14 @@ const Settings: React.FC = () => {
         <Card
           title={t('common.settings')}
           extra={
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={handleReload}
-              loading={loading}
-            >
-              {t('common.reload')}
-            </Button>
+            <Tooltip title={t('common.reload')}>
+              <StyledRefreshButton
+                shape="circle"
+                icon={<ReloadOutlined />}
+                onClick={handleReload}
+                loading={loading}
+              />
+            </Tooltip>
           }
         >
         <Form

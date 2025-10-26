@@ -1,4 +1,4 @@
-import { Button, Typography, Space } from 'antd';
+import { Button, Space, Tooltip } from 'antd';
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import React, { useEffect } from 'react';
@@ -9,8 +9,6 @@ import DetailLayout from '@/components/Layout/DetailLayout';
 import { TaskList } from './components/TaskList';
 import { TaskDetail } from './components/TaskDetail';
 import { useTasks } from './hooks/useTasks';
-
-const { Text } = Typography;
 
 const StyledActionButton = styled(Button)`
   &.ant-btn {
@@ -63,23 +61,25 @@ const Tasks: React.FC = () => {
   }, [searchParams, tasks, selectItem, setSearchParams]);
 
   const listTitle = (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-      <Text strong>{t('pages.tasks.title')}</Text>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+      <span style={{ fontSize: '16px', fontWeight: 600, lineHeight: '24px' }}>{t('pages.tasks.title')}</span>
       <Space size={0}>
-        <StyledActionButton
-          shape="circle"
-          icon={<ReloadOutlined />}
-          onClick={handleRefresh}
-          loading={loading}
-          title={t('pages.tasks.refresh')}
-        />
-        <StyledActionButton
-          icon={<PlusOutlined />}
-          onClick={() => {
-            setIsAddingNew(true);
-          }}
-          title={t('pages.tasks.add')}
-        />
+        <Tooltip title={t('pages.tasks.refresh')}>
+          <StyledActionButton
+            shape="circle"
+            icon={<ReloadOutlined />}
+            onClick={handleRefresh}
+            loading={loading}
+          />
+        </Tooltip>
+        <Tooltip title={t('pages.tasks.add')}>
+          <StyledActionButton
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setIsAddingNew(true);
+            }}
+          />
+        </Tooltip>
       </Space>
     </div>
   );

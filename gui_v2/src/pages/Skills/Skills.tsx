@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Space, message } from 'antd';
+import { Button, message, Tooltip, Space } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import DetailLayout from '../../components/Layout/DetailLayout';
 import { useTranslation } from 'react-i18next';
@@ -61,16 +61,24 @@ const Skills: React.FC = () => {
 
 
     const listTitle = (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>{t('pages.skills.title')}</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+            <span style={{ fontSize: '16px', fontWeight: 600, lineHeight: '24px' }}>{t('pages.skills.title')}</span>
             <Space>
-                <Button
-                    type="text"
-                    icon={<ReloadOutlined style={{ color: 'white' }} />}
-                    onClick={handleRefresh}
-                    loading={isLoading}
-                    title={t('pages.skills.refresh')}
-                />
+                <Tooltip title={t('pages.skills.refresh')}>
+                    <Button
+                        type="text"
+                        shape="circle"
+                        icon={<ReloadOutlined />}
+                        onClick={handleRefresh}
+                        loading={isLoading}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'rgba(203, 213, 225, 0.9)',
+                            boxShadow: 'none'
+                        }}
+                    />
+                </Tooltip>
                 {/* Add button removed - skills are created from skill_editor */}
             </Space>
         </div>

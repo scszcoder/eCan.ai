@@ -87,6 +87,7 @@ export const antdTheme: ThemeConfig = {
     Card: {
       borderRadiusLG: 16,
       paddingLG: 24,
+      headerHeight: 48,
     },
     
     Table: {

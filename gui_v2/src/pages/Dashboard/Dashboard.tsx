@@ -14,7 +14,7 @@ import { useToolStore } from '../../stores/toolStore';
 import { useUserStore } from '../../stores/userStore';
 import { logger } from '@/utils/logger';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 interface DataCardProps {
     title: string;
@@ -154,9 +154,9 @@ const Dashboard: React.FC = () => {
 
     return (
         <div>
-            <Title level={5} style={{ color: 'white' }}>
-              {t('pages.dashboard.welcome')}
-            </Title>
+            <div style={{ fontSize: '16px', fontWeight: 600, lineHeight: '24px', color: 'rgba(248, 250, 252, 0.95)', marginBottom: '16px' }}>
+              {t('pages.dashboard.title')}
+            </div>
 
             {/* 数据概览部分 */}
             <Row gutter={[16, 16]} style={{ marginTop: '24px' }}>

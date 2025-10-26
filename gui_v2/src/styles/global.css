@@ -406,18 +406,31 @@ button:hover, a:hover, .ant-btn:hover, .ant-card:hover,
 
 .ant-card-head {
     border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
-    padding: 20px 24px !important;
+    padding: 12px 24px !important;
+    min-height: 48px !important;
+    height: 48px !important;
     background: linear-gradient(
         135deg,
         rgba(59, 130, 246, 0.1) 0%,
         transparent 100%
     );
+    display: flex !important;
+    align-items: center !important;
+}
+
+.ant-card-head-wrapper {
+    height: 100% !important;
+    display: flex !important;
+    align-items: center !important;
 }
 
 .ant-card-head-title {
     color: rgba(248, 250, 252, 0.95) !important;
     font-weight: 600 !important;
     font-size: 16px !important;
+    line-height: 24px !important;
+    display: flex !important;
+    align-items: center !important;
 }
 
 .ant-card-body {
@@ -755,22 +768,27 @@ button:hover, a:hover, .ant-btn:hover, .ant-card:hover,
 .ant-modal-header {
     background: linear-gradient(
         135deg,
-        rgba(59, 130, 246, 0.2) 0%,
-        rgba(139, 92, 246, 0.15) 100%
+        rgba(59, 130, 246, 0.1) 0%,
+        transparent 100%
     ) !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
-    padding: 20px 24px !important;
+    padding: 12px 24px !important;
+    min-height: 48px !important;
     border-radius: 20px 20px 0 0 !important;
 }
 
 .ant-modal-title {
     color: rgba(248, 250, 252, 0.95) !important;
     font-weight: 600 !important;
-    font-size: 18px !important;
+    font-size: 16px !important;
+    line-height: 24px !important;
 }
 
 .ant-modal-body {
     padding: 24px !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 0 0 20px 20px !important;
+    background: rgba(15, 23, 42, 0.3) !important;
 }
 
 .ant-modal-close {
@@ -795,21 +813,25 @@ button:hover, a:hover, .ant-btn:hover, .ant-card:hover,
 .ant-drawer-header {
     background: linear-gradient(
         135deg,
-        rgba(59, 130, 246, 0.15) 0%,
-        rgba(139, 92, 246, 0.1) 100%
+        rgba(59, 130, 246, 0.1) 0%,
+        transparent 100%
     ) !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
-    padding: 20px 24px !important;
+    padding: 12px 24px !important;
+    min-height: 48px !important;
 }
 
 .ant-drawer-title {
     color: rgba(248, 250, 252, 0.95) !important;
     font-weight: 600 !important;
-    font-size: 18px !important;
+    font-size: 16px !important;
+    line-height: 24px !important;
 }
 
 .ant-drawer-body {
     padding: 24px !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    background: rgba(15, 23, 42, 0.3) !important;
 }
 
 .ant-drawer-close {
@@ -897,6 +919,39 @@ button:hover, a:hover, .ant-btn:hover, .ant-card:hover,
     background: rgba(251, 191, 36, 0.15) !important;
     border-color: rgba(251, 191, 36, 0.3) !important;
     color: #fbbf24 !important;
+}
+
+/* Tree 组件样式 */
+.ant-tree {
+    background: transparent !important;
+    color: rgba(248, 250, 252, 0.95) !important;
+}
+
+.ant-tree .ant-tree-node-content-wrapper {
+    color: rgba(248, 250, 252, 0.9) !important;
+    border-radius: 6px !important;
+    transition: all 0.3s ease !important;
+}
+
+.ant-tree .ant-tree-node-content-wrapper:hover {
+    background: rgba(59, 130, 246, 0.15) !important;
+}
+
+.ant-tree .ant-tree-node-selected .ant-tree-node-content-wrapper {
+    background: linear-gradient(
+        90deg,
+        rgba(59, 130, 246, 0.2) 0%,
+        rgba(139, 92, 246, 0.15) 100%
+    ) !important;
+    color: rgba(147, 197, 253, 1) !important;
+}
+
+.ant-tree .ant-tree-switcher {
+    color: rgba(148, 163, 184, 0.8) !important;
+}
+
+.ant-tree .ant-tree-indent-unit {
+    width: 20px !important;
 }
 
 /* 下拉菜单样式 */

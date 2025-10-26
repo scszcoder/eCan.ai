@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Spin, Button, Typography, Tooltip } from 'antd';
+import { Spin, Button, Tooltip } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
@@ -10,8 +10,6 @@ import { Tool } from './types';
 import ToolsList from './ToolsList';
 import ToolDetail from './ToolDetail';
 import DetailLayout from '../../components/Layout/DetailLayout';
-
-const { Text } = Typography;
 
 const StyledRefreshButton = styled(Button)`
   &.ant-btn {
@@ -88,8 +86,8 @@ const Tools: React.FC = () => {
   }, [username, forceRefresh]);
 
   const listTitle = (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-      <Text strong>{t('pages.tools.title')}</Text>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+      <span style={{ fontSize: '16px', fontWeight: 600, lineHeight: '24px' }}>{t('pages.tools.title')}</span>
       <Tooltip title={t('pages.tools.refresh')}>
         <StyledRefreshButton
           shape="circle"

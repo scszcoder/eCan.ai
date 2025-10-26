@@ -1193,7 +1193,7 @@ const ChatPage: React.FC = () => {
     return (
         <>
             <ChatLayout
-                listTitle={t('pages.chat.title')}
+                listTitle={<span style={{ fontSize: '16px', fontWeight: 600, lineHeight: '24px' }}>{t('pages.chat.title')}</span>}
                 detailsTitle={getChatTitle(currentChat)}
                 listContent={renderListContent()}
                 detailsContent={currentChat ? renderDetailsContent() : <div className="empty-chat-placeholder">{t('pages.chat.selectAChat')}</div>}
