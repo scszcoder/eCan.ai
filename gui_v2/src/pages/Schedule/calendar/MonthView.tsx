@@ -3,11 +3,12 @@
  * 月视图日历组件
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import styled from '@emotion/styled';
 import dayjs from 'dayjs';
 import { Badge, Tooltip } from 'antd';
 import { useTranslation } from 'react-i18next';
+import { useEffectOnActive } from 'keepalive-for-react';
 import type { CalendarEvent, CalendarConfig } from './types';
 import { generateMonthView, DEFAULT_CALENDAR_CONFIG } from './utils';
 
@@ -237,6 +238,8 @@ const MonthView: React.FC<MonthViewProps> = ({
 }) => {
   const { t } = useTranslation();
   const calendarConfig = { ...DEFAULT_CALENDAR_CONFIG, ...config };
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const savedScrollPositionRef = useRef<{ top: number; left: number }>({ top: 0, left: 0 });
   
   const monthData = useMemo(() => {
     return generateMonthView(currentDate, events, calendarConfig);
@@ -266,6 +269,32 @@ const MonthView: React.FC<MonthViewProps> = ({
     e.stopPropagation();
     onMoreEventsClick?.(date, allEvents);
   };
+  
+  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  useEffectOnActive(
+    () => {
+      // 组件激活时：恢复滚动位置
+      const container = scrollContainerRef.current;
+      if (container && (savedScrollPositionRef.current.top !== 0 || savedScrollPositionRef.current.left !== 0)) {
+        requestAnimationFrame(() => {
+          container.scrollTop = savedScrollPositionRef.current.top;
+          container.scrollLeft = savedScrollPositionRef.current.left;
+        });
+      }
+      
+      // 返回清理函数，在组件失活前保存滚动位置
+      return () => {
+        const container = scrollContainerRef.current;
+        if (container) {
+          savedScrollPositionRef.current = {
+            top: container.scrollTop,
+            left: container.scrollLeft,
+          };
+        }
+      };
+    },
+    []
+  );
   
   const renderEvent = (event: CalendarEvent) => {
     const eventTime = dayjs(event.start).format('HH:mm');
@@ -313,7 +342,7 @@ const MonthView: React.FC<MonthViewProps> = ({
   
   return (
     <MonthViewContainer>
-      <ScrollableContainer>
+      <ScrollableContainer ref={scrollContainerRef}>
         <CalendarContent>
           {/* Weekday Headers */}
           <WeekdayHeader>

@@ -8,6 +8,7 @@ import styled from '@emotion/styled';
 import dayjs from 'dayjs';
 import { Tooltip } from 'antd';
 import { useTranslation } from 'react-i18next';
+import { useEffectOnActive } from 'keepalive-for-react';
 import type { CalendarEvent, CalendarConfig } from './types';
 import { generateWeekView, generateTimeSlots, DEFAULT_CALENDAR_CONFIG } from './utils';
 
@@ -104,7 +105,7 @@ const TimeLabel = styled.div`
   justify-content: flex-end;
 `;
 
-const DayColumn = styled.div<{ $isToday?: boolean; $isWeekend?: boolean }>`
+const DayColumn = styled.div<{ $isToday?: boolean; $isWeekend?: boolean; $isPast?: boolean }>`
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   background: ${props => {
@@ -117,6 +118,8 @@ const DayColumn = styled.div<{ $isToday?: boolean; $isWeekend?: boolean }>`
   display: flex;
   flex-direction: column;
   gap: 3px;
+  opacity: ${props => props.$isPast ? 0.3 : 1};
+  transition: opacity 0.3s;
   
   &:last-child {
     border-right: none;
@@ -219,7 +222,8 @@ const WeekView: React.FC<WeekViewProps> = ({
 }) => {
   const { t } = useTranslation();
   const calendarConfig = { ...DEFAULT_CALENDAR_CONFIG, ...config };
-  const containerRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const savedScrollPositionRef = useRef<number>(0);
   
   const weekDays = useMemo(() => {
     return generateWeekView(currentDate, events, calendarConfig);
@@ -268,6 +272,28 @@ const WeekView: React.FC<WeekViewProps> = ({
   const handleTimeSlotClick = (dayDate: Date, hour: number, minute: number) => {
     onTimeSlotClick?.(dayDate, hour, minute);
   };
+  
+  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  useEffectOnActive(
+    () => {
+      // 组件激活时：恢复滚动位置
+      const container = scrollContainerRef.current;
+      if (container && savedScrollPositionRef.current > 0) {
+        requestAnimationFrame(() => {
+          container.scrollTop = savedScrollPositionRef.current;
+        });
+      }
+      
+      // 返回清理函数，在组件失活前保存滚动位置
+      return () => {
+        const container = scrollContainerRef.current;
+        if (container) {
+          savedScrollPositionRef.current = container.scrollTop;
+        }
+      };
+    },
+    []
+  );
   
   // 获取某个时间槽内的任务（处理跨天任务）
   const getEventsForSlot = (dayDate: Date, slotHour: number, slotMinute: number, dayEvents: CalendarEvent[]) => {
@@ -329,7 +355,7 @@ const WeekView: React.FC<WeekViewProps> = ({
       </WeekHeader>
       
       {/* Time Grid */}
-      <TimeGridContainer ref={containerRef}>
+      <TimeGridContainer ref={scrollContainerRef}>
         <TimeGrid>
           {timeSlots.map((slot, slotIndex) => (
             <TimeSlotRow key={`slot-${slotIndex}`}>
