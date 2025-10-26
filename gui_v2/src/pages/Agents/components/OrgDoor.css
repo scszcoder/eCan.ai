@@ -282,7 +282,7 @@
   line-height: 1.3;
   text-align: center;
   /* 清晰手写字体 */
-  font-family: 'Segoe Print', 'Comic Sans MS', 'Bradley Hand', -apple-system, sans-serif;
+  font-family: 'Chalkboard SE', 'Marker Felt', 'Comic Sans MS', 'Segoe Print', 'Bradley Hand', -apple-system, sans-serif;
   font-style: italic;
   letter-spacing: 0.3px;
   /* 简化描边，提高清晰度 */
@@ -339,7 +339,7 @@
   color: rgba(255, 255, 255, 1);
   font-weight: 600;
   font-size: 15px;
-  font-family: 'Segoe Print', 'Comic Sans MS', 'Bradley Hand', -apple-system, sans-serif;
+  font-family: 'Chalkboard SE', 'Marker Felt', 'Comic Sans MS', 'Segoe Print', 'Bradley Hand', -apple-system, sans-serif;
   font-style: italic;
   letter-spacing: 0.3px;
   text-shadow: 
