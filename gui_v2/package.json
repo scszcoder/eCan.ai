@@ -50,6 +50,8 @@
     "axios": "^1.6.7",
     "classnames": "^2.5.1",
     "crypto-js": "^4.2.0",
+    "date-fns": "^2.30.0",
+    "dayjs": "^1.11.18",
     "emoji-picker-element": "^1.26.3",
     "graphology": "^0.26.0",
     "graphology-layout": "^0.6.1",
