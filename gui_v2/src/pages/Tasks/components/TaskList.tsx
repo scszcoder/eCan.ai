@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Empty, Spin } from 'antd';
 import { InboxOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -16,7 +16,9 @@ const ListContainer = styled.div`
 const TasksScrollArea = styled.div`
   flex: 1;
   padding: 0 8px 8px;
-  /* 移除 overflow-y: auto，让 DetailLayout 统一处理滚动 */
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
 `;
 
 const EmptyContainer = styled.div`
@@ -32,6 +34,7 @@ interface TaskListProps {
   loading?: boolean;
   onSelectItem: (task: Task) => void;
   isSelected: (task: Task) => boolean;
+  scrollToTaskId?: string;
 }
 
 // 优先级排序权重
@@ -55,11 +58,31 @@ export const TaskList: React.FC<TaskListProps> = ({
   loading = false,
   onSelectItem,
   isSelected,
+  scrollToTaskId,
 }) => {
   const { t } = useTranslation();
   const [filters, setFilters] = useState<TaskFilterOptions>({
     sortBy: 'priority',
   });
+  
+  // 用于存储每个task item的ref
+  const taskItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // 当scrollToTaskId变化时，滚动到对应的task
+  useEffect(() => {
+    if (scrollToTaskId && taskItemRefs.current.has(scrollToTaskId)) {
+      const element = taskItemRefs.current.get(scrollToTaskId);
+      if (element) {
+        // 使用setTimeout确保DOM已经渲染
+        setTimeout(() => {
+          element.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+          });
+        }, 100);
+      }
+    }
+  }, [scrollToTaskId]);
 
   // 筛选和排序任务
   const filteredAndSortedTasks = useMemo(() => {
@@ -147,12 +170,22 @@ export const TaskList: React.FC<TaskListProps> = ({
           </EmptyContainer>
         ) : (
           filteredAndSortedTasks.map((task) => (
-            <TaskCard
+            <div
               key={task.id}
-              task={task}
-              isSelected={isSelected(task)}
-              onSelect={onSelectItem}
-            />
+              ref={(el) => {
+                if (el) {
+                  taskItemRefs.current.set(task.id, el);
+                } else {
+                  taskItemRefs.current.delete(task.id);
+                }
+              }}
+            >
+              <TaskCard
+                task={task}
+                isSelected={isSelected(task)}
+                onSelect={onSelectItem}
+              />
+            </div>
           ))
         )}
       </TasksScrollArea>

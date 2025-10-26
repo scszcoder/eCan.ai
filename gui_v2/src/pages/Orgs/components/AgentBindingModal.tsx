@@ -18,6 +18,31 @@ interface AgentBindingModalProps {
   onLoadAgents: (selectedOrgId?: string) => void;
 }
 
+/**
+ * 获取 Agent 的头像 URL
+ * 支持多种 avatar 数据格式：
+ * 1. avatar 是对象且包含 imageUrl 字段
+ * 2. avatar 是字符串（直接作为 URL）
+ * 3. 没有 avatar（返回 undefined，显示默认图标）
+ */
+const getAgentAvatarUrl = (agent: OrgAgent): string | undefined => {
+  if (!agent.avatar) {
+    return undefined;
+  }
+  
+  // 如果 avatar 是对象且有 imageUrl 字段
+  if (typeof agent.avatar === 'object' && 'imageUrl' in agent.avatar) {
+    return (agent.avatar as any).imageUrl;
+  }
+  
+  // 如果 avatar 是字符串
+  if (typeof agent.avatar === 'string') {
+    return agent.avatar;
+  }
+  
+  return undefined;
+};
+
 const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
   visible,
   availableAgents,
@@ -104,7 +129,7 @@ const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div style={{ display: 'flex', alignItems: 'center' }}>
                         <Avatar
-                          src={agent.avatar}
+                          src={getAgentAvatarUrl(agent)}
                           icon={<UserOutlined />}
                           size="small"
                           style={{ marginRight: 8 }}
@@ -133,7 +158,7 @@ const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
                       <Avatar
-                        src={agent.avatar}
+                        src={getAgentAvatarUrl(agent)}
                         icon={<UserOutlined />}
                         size="small"
                         style={{ marginRight: 8 }}

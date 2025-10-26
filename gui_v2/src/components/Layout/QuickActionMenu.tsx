@@ -18,8 +18,7 @@ import styled from '@emotion/styled';
 // 自定义下拉菜单样式，与主题一致
 const StyledDropdown = styled(Dropdown)`
     .ant-dropdown-menu {
-        background: rgba(15, 23, 42, 0.95) !important;
-        backdrop-filter: blur(12px);
+        background: rgba(15, 23, 42, 0.98) !important;
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 8px;
         padding: 4px;

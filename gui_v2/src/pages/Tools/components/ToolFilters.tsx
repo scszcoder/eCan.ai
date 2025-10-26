@@ -115,75 +115,57 @@ const StyledFilterButton = styled(Button)`
   }
 `;
 
-export interface TaskFilterOptions {
-  status?: string;
-  priority?: string;
-  trigger?: string;
+export interface ToolFilterOptions {
+  category?: string;
   search?: string;
-  sortBy?: string;
 }
 
-interface TaskFiltersProps {
-  filters: TaskFilterOptions;
-  onChange: (filters: TaskFilterOptions) => void;
+interface ToolFiltersProps {
+  filters: ToolFilterOptions;
+  onChange: (filters: ToolFilterOptions) => void;
 }
 
-export const TaskFilters: React.FC<TaskFiltersProps> = ({ filters, onChange }) => {
+export const ToolFilters: React.FC<ToolFiltersProps> = ({ filters, onChange }) => {
   const { t } = useTranslation();
 
-  const handleFilterChange = (key: keyof TaskFilterOptions, value: string) => {
+  const handleFilterChange = (key: keyof ToolFilterOptions, value: string) => {
     onChange({
       ...filters,
       [key]: value === 'all' ? undefined : value,
     });
   };
 
-  // 优先级菜单项
-  const priorityMenuItems: MenuProps['items'] = [
+  // 类别菜单项
+  const categoryMenuItems: MenuProps['items'] = [
     {
       key: 'all',
-      label: t('pages.tasks.filter.allPriorities', '全部优先级'),
+      label: t('pages.tools.filter.allCategories', '全部类别'),
     },
     { type: 'divider' },
     {
-      key: 'ASAP',
-      label: `⚡ ${t('pages.tasks.priority.ASAP', '立即')}`,
+      key: 'system',
+      label: t('pages.tools.category.system', '系统工具'),
     },
     {
-      key: 'URGENT',
-      label: `🔥 ${t('pages.tasks.priority.URGENT', '紧急')}`,
-    },
-    {
-      key: 'HIGH',
-      label: `⬆️ ${t('pages.tasks.priority.HIGH', '高')}`,
-    },
-    {
-      key: 'MID',
-      label: `➡️ ${t('pages.tasks.priority.MID', '中')}`,
-    },
-    {
-      key: 'LOW',
-      label: `⬇️ ${t('pages.tasks.priority.LOW', '低')}`,
+      key: 'custom',
+      label: t('pages.tools.category.custom', '自定义工具'),
     },
   ];
 
   // 处理菜单点击
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
-    handleFilterChange('priority', key);
+    handleFilterChange('category', key);
   };
 
-  // 获取当前优先级显示文本（用于 Tooltip）
-  const getPriorityTooltip = () => {
-    const priorityMap: Record<string, string> = {
-      ASAP: t('pages.tasks.priority.ASAP', '立即'),
-      URGENT: t('pages.tasks.priority.URGENT', '紧急'),
-      HIGH: t('pages.tasks.priority.HIGH', '高'),
-      MID: t('pages.tasks.priority.MID', '中'),
-      LOW: t('pages.tasks.priority.LOW', '低'),
+  // 获取当前类别显示文本（用于 Tooltip）
+  const getCategoryTooltip = () => {
+    const categoryMap: Record<string, string> = {
+      system: t('pages.tools.category.system', '系统工具'),
+      custom: t('pages.tools.category.custom', '自定义工具'),
     };
-    return filters.priority
-      ? `${t('pages.tasks.filter.priority', '优先级')}: ${priorityMap[filters.priority]}`
-      : t('pages.tasks.filter.filterByPriority', '筛选优先级');
+    return filters.category
+      ? `${t('pages.tools.filter.category', '类别')}: ${categoryMap[filters.category]}`
+      : t('pages.tools.filter.filterByCategory', '筛选类别');
   };
 
   return (
@@ -191,7 +173,7 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({ filters, onChange }) =
       <FilterRow>
         {/* 搜索框 */}
         <StyledInput
-          placeholder={t('pages.tasks.filter.searchPlaceholder', '搜索任务...')}
+          placeholder={t('pages.tools.filter.searchPlaceholder', '搜索工具...')}
           prefix={<SearchOutlined />}
           value={filters.search}
           onChange={(e) => handleFilterChange('search', e.target.value)}
@@ -199,16 +181,16 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({ filters, onChange }) =
           allowClear
         />
 
-        {/* 优先级筛选按钮 - 只显示图标 */}
+        {/* 类别筛选按钮 - 只显示图标 */}
         <Dropdown
-          menu={{ items: priorityMenuItems, onClick: handleMenuClick }}
+          menu={{ items: categoryMenuItems, onClick: handleMenuClick }}
           trigger={['click']}
           placement="bottomRight"
         >
-          <Tooltip title={getPriorityTooltip()}>
+          <Tooltip title={getCategoryTooltip()}>
             <StyledFilterButton
               icon={<FilterOutlined />}
-              type={filters.priority ? 'primary' : 'default'}
+              type={filters.category ? 'primary' : 'default'}
             />
           </Tooltip>
         </Dropdown>

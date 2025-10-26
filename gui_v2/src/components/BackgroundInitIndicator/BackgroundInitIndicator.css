@@ -6,14 +6,13 @@
 }
 
 .indicator-button {
-  background: rgba(30, 30, 46, 0.9);
+  background: rgba(30, 30, 46, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
   color: #ffffff;
   font-size: 12px;
   padding: 4px 8px;
   height: auto;
-  backdrop-filter: blur(8px);
   transition: all 0.3s ease;
 }
 

@@ -12,7 +12,7 @@ import OrgTree from './components/OrgTree';
 import OrgDetails from './components/OrgDetails';
 import OrgModal from './components/OrgModal';
 import AgentBindingModal from './components/AgentBindingModal';
-import type { Org, Agent, OrgFormData, AgentBindingFormData } from './types';
+import type { Org, OrgAgent, OrgFormData, AgentBindingFormData } from './types';
 
 const { Title } = Typography;
 
@@ -101,7 +101,7 @@ const Orgs: React.FC = () => {
     actions.unbindAgent(agentId);
   };
 
-  const handleChatWithAgent = (agent: Agent) => {
+  const handleChatWithAgent = (agent: OrgAgent) => {
     actions.chatWithAgent(agent);
   };
 

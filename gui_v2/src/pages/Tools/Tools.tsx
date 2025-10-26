@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Spin, Button, Typography } from 'antd';
+import { Spin, Button, Typography, Tooltip } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
+import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import ActionButtons from '../../components/Common/ActionButtons';
 import { useUserStore } from '../../stores/userStore';
@@ -11,6 +12,29 @@ import ToolDetail from './ToolDetail';
 import DetailLayout from '../../components/Layout/DetailLayout';
 
 const { Text } = Typography;
+
+const StyledRefreshButton = styled(Button)`
+  &.ant-btn {
+    background: transparent !important;
+    border: none !important;
+    color: rgba(203, 213, 225, 0.9) !important;
+    box-shadow: none !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.1) !important;
+      color: rgba(248, 250, 252, 0.95) !important;
+    }
+
+    &:active {
+      opacity: 0.8 !important;
+    }
+
+    .anticon {
+      transition: all 0.3s ease !important;
+    }
+  }
+`;
 
 const Tools: React.FC = () => {
   const { t } = useTranslation();
@@ -66,13 +90,14 @@ const Tools: React.FC = () => {
   const listTitle = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <Text strong>{t('pages.tools.title')}</Text>
-      <Button
-        shape="circle"
-        icon={<ReloadOutlined />}
-        onClick={handleRefresh}
-        loading={loading}
-        title={t('pages.tools.refresh')}
-      />
+      <Tooltip title={t('pages.tools.refresh')}>
+        <StyledRefreshButton
+          shape="circle"
+          icon={<ReloadOutlined />}
+          onClick={handleRefresh}
+          loading={loading}
+        />
+      </Tooltip>
     </div>
   );
 

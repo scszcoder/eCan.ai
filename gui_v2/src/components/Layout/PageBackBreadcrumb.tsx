@@ -3,11 +3,183 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Button, Breadcrumb, Tooltip, App, Input } from 'antd';
 import { ArrowLeftOutlined, HomeOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import styled from '@emotion/styled';
 import { useOrgStore } from '../../stores/orgStore';
 import { useTaskStore } from '../../stores/domain/taskStore';
 import { useSkillStore } from '../../stores/domain/skillStore';
 import { useUserStore } from '../../stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
+
+// ==================== 样式组件 ====================
+const BreadcrumbContainer = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    justify-content: space-between;
+    width: 100%;
+`;
+
+const LeftSection = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex: 1;
+    min-width: 0;
+`;
+
+const RightSection = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+`;
+
+const StyledBackButton = styled(Button)`
+    color: rgba(203, 213, 225, 0.9) !important;
+    padding-left: 0 !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    height: 32px !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    
+    &:hover {
+        color: rgba(248, 250, 252, 1) !important;
+        background: rgba(255, 255, 255, 0.08) !important;
+    }
+    
+    .anticon {
+        transition: color 0.3s ease;
+    }
+`;
+
+const StyledBreadcrumb = styled(Breadcrumb)`
+    .ant-breadcrumb-separator {
+        color: rgba(148, 163, 184, 0.5) !important;
+        margin: 0 8px !important;
+    }
+    
+    .ant-breadcrumb-link {
+        color: rgba(203, 213, 225, 0.85) !important;
+        transition: all 0.3s ease !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+    }
+`;
+
+const BreadcrumbLink = styled.span<{ $isClickable?: boolean }>`
+    cursor: ${props => props.$isClickable ? 'pointer' : 'default'};
+    color: ${props => props.$isClickable 
+        ? 'rgba(96, 165, 250, 0.95)' 
+        : 'rgba(248, 250, 252, 0.95)'} !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    font-weight: ${props => props.$isClickable ? '500' : '600'};
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    
+    ${props => props.$isClickable && `
+        &:hover {
+            color: rgba(147, 197, 253, 1) !important;
+        }
+    `}
+    
+    .anticon {
+        font-size: 16px;
+    }
+`;
+
+const StyledSearchInput = styled(Input)`
+    width: 280px;
+    height: 36px !important;
+    background: rgba(51, 65, 85, 0.3) !important;
+    border: none !important;
+    border-radius: 8px !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+    padding: 0 12px !important;
+    line-height: 36px !important;
+    
+    &:hover {
+        background: rgba(51, 65, 85, 0.5) !important;
+        box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+    
+    &:focus, &.ant-input-focused, &.ant-input-affix-wrapper-focused {
+        background: rgba(51, 65, 85, 0.6) !important;
+        box-shadow: 
+            0 0 0 2px rgba(59, 130, 246, 0.15),
+            inset 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+    }
+    
+    /* 内部输入框 */
+    input {
+        background: transparent !important;
+        color: rgba(248, 250, 252, 0.95) !important;
+        height: 34px !important;
+        line-height: 34px !important;
+        padding: 0 !important;
+        border: none !important;
+        
+        &::placeholder {
+            color: rgba(148, 163, 184, 0.6) !important;
+        }
+    }
+    
+    /* 前缀图标 */
+    .ant-input-prefix {
+        color: rgba(148, 163, 184, 0.8) !important;
+        margin-right: 8px !important;
+        display: flex;
+        align-items: center;
+        
+        .anticon {
+            font-size: 14px;
+        }
+    }
+    
+    /* 清除按钮 */
+    .ant-input-clear-icon {
+        color: rgba(148, 163, 184, 0.6) !important;
+        font-size: 12px;
+        
+        &:hover {
+            color: rgba(203, 213, 225, 0.9) !important;
+        }
+    }
+    
+    /* 后缀区域 */
+    .ant-input-suffix {
+        display: flex;
+        align-items: center;
+        margin-left: 4px;
+    }
+`;
+
+const StyledRefreshButton = styled(Button)`
+    color: rgba(203, 213, 225, 0.9) !important;
+    font-size: 16px !important;
+    width: 36px !important;
+    height: 36px !important;
+    padding: 0 !important;
+    border-radius: 8px !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    
+    &:hover:not(:disabled) {
+        color: rgba(248, 250, 252, 1) !important;
+        background: rgba(59, 130, 246, 0.15) !important;
+    }
+    
+    &:active:not(:disabled) {
+        opacity: 0.8;
+    }
+    
+    &:disabled {
+        opacity: 0.5;
+    }
+`;
 
 // ==================== 类型定义 ====================
 interface BreadcrumbItem {
@@ -42,24 +214,18 @@ function findTreeNodeById(node: any, targetId: string): any | null {
 // 创建可点击的链接
 function createClickableLink(text: string, path: string, navigate: any): React.ReactNode {
     return (
-        <span 
-            style={{ 
-                cursor: 'pointer', 
-                color: 'rgba(96, 165, 250, 0.9)',
-                transition: 'color 0.2s'
-            }} 
+        <BreadcrumbLink 
+            $isClickable={true}
             onClick={() => navigate(path)}
-            onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(147, 197, 253, 1)'}
-            onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(96, 165, 250, 0.9)'}
         >
             {text}
-        </span>
+        </BreadcrumbLink>
     );
 }
 
 // 创建当前节点（不可点击）
 function createCurrentNode(text: string): React.ReactNode {
-    return <span style={{ color: 'rgba(255, 255, 255, 0.85)' }}>{text}</span>;
+    return <BreadcrumbLink $isClickable={false}>{text}</BreadcrumbLink>;
 }
 
 // ==================== Agents 路径处理器 ====================
@@ -78,22 +244,13 @@ const agentsPathHandler: PathHandler = {
         items.push({
             key: '/agents',
             title: (
-                <span 
-                    style={{ 
-                        cursor: 'pointer', 
-                        color: 'rgba(96, 165, 250, 0.9)', 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: '4px',
-                        transition: 'color 0.2s'
-                    }} 
+                <BreadcrumbLink 
+                    $isClickable={true}
                     onClick={() => navigate('/agents')}
-                    onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(147, 197, 253, 1)'}
-                    onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(96, 165, 250, 0.9)'}
                 >
                     <HomeOutlined />
                     {rootNode?.name || t('menu.agents')}
-                </span>
+                </BreadcrumbLink>
             ),
             path: '/agents'
         });
@@ -370,93 +527,64 @@ const PageBackBreadcrumb: React.FC<PageBackBreadcrumbProps> = ({ searchQuery = '
     const isAgentsPage = segments[0] === 'agents';
     
     return (
-        <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: 12,
-            justifyContent: 'space-between',
-            width: '100%'
-        }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <BreadcrumbContainer>
+            <LeftSection>
                 {showBackButton && (
-                    <Button
+                    <StyledBackButton
                         type="text"
                         icon={<ArrowLeftOutlined />}
                         onClick={() => navigate(parentPath)}
-                        style={{ 
-                            color: 'rgba(255, 255, 255, 0.85)',
-                            paddingLeft: 0,
-                            fontSize: '14px'
-                        }}
                     >
                         {t('common.back', '返回')}
-                    </Button>
+                    </StyledBackButton>
                 )}
                 {items.length > 0 && (
-                    <Breadcrumb 
-                    items={items as any}
-                    style={{
-                        color: 'rgba(255, 255, 255, 0.65)'
-                    }}
-                    itemRender={(item, params, items) => {
-                        const isLast = params.index === items.length - 1;
-                        if (isLast || !item.path) {
-                            return <span style={{ color: 'rgba(255, 255, 255, 0.85)' }}>{item.title}</span>;
-                        }
-                        return (
-                            <span 
-                                style={{ 
-                                    cursor: 'pointer', 
-                                    color: 'rgba(96, 165, 250, 0.9)',
-                                    transition: 'color 0.2s'
-                                }} 
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    navigate(item.path as string);
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(147, 197, 253, 1)'}
-                                onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(96, 165, 250, 0.9)'}
-                            >
-                                {item.title}
-                            </span>
-                        );
-                    }}
-                />
+                    <StyledBreadcrumb 
+                        items={items as any}
+                        itemRender={(item, params, items) => {
+                            const isLast = params.index === items.length - 1;
+                            if (isLast || !item.path) {
+                                return item.title;
+                            }
+                            return (
+                                <BreadcrumbLink 
+                                    $isClickable={true}
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        navigate(item.path as string);
+                                    }}
+                                >
+                                    {item.title}
+                                </BreadcrumbLink>
+                            );
+                        }}
+                    />
                 )}
-            </div>
+            </LeftSection>
             
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <RightSection>
                 {/* 搜索框 - 仅在 agents 页面显示 */}
                 {isAgentsPage && onSearchChange && (
-                    <Input
+                    <StyledSearchInput
                         placeholder={t('pages.agents.search_placeholder') || '请输入名称或其他关键字'}
                         prefix={<SearchOutlined />}
                         value={searchQuery}
                         onChange={(e) => onSearchChange(e.target.value)}
                         allowClear
-                        style={{ 
-                            width: 280,
-                            background: 'rgba(30, 41, 59, 0.6)',
-                            borderColor: 'rgba(59, 130, 246, 0.3)'
-                        }}
                     />
                 )}
                 
                 {/* 刷新按钮 */}
                 <Tooltip title={t('common.refresh') || '刷新数据'}>
-                    <Button
+                    <StyledRefreshButton
                         type="text"
                         icon={<ReloadOutlined spin={refreshing} />}
                         onClick={handleRefresh}
                         disabled={refreshing}
-                        style={{ 
-                            color: 'rgba(255, 255, 255, 0.85)',
-                            fontSize: '16px'
-                        }}
                     />
                 </Tooltip>
-            </div>
-        </div>
+            </RightSection>
+        </BreadcrumbContainer>
     );
 };
 

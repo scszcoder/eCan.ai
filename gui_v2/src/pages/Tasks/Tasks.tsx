@@ -1,25 +1,46 @@
-import { Button, Typography, Space, message } from 'antd';
+import { Button, Typography, Space } from 'antd';
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import React, { useCallback, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import styled from '@emotion/styled';
 
 import DetailLayout from '@/components/Layout/DetailLayout';
 import { TaskList } from './components/TaskList';
 import { TaskDetail } from './components/TaskDetail';
 import { useTasks } from './hooks/useTasks';
-import { Task } from './types';
-import { get_ipc_api } from '@/services/ipc_api';
-import { useUserStore } from '@/stores/userStore';
 
 const { Text } = Typography;
+
+const StyledActionButton = styled(Button)`
+  &.ant-btn {
+    background: transparent !important;
+    border: none !important;
+    color: rgba(203, 213, 225, 0.9) !important;
+    box-shadow: none !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.1) !important;
+      color: rgba(248, 250, 252, 0.95) !important;
+    }
+
+    &:active {
+      opacity: 0.8 !important;
+    }
+
+    .anticon {
+      transition: all 0.3s ease !important;
+    }
+  }
+`;
 
 const Tasks: React.FC = () => {
   const { t } = useTranslation();
   const { tasks, selectedTask, selectItem, isSelected, loading, handleRefresh } = useTasks();
   const [isAddingNew, setIsAddingNew] = React.useState(false);
-  const username = useUserStore((state) => state.username);
   const [searchParams, setSearchParams] = useSearchParams();
+  const [scrollToTaskId, setScrollToTaskId] = React.useState<string | undefined>(undefined);
 
   // Handle taskId from URL parameter
   useEffect(() => {
@@ -27,9 +48,16 @@ const Tasks: React.FC = () => {
     if (taskId && tasks.length > 0) {
       const task = tasks.find(t => t.id === taskId);
       if (task) {
+        // 先设置要滚动到的taskId
+        setScrollToTaskId(taskId);
+        // 然后选中该task
         selectItem(task);
-        // Clear the URL parameter after selecting
+        // 清除URL参数
         setSearchParams({});
+        // 清除scrollToTaskId状态（在滚动完成后）
+        setTimeout(() => {
+          setScrollToTaskId(undefined);
+        }, 500);
       }
     }
   }, [searchParams, tasks, selectItem, setSearchParams]);
@@ -37,16 +65,15 @@ const Tasks: React.FC = () => {
   const listTitle = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <Text strong>{t('pages.tasks.title')}</Text>
-      <Space>
-        <Button
+      <Space size={0}>
+        <StyledActionButton
           shape="circle"
           icon={<ReloadOutlined />}
           onClick={handleRefresh}
           loading={loading}
           title={t('pages.tasks.refresh')}
         />
-        <Button
-          type="primary"
+        <StyledActionButton
           icon={<PlusOutlined />}
           onClick={() => {
             setIsAddingNew(true);
@@ -68,73 +95,6 @@ const Tasks: React.FC = () => {
     handleRefresh();
   };
 
-  // 运行任务
-  const handleRunTask = useCallback(async (task: Task) => {
-    if (!username) {
-      message.error('用户未登录');
-      return;
-    }
-
-    try {
-      const api = get_ipc_api();
-      const response = await api.runTask(username, task.id);
-      if (response?.success) {
-        message.success('任务已开始运行');
-        handleRefresh();
-      } else {
-        message.error('运行任务失败');
-      }
-    } catch (error) {
-      console.error('Failed to run task:', error);
-      message.error('运行任务失败');
-    }
-  }, [username, handleRefresh]);
-
-  // 暂停任务
-  const handlePauseTask = useCallback(async (task: Task) => {
-    if (!username) {
-      message.error('用户未登录');
-      return;
-    }
-
-    try {
-      const api = get_ipc_api();
-      const response = await api.pauseTask(username, task.id);
-      if (response?.success) {
-        message.success('任务已暂停');
-        handleRefresh();
-      } else {
-        message.error('暂停任务失败');
-      }
-    } catch (error) {
-      console.error('Failed to pause task:', error);
-      message.error('暂停任务失败');
-    }
-  }, [username, handleRefresh]);
-
-  // 取消任务
-  const handleCancelTask = useCallback(async (task: Task) => {
-    if (!username) {
-      message.error('用户未登录');
-      return;
-    }
-
-    try {
-      const api = get_ipc_api();
-      const response = await api.cancelTask(username, task.id);
-      if (response?.success) {
-        message.success('任务已取消');
-        handleRefresh();
-      } else {
-        message.error('取消任务失败');
-      }
-    } catch (error) {
-      console.error('Failed to cancel task:', error);
-      message.error('取消任务失败');
-    }
-  }, [username, handleRefresh]);
-
-
 
   return (
     <DetailLayout
@@ -146,9 +106,7 @@ const Tasks: React.FC = () => {
           loading={loading}
           onSelectItem={selectItem}
           isSelected={isSelected}
-          onRun={handleRunTask}
-          onPause={handlePauseTask}
-          onCancel={handleCancelTask}
+          scrollToTaskId={scrollToTaskId}
         />
       }
       detailsContent={

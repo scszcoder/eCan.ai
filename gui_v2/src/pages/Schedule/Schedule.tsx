@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button, Tooltip } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
+import styled from '@emotion/styled';
 import ScheduleList from './ScheduleList';
 import ScheduleDetails from './ScheduleDetails';
 import DetailLayout from '../../components/Layout/DetailLayout';
@@ -8,6 +9,29 @@ import { useDetailView } from '../../hooks/useDetailView';
 import type { TaskSchedule } from './Schedule.types';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
+
+const StyledRefreshButton = styled(Button)`
+  &.ant-btn {
+    background: transparent !important;
+    border: none !important;
+    color: rgba(203, 213, 225, 0.9) !important;
+    box-shadow: none !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.1) !important;
+      color: rgba(248, 250, 252, 0.95) !important;
+    }
+
+    &:active {
+      opacity: 0.8 !important;
+    }
+
+    .anticon {
+      transition: all 0.3s ease !important;
+    }
+  }
+`;
 
 
 // 主组件
@@ -64,8 +88,8 @@ const Schedule: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
             <span>{t('pages.schedule.title')}</span>
             <Tooltip title={t('pages.schedule.refresh', '刷新')}>
-                <Button
-                    type="default"
+                <StyledRefreshButton
+                    shape="circle"
                     icon={<ReloadOutlined />}
                     onClick={handleRefresh}
                     loading={loading}

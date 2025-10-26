@@ -12,17 +12,122 @@ import { useNavigate } from 'react-router-dom';
 
 const StyledHeader = styled(Header)`
     padding: 0 24px;
-    background: #fff;
+    background: rgba(30, 41, 59, 0.98) !important;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    position: relative;
+    z-index: 10;
+    
+    /* 添加底部微光效果 */
+    &::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: linear-gradient(
+            90deg,
+            transparent,
+            rgba(59, 130, 246, 0.4) 30%,
+            rgba(139, 92, 246, 0.4) 70%,
+            transparent
+        );
+    }
 `;
 
 const HeaderRight = styled.div`
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 20px;
+`;
+
+const StyledButton = styled(Button)`
+    &.ant-btn-text {
+        color: rgba(203, 213, 225, 0.9) !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        border-radius: 8px !important;
+        
+        &:hover {
+            color: rgba(248, 250, 252, 1) !important;
+            background: rgba(255, 255, 255, 0.1) !important;
+        }
+        
+        &:active {
+            opacity: 0.8;
+        }
+        
+        .anticon {
+            transition: color 0.3s ease;
+        }
+    }
+`;
+
+const StyledBadge = styled(Badge)`
+    .ant-badge-count {
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
+        font-weight: 600;
+        border: 2px solid rgba(15, 23, 42, 1);
+    }
+`;
+
+const UserSection = styled(Space)`
+    cursor: pointer;
+    padding: 6px 12px;
+    border-radius: 8px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    background: transparent;
+    border: 1px solid transparent;
+    max-width: 220px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    
+    &:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(59, 130, 246, 0.3);
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+    }
+    
+    &:active {
+        background: rgba(255, 255, 255, 0.05);
+        opacity: 0.9;
+    }
+    
+    .ant-space-item:last-child {
+        overflow: hidden;
+        max-width: 150px;
+        line-height: 1;
+    }
+    
+    span {
+        color: rgba(248, 250, 252, 0.95);
+        font-weight: 500;
+        font-size: 14px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: block;
+        line-height: 1.5;
+    }
+`;
+
+const StyledAvatar = styled(Avatar)`
+    background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    line-height: 32px;
+    
+    .anticon {
+        font-size: 16px;
+    }
 `;
 
 interface AppHeaderProps {
@@ -150,20 +255,20 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
     
     return (
         <StyledHeader>
-            <Button
+            <StyledButton
                 type="text"
                 icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
                 onClick={onCollapse}
-                style={{ fontSize: '16px', width: 64, height: 64 }}
+                style={{ fontSize: '18px', width: 64, height: 64 }}
             />
             <HeaderRight>
-                <Badge count={5}>
-                    <Button
+                <StyledBadge count={5}>
+                    <StyledButton
                         type="text"
                         icon={<BellOutlined />}
-                        style={{ fontSize: '16px', color: 'white' }}
+                        style={{ fontSize: '18px' }}
                     />
-                </Badge>
+                </StyledBadge>
                 <Dropdown
                     menu={{ items: combinedMenuItems }}
                     trigger={['click']}
@@ -172,22 +277,21 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
                     placement="bottomRight"
                     overlayClassName="user-profile-dropdown"
                     overlayStyle={{
-                        zIndex: 1060, // 使用合理的 zIndex，避免 Ant Design 警告
+                        zIndex: 1060,
                         minWidth: 200,
                     }}
                     getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
                 >
-                    <Space
-                        style={{ cursor: 'pointer' }}
+                    <UserSection
                         onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
                             setDropdownVisible(!dropdownVisible);
                         }}
                     >
-                        <Avatar icon={<UserOutlined />} />
+                        <StyledAvatar icon={<UserOutlined />} />
                         <span>{username || t('common.username')}</span>
-                    </Space>
+                    </UserSection>
                 </Dropdown>
             </HeaderRight>
         </StyledHeader>

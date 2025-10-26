@@ -185,7 +185,6 @@ const ScheduleDetails: React.FC<ScheduleDetailsProps> = ({ schedule }) => {
                             </div>
                         </div>
                         <Button
-                            type="primary"
                             icon={<ArrowRightOutlined />}
                             onClick={handleNavigateToTask}
                             block

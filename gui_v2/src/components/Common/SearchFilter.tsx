@@ -38,58 +38,80 @@ const SearchInputWrapper = styled.div`
 
 // 搜索输入框 - 与现有输入框风格一致
 const StyledInput = styled(Input)`
-  height: 36px;
-  border-radius: 6px;
-  background-color: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  font-size: 14px;
-  transition: var(--transition-fast);
-  padding: 0 12px 0 36px;
-  width: 100%;
-
-  &::placeholder {
-    color: var(--text-muted);
-  }
-
-  .ant-input-prefix {
-    position: absolute;
-    left: 12px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--text-secondary);
+  &.ant-input-affix-wrapper {
+    height: 36px;
+    border-radius: 8px;
+    background: rgba(51, 65, 85, 0.3);
+    border: none;
+    color: var(--text-primary);
     font-size: 14px;
-    z-index: 2;
-  }
+    transition: var(--transition-fast);
+    padding: 0 12px;
+    width: 100%;
+    line-height: 36px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 
-  .ant-input-suffix {
-    margin-left: 8px;
-  }
+    &:hover {
+      background: rgba(51, 65, 85, 0.4);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    }
 
-  /* 确保外层包装器在所有状态下都保持一致的边框 */
-  .ant-input-affix-wrapper,
-  .ant-input-affix-wrapper:hover,
-  .ant-input-affix-wrapper:focus,
-  .ant-input-affix-wrapper-focused {
-    border-color: var(--border-color) !important;
-    box-shadow: none !important;
-    outline: none !important;
-  }
+    &:focus,
+    &.ant-input-affix-wrapper-focused {
+      background: rgba(51, 65, 85, 0.5);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
 
-  /* 确保内部输入框完全没有边框和效果 */
-  .ant-input {
-    border: none !important;
-    box-shadow: none !important;
-    outline: none !important;
-    background: transparent !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-    
-    &:hover,
-    &:focus {
+    > input.ant-input {
+      background: transparent !important;
       border: none !important;
+      height: 34px !important;
+      line-height: 34px !important;
+      padding: 0 !important;
       box-shadow: none !important;
-      outline: none !important;
+      color: var(--text-primary);
+      
+      &::placeholder {
+        color: var(--text-muted);
+      }
+
+      &:hover,
+      &:focus {
+        border: none !important;
+        box-shadow: none !important;
+        outline: none !important;
+      }
+    }
+
+    .ant-input-prefix {
+      color: rgba(148, 163, 184, 0.7);
+      font-size: 14px;
+      margin-right: 8px;
+    }
+
+    .ant-input-suffix {
+      color: rgba(148, 163, 184, 0.7);
+      font-size: 12px;
+      margin-left: 8px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+
+      .anticon {
+        transition: all 0.3s ease;
+      }
+
+      &:hover .anticon {
+        color: rgba(248, 250, 252, 0.95);
+      }
+    }
+
+    .ant-input-clear-icon {
+      color: rgba(148, 163, 184, 0.7);
+      font-size: 12px;
+      
+      &:hover {
+        color: rgba(248, 250, 252, 0.95);
+      }
     }
   }
 `;
@@ -102,35 +124,54 @@ const ActionButtons = styled.div`
   flex-shrink: 0;
 `;
 
-// 操作按钮 - 与现有按钮风格一致
+// 操作按钮 - 与TaskFilters一致的样式（只显示图标）
 const ActionButton = styled(Button)`
-  height: 32px;
-  border-radius: 6px;
-  background-color: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  font-weight: 500;
-  transition: var(--transition-fast);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 8px;
-  font-size: 13px;
+  height: 36px !important;
+  width: 36px !important;
+  border-radius: 8px !important;
+  background: rgba(51, 65, 85, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
 
   &:hover {
-    background-color: var(--bg-secondary);
-    border-color: var(--primary-color);
-    color: var(--text-primary);
+    background: rgba(51, 65, 85, 0.7) !important;
+    border-color: rgba(59, 130, 246, 0.3) !important;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15) !important;
+  }
+
+  &:active {
+    opacity: 0.8 !important;
   }
 
   &.active {
-    background: linear-gradient(90deg, var(--primary-color), var(--accent-color));
-    border-color: var(--primary-color);
-    color: white;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(99, 102, 241, 0.9) 100%) !important;
+    border-color: rgba(59, 130, 246, 0.5) !important;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
+
+    &:hover {
+      background: linear-gradient(135deg, rgba(59, 130, 246, 1) 0%, rgba(99, 102, 241, 1) 100%) !important;
+      border-color: rgba(59, 130, 246, 0.7) !important;
+      box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4) !important;
+    }
   }
 
   .anticon {
-    font-size: 13px;
+    color: rgba(59, 130, 246, 0.9) !important;
+    font-size: 16px !important;
+    transition: all 0.3s ease !important;
+  }
+
+  &:hover .anticon {
+    color: rgba(96, 165, 250, 1) !important;
+  }
+
+  &.active .anticon {
+    color: white !important;
   }
 `;
 
@@ -537,14 +578,14 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
               placement="bottomRight"
               trigger={['click']}
             >
-              <ActionButton
-                icon={<HistoryOutlined />}
-                onClick={() => setShowHistory(!showHistory)}
-                aria-label={t('search.ariaHistory')}
-                tabIndex={0}
-              >
-                {t('search.history')}
-              </ActionButton>
+              <Tooltip title={t('search.history')}>
+                <ActionButton
+                  icon={<HistoryOutlined />}
+                  onClick={() => setShowHistory(!showHistory)}
+                  aria-label={t('search.ariaHistory')}
+                  tabIndex={0}
+                />
+              </Tooltip>
             </Dropdown>
           )}
 
@@ -556,15 +597,15 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
               placement="bottomRight"
               trigger={['click']}
             >
-              <ActionButton
-                icon={<FilterOutlined />}
-                onClick={() => setShowFilters(!showFilters)}
-                className={Object.keys(activeFilters).length > 0 ? 'active' : ''}
-                aria-label={t('search.ariaFilter')}
-                tabIndex={0}
-              >
-                {t('search.filters')}
-              </ActionButton>
+              <Tooltip title={t('search.filters')}>
+                <ActionButton
+                  icon={<FilterOutlined />}
+                  onClick={() => setShowFilters(!showFilters)}
+                  className={Object.keys(activeFilters).length > 0 ? 'active' : ''}
+                  aria-label={t('search.ariaFilter')}
+                  tabIndex={0}
+                />
+              </Tooltip>
             </Dropdown>
           )}
         </ActionButtons>

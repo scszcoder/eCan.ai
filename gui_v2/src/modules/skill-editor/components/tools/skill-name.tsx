@@ -68,6 +68,36 @@ const EditIcon = styled(IconEdit)`
   }
 `;
 
+const StyledTooltip = styled(Tooltip)`
+  .semi-portal-inner {
+    .semi-tooltip-wrapper {
+      .semi-tooltip {
+        background: linear-gradient(135deg, #4338ca 0%, #5b21b6 100%);
+        border: none;
+        border-radius: 6px;
+        padding: 6px 12px;
+        font-size: 13px;
+        font-weight: 500;
+        letter-spacing: 0.2px;
+        box-shadow: 0 4px 12px rgba(67, 56, 202, 0.25),
+                    0 2px 6px rgba(0, 0, 0, 0.1);
+        
+        .semi-tooltip-content {
+          color: #ffffff;
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+        
+        .semi-tooltip-arrow {
+          &::before {
+            background: linear-gradient(135deg, #4338ca 0%, #5b21b6 100%);
+            border: none;
+          }
+        }
+      }
+    }
+  }
+`;
+
 const StyledInput = styled(Input)`
   .semi-input {
     border: none;
@@ -148,16 +178,16 @@ export const SkillNameBadge: React.FC = () => {
         />
       ) : (
         <>
-          <Tooltip content={value} position="bottom">
+          <StyledTooltip content={value} position="bottom">
             <SkillNameText onDoubleClick={startEditing}>
               {display}
             </SkillNameText>
-          </Tooltip>
-          <Tooltip content="Click to edit" position="bottom">
+          </StyledTooltip>
+          <StyledTooltip content="Click to edit" position="bottom">
             <EditIconWrapper onClick={startEditing}>
               <EditIcon />
             </EditIconWrapper>
-          </Tooltip>
+          </StyledTooltip>
         </>
       )}
     </SkillNameContainer>

@@ -3,21 +3,99 @@
  */
 
 import React from 'react';
-import { Button, Typography, List, Avatar, Tooltip, Popconfirm, Empty, Card } from 'antd';
+import { Button, List, Avatar, Tooltip, Popconfirm, Empty, Card } from 'antd';
 import { PlusOutlined, TeamOutlined, UserOutlined, MessageOutlined, DisconnectOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import type { Agent } from '../types';
+import type { OrgAgent } from '../types';
 
-const { Title } = Typography;
+const StyledAddButton = styled(Button)`
+  &.ant-btn {
+    background: transparent !important;
+    border: none !important;
+    color: rgba(203, 213, 225, 0.9) !important;
+    box-shadow: none !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.1) !important;
+      color: rgba(248, 250, 252, 0.95) !important;
+    }
+
+    &:active {
+      opacity: 0.8 !important;
+    }
+
+    .anticon {
+      transition: all 0.3s ease !important;
+    }
+  }
+`;
+
+const StyledActionButton = styled(Button, {
+  shouldForwardProp: (prop) => prop !== '$iconColor'
+})<{ $iconColor?: string }>`
+  &.ant-btn {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    padding: 4px 8px !important;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.05) !important;
+    }
+
+    &:active {
+      opacity: 0.8 !important;
+    }
+
+    .anticon {
+      color: ${props => props.$iconColor || 'rgba(148, 163, 184, 0.9)'} !important;
+      font-size: 16px !important;
+      transition: all 0.3s ease !important;
+    }
+
+    &:hover .anticon {
+      color: ${props => props.$iconColor || 'rgba(148, 163, 184, 1)'} !important;
+      transform: scale(1.1);
+    }
+  }
+`;
 
 interface AgentListProps {
-  agents: Agent[];
+  agents: OrgAgent[];
   onBindAgents: () => void;
   onUnbindAgent: (agentId: string) => void;
-  onChatWithAgent: (agent: Agent) => void;
+  onChatWithAgent: (agent: OrgAgent) => void;
   title?: string; // 可选的自定义标题
 }
+
+/**
+ * 获取 Agent 的头像 URL
+ * 支持多种 avatar 数据格式：
+ * 1. avatar 是对象且包含 imageUrl 字段
+ * 2. avatar 是字符串（直接作为 URL）
+ * 3. 没有 avatar（返回 undefined，显示默认图标）
+ */
+const getAgentAvatarUrl = (agent: OrgAgent): string | undefined => {
+  if (!agent.avatar) {
+    return undefined;
+  }
+  
+  // 如果 avatar 是对象且有 imageUrl 字段
+  if (typeof agent.avatar === 'object' && 'imageUrl' in agent.avatar) {
+    return (agent.avatar as { imageUrl: string }).imageUrl;
+  }
+  
+  // 如果 avatar 是字符串
+  if (typeof agent.avatar === 'string') {
+    return agent.avatar;
+  }
+  
+  return undefined;
+};
 
 const AgentList: React.FC<AgentListProps> = ({
   agents,
@@ -47,8 +125,7 @@ const AgentList: React.FC<AgentListProps> = ({
             mouseLeaveDelay={0.1}
             placement="bottom"
           >
-            <Button
-              type="primary"
+            <StyledAddButton
               size="small"
               icon={<PlusOutlined />}
               onClick={onBindAgents}
@@ -71,17 +148,17 @@ const AgentList: React.FC<AgentListProps> = ({
             <List.Item
               actions={[
                 <Tooltip title={t('pages.org.tooltip.chat')} key="chat">
-                  <Button
-                    type="text"
+                  <StyledActionButton
                     size="small"
+                    $iconColor="rgba(16, 185, 129, 0.9)"
                     icon={<MessageOutlined />}
                     onClick={() => onChatWithAgent(agent)}
                   />
                 </Tooltip>,
                 <Tooltip title={t('pages.org.tooltip.details')} key="details">
-                  <Button
-                    type="text"
+                  <StyledActionButton
                     size="small"
+                    $iconColor="rgba(96, 165, 250, 0.9)"
                     icon={<InfoCircleOutlined />}
                     onClick={() => handleViewDetails(agent.id)}
                   />
@@ -93,10 +170,9 @@ const AgentList: React.FC<AgentListProps> = ({
                     okText={t('common.confirm')}
                     cancelText={t('common.cancel')}
                   >
-                    <Button
-                      type="text"
+                    <StyledActionButton
                       size="small"
-                      danger
+                      $iconColor="rgba(239, 68, 68, 0.9)"
                       icon={<DisconnectOutlined />}
                     />
                   </Popconfirm>
@@ -106,7 +182,7 @@ const AgentList: React.FC<AgentListProps> = ({
               <List.Item.Meta
                 avatar={
                   <Avatar
-                    src={agent.avatar}
+                    src={getAgentAvatarUrl(agent)}
                     icon={<UserOutlined />}
                   />
                 }

@@ -165,11 +165,10 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                             left: 0, 
                             right: 0,
                             zIndex: 10,
-                            padding: '12px 24px',
-                            background: 'var(--bg-secondary, rgba(15, 23, 42, 0.8))',
-                            backdropFilter: 'blur(12px)',
-                            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)'
+                            padding: '14px 24px',
+                            background: 'rgba(30, 41, 59, 0.95)',
+                            borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)'
                         }}>
                             <PageBackBreadcrumb 
                                 searchQuery={searchQuery}

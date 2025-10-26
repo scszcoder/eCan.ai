@@ -115,83 +115,108 @@ const StyledFilterButton = styled(Button)`
   }
 `;
 
-export interface TaskFilterOptions {
+export interface ConsoleFilterOptions {
   status?: string;
-  priority?: string;
-  trigger?: string;
+  type?: string;
   search?: string;
-  sortBy?: string;
 }
 
-interface TaskFiltersProps {
-  filters: TaskFilterOptions;
-  onChange: (filters: TaskFilterOptions) => void;
+interface ConsoleFiltersProps {
+  filters: ConsoleFilterOptions;
+  onChange: (filters: ConsoleFilterOptions) => void;
 }
 
-export const TaskFilters: React.FC<TaskFiltersProps> = ({ filters, onChange }) => {
+export const ConsoleFilters: React.FC<ConsoleFiltersProps> = ({ filters, onChange }) => {
   const { t } = useTranslation();
 
-  const handleFilterChange = (key: keyof TaskFilterOptions, value: string) => {
+  const handleFilterChange = (key: keyof ConsoleFilterOptions, value: string) => {
     onChange({
       ...filters,
       [key]: value === 'all' ? undefined : value,
     });
   };
 
-  // 优先级菜单项
-  const priorityMenuItems: MenuProps['items'] = [
+  // 状态菜单项
+  const statusMenuItems: MenuProps['items'] = [
     {
       key: 'all',
-      label: t('pages.tasks.filter.allPriorities', '全部优先级'),
+      label: t('pages.console.filter.allStatus', '全部状态'),
     },
     { type: 'divider' },
     {
-      key: 'ASAP',
-      label: `⚡ ${t('pages.tasks.priority.ASAP', '立即')}`,
+      key: 'active',
+      label: t('pages.console.status.active', 'Active'),
     },
     {
-      key: 'URGENT',
-      label: `🔥 ${t('pages.tasks.priority.URGENT', '紧急')}`,
+      key: 'maintenance',
+      label: t('pages.console.status.maintenance', 'Maintenance'),
     },
     {
-      key: 'HIGH',
-      label: `⬆️ ${t('pages.tasks.priority.HIGH', '高')}`,
+      key: 'offline',
+      label: t('pages.console.status.offline', 'Offline'),
+    },
+  ];
+
+  // 类型菜单项
+  const typeMenuItems: MenuProps['items'] = [
+    {
+      key: 'all',
+      label: t('pages.console.filter.allTypes', '全部类型'),
+    },
+    { type: 'divider' },
+    {
+      key: 'ground',
+      label: t('pages.console.groundVehicle', 'Ground Vehicle'),
     },
     {
-      key: 'MID',
-      label: `➡️ ${t('pages.tasks.priority.MID', '中')}`,
-    },
-    {
-      key: 'LOW',
-      label: `⬇️ ${t('pages.tasks.priority.LOW', '低')}`,
+      key: 'aerial',
+      label: t('pages.console.aerialVehicle', 'Aerial Vehicle'),
     },
   ];
 
   // 处理菜单点击
-  const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
-    handleFilterChange('priority', key);
+  const handleStatusClick: MenuProps['onClick'] = ({ key }) => {
+    handleFilterChange('status', key);
   };
 
-  // 获取当前优先级显示文本（用于 Tooltip）
-  const getPriorityTooltip = () => {
-    const priorityMap: Record<string, string> = {
-      ASAP: t('pages.tasks.priority.ASAP', '立即'),
-      URGENT: t('pages.tasks.priority.URGENT', '紧急'),
-      HIGH: t('pages.tasks.priority.HIGH', '高'),
-      MID: t('pages.tasks.priority.MID', '中'),
-      LOW: t('pages.tasks.priority.LOW', '低'),
-    };
-    return filters.priority
-      ? `${t('pages.tasks.filter.priority', '优先级')}: ${priorityMap[filters.priority]}`
-      : t('pages.tasks.filter.filterByPriority', '筛选优先级');
+  const handleTypeClick: MenuProps['onClick'] = ({ key }) => {
+    handleFilterChange('type', key);
   };
+
+  // 获取当前筛选显示文本（用于 Tooltip）
+  const getFilterTooltip = () => {
+    const parts: string[] = [];
+    
+    if (filters.status) {
+      const statusMap: Record<string, string> = {
+        active: t('pages.console.status.active', 'Active'),
+        maintenance: t('pages.console.status.maintenance', 'Maintenance'),
+        offline: t('pages.console.status.offline', 'Offline'),
+      };
+      parts.push(statusMap[filters.status]);
+    }
+    
+    if (filters.type) {
+      const typeMap: Record<string, string> = {
+        ground: t('pages.console.groundVehicle', 'Ground Vehicle'),
+        aerial: t('pages.console.aerialVehicle', 'Aerial Vehicle'),
+      };
+      parts.push(typeMap[filters.type]);
+    }
+    
+    return parts.length > 0
+      ? parts.join(', ')
+      : t('pages.console.filter.filterItems', '筛选项');
+  };
+
+  const hasActiveFilters = filters.status || filters.type;
 
   return (
     <FilterContainer>
       <FilterRow>
         {/* 搜索框 */}
         <StyledInput
-          placeholder={t('pages.tasks.filter.searchPlaceholder', '搜索任务...')}
+          placeholder={t('pages.console.searchPlaceholder', '搜索...')}
           prefix={<SearchOutlined />}
           value={filters.search}
           onChange={(e) => handleFilterChange('search', e.target.value)}
@@ -199,16 +224,38 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({ filters, onChange }) =
           allowClear
         />
 
-        {/* 优先级筛选按钮 - 只显示图标 */}
+        {/* 筛选按钮 - 只显示图标，支持多级菜单 */}
         <Dropdown
-          menu={{ items: priorityMenuItems, onClick: handleMenuClick }}
+          menu={{ 
+            items: [
+              {
+                key: 'status',
+                label: t('pages.console.status', '状态'),
+                children: statusMenuItems,
+              },
+              {
+                key: 'type',
+                label: t('pages.console.type', '类型'),
+                children: typeMenuItems,
+              },
+            ],
+            onClick: (info) => {
+              // 根据父级key判断是哪个筛选项
+              const keyPath = info.keyPath;
+              if (keyPath.length > 1) {
+                const filterType = keyPath[1]; // 'status' 或 'type'
+                const value = keyPath[0];
+                handleFilterChange(filterType as keyof ConsoleFilterOptions, value);
+              }
+            }
+          }}
           trigger={['click']}
           placement="bottomRight"
         >
-          <Tooltip title={getPriorityTooltip()}>
+          <Tooltip title={getFilterTooltip()}>
             <StyledFilterButton
               icon={<FilterOutlined />}
-              type={filters.priority ? 'primary' : 'default'}
+              type={hasActiveFilters ? 'primary' : 'default'}
             />
           </Tooltip>
         </Dropdown>

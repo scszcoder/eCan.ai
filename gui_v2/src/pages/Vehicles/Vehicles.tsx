@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { message } from 'antd';
+import { message, Button, Space, Tooltip } from 'antd';
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { useUserStore } from '@/stores/userStore';
 import { useVehicleStore, VehicleStatus, type Vehicle } from '@/stores';
@@ -10,6 +12,29 @@ import VehicleDetails from './VehicleDetails';
 import VehicleFormModal from './VehicleFormModal';
 import { logger } from '@/utils/logger';
 import { get_ipc_api } from '@/services/ipc_api';
+
+const StyledActionButton = styled(Button)`
+  &.ant-btn {
+    background: transparent !important;
+    border: none !important;
+    color: rgba(203, 213, 225, 0.9) !important;
+    box-shadow: none !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.1) !important;
+      color: rgba(248, 250, 252, 0.95) !important;
+    }
+
+    &:active {
+      opacity: 0.8 !important;
+    }
+
+    .anticon {
+      transition: all 0.3s ease !important;
+    }
+  }
+`;
 
 const Vehicles: React.FC = () => {
   const { t } = useTranslation();
@@ -164,10 +189,32 @@ const Vehicles: React.FC = () => {
     setFilters({});
   };
 
+  const listTitle = (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+      <span>{t('pages.vehicles.title')}</span>
+      <Space size={0}>
+        <Tooltip title={t('pages.vehicles.refreshVehicles', '刷新')}>
+          <StyledActionButton
+            shape="circle"
+            icon={<ReloadOutlined />}
+            onClick={handleRefresh}
+          />
+        </Tooltip>
+        <Tooltip title={t('pages.vehicles.addVehicle', '添加车辆')}>
+          <StyledActionButton
+            shape="circle"
+            icon={<PlusOutlined />}
+            onClick={handleAdd}
+          />
+        </Tooltip>
+      </Space>
+    </div>
+  );
+
   return (
     <>
       <DetailLayout
-        listTitle={t('pages.vehicles.title')}
+        listTitle={listTitle}
         detailsTitle={t('pages.vehicles.vehicleInformation')}
         listContent={
           <VehicleList
@@ -178,10 +225,8 @@ const Vehicles: React.FC = () => {
             onFilterChange={handleFilterChange}
             onSearch={handleSearch}
             onReset={handleReset}
-            onAdd={handleAdd}
             onEdit={handleEdit}
             onDelete={handleDelete}
-            onRefresh={handleRefresh}
             t={t}
           />
         }
