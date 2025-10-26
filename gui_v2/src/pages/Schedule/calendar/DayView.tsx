@@ -8,6 +8,7 @@ import styled from '@emotion/styled';
 import dayjs from 'dayjs';
 import { Tooltip, Badge } from 'antd';
 import { useTranslation } from 'react-i18next';
+import { useEffectOnActive } from 'keepalive-for-react';
 import 'dayjs/locale/zh-cn';
 import 'dayjs/locale/en';
 import type { CalendarEvent, CalendarConfig } from './types';
@@ -260,7 +261,8 @@ const DayView: React.FC<DayViewProps> = ({
 }) => {
   const { t, i18n } = useTranslation();
   const calendarConfig = { ...DEFAULT_CALENDAR_CONFIG, ...config };
-  const containerRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const savedScrollPositionRef = useRef<number>(0);
   
   // 动态设置 dayjs locale
   useEffect(() => {
@@ -307,6 +309,28 @@ const DayView: React.FC<DayViewProps> = ({
   const handleTimeSlotClick = (hour: number, minute: number) => {
     onTimeSlotClick?.(currentDate, hour, minute);
   };
+  
+  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  useEffectOnActive(
+    () => {
+      // 组件激活时：恢复滚动位置
+      const container = scrollContainerRef.current;
+      if (container && savedScrollPositionRef.current > 0) {
+        requestAnimationFrame(() => {
+          container.scrollTop = savedScrollPositionRef.current;
+        });
+      }
+      
+      // 返回清理函数，在组件失活前保存滚动位置
+      return () => {
+        const container = scrollContainerRef.current;
+        if (container) {
+          savedScrollPositionRef.current = container.scrollTop;
+        }
+      };
+    },
+    []
+  );
   
   // 获取某个时间槽内的任务（处理跨天任务）
   const getEventsForSlot = (slotHour: number, slotMinute: number) => {
@@ -402,7 +426,7 @@ const DayView: React.FC<DayViewProps> = ({
       </DayHeader>
       
       {/* Time Grid */}
-      <TimeGridContainer ref={containerRef}>
+      <TimeGridContainer ref={scrollContainerRef}>
         <TimeGrid>
           {timeSlots.map((slot, slotIndex) => {
             const isHour = slot.minute === 0;
