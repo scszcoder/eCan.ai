@@ -68,7 +68,7 @@ def send_data_to_agent(recipient_id, dtype, data, state) -> NodeState:
         mainwin = self_agent.mainwin
         twin_agent = next((ag for ag in mainwin.agents if "twin" in ag.card.name.lower()), None)
 
-        print("standard_post_llm_hook send_response_back:", state)
+        print("[send_data_to_agent] send_response_back:", state)
         chat_id = state["messages"][1]
         msg_id = str(uuid.uuid4()),
         # send self a message to trigger the real component search work-flow
