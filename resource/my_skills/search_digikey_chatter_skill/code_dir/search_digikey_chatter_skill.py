@@ -856,6 +856,7 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
                     meta = getattr(content0, 'meta', None) or getattr(content0, '_meta', None)
                     logger.debug("processing tool result....meta:", meta)
                     state["tool_result"] = meta
+                    state["metadata"]["components"] = meta["components"]
                     components = meta.get("components", []) if isinstance(meta, dict) else meta
                     parametric_filters = []
                     logger.debug("processing tool result....components:", components)
@@ -896,17 +897,33 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
         # Local search (Digikey): prep -> MCP -> post
         def prep_run_search(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
             try:
-                print("prep_run_search------------------->")
-                site_categories = state.get("tool_result", {}).get("components", [{}])
+                print("prep_run_search------------------->", state)
+                # site_categories = state.get("tool_result", {}).get("components", [{}])
+                site_categories = state.get("metadata", {}).get("components", [{}])[0].get("site_categories", {})
+                logger.debug("site_categories:", site_categories)
                 in_pfs = state.get("metadata", {}).get("filled_parametric_filter", {})
                 if in_pfs:
                     parametric_filters = [in_pfs.get("fields", [])]
                 else:
                     parametric_filters = [[]]
+
+                fom_form = {}
+                if "fom_template" in state["tool_result"]:
+                    if "fom" in state["tool_result"]["fom_template"]:
+                        fom_form =state["tool_result"]["fom_template"]["fom"]
+
+                components = [{}]
+                if "component_results_info" in state["tool_input"]["input"]:
+                    if isinstance(state["tool_input"]["input"]["component_results_info"], list):
+                        components = state["tool_input"]["input"]["component_results_info"]
+                    else:
+                        components = [state["tool_input"]["input"]["component_results_info"]]
+
                 body = {
+                    "components": components,
                     "urls": site_categories,
                     "parametric_filters": parametric_filters,
-                    "fom_form": {},
+                    "fom_form": fom_form,
                     "max_n_results": 8,
                 }
                 state["tool_input"] = {"input": body}
@@ -942,7 +959,9 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
             return state
 
         wf.add_node("post_run_search", node_builder(post_run_search, "post_run_search", THIS_SKILL_NAME, OWNER, bp_manager))
+        # wf.add_conditional_edges("examine_filled_specs", h_are_component_specs_filled, ["prep_run_search", "pend_for_next_human_msg1"])
         wf.add_conditional_edges("examine_filled_specs", h_are_component_specs_filled, ["prep_query_fom", "pend_for_next_human_msg1"])
+
         # wf.add_edge("prep_run_search", "mcp_run_search")
         # wf.add_edge("mcp_run_search", "post_run_search")
         # wf.add_edge("pend_for_next_human_msg1", "examine_filled_specs")
@@ -1079,6 +1098,7 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
         # Sort: prep -> MCP -> post
         def prep_local_sort(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
             try:
+                print("prep local sort..........", state)
                 table_headers = (state.get("tool_result") or {}).get("fom", {}).get("component_level_metrics", [])
                 header_text = (table_headers[0] or {}).get("metric_name") if table_headers else "score"
                 ascending = True if (table_headers[0] or {}).get("sort_order") == "asc" else False
@@ -1113,11 +1133,18 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
         wf.add_node("re_rank_search_results", node_builder(re_rank_search_results_node, "re_rank_search_results", THIS_SKILL_NAME, OWNER, bp_manager))
         # Start at chat to collect requirements; breakpoint wrappers enable graphical debugging
         wf.set_entry_point("chat")
-        wf.add_conditional_edges("confirm_FOM", h_is_FOM_filled, ["prep_local_sort", "pend_for_human_input_fill_FOM"])
-        wf.add_edge("prep_local_sort", "mcp_local_sort")
-        wf.add_edge("mcp_local_sort", "post_local_sort")
-        wf.add_edge("post_local_sort", "re_rank_search_results")
-        wf.add_edge("re_rank_search_results", END)
+
+        wf.add_edge("prep_run_search", "mcp_run_search")
+        wf.add_edge("mcp_run_search", "post_run_search")
+        wf.add_conditional_edges("confirm_FOM", h_is_FOM_filled, ["prep_run_search", "pend_for_human_input_fill_FOM"])
+        wf.add_edge("post_run_search", END)
+        # wf.add_conditional_edges("confirm_FOM", h_is_FOM_filled, ["prep_local_sort", "pend_for_human_input_fill_FOM"])
+
+
+        # wf.add_edge("prep_local_sort", "mcp_local_sort")
+        # wf.add_edge("mcp_local_sort", "post_local_sort")
+        # wf.add_edge("post_local_sort", "re_rank_search_results")
+        # wf.add_edge("re_rank_search_results", END)
 
         skill.set_work_flow(wf)
 

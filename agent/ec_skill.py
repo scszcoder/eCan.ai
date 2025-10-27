@@ -354,18 +354,13 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
             retries = int(state.get("retry", default_retries))
         except (ValueError, TypeError):
             retries = default_retries
-
         attempts = 0
         last_exc = None
         result = None
         logger.info(f"[node_builder] ENTERING node={node_name}, skill={skill_name}")
         runtime.context["this_node"] = {"name": node_name, "skill_name": skill_name, "owner": owner}
-        state["attributes"]["run_thread_id"] = runtime.context["id"]
-        print("run thread id:", state["attributes"]["run_thread_id"])
-        # Apply node-level state->state mapping (if provided in state)
+        # Ensure attributes dict exists before use
         try:
-            # Look for per-node mapping rules in state:
-            # Prefer attributes.node_transfer_rules[node_name], fallback to state.node_transfer_rules
             node_rules_map = None
             attrs = state.get("attributes") if isinstance(state, dict) else None
             if isinstance(attrs, dict):
@@ -508,6 +503,7 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         # Check for breakpoints BEFORE executing the node
         # This ensures we pause before any node code runs
         if bp_manager and bp_manager.has_breakpoint(node_name):
+            logger.debug(f"[breakpoint] Configured breakpoint present for node={node_name}")
             # sanitize potential self-referential result before any interrupt
             try:
                 if state.get("result") is state:
@@ -529,14 +525,14 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                 logger.error(f"Error build skip list at {node_name}: {err_msg}")
                 skip_list = []
 
-            logger.debug(f"[skip-once] at={node_name}, skip_list(before)={skip_list}")
+            logger.debug(f"[breakpoint] skip-once list before at node={node_name}: {skip_list}")
             if isinstance(skip_list, (list, tuple)) and node_name in skip_list:
-                logger.info(f"Skip-once: skipping breakpoint at {node_name} per runtime.context")
+                logger.info(f"[breakpoint] Skip-once: skipping breakpoint at {node_name} per runtime.context")
                 # remove it so it only skips once
                 try:
                     if isinstance(skip_list, list):
                         skip_list.remove(node_name)
-                        logger.debug(f"[skip-once] at={node_name}, skip_list(after)={runtime.context.get('skip_bp_once')}")
+                        logger.debug(f"[breakpoint] skip-once list after at node={node_name}: {runtime.context.get('skip_bp_once')}")
                         runtime.context["skip_bp_once"] = skip_list
                 except Exception:
                     pass
@@ -545,16 +541,16 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                 step_once_active = runtime.context.get("step_once", False)
                 step_origin = runtime.context.get("step_from", "")
                 if step_once_active and step_origin == node_name:
-                    logger.info(f"Step-once: skipping breakpoint at origin node {node_name}")
+                    logger.info(f"[breakpoint] Step-once: skipping breakpoint at origin node {node_name}")
                 else:
                     # Fallback: state-based resume flag (kept for compatibility with older flows)
                     resuming_from = state.get("_resuming_from")
-                    logger.info(f"DEBUG: Breakpoint check for {node_name}, _resuming_from = {resuming_from}")
+                    logger.debug(f"[breakpoint] check for node={node_name}, _resuming_from={resuming_from}")
                     if resuming_from == node_name:
-                        logger.info(f"Skipping breakpoint at {node_name} - resuming from this node (state flag)")
+                        logger.info(f"[breakpoint] Skipping breakpoint at {node_name} - resuming from this node (state flag)")
                         state.pop("_resuming_from", None)
                     else:
-                        logger.info(f"Breakpoint hit at node: {node_name}. Pausing before execution.")
+                        logger.info(f"[breakpoint] HIT at node={node_name}. Pausing before execution.")
                         interrupt({"paused_at": node_name, "i_tag": node_name, "state": _safe_state_view(state)})
 
         # Send running status to frontend before executing node

@@ -927,6 +927,44 @@ class TaskRunner(Generic[Context]):
         # Note: legacy fixed global queues (chat_queue/a2a_queue/work_queue) removed.
         # Routing should be done by mapping rules to a specific ManagedTask's own queue.
 
+    # --- Dev-run breakpoint controls (used by skill editor sidebar) ---
+    def set_bps_dev_skill(self, bps: list[str] | None):
+        """Set breakpoints for the current dev skill run.
+
+        Args:
+            bps: list of node names to break on.
+        Returns:
+            dict with success flag and current breakpoints.
+        """
+        try:
+            nodes = bps or []
+            if not isinstance(nodes, list):
+                nodes = [str(nodes)]
+            bp_list = [str(n) for n in nodes]
+            logger.debug(f"[TaskRunner] set_bps_dev_skill called with: {bp_list}")
+            self.bp_manager.set_breakpoints(bp_list)
+            current = self.bp_manager.get_breakpoints()
+            logger.info(f"[TaskRunner] Breakpoints set -> now: {current}")
+            return {"success": True, "breakpoints": current}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def clear_bps_dev_skill(self, bps: list[str] | None = None):
+        """Clear specific breakpoints, or all if none provided."""
+        try:
+            if bps:
+                to_clear = [str(n) for n in bps]
+                logger.debug(f"[TaskRunner] clear_bps_dev_skill called with: {to_clear}")
+                self.bp_manager.clear_breakpoints(to_clear)
+            else:
+                logger.debug("[TaskRunner] clear_bps_dev_skill called with: ALL")
+                self.bp_manager.clear_all()
+            current = self.bp_manager.get_breakpoints()
+            logger.info(f"[TaskRunner] Breakpoints cleared -> now: {current}")
+            return {"success": True, "breakpoints": current}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def update_event_handler(self, event_type="", event_queue=None):
         # Deprecated: kept for backward API compatibility; no-op.
         return
