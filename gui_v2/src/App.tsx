@@ -31,9 +31,10 @@ import './utils/videoSupport'; // Initialize video support check on page load
 //     }
 // };
 
-// 自定义主题配置
+// 自定义主题配置 - 标准 Ant Design 架构
 const getThemeConfig = (isDark: boolean) => ({
     token: {
+        // 品牌色
         colorPrimary: '#3b82f6',
         colorSuccess: '#22c55e',
         colorWarning: '#eab308',
@@ -41,10 +42,21 @@ const getThemeConfig = (isDark: boolean) => ({
         colorInfo: '#0ea5e9',
         borderRadius: 8,
         wireframe: false,
+        // 明确设置背景色，使用原来的配色方案
+        ...(isDark ? {
+            colorBgLayout: '#0f172a',      // 深蓝黑色页面背景（原来的颜色）
+            colorBgContainer: '#1e293b',   // 深蓝灰色容器背景（原来的颜色）
+            colorBgElevated: '#1e293b',    // 深蓝灰色浮层背景
+        } : {
+            colorBgLayout: '#f0f2f5',      // 浅灰色页面背景
+            colorBgContainer: '#ffffff',   // 白色容器背景
+            colorBgElevated: '#ffffff',    // 白色浮层背景
+        }),
     },
     algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm,
     components: {
         Layout: {
+            // Layout 组件的背景色，使用原来的配色方案
             bodyBg: isDark ? '#0f172a' : '#f0f2f5',
             headerBg: isDark ? '#1e293b' : '#ffffff',
             siderBg: isDark ? '#1e293b' : '#ffffff',
@@ -96,6 +108,20 @@ const AppContent = () => {
     }, []);
     const { theme: currentTheme } = useTheme();
     const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+    // 应用全局背景色到 body 和 #root
+    React.useEffect(() => {
+        const bgColor = isDark ? '#0f172a' : '#f0f2f5';  // 恢复原来的深蓝黑色
+        const textColor = isDark ? '#f8fafc' : '#000000';
+        
+        document.body.style.backgroundColor = bgColor;
+        document.body.style.color = textColor;
+        
+        const root = document.getElementById('root');
+        if (root) {
+            root.style.backgroundColor = bgColor;
+        }
+    }, [isDark]);
 
     // Note: avoid immediate fetch on username to prevent racing backend init; we poll readiness below
 

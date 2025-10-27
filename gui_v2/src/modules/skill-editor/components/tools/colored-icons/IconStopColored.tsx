@@ -2,7 +2,7 @@
  * Colored Stop Icon
  */
 export const IconStopColored = ({ size = 16 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <svg width={size} height={size} viewBox="1 1 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
     <circle cx="12" cy="12" r="10" fill="url(#stop-gradient)" />
     <rect x="7.5" y="7.5" width="9" height="9" rx="1" fill="#FFFFFF" />
     <defs>

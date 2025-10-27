@@ -1,4 +1,7 @@
 import React, { useState } from 'react';
+import { theme } from 'antd';
+import { useTheme } from '@/contexts/ThemeContext';
+import { useTranslation } from 'react-i18next';
 import Header from './Header';
 
 // Minimal tabs component for the ported LightRAG UI.
@@ -12,33 +15,69 @@ interface TabsProps {
   renderTab: (key: TabKey) => React.ReactNode;
 }
 
-const TAB_ORDER: TabKey[] = ['documents', 'knowledge-graph', 'retrieval', 'settings', 'api'];
-
 const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', onChange, renderTab }) => {
   const [active, setActive] = useState<TabKey>(defaultActive);
+  const { t } = useTranslation();
+  const { token } = theme.useToken();
+  const { theme: currentTheme } = useTheme();
+  const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
   const handleClick = (key: TabKey) => {
     setActive(key);
     onChange?.(key);
   };
 
+  // 使用主题 token 的背景色
+  const tabBarBg = token.colorBgContainer;
+  const contentBg = token.colorBgLayout;
+  
   return (
     <div data-ec-scope="lightrag-ported" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Header />
-      <div className="px-12 py-2 border-b border-solid border-[var(--ant-color-border)] flex items-center gap-8">
-        <button className={`ec-tab ${active === 'documents' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('documents')}>Documents</button>
-        <button className={`ec-tab ${active === 'knowledge-graph' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('knowledge-graph')}>Knowledge Graph</button>
-        <button className={`ec-tab ${active === 'retrieval' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('retrieval')}>Retrieval</button>
-        <button className={`ec-tab ${active === 'settings' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('settings')}>Settings</button>
+      <div style={{
+        padding: '0 32px',
+        background: tabBarBg,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+        position: 'relative',
+        minHeight: 52
+      }}>
+        <button className={`ec-tab ${active === 'documents' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('documents')}>{t('pages.knowledge.tabs.documents')}</button>
+        <button className={`ec-tab ${active === 'knowledge-graph' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('knowledge-graph')}>{t('pages.knowledge.tabs.knowledgeGraph')}</button>
+        <button className={`ec-tab ${active === 'retrieval' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('retrieval')}>{t('pages.knowledge.tabs.retrieval')}</button>
+        <button className={`ec-tab ${active === 'settings' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('settings')}>{t('pages.knowledge.tabs.settings')}</button>
         {/* API tab is present but invisible per requirement */}
         <button className={`ec-tab ${active === 'api' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('api')} style={{ visibility: 'hidden' }}>API</button>
       </div>
-      <div style={{ flex: 1, overflow: 'auto' }}>
+      <div style={{ flex: 1, overflow: 'auto', background: contentBg }}>
         {renderTab(active)}
       </div>
       <style>{`
-        [data-ec-scope="lightrag-ported"] .ec-tab { background: transparent; border: none; cursor: pointer; padding: 6px 8px; border-radius: 6px; }
-        [data-ec-scope="lightrag-ported"] .ec-tab-active { background: var(--ant-color-primary-bg); color: var(--ant-color-primary); }
+        [data-ec-scope="lightrag-ported"] .ec-tab {
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          padding: 16px 24px;
+          font-size: 15px;
+          font-weight: 500;
+          color: ${token.colorTextSecondary};
+          border-radius: 0;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+          position: relative;
+          border-bottom: 3px solid transparent;
+          letter-spacing: 0.3px;
+        }
+        [data-ec-scope="lightrag-ported"] .ec-tab:hover {
+          color: ${token.colorPrimary};
+          background: ${isDark ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.06)'};
+        }
+        [data-ec-scope="lightrag-ported"] .ec-tab-active {
+          color: ${token.colorPrimary};
+          font-weight: 600;
+          border-bottom-color: ${token.colorPrimary};
+          background: transparent;
+        }
       `}</style>
     </div>
   );

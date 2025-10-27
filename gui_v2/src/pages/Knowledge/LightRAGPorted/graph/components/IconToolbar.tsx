@@ -1,4 +1,5 @@
 import React, { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { RefreshCw, Circle, Shuffle, Focus, ZoomIn, ZoomOut } from 'lucide-react';
 import { useSigma, useCamera } from '@react-sigma/core';
 import { useLayoutCircular } from '@react-sigma/layout-circular';
@@ -6,30 +7,38 @@ import { useLayoutRandom } from '@react-sigma/layout-random';
 import { useLayoutNoverlap } from '@react-sigma/layout-noverlap';
 import { useLayoutForceAtlas2 } from '@react-sigma/layout-forceatlas2';
 import { animateNodes } from 'sigma/utils';
-
-const barStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 8,
-  background: 'rgba(255,255,255,0.85)',
-  border: '1px solid #d9d9d9',
-  borderRadius: 10,
-  padding: 8,
-  color: '#111',
-};
-
-const iconBtn: React.CSSProperties = {
-  width: 36,
-  height: 36,
-  display: 'grid',
-  placeItems: 'center',
-  background: '#fff',
-  border: '1px solid #d9d9d9',
-  borderRadius: 8,
-  cursor: 'pointer',
-};
+import { theme } from 'antd';
+import { useTheme } from '@/contexts/ThemeContext';
 
 const IconToolbar: React.FC = () => {
+  const { t } = useTranslation();
+  const { token } = theme.useToken();
+  const { theme: currentTheme } = useTheme();
+  const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  
+  const barStyle: React.CSSProperties = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    background: '#ffffff',
+    border: `1px solid rgba(0, 0, 0, 0.08)`,
+    borderRadius: 12,
+    padding: 8,
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)',
+  };
+
+  const iconBtn: React.CSSProperties = {
+    width: 36,
+    height: 36,
+    display: 'grid',
+    placeItems: 'center',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: 8,
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  };
+  
   const sigma = useSigma();
   const circular = useLayoutCircular();
   const random = useLayoutRandom();
@@ -45,28 +54,66 @@ const IconToolbar: React.FC = () => {
     animateNodes(graph as any, pos as any, { duration: 400 });
   }, [sigma, circular, random, noverlap, fa2]);
 
+  const hoverBg = `${token.colorPrimary}1a`;
+
   return (
     <div style={barStyle}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <button style={iconBtn} title="Circular" onClick={() => runLayout('circular')}>
-          <Circle size={18} color="#111" />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <button 
+          style={iconBtn} 
+          title={t('pages.knowledge.graph.circularLayout')}
+          onClick={() => runLayout('circular')}
+          onMouseEnter={(e) => e.currentTarget.style.background = hoverBg}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+        >
+          <Circle size={20} color={token.colorPrimary} strokeWidth={2.5} />
         </button>
-        <button style={iconBtn} title="Random" onClick={() => runLayout('random')}>
-          <Shuffle size={18} color="#111" />
+        <button 
+          style={iconBtn} 
+          title={t('pages.knowledge.graph.randomLayout')}
+          onClick={() => runLayout('random')}
+          onMouseEnter={(e) => e.currentTarget.style.background = hoverBg}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+        >
+          <Shuffle size={20} color={token.colorPrimary} strokeWidth={2.5} />
         </button>
-        <button style={iconBtn} title="Noverlap" onClick={() => runLayout('noverlap')}>
-          <Focus size={18} color="#111" />
+        <button 
+          style={iconBtn} 
+          title={t('pages.knowledge.graph.noverlapLayout')}
+          onClick={() => runLayout('noverlap')}
+          onMouseEnter={(e) => e.currentTarget.style.background = hoverBg}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+        >
+          <Focus size={20} color={token.colorPrimary} strokeWidth={2.5} />
         </button>
-        <button style={iconBtn} title="Force Atlas2" onClick={() => runLayout('fa2')}>
-          <RefreshCw size={18} color="#111" />
+        <button 
+          style={iconBtn} 
+          title={t('pages.knowledge.graph.forceAtlas2Layout')}
+          onClick={() => runLayout('fa2')}
+          onMouseEnter={(e) => e.currentTarget.style.background = hoverBg}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+        >
+          <RefreshCw size={20} color={token.colorPrimary} strokeWidth={2.5} />
         </button>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <button style={iconBtn} title="Zoom In" onClick={() => zoomIn()}>
-          <ZoomIn size={18} color="#111" />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4, paddingTop: 8, borderTop: `1px solid ${token.colorBorderSecondary}` }}>
+        <button 
+          style={iconBtn} 
+          title={t('pages.knowledge.graph.zoomIn')}
+          onClick={() => zoomIn()}
+          onMouseEnter={(e) => e.currentTarget.style.background = hoverBg}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+        >
+          <ZoomIn size={20} color={token.colorSuccess} strokeWidth={2.5} />
         </button>
-        <button style={iconBtn} title="Zoom Out" onClick={() => zoomOut()}>
-          <ZoomOut size={18} color="#111" />
+        <button 
+          style={iconBtn} 
+          title={t('pages.knowledge.graph.zoomOut')}
+          onClick={() => zoomOut()}
+          onMouseEnter={(e) => e.currentTarget.style.background = hoverBg}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+        >
+          <ZoomOut size={20} color={token.colorError} strokeWidth={2.5} />
         </button>
       </div>
     </div>

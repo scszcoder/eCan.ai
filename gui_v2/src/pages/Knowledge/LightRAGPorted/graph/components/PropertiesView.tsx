@@ -1,20 +1,22 @@
 import React, { useMemo } from 'react';
+import { theme } from 'antd';
 import { useGraphStore } from '../stores/graph';
 
-const boxStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.8)',
-  border: '1px solid #d9d9d9',
-  borderRadius: 8,
-  padding: 8,
-  fontSize: 12,
-  maxWidth: 280,
-  color: '#111',
-};
-
-const rowStyle: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'baseline' };
-const nameStyle: React.CSSProperties = { color: '#666', whiteSpace: 'nowrap' };
-
 const PropertiesView: React.FC = () => {
+  const { token } = theme.useToken();
+  
+  const boxStyle: React.CSSProperties = {
+    background: token.colorBgElevated,
+    border: `1px solid ${token.colorBorder}`,
+    borderRadius: 8,
+    padding: 8,
+    fontSize: 12,
+    maxWidth: 280,
+    color: token.colorText,
+  };
+
+  const rowStyle: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'baseline' };
+  const nameStyle: React.CSSProperties = { color: token.colorTextSecondary, whiteSpace: 'nowrap' };
   const selectedNode = useGraphStore(s => s.selectedNode);
   const focusedNode = useGraphStore(s => s.focusedNode);
   const selectedEdge = useGraphStore(s => s.selectedEdge);
