@@ -219,6 +219,55 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         setEditMode(true);
     };
 
+    const handleCancel = () => {
+        if (isNew) {
+            // 新建模式：清空表单并通知父组件关闭面板
+            form.resetFields();
+            if (onCancel) {
+                onCancel();
+            }
+        } else {
+            // 编辑模式：恢复原始数据并退出编辑模式（不关闭面板）
+            if (skill) {
+                const s = skill as ExtendedSkill;
+                form.setFieldsValue({
+                    // 基础字段
+                    id: s.id,
+                    askid: s.askid,
+                    name: s.name,
+                    owner: s.owner,
+                    description: s.description,
+                    version: s.version,
+                    path: s.path,
+                    level: s.level,
+
+                    // EC_Skill 字段
+                    run_mode: s.run_mode || 'development',
+
+                    // 扩展字段
+                    price: s.price,
+                    price_model: s.price_model,
+                    public: s.public,
+                    rentable: s.rentable,
+
+                    // JSON 字段（序列化为字符串）
+                    config_json: toJsonString(s.config),
+                    apps_json: toJsonString(s.apps),
+                    limitations_json: toJsonString(s.limitations),
+                    tags_json: toJsonString(s.tags),
+                    examples_json: toJsonString(s.examples),
+                    inputModes_json: toJsonString(s.inputModes),
+                    outputModes_json: toJsonString(s.outputModes),
+                    objectives_json: toJsonString(s.objectives),
+                    need_inputs_json: toJsonString(s.need_inputs),
+                    mapping_rules_json: toJsonString(s.mapping_rules),
+                });
+            }
+            setEditMode(false);
+            // 编辑模式下不调用 onCancel，保持面板打开
+        }
+    };
+
     const handleSave = async () => {
         try {
             const values = await form.validateFields();
@@ -836,10 +885,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             {t('common.save', 'Save')}
                         </Button>
                         <Button 
-                            onClick={() => {
-                                form.resetFields();
-                                setEditMode(false);
-                            }} 
+                            onClick={handleCancel}
                             size="large" 
                             style={buttonStyle}
                         >
@@ -861,10 +907,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             {t('common.create', 'Create')}
                         </Button>
                         <Button 
-                            onClick={() => {
-                                form.resetFields();
-                                if (onCancel) onCancel();
-                            }} 
+                            onClick={handleCancel}
                             size="large" 
                             style={buttonStyle}
                         >

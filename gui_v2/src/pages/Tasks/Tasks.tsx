@@ -89,6 +89,17 @@ const Tasks: React.FC = () => {
     handleRefresh();
   };
 
+  const handleTaskCancel = () => {
+    // 取消时的处理：
+    // - 如果是新建模式，关闭详情面板
+    // - 如果是编辑模式，不需要额外处理（TaskDetail 内部会处理）
+    if (isAddingNew) {
+      setIsAddingNew(false);
+      selectItem(null as any);
+    }
+    // 编辑模式下，TaskDetail 会自动恢复数据并退出编辑模式，不需要关闭面板
+  };
+
   const handleTaskDelete = () => {
     // 删除后清空选中状态，关闭详情页
     selectItem(null as any);
@@ -115,7 +126,7 @@ const Tasks: React.FC = () => {
             task={isAddingNew ? null : selectedTask}
             isNew={isAddingNew}
             onSave={handleTaskSave}
-            onCancel={() => setIsAddingNew(false)}
+            onCancel={handleTaskCancel}
             onDelete={handleTaskDelete}
           />
         ) : null
