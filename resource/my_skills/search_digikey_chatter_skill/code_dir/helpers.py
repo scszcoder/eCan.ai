@@ -41,7 +41,8 @@ def are_component_specs_filled(state: NodeState) -> str:
 
 def is_FOM_filled(state: NodeState) -> str:
     logger.debug("[search_digikey_chatter_skill] is_FOM_filled input:", state)
-    return "prep_local_sort" if state.get('condition') else "pend_for_human_input_fill_FOM"
+    # return "prep_local_sort" if state.get('condition') else "pend_for_human_input_fill_FOM"
+    return "prep_run_search" if state.get('condition') else "pend_for_human_input_fill_FOM"
 
 
 def has_parametric_filters(state: dict) -> bool:
