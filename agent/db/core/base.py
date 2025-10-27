@@ -28,17 +28,17 @@ def get_engine(db_path: str = ECAN_BASE_DB):
         Engine: SQLAlchemy engine instance
     """
     # Ensure parent directory exists to avoid 'unable to open database file'
-    try:
-        abs_path = os.path.abspath(db_path)
-        parent_dir = os.path.dirname(abs_path)
-        if parent_dir and not os.path.exists(parent_dir):
-            os.makedirs(parent_dir, exist_ok=True)
-    except Exception:
-        # Don't block engine creation on directory check; SQLite will still error if invalid
-        pass
+    # Normalize path to use consistent separators
+    abs_path = os.path.abspath(db_path)
+    abs_path = os.path.normpath(abs_path)
+    parent_dir = os.path.dirname(abs_path)
+    
+    if parent_dir and not os.path.exists(parent_dir):
+        os.makedirs(parent_dir, exist_ok=True)
 
+    # Use normalized absolute path for engine creation
     engine = create_engine(
-        f'sqlite:///{db_path}',
+        f'sqlite:///{abs_path}',
         pool_pre_ping=True,
         pool_recycle=3600,  # Recycle connections every hour
         pool_size=5,        # Allow more connections for migration operations
