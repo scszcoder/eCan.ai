@@ -106,6 +106,7 @@ const AppContent = () => {
             console.warn('[App] Failed to initialize platform, defaulting to env-based config:', e);
         }
     }, []);
+
     const { theme: currentTheme } = useTheme();
     const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
@@ -198,7 +199,7 @@ function App() {
     const [isInitialized, setIsInitialized] = React.useState(false);
 
     React.useEffect(() => {
-        // 同步初始化关键服务，异步初始化其他服务
+        // 同步初始化关键服务,异步初始化其他服务
         try {
             // 初始化 IPC 服务（同步）- 必须在平台检测之前
             set_ipc_api(createIPCAPI());
