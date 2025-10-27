@@ -42,14 +42,23 @@ class MenuManager:
 
     def setup_custom_menu(self, custom_menubar):
         """Set up eCan menu bar for custom title bar (Windows/Linux)"""
-        # Set up simplified menus for custom title bar
-        app_menu = custom_menubar.addMenu('eCan')
-        self._setup_app_menu(app_menu)
+        try:
+            logger.info("Setting up custom title bar menu for Windows/Linux...")
+            
+            # Set up simplified menus for custom title bar
+            app_menu = custom_menubar.addMenu('eCan')
+            logger.debug("Added 'eCan' menu to custom menubar")
+            self._setup_app_menu(app_menu)
 
-        help_menu = custom_menubar.addMenu('Help')
-        self._setup_help_menu(help_menu)
+            help_menu = custom_menubar.addMenu('Help')
+            logger.debug("Added 'Help' menu to custom menubar")
+            self._setup_help_menu(help_menu)
 
-        logger.info("Custom title bar menu setup complete (eCan + Help only)")
+            logger.info("✅ Custom title bar menu setup complete (eCan + Help only)")
+        except Exception as e:
+            logger.error(f"❌ Failed to setup custom menu: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     def _setup_macos_menus(self, menubar):
         """Set up simplified macOS menu (eCan + Help only)"""
@@ -292,41 +301,54 @@ class MenuManager:
     
     def _setup_help_menu(self, help_menu):
         """Set up Help menu"""
-        # User manual
-        user_manual_action = QAction('eCan Help', self.main_window)
-        user_manual_action.setShortcut('F1')
-        user_manual_action.triggered.connect(self.show_user_manual)
-        help_menu.addAction(user_manual_action)
-        
-        # Quick start guide
-        quick_start_action = QAction('Quick Start Guide', self.main_window)
-        quick_start_action.triggered.connect(self.show_quick_start)
-        help_menu.addAction(quick_start_action)
-        
-        # Keyboard shortcuts
-        shortcuts_action = QAction('Keyboard Shortcuts', self.main_window)
-        shortcuts_action.triggered.connect(self.show_shortcuts)
-        help_menu.addAction(shortcuts_action)
+        try:
+            # User manual
+            user_manual_action = QAction('eCan Help', self.main_window)
+            user_manual_action.setShortcut('F1')
+            user_manual_action.triggered.connect(self.show_user_manual)
+            help_menu.addAction(user_manual_action)
+            logger.debug("Added 'eCan Help' menu item")
+            
+            # Quick start guide
+            quick_start_action = QAction('Quick Start Guide', self.main_window)
+            quick_start_action.triggered.connect(self.show_quick_start)
+            help_menu.addAction(quick_start_action)
+            logger.debug("Added 'Quick Start Guide' menu item")
+            
+            # Keyboard shortcuts
+            shortcuts_action = QAction('Keyboard Shortcuts', self.main_window)
+            shortcuts_action.triggered.connect(self.show_shortcuts)
+            help_menu.addAction(shortcuts_action)
+            logger.debug("Added 'Keyboard Shortcuts' menu item")
 
-        help_menu.addSeparator()
+            help_menu.addSeparator()
 
-        # Log Viewer
-        log_viewer_action = QAction('View Logs...', self.main_window)
-        log_viewer_action.setShortcut('Ctrl+Shift+L')
-        log_viewer_action.triggered.connect(self.show_log_viewer)
-        help_menu.addAction(log_viewer_action)
+            # Log Viewer - use platform-specific shortcut
+            log_viewer_action = QAction('View Logs...', self.main_window)
+            # Only set shortcut on macOS to avoid conflicts on Windows
+            if sys.platform == 'darwin':
+                log_viewer_action.setShortcut('Cmd+Shift+L')
+            # On Windows, avoid Ctrl+Shift+L as it may conflict with system shortcuts
+            log_viewer_action.triggered.connect(self.show_log_viewer)
+            help_menu.addAction(log_viewer_action)
+            logger.debug("Added 'View Logs' menu item")
+            
+            logger.info("Help menu setup completed successfully")
+        except Exception as e:
+            logger.error(f"Error setting up help menu: {e}")
 
-        help_menu.addSeparator()
-
-        # Report issue
-        feedback_action = QAction('Report Issue...', self.main_window)
-        feedback_action.triggered.connect(self.report_issue)
-        help_menu.addAction(feedback_action)
-        
-        # Send feedback
-        send_feedback_action = QAction('Send Feedback...', self.main_window)
-        send_feedback_action.triggered.connect(self.send_feedback)
-        help_menu.addAction(send_feedback_action)
+        # Hidden menu items (kept for potential future use)
+        # help_menu.addSeparator()
+        # 
+        # # Report issue
+        # feedback_action = QAction('Report Issue...', self.main_window)
+        # feedback_action.triggered.connect(self.report_issue)
+        # help_menu.addAction(feedback_action)
+        # 
+        # # Send feedback
+        # send_feedback_action = QAction('Send Feedback...', self.main_window)
+        # send_feedback_action.triggered.connect(self.send_feedback)
+        # help_menu.addAction(send_feedback_action)
     
     def _setup_macos_app_menu(self, app_menu):
         """Set up macOS-specific application menu (ensure all functionality included)"""
@@ -680,22 +702,25 @@ class MenuManager:
         try:
             manual_text = """
             <h2>eCan User Manual</h2>
-            <h3>Getting Started</h3>
-            <p>Welcome to eCan! This is your comprehensive automation platform.</p>
+            <h3>Overview</h3>
+            <p>eCan is an enterprise-grade intelligent automation platform designed to streamline 
+            e-commerce operations through advanced AI-powered agents and workflow automation.</p>
             
-            <h3>Main Features</h3>
+            <h3>Core Capabilities</h3>
             <ul>
-                <li><b>Project Management:</b> Create and manage automation projects</li>
-                <li><b>Data Import/Export:</b> Handle various data formats</li>
-                <li><b>Task Automation:</b> Set up automated workflows</li>
-                <li><b>Real-time Monitoring:</b> Track your automation progress</li>
+                <li><b>Agent Management:</b> Deploy and orchestrate AI agents for automated task execution</li>
+                <li><b>Skill Development:</b> Create and customize automation skills using visual workflow editor</li>
+                <li><b>Organization Structure:</b> Manage hierarchical teams and agent assignments</li>
+                <li><b>Task Scheduling:</b> Configure automated workflows with flexible scheduling options</li>
+                <li><b>Real-time Monitoring:</b> Track agent performance and task execution status</li>
             </ul>
             
-            <h3>Quick Tips</h3>
+            <h3>Getting Help</h3>
             <ul>
-                <li>Use Ctrl+N to create a new project</li>
-                <li>Use Ctrl+S to save your current work</li>
-                <li>Press F1 anytime to access this help</li>
+                <li>Press <b>F1</b> at any time to access this help documentation</li>
+                <li>View <b>Quick Start Guide</b> for step-by-step instructions</li>
+                <li>Check <b>Keyboard Shortcuts</b> for productivity tips</li>
+                <li>Access <b>View Logs</b> for system diagnostics and troubleshooting</li>
             </ul>
             """
             
@@ -716,20 +741,25 @@ class MenuManager:
             quick_start_text = """
             <h2>Quick Start Guide</h2>
             
-            <h3>Step 1: Create Your First Project</h3>
-            <p>Go to <b>File → New Project</b> or press <b>Ctrl+N</b></p>
+            <h3>Step 1: Configure Your Organization</h3>
+            <p>Navigate to the <b>Agents</b> page to set up your organizational structure. 
+            Create departments and assign agents to appropriate teams for optimal workflow management.</p>
             
-            <h3>Step 2: Import Your Data</h3>
-            <p>Use <b>File → Import Data</b> to load your source data</p>
+            <h3>Step 2: Deploy AI Agents</h3>
+            <p>Access the <b>Agents</b> section to deploy and configure AI agents. 
+            Assign specific roles, capabilities, and permissions to each agent based on your operational requirements.</p>
             
-            <h3>Step 3: Configure Automation</h3>
-            <p>Set up your automation rules and workflows</p>
+            <h3>Step 3: Create Automation Skills</h3>
+            <p>Use the <b>Skills</b> editor to design custom automation workflows. 
+            Leverage the visual node-based interface to create, test, and deploy automation skills.</p>
             
-            <h3>Step 4: Run and Monitor</h3>
-            <p>Start your automation and monitor progress in real-time</p>
+            <h3>Step 4: Schedule Tasks</h3>
+            <p>Configure task schedules in the <b>Schedule</b> section. 
+            Set up recurring automation tasks with flexible timing and execution parameters.</p>
             
-            <h3>Step 5: Export Results</h3>
-            <p>Use <b>File → Export Data</b> to save your results</p>
+            <h3>Step 5: Monitor and Optimize</h3>
+            <p>Use the <b>Chat</b> interface to interact with agents and monitor task execution. 
+            Review performance metrics and optimize workflows for improved efficiency.</p>
             """
             
             msg = QMessageBox(self.main_window)
@@ -746,37 +776,39 @@ class MenuManager:
     def show_shortcuts(self):
         """Show keyboard shortcuts"""
         try:
-            shortcuts_text = """
+            # Determine platform-specific modifier key
+            if sys.platform == 'darwin':
+                modifier = 'Cmd'
+            else:
+                modifier = 'Ctrl'
+            
+            shortcuts_text = f"""
             <h2>Keyboard Shortcuts</h2>
             
-            <h3>File Operations</h3>
-            <table>
-                <tr><td><b>Ctrl+N</b></td><td>New Project</td></tr>
-                <tr><td><b>Ctrl+O</b></td><td>Open Project</td></tr>
-                <tr><td><b>Ctrl+S</b></td><td>Save Project</td></tr>
-                <tr><td><b>Ctrl+Shift+S</b></td><td>Save Project As</td></tr>
-                <tr><td><b>Ctrl+I</b></td><td>Import Data</td></tr>
-                <tr><td><b>Ctrl+E</b></td><td>Export Data</td></tr>
+            <h3>Application Control</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 4px;"><b>{modifier}+,</b></td><td style="padding: 4px;">Open Preferences</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+H</b></td><td style="padding: 4px;">Hide Application</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+Q</b></td><td style="padding: 4px;">Quit Application</td></tr>
+                <tr><td style="padding: 4px;"><b>F1</b></td><td style="padding: 4px;">Open Help Documentation</td></tr>
             </table>
             
-            <h3>Edit Operations</h3>
-            <table>
-                <tr><td><b>Ctrl+Z</b></td><td>Undo</td></tr>
-                <tr><td><b>Ctrl+Shift+Z</b></td><td>Redo</td></tr>
-                <tr><td><b>Ctrl+X</b></td><td>Cut</td></tr>
-                <tr><td><b>Ctrl+C</b></td><td>Copy</td></tr>
-                <tr><td><b>Ctrl+V</b></td><td>Paste</td></tr>
-                <tr><td><b>Ctrl+A</b></td><td>Select All</td></tr>
-                <tr><td><b>Ctrl+F</b></td><td>Find</td></tr>
+            <h3>System Utilities</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 4px;"><b>{modifier}+Shift+L</b></td><td style="padding: 4px;">View System Logs</td></tr>
             </table>
             
-            <h3>Application</h3>
-            <table>
-                <tr><td><b>Ctrl+,</b></td><td>Preferences</td></tr>
-                <tr><td><b>Ctrl+H</b></td><td>Hide eCan</td></tr>
-                <tr><td><b>Ctrl+Q</b></td><td>Quit eCan</td></tr>
-                <tr><td><b>F1</b></td><td>Help</td></tr>
+            <h3>Navigation</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 4px;"><b>{modifier}+1</b></td><td style="padding: 4px;">Navigate to Chat</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+2</b></td><td style="padding: 4px;">Navigate to Agents</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+3</b></td><td style="padding: 4px;">Navigate to Skills</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+4</b></td><td style="padding: 4px;">Navigate to Schedule</td></tr>
             </table>
+            
+            <p style="margin-top: 16px; color: #666; font-size: 12px;">
+            <i>Note: Additional context-specific shortcuts are available within each module.</i>
+            </p>
             """
             
             msg = QMessageBox(self.main_window)
