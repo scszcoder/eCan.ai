@@ -1011,19 +1011,113 @@
       "filteredResults": "筛选 {{count}} 条",
       "searchTime": "{{time}}ms"
     },
-    "knowledge": {
-      "title": "知识库",
-      "search": "搜索",
-      "add": "添加",
-      "edit": "编辑",
-      "delete": "删除"
-    },
     "skill_editor": {
       "title": "技能编辑器",
       "save": "保存",
       "cancel": "取消",
       "new_skill": "新建技能",
       "edit_skill": "编辑技能"
+    },
+    "knowledge": {
+      "addKnowledge": "添加知识",
+      "title": "知识库",
+      "poweredBy": "技术支持",
+      "tabs": {
+        "documents": "文档",
+        "knowledgeGraph": "知识图谱",
+        "retrieval": "检索",
+        "settings": "设置"
+      },
+      "documents": {
+        "title": "文档管理",
+        "importDocuments": "导入文档",
+        "uploadFiles": "上传文件",
+        "importDirectory": "导入目录",
+        "ingest": "导入",
+        "scan": "扫描",
+        "status": "状态",
+        "clear": "清空",
+        "uploadedDocuments": "已上传文档",
+        "all": "全部",
+        "completed": "已完成",
+        "processing": "处理中",
+        "pending": "待处理",
+        "failed": "失败",
+        "fileName": "文件名",
+        "actions": "操作",
+        "noDocuments": "暂无文档",
+        "noDocumentsDesc": "上传文件或导入目录以开始使用",
+        "consoleOutput": "控制台输出将显示在这里...",
+        "selectFiles": "选择文件",
+        "enterDirectoryPath": "输入目录路径或选择文件夹",
+        "noFilesSelected": "未选择文件",
+        "ingestSuccess": "导入成功",
+        "ingestError": "导入错误"
+      },
+      "graph": {
+        "title": "知识图谱",
+        "subtitle": "知识关系的交互式可视化",
+        "searchLabels": "搜索标签",
+        "searchNode": "搜索节点",
+        "circularLayout": "环形布局",
+        "randomLayout": "随机布局",
+        "noverlapLayout": "无重叠布局",
+        "forceAtlas2Layout": "力导向布局",
+        "zoomIn": "放大",
+        "zoomOut": "缩小"
+      },
+      "retrieval": {
+        "querySettings": "查询设置",
+        "startConversation": "开始对话",
+        "startConversationDesc": "在下方输入您的问题并点击发送",
+        "askQuestion": "提出问题...（Shift+Enter 换行）",
+        "clearConversation": "清空对话",
+        "sendMessage": "发送消息",
+        "basic": "基础",
+        "advanced": "高级",
+        "options": "选项",
+        "customPrompt": "自定义提示词",
+        "mode": "模式",
+        "responseType": "响应类型",
+        "responseTypePlaceholder": "例如：列表形式",
+        "topK": "Top K",
+        "chunkTopK": "分块 Top K",
+        "maxEntityTokens": "最大实体令牌数",
+        "maxRelationTokens": "最大关系令牌数",
+        "maxTotalTokens": "最大总令牌数",
+        "historyTurns": "历史轮次",
+        "streamResponse": "流式响应",
+        "enableRerank": "启用重排序",
+        "onlyNeedContext": "仅需要上下文",
+        "onlyNeedPrompt": "仅需要提示词",
+        "customPromptPlaceholder": "输入自定义系统提示词...",
+        "defaultPlaceholder": "默认",
+        "modes": {
+          "naive": "简单",
+          "local": "本地",
+          "global": "全局",
+          "hybrid": "混合",
+          "mix": "混合模式",
+          "bypass": "旁路"
+        }
+      },
+      "settings": {
+        "title": "RAG 配置",
+        "saveSettings": "保存设置",
+        "databaseConfig": "数据库配置",
+        "modelConfig": "模型配置",
+        "vectorDatabase": "向量数据库",
+        "workingDirectory": "工作目录",
+        "workingDirectoryPlaceholder": "选择或输入工作目录路径",
+        "selectFolder": "选择文件夹",
+        "embeddingModel": "嵌入模型",
+        "llmModel": "LLM 模型",
+        "rerankModel": "重排序模型",
+        "embeddingDimension": "嵌入维度",
+        "maxTokenSize": "最大令牌数",
+        "embeddingDimensionPlaceholder": "3072",
+        "maxTokenSizePlaceholder": "9000"
+      }
     }
   },
   "login": {
@@ -1083,9 +1177,6 @@
   },
   "tasks": {
     "addTask": "添加任务"
-  },
-  "knowledge": {
-    "addKnowledge": "添加知识"
   },
   "menu": {
     "agents": "代理",

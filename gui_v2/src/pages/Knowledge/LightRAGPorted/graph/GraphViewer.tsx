@@ -61,9 +61,10 @@ const GraphViewer: React.FC = () => {
   // Fetch and populate graph from backend via IPC
   useLightragGraph();
   const showPropertyPanel = useSettingsStore(s => s.showPropertyPanel);
+  
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <SigmaContainer className="!size-full" style={{ width: '100%', height: '100%' }} settings={{ allowInvalidContainer: true }}>
+    <div style={{ position: 'relative', width: '100%', height: '100%', background: '#ffffff' }}>
+      <SigmaContainer className="!size-full" style={{ width: '100%', height: '100%', background: '#ffffff' }} settings={{ allowInvalidContainer: true }}>
         <InitGraph />
         <GraphControl />
         <ResizeHandler />

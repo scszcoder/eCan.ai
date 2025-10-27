@@ -10,13 +10,13 @@ import {
   Col, 
   Input, 
   Dropdown, 
-  Menu,
   Typography,
   Tooltip,
   Modal,
   Form,
   Select,
-  message
+  message,
+  theme
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { 
@@ -48,6 +48,7 @@ const { Title } = Typography;
 const { Option } = Select;
 
 const KnowledgeBase: React.FC = () => {
+  const { token } = theme.useToken();
   const [viewMode, setViewMode] = useState<'list' | 'card'>('list');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchText, setSearchText] = useState('');
@@ -169,10 +170,10 @@ const KnowledgeBase: React.FC = () => {
       key: 'title',
       render: (text, record) => (
         <div>
-          <div style={{ fontWeight: 500, color: '#1890ff', cursor: 'pointer' }}>
+          <div style={{ fontWeight: 500, color: token.colorPrimary, cursor: 'pointer' }}>
             {text}
           </div>
-          <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+          <div style={{ fontSize: 12, color: token.colorTextSecondary, marginTop: 4 }}>
             {record.content.substring(0, 50)}...
           </div>
         </div>
@@ -256,7 +257,7 @@ const KnowledgeBase: React.FC = () => {
           >
             <Card.Meta
               title={
-                <div style={{ color: '#1890ff', cursor: 'pointer' }}>
+                <div style={{ color: token.colorPrimary, cursor: 'pointer' }}>
                   {item.title}
                 </div>
               }
@@ -270,7 +271,7 @@ const KnowledgeBase: React.FC = () => {
                       <Tag key={tag + '-' + idx}>{tag}</Tag>
                     ))}
                   </div>
-                  <div style={{ fontSize: 12, color: '#666' }}>
+                  <div style={{ fontSize: 12, color: token.colorTextSecondary }}>
                     {item.category} • {item.updatedAt}
                   </div>
                 </div>
@@ -333,11 +334,15 @@ const KnowledgeBase: React.FC = () => {
   };
 
   return (
-    <div>
+    <div style={{ 
+      backgroundColor: token.colorBgContainer,
+      minHeight: '100vh',
+      padding: '24px'
+    }}>
       {/* 页面标题和工具栏 */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <Title level={4} style={{ margin: 0 }}>知识库管理</Title>
+          <Title level={4} style={{ margin: 0, color: token.colorText }}>知识库管理</Title>
           <Space>
             <Button 
               type={viewMode === 'list' ? 'primary' : 'default'} 
@@ -388,7 +393,11 @@ const KnowledgeBase: React.FC = () => {
       <div style={{ display: 'flex', gap: 16 }}>
         {/* 左侧分类树 */}
         <div style={{ width: 250, flexShrink: 0 }}>
-          <Card size="small" title="分类导航">
+          <Card 
+            size="small" 
+            title="分类导航"
+            style={{ backgroundColor: token.colorBgElevated }}
+          >
             <Tree
               treeData={treeData}
               selectedKeys={selectedCategory === 'all' ? [] : [selectedCategory]}
@@ -399,7 +408,12 @@ const KnowledgeBase: React.FC = () => {
         </div>
 
         {/* 右侧内容区 */}
-        <div style={{ flex: 1 }}>
+        <div style={{ 
+          flex: 1,
+          backgroundColor: token.colorBgElevated,
+          borderRadius: token.borderRadius,
+          padding: '16px'
+        }}>
           {viewMode === 'list' ? (
             <Table
               rowKey="id"
