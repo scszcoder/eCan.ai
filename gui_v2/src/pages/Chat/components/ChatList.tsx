@@ -8,38 +8,50 @@ import { Chat, Member } from '../types/chat';
 import SearchFilter from '../../../components/Common/SearchFilter';
 import AgentAnimation from './AgentAnimation';
 import { useAgentStore } from '../../../stores/agentStore';
+import { GroupIconColored } from './GroupIcon';
 
 const { Text } = Typography;
 
-// Group Avatar Component - shows multiple member avatars stacked
-const GroupAvatar = styled.div`
+// Group Avatar Component - shows multiple member avatars in grid layout (up to 9)
+const GroupAvatar = styled.div<{ $memberCount: number }>`
     position: relative;
     width: 40px;
     height: 40px;
     flex-shrink: 0;
+    display: grid;
+    gap: 1px;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    overflow: hidden;
+    
+    /* 1 member: full size */
+    grid-template-columns: ${props => props.$memberCount === 1 ? '1fr' : 
+                                     props.$memberCount <= 4 ? 'repeat(2, 1fr)' : 
+                                     'repeat(3, 1fr)'};
+    grid-template-rows: ${props => props.$memberCount === 1 ? '1fr' : 
+                                  props.$memberCount <= 4 ? 'repeat(2, 1fr)' : 
+                                  'repeat(3, 1fr)'};
     
     .avatar-item {
-        position: absolute;
-        border: 2px solid var(--bg-secondary);
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        width: 100%;
+        height: 100%;
+        border: none;
+        border-radius: 0;
+        
+        .ant-avatar {
+            width: 100%;
+            height: 100%;
+            border-radius: 0;
+        }
+        
+        img {
+            object-fit: cover;
+        }
     }
     
-    .avatar-item:nth-of-type(1) {
-        top: 0;
-        left: 0;
-        z-index: 2;
-    }
-    
-    .avatar-item:nth-of-type(2) {
-        top: 8px;
-        left: 8px;
-        z-index: 1;
-    }
-    
-    .avatar-item:nth-of-type(3) {
-        top: 16px;
-        left: 16px;
-        z-index: 0;
+    /* Hide extra avatars beyond 9 */
+    .avatar-item:nth-of-type(n+10) {
+        display: none;
     }
 `;
 
@@ -446,38 +458,52 @@ const ChatList: React.FC<ChatListProps> = ({
         return fullNames.substring(0, maxLength) + '...';
     };
     
-    // Render group avatar with stacked member avatars
-    const renderGroupAvatar = (members: Member[]) => {
+    // Render group avatar with grid layout (up to 9 members)
+    const renderGroupAvatar = (members: Member[], chatType?: Chat['type']) => {
         if (!members || members.length === 0) {
-            return <Avatar icon={<TeamOutlined />} size={32} />;
+            return <GroupIconColored size={40} />;
         }
         
-        // Show up to 3 member avatars stacked
-        const displayMembers = members.slice(0, 3);
+        // Filter out My Twin Agent from members
+        const filteredMembers = members.filter(m => m.userId !== myTwinAgentId);
+        
+        if (filteredMembers.length === 0) {
+            // If only My Twin Agent, show colored group icon
+            return <GroupIconColored size={40} />;
+        }
+        
+        // Show up to 9 member avatars in grid
+        const displayMembers = filteredMembers.slice(0, 9);
         
         if (displayMembers.length === 1) {
-            // Single member - show normal avatar
+            // Single member after filtering - check if it's a group chat
+            if (chatType === 'group') {
+                // For group chat with only 1 other member, show colored group icon
+                return <GroupIconColored size={40} />;
+            }
+            // For non-group chat, show member avatar
             const member = displayMembers[0];
             return (
                 <Avatar 
                     src={member.avatar} 
                     icon={<RobotOutlined />} 
-                    size={32}
+                    size={40}
                 />
             );
         }
         
-        // Multiple members - show stacked avatars
+        // Multiple members - show grid layout
         return (
-            <GroupAvatar>
-                {displayMembers.map((member, index) => (
-                    <Avatar
-                        key={member.userId}
-                        className="avatar-item"
-                        src={member.avatar}
-                        icon={<RobotOutlined />}
-                        size={24}
-                    />
+            <GroupAvatar $memberCount={displayMembers.length}>
+                {displayMembers.map((member) => (
+                    <div key={member.userId} className="avatar-item">
+                        <Avatar
+                            src={member.avatar}
+                            icon={<RobotOutlined />}
+                            shape="square"
+                            style={{ width: '100%', height: '100%' }}
+                        />
+                    </div>
                 ))}
             </GroupAvatar>
         );
@@ -625,7 +651,7 @@ const ChatList: React.FC<ChatListProps> = ({
                                 </div>
                                 <div className="chat-content">
                                     <div className="chat-header">
-                                        {renderGroupAvatar(chat.members)}
+                                        {renderGroupAvatar(chat.members, chat.type)}
                                         <div style={{ flex: 1, minWidth: 0, marginLeft: 8 }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                                                 <Tooltip title={getMemberNames(chat.members, chat.name, filterAgentId || undefined)}>

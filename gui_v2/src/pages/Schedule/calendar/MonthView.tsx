@@ -7,6 +7,7 @@ import React, { useMemo, useRef } from 'react';
 import styled from '@emotion/styled';
 import dayjs from 'dayjs';
 import { Badge, Tooltip } from 'antd';
+import { SyncOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useEffectOnActive } from 'keepalive-for-react';
 import type { CalendarEvent, CalendarConfig } from './types';
@@ -334,7 +335,11 @@ const MonthView: React.FC<MonthViewProps> = ({
           <EventTitle>
             {eventTime} {event.title}
           </EventTitle>
-          {event.isRecurring && <RecurringBadge>{t('pages.schedule.calendar.recurringTask')}</RecurringBadge>}
+          {event.isRecurring && (
+            <RecurringBadge title={t('pages.schedule.calendar.recurringTask')}>
+              <SyncOutlined />
+            </RecurringBadge>
+          )}
         </EventItem>
       </Tooltip>
     );
