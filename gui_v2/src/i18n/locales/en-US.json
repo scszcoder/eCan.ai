@@ -1011,19 +1011,113 @@
       "filteredResults": "Filtered {{count}}",
       "searchTime": "{{time}}ms"
     },
-    "knowledge": {
-      "title": "Knowledge Base",
-      "search": "Search",
-      "add": "Add",
-      "edit": "Edit",
-      "delete": "Delete"
-    },
     "skill_editor": {
       "title": "Skill Editor",
       "save": "Save",
       "cancel": "Cancel",
       "new_skill": "New Skill",
       "edit_skill": "Edit Skill"
+    },
+    "knowledge": {
+      "addKnowledge": "Add Knowledge",
+      "title": "Knowledge Base",
+      "poweredBy": "Powered by",
+      "tabs": {
+        "documents": "Documents",
+        "knowledgeGraph": "Knowledge Graph",
+        "retrieval": "Retrieval",
+        "settings": "Settings"
+      },
+      "documents": {
+        "title": "Document Management",
+        "importDocuments": "Import Documents",
+        "uploadFiles": "Upload Files",
+        "importDirectory": "Import Directory",
+        "ingest": "Ingest",
+        "scan": "Scan",
+        "status": "Status",
+        "clear": "Clear",
+        "uploadedDocuments": "Uploaded Documents",
+        "all": "All",
+        "completed": "Completed",
+        "processing": "Processing",
+        "pending": "Pending",
+        "failed": "Failed",
+        "fileName": "File Name",
+        "actions": "Actions",
+        "noDocuments": "No Documents",
+        "noDocumentsDesc": "Upload files or ingest a directory to get started",
+        "consoleOutput": "Console output will appear here...",
+        "selectFiles": "Select Files",
+        "enterDirectoryPath": "Enter directory path or select folder",
+        "noFilesSelected": "No files selected",
+        "ingestSuccess": "Ingestion successful",
+        "ingestError": "Ingestion error"
+      },
+      "graph": {
+        "title": "Knowledge Graph",
+        "subtitle": "Interactive visualization of knowledge relationships",
+        "searchLabels": "Search labels",
+        "searchNode": "Search node",
+        "circularLayout": "Circular Layout",
+        "randomLayout": "Random Layout",
+        "noverlapLayout": "Noverlap Layout",
+        "forceAtlas2Layout": "Force Atlas2 Layout",
+        "zoomIn": "Zoom In",
+        "zoomOut": "Zoom Out"
+      },
+      "retrieval": {
+        "querySettings": "Query Settings",
+        "startConversation": "Start a Conversation",
+        "startConversationDesc": "Type your question below and press Send",
+        "askQuestion": "Ask a question... (Shift+Enter for new line)",
+        "clearConversation": "Clear conversation",
+        "sendMessage": "Send message",
+        "basic": "Basic",
+        "advanced": "Advanced",
+        "options": "Options",
+        "customPrompt": "Custom Prompt",
+        "mode": "Mode",
+        "responseType": "Response Type",
+        "responseTypePlaceholder": "e.g. Bullet Points",
+        "topK": "Top K",
+        "chunkTopK": "Chunk Top K",
+        "maxEntityTokens": "Max Entity Tokens",
+        "maxRelationTokens": "Max Relation Tokens",
+        "maxTotalTokens": "Max Total Tokens",
+        "historyTurns": "History Turns",
+        "streamResponse": "Stream Response",
+        "enableRerank": "Enable Rerank",
+        "onlyNeedContext": "Only Need Context",
+        "onlyNeedPrompt": "Only Need Prompt",
+        "customPromptPlaceholder": "Enter custom system prompt...",
+        "defaultPlaceholder": "Default",
+        "modes": {
+          "naive": "Naive",
+          "local": "Local",
+          "global": "Global",
+          "hybrid": "Hybrid",
+          "mix": "Mix",
+          "bypass": "Bypass"
+        }
+      },
+      "settings": {
+        "title": "RAG Configuration",
+        "saveSettings": "Save Settings",
+        "databaseConfig": "Database Configuration",
+        "modelConfig": "Model Configuration",
+        "vectorDatabase": "Vector Database",
+        "workingDirectory": "Working Directory",
+        "workingDirectoryPlaceholder": "Select or enter working directory path",
+        "selectFolder": "Select folder",
+        "embeddingModel": "Embedding Model",
+        "llmModel": "LLM Model",
+        "rerankModel": "Rerank Model",
+        "embeddingDimension": "Embedding Dimension",
+        "maxTokenSize": "Max Token Size",
+        "embeddingDimensionPlaceholder": "3072",
+        "maxTokenSizePlaceholder": "9000"
+      }
     }
   },
   "login": {
@@ -1083,9 +1177,6 @@
   },
   "tasks": {
     "addTask": "Add Task"
-  },
-  "knowledge": {
-    "addKnowledge": "Add Knowledge"
   },
   "menu": {
     "agents": "Agents",

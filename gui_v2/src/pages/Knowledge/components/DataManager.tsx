@@ -11,10 +11,10 @@ import {
   message,
   Upload,
   Alert,
-  Divider,
   Statistic,
   Row,
-  Col
+  Col,
+  theme
 } from 'antd';
 import { 
   UploadOutlined,
@@ -22,13 +22,12 @@ import {
   DatabaseOutlined,
   FileTextOutlined,
   CheckCircleOutlined,
-  ExclamationCircleOutlined,
   ClockCircleOutlined,
   DeleteOutlined
 } from '@ant-design/icons';
 import { DataManager as StorageDataManager } from '../services/storage';
 
-const { Title, Text, Paragraph } = Typography;
+const { Text } = Typography;
 const { Dragger } = Upload;
 
 interface DataManagerProps {
@@ -53,6 +52,7 @@ const DataManager: React.FC<DataManagerProps> = ({
   visible,
   onClose
 }) => {
+  const { token } = theme.useToken();
   const [backups, setBackups] = useState<BackupInfo[]>([]);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
@@ -177,9 +177,12 @@ const DataManager: React.FC<DataManagerProps> = ({
       onCancel={onClose}
       width={800}
       footer={null}
+      styles={{
+        body: { backgroundColor: token.colorBgContainer }
+      }}
     >
       {/* 存储统计 */}
-      <Card title="存储统计" style={{ marginBottom: 16 }}>
+      <Card title="存储统计" style={{ marginBottom: 16, backgroundColor: token.colorBgElevated }}>
         <Row gutter={16}>
           <Col span={6}>
             <Statistic
@@ -218,7 +221,7 @@ const DataManager: React.FC<DataManagerProps> = ({
       </Card>
 
       {/* 备份操作 */}
-      <Card title="数据备份" style={{ marginBottom: 16 }}>
+      <Card title="数据备份" style={{ marginBottom: 16, backgroundColor: token.colorBgElevated }}>
         <Space direction="vertical" style={{ width: '100%' }}>
           <div>
             <Button
@@ -248,7 +251,7 @@ const DataManager: React.FC<DataManagerProps> = ({
       </Card>
 
       {/* 数据恢复 */}
-      <Card title="数据恢复" style={{ marginBottom: 16 }}>
+      <Card title="数据恢复" style={{ marginBottom: 16, backgroundColor: token.colorBgElevated }}>
         <Space direction="vertical" style={{ width: '100%' }}>
           <Alert
             message="数据恢复警告"
@@ -285,7 +288,7 @@ const DataManager: React.FC<DataManagerProps> = ({
       </Card>
 
       {/* 备份历史 */}
-      <Card title="备份历史">
+      <Card title="备份历史" style={{ backgroundColor: token.colorBgElevated }}>
         <List
           dataSource={backups}
           renderItem={(backup) => (
@@ -325,13 +328,13 @@ const DataManager: React.FC<DataManagerProps> = ({
                       <ClockCircleOutlined style={{ marginRight: 4 }} />
                       {new Date(backup.createdAt).toLocaleString()}
                     </div>
-                    <div style={{ fontSize: 12, color: '#666' }}>
+                    <div style={{ fontSize: 12, color: token.colorTextSecondary }}>
                       文档: {backup.itemCount.documents} | 
                       问答: {backup.itemCount.qa} | 
                       分类: {backup.itemCount.categories} | 
                       评论: {backup.itemCount.comments}
                     </div>
-                    <div style={{ fontSize: 12, color: '#666' }}>
+                    <div style={{ fontSize: 12, color: token.colorTextSecondary }}>
                       文件大小: {(backup.size / 1024).toFixed(2)} KB
                     </div>
                   </div>

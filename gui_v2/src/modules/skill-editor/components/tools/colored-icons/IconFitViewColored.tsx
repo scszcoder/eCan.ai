@@ -2,7 +2,7 @@
  * Colored Fit View/Expand Icon
  */
 export const IconFitViewColored = ({ size = 16 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <svg width={size} height={size} viewBox="1 1 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
     <path
       d="M4 4h5v2H6v3H4V4zm0 11h2v3h3v2H4v-5zm11 5v-2h3v-3h2v5h-5zM18 4v5h-2V6h-3V4h5z"
       fill="url(#fitview-gradient)"

@@ -2,7 +2,7 @@
  * Colored Info Icon
  */
 export const IconInfoColored = ({ size = 16 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <svg width={size} height={size} viewBox="1 1 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
     <circle cx="12" cy="12" r="10" fill="url(#info-gradient)" />
     <path d="M11 7h2v2h-2V7zm0 4h2v6h-2v-6z" fill="#FFFFFF" />
     <defs>

@@ -1,34 +1,45 @@
 import React, { useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSigma, useCamera } from '@react-sigma/core';
 import { useGraphStore } from '../stores/graph';
 import { Search } from 'lucide-react';
-
-const inputWrap: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 6,
-  background: 'rgba(255,255,255,0.85)',
-  border: '1px solid #d9d9d9',
-  borderRadius: 8,
-  padding: '4px 8px',
-  height: 32,
-};
-
-const inputStyle: React.CSSProperties = {
-  border: 'none',
-  outline: 'none',
-  background: 'transparent',
-  color: '#111',
-  width: 200,
-  fontSize: 12,
-};
+import { theme } from 'antd';
+import { useTheme } from '@/contexts/ThemeContext';
 
 const SearchControls: React.FC = () => {
+  const { t } = useTranslation();
+  const { token } = theme.useToken();
+  const { theme: currentTheme } = useTheme();
+  const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  
   const sigma = useSigma();
   const { goto } = useCamera({ duration: 400 });
   const graph = useMemo(() => sigma.getGraph(), [sigma]);
   const [labelQuery, setLabelQuery] = useState('');
   const [nodeQuery, setNodeQuery] = useState('');
+
+  const inputWrap: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    background: '#ffffff',
+    border: `1px solid rgba(0, 0, 0, 0.08)`,
+    borderRadius: 12,
+    padding: '10px 16px',
+    height: 44,
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)',
+    transition: 'all 0.2s ease',
+  };
+
+  const inputStyle: React.CSSProperties = {
+    border: 'none',
+    outline: 'none',
+    background: 'transparent',
+    color: '#000000',
+    width: 200,
+    fontSize: 14,
+    fontWeight: 500,
+  };
 
   const selectAndZoom = useCallback((nodeId: string) => {
     if (!graph.hasNode(nodeId)) return false;
@@ -69,21 +80,43 @@ const SearchControls: React.FC = () => {
   }, [graph, nodeQuery, selectAndZoom]);
 
   return (
-    <div style={{ display: 'flex', gap: 8 }}>
-      <form onSubmit={onSearchLabels} style={inputWrap}>
-        <Search size={16} color="#111" />
+    <div style={{ display: 'flex', gap: 10 }}>
+      <form 
+        onSubmit={onSearchLabels} 
+        style={inputWrap}
+        onFocus={(e) => {
+          e.currentTarget.style.borderColor = token.colorPrimary;
+          e.currentTarget.style.boxShadow = `0 2px 12px ${token.colorPrimary}30, 0 1px 4px ${token.colorPrimary}20`;
+        }}
+        onBlur={(e) => {
+          e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.08)';
+          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)';
+        }}
+      >
+        <Search size={18} color={token.colorPrimary} strokeWidth={2.5} />
         <input
           style={inputStyle}
-          placeholder="Search labels"
+          placeholder={t('pages.knowledge.graph.searchLabels')}
           value={labelQuery}
           onChange={(e) => setLabelQuery(e.target.value)}
         />
       </form>
-      <form onSubmit={onSearchNode} style={inputWrap}>
-        <Search size={16} color="#111" />
+      <form 
+        onSubmit={onSearchNode} 
+        style={inputWrap}
+        onFocus={(e) => {
+          e.currentTarget.style.borderColor = token.colorPrimary;
+          e.currentTarget.style.boxShadow = `0 2px 12px ${token.colorPrimary}30, 0 1px 4px ${token.colorPrimary}20`;
+        }}
+        onBlur={(e) => {
+          e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.08)';
+          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)';
+        }}
+      >
+        <Search size={18} color={token.colorPrimary} strokeWidth={2.5} />
         <input
           style={inputStyle}
-          placeholder="Search node"
+          placeholder={t('pages.knowledge.graph.searchNode')}
           value={nodeQuery}
           onChange={(e) => setNodeQuery(e.target.value)}
         />

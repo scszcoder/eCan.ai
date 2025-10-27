@@ -1,18 +1,33 @@
 import React from 'react';
+import { theme } from 'antd';
 
 // Minimal header without branding, login/version/lang, github, etc.
 // Scoped styles via inline classes to avoid leaking globals.
 
 const Header: React.FC = () => {
+  const { token } = theme.useToken();
+  
+  // 使用主题 token 的背景色
+  const headerBg = token.colorBgContainer;
+  
   return (
-    <header className="border-b border-solid border-[var(--ant-color-border)] px-12 py-2 flex items-center justify-between" data-ec-scope="lightrag-ported">
-      <div className="flex items-center gap-2">
+    <header 
+      style={{
+        background: headerBg,
+        padding: '8px 48px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between'
+      }}
+      data-ec-scope="lightrag-ported"
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         {/* Intentionally no logo/name per requirements */}
       </div>
-      <div className="flex items-center">
+      <div style={{ display: 'flex', alignItems: 'center' }}>
         {/* Tabs are rendered by parent; keep center clean */}
       </div>
-      <nav className="flex items-center gap-2">
+      <nav style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         {/* Intentionally empty per requirements */}
       </nav>
     </header>
