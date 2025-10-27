@@ -7,6 +7,7 @@ import React, { useMemo, useRef } from 'react';
 import styled from '@emotion/styled';
 import dayjs from 'dayjs';
 import { Tooltip } from 'antd';
+import { SyncOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useEffectOnActive } from 'keepalive-for-react';
 import type { CalendarEvent, CalendarConfig } from './types';
@@ -398,14 +399,18 @@ const WeekView: React.FC<WeekViewProps> = ({
                                 }
                               </div>
                               {!startsToday && (
-                                <div style={{ fontSize: 11, marginTop: 4, color: '#faad14' }}>
-                                  ⏳ {t('pages.schedule.calendar.continuingTask')}
-                                </div>
+                                <Tooltip title={t('pages.schedule.calendar.continuingTask')}>
+                                  <div style={{ fontSize: 11, marginTop: 4, color: '#faad14', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <ClockCircleOutlined />
+                                  </div>
+                                </Tooltip>
                               )}
                               {event.isRecurring && (
-                                <div style={{ fontSize: 11, marginTop: 4, color: '#52c41a' }}>
-                                  🔄 {t('pages.schedule.calendar.recurringTask')}
-                                </div>
+                                <Tooltip title={t('pages.schedule.calendar.recurringTask')}>
+                                  <div style={{ fontSize: 11, marginTop: 4, color: '#52c41a', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <SyncOutlined />
+                                  </div>
+                                </Tooltip>
                               )}
                               <div style={{ fontSize: 11, marginTop: 4, opacity: 0.8 }}>
                                 {t('common.status')}: {event.status} | {t('common.priority')}: {event.priority}

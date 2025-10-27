@@ -7,6 +7,7 @@ import React, { useMemo, useRef, useEffect } from 'react';
 import styled from '@emotion/styled';
 import dayjs from 'dayjs';
 import { Tooltip, Badge } from 'antd';
+import { SyncOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useEffectOnActive } from 'keepalive-for-react';
 import 'dayjs/locale/zh-cn';
@@ -461,14 +462,18 @@ const DayView: React.FC<DayViewProps> = ({
                             }
                           </div>
                           {!startsToday && (
-                            <div style={{ fontSize: 11, marginBottom: 4, color: '#faad14' }}>
-                              ⏳ {t('pages.schedule.calendar.continuingTask')}
-                            </div>
+                            <Tooltip title={t('pages.schedule.calendar.continuingTask')}>
+                              <div style={{ fontSize: 11, marginBottom: 4, color: '#faad14', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <ClockCircleOutlined />
+                              </div>
+                            </Tooltip>
                           )}
                           {event.isRecurring && (
-                            <div style={{ fontSize: 11, marginBottom: 4, color: '#52c41a' }}>
-                              🔄 {t('pages.schedule.calendar.recurringTask')}: {event.metadata?.repeatType}
-                            </div>
+                            <Tooltip title={`${t('pages.schedule.calendar.recurringTask')}: ${event.metadata?.repeatType}`}>
+                              <div style={{ fontSize: 11, marginBottom: 4, color: '#52c41a', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <SyncOutlined />
+                              </div>
+                            </Tooltip>
                           )}
                           <div style={{ fontSize: 11, opacity: 0.9 }}>
                             {t('common.status')}: {event.status} | {t('common.priority')}: {event.priority}

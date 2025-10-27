@@ -135,17 +135,9 @@ export function scheduleToEvent(schedule: TaskSchedule, task?: any): CalendarEve
     statusColor = EXECUTION_STATUS_COLORS[executionStatus];
   }
   
-  // Build title with status indicator
+  // Build title - keep it clean without emoji prefixes
+  // Icons will be shown separately in the UI components
   let title = schedule.taskName || 'Untitled Task';
-  if (schedule.isLongPeriod) {
-    title = `📅 ${title}`; // Long period indicator
-  }
-  if (executionStatus === 'running') {
-    title = `▶️ ${title}`; // Running indicator
-  }
-  if (schedule.isNextExecution) {
-    title = `⏰ ${title}`; // Next execution indicator
-  }
   
   return {
     id: schedule.taskId || `schedule_${Math.random()}`,

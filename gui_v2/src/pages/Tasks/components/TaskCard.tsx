@@ -10,7 +10,6 @@ import {
   SyncOutlined,
   ExclamationCircleOutlined,
   StopOutlined,
-  CheckSquareOutlined,
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
@@ -235,19 +234,56 @@ const TaskHeader = styled.div`
     margin-bottom: 12px;
 `;
 
-const TaskIcon = styled.div<{ gradient?: string }>`
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
+const TaskIcon = styled.div<{ gradient?: string; status?: string }>`
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
-    color: rgba(59, 130, 246, 0.9);
-    background: rgba(59, 130, 246, 0.1);
-    border: 1px solid rgba(59, 130, 246, 0.2);
+    font-size: 20px;
     flex-shrink: 0;
-    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);
+    position: relative;
+    background: ${props => {
+        if (props.gradient) return props.gradient;
+        // 根据状态返回不同的渐变
+        switch (props.status) {
+            case 'WORKING':
+            case 'running':
+                return 'linear-gradient(135deg, #1890FF 0%, #40a9ff 100%)';
+            case 'COMPLETED':
+                return 'linear-gradient(135deg, #52C41A 0%, #73d13d 100%)';
+            case 'CANCELED':
+                return 'linear-gradient(135deg, #FF4D4F 0%, #ff7875 100%)';
+            case 'INPUT_REQUIRED':
+                return 'linear-gradient(135deg, #FA8C16 0%, #ffa940 100%)';
+            case 'SUBMITTED':
+                return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+            default:
+                return 'linear-gradient(135deg, #722ed1 0%, #9254de 100%)';
+        }
+    }};
+    color: white;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    
+    &::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: 10px;
+        padding: 2px;
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.1));
+        -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+        opacity: 0.6;
+    }
+    
+    &:hover {
+        transform: scale(1.05);
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+    }
 `;
 
 const TaskMeta = styled.div`
@@ -353,8 +389,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       <TaskHeader>
         <Space align="start" style={{ flex: 1 }}>
           {/* 任务图标 */}
-          <TaskIcon>
-            <CheckSquareOutlined />
+          <TaskIcon status={status} gradient={statusConfig.gradient}>
+            {statusConfig.icon}
           </TaskIcon>
 
           {/* 任务信息 */}

@@ -111,13 +111,15 @@ const SkillHeader = styled.div`
 `;
 
 const SkillIcon = styled.div<{ status?: string }>`
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 20px;
+    font-size: 22px;
+    flex-shrink: 0;
+    position: relative;
     background: ${props => {
         switch (props.status) {
             case 'active': return 'linear-gradient(135deg, #52c41a 0%, #73d13d 100%)';
@@ -127,8 +129,41 @@ const SkillIcon = styled.div<{ status?: string }>`
         }
     }};
     color: white;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    flex-shrink: 0;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    
+    &::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: 12px;
+        padding: 2px;
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.1));
+        -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+        opacity: 0.7;
+    }
+    
+    &::after {
+        content: '';
+        position: absolute;
+        inset: 3px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.15), transparent);
+        opacity: 0.5;
+    }
+    
+    .anticon {
+        position: relative;
+        z-index: 1;
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+    }
+    
+    &:hover {
+        transform: scale(1.08) rotate(5deg);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+    }
 `;
 
 const SkillMeta = styled.div`
@@ -329,7 +364,7 @@ const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, s
                         <SkillHeader>
                             <Space align="start" style={{ flex: 1 }}>
                                 <SkillIcon status={skill.status}>
-                                    <RobotOutlined />
+                                    {statusConfig.icon}
                                 </SkillIcon>
                                 <SkillMeta>
                                     <SkillName>{skill.name}</SkillName>
