@@ -7,6 +7,11 @@ import sys
 import os
 from gui.menu_manager import MenuManager
 
+# Windows-specific imports for resize handling
+if sys.platform == 'win32':
+    import ctypes
+    from ctypes import wintypes
+
 from config.app_settings import app_settings
 from utils.logger_helper import logger_helper as logger
 from gui.core.web_engine_view import WebEngineView
@@ -1038,11 +1043,21 @@ class WebGUI(QMainWindow):
             logger.error(f"Failed to add window control buttons: {e}")
 
     def _make_titlebar_draggable(self):
-        """Make title bar draggable"""
+        """Make title bar draggable and enable window resizing"""
         self.custom_titlebar.mousePressEvent = self._titlebar_mouse_press
         self.custom_titlebar.mouseMoveEvent = self._titlebar_mouse_move
         self.custom_titlebar.mouseDoubleClickEvent = self._titlebar_double_click
         self._drag_position = None
+        
+        # Enable mouse tracking for resize cursor on the main window
+        self.setMouseTracking(True)
+        self.centralWidget().setMouseTracking(True)
+        self._resize_margin = 8  # Larger margin for easier resizing
+        self._resizing = False
+        self._resize_direction = None
+        
+        # Install event filter on central widget to capture mouse events
+        self.centralWidget().installEventFilter(self)
 
     def _titlebar_mouse_press(self, event):
         """Title bar mouse press event"""
@@ -1062,6 +1077,132 @@ class WebGUI(QMainWindow):
             self._toggle_maximize()
             event.accept()
 
+    def mousePressEvent(self, event):
+        """Handle mouse press for window resizing"""
+        if event.button() == Qt.LeftButton and not self.isMaximized():
+            self._resize_direction = self._get_resize_direction(event.position().toPoint())
+            if self._resize_direction:
+                self._resizing = True
+                self._resize_start_pos = event.globalPosition().toPoint()
+                self._resize_start_geometry = self.geometry()
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """Handle mouse move for window resizing and cursor changes"""
+        if not self.isMaximized():
+            if self._resizing and self._resize_direction:
+                self._perform_resize(event.globalPosition().toPoint())
+                event.accept()
+                return
+            else:
+                # Update cursor based on position
+                direction = self._get_resize_direction(event.position().toPoint())
+                self._update_cursor(direction)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release to stop resizing"""
+        if event.button() == Qt.LeftButton:
+            self._resizing = False
+            self._resize_direction = None
+            self.setCursor(Qt.ArrowCursor)
+            event.accept()
+        super().mouseReleaseEvent(event)
+
+    def eventFilter(self, obj, event):
+        """Event filter to handle mouse events on central widget for resizing"""
+        if obj == self.centralWidget():
+            if event.type() == event.Type.MouseMove:
+                if not self.isMaximized():
+                    if self._resizing and self._resize_direction:
+                        self._perform_resize(event.globalPosition().toPoint())
+                        return True
+                    else:
+                        # Update cursor based on position
+                        pos = event.position().toPoint()
+                        direction = self._get_resize_direction(pos)
+                        self._update_cursor(direction)
+            elif event.type() == event.Type.MouseButtonPress:
+                if event.button() == Qt.LeftButton and not self.isMaximized():
+                    pos = event.position().toPoint()
+                    self._resize_direction = self._get_resize_direction(pos)
+                    if self._resize_direction:
+                        self._resizing = True
+                        self._resize_start_pos = event.globalPosition().toPoint()
+                        self._resize_start_geometry = self.geometry()
+                        return True
+            elif event.type() == event.Type.MouseButtonRelease:
+                if event.button() == Qt.LeftButton:
+                    self._resizing = False
+                    self._resize_direction = None
+                    self.setCursor(Qt.ArrowCursor)
+        return super().eventFilter(obj, event)
+
+    def _get_resize_direction(self, pos):
+        """Determine resize direction based on mouse position"""
+        rect = self.rect()
+        margin = self._resize_margin
+        
+        left = pos.x() <= margin
+        right = pos.x() >= rect.width() - margin
+        top = pos.y() <= margin
+        bottom = pos.y() >= rect.height() - margin
+        
+        if top and left:
+            return 'top-left'
+        elif top and right:
+            return 'top-right'
+        elif bottom and left:
+            return 'bottom-left'
+        elif bottom and right:
+            return 'bottom-right'
+        elif left:
+            return 'left'
+        elif right:
+            return 'right'
+        elif top:
+            return 'top'
+        elif bottom:
+            return 'bottom'
+        return None
+
+    def _update_cursor(self, direction):
+        """Update cursor based on resize direction"""
+        if direction == 'top' or direction == 'bottom':
+            self.setCursor(Qt.SizeVerCursor)
+        elif direction == 'left' or direction == 'right':
+            self.setCursor(Qt.SizeHorCursor)
+        elif direction == 'top-left' or direction == 'bottom-right':
+            self.setCursor(Qt.SizeFDiagCursor)
+        elif direction == 'top-right' or direction == 'bottom-left':
+            self.setCursor(Qt.SizeBDiagCursor)
+        else:
+            self.setCursor(Qt.ArrowCursor)
+
+    def _perform_resize(self, global_pos):
+        """Perform window resize based on mouse movement"""
+        delta = global_pos - self._resize_start_pos
+        geo = self._resize_start_geometry
+        
+        new_geo = geo
+        
+        if 'left' in self._resize_direction:
+            new_geo.setLeft(geo.left() + delta.x())
+        if 'right' in self._resize_direction:
+            new_geo.setRight(geo.right() + delta.x())
+        if 'top' in self._resize_direction:
+            new_geo.setTop(geo.top() + delta.y())
+        if 'bottom' in self._resize_direction:
+            new_geo.setBottom(geo.bottom() + delta.y())
+        
+        # Enforce minimum size
+        min_width = 400
+        min_height = 300
+        if new_geo.width() >= min_width and new_geo.height() >= min_height:
+            self.setGeometry(new_geo)
+
     def _toggle_maximize(self):
         """Toggle maximize/restore window"""
         if self.isMaximized():
@@ -1070,6 +1211,69 @@ class WebGUI(QMainWindow):
         else:
             self.showMaximized()
             self.maximize_btn.setText('❐')
+
+    def nativeEvent(self, eventType, message):
+        """Handle Windows native events for resize support"""
+        if sys.platform == 'win32' and eventType == b'windows_generic_MSG':
+            try:
+                msg = ctypes.wintypes.MSG.from_address(int(message))
+                # WM_NCHITTEST = 0x0084
+                if msg.message == 0x0084:
+                    # Extract x and y from lParam using bit operations
+                    # lParam contains x in low word and y in high word
+                    win_x = msg.lParam & 0xFFFF
+                    win_y = (msg.lParam >> 16) & 0xFFFF
+                    
+                    # Convert to signed integers if needed (handle negative coordinates)
+                    if win_x >= 0x8000:
+                        win_x -= 0x10000
+                    if win_y >= 0x8000:
+                        win_y -= 0x10000
+                    
+                    # Convert screen coordinates to client coordinates
+                    rect = self.rect()
+                    client_x = win_x - self.x()
+                    client_y = win_y - self.y()
+                    
+                    # Define resize border width
+                    border_width = 8
+                    
+                    # Check if in title bar area (for dragging)
+                    if client_y >= border_width and client_y < 32:  # Title bar height is 32
+                        # Check if not on window control buttons
+                        if client_x >= 0 and client_x < rect.width() - 150:  # Approximate button area width
+                            return True, 2  # HTCAPTION - allows window dragging
+                    
+                    # Check resize areas (only when not maximized)
+                    if not self.isMaximized():
+                        # Top-left corner
+                        if client_x < border_width and client_y < border_width:
+                            return True, 13  # HTTOPLEFT
+                        # Top-right corner
+                        if client_x > rect.width() - border_width and client_y < border_width:
+                            return True, 14  # HTTOPRIGHT
+                        # Bottom-left corner
+                        if client_x < border_width and client_y > rect.height() - border_width:
+                            return True, 16  # HTBOTTOMLEFT
+                        # Bottom-right corner
+                        if client_x > rect.width() - border_width and client_y > rect.height() - border_width:
+                            return True, 17  # HTBOTTOMRIGHT
+                        # Left border
+                        if client_x < border_width:
+                            return True, 10  # HTLEFT
+                        # Right border
+                        if client_x > rect.width() - border_width:
+                            return True, 11  # HTRIGHT
+                        # Top border
+                        if client_y < border_width:
+                            return True, 12  # HTTOP
+                        # Bottom border
+                        if client_y > rect.height() - border_width:
+                            return True, 15  # HTBOTTOM
+            except Exception as e:
+                logger.error(f"Error in nativeEvent: {e}")
+        
+        return super().nativeEvent(eventType, message)
 
     def _toggle_fullscreen(self):
         """Toggle fullscreen mode"""

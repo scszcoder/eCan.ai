@@ -19,17 +19,21 @@
   position: relative;
   overflow: visible;
   padding: 20px 16px;
-  /* 性能优化：移除 backdrop-filter，非常耗 GPU */
-  /* GPU 加速 */
-  transform: translateZ(0);
-  will-change: transform;
+  /* GPU硬件加速优化 */
+  transform: translate3d(0, 0, 0);
+  -webkit-transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  perspective: 1000px;
+  -webkit-perspective: 1000px;
 }
 
 .org-door:hover {
-  transform: translateY(-8px) scale(1.02) translateZ(0);
+  transform: translate3d(0, -8px, 0) scale(1.02);
   /* 性能优化：简化阴影层数 */
   box-shadow: 0 12px 32px rgba(59, 130, 246, 0.3);
   border-color: rgba(59, 130, 246, 0.6);
+  will-change: transform, box-shadow;
 }
 
 /* 点击动画 */
@@ -188,9 +192,9 @@
   border-radius: 8px;
   position: relative;
   transition: 
-    transform 1.2s cubic-bezier(0.68, -0.55, 0.265, 1.55),
-    opacity 0.8s ease-out,
-    box-shadow 0.8s ease-out;
+    transform 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55),
+    opacity 0.4s ease-out,
+    box-shadow 0.4s ease-out;
   transform-origin: left center;
   border: 2px solid rgba(167, 139, 250, 0.7);
   box-shadow:
@@ -198,8 +202,11 @@
     inset 0 0 40px rgba(139, 92, 246, 0.2),
     0 0 30px rgba(139, 92, 246, 0.3);
   z-index: 2;
-  transform: translateZ(0);
+  /* GPU硬件加速优化 */
+  transform: translate3d(0, 0, 0);
+  -webkit-transform: translate3d(0, 0, 0);
   backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
   -webkit-font-smoothing: subpixel-antialiased;
 }
 
@@ -230,7 +237,7 @@
 
 /* 门打开动画 - 90度完全打开，保持可见 */
 .door-panel.open {
-  transform: perspective(1200px) rotateY(-90deg) translateX(-15px) translateZ(0);
+  transform: perspective(1200px) rotateY(-90deg) translate3d(-15px, 0, 0);
   box-shadow:
     -35px 0 70px rgba(139, 92, 246, 0.7),
     -12px 0 35px rgba(167, 139, 250, 0.5),
@@ -242,6 +249,7 @@
     rgba(59, 130, 246, 0.4) 50%,
     rgba(139, 92, 246, 0.5) 100%);
   border-right: 3px solid rgba(255, 255, 255, 0.8);
+  will-change: transform, opacity;
 }
 
 /* 门上的铭牌 */

@@ -271,6 +271,9 @@ html, body {
     /* 防止字体模糊 */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* GPU硬件加速 */
+    transform: translate3d(0, 0, 0);
+    -webkit-transform: translate3d(0, 0, 0);
 }
 
 /* 防止所有元素在transform时模糊 */
@@ -279,20 +282,30 @@ html, body {
     -moz-osx-font-smoothing: grayscale;
 }
 
-/* 优化所有交互元素的渲染 */
+/* GPU硬件加速 - 为所有交互元素启用 */
 button, a, .ant-btn, .ant-card, .ant-table-row, .ant-menu-item, 
 .ant-dropdown-menu-item, input, textarea, select, .ant-input,
-.ant-select, .ant-tag, [role="button"] {
-    will-change: auto;
-    transform: translateZ(0);
-    -webkit-transform: translateZ(0);
+.ant-select, .ant-tag, [role="button"], .ant-modal, .ant-drawer,
+video, img, canvas, .ant-layout, .ant-layout-sider, .ant-layout-content {
+    transform: translate3d(0, 0, 0);
+    -webkit-transform: translate3d(0, 0, 0);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    perspective: 1000px;
+    -webkit-perspective: 1000px;
+}
+
+/* 为有动画的元素添加will-change提示 */
+button, a, .ant-btn, .ant-card:hover, .ant-menu-item,
+.ant-dropdown-menu-item, .ant-tag, .ant-modal, .ant-drawer {
+    will-change: transform, opacity;
 }
 
 /* 移除所有hover时的transform效果，防止模糊 */
 button:hover, a:hover, .ant-btn:hover, .ant-card:hover,
 .ant-menu-item:hover, .ant-dropdown-menu-item:hover, .ant-tag:hover {
-    transform: translateZ(0) !important;
-    -webkit-transform: translateZ(0) !important;
+    transform: translate3d(0, 0, 0) !important;
+    -webkit-transform: translate3d(0, 0, 0) !important;
 }
 
 #root {
