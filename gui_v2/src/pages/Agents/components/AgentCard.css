@@ -11,12 +11,12 @@
   border-radius: 32px;
   box-shadow: 0 10px 40px 0 rgba(59,130,246,0.13), 0 2px 10px 0 rgba(0,0,0,0.13);
   padding: 24px 20px 20px 20px;
-  transition: box-shadow 0.2s, transform 0.2s;
+  transition: box-shadow 0.2s ease-out;
   z-index: 1;
+  will-change: box-shadow;
 }
 .agent-card:hover {
   box-shadow: 0 14px 56px 0 rgba(59,130,246,0.22), 0 4px 16px 0 rgba(0,0,0,0.16);
-  transform: translateY(-6px) scale(1.04);
 }
 .agent-gif-video-wrapper {
   width: 300px;
@@ -37,11 +37,16 @@
   object-fit: contain;
   border-radius: 28px;
   background: transparent;
-  animation: avatar-bounce 1.8s infinite alternate cubic-bezier(.4,0,.2,1);
-}
-@keyframes avatar-bounce {
-  0% { transform: scale(1) translateY(0); }
-  100% { transform: scale(1.04) translateY(-6px); }
+  /* GPU硬件加速优化 */
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  /* 优化视频渲染 */
+  -webkit-transform: translateZ(0);
+  -moz-transform: translateZ(0);
+  -ms-transform: translateZ(0);
+  transform: translateZ(0);
 }
 .agent-info-row {
   display: flex;
@@ -74,15 +79,14 @@
   border: none !important;
   border-radius: 50%;
   box-shadow: 0 2px 12px 0 rgba(59,130,246,0.20), 0 1.5px 6px 0 rgba(139,92,246,0.10);
-  transition: box-shadow 0.2s, background 0.2s;
+  transition: box-shadow 0.15s ease-out;
   color: #fff !important;
   outline: none;
+  will-change: box-shadow;
 }
 .agent-chat-btn:hover, .agent-chat-btn:focus {
   box-shadow: 0 6px 20px 0 rgba(139,92,246,0.22), 0 2px 8px 0 rgba(59,130,246,0.18);
-  background: linear-gradient(90deg, var(--accent-color, #8b5cf6), var(--primary-color, #3b82f6)) !important;
   color: #fff !important;
-  filter: brightness(1.08);
 }
 .agent-desc {
   font-size: 15px;

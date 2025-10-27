@@ -187,13 +187,17 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
             loop
             muted
             playsInline
-            preload="auto"
+            preload="metadata"
             style={{ 
               width: '100%', 
               height: '100%', 
               objectFit: 'contain', 
               borderRadius: '12px',
-              background: 'transparent' 
+              background: 'transparent',
+              transform: 'translate3d(0, 0, 0)', // 触发GPU硬件加速
+              willChange: 'transform', // 提示浏览器优化
+              backfaceVisibility: 'hidden', // 优化渲染性能
+              WebkitBackfaceVisibility: 'hidden' // Safari兼容
             }}
             poster=""
             onLoadedData={() => { loadedRef.current = true; }}

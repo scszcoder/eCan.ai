@@ -7,7 +7,7 @@
  * 3. 保持原有的简洁性
  */
 
-import { useMemo } from 'react';
+import { useMemo, memo } from 'react';
 import { App, Button, Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
 import { MessageOutlined, MoreOutlined } from '@ant-design/icons';
@@ -205,6 +205,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
             loop
             muted
             playsInline
+            preload="metadata"
             width={300}
             height={169}
             style={{
@@ -212,7 +213,11 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
               height: '100%',
               objectFit: 'contain',
               borderRadius: 28,
-              background: 'transparent'
+              background: 'transparent',
+              transform: 'translate3d(0, 0, 0)', // 触发GPU硬件加速
+              willChange: 'transform', // 提示浏览器优化
+              backfaceVisibility: 'hidden', // 优化渲染性能
+              WebkitBackfaceVisibility: 'hidden' // Safari兼容
             }}
           />
         </div>
@@ -287,7 +292,27 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
 }
 
 /**
- * 暂时移除 memo 以调试更新问题
- * TODO: 重新添加优化的 memo 比较函数
+ * 使用 React.memo 优化性能，避免不必要的重渲染
+ * 自定义比较函数：只在 agent ID 或关键属性变化时重新渲染
  */
-export default AgentCard;
+export default memo(AgentCard, (prevProps, nextProps) => {
+  const prevId = getAgentId(prevProps.agent);
+  const nextId = getAgentId(nextProps.agent);
+  const prevName = getAgentName(prevProps.agent);
+  const nextName = getAgentName(nextProps.agent);
+  
+  // 如果 ID 或名称变化，需要重新渲染
+  if (prevId !== nextId || prevName !== nextName) {
+    return false;
+  }
+  
+  // 检查 avatar 是否变化
+  const prevAvatar = 'avatar' in prevProps.agent ? prevProps.agent.avatar : undefined;
+  const nextAvatar = 'avatar' in nextProps.agent ? nextProps.agent.avatar : undefined;
+  if (prevAvatar?.id !== nextAvatar?.id) {
+    return false;
+  }
+  
+  // onChat 回调变化不触发重渲染（通常是稳定的）
+  return true;
+});
