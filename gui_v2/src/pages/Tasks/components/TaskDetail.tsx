@@ -176,10 +176,32 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   }, [task, form]);
 
   const handleCancel = () => {
-    form.resetFields();
-    setEditMode(false);
-    if (isNew && onCancel) {
-      onCancel();
+    if (isNew) {
+      // 新建模式：清空表单并通知父组件关闭面板
+      form.resetFields();
+      if (onCancel) {
+        onCancel();
+      }
+    } else {
+      // 编辑模式：恢复原始数据并退出编辑模式（不关闭面板）
+      if (task) {
+        const metaStr = (task as any).metadata ? JSON.stringify((task as any).metadata, null, 2) : '';
+        const taskName = (task as any).name || (task as any).skill || '';
+        const taskDescription = (task as any).description
+          || (task as any).metadata?.description
+          || '';
+        
+        const formValues = {
+          ...(task as any),
+          name: taskName,
+          description: taskDescription,
+          metadata_text: metaStr,
+        };
+        
+        form.setFieldsValue(formValues);
+      }
+      setEditMode(false);
+      // 编辑模式下不调用 onCancel，保持面板打开
     }
   };
 

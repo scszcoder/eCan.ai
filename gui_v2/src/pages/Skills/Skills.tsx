@@ -89,6 +89,17 @@ const Skills: React.FC = () => {
         handleRefresh();
     };
 
+    const handleSkillCancel = () => {
+        // 取消时的处理：
+        // - 如果是新建模式，关闭详情面板
+        // - 如果是编辑模式，不需要额外处理（SkillDetails 内部会处理）
+        if (isAddingNew) {
+            setIsAddingNew(false);
+            setSelectedSkill(null);
+        }
+        // 编辑模式下，SkillDetails 会自动恢复数据并退出编辑模式，不需要关闭面板
+    };
+
     const handleSkillDelete = () => {
         // 删除后清空选中状态，关闭详情页
         setSelectedSkill(null);
@@ -114,7 +125,7 @@ const Skills: React.FC = () => {
                         isNew={isAddingNew}
                         onRefresh={handleRefresh}
                         onSave={handleSkillSave}
-                        onCancel={() => setIsAddingNew(false)}
+                        onCancel={handleSkillCancel}
                         onDelete={handleSkillDelete}
                     />
                 ) : undefined
