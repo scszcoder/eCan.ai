@@ -203,6 +203,23 @@ export const SidebarRenderer = () => {
     return () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      // Critical: Reset cursor and userSelect on unmount to prevent stuck resize cursor
+      try { 
+        if (window && window.document && window.document.body) { 
+          window.document.body.style.removeProperty('cursor');
+          window.document.body.style.removeProperty('user-select');
+          window.document.body.style.removeProperty('-webkit-user-select');
+          window.document.body.style.removeProperty('-moz-user-select');
+          window.document.body.style.removeProperty('-ms-user-select');
+        } 
+      } catch {}
+      // Reset all resize flags
+      resizingHRef.current = false;
+      resizingVRef.current = false;
+      resizingTopRef.current = false;
+      resizingCornerRef.current = false;
+      resizingCornerRightRef.current = false;
+      draggingRef.current = false;
     };
   }, []);
 
