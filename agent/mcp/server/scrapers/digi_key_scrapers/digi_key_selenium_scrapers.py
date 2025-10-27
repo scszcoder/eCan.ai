@@ -1892,7 +1892,7 @@ def extract_search_results_table(driver):
     finally:
         driver.quit()
 
-
+# apply parametric filter and extract search results
 def digi_key_selenium_search_component(driver, pfs, category_phrase, site_url):
     try:
         logger.debug("digi_key_selenium_search_component... accessing driver")
@@ -1923,7 +1923,7 @@ def digi_key_selenium_search_component(driver, pfs, category_phrase, site_url):
 
     return results
 
-
+# apply column sort and re-extract after-sort table.
 def digi_key_selenium_sort_and_extract_results(driver,  header, ascending, max_n):
     try:
         logger.debug("digi_key_selenium_sort_and_extract_results... accessing driver")

@@ -1,0 +1,18 @@
+{
+  "developing": {
+    "mappings": [],
+    "options": {
+      "strict": false,
+      "apply_order": "top_down"
+    }
+  },
+  "released": {
+    "mappings": [],
+    "options": {
+      "strict": true,
+      "apply_order": "top_down"
+    }
+  },
+  "node_transfers": {},
+  "event_routing": {}
+}
