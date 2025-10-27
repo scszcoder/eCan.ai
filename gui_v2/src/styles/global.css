@@ -207,7 +207,7 @@
     --accent-color: #8b5cf6;
     --accent-light: #a78bfa;
     
-    /* 背景色 - 深色渐变 */
+    /* 背景色 - 深色渐变（原来的配色方案） */
     --bg-primary: #0f172a;
     --bg-secondary: #1e293b;
     --bg-tertiary: #334155;
@@ -262,12 +262,11 @@
 
 /* 全局样式 */
 html, body {
-    background-color: var(--bg-primary, #0f172a) !important;
-    color: var(--text-primary, #f8fafc) !important;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    line-height: 1.5;
+    /* 背景色由 Ant Design 主题系统控制，不再硬编码 */
     margin: 0;
     padding: 0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.5;
     /* 防止字体模糊 */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -296,33 +295,33 @@ button:hover, a:hover, .ant-btn:hover, .ant-card:hover,
 }
 
 #root {
-    background-color: var(--bg-primary, #0f172a) !important;
+    /* 背景色由 Ant Design 主题系统控制 */
     min-height: 100vh;
 }
 
 /* 布局样式 */
 .ant-layout {
-    background-color: var(--bg-primary) !important;
+    /* 背景色由 Ant Design 主题配置控制 */
 }
 
 .ant-layout-sider {
     background: linear-gradient(
         180deg,
-        #0f172a 0%,
-        #1e293b 100%
+        var(--bg-primary) 0%,
+        var(--bg-secondary) 100%
     ) !important;
-    border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-right: 1px solid var(--border-color) !important;
     box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3);
 }
 
 .ant-layout-header {
-    background-color: var(--bg-primary) !important;
+    /* 背景色由 Ant Design 主题配置控制 */
     border-bottom: 1px solid var(--border-color) !important;
     padding: 0 24px !important;
     height: 64px !important;
     line-height: 64px !important;
-    display: flex;
-    align-items: center;
+    display: flex !important;
+    align-items: center !important;
 }
 
 /* 菜单样式 - 基础样式，更详细的样式在 AppSider.tsx 中定义 */
@@ -871,13 +870,13 @@ button:hover, a:hover, .ant-btn:hover, .ant-card:hover,
 
 /* 页面容器样式 */
 .ant-layout-content {
-    background-color: var(--bg-primary) !important;
+    /* 背景色由 Ant Design 主题配置控制 */
     min-height: 100vh;
 }
 
 /* 页面内容区域样式 */
 .page-container {
-    background-color: var(--bg-primary) !important;
+    /* 背景色由 Ant Design 主题配置控制 */
     min-height: 100vh;
     padding: 24px;
 }
