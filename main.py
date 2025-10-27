@@ -5,6 +5,34 @@ import sys
 import os
 import traceback
 
+# ============================================================================
+# CRITICAL: Worker Script Execution - MUST be at the very top!
+# This allows child processes (like LightRAG server) to run their scripts
+# WITHOUT loading the entire eCan application (saves ~200-300 MB memory)
+# ============================================================================
+if __name__ == '__main__' and os.getenv('ECAN_RUN_SCRIPT'):
+    # This is a worker process - execute the script and exit immediately
+    # DO NOT import anything else before this check!
+    run_script = os.getenv('ECAN_RUN_SCRIPT')
+    print(f"[Worker Process] Executing script: {run_script}")
+    print("[Worker Process] Skipping main application imports to save memory...")
+    
+    try:
+        with open(run_script, 'r', encoding='utf-8') as f:
+            code = f.read()
+        exec(compile(code, run_script, 'exec'), {'__name__': '__main__'})
+    except Exception as e:
+        print(f"[Worker Process] Script execution failed: {e}")
+        traceback.print_exc()
+        sys.exit(1)
+    finally:
+        print("[Worker Process] Script completed, exiting...")
+        sys.exit(0)
+
+# ============================================================================
+# Main Application Code (only runs if not a worker process)
+# ============================================================================
+
 # Global QApplication instance
 _global_app = None
 
@@ -105,15 +133,6 @@ try:
         except Exception as e:
             print(f"Warning: Runtime initialization failed: {e}")
 
-        # Worker-mode support for packaged subprocesses: execute external script and exit
-        run_script = os.getenv('ECAN_RUN_SCRIPT')
-        if run_script:
-            try:
-                with open(run_script, 'r', encoding='utf-8') as f:
-                    code = f.read()
-                exec(compile(code, run_script, 'exec'), {'__name__': '__main__'})
-            finally:
-                sys.exit(0)
 
         # Ensure Windows uses SelectorEventLoop to support subprocesses (e.g., Playwright)
         try:
