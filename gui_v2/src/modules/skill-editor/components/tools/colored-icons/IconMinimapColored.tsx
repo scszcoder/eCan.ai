@@ -2,7 +2,7 @@
  * Colored Minimap Icon
  */
 export const IconMinimapColored = ({ size = 16, visible = true }: { size?: number; visible?: boolean }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <svg width={size} height={size} viewBox="1 1 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
     <rect x="2" y="2" width="20" height="20" rx="2" fill="url(#minimap-gradient)" opacity={visible ? 1 : 0.5} />
     <rect x="5" y="5" width="6" height="6" rx="1" fill="#FFFFFF" opacity="0.8" />
     <rect x="13" y="5" width="6" height="6" rx="1" fill="#FFFFFF" opacity="0.6" />

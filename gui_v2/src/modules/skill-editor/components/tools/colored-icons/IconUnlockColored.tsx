@@ -2,7 +2,7 @@
  * Colored Unlock Icon (Development mode)
  */
 export const IconUnlockColored = ({ size = 16 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <svg width={size} height={size} viewBox="1 1 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
     <rect x="5" y="11" width="14" height="10" rx="2" fill="url(#unlock-gradient)" />
     <path
       d="M8 11V7c0-2.21 1.79-4 4-4s4 1.79 4 4v1"
