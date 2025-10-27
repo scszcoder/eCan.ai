@@ -1,5 +1,5 @@
-from PySide6.QtCore import Qt, QThread, QObject, Signal, QRectF, QTimer, QEvent
-from PySide6.QtGui import QPixmap, QPainter, QPen, QColor, QFont, QConicalGradient
+from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtGui import QPainter, QPen, QColor
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QGraphicsDropShadowEffect,
 )
+
 import os
 from datetime import datetime
 import sys
@@ -182,6 +183,7 @@ class ThemedSplashScreen(QWidget):
         self._is_hidden = False
 
         # Start Python initialization in background thread to avoid blocking UI
+        from PySide6.QtCore import QThread
         self._py_thread = QThread(self)
         try:
             self._py_thread.setObjectName('SplashInitThread')
@@ -287,6 +289,7 @@ class ThemedSplashScreen(QWidget):
                 hasattr(self, '_is_deleted') and
                 not self._is_deleted):
 
+                from PySide6.QtCore import QEvent
                 if event.type() == QEvent.Move:
                     # If window is moved to top-left corner, re-center it
                     pos = self.pos()
@@ -318,6 +321,7 @@ class ThemedSplashScreen(QWidget):
             os.path.join(base, 'images', 'logos', 'rounded', 'dock_256x256.png'),
             os.path.join(base, 'images', 'logos', 'desktop_256x256.png'),
         ]
+        from PySide6.QtGui import QPixmap
         for p in candidates:
             if os.path.exists(p):
                 pm = QPixmap(p)
@@ -554,6 +558,9 @@ class CircularProgress(QWidget):
             self.update()
 
     def paintEvent(self, event):
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QConicalGradient, QFont
+        
         with QPainter(self) as painter:
             painter.setRenderHint(QPainter.Antialiasing)
             painter.setRenderHint(QPainter.HighQualityAntialiasing, True)
@@ -590,6 +597,8 @@ class CircularProgress(QWidget):
             painter.setFont(font)
             painter.drawText(rect, Qt.AlignCenter, f"{self._value}%")
 
+
+from PySide6.QtCore import QObject
 
 class PythonInitWorker(QObject):
     progress = Signal(int)

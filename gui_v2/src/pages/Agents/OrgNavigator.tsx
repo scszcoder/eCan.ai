@@ -16,6 +16,23 @@ import { DisplayNode, GetAllOrgAgentsResponse, OrgAgent, TreeOrgNode } from '../
 import type { Agent } from './types';
 import { extractAllAgents } from './utils/orgTreeUtils';
 
+// 提取所有 agents（递归）
+const extractAllAgentsFromTree = (node: TreeOrgNode): OrgAgent[] => {
+  let allAgents: OrgAgent[] = [];
+
+  if (node.agents && Array.isArray(node.agents)) {
+    allAgents = allAgents.concat(node.agents);
+  }
+
+  if (node.children && Array.isArray(node.children)) {
+    node.children.forEach((child) => {
+      allAgents = allAgents.concat(extractAllAgentsFromTree(child));
+    });
+  }
+
+  return allAgents;
+};
+
 // 查找树节点
 function findTreeNodeById(node: TreeOrgNode, targetId: string): TreeOrgNode | null {
   if (node.id === targetId) {
@@ -119,12 +136,13 @@ const buildDoorsForNode = (
 // 搜索匹配函数：检查文本是否包含搜索关键字
 const matchesSearchQuery = (text: string | undefined | null, query: string): boolean => {
   if (!text || !query) return true;
-  return text.toLowerCase().includes(query.toLowerCase());
+  const lowerQuery = query.toLowerCase();
+  return text.toLowerCase().includes(lowerQuery);
 };
 
-// 递归搜索组织树，返回匹配的组织和其中的 agents
+// 迭代搜索组织树（替代递归，减少内存占用）
 const searchInOrgTree = (
-  node: TreeOrgNode,
+  rootNode: TreeOrgNode,
   query: string,
   allAgentsMap: Map<string, OrgAgent[]>
 ): { matchedOrgs: TreeOrgNode[], matchedAgents: OrgAgent[] } => {
@@ -132,40 +150,45 @@ const searchInOrgTree = (
     return { matchedOrgs: [], matchedAgents: [] };
   }
 
-  const results: { matchedOrgs: TreeOrgNode[], matchedAgents: OrgAgent[] } = {
-    matchedOrgs: [],
-    matchedAgents: []
-  };
-
-  // 检查当前组织是否匹配
-  const orgMatches = matchesSearchQuery(node.name, query) || 
-                     matchesSearchQuery(node.description, query);
-
-  // 获取当前组织的 agents
-  const orgAgents = allAgentsMap.get(node.id) || [];
+  const matchedOrgs: TreeOrgNode[] = [];
+  const matchedAgents: OrgAgent[] = [];
+  const lowerQuery = query.toLowerCase();
   
-  // 检查 agents 是否匹配
-  const matchedAgentsInOrg = orgAgents.filter(agent => 
-    matchesSearchQuery(agent.name, query) || 
-    matchesSearchQuery(agent.description, query)
-  );
-
-  // 如果组织名称匹配，或者有匹配的 agents，则包含这个组织
-  if (orgMatches || matchedAgentsInOrg.length > 0) {
-    results.matchedOrgs.push(node);
-    results.matchedAgents.push(...matchedAgentsInOrg);
+  // 使用栈进行迭代遍历，避免递归
+  const stack: TreeOrgNode[] = [rootNode];
+  
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    
+    // 检查当前组织是否匹配
+    const orgMatches = 
+      (node.name && node.name.toLowerCase().includes(lowerQuery)) ||
+      (node.description && node.description.toLowerCase().includes(lowerQuery));
+    
+    // 获取当前组织的 agents
+    const orgAgents = allAgentsMap.get(node.id) || [];
+    
+    // 检查 agents 是否匹配
+    const matchedAgentsInOrg = orgAgents.filter(agent => 
+      (agent.name && agent.name.toLowerCase().includes(lowerQuery)) ||
+      (agent.description && agent.description.toLowerCase().includes(lowerQuery))
+    );
+    
+    // 如果组织名称匹配，或者有匹配的 agents，则包含这个组织
+    if (orgMatches || matchedAgentsInOrg.length > 0) {
+      matchedOrgs.push(node);
+      matchedAgents.push(...matchedAgentsInOrg);
+    }
+    
+    // 将子节点加入栈（反向添加以保持原始顺序）
+    if (node.children && node.children.length > 0) {
+      for (let i = node.children.length - 1; i >= 0; i--) {
+        stack.push(node.children[i]);
+      }
+    }
   }
 
-  // 递归搜索子组织
-  if (node.children && node.children.length > 0) {
-    node.children.forEach(child => {
-      const childResults = searchInOrgTree(child, query, allAgentsMap);
-      results.matchedOrgs.push(...childResults.matchedOrgs);
-      results.matchedAgents.push(...childResults.matchedAgents);
-    });
-  }
-
-  return results;
+  return { matchedOrgs, matchedAgents };
 };
 
 const OrgNavigator: React.FC = () => {
@@ -202,15 +225,10 @@ const OrgNavigator: React.FC = () => {
     []
   );
   
-  // 将搜索状态暴露给父组件（通过 window 对象）
-  useEffect(() => {
-    (window as any).__agentsSearchQuery = searchQuery;
-    (window as any).__setAgentsSearchQuery = setSearchQuery;
-    return () => {
-      delete (window as any).__agentsSearchQuery;
-      delete (window as any).__setAgentsSearchQuery;
-    };
-  }, [searchQuery]);
+  // ============================================================================
+  // 🔧 优化：移除 window 对象污染，使用 Store 代替
+  // 搜索状态现在通过 useOrgStore 管理，不需要全局变量
+  // ============================================================================
   
   // 从 URL 路径中提取 orgId，而不是使用 useParams
   // 因为 useParams 在不同缓存实例间可能保留旧值
@@ -422,12 +440,8 @@ const OrgNavigator: React.FC = () => {
     (door: DisplayNode) => {
       // 如果在搜索模式下，清除搜索并导航
       if (searchQuery) {
-        
-        // 先清除搜索
+        // 🔧 优化：移除 window 对象引用
         setSearchQuery('');
-        if ((window as any).__setAgentsSearchQuery) {
-          (window as any).__setAgentsSearchQuery('');
-        }
         
         // 构建完整路径
         if (rootNode) {
@@ -482,23 +496,8 @@ const OrgNavigator: React.FC = () => {
       if (response.success && response.data) {
         setAllOrgAgents(response.data);
 
-        const extractAllAgents = (node: TreeOrgNode): OrgAgent[] => {
-          let allAgents: OrgAgent[] = [];
-
-          if (node.agents && Array.isArray(node.agents)) {
-            allAgents = allAgents.concat(node.agents);
-          }
-
-          if (node.children && Array.isArray(node.children)) {
-            node.children.forEach((child) => {
-              allAgents = allAgents.concat(extractAllAgents(child));
-            });
-          }
-
-          return allAgents;
-        };
-
-        const allAgents = extractAllAgents(response.data.orgs);
+        // 🔧 优化：使用组件外部的函数，避免重复定义
+        const allAgents = extractAllAgentsFromTree(response.data.orgs);
 
         if (allAgents.length > 0) {
           setAgents(
@@ -528,69 +527,19 @@ const OrgNavigator: React.FC = () => {
     fetchOrgStructure();
   }, [fetchOrgStructure]);
 
+  // ============================================================================
+  // 🔧 优化：移除重复代码，复用 fetchOrgStructure
   // 监听URL参数变化，当有refresh参数时重新获取数据
+  // ============================================================================
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
     const refreshParam = searchParams.get('refresh');
     if (refreshParam && username) {
-      
-      // 强制刷新数据，不检查shouldFetchData
-      const forceRefresh = async () => {
-        setLoading(true);
-        setError(null);
-
-        try {
-          logger.info('[OrgNavigator] Force fetching organization structure...');
-          const response = await get_ipc_api().getAllOrgAgents<GetAllOrgAgentsResponse>(username);
-
-          if (response.success && response.data) {
-            setAllOrgAgents(response.data);
-
-            const extractAllAgents = (node: TreeOrgNode): OrgAgent[] => {
-              let allAgents: OrgAgent[] = [];
-
-              if (node.agents && Array.isArray(node.agents)) {
-                allAgents = allAgents.concat(node.agents);
-              }
-
-              if (node.children && Array.isArray(node.children)) {
-                node.children.forEach((child) => {
-                  allAgents = allAgents.concat(extractAllAgents(child));
-                });
-              }
-
-              return allAgents;
-            };
-
-            const allAgents = extractAllAgents(response.data.orgs);
-
-            if (allAgents.length > 0) {
-              setAgents(
-                allAgents.map((agent) =>
-                  mapOrgAgentToAgent(agent, agent.org_id || undefined)
-                )
-              );
-              logger.info(`[OrgNavigator] Force refresh: Extracted and saved ${allAgents.length} agents to agentStore`);
-            } else {
-              logger.warn('[OrgNavigator] Force refresh: No agents found in organization structure');
-            }
-          } else {
-            const errorMessage = response.error?.message || 'Failed to fetch organization structure';
-            setError(errorMessage);
-            logger.error('[OrgNavigator] Force refresh failed:', errorMessage);
-          }
-        } catch (err) {
-          const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
-          setError(errorMessage);
-          logger.error('[OrgNavigator] Force refresh error:', errorMessage);
-        } finally {
-          setLoading(false);
-        }
-      };
-      
-      forceRefresh();
+      logger.info('[OrgNavigator] Refresh parameter detected, forcing data refresh...');
+      // 复用 fetchOrgStructure，无需重复代码
+      fetchOrgStructure();
     }
-  }, [location.search, username, setLoading, setError, setAllOrgAgents, setAgents]);
+  }, [location.search, username, fetchOrgStructure]);
 
   if (loading && !rootNode) {
     return (
@@ -629,25 +578,15 @@ const OrgNavigator: React.FC = () => {
 
   return (
     <div ref={navigatorRef} className="org-navigator">
-      {/* 简化的科技感背景 */}
+      {/* 🔧 优化：简化 SVG 背景，减少 DOM 节点 */}
       <svg className="navigator-bg-svg" width="100%" height="100%" viewBox="0 0 1200 800" style={{position:'absolute',left:0,top:0,zIndex:0}}>
-        {/* 简化的地板网格 - 只保留3层 */}
         <ellipse cx="600" cy="700" rx="420" ry="80" fill="var(--ant-primary-1, #e6f4ff)" opacity="0.4" />
-        {Array.from({length: 3}).map((_,i) => (
-          <ellipse key={i} cx="600" cy="700" rx={200+i*60} ry={40+i*12} fill="none" stroke="var(--ant-primary-2, #91caff)" strokeWidth="1" opacity="0.15" />
-        ))}
-        {/* 保留几个关键节点 */}
-        {[{cx:300,cy:250},{cx:900,cy:250},{cx:600,cy:450}].map((n,i)=>(
-          <circle key={i} cx={n.cx} cy={n.cy} r="12" fill="var(--ant-primary-color, #1677ff)" opacity="0.12" />
-        ))}
+        <ellipse cx="600" cy="700" rx="200" ry="40" fill="none" stroke="var(--ant-primary-2, #91caff)" strokeWidth="1" opacity="0.15" />
+        <ellipse cx="600" cy="700" rx="260" ry="52" fill="none" stroke="var(--ant-primary-2, #91caff)" strokeWidth="1" opacity="0.15" />
       </svg>
       {/* 保留光斑效果 */}
       <div className="navigator-bg-blur navigator-bg-blur1" />
       <div className="navigator-bg-blur navigator-bg-blur2" />
-      {/* 保留一个静态灯光 */}
-      <div className="navigator-space-lights">
-        <div className="navigator-space-light navigator-space-light1" />
-      </div>
 
       {/* 统一网格布局 - 同时显示doors和agents */}
       {allItems.length > 0 && (

@@ -12,10 +12,6 @@ import asyncio
 from threading import Lock
 
 from agent.playwright import get_playwright_manager
-from browser_use.browser import BrowserSession
-from browser_use.controller.service import Controller as BrowserUseController
-from browser_use.filesystem.file_system import FileSystem
-from browser_use.agent.service import Agent
 from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
 from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
@@ -23,6 +19,10 @@ from agent.agent_service import get_agent_by_id
 
 if TYPE_CHECKING:
     from crawl4ai import AsyncWebCrawler
+    from browser_use.browser import BrowserSession
+    from browser_use.controller.service import Controller
+    from browser_use.filesystem.file_system import FileSystem
+    from browser_use.agent.service import Agent
 
 
 class UnifiedBrowserManager:
@@ -147,7 +147,7 @@ class UnifiedBrowserManager:
         logger.debug("get_async_crawler called: returning None to avoid creating AsyncWebCrawler on GUI thread")
         return None
     
-    def get_browser_session(self) -> Optional[BrowserSession]:
+    def get_browser_session(self) -> Optional['BrowserSession']:
         """Get BrowserSession instance (lazy creation)"""
         if not self._initialized:
             logger.warning("Manager not initialized, cannot get BrowserSession")
@@ -155,6 +155,7 @@ class UnifiedBrowserManager:
 
         if self._browser_session is None:
             try:
+                from browser_use.browser import BrowserSession as _BrowserSession
                 # Note: BrowserSession needs to be created after AsyncWebCrawler is started
                 # This is just preparation, actual creation should be done when needed
                 logger.debug("BrowserSession will be created when needed")
@@ -237,7 +238,7 @@ class UnifiedBrowserManager:
 
 
 
-    def get_browser_user(self) -> Optional[Agent]:
+    def get_browser_user(self) -> Optional['Agent']:
         """Get BrowserSession instance (lazy creation)"""
         if not self._initialized:
             logger.warning("Manager not initialized, cannot get BrowserSession")
@@ -304,12 +305,13 @@ class UnifiedBrowserManager:
             return None
 
 
-    def get_browser_use_controller(self) -> Optional[BrowserUseController]:
+    def get_browser_use_controller(self) -> Optional['Controller']:
         if not self._initialized:
             logger.warning("Manager not initialized, cannot get BrowserUseController")
             return None
 
         if self._browser_use_controller is None:
+            from browser_use.controller.service import Controller as BrowserUseController
             try:
                 logger.debug("Creating BrowserUseController instance...")
                 display_files_in_done_text = True
@@ -324,12 +326,13 @@ class UnifiedBrowserManager:
 
         return self._browser_use_controller
     
-    def get_browser_use_file_system(self) -> Optional[FileSystem]:
+    def get_browser_use_file_system(self) -> Optional['FileSystem']:
         if not self._initialized:
             logger.warning("Manager not initialized, cannot get BrowserUse FileSystem")
             return None
 
         if self._browser_use_file_system is None:
+            from browser_use.filesystem.file_system import FileSystem
             try:
                 if self._file_system_path:
                     self._browser_use_file_system = FileSystem(self._file_system_path)
