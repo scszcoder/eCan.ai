@@ -458,6 +458,25 @@ const ChatList: React.FC<ChatListProps> = ({
         return fullNames.substring(0, maxLength) + '...';
     };
     
+    // Get agent avatar by ID
+    const getAgentAvatar = (agentId: string) => {
+        if (!agents) return undefined;
+        const agent = agents.find(a => a.card?.id === agentId);
+        if (!agent?.avatar) return undefined;
+        
+        // If avatar is object with imageUrl, return the imageUrl
+        if (typeof agent.avatar === 'object' && 'imageUrl' in agent.avatar) {
+            return (agent.avatar as { imageUrl: string }).imageUrl;
+        }
+        
+        // If avatar is string, return it directly
+        if (typeof agent.avatar === 'string') {
+            return agent.avatar;
+        }
+        
+        return undefined;
+    };
+    
     // Render group avatar with grid layout (up to 9 members)
     const renderGroupAvatar = (members: Member[], chatType?: Chat['type']) => {
         if (!members || members.length === 0) {
@@ -483,9 +502,11 @@ const ChatList: React.FC<ChatListProps> = ({
             }
             // For non-group chat, show member avatar
             const member = displayMembers[0];
+            // Try to get latest avatar from agent store, fallback to member.avatar
+            const avatarSrc = getAgentAvatar(member.userId) || member.avatar;
             return (
                 <Avatar 
-                    src={member.avatar} 
+                    src={avatarSrc} 
                     icon={<RobotOutlined />} 
                     size={40}
                 />
@@ -495,16 +516,20 @@ const ChatList: React.FC<ChatListProps> = ({
         // Multiple members - show grid layout
         return (
             <GroupAvatar $memberCount={displayMembers.length}>
-                {displayMembers.map((member) => (
-                    <div key={member.userId} className="avatar-item">
-                        <Avatar
-                            src={member.avatar}
-                            icon={<RobotOutlined />}
-                            shape="square"
-                            style={{ width: '100%', height: '100%' }}
-                        />
-                    </div>
-                ))}
+                {displayMembers.map((member) => {
+                    // Try to get latest avatar from agent store, fallback to member.avatar
+                    const avatarSrc = getAgentAvatar(member.userId) || member.avatar;
+                    return (
+                        <div key={member.userId} className="avatar-item">
+                            <Avatar
+                                src={avatarSrc}
+                                icon={<RobotOutlined />}
+                                shape="square"
+                                style={{ width: '100%', height: '100%' }}
+                            />
+                        </div>
+                    );
+                })}
             </GroupAvatar>
         );
     };
