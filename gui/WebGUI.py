@@ -1199,8 +1199,35 @@ class WebGUI(QMainWindow):
                     if client_x < 0 or client_y < 0 or client_x > rect.width() or client_y > rect.height():
                         return False, 0
 
-                    # Title bar drag zone (exclude right-side control buttons ~150px)
-                    if border_width <= client_y < 32 and 0 <= client_x < rect.width() - 150:
+                    # Determine if the pointer is over interactive titlebar widgets that must receive clicks
+                    # Always treat these as client area so Qt widgets get events (menus, buttons, labels)
+                    from PySide6.QtCore import QPoint
+                    point_in_self = QPoint(client_x, client_y)
+
+                    def _contains(widget) -> bool:
+                        try:
+                            if widget is None:
+                                return False
+                            p = widget.mapFrom(self, point_in_self)
+                            return widget.rect().contains(p)
+                        except Exception:
+                            return False
+
+                    over_menubar = _contains(getattr(self, 'custom_menubar', None))
+                    over_icon = _contains(getattr(self, 'app_icon', None))
+                    over_title = _contains(getattr(self, 'title_label', None))
+
+                    # Window control buttons (min/max/close)
+                    over_max = _contains(getattr(self, 'maximize_btn', None))
+                    # minimize and close are created as local vars in _add_window_controls, not stored
+                    # so conservatively exclude rightmost zone (~150px) to cover them
+                    over_right_controls_zone = client_x >= rect.width() - 150 and 0 <= client_y < 32
+
+                    if over_menubar or over_icon or over_title or over_max or over_right_controls_zone:
+                        return True, 1  # HTCLIENT
+
+                    # Title bar drag zone: only the empty area within top band that is not occupied by widgets
+                    if border_width <= client_y < 32:
                         return True, 2  # HTCAPTION
 
                     if not self.isMaximized():
