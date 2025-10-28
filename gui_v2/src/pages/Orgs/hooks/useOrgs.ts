@@ -69,12 +69,50 @@ export const useOrgs = () => {
     updateDataState({ loading: true });
     try {
       const api = get_ipc_api();
-      const response = await api.getOrgs(username);
+      // 使用 getAllOrgAgents 获取包含代理信息的完整树结构
+      const response = await api.getAllOrgAgents(username);
 
       if (response.success && response.data) {
-        const orgs = Array.isArray(response.data)
-          ? response.data
-          : (response.data as any).organizations || [];
+        const data = response.data as any;
+        
+        // 直接将后端的树形结构转换为前端需要的格式，并计算包含子节点的总代理数
+        const convertTreeNode = (node: any): any => {
+          if (!node || !node.id || !node.name) return null;
+          
+          const org: any = {
+            id: node.id,
+            name: node.name,
+            description: node.description,
+            parent_id: node.parent_id,
+            org_type: node.org_type,
+            level: node.level,
+            sort_order: node.sort_order,
+            status: node.status,
+            created_at: node.created_at,
+            updated_at: node.updated_at,
+            children: []
+          };
+          
+          // 递归转换子组织
+          if (node.children && node.children.length > 0) {
+            org.children = node.children
+              .map((child: any) => convertTreeNode(child))
+              .filter((child: any) => child !== null);
+          }
+          
+          // 计算总代理数：当前节点的直属代理 + 所有子节点的代理总数
+          const directAgentCount = (node.agents || []).length;
+          const childrenAgentCount = org.children.reduce((sum: number, child: any) => {
+            return sum + (child.agent_count || 0);
+          }, 0);
+          org.agent_count = directAgentCount + childrenAgentCount;
+          
+          return org;
+        };
+        
+        const rootNode = convertTreeNode(data.orgs);
+        // 返回包含根节点的数组，这样根节点也会显示在树中
+        const orgs = rootNode ? [rootNode] : [];
 
         updateDataState({ orgs, loading: false });
       } else {
@@ -94,46 +132,39 @@ export const useOrgs = () => {
     updateDataState({ loading: true });
     try {
       const api = get_ipc_api();
-      // 修改为 false，只LoadWhen前组织的 agents，不Include子组织
-      const response = await api.getOrgAgents(username, orgId, false);
-
+      
+      // 使用 getAllOrgAgents 获取完整的组织和代理树结构
+      const response = await api.getAllOrgAgents(username);
+      
       if (response.success && response.data) {
-        const agents = (response.data as any).agents || [];
+        const data = response.data as any;
+        
+        // 从树形数据中找到对应组织的代理
+        const findOrgAgents = (node: any, targetOrgId: string): any[] => {
+          if (!node) return [];
+          
+          // 如果找到目标组织（包括根节点）
+          if (node.id === targetOrgId) {
+            return node.agents || [];
+          }
+          
+          // 递归查找子组织
+          if (node.children && node.children.length > 0) {
+            for (const child of node.children) {
+              const agents = findOrgAgents(child, targetOrgId);
+              if (agents.length > 0) {
+                return agents;
+              }
+            }
+          }
+          
+          return [];
+        };
+        
+        const agents = findOrgAgents(data.orgs, orgId);
         const validAgents = agents.filter((agent: any) => agent && agent.id && agent.name);
         
-        // 额外Load完整的 agent Data（包括 avatar）
-        if (validAgents.length > 0) {
-          const agentIds = validAgents.map((a: any) => a.id || a.card?.id).filter(Boolean);
-          const fullAgentsResponse = await api.getAgents(username, agentIds);
-          
-          if (fullAgentsResponse.success && fullAgentsResponse.data) {
-            const fullAgents = (fullAgentsResponse.data as any).agents || [];
-            
-            // 合并Data：将 avatar Information合并到原始 agent Data中
-            const mergedAgents = validAgents.map((agent: any) => {
-              const fullAgent = fullAgents.find((fa: any) => 
-                (fa.id || fa.card?.id) === (agent.id || agent.card?.id)
-              );
-              
-              if (fullAgent) {
-                return {
-                  ...agent,
-                  avatar: fullAgent.avatar,
-                  avatar_resource_id: fullAgent.avatar_resource_id,
-                };
-              }
-              
-              return agent;
-            });
-            
-            updateDataState({ orgAgents: mergedAgents, loading: false });
-          } else {
-            // IfGet完整DataFailed，使用原始Data
-            updateDataState({ orgAgents: validAgents, loading: false });
-          }
-        } else {
-          updateDataState({ orgAgents: validAgents, loading: false });
-        }
+        updateDataState({ orgAgents: validAgents, loading: false });
       } else {
         message.error(t('pages.org.messages.loadFailed'));
         updateDataState({ loading: false });
@@ -152,27 +183,20 @@ export const useOrgs = () => {
       const api = get_ipc_api();
       const allAgentsResponse = await api.getAgents(username, []);
 
-      console.log('[loadAvailableAgents] allAgentsResponse:', allAgentsResponse);
-
       if (!allAgentsResponse.success || !allAgentsResponse.data) {
         message.error(t('pages.org.messages.loadFailed'));
         return;
       }
 
       const allAgents = (allAgentsResponse.data as any).agents || [];
-      console.log('[loadAvailableAgents] allAgents count:', allAgents.length);
-      console.log('[loadAvailableAgents] allAgents:', allAgents);
 
       // GetWhen前组织已绑定的 Agent IDs（Used for区分When前组织绑定 vs 其他组织绑定）
       let currentOrgAgentIds: string[] = [];
       if (selectedOrgId) {
         const boundAgentsResponse = await api.getOrgAgents(username, selectedOrgId, false);
-        console.log('[loadAvailableAgents] selectedOrgId:', selectedOrgId);
-        console.log('[loadAvailableAgents] boundAgentsResponse:', boundAgentsResponse);
         if (boundAgentsResponse.success && boundAgentsResponse.data) {
           const boundAgents = (boundAgentsResponse.data as any).agents || (boundAgentsResponse.data as any) || [];
           currentOrgAgentIds = boundAgents.map((agent: any) => agent.id || agent.card?.id).filter(Boolean);
-          console.log('[loadAvailableAgents] currentOrgAgentIds:', currentOrgAgentIds);
         }
       }
 
@@ -187,8 +211,6 @@ export const useOrgs = () => {
           const isBoundToOtherOrg = agent.org_id && agent.org_id !== selectedOrgId;
           const isBound = isBoundToCurrentOrg || isBoundToOtherOrg;
           
-          console.log(`[loadAvailableAgents] Agent ${agent.name} (${agentId}): isBound=${isBound}, isBoundToCurrentOrg=${isBoundToCurrentOrg}, isBoundToOtherOrg=${isBoundToOtherOrg}, org_id=${agent.org_id}`);
-          
           return {
             ...agent,
             isBound,
@@ -196,9 +218,6 @@ export const useOrgs = () => {
             boundOrgId: agent.org_id
           };
         });
-
-      console.log('[loadAvailableAgents] agentsWithStatus count:', agentsWithStatus.length);
-      console.log('[loadAvailableAgents] agentsWithStatus:', agentsWithStatus);
 
       updateDataState({ availableAgents: agentsWithStatus });
     } catch (error) {
