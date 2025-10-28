@@ -80,6 +80,7 @@
     "select_skill": "选择技能",
     "description": "描述",
     "priority": "优先级",
+    "status": "状态",
     "continue": "继续"
   },
   "personality": {
@@ -748,13 +749,25 @@
         "analysis": "分析",
         "communication": "通信",
         "general": "通用",
+        "coding": "编程",
+        "development": "开发",
+        "vision": "视觉",
+        "image": "图像",
+        "api": "API",
+        "integration": "集成",
+        "logic": "逻辑",
+        "reasoning": "推理",
+        "cloud": "云服务",
+        "network": "网络",
         "unknown": "未知"
       },
       "time": {
         "justNow": "刚刚"
       },
       "usageCount": "使用次数",
-      "viewHistory": "查看历史"
+      "viewHistory": "查看历史",
+      "neverUsed": "从未使用",
+      "uses": "次"
     },
     "tasks": {
       "title": "任务管理",

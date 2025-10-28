@@ -113,7 +113,7 @@ const TimeSlotCell = styled.div<{ $isHour?: boolean }>`
   flex-direction: column;
   gap: 3px;
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: background-color 0.2s ease;
   
   &:hover {
     background: rgba(24, 144, 255, 0.05);
@@ -133,13 +133,13 @@ const EventBlock = styled.div<{
   cursor: pointer;
   overflow: hidden;
   z-index: 1;
-  transition: all 0.2s ease;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: box-shadow 0.2s ease, transform 0.15s ease;
   
   &:hover {
     z-index: 5;
-    transform: scale(1.02);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 16px rgba(24, 144, 255, 0.3);
+    transform: translateY(-1px);
   }
   
   .event-header {
@@ -476,7 +476,7 @@ const DayView: React.FC<DayViewProps> = ({
                             </Tooltip>
                           )}
                           <div style={{ fontSize: 11, opacity: 0.9 }}>
-                            {t('common.status')}: {event.status} | {t('common.priority')}: {event.priority}
+                            {t('common.status')}: {event.status ? t(`pages.schedule.status.${event.status}`) : '-'} | {t('common.priority')}: {event.priority ? t(`pages.tasks.priority.${event.priority}`) : '-'}
                           </div>
                           {isLongTask && (
                             <div style={{ fontSize: 11, marginTop: 4, color: '#1890ff' }}>
@@ -518,9 +518,11 @@ const DayView: React.FC<DayViewProps> = ({
                           {event.isRecurring && startsToday && (
                             <div className="meta-badge recurring-badge">{t('pages.schedule.calendar.recurringTask')}</div>
                           )}
-                          {startsToday && <div className="meta-badge status-badge">{event.status}</div>}
+                          {startsToday && event.status && (
+                            <div className="meta-badge status-badge">{t(`pages.schedule.status.${event.status}`)}</div>
+                          )}
                           {event.priority && event.priority !== 'medium' && startsToday && (
-                            <div className="meta-badge priority-badge">{event.priority}</div>
+                            <div className="meta-badge priority-badge">{t(`pages.tasks.priority.${event.priority}`)}</div>
                           )}
                         </div>
                       </EventBlock>

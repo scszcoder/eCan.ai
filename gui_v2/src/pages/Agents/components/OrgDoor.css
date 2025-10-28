@@ -19,21 +19,13 @@
   position: relative;
   overflow: visible;
   padding: 20px 16px;
-  /* GPU硬件加速优化 */
-  transform: translate3d(0, 0, 0);
-  -webkit-transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  perspective: 1000px;
-  -webkit-perspective: 1000px;
 }
 
 .org-door:hover {
-  transform: translate3d(0, -8px, 0) scale(1.02);
+  transform: translateY(-8px) scale(1.02);
   /* 性能优化：简化阴影层数 */
   box-shadow: 0 12px 32px rgba(59, 130, 246, 0.3);
   border-color: rgba(59, 130, 246, 0.6);
-  will-change: transform, box-shadow;
 }
 
 /* 点击动画 */
@@ -202,17 +194,7 @@
     inset 0 0 40px rgba(139, 92, 246, 0.2),
     0 0 30px rgba(139, 92, 246, 0.3);
   z-index: 2;
-  /* GPU硬件加速优化 */
-  transform: translate3d(0, 0, 0);
-  -webkit-transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
   -webkit-font-smoothing: subpixel-antialiased;
-}
-
-/* 只在悬停时启用 will-change */
-.org-door:hover .door-panel {
-  will-change: transform, opacity;
 }
 
 /* 门缝光线效果 */
@@ -237,7 +219,7 @@
 
 /* 门打开动画 - 90度完全打开，保持可见 */
 .door-panel.open {
-  transform: perspective(1200px) rotateY(-90deg) translate3d(-15px, 0, 0);
+  transform: perspective(1200px) rotateY(-90deg) translateX(-15px);
   box-shadow:
     -35px 0 70px rgba(139, 92, 246, 0.7),
     -12px 0 35px rgba(167, 139, 250, 0.5),
@@ -249,7 +231,6 @@
     rgba(59, 130, 246, 0.4) 50%,
     rgba(139, 92, 246, 0.5) 100%);
   border-right: 3px solid rgba(255, 255, 255, 0.8);
-  will-change: transform, opacity;
 }
 
 /* 门上的铭牌 */
@@ -343,7 +324,6 @@
   display: inline-block;
   white-space: nowrap;
   animation: marquee-scroll 10s linear infinite;
-  will-change: transform;
   color: rgba(255, 255, 255, 1);
   font-weight: 600;
   font-size: 15px;

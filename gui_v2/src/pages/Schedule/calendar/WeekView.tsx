@@ -120,7 +120,6 @@ const DayColumn = styled.div<{ $isToday?: boolean; $isWeekend?: boolean; $isPast
   flex-direction: column;
   gap: 3px;
   opacity: ${props => props.$isPast ? 0.3 : 1};
-  transition: opacity 0.3s;
   
   &:last-child {
     border-right: none;
@@ -140,13 +139,13 @@ const EventBlock = styled.div<{
   cursor: pointer;
   overflow: hidden;
   z-index: 1;
-  transition: all 0.2s ease;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  transition: box-shadow 0.2s ease, transform 0.15s ease;
   
   &:hover {
     z-index: 5;
-    transform: scale(1.02);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 12px rgba(24, 144, 255, 0.25);
+    transform: translateY(-1px);
   }
   
   .event-time {
@@ -413,7 +412,7 @@ const WeekView: React.FC<WeekViewProps> = ({
                                 </Tooltip>
                               )}
                               <div style={{ fontSize: 11, marginTop: 4, opacity: 0.8 }}>
-                                {t('common.status')}: {event.status} | {t('common.priority')}: {event.priority}
+                                {t('common.status')}: {event.status ? t(`pages.schedule.status.${event.status}`) : '-'} | {t('common.priority')}: {event.priority ? t(`pages.tasks.priority.${event.priority}`) : '-'}
                               </div>
                               {isLongTask && (
                                 <div style={{ fontSize: 11, marginTop: 4, color: '#1890ff' }}>
