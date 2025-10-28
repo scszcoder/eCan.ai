@@ -79,7 +79,7 @@ const SettingsTab: React.FC = () => {
               {t('pages.knowledge.settings.title')}
             </h3>
             <p style={{ margin: '4px 0 0 0', fontSize: 13, color: token.colorTextSecondary }}>
-              配置知识库的数据库和模型参数
+              {t('pages.knowledge.settings.subtitle')}
             </p>
           </div>
         </div>

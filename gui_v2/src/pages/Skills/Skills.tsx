@@ -23,7 +23,7 @@ const Skills: React.FC = () => {
     const username = useUserStore((state) => state.username);
     const [isAddingNew, setIsAddingNew] = React.useState(false);
 
-    // 直接管理选中状态
+    // 直接管理选中Status
     const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
 
     const selectItem = useCallback((skill: Skill) => {
@@ -90,18 +90,18 @@ const Skills: React.FC = () => {
     };
 
     const handleSkillCancel = () => {
-        // 取消时的处理：
-        // - 如果是新建模式，关闭详情面板
-        // - 如果是编辑模式，不需要额外处理（SkillDetails 内部会处理）
+        // Cancel时的Process：
+        // - If是新建模式，CloseDetails面板
+        // - If是Edit模式，不Need额外Process（SkillDetails Internal会Process）
         if (isAddingNew) {
             setIsAddingNew(false);
             setSelectedSkill(null);
         }
-        // 编辑模式下，SkillDetails 会自动恢复数据并退出编辑模式，不需要关闭面板
+        // Edit模式下，SkillDetails 会自动RestoreData并退出Edit模式，不NeedClose面板
     };
 
     const handleSkillDelete = () => {
-        // 删除后清空选中状态，关闭详情页
+        // Delete后清空选中Status，CloseDetails页
         setSelectedSkill(null);
         handleRefresh();
     };

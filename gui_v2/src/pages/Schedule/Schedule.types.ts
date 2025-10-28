@@ -1,4 +1,4 @@
-// 后端任务调度(TaskSchedule)数据结构
+// Backend任务调度(TaskSchedule)Data结构
 export interface TaskSchedule {
   repeat_type: 'none' | 'by seconds' | 'by minutes' | 'by hours' | 'by days' | 'by weeks' | 'by months' | 'by years';
   repeat_number: number;

@@ -1,10 +1,10 @@
 /**
  * Chat Domain Types
- * 聊天相关的类型定义
+ * Type definitions for chats
  */
 
 /**
- * 聊天类型
+ * Chat type
  */
 export enum ChatType {
   USER_SYSTEM = 'user-system',
@@ -14,7 +14,7 @@ export enum ChatType {
 }
 
 /**
- * 消息状态
+ * Message status
  */
 export enum MessageStatus {
   LOADING = 'loading',
@@ -26,7 +26,7 @@ export enum MessageStatus {
 }
 
 /**
- * 成员状态
+ * Member status
  */
 export enum MemberStatus {
   ONLINE = 'online',
@@ -35,7 +35,7 @@ export enum MemberStatus {
 }
 
 /**
- * 附件接口
+ * Attachment interface
  */
 export interface Attachment {
   uid: string;
@@ -51,7 +51,7 @@ export interface Attachment {
 }
 
 /**
- * 消息接口
+ * Message interface
  */
 export interface Message {
   id: string;
@@ -61,7 +61,7 @@ export interface Message {
   status: MessageStatus | string;
   attachments?: Attachment[];
   
-  // 扩展字段
+  // Extended fields
   chatId?: string;
   senderId?: string;
   senderName?: string;
@@ -70,7 +70,7 @@ export interface Message {
 }
 
 /**
- * 成员接口
+ * Member interface
  */
 export interface Member {
   userId: string;
@@ -83,38 +83,38 @@ export interface Member {
 }
 
 /**
- * 聊天接口
+ * Chat interface
  */
 export interface Chat {
-  // 基础信息
+  // Basic information
   id: string;
   type: ChatType | string;
   name: string;
   avatar?: string;
   
-  // 成员和消息
+  // Members and messages
   members: Member[];
   messages: Message[];
   
-  // 聊天状态
+  // Chat status
   lastMsg?: string;
   lastMsgTime?: number;
   unread: number;
   
-  // 自定义字段
+  // Custom fields
   pinned?: boolean;
   muted?: boolean;
   ext?: Record<string, any>;
   
-  // 时间戳
+  // Timestamps
   createdAt?: string;
   updatedAt?: string;
-  created_at?: string; // 兼容后端字段
-  updated_at?: string; // 兼容后端字段
+  created_at?: string; // Compatible with backend fields
+  updated_at?: string; // Compatible with backend fields
 }
 
 /**
- * 创建聊天的输入类型
+ * Create chat input type
  */
 export interface CreateChatInput {
   type: ChatType;
@@ -124,7 +124,7 @@ export interface CreateChatInput {
 }
 
 /**
- * 更新聊天的输入类型
+ * Update chat input type
  */
 export interface UpdateChatInput {
   name?: string;
@@ -135,7 +135,7 @@ export interface UpdateChatInput {
 }
 
 /**
- * 发送消息的输入类型
+ * Send message input type
  */
 export interface SendMessageInput {
   chatId: string;

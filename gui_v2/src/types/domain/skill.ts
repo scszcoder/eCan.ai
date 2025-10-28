@@ -1,12 +1,12 @@
 /**
  * Skill Domain Types
- * 技能相关的类型定义
+ * Type definitions for skills
  *
- * 匹配 DBAgentSkill 和 EC_Skill 的数据结构
+ * Matches DBAgentSkill and EC_Skill data structures
  */
 
 /**
- * 技能级别 - 匹配 EC_Skill.level
+ * Skill level - matches EC_Skill.level
  */
 export enum SkillLevel {
   ENTRY = 'entry',
@@ -15,7 +15,7 @@ export enum SkillLevel {
 }
 
 /**
- * 技能状态 - 用于 UI 显示
+ * Skill status - used for UI display
  */
 export enum SkillStatus {
   ACTIVE = 'active',
@@ -25,7 +25,7 @@ export enum SkillStatus {
 }
 
 /**
- * 技能运行模式 - 匹配 EC_Skill.run_mode
+ * Skill run mode - matches EC_Skill.run_mode
  */
 export enum SkillRunMode {
   DEVELOPMENT = 'development',
@@ -33,7 +33,7 @@ export enum SkillRunMode {
 }
 
 /**
- * UI 信息 - 匹配 EC_Skill.ui_info
+ * UI information - matches EC_Skill.ui_info
  */
 export interface SkillUIInfo {
   text?: string;
@@ -41,7 +41,7 @@ export interface SkillUIInfo {
 }
 
 /**
- * 需要的输入 - 匹配 EC_Skill.need_inputs
+ * Required inputs - matches EC_Skill.need_inputs
  */
 export interface SkillNeedInput {
   name: string;
@@ -52,7 +52,7 @@ export interface SkillNeedInput {
 }
 
 /**
- * 映射规则 - 匹配 EC_Skill.mapping_rules
+ * Mapping rules - matches EC_Skill.mapping_rules
  */
 export interface SkillMappingRule {
   [mode: string]: {
@@ -66,98 +66,98 @@ export interface SkillMappingRule {
 }
 
 /**
- * 技能类型 - 完整匹配 DBAgentSkill 和 EC_Skill
+ * Skill type - fully matches DBAgentSkill and EC_Skill
  */
 export interface Skill {
-  // ========== DBAgentSkill 基础字段 ==========
-  // 主键和标识
+  // ========== DBAgentSkill base fields ==========
+  // Primary key and identifier
   id: string;
   askid?: number;
 
-  // 基础信息
+  // Basic information
   name: string;
   owner: string;
   description?: string;
 
-  // 版本和路径
+  // Version and path
   version: string;
   path?: string;
 
-  // 技能属性
+  // Skill attributes
   level?: SkillLevel | string; // entry/intermediate/advanced
 
-  // 配置
-  config?: Record<string, any> | string; // JSON 配置
+  // Configuration
+  config?: Record<string, any> | string; // JSON configuration
 
-  // EC_Skill 字段
-  tags?: string[]; // 标签列表
-  examples?: string[]; // 示例列表
-  inputModes?: string[]; // 输入模式
-  outputModes?: string[]; // 输出模式
+  // EC_Skill fields
+  tags?: string[]; // Tag list
+  examples?: string[]; // Example list
+  inputModes?: string[]; // Input modes
+  outputModes?: string[]; // Output modes
 
-  // 扩展字段
-  apps?: any[] | string; // 应用列表
-  limitations?: any[] | string; // 限制列表
-  price?: number; // 价格
-  price_model?: string; // 价格模型
-  public?: boolean; // 是否公开
-  rentable?: boolean; // 是否可租用
+  // Extended fields
+  apps?: any[] | string; // Application list
+  limitations?: any[] | string; // Limitations list
+  price?: number; // Price
+  price_model?: string; // Price model
+  public?: boolean; // Whether public
+  rentable?: boolean; // Whether rentable
 
-  // ========== EC_Skill 额外字段 ==========
-  ui_info?: SkillUIInfo; // UI 信息
-  objectives?: string[]; // 目标列表
-  need_inputs?: SkillNeedInput[]; // 需要的输入
-  run_mode?: SkillRunMode | string; // 运行模式: development/released
-  mapping_rules?: SkillMappingRule | null; // 映射规则
-  diagram?: Record<string, any>; // Workflow/diagram 数据 (nodes, edges, etc.)
+  // ========== EC_Skill additional fields ==========
+  ui_info?: SkillUIInfo; // UI information
+  objectives?: string[]; // Objectives list
+  need_inputs?: SkillNeedInput[]; // Required inputs
+  run_mode?: SkillRunMode | string; // Run mode: development/released
+  mapping_rules?: SkillMappingRule | null; // Mapping rules
+  diagram?: Record<string, any>; // Workflow/diagram data (nodes, edges, etc.)
 
-  // ========== UI 扩展字段 ==========
-  status?: SkillStatus | string; // UI 状态
-  category?: string; // 分类
+  // ========== UI extended fields ==========
+  status?: SkillStatus | string; // UI status
+  category?: string; // Category
 
-  // 使用统计
+  // Usage statistics
   usageCount?: number;
   lastUsed?: string;
 
-  // 时间戳 (TimestampMixin)
+  // Timestamps (TimestampMixin)
   createdAt?: string;
   updatedAt?: string;
 
-  // 扩展数据 (ExtensibleMixin)
+  // Extended data (ExtensibleMixin)
   extra_data?: Record<string, any>;
 }
 
 /**
- * 创建技能的输入类型
+ * Create skill input type
  */
 export interface CreateSkillInput {
-  // 必填字段
+  // Required fields
   name: string;
   owner: string;
   version?: string;
 
-  // 可选基础信息
+  // Optional basic information
   description?: string;
   level?: SkillLevel | string;
   path?: string;
 
-  // 配置和元数据
+  // Configuration and metadata
   config?: Record<string, any>;
   tags?: string[];
   examples?: string[];
 
-  // 输入输出模式
+  // Input/output modes
   inputModes?: string[];
   outputModes?: string[];
 
-  // EC_Skill 字段
+  // EC_Skill fields
   ui_info?: SkillUIInfo;
   objectives?: string[];
   need_inputs?: SkillNeedInput[];
   run_mode?: SkillRunMode | string;
   mapping_rules?: SkillMappingRule | null;
 
-  // 扩展字段
+  // Extended fields
   apps?: any[];
   limitations?: any[];
   price?: number;
@@ -165,39 +165,39 @@ export interface CreateSkillInput {
   public?: boolean;
   rentable?: boolean;
 
-  // UI 字段
+  // UI fields
   category?: string;
   status?: SkillStatus | string;
 }
 
 /**
- * 更新技能的输入类型
+ * Update skill input type
  */
 export interface UpdateSkillInput {
-  // 基础信息
+  // Basic information
   name?: string;
   description?: string;
   version?: string;
   level?: SkillLevel | string;
   path?: string;
 
-  // 配置和元数据
+  // Configuration and metadata
   config?: Record<string, any>;
   tags?: string[];
   examples?: string[];
 
-  // 输入输出模式
+  // Input/output modes
   inputModes?: string[];
   outputModes?: string[];
 
-  // EC_Skill 字段
+  // EC_Skill fields
   ui_info?: SkillUIInfo;
   objectives?: string[];
   need_inputs?: SkillNeedInput[];
   run_mode?: SkillRunMode | string;
   mapping_rules?: SkillMappingRule | null;
 
-  // 扩展字段
+  // Extended fields
   apps?: any[];
   limitations?: any[];
   price?: number;
@@ -205,13 +205,13 @@ export interface UpdateSkillInput {
   public?: boolean;
   rentable?: boolean;
 
-  // UI 字段
+  // UI fields
   status?: SkillStatus | string;
   category?: string;
 }
 
 /**
- * 技能 API 响应数据
+ * Skills API response data
  */
 export interface SkillsAPIResponseData {
   token?: string;

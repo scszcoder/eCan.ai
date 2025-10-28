@@ -137,11 +137,11 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
     });
   };
 
-  // 状态菜单项
+  // StatusMenu项
   const statusMenuItems: MenuProps['items'] = [
     {
       key: 'all',
-      label: t('pages.skills.filter.allStatus', '全部状态'),
+      label: t('pages.skills.filter.allStatus', '全部Status'),
     },
     { type: 'divider' },
     {
@@ -158,12 +158,12 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
     },
   ];
 
-  // 处理菜单点击
+  // ProcessMenuClick
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     handleFilterChange('status', key);
   };
 
-  // 获取当前状态显示文本（用于 Tooltip）
+  // GetWhen前StatusDisplay文本（Used for Tooltip）
   const getStatusTooltip = () => {
     const statusMap: Record<string, string> = {
       active: t('pages.skills.status.active', 'Active'),
@@ -171,16 +171,16 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
       planned: t('pages.skills.status.planned', 'Planned'),
     };
     return filters.status
-      ? `${t('pages.skills.filter.status', '状态')}: ${statusMap[filters.status]}`
-      : t('pages.skills.filter.filterByStatus', '筛选状态');
+      ? `${t('pages.skills.filter.status', 'Status')}: ${statusMap[filters.status]}`
+      : t('pages.skills.filter.filterByStatus', '筛选Status');
   };
 
   return (
     <FilterContainer>
       <FilterRow>
-        {/* 搜索框 */}
+        {/* Search框 */}
         <StyledInput
-          placeholder={t('pages.skills.filter.searchPlaceholder', '搜索技能...')}
+          placeholder={t('pages.skills.filter.searchPlaceholder', 'Search技能...')}
           prefix={<SearchOutlined />}
           value={filters.search}
           onChange={(e) => handleFilterChange('search', e.target.value)}
@@ -188,7 +188,7 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
           allowClear
         />
 
-        {/* 状态筛选按钮 - 只显示图标 */}
+        {/* Status筛选Button - 只Display图标 */}
         <Dropdown
           menu={{ items: statusMenuItems, onClick: handleMenuClick }}
           trigger={['click']}

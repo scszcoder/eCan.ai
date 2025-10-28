@@ -21,42 +21,42 @@ import 'dayjs/locale/zh-cn';
 dayjs.extend(relativeTime);
 dayjs.locale('zh-cn');
 
-// 状态配置 - 基础配置（包含默认文本作为后备）
+// StatusConfiguration - BaseConfiguration（IncludeDefault文本作为后备）
 const STATUS_BASE_CONFIG = {
   SUBMITTED: {
     gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
     color: '#667eea',
     icon: <ClockCircleOutlined />,
     key: 'SUBMITTED',
-    defaultText: '已提交'
+    defaultText: '已Submit'
   },
   WORKING: {
     gradient: 'linear-gradient(135deg, #1890FF 0%, #096dd9 100%)',
     color: '#1890FF',
     icon: <SyncOutlined spin />,
     key: 'WORKING',
-    defaultText: '运行中'
+    defaultText: 'Run中'
   },
   INPUT_REQUIRED: {
     gradient: 'linear-gradient(135deg, #FA8C16 0%, #d46b08 100%)',
     color: '#FA8C16',
     icon: <ExclamationCircleOutlined />,
     key: 'INPUT_REQUIRED',
-    defaultText: '等待输入'
+    defaultText: '等待Input'
   },
   COMPLETED: {
     gradient: 'linear-gradient(135deg, #52C41A 0%, #389e0d 100%)',
     color: '#52C41A',
     icon: <CheckCircleOutlined />,
     key: 'COMPLETED',
-    defaultText: '已完成'
+    defaultText: '已Completed'
   },
   CANCELED: {
     gradient: 'linear-gradient(135deg, #FF4D4F 0%, #cf1322 100%)',
     color: '#FF4D4F',
     icon: <StopOutlined />,
     key: 'CANCELED',
-    defaultText: '已取消'
+    defaultText: '已Cancel'
   },
   ready: {
     gradient: 'linear-gradient(135deg, #52C41A 0%, #389e0d 100%)',
@@ -70,7 +70,7 @@ const STATUS_BASE_CONFIG = {
     color: '#1890FF',
     icon: <SyncOutlined spin />,
     key: 'running',
-    defaultText: '运行中'
+    defaultText: 'Run中'
   },
   unknown: {
     gradient: 'linear-gradient(135deg, #8C8C8C 0%, #595959 100%)',
@@ -81,7 +81,7 @@ const STATUS_BASE_CONFIG = {
   },
 };
 
-// 优先级配置 - 使用更丰富的颜色
+// PriorityConfiguration - 使用更丰富的颜色
 const PRIORITY_CONFIG = {
   ASAP: {
     color: 'red',
@@ -121,7 +121,7 @@ const PRIORITY_CONFIG = {
   },
 };
 
-// 触发方式配置 - 使用更丰富的颜色
+// Trigger方式Configuration - 使用更丰富的颜色
 const TRIGGER_CONFIG = {
   schedule: {
     icon: <CalendarOutlined />,
@@ -137,7 +137,7 @@ const TRIGGER_CONFIG = {
   },
   'agent message': {
     icon: <RobotOutlined />,
-    defaultText: '消息',
+    defaultText: 'Message',
     color: '#1890ff',
     style: { background: '#e6f7ff', borderColor: '#91d5ff', color: '#1890ff' }
   },
@@ -149,7 +149,7 @@ const TRIGGER_CONFIG = {
   },
   a2a_queue: {
     icon: <RobotOutlined />,
-    defaultText: '消息队列',
+    defaultText: 'Message队列',
     color: '#1890ff',
     style: { background: '#e6f7ff', borderColor: '#91d5ff', color: '#1890ff' }
   },
@@ -167,7 +167,7 @@ const TRIGGER_CONFIG = {
   },
   message: {
     icon: <MessageOutlined />,
-    defaultText: '消息',
+    defaultText: 'Message',
     color: '#1890ff',
     style: { background: '#e6f7ff', borderColor: '#91d5ff', color: '#1890ff' }
   },
@@ -246,7 +246,7 @@ const TaskIcon = styled.div<{ gradient?: string; status?: string }>`
     position: relative;
     background: ${props => {
         if (props.gradient) return props.gradient;
-        // 根据状态返回不同的渐变
+        // 根据Status返回不同的渐变
         switch (props.status) {
             case 'WORKING':
             case 'running':
@@ -336,7 +336,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  // 获取任务状态 - 使用国际化文本
+  // Get任务Status - 使用国际化文本
   const status = task.state?.top || task.status || 'unknown';
   const baseStatusConfig = STATUS_BASE_CONFIG[status as keyof typeof STATUS_BASE_CONFIG] || STATUS_BASE_CONFIG.unknown;
   const statusConfig = {
@@ -344,7 +344,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     text: t(`pages.tasks.status.${baseStatusConfig.key}`, baseStatusConfig.defaultText),
   };
 
-  // 获取优先级 - 使用国际化文本
+  // GetPriority - 使用国际化文本
   const priority = task.priority || 'none';
   const basePriorityConfig = PRIORITY_CONFIG[priority as keyof typeof PRIORITY_CONFIG] || PRIORITY_CONFIG.none;
   const priorityText = t(`pages.tasks.priority.${priority}`, basePriorityConfig.defaultText);
@@ -353,11 +353,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     text: basePriorityConfig.emoji ? `${basePriorityConfig.emoji} ${priorityText}` : priorityText,
   };
 
-  // 获取触发方式 - 使用国际化文本
+  // GetTrigger方式 - 使用国际化文本
   const trigger = task.trigger || 'manual';
   const baseTriggerConfig = TRIGGER_CONFIG[trigger as keyof typeof TRIGGER_CONFIG];
 
-  // 如果找不到配置，使用默认配置
+  // If找不到Configuration，使用DefaultConfiguration
   const finalTriggerConfig = baseTriggerConfig || {
     icon: <ThunderboltOutlined />,
     defaultText: trigger,
@@ -370,14 +370,14 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     text: t(`pages.tasks.trigger.${trigger}`, finalTriggerConfig.defaultText),
   };
 
-  // 格式化最后运行时间
+  // Format最后RunTime
   const lastRunTime = task.last_run_datetime
     ? dayjs(task.last_run_datetime).fromNow()
-    : t('pages.tasks.notRun', '未运行');
+    : t('pages.tasks.notRun', '未Run');
 
-  // 计算进度（如果任务正在运行）
+  // 计算进度（If任务正在Run）
   const isRunning = status === 'WORKING' || status === 'running';
-  const progress = isRunning ? 60 : 0; // TODO: 从实际数据获取
+  const progress = isRunning ? 60 : 0; // TODO: 从实际DataGet
 
   // Task operations are handled in TaskDetail component
 
@@ -393,7 +393,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             {statusConfig.icon}
           </TaskIcon>
 
-          {/* 任务信息 */}
+          {/* 任务Information */}
           <TaskMeta>
             <TaskTitle>{task.name || t('pages.tasks.untitledTask', '未命名任务')}</TaskTitle>
             <Space size={6} wrap>
@@ -420,7 +420,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         </Space>
       </TaskHeader>
 
-      {/* 进度条（仅运行中显示） */}
+      {/* 进度条（仅Run中Display） */}
       {isRunning && (
         <div style={{ marginBottom: 8 }}>
           <Progress
@@ -434,7 +434,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         </div>
       )}
 
-      {/* 统计信息 */}
+      {/* 统计Information */}
       <TaskStats>
         <Tag
           icon={triggerConfig.icon}

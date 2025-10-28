@@ -1,6 +1,6 @@
 /**
  * Agent Task API Service
- * Agent 任务相关的 API 调用封装
+ * Agent 任务Related to API 调用封装
  */
 
 import { createIPCAPI } from '../ipc/api';
@@ -10,8 +10,8 @@ import { Task, CreateTaskInput, UpdateTaskInput } from '../../types/domain/task'
 import { logger } from '../../utils/logger';
 
 /**
- * Agent Task API 服务类
- * 实现 ResourceAPI 接口，提供标准化的 CRUD 操作
+ * Agent Task API Service类
+ * Implementation ResourceAPI Interface，提供Standard化的 CRUD Operation
  */
 export class TaskAPI implements ResourceAPI<Task> {
   private _api?: IPCAPI;
@@ -24,7 +24,7 @@ export class TaskAPI implements ResourceAPI<Task> {
   }
 
   /**
-   * 获取所有 Agent 任务
+   * GetAll Agent 任务
    */
   async getAll(username: string, agentId?: string): Promise<APIResponse<Task[]>> {
     try {
@@ -33,7 +33,7 @@ export class TaskAPI implements ResourceAPI<Task> {
       const response = await this.api.getAgentTasks(username, agentId ? [agentId] : []);
 
       if (response && response.success && response.data) {
-        // 处理不同的响应格式
+        // Process不同的Response格式
         let tasks: Task[] = [];
 
         if (Array.isArray(response.data)) {
@@ -66,13 +66,13 @@ export class TaskAPI implements ResourceAPI<Task> {
   }
 
   /**
-   * 根据 ID 获取单个 Agent 任务
+   * 根据 ID Get单个 Agent 任务
    */
   async getById(username: string, id: string): Promise<APIResponse<Task>> {
     try {
       logger.debug('[TaskAPI] Fetching agent task by ID:', id);
 
-      // 目前后端可能没有单独的 getAgentTaskById 接口，先通过 getAll 然后过滤
+      // 目前Backend可能没有单独的 getAgentTaskById Interface，先通过 getAll 然后Filter
       const allTasksResponse = await this.getAll(username);
 
       if (allTasksResponse.success && allTasksResponse.data) {
@@ -104,7 +104,7 @@ export class TaskAPI implements ResourceAPI<Task> {
   }
 
   /**
-   * 创建新 Agent 任务
+   * Create新 Agent 任务
    */
   async create(username: string, task: Task): Promise<APIResponse<Task>> {
     try {
@@ -137,13 +137,13 @@ export class TaskAPI implements ResourceAPI<Task> {
   }
 
   /**
-   * 更新 Agent 任务
+   * Update Agent 任务
    */
   async update(username: string, id: string, updates: Partial<Task>): Promise<APIResponse<Task>> {
     try {
       logger.debug('[TaskAPI] Updating agent task:', id);
 
-      // 先获取完整的任务数据
+      // 先Get完整的任务Data
       const taskResponse = await this.getById(username, id);
 
       if (!taskResponse.success || !taskResponse.data) {
@@ -179,7 +179,7 @@ export class TaskAPI implements ResourceAPI<Task> {
   }
 
   /**
-   * 删除 Agent 任务
+   * Delete Agent 任务
    */
   async delete(username: string, id: string): Promise<APIResponse<void>> {
     try {
@@ -211,6 +211,6 @@ export class TaskAPI implements ResourceAPI<Task> {
   }
 }
 
-// 导出单例实例
+// Export单例实例
 export const taskApi = new TaskAPI();
 

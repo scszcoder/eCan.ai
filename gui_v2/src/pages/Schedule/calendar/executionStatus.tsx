@@ -1,6 +1,6 @@
 /**
  * Execution Status Display Utilities
- * 执行状态显示工具
+ * ExecuteStatusDisplayTool
  */
 
 import React from 'react';
@@ -17,7 +17,7 @@ import { useTranslation } from 'react-i18next';
 export type ExecutionStatus = 'running' | 'scheduled' | 'completed' | 'pending' | 'error';
 
 /**
- * 执行状态配置
+ * ExecuteStatusConfiguration
  */
 export const EXECUTION_STATUS_CONFIG = {
   running: {
@@ -43,12 +43,12 @@ export const EXECUTION_STATUS_CONFIG = {
 };
 
 /**
- * 渲染执行状态标签
+ * RenderExecuteStatusTag
  */
 export const ExecutionStatusTag: React.FC<{
   status?: ExecutionStatus;
   showIcon?: boolean;
-  locale?: 'zh' | 'en'; // 保留参数以兼容，但不再使用
+  locale?: 'zh' | 'en'; // 保留Parameter以Compatible，但不再使用
 }> = ({ status = 'pending', showIcon = true }) => {
   const { t } = useTranslation();
   const config = EXECUTION_STATUS_CONFIG[status];
@@ -65,11 +65,11 @@ export const ExecutionStatusTag: React.FC<{
 };
 
 /**
- * 渲染长周期任务标签
+ * Render长周期任务Tag
  */
 export const LongPeriodTag: React.FC<{
   originalEndTime?: string;
-  locale?: 'zh' | 'en'; // 保留参数以兼容，但不再使用
+  locale?: 'zh' | 'en'; // 保留Parameter以Compatible，但不再使用
 }> = ({ originalEndTime }) => {
   const { t } = useTranslation();
   const label = t('pages.schedule.calendar.executionStatus.longPeriod');
@@ -87,10 +87,10 @@ export const LongPeriodTag: React.FC<{
 };
 
 /**
- * 渲染下次执行标签
+ * Render下次ExecuteTag
  */
 export const NextExecutionTag: React.FC<{
-  locale?: 'zh' | 'en'; // 保留参数以兼容，但不再使用
+  locale?: 'zh' | 'en'; // 保留Parameter以Compatible，但不再使用
 }> = () => {
   const { t } = useTranslation();
   const label = t('pages.schedule.calendar.executionStatus.nextExecution');
@@ -106,7 +106,7 @@ export const NextExecutionTag: React.FC<{
 };
 
 /**
- * 获取执行状态的颜色
+ * GetExecuteStatus的颜色
  */
 export function getExecutionStatusColor(status?: ExecutionStatus): string {
   const config = EXECUTION_STATUS_CONFIG[status || 'pending'];
@@ -121,7 +121,7 @@ export function getExecutionStatusColor(status?: ExecutionStatus): string {
 }
 
 /**
- * 获取执行状态的背景色
+ * GetExecuteStatus的背景色
  */
 export function getExecutionStatusBgColor(status?: ExecutionStatus): string {
   const config = EXECUTION_STATUS_CONFIG[status || 'pending'];

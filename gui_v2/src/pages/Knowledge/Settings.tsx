@@ -22,24 +22,26 @@ import {
   SaveOutlined,
   UploadOutlined
 } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 
 const { Option } = Select;
 const { Title, Text } = Typography;
 const { TabPane } = Tabs;
 
 const Settings: React.FC = () => {
+  const { t } = useTranslation();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
 
-  // 处理保存设置
+  // Process save settings
   const handleSave = async (values: any) => {
     setLoading(true);
     try {
-      // 模拟保存
+      // Simulate save
       await new Promise(resolve => setTimeout(resolve, 1000));
-      message.success('设置保存成功');
+      message.success(t('pages.settings.settingsSaveSuccess'));
     } catch (error) {
-      message.error('保存失败');
+      message.error(t('pages.settings.saveFailed'));
     } finally {
       setLoading(false);
     }
@@ -48,7 +50,7 @@ const Settings: React.FC = () => {
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
-        <Title level={4} style={{ margin: 0 }}>系统设置</Title>
+        <Title level={4} style={{ margin: 0 }}>{t('pages.settings.system')}</Title>
       </div>
 
       <Tabs
@@ -57,7 +59,7 @@ const Settings: React.FC = () => {
         items={[
           {
             key: 'profile',
-            label: <span><UserOutlined /> 个人资料</span>,
+            label: <span><UserOutlined /> {t('pages.settings.profile')}</span>,
             children: (
               <Card>
                 <Form
@@ -65,10 +67,10 @@ const Settings: React.FC = () => {
                   layout="vertical"
                   onFinish={handleSave}
                   initialValues={{
-                    username: '当前用户',
+                    username: 'Current User',
                     email: 'user@company.com',
-                    department: '技术部',
-                    position: '开发工程师',
+                    department: 'Tech Department',
+                    position: 'Development Engineer',
                     language: 'zh-CN',
                     timezone: 'Asia/Shanghai',
                   }}
@@ -79,7 +81,7 @@ const Settings: React.FC = () => {
                       <div style={{ marginTop: 8 }}>
                         <Upload>
                           <Button icon={<UploadOutlined />} size="small">
-                            更换头像
+                            {t('pages.settings.changeAvatar')}
                           </Button>
                         </Upload>
                       </div>
@@ -87,18 +89,18 @@ const Settings: React.FC = () => {
                     <div style={{ flex: 1 }}>
                       <Form.Item
                         name="username"
-                        label="用户名"
-                        rules={[{ required: true, message: '请输入用户名' }]}
+                        label={t('pages.settings.username')}
+                        rules={[{ required: true, message: t('pages.settings.pleaseEnterUsername') }]}
                       >
                         <Input />
                       </Form.Item>
                       
                       <Form.Item
                         name="email"
-                        label="邮箱"
+                        label={t('pages.settings.email')}
                         rules={[
-                          { required: true, message: '请输入邮箱' },
-                          { type: 'email', message: '请输入有效的邮箱地址' }
+                          { required: true, message: t('pages.settings.pleaseEnterEmail') },
+                          { type: 'email', message: t('pages.settings.pleaseEnterValidEmail') }
                         ]}
                       >
                         <Input />
@@ -106,22 +108,22 @@ const Settings: React.FC = () => {
                     </div>
                   </div>
 
-                  <Form.Item name="department" label="部门">
+                  <Form.Item name="department" label={t('pages.settings.department')}>
                     <Input />
                   </Form.Item>
 
-                  <Form.Item name="position" label="职位">
+                  <Form.Item name="position" label={t('pages.settings.position')}>
                     <Input />
                   </Form.Item>
 
-                  <Form.Item name="language" label="语言">
+                  <Form.Item name="language" label={t('pages.settings.language')}>
                     <Select>
-                      <Option value="zh-CN">中文</Option>
-                      <Option value="en-US">English</Option>
+                      <Option value="zh-CN">{t('languages.zh-CN')}</Option>
+                      <Option value="en-US">{t('languages.en-US')}</Option>
                     </Select>
                   </Form.Item>
 
-                  <Form.Item name="timezone" label="时区">
+                  <Form.Item name="timezone" label={t('pages.settings.timezone')}>
                     <Select>
                       <Option value="Asia/Shanghai">Asia/Shanghai (UTC+8)</Option>
                       <Option value="America/New_York">America/New_York (UTC-5)</Option>
@@ -131,7 +133,7 @@ const Settings: React.FC = () => {
 
                   <Form.Item>
                     <Button type="primary" icon={<SaveOutlined />} loading={loading}>
-                      保存设置
+                      {t('common.save')}
                     </Button>
                   </Form.Item>
                 </Form>
@@ -140,79 +142,79 @@ const Settings: React.FC = () => {
           },
           {
             key: 'system',
-            label: <span><SettingOutlined /> 系统设置</span>,
+            label: <span><SettingOutlined /> {t('pages.settings.system')}</span>,
             children: (
               <Card>
                 <Form layout="vertical" onFinish={handleSave}>
-                  <Title level={5}>知识库设置</Title>
+                  <Title level={5}>{t('pages.settings.knowledgeSettings')}</Title>
                   
-                  <Form.Item label="默认知识库">
+                  <Form.Item label={t('pages.settings.defaultKnowledge')}>
                     <Select defaultValue="default">
-                      <Option value="default">默认知识库</Option>
-                      <Option value="tech">技术文档库</Option>
-                      <Option value="product">产品文档库</Option>
+                      <Option value="default">{t('pages.settings.defaultKnowledgeBase')}</Option>
+                      <Option value="tech">{t('pages.settings.technicalDocumentation')}</Option>
+                      <Option value="product">{t('pages.settings.productDocumentation')}</Option>
                     </Select>
                   </Form.Item>
 
-                  <Form.Item label="文档自动保存">
+                  <Form.Item label={t('pages.settings.autoSaveDocument')}>
                     <Switch defaultChecked />
                   </Form.Item>
 
-                  <Form.Item label="自动保存间隔">
+                  <Form.Item label={t('pages.settings.autoSaveInterval')}>
                     <Select defaultValue="30" disabled>
-                      <Option value="30">30秒</Option>
-                      <Option value="60">1分钟</Option>
-                      <Option value="300">5分钟</Option>
+                      <Option value="30">{t('pages.settings.30seconds')}</Option>
+                      <Option value="60">{t('pages.settings.1minute')}</Option>
+                      <Option value="300">{t('pages.settings.5minutes')}</Option>
                     </Select>
                   </Form.Item>
 
                   <Divider />
 
-                  <Title level={5}>问答设置</Title>
+                  <Title level={5}>{t('pages.settings.qaSettings')}</Title>
                   
-                  <Form.Item label="AI回答长度">
+                  <Form.Item label={t('pages.settings.answerLength')}>
                     <Select defaultValue="detailed">
-                      <Option value="brief">简洁</Option>
-                      <Option value="detailed">详细</Option>
-                      <Option value="comprehensive">全面</Option>
+                      <Option value="brief">{t('pages.settings.brief')}</Option>
+                      <Option value="detailed">{t('pages.settings.detailed')}</Option>
+                      <Option value="comprehensive">{t('pages.settings.comprehensive')}</Option>
                     </Select>
                   </Form.Item>
 
-                  <Form.Item label="自动转人工">
+                  <Form.Item label={t('pages.settings.autoTransfer')}>
                     <Switch defaultChecked />
                   </Form.Item>
 
-                  <Form.Item label="问题自动分类">
+                  <Form.Item label={t('pages.settings.autoCategory')}>
                     <Switch defaultChecked />
                   </Form.Item>
 
                   <Divider />
 
-                  <Title level={5}>界面设置</Title>
+                  <Title level={5}>{t('pages.settings.uiSettings')}</Title>
                   
-                  <Form.Item label="主题">
+                  <Form.Item label={t('pages.settings.theme')}>
                     <Select defaultValue="light">
-                      <Option value="light">浅色主题</Option>
-                      <Option value="dark">深色主题</Option>
-                      <Option value="auto">跟随系统</Option>
+                      <Option value="light">{t('pages.settings.lightTheme')}</Option>
+                      <Option value="dark">{t('pages.settings.darkTheme')}</Option>
+                      <Option value="auto">{t('pages.settings.followSystem')}</Option>
                     </Select>
                   </Form.Item>
 
-                  <Form.Item label="字体大小">
+                  <Form.Item label={t('pages.settings.fontSize')}>
                     <Select defaultValue="medium">
-                      <Option value="small">小</Option>
-                      <Option value="medium">中</Option>
-                      <Option value="large">大</Option>
+                      <Option value="small">{t('pages.settings.small')}</Option>
+                      <Option value="medium">{t('pages.settings.medium')}</Option>
+                      <Option value="large">{t('pages.settings.large')}</Option>
                     </Select>
                   </Form.Item>
 
-                  <Form.Item label="紧凑模式">
+                  <Form.Item label={t('pages.settings.compactMode')}>
                     <Switch />
                   </Form.Item>
 
                   <Form.Item>
                     <Button type="primary" icon={<SaveOutlined />} loading={loading}>
-                      保存设置
+                      {t('common.save')}
                     </Button>
                   </Form.Item>
                 </Form>
@@ -221,60 +223,60 @@ const Settings: React.FC = () => {
           },
           {
             key: 'notifications',
-            label: <span><BellOutlined /> 通知设置</span>,
+            label: <span><BellOutlined /> {t('pages.settings.notifications')}</span>,
             children: (
               <Card>
                 <Form layout="vertical" onFinish={handleSave}>
-                  <Title level={5}>邮件通知</Title>
+                  <Title level={5}>{t('pages.settings.emailNotifications')}</Title>
                   
-                  <Form.Item label="新评论通知">
+                  <Form.Item label={t('pages.settings.newCommentNotification')}>
                     <Switch defaultChecked />
                   </Form.Item>
 
-                  <Form.Item label="@提及通知">
+                  <Form.Item label={t('pages.settings.mentionNotification')}>
                     <Switch defaultChecked />
                   </Form.Item>
 
-                  <Form.Item label="文档更新通知">
+                  <Form.Item label={t('pages.settings.documentUpdateNotification')}>
                     <Switch />
                   </Form.Item>
 
-                  <Form.Item label="问答回复通知">
+                  <Form.Item label={t('pages.settings.qaReplyNotification')}>
                     <Switch defaultChecked />
                   </Form.Item>
 
                   <Divider />
 
-                  <Title level={5}>系统通知</Title>
+                  <Title level={5}>{t('pages.settings.systemNotifications')}</Title>
                   
-                  <Form.Item label="系统维护通知">
+                  <Form.Item label={t('pages.settings.maintenanceNotification')}>
                     <Switch defaultChecked />
                   </Form.Item>
 
-                  <Form.Item label="功能更新通知">
+                  <Form.Item label={t('pages.settings.featureUpdateNotification')}>
                     <Switch defaultChecked />
                   </Form.Item>
 
-                  <Form.Item label="安全提醒">
+                  <Form.Item label={t('pages.settings.securityReminder')}>
                     <Switch defaultChecked />
                   </Form.Item>
 
                   <Divider />
 
-                  <Title level={5}>通知频率</Title>
+                  <Title level={5}>{t('pages.settings.notificationFrequency')}</Title>
                   
-                  <Form.Item label="邮件摘要">
+                  <Form.Item label={t('pages.settings.emailDigest')}>
                     <Select defaultValue="daily">
-                      <Option value="immediate">立即</Option>
-                      <Option value="hourly">每小时</Option>
-                      <Option value="daily">每日</Option>
-                      <Option value="weekly">每周</Option>
+                      <Option value="immediate">{t('pages.settings.immediate')}</Option>
+                      <Option value="hourly">{t('pages.settings.hourly')}</Option>
+                      <Option value="daily">{t('pages.settings.daily')}</Option>
+                      <Option value="weekly">{t('pages.settings.weekly')}</Option>
                     </Select>
                   </Form.Item>
 
                   <Form.Item>
                     <Button type="primary" icon={<SaveOutlined />} loading={loading}>
-                      保存设置
+                      {t('common.save')}
                     </Button>
                   </Form.Item>
                 </Form>
@@ -283,26 +285,26 @@ const Settings: React.FC = () => {
           },
           {
             key: 'security',
-            label: <span><SecurityScanOutlined /> 安全设置</span>,
+            label: <span><SecurityScanOutlined /> {t('pages.settings.security')}</span>,
             children: (
               <Card>
                 <Form layout="vertical" onFinish={handleSave}>
-                  <Title level={5}>密码设置</Title>
+                  <Title level={5}>{t('pages.settings.passwordSettings')}</Title>
                   
                   <Form.Item
                     name="currentPassword"
-                    label="当前密码"
-                    rules={[{ required: true, message: '请输入当前密码' }]}
+                    label={t('pages.settings.currentPassword')}
+                    rules={[{ required: true, message: t('pages.settings.pleaseEnterCurrentPassword') }]}
                   >
                     <Input.Password />
                   </Form.Item>
 
                   <Form.Item
                     name="newPassword"
-                    label="新密码"
+                    label={t('pages.settings.newPassword')}
                     rules={[
-                      { required: true, message: '请输入新密码' },
-                      { min: 8, message: '密码长度至少8位' }
+                      { required: true, message: t('pages.settings.pleaseEnterNewPassword') },
+                      { min: 8, message: t('pages.settings.passwordMinLength') }
                     ]}
                   >
                     <Input.Password />
@@ -310,15 +312,15 @@ const Settings: React.FC = () => {
 
                   <Form.Item
                     name="confirmPassword"
-                    label="确认新密码"
+                    label={t('pages.settings.confirmNewPassword')}
                     rules={[
-                      { required: true, message: '请确认新密码' },
+                      { required: true, message: t('pages.settings.pleaseConfirmNewPassword') },
                       ({ getFieldValue }) => ({
                         validator(_, value) {
                           if (!value || getFieldValue('newPassword') === value) {
                             return Promise.resolve();
                           }
-                          return Promise.reject(new Error('两次输入的密码不一致'));
+                          return Promise.reject(new Error(t('pages.settings.passwordsDoNotMatch')));
                         },
                       }),
                     ]}
@@ -328,31 +330,31 @@ const Settings: React.FC = () => {
 
                   <Divider />
 
-                  <Title level={5}>登录安全</Title>
+                  <Title level={5}>{t('pages.settings.loginSecurity')}</Title>
                   
-                  <Form.Item label="两步验证">
+                  <Form.Item label={t('pages.settings.twoFactorAuth')}>
                     <Switch />
                   </Form.Item>
 
-                  <Form.Item label="登录设备管理">
-                    <Button>查看设备</Button>
+                  <Form.Item label={t('pages.settings.deviceManagement')}>
+                    <Button>{t('pages.settings.viewDevices')}</Button>
                   </Form.Item>
 
-                  <Form.Item label="登录历史">
-                    <Button>查看历史</Button>
+                  <Form.Item label={t('pages.settings.loginHistory')}>
+                    <Button>{t('pages.settings.viewHistory')}</Button>
                   </Form.Item>
 
                   <Divider />
 
-                  <Title level={5}>数据导出</Title>
+                  <Title level={5}>{t('pages.settings.dataExport')}</Title>
                   
-                  <Form.Item label="导出个人数据">
-                    <Button>导出数据</Button>
+                  <Form.Item label={t('pages.settings.exportPersonalData')}>
+                    <Button>{t('pages.settings.exportData')}</Button>
                   </Form.Item>
 
                   <Form.Item>
                     <Button type="primary" icon={<SaveOutlined />} loading={loading}>
-                      保存设置
+                      {t('common.save')}
                     </Button>
                   </Form.Item>
                 </Form>
@@ -365,4 +367,4 @@ const Settings: React.FC = () => {
   );
 };
 
-export default Settings; 
+export default Settings;

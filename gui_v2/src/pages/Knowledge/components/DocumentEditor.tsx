@@ -75,7 +75,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     const newContent = content.substring(0, start) + insertText + content.substring(end);
     setContent(newContent);
     
-    // 设置光标位置
+    // Settings光标Position
     setTimeout(() => {
       if (textareaRef.current) {
         const newCursorPos = start + insertText.length;
@@ -85,7 +85,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }, 0);
   };
 
-  // 工具栏按钮配置
+  // Tool栏ButtonConfiguration
   const toolbarButtons = [
     {
       icon: <BoldOutlined />,
@@ -105,49 +105,49 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     { divider: true },
     {
       icon: <UnorderedListOutlined />,
-      tooltip: '无序列表',
-      action: () => insertMarkdown('- {text}', '列表项'),
+      tooltip: '无序List',
+      action: () => insertMarkdown('- {text}', 'List项'),
     },
     {
       icon: <OrderedListOutlined />,
-      tooltip: '有序列表',
-      action: () => insertMarkdown('1. {text}', '列表项'),
+      tooltip: '有序List',
+      action: () => insertMarkdown('1. {text}', 'List项'),
     },
     { divider: true },
     {
       icon: <LinkOutlined />,
-      tooltip: '链接',
-      action: () => insertMarkdown('[{text}](url)', '链接文本'),
+      tooltip: 'Link',
+      action: () => insertMarkdown('[{text}](url)', 'Link文本'),
     },
     {
       icon: <PictureOutlined />,
       tooltip: '图片',
-      action: () => insertMarkdown('![{text}](url)', '图片描述'),
+      action: () => insertMarkdown('![{text}](url)', '图片Description'),
     },
     {
       icon: <CodeOutlined />,
-      tooltip: '代码块',
-      action: () => insertMarkdown('```\n{text}\n```', '代码内容'),
+      tooltip: 'Code块',
+      action: () => insertMarkdown('```\n{text}\n```', 'CodeContent'),
     },
     {
       icon: <TableOutlined />,
-      tooltip: '表格',
-      action: () => insertMarkdown('| 列1 | 列2 | 列3 |\n|-----|-----|-----|\n| 内容1 | 内容2 | 内容3 |', ''),
+      tooltip: 'Table',
+      action: () => insertMarkdown('| 列1 | 列2 | 列3 |\n|-----|-----|-----|\n| Content1 | Content2 | Content3 |', ''),
     },
   ];
 
-  // 处理保存
+  // ProcessSave
   const handleSave = async () => {
     if (!title.trim()) {
-      message.error('请输入文档标题');
+      message.error('请InputDocumentation标题');
       return;
     }
     if (!content.trim()) {
-      message.error('请输入文档内容');
+      message.error('请InputDocumentationContent');
       return;
     }
     if (!category) {
-      message.error('请选择分类');
+      message.error('请SelectCategory');
       return;
     }
 
@@ -161,13 +161,13 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         updatedAt: new Date().toISOString(),
       };
       onSave(data);
-      message.success('文档保存成功');
+      message.success('DocumentationSaveSuccess');
     } catch (error) {
-      console.error('保存失败:', error);
+      console.error('SaveFailed:', error);
     }
   };
 
-  // 处理快捷键
+  // Process快捷键
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.ctrlKey || e.metaKey) {
       switch (e.key) {
@@ -187,9 +187,9 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }
   };
 
-  // 渲染Markdown预览
+  // RenderMarkdown预览
   const renderMarkdownPreview = () => {
-    // 简单的Markdown渲染（实际项目中可以使用marked.js等库）
+    // Simple的MarkdownRender（实际项目中Can使用marked.js等库）
     const renderContent = content
       .replace(/^### (.*$)/gim, '<h3>$1</h3>')
       .replace(/^## (.*$)/gim, '<h2>$1</h2>')
@@ -217,7 +217,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
   return (
     <div>
-      {/* 工具栏 */}
+      {/* Tool栏 */}
       <Card size="small" style={{ marginBottom: 16 }}>
         <Space>
           {toolbarButtons.map((button, index) => 
@@ -237,13 +237,13 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </Space>
       </Card>
 
-      {/* 编辑区域 */}
+      {/* Edit区域 */}
       <div style={{ display: 'flex', gap: 16 }}>
-        {/* 左侧编辑区 */}
+        {/* LeftEdit区 */}
         <div style={{ flex: 1 }}>
           <Card size="small" style={{ marginBottom: 16 }}>
             <Input
-              placeholder="文档标题"
+              placeholder="Documentation标题"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               style={{ fontSize: 16, fontWeight: 500 }}
@@ -253,19 +253,19 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
           <Card size="small" style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
               <Select
-                placeholder="选择分类"
+                placeholder="SelectCategory"
                 value={category}
                 onChange={setCategory}
                 style={{ width: 150 }}
               >
-                <Option value="tech">技术文档</Option>
-                <Option value="product">产品文档</Option>
-                <Option value="management">管理文档</Option>
+                <Option value="tech">{t('pages.knowledge.technicalDocumentation')}</Option>
+                <Option value="product">{t('pages.knowledge.productDocumentation')}</Option>
+                <Option value="management">{t('pages.knowledge.managementDocumentation')}</Option>
               </Select>
               
               <Select
                 mode="tags"
-                placeholder="添加标签"
+                placeholder="AddTag"
                 value={tags}
                 onChange={setTags}
                 style={{ flex: 1 }}
@@ -273,7 +273,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 <Option value="入门">入门</Option>
                 <Option value="指南">指南</Option>
                 <Option value="API">API</Option>
-                <Option value="开发">开发</Option>
+                <Option value="Development">Development</Option>
               </Select>
             </div>
           </Card>
@@ -281,7 +281,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
           <Card>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
               <span style={{ fontSize: 14, color: '#666' }}>
-                {isPreview ? '预览模式' : '编辑模式'}
+                {isPreview ? '预览模式' : 'Edit模式'}
               </span>
               <Space>
                 <Button 
@@ -290,7 +290,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   onClick={() => setIsPreview(false)}
                   size="small"
                 >
-                  编辑
+                  Edit
                 </Button>
                 <Button 
                   type={isPreview ? 'primary' : 'default'}
@@ -311,7 +311,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="在这里输入文档内容，支持Markdown语法..."
+                placeholder="在这里InputDocumentationContent，SupportMarkdown语法..."
                 autoSize={{ minRows: 20, maxRows: 30 }}
                 style={{ fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace' }}
               />
@@ -319,7 +319,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
           </Card>
         </div>
 
-        {/* 右侧预览区（仅在编辑模式下显示） */}
+        {/* Right预览区（仅在Edit模式下Display） */}
         {!isPreview && (
           <div style={{ width: '40%' }}>
             <Card title="实时预览" size="small">
@@ -329,19 +329,19 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         )}
       </div>
 
-      {/* 底部操作栏 */}
+      {/* BottomOperation栏 */}
       <div style={{ marginTop: 16, textAlign: 'right' }}>
         <Space>
-          <Button onClick={onCancel}>取消</Button>
+          <Button onClick={onCancel}>Cancel</Button>
           <Button type="primary" icon={<SaveOutlined />} onClick={handleSave}>
-            保存文档
+            SaveDocumentation
           </Button>
         </Space>
       </div>
 
-      {/* 保存确认弹窗 */}
+      {/* SaveConfirmModal */}
       <Modal
-        title="保存文档"
+        title="SaveDocumentation"
         open={isModalVisible}
         onOk={handleSave}
         onCancel={() => setIsModalVisible(false)}
@@ -349,8 +349,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         <Form form={form} layout="vertical">
           <Form.Item
             name="title"
-            label="文档标题"
-            rules={[{ required: true, message: '请输入文档标题' }]}
+            label="Documentation标题"
+            rules={[{ required: true, message: '请InputDocumentation标题' }]}
           >
             <Input value={title} onChange={(e) => setTitle(e.target.value)} />
           </Form.Item>

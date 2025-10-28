@@ -46,13 +46,13 @@ const Tasks: React.FC = () => {
     if (taskId && tasks.length > 0) {
       const task = tasks.find(t => t.id === taskId);
       if (task) {
-        // 先设置要滚动到的taskId
+        // 先Settings要Scroll到的taskId
         setScrollToTaskId(taskId);
         // 然后选中该task
         selectItem(task);
-        // 清除URL参数
+        // 清除URLParameter
         setSearchParams({});
-        // 清除scrollToTaskId状态（在滚动完成后）
+        // 清除scrollToTaskIdStatus（在ScrollCompleted后）
         setTimeout(() => {
           setScrollToTaskId(undefined);
         }, 500);
@@ -90,18 +90,18 @@ const Tasks: React.FC = () => {
   };
 
   const handleTaskCancel = () => {
-    // 取消时的处理：
-    // - 如果是新建模式，关闭详情面板
-    // - 如果是编辑模式，不需要额外处理（TaskDetail 内部会处理）
+    // Cancel时的Process：
+    // - If是新建模式，CloseDetails面板
+    // - If是Edit模式，不Need额外Process（TaskDetail Internal会Process）
     if (isAddingNew) {
       setIsAddingNew(false);
       selectItem(null as any);
     }
-    // 编辑模式下，TaskDetail 会自动恢复数据并退出编辑模式，不需要关闭面板
+    // Edit模式下，TaskDetail 会自动RestoreData并退出Edit模式，不NeedClose面板
   };
 
   const handleTaskDelete = () => {
-    // 删除后清空选中状态，关闭详情页
+    // Delete后清空选中Status，CloseDetails页
     selectItem(null as any);
     handleRefresh();
   };

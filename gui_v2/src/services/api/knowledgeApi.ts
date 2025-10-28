@@ -1,6 +1,6 @@
 /**
  * Knowledge API Service
- * 知识库 API 服务
+ * 知识库 API Service
  */
 
 import { ResourceAPI, APIResponse } from '@/stores/base/types';
@@ -10,8 +10,8 @@ import type { IPCAPI } from '../ipc/api';
 import { logger } from '@/utils/logger';
 
 /**
- * Knowledge API 服务类
- * 实现 ResourceAPI 接口，提供知识库的 CRUD 操作
+ * Knowledge API Service类
+ * Implementation ResourceAPI Interface，提供知识库的 CRUD Operation
  */
 export class KnowledgeAPI implements ResourceAPI<Knowledge> {
   private _api?: IPCAPI;
@@ -24,7 +24,7 @@ export class KnowledgeAPI implements ResourceAPI<Knowledge> {
   }
 
   /**
-   * 获取所有知识库条目
+   * GetAll知识库条目
    */
   async getAll(username: string, agentId?: string): Promise<APIResponse<Knowledge[]>> {
     try {
@@ -46,7 +46,7 @@ export class KnowledgeAPI implements ResourceAPI<Knowledge> {
         };
       }
 
-      // 处理不同的响应格式
+      // Process不同的Response格式
       let knowledges: Knowledge[] = [];
       
       if (Array.isArray(response.data)) {
@@ -76,7 +76,7 @@ export class KnowledgeAPI implements ResourceAPI<Knowledge> {
   }
 
   /**
-   * 根据 ID 获取知识库条目
+   * 根据 ID Get知识库条目
    */
   async getById(username: string, id: string): Promise<APIResponse<Knowledge>> {
     try {
@@ -115,7 +115,7 @@ export class KnowledgeAPI implements ResourceAPI<Knowledge> {
   }
 
   /**
-   * 创建新的知识库条目
+   * Create新的知识库条目
    */
   async create(username: string, knowledge: Knowledge): Promise<APIResponse<Knowledge>> {
     try {
@@ -154,7 +154,7 @@ export class KnowledgeAPI implements ResourceAPI<Knowledge> {
   }
 
   /**
-   * 更新知识库条目
+   * Update知识库条目
    */
   async update(username: string, id: string, updates: Partial<Knowledge>): Promise<APIResponse<Knowledge>> {
     try {
@@ -193,7 +193,7 @@ export class KnowledgeAPI implements ResourceAPI<Knowledge> {
   }
 
   /**
-   * 删除知识库条目
+   * Delete知识库条目
    */
   async delete(username: string, id: string): Promise<APIResponse<void>> {
     try {

@@ -37,7 +37,7 @@ const DataCard: React.FC<DataCardProps> = ({ title, value, icon, color, loading 
     </Card>
 );
 
-// 在组件外部注册 stores，只执行一次
+// 在ComponentExternalRegister stores，只Execute一次
 let storesRegistered = false;
 const registerStores = () => {
     if (!storesRegistered) {
@@ -56,7 +56,7 @@ const Dashboard: React.FC = () => {
     const [syncError, setSyncError] = useState<string | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
 
-    // 从新的 stores 获取数据
+    // 从新的 stores GetData
     const agents = useAgentStore((state) => state.items);
     const agentsLoading = useAgentStore((state) => state.loading);
 
@@ -72,11 +72,11 @@ const Dashboard: React.FC = () => {
     const tools = useToolStore((state) => state.tools);
     const toolsLoading = useToolStore((state) => state.loading);
 
-    // 从 appDataStore 获取全局状态
+    // 从 appDataStore Get全局Status
     const appDataLoading = useAppDataStore((state) => state.isLoading);
     const initialized = useAppDataStore((state) => state.initialized);
 
-    // 综合 loading 状态
+    // 综合 loading Status
     const isLoading = isSyncing || agentsLoading || skillsLoading || tasksLoading || vehiclesLoading || toolsLoading || appDataLoading;
 
     useEffect(() => {
@@ -86,7 +86,7 @@ const Dashboard: React.FC = () => {
                 return;
             }
 
-            // 确保 stores 已注册（只会执行一次）
+            // 确保 stores 已Register（只会Execute一次）
             registerStores();
 
             logger.info('[Dashboard] Starting data synchronization...');
@@ -94,16 +94,16 @@ const Dashboard: React.FC = () => {
             setSyncError(null);
 
             try {
-                // 统一同步所有数据
+                // 统一SyncAllData
                 const results = await storeSyncManager.syncAll(username, {
-                    parallel: true,  // 并行同步，提高性能
-                    force: false,    // 使用缓存
-                    timeout: 30000,  // 30秒超时
+                    parallel: true,  // 并行Sync，提高Performance
+                    force: false,    // 使用Cache
+                    timeout: 30000,  // 30秒Timeout
                 });
 
                 logger.info('[Dashboard] Sync completed:', results);
 
-                // 检查是否有失败的同步
+                // Check是否有Failed的Sync
                 const failed = results.filter(r => !r.success);
                 if (failed.length > 0) {
                     const errorMsg = `Failed to sync: ${failed.map(f => f.storeName).join(', ')}`;
@@ -113,7 +113,7 @@ const Dashboard: React.FC = () => {
                     logger.info('[Dashboard] All stores synced successfully');
                 }
 
-                // 同步成功后的统计
+                // SyncSuccess后的统计
                 const successCount = results.filter(r => r.success).length;
                 const totalDuration = results.reduce((sum, r) => sum + (r.duration || 0), 0);
                 logger.info(`[Dashboard] Synced ${successCount}/${results.length} stores in ${totalDuration}ms`);
@@ -158,7 +158,7 @@ const Dashboard: React.FC = () => {
               {t('pages.dashboard.title')}
             </div>
 
-            {/* 数据概览部分 */}
+            {/* Data概览部分 */}
             <Row gutter={[16, 16]} style={{ marginTop: '24px' }}>
                 <Col span={24}>
                     <Card title={t("pages.dashboard.overviewTitle")} size="small">
@@ -170,7 +170,7 @@ const Dashboard: React.FC = () => {
                             ))}
                         </Row>
 
-                        {/* 活跃代理列表 */}
+                        {/* 活跃代理List */}
                         <Skeleton loading={isLoading} active paragraph={{ rows: 2 }} style={{ marginTop: '16px' }}>
                             {(agents || []).length > 0 && (
                                 <div style={{ marginTop: '16px' }}>

@@ -1,16 +1,16 @@
-// 内容结构化处理工具，供内容渲染等复用
+// Content结构化ProcessTool，供ContentRender等复用
 
 /**
- * 处理字符串内容，将附件标记转换为结构化格式
- * @param content 包含附件标记的字符串内容
- * @returns 结构化的内容对象
+ * Process字符串Content，将附件标记Convert为结构化格式
+ * @param content Include附件标记的字符串Content
+ * @returns 结构化的Content对象
  */
 export function processStringContent(content: string): any {
   if (!content || typeof content !== 'string') {
     return content;
   }
 
-  // 检查是否包含附件标记
+  // Check是否Include附件标记
   const attachmentRegex = /\[(image|file)\|(pyqtfile:\/\/[^|]+|[^|]+)\|([^|]+)\|([^\]]+)\]/g;
   const matches = Array.from(content.matchAll(attachmentRegex));
   
@@ -22,15 +22,15 @@ export function processStringContent(content: string): any {
   let textContent = content;
   const attachments: any[] = [];
 
-  // 处理每个附件标记
+  // Process每个附件标记
   matches.forEach((match) => {
     const [fullMatch, type, filePath, fileName, mimeType] = match;
     const isImage = type === 'image';
     
-    // 从文本中移除附件标记
+    // 从文本中Remove附件标记
     textContent = textContent.replace(fullMatch, '');
     
-    // 创建附件对象
+    // Create附件对象
     attachments.push({
       type: isImage ? 'image_url' : 'file_url',
       url: filePath,
@@ -40,10 +40,10 @@ export function processStringContent(content: string): any {
     });
   });
 
-  // 清理文本内容
+  // Cleanup文本Content
   textContent = textContent.trim();
 
-  // 如果有多个附件，返回复合内容
+  // If有多个附件，返回复合Content
   if (attachments.length > 1) {
     return {
       type: 'text',
@@ -52,7 +52,7 @@ export function processStringContent(content: string): any {
     };
   }
 
-  // 如果只有一个附件，返回对应的内容类型
+  // If只有一个附件，返回对应的ContentType
   if (attachments.length === 1) {
     const attachment = attachments[0];
     if (attachment.type === 'image_url') {
@@ -75,6 +75,6 @@ export function processStringContent(content: string): any {
     }
   }
 
-  // 只有文本内容
+  // 只有文本Content
   return textContent || '';
 } 

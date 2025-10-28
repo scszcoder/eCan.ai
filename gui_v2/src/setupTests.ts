@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom';
 import { configure } from '@testing-library/react';
 
-// 配置测试库
+// ConfigurationTest库
 configure({
   testIdAttribute: 'data-testid',
 });

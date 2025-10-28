@@ -38,17 +38,17 @@ const Login: React.FC = () => {
 	const [mode, setMode] = useState<AuthMode>('login');
 	const [loading, setLoading] = useState(false);
 	const [showInitProgress, setShowInitProgress] = useState(false);
-	// 新增本地 state 控制验证码发送
+	// 新增Local state 控制Validate码Send
 	const [codeSent, setCodeSent] = useState(false);
-	// 登录成功状态，防止按钮状态重置
+	// LoginSuccessStatus，防止ButtonStatusReset
 	const [loginSuccessful, setLoginSuccessful] = useState(false);
-	// 忘记密码操作的loading状态
+	// 忘记PasswordOperation的loadingStatus
 	const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
-	// 登录进度状态
+	// Login进度Status
 	const [loginProgress, setLoginProgress] = useState<'idle' | 'authenticating' | 'success' | 'redirecting'>('idle');
-	// Google登录进度状态
+	// GoogleLogin进度Status
 	const [googleLoginProgress, setGoogleLoginProgress] = useState<'idle' | 'opening' | 'authenticating' | 'success' | 'redirecting'>('idle');
-	// 错误状态
+	// ErrorStatus
 	const [lastError, setLastError] = useState<string | null>(null);
 
 	// Poll backend initialization progress during login
@@ -72,12 +72,12 @@ const Login: React.FC = () => {
 	useEffect(() => {
 		const initialize = async () => {
 			try {
-				// 设置超时，避免长时间等待
+				// SettingsTimeout，避免长Time等待
 				const timeoutPromise = new Promise((_, reject) => {
 					setTimeout(() => reject(new Error('IPC initialization timeout')), 5000);
 				});
 
-				// 加载登录信息
+				// LoadLoginInformation
 				const api = get_ipc_api();
 				if (!api) {
 					console.warn('[Login] IPC API not available, skipping login info load');
@@ -93,21 +93,21 @@ const Login: React.FC = () => {
 				if (response?.data?.last_login) {
 					const { username, password, machine_role } = response.data.last_login;
 					console.log('last_login', response.data.last_login);
-					// 直接更新表单，不需要等待 i18n 初始化
+					// 直接UpdateForm，不Need等待 i18n Initialize
 					updateFormWithRole(username, password, machine_role);
 				}
 			} catch (error) {
 				console.warn('[Login] Failed to load last login info:', error);
-				// 不阻塞登录页面显示，继续正常流程
+				// 不阻塞LoginPageDisplay，继续正常流程
 			}
 		};
 
-		// 延迟初始化，让页面先渲染
+		// DelayInitialize，让Page先Render
 		const timer = setTimeout(initialize, 100);
 		return () => clearTimeout(timer);
-	}, []); // 只在组件挂载时执行一次
+	}, []); // 只在ComponentMount时Execute一次
 
-	// 监听语言变化，更新角色选择框的显示
+	// Listen语言变化，UpdateRoleSelect框的Display
 	useEffect(() => {
 		const currentRole = form.getFieldValue('role');
 		if (currentRole) {
@@ -119,7 +119,7 @@ const Login: React.FC = () => {
 		}
 	}, [i18n.language]);
 
-	// 更新表单值的辅助函数
+	// UpdateFormValue的HelperFunction
 	const updateFormWithRole = (username: string, password: string, role: string) => {
 		form.setFieldsValue({
 			username,
@@ -169,7 +169,7 @@ const Login: React.FC = () => {
 				const { token, user_info } = response.data;
 				const username = user_info?.username || values.username;
 
-				// 使用统一的用户存储管理器
+				// 使用统一的UserStorage管理器
 				const loginSession = {
 					token,
 					userInfo: {
@@ -181,13 +181,13 @@ const Login: React.FC = () => {
 				};
 
 				userStorageManager.saveLoginSession(loginSession);
-				// 登录成功后启用页面刷新监听
+				// LoginSuccess后EnabledPageRefreshListen
 				pageRefreshManager.enable();
 
 				messageApi.success(t('login.success'));
 				setLoginSuccessful(true);
 
-				// 登录成功，设置跳转状态（showInitProgress已在handleSubmit中设置）
+				// LoginSuccess，Settings跳转Status（showInitProgress已在handleSubmit中Settings）
 				setLoginProgress('redirecting');
 			} else {
 				console.error('Login failed', response.error);
@@ -198,7 +198,7 @@ const Login: React.FC = () => {
 		} catch (error) {
 			console.error('Login error:', error);
 			setLoginProgress('idle');
-			// 不在这里显示错误消息，让handleSubmit统一处理
+			// 不在这里DisplayErrorMessage，让handleSubmit统一Process
 			throw error; // Re-throw to be handled by handleSubmit
 		}
 	};
@@ -308,7 +308,7 @@ const Login: React.FC = () => {
 			switch (mode) {
 				case 'login':
 					loginAttempted = true;
-					// 立即显示登录进度UI
+					// 立即DisplayLogin进度UI
 					setShowInitProgress(true);
 					await handleLogin(values, api);
 					// Don't reset loading here for successful login - let the navigation effect handle it
@@ -317,7 +317,7 @@ const Login: React.FC = () => {
 					await handleSignup(values, api);
 					break;
 				case 'forgot':
-					await handleForgotPasswordReset(); // 调用新的重置密码逻辑
+					await handleForgotPasswordReset(); // 调用新的ResetPassword逻辑
 					break;
 			}
 		} catch (error) {
@@ -336,7 +336,7 @@ const Login: React.FC = () => {
 				setLoading(false);
 				setLoginSuccessful(false);
 				setLoginProgress('idle');
-				setShowInitProgress(false); // 隐藏进度UI
+				setShowInitProgress(false); // Hide进度UI
 			}
 		} finally {
 			// Reset loading for non-login modes or if login wasn't attempted
@@ -355,7 +355,7 @@ const Login: React.FC = () => {
     setLastError(null); // Clear previous errors
     setGoogleLoginProgress('opening');
 
-    // 立即显示登录进度UI
+    // 立即DisplayLogin进度UI
     setShowInitProgress(true);
 
     try {
@@ -384,7 +384,7 @@ const Login: React.FC = () => {
         const { token, user_info, message } = response.data;
         const username = user_info.username || user_info.email;
 
-        // 使用统一的用户存储管理器
+        // 使用统一的UserStorage管理器
         const loginSession = {
           token,
           userInfo: {
@@ -415,7 +415,7 @@ const Login: React.FC = () => {
     } catch (error) {
       console.error('Google login error:', error);
       setGoogleLoginProgress('idle');
-      setShowInitProgress(false); // 隐藏进度UI
+      setShowInitProgress(false); // Hide进度UI
       const errorMessage = error instanceof Error ? error.message : String(error);
       setLastError(errorMessage);
 
@@ -473,7 +473,7 @@ const Login: React.FC = () => {
 				onComplete={() => {
 					setLoading(false);
 					setShowInitProgress(false);
-					// 当ui_ready时就跳转到主页面，后台继续初始化
+					// Whenui_ready时就跳转到主Page，后台继续Initialize
 					if (loginSuccessful) {
 						console.log('[Login] UI ready, navigating to main page');
 						navigate('/agents');

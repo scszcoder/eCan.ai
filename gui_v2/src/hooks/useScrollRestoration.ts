@@ -2,14 +2,14 @@ import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 
 /**
- * 通用的滚动位置保存和恢复 Hook
+ * General的ScrollPositionSave和Restore Hook
  * 
  * 使用场景：
- * - 详情页：从列表进入详情，返回时恢复滚动位置
- * - 列表页：在 KeepAlive 场景下自动保持滚动位置
+ * - Details页：从List进入Details，返回时RestoreScrollPosition
+ * - List页：在 KeepAlive 场景下自动保持ScrollPosition
  * 
- * @param containerRef - 滚动容器的 ref
- * @param enabled - 是否启用滚动恢复（默认 true）
+ * @param containerRef - ScrollContainer的 ref
+ * @param enabled - 是否EnabledScrollRestore（Default true）
  */
 export function useScrollRestoration(
   containerRef: React.RefObject<HTMLElement>,
@@ -19,7 +19,7 @@ export function useScrollRestoration(
   const savedScrollPosition = useRef<number>(0);
   const isFirstMount = useRef(true);
 
-  // 保存滚动位置
+  // SaveScrollPosition
   useEffect(() => {
     if (!enabled) return;
     
@@ -30,7 +30,7 @@ export function useScrollRestoration(
       savedScrollPosition.current = container.scrollTop;
     };
 
-    // 使用防抖，避免频繁更新
+    // 使用防抖，避免频繁Update
     let scrollTimeout: NodeJS.Timeout;
     const debouncedHandleScroll = () => {
       clearTimeout(scrollTimeout);
@@ -45,14 +45,14 @@ export function useScrollRestoration(
     };
   }, [containerRef, enabled]);
 
-  // 恢复滚动位置（仅在组件首次挂载时）
+  // RestoreScrollPosition（仅在Component首次Mount时）
   useEffect(() => {
     if (!enabled) return;
     
     const container = containerRef.current;
     if (!container) return;
 
-    // 只在首次挂载时恢复滚动位置
+    // 只在首次Mount时RestoreScrollPosition
     if (isFirstMount.current && savedScrollPosition.current > 0) {
       requestAnimationFrame(() => {
         container.scrollTop = savedScrollPosition.current;
@@ -61,7 +61,7 @@ export function useScrollRestoration(
     }
   }, [containerRef, enabled, location.pathname]);
 
-  // 提供手动重置滚动位置的方法
+  // 提供手动ResetScrollPosition的Method
   const resetScroll = () => {
     const container = containerRef.current;
     if (container) {

@@ -47,7 +47,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const applyTheme = (themeToApply: 'light' | 'dark') => {
         document.body.className = themeToApply;
-        // 设置 CSS 变量
+        // Settings CSS 变量
         if (themeToApply === 'dark') {
             document.documentElement.style.setProperty('--bg-color', '#141414');
             document.documentElement.style.setProperty('--text-color', 'rgba(255, 255, 255, 0.85)');
@@ -62,10 +62,10 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     useEffect(() => {
-        // 保存主题设置到 localStorage
+        // Save主题Settings到 localStorage
         localStorage.setItem('theme', theme);
 
-        // 根据主题设置样式
+        // 根据主题Settings样式
         if (theme === 'system') {
             const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
             applyTheme(systemTheme);
@@ -74,7 +74,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
     }, [theme]);
 
-    // 监听系统主题变化
+    // ListenSystem主题变化
     useEffect(() => {
         if (theme === 'system') {
             const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');

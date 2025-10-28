@@ -11,7 +11,7 @@ import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files
 import { IPCWCClient } from '@/services/ipc/ipcWCClient';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { saveSheetsBundleToPath, saveSheetsBundle } from '../../services/sheets-persistence';
-// 添加 File System Access API 的类型定义
+// Add File System Access API 的TypeDefinition
 declare global {
   interface Window {
     showSaveFilePicker(options?: {
@@ -37,7 +37,7 @@ interface SaveProps {
   disabled?: boolean;
 }
 
-// 是否启用本地下载 SkillInfo 文件
+// 是否EnabledLocal下载 SkillInfo 文件
 const ENABLE_LOCAL_DOWNLOAD = true;
 
 export async function saveFile(dataToSave: SkillInfo, username?: string, currentFilePath?: string | null) {
@@ -54,8 +54,8 @@ export async function saveFile(dataToSave: SkillInfo, username?: string, current
         console.log('[SKILL_IO][FRONTEND][IPC_ATTEMPT] showSaveDialog');
         let filePath = currentFilePath;
         if (!filePath) {
-          // 问题2修复: 不要在默认文件名中添加 _skill 后缀
-          // 用户输入的名称就是文件夹名称，后端会自动添加 _skill 后缀到文件夹
+          // 问题2FIX: 不要在Default文件名中Add _skill 后缀
+          // UserInput的Name就是文件夹Name，Backend会自动Add _skill 后缀到文件夹
           const fileName = (dataToSave.skillName || 'untitled') + '.json';
           console.log('[SKILL_IO][FRONTEND][DEFAULT_FILENAME]', fileName);
           const dialogResponse = await ipcApi.showSaveDialog(fileName, [
@@ -83,13 +83,13 @@ export async function saveFile(dataToSave: SkillInfo, username?: string, current
           const writeResponse = await ipcApi.writeSkillFile(filePath, jsonString);
           if (writeResponse.success) {
             console.log('[SKILL_IO][FRONTEND][MAIN_SAVE_OK]', filePath);
-            // 需求4: 使用后端返回的 skillName 更新前端
+            // 需求4: 使用Backend返回的 skillName UpdateFrontend
             const savedSkillName = writeResponse.data?.skillName;
             console.log('[SKILL_IO][FRONTEND][SKILL_NAME_FROM_BACKEND]', savedSkillName);
             return { 
               success: true, 
               filePath,
-              skillName: savedSkillName  // 返回 skillName 用于更新
+              skillName: savedSkillName  // 返回 skillName Used forUpdate
             };
           }
           console.error('[SKILL_IO][FRONTEND][MAIN_SAVE_ERROR]', writeResponse.error);
@@ -272,9 +272,9 @@ export const Save = ({ disabled }: SaveProps) => {
       const saveResult = await saveFile(updatedSkillInfo, username || undefined, effectivePath);
 
       if (saveResult && !saveResult.cancelled) {
-        // 需求4: 如果后端返回了新的 skillName，使用它更新 skillInfo
+        // 需求4: IfBackend返回了新的 skillName，使用它Update skillInfo
         let finalSkillInfo = updatedSkillInfo;
-        const savedSkillName = (saveResult as any).skillName;  // 使用 any 绕过类型检查
+        const savedSkillName = (saveResult as any).skillName;  // 使用 any 绕过TypeCheck
         if (savedSkillName && savedSkillName !== updatedSkillInfo.skillName) {
           console.log('[SKILL_IO][FRONTEND][UPDATE_SKILL_NAME]', {
             old: updatedSkillInfo.skillName,

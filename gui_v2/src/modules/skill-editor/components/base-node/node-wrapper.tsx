@@ -25,7 +25,7 @@ export interface NodeWrapperProps {
 
 /**
  * Used for drag-and-drop/click events and ports rendering of nodes
- * 用于节点的拖拽/点击事件和点位渲染
+ * Used for节点的Drag/ClickEvent和点位Render
  */
 export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
   const { children, isScrollToView = false } = props;
@@ -85,7 +85,7 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
           // Single-click only handles node selection, not sidebar opening
           selectNode(e);
           if (!isDragging && isScrollToView) {
-            // 可选：将 isScrollToView 设为 true，可以让节点选中后滚动到画布中间
+            // Optional：将 isScrollToView 设为 true，Can让节点选中后Scroll到画布中间
             // Optional: Set isScrollToView to true to scroll the node to the center of the canvas after it is selected.
             scrollToView(ctx, nodeRender.node);
           }

@@ -1,6 +1,6 @@
 /**
  * Event Detail Drawer Component
- * 事件详情抽屉组件
+ * EventDetails抽屉Component
  */
 
 import React from 'react';

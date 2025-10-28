@@ -46,7 +46,7 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
   const username = useUserStore((state) => state.username);
 
   const rerenderMenu = useCallback(() => {
-    // force destroy component - 强制销毁组件触发重新渲染
+    // force destroy component - 强制销毁ComponentTrigger重新Render
     setVisible(false);
     requestAnimationFrame(() => {
       setVisible(true);
@@ -57,7 +57,7 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
     async (e: MouseEvent) => {
       e.stopPropagation();
       const sourceParent = node.parent;
-      // move out of container - 移出容器
+      // move out of container - 移出Container
       nodeIntoContainerService.moveOutContainer({ node });
       await delay(16);
       // clear invalid lines - 清除非法线条
@@ -68,7 +68,7 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
       rerenderMenu();
       // select node - 选中节点
       selectService.selectNode(node);
-      // start drag node - 开始拖拽
+      // start drag node - 开始Drag
       dragService.startDragSelectedNodes(e);
     },
     [nodeIntoContainerService, node, rerenderMenu]

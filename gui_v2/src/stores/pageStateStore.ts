@@ -1,30 +1,30 @@
 /**
- * 页面状态管理 Store
+ * PageStatus管理 Store
  * 
- * 用于保存和恢复页面状态，替代 KeepAlive 方案
- * 支持：滚动位置、搜索文本、选中项、自定义状态
+ * Used forSave和RestorePageStatus，替代 KeepAlive 方案
+ * Support：ScrollPosition、Search文本、选中项、CustomStatus
  */
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
 interface PageState {
-    // 滚动位置 { pagePath: scrollPosition }
+    // ScrollPosition { pagePath: scrollPosition }
     scrollPositions: Record<string, number>;
-    // 搜索关键词 { pagePath: searchText }
+    // Search关键词 { pagePath: searchText }
     searchTexts: Record<string, string>;
     // 选中项 { pagePath: selectedIds[] }
     selectedItems: Record<string, string[]>;
-    // 自定义状态 { pagePath: { key: value } }
+    // CustomStatus { pagePath: { key: value } }
     customStates: Record<string, Record<string, any>>;
 }
 
 interface PageStateStore extends PageState {
-    // 滚动位置管理
+    // ScrollPosition管理
     saveScrollPosition: (page: string, position: number) => void;
     getScrollPosition: (page: string) => number;
     
-    // 搜索文本管理
+    // Search文本管理
     saveSearchText: (page: string, text: string) => void;
     getSearchText: (page: string) => string;
     
@@ -32,11 +32,11 @@ interface PageStateStore extends PageState {
     saveSelectedItems: (page: string, items: string[]) => void;
     getSelectedItems: (page: string) => string[];
     
-    // 自定义状态管理
+    // CustomStatus管理
     saveCustomState: (page: string, key: string, value: any) => void;
     getCustomState: (page: string, key: string) => any;
     
-    // 清除操作
+    // 清除Operation
     clearPageState: (page: string) => void;
     clearAllStates: () => void;
 }
@@ -44,15 +44,15 @@ interface PageStateStore extends PageState {
 export const usePageStateStore = create<PageStateStore>()(
     persist(
         (set, get) => ({
-            // 初始状态
+            // 初始Status
             scrollPositions: {},
             searchTexts: {},
             selectedItems: {},
             customStates: {},
             
-            // 滚动位置
+            // ScrollPosition
             saveScrollPosition: (page, position) => {
-                console.log(`[Store] 保存滚动位置 - 页面: ${page}, 位置: ${position}`);
+                console.log(`[Store] SaveScrollPosition - Page: ${page}, Position: ${position}`);
                 set((state) => {
                     const newState = { ...state.scrollPositions, [page]: position };
                     console.log(`[Store] 新的 scrollPositions:`, newState);
@@ -62,11 +62,11 @@ export const usePageStateStore = create<PageStateStore>()(
             
             getScrollPosition: (page) => {
                 const position = get().scrollPositions[page] || 0;
-                console.log(`[Store] 获取滚动位置 - 页面: ${page}, 位置: ${position}`);
+                console.log(`[Store] GetScrollPosition - Page: ${page}, Position: ${position}`);
                 return position;
             },
             
-            // 搜索文本
+            // Search文本
             saveSearchText: (page, text) =>
                 set((state) => ({
                     searchTexts: { ...state.searchTexts, [page]: text }
@@ -82,7 +82,7 @@ export const usePageStateStore = create<PageStateStore>()(
             
             getSelectedItems: (page) => get().selectedItems[page] || [],
             
-            // 自定义状态
+            // CustomStatus
             saveCustomState: (page, key, value) =>
                 set((state) => ({
                     customStates: {
@@ -93,7 +93,7 @@ export const usePageStateStore = create<PageStateStore>()(
             
             getCustomState: (page, key) => get().customStates[page]?.[key],
             
-            // 清除单个页面状态
+            // 清除单个PageStatus
             clearPageState: (page) =>
                 set((state) => {
                     const { [page]: _, ...restScroll } = state.scrollPositions;
@@ -108,7 +108,7 @@ export const usePageStateStore = create<PageStateStore>()(
                     };
                 }),
             
-            // 清除所有状态
+            // 清除AllStatus
             clearAllStates: () =>
                 set({
                     scrollPositions: {},
@@ -121,7 +121,7 @@ export const usePageStateStore = create<PageStateStore>()(
             name: 'page-state-storage',
             // 显式使用 localStorage
             storage: createJSONStorage(() => localStorage),
-            // 只持久化部分状态到 localStorage
+            // 只持久化部分Status到 localStorage
             partialize: (state) => ({
                 scrollPositions: state.scrollPositions,
                 searchTexts: state.searchTexts,

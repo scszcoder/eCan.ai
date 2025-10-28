@@ -82,7 +82,7 @@ const DocumentsTab: React.FC = () => {
             fontSize: 13, 
             color: token.colorTextSecondary 
           }}>
-            管理和导入文档到知识库
+            {t('pages.knowledge.documents.subtitle')}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>

@@ -5,7 +5,7 @@ import SplitPane from 'react-split-pane';
 import { MenuFoldOutlined, MenuUnfoldOutlined, RobotOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 
-// 添加全局样式
+// Add全局样式
 const GlobalStyles = styled.div`
   height: 100%;
   width: 100%;
@@ -40,7 +40,7 @@ const GlobalStyles = styled.div`
     width: 100% !important;
   }
   
-  /* 自定义 Badge 样式 */
+  /* Custom Badge 样式 */
   .custom-badge .ant-badge-dot {
     width: 10px;
     height: 10px;
@@ -52,7 +52,7 @@ const GlobalStyles = styled.div`
     color: white !important;
   }
   
-  /* 确保所有Card标题都是白色 */
+  /* 确保AllCard标题都是白色 */
   .ant-card .ant-card-head .ant-card-head-title {
     color: white !important;
   }
@@ -102,7 +102,7 @@ const AgentButton = styled(Button)`
   justify-content: center;
 `;
 
-// 自定义红点样式
+// Custom红点样式
 const NotificationDot = styled.div`
   position: absolute;
   top: -0px;
@@ -157,7 +157,7 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
   const [rightCollapsed, setRightCollapsed] = useState(true);
   const [splitSize, setSplitSize] = useState<string | number>('70%');
 
-  // 当右侧面板展开/折叠时重新计算分割尺寸
+  // WhenRight面板Expand/折叠时重新计算分割尺寸
   useEffect(() => {
     if (rightCollapsed) {
       setSplitSize('100%');
@@ -165,15 +165,15 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
       setSplitSize('40%'); // 修改为40%，使ChatNotification占60%，聊天框占40%
     }
 
-    // 调用父组件的回调函数
+    // 调用父Component的CallbackFunction
     onRightPanelToggle?.(rightCollapsed);
   }, [rightCollapsed, onRightPanelToggle]);
 
-  // 处理右侧面板的折叠/展开
+  // ProcessRight面板的折叠/Expand
   const handleRightPanelToggle = () => {
     setRightCollapsed((c) => {
       const newRightCollapsed = !c;
-      // 当展开右侧面板时，自动折叠左侧面板
+      // WhenExpandRight面板时，自动折叠Left面板
       if (!newRightCollapsed) {
         setLeftCollapsed(true);
       }
@@ -181,7 +181,7 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
     });
   };
 
-  // 中间卡片的 title 区域，包含左右折叠按钮和聊天名
+  // 中间卡片的 title 区域，Include左右折叠Button和聊天名
   const centerTitle = (
     <CenterTitleBar>
       <CollapseButton

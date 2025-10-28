@@ -1,6 +1,6 @@
 /**
  * Schedule Debug Page
- * 日程调试页面 - 用于查看原始数据
+ * 日程DebugPage - Used for查看原始Data
  */
 
 import React, { useState, useEffect } from 'react';

@@ -1,6 +1,6 @@
 /**
  * Chat API Service
- * 聊天 API 服务
+ * 聊天 API Service
  */
 
 import { ResourceAPI, APIResponse } from '@/stores/base/types';
@@ -10,8 +10,8 @@ import type { IPCAPI } from '../ipc/api';
 import { logger } from '@/utils/logger';
 
 /**
- * Chat API 服务类
- * 实现 ResourceAPI 接口，提供聊天的 CRUD 操作
+ * Chat API Service类
+ * Implementation ResourceAPI Interface，提供聊天的 CRUD Operation
  */
 export class ChatAPI implements ResourceAPI<Chat> {
   private _api?: IPCAPI;
@@ -24,7 +24,7 @@ export class ChatAPI implements ResourceAPI<Chat> {
   }
 
   /**
-   * 获取所有聊天
+   * GetAll聊天
    */
   async getAll(username: string): Promise<APIResponse<Chat[]>> {
     try {
@@ -46,7 +46,7 @@ export class ChatAPI implements ResourceAPI<Chat> {
         };
       }
 
-      // 处理不同的响应格式
+      // Process不同的Response格式
       let chats: Chat[] = [];
       
       if (Array.isArray(response.data)) {
@@ -76,7 +76,7 @@ export class ChatAPI implements ResourceAPI<Chat> {
   }
 
   /**
-   * 根据 ID 获取聊天
+   * 根据 ID Get聊天
    */
   async getById(username: string, id: string): Promise<APIResponse<Chat>> {
     try {
@@ -115,7 +115,7 @@ export class ChatAPI implements ResourceAPI<Chat> {
   }
 
   /**
-   * 创建新的聊天
+   * Create新的聊天
    */
   async create(username: string, chat: Chat): Promise<APIResponse<Chat>> {
     try {
@@ -154,7 +154,7 @@ export class ChatAPI implements ResourceAPI<Chat> {
   }
 
   /**
-   * 更新聊天
+   * Update聊天
    */
   async update(username: string, id: string, updates: Partial<Chat>): Promise<APIResponse<Chat>> {
     try {
@@ -193,7 +193,7 @@ export class ChatAPI implements ResourceAPI<Chat> {
   }
 
   /**
-   * 删除聊天
+   * Delete聊天
    */
   async delete(username: string, id: string): Promise<APIResponse<void>> {
     try {

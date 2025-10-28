@@ -1,11 +1,11 @@
 /**
- * OrgDataSyncService - 组织数据同步服务
+ * OrgDataSyncService - 组织DataSyncService
  * 
  * 职责：
- * 1. 监听后端的 org-agents-update 事件
- * 2. 自动获取最新的组织和 Agent 数据
- * 3. 更新 orgStore 和 agentStore
- * 4. 确保无论用户在哪个页面，数据都能保持同步
+ * 1. ListenBackend的 org-agents-update Event
+ * 2. 自动Get最新的组织和 Agent Data
+ * 3. Update orgStore 和 agentStore
+ * 4. 确保无论User在哪个Page，Data都能保持Sync
  */
 
 import { eventBus } from '../utils/eventBus';
@@ -20,7 +20,7 @@ class OrgDataSyncService {
     private eventHandler: ((data: any) => Promise<void>) | null = null;
 
     /**
-     * 初始化服务，注册全局事件监听器
+     * InitializeService，Register全局EventListen器
      */
     initialize(): void {
         if (this.isInitialized) {
@@ -36,7 +36,7 @@ class OrgDataSyncService {
     }
 
     /**
-     * 清理服务，移除事件监听器
+     * CleanupService，RemoveEventListen器
      */
     cleanup(): void {
         if (!this.isInitialized || !this.eventHandler) {
@@ -51,13 +51,13 @@ class OrgDataSyncService {
     }
 
     /**
-     * 处理 org-agents-update 事件
+     * Process org-agents-update Event
      */
     private async handleOrgAgentsUpdate(data: any): Promise<void> {
         logger.info('[OrgDataSyncService] 📥 Received org-agents-update event', data);
         
         try {
-            // 获取当前用户
+            // GetWhen前User
             const username = useUserStore.getState().username;
             if (!username) {
                 logger.warn('[OrgDataSyncService] ⚠️ No username available, skipping data sync');
@@ -66,7 +66,7 @@ class OrgDataSyncService {
 
             logger.info(`[OrgDataSyncService] 🔄 Fetching latest org data for user: ${username}`);
 
-            // 调用 API 获取最新数据
+            // 调用 API Get最新Data
             const response = await get_ipc_api().getAllOrgAgents(username);
             
             if (!response.success || !response.data) {
@@ -74,12 +74,12 @@ class OrgDataSyncService {
                 return;
             }
 
-            // 更新 orgStore
+            // Update orgStore
             const orgStore = useOrgStore.getState();
             orgStore.setAllOrgAgents(response.data);
             logger.info('[OrgDataSyncService] ✅ orgStore updated');
 
-            // 提取所有 agents 并更新 agentStore
+            // 提取All agents 并Update agentStore
             const allAgents = this.extractAllAgents(response.data.orgs);
             
             if (allAgents.length > 0) {
@@ -98,17 +98,17 @@ class OrgDataSyncService {
     }
 
     /**
-     * 递归提取树形结构中的所有 agents
+     * Recursive提取树形结构中的All agents
      */
     private extractAllAgents(node: any): any[] {
         let allAgents: any[] = [];
 
-        // 添加当前节点的 agents
+        // AddWhen前节点的 agents
         if (node.agents && Array.isArray(node.agents)) {
             allAgents = allAgents.concat(node.agents);
         }
 
-        // 递归处理子节点
+        // RecursiveProcess子节点
         if (node.children && Array.isArray(node.children)) {
             node.children.forEach((child: any) => {
                 allAgents = allAgents.concat(this.extractAllAgents(child));
@@ -119,15 +119,15 @@ class OrgDataSyncService {
     }
 
     /**
-     * 将后端 agent 数据映射为前端 store 格式
-     * 后端已经返回正确的格式（包含 card 对象），直接返回
+     * 将Backend agent DataMap为Frontend store 格式
+     * Backend已经返回正确的格式（Include card 对象），直接返回
      */
     private mapAgentsForStore(agents: any[]): any[] {
         return agents;
     }
 
     /**
-     * 手动触发数据同步（用于测试或强制刷新）
+     * 手动TriggerDataSync（Used forTest或强制Refresh）
      */
     async triggerSync(): Promise<void> {
         if (!this.isInitialized) {
@@ -140,7 +140,7 @@ class OrgDataSyncService {
     }
 
     /**
-     * 获取服务状态
+     * GetServiceStatus
      */
     getStatus(): { initialized: boolean; hasEventHandler: boolean } {
         return {
@@ -150,5 +150,5 @@ class OrgDataSyncService {
     }
 }
 
-// 导出单例实例
+// Export单例实例
 export const orgDataSyncService = new OrgDataSyncService();

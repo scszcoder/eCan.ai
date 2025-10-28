@@ -1,6 +1,6 @@
 /**
  * Month View Component
- * 月视图日历组件
+ * 月视图日历Component
  */
 
 import React, { useMemo, useRef } from 'react';
@@ -22,16 +22,16 @@ const MonthViewContainer = styled.div`
   overflow: hidden;
 `;
 
-// 横向滚动容器 - 包裹整个日历以支持横向滚动
+// 横向ScrollContainer - 包裹整个日历以Support横向Scroll
 const ScrollableContainer = styled.div`
   flex: 1;
   overflow: auto;
   display: flex;
   flex-direction: column;
-  min-width: 0; // 允许内容收缩
+  min-width: 0; // AllowContent收缩
 `;
 
-// 内容容器 - 设置最小宽度以支持横向滚动
+// ContentContainer - SettingsMinimumWidth以Support横向Scroll
 const CalendarContent = styled.div`
   min-width: 840px; // 7列 * 120px = 840px，更紧凑适合小屏幕
   display: flex;
@@ -41,16 +41,16 @@ const CalendarContent = styled.div`
 
 const WeekdayHeader = styled.div`
   display: grid;
-  grid-template-columns: repeat(7, minmax(120px, 1fr)); // 最小120px，屏幕宽时自动扩展
-  background: rgba(0, 0, 0, 0.6); // 增加不透明度，避免滚动叠影
-  backdrop-filter: blur(10px); // 添加模糊效果
-  -webkit-backdrop-filter: blur(10px); // Safari支持
+  grid-template-columns: repeat(7, minmax(120px, 1fr)); // Minimum120px，屏幕宽时自动Extended
+  background: rgba(0, 0, 0, 0.6); // 增加不透明度，避免Scroll叠影
+  backdrop-filter: blur(10px); // Add模糊效果
+  -webkit-backdrop-filter: blur(10px); // SafariSupport
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 6px 4px; // 最小化padding
+  padding: 6px 4px; // Minimum化padding
   gap: 3px;
-  position: sticky; // 固定在顶部
+  position: sticky; // 固定在Top
   top: 0;
-  z-index: 1; // 只需要在日历内容上方，不能遮挡下拉菜单
+  z-index: 1; // 只Need在日历Content上方，不能遮挡下拉Menu
   flex-shrink: 0; // 防止被压缩
 `;
 
@@ -61,15 +61,15 @@ const WeekdayCell = styled.div<{ $isWeekend?: boolean }>`
   color: ${props => props.$isWeekend ? 'rgba(255, 107, 129, 0.85)' : 'rgba(255, 255, 255, 0.65)'};
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  min-width: 0; // 允许文字收缩
+  min-width: 0; // Allow文字收缩
 `;
 
 const WeeksContainer = styled.div`
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 4px; // 最小化padding以最大化可视区域
-  min-height: 0; // 允许内容收缩
+  padding: 4px; // Minimum化padding以Maximum化可视区域
+  min-height: 0; // AllowContent收缩
 `;
 
 const WeekRow = styled.div`
@@ -77,7 +77,7 @@ const WeekRow = styled.div`
   grid-template-columns: repeat(7, minmax(120px, 1fr)); // 与Header保持一致
   gap: 3px; // 减少列间距
   margin-bottom: 3px; // 减少行间距
-  height: 150px; // 增加高度以显示更多任务
+  height: 150px; // 增加Height以Display更多任务
   
   &:last-child {
     margin-bottom: 0;
@@ -100,16 +100,16 @@ const DayCell = styled.div<{
     return 'rgba(255, 255, 255, 0.08)';
   }};
   border-radius: 6px;
-  padding: 4px; // 最小化内边距
+  padding: 4px; // Minimum化内边距
   display: flex;
   flex-direction: column;
   position: relative;
   cursor: pointer;
   transition: all 0.3s ease;
   opacity: ${props => props.$isCurrentMonth ? 1 : 0.4};
-  height: 100%; // 填充WeekRow的固定高度
-  min-height: 0; // 允许内容收缩
-  overflow: hidden; // 防止内容溢出
+  height: 100%; // 填充WeekRow的固定Height
+  min-height: 0; // AllowContent收缩
+  overflow: hidden; // 防止Content溢出
   
   &:hover {
     background: rgba(24, 144, 255, 0.1);
@@ -132,7 +132,7 @@ const DayNumber = styled.div<{ $isToday?: boolean; $isWeekend?: boolean }>`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-shrink: 0; // 防止日期数字被压缩
+  flex-shrink: 0; // 防止Date数字被压缩
 `;
 
 const TodayIndicator = styled.div`
@@ -154,17 +154,17 @@ const EventsContainer = styled.div`
   display: flex;
   flex-direction: column;
   gap: 2px; // 减少任务项之间的间距
-  overflow: hidden; // 隐藏超出的内容
-  min-height: 0; // 允许内容收缩
+  overflow: hidden; // Hide超出的Content
+  min-height: 0; // AllowContent收缩
 `;
 
 const EventItem = styled.div<{ $color?: string; $backgroundColor?: string; $borderColor?: string }>`
   display: flex;
   align-items: center;
   gap: 3px; // 减少间距
-  padding: 2px 5px; // 最小化padding
+  padding: 2px 5px; // Minimum化padding
   background: ${props => props.$backgroundColor || 'rgba(24, 144, 255, 0.1)'};
-  border-left: 2px solid ${props => props.$borderColor || '#1890ff'}; // 减少边框宽度
+  border-left: 2px solid ${props => props.$borderColor || '#1890ff'}; // 减少边框Width
   border-radius: 3px;
   font-size: 11px;
   color: ${props => props.$color || '#1890ff'};
@@ -246,7 +246,7 @@ const MonthView: React.FC<MonthViewProps> = ({
     return generateMonthView(currentDate, events, calendarConfig);
   }, [currentDate, events, calendarConfig]);
   
-  // 周从周日开始（标准日历格式）
+  // 周从周日开始（Standard日历格式）
   const weekdayLabels = [
     t('pages.schedule.calendar.weekdaysShort.sun'),
     t('pages.schedule.calendar.weekdaysShort.mon'),
@@ -271,10 +271,10 @@ const MonthView: React.FC<MonthViewProps> = ({
     onMoreEventsClick?.(date, allEvents);
   };
   
-  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
   useEffectOnActive(
     () => {
-      // 组件激活时：恢复滚动位置
+      // ComponentActive时：RestoreScrollPosition
       const container = scrollContainerRef.current;
       if (container && (savedScrollPositionRef.current.top !== 0 || savedScrollPositionRef.current.left !== 0)) {
         requestAnimationFrame(() => {
@@ -283,7 +283,7 @@ const MonthView: React.FC<MonthViewProps> = ({
         });
       }
       
-      // 返回清理函数，在组件失活前保存滚动位置
+      // 返回CleanupFunction，在Component失活前SaveScrollPosition
       return () => {
         const container = scrollContainerRef.current;
         if (container) {

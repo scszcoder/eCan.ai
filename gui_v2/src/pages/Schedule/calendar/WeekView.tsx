@@ -1,6 +1,6 @@
 /**
  * Week View Component
- * 周视图日历组件
+ * 周视图日历Component
  */
 
 import React, { useMemo, useRef } from 'react';
@@ -30,7 +30,7 @@ const WeekHeader = styled.div`
   padding: 12px 0;
   position: sticky;
   top: 0;
-  z-index: 1; // 只需要在日历内容上方，不能遮挡下拉菜单
+  z-index: 1; // 只Need在日历Content上方，不能遮挡下拉Menu
 `;
 
 const TimeColumnHeader = styled.div`
@@ -235,7 +235,7 @@ const WeekView: React.FC<WeekViewProps> = ({
     return generateTimeSlots(weekDays[0].date, [], calendarConfig);
   }, [weekDays, calendarConfig]);
   
-  // 周从周日开始（标准日历格式）
+  // 周从周日开始（Standard日历格式）
   const weekdayLabels = [
     t('pages.schedule.calendar.weekdays.sunday'),
     t('pages.schedule.calendar.weekdays.monday'),
@@ -274,10 +274,10 @@ const WeekView: React.FC<WeekViewProps> = ({
     onTimeSlotClick?.(dayDate, hour, minute);
   };
   
-  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
   useEffectOnActive(
     () => {
-      // 组件激活时：恢复滚动位置
+      // ComponentActive时：RestoreScrollPosition
       const container = scrollContainerRef.current;
       if (container && savedScrollPositionRef.current > 0) {
         requestAnimationFrame(() => {
@@ -285,7 +285,7 @@ const WeekView: React.FC<WeekViewProps> = ({
         });
       }
       
-      // 返回清理函数，在组件失活前保存滚动位置
+      // 返回CleanupFunction，在Component失活前SaveScrollPosition
       return () => {
         const container = scrollContainerRef.current;
         if (container) {
@@ -296,7 +296,7 @@ const WeekView: React.FC<WeekViewProps> = ({
     []
   );
   
-  // 获取某个时间槽内的任务（处理跨天任务）
+  // Get某个Time槽内的任务（Process跨天任务）
   const getEventsForSlot = (dayDate: Date, slotHour: number, slotMinute: number, dayEvents: CalendarEvent[]) => {
     const slotStart = dayjs(dayDate).hour(slotHour).minute(slotMinute).second(0);
     const slotEnd = slotStart.add(calendarConfig.timeSlotDuration, 'minute');
@@ -308,10 +308,10 @@ const WeekView: React.FC<WeekViewProps> = ({
         const eventStart = dayjs(event.start);
         const eventEnd = dayjs(event.end);
         
-        // 如果任务在这个时间槽内开始，显示它
+        // If任务在这个Time槽内开始，Display它
         const startsInSlot = eventStart.isSameOrAfter(slotStart) && eventStart.isBefore(slotEnd);
         
-        // 如果是当天的第一个时间槽，且任务是跨天进行中的（开始时间早于今天，结束时间晚于今天开始）
+        // If是When天的第一个Time槽，且任务是跨天In progress的（开始Time早于今天，结束Time晚于今天开始）
         const isContinuingTask = isFirstSlotOfDay && 
                                  eventStart.isBefore(dayStart) && 
                                  eventEnd.isAfter(dayStart);
@@ -319,20 +319,20 @@ const WeekView: React.FC<WeekViewProps> = ({
         return startsInSlot || isContinuingTask;
       })
       .sort((a, b) => {
-        // 优先显示今天开始的任务，然后是继续进行中的任务
+        // 优先Display今天开始的任务，然后是继续In progress的任务
         const aStartsToday = dayjs(a.start).isSame(dayStart, 'day');
         const bStartsToday = dayjs(b.start).isSame(dayStart, 'day');
         
         if (aStartsToday && !bStartsToday) return -1;
         if (!aStartsToday && bStartsToday) return 1;
         
-        // 按开始时间排序，相同时间按名称排序
+        // 按开始TimeSort，相同Time按NameSort
         const timeDiff = a.start.getTime() - b.start.getTime();
         if (timeDiff !== 0) return timeDiff;
         return (a.title || '').localeCompare(b.title || '');
       })
       .map(event => {
-        // 标记任务是今天开始还是继续进行中
+        // 标记任务是今天开始还是继续In progress
         const startsToday = dayjs(event.start).isSame(dayStart, 'day');
         return { ...event, startsToday };
       });
@@ -370,7 +370,7 @@ const WeekView: React.FC<WeekViewProps> = ({
               
               {/* Day Columns */}
               {weekDays.map((day, dayIndex) => {
-                // 获取这个时间槽的任务
+                // Get这个Time槽的任务
                 const slotEvents = getEventsForSlot(day.date, slot.hour, slot.minute, day.events);
                 
                 return (

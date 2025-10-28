@@ -1,6 +1,6 @@
 /**
- * Event Bus - 简单的事件总线实现
- * 用于组件间通信和事件传递
+ * Event Bus - Simple的Event总线Implementation
+ * Used forComponent间通信和Event传递
  */
 
 type EventCallback = (data?: any) => void;
@@ -9,7 +9,7 @@ class EventBus {
   private events: Map<string, EventCallback[]> = new Map();
 
   /**
-   * 订阅事件
+   * 订阅Event
    */
   on(event: string, callback: EventCallback): void {
     if (!this.events.has(event)) {
@@ -19,7 +19,7 @@ class EventBus {
   }
 
   /**
-   * 取消订阅事件
+   * Cancel订阅Event
    */
   off(event: string, callback: EventCallback): void {
     const callbacks = this.events.get(event);
@@ -32,7 +32,7 @@ class EventBus {
   }
 
   /**
-   * 发送事件
+   * SendEvent
    */
   emit(event: string, data?: any): void {
     const callbacks = this.events.get(event);
@@ -48,19 +48,19 @@ class EventBus {
   }
 
   /**
-   * 清除所有事件监听器
+   * 清除AllEventListen器
    */
   clear(): void {
     this.events.clear();
   }
 
   /**
-   * 清除特定事件的所有监听器
+   * 清除特定Event的AllListen器
    */
   clearEvent(event: string): void {
     this.events.delete(event);
   }
 }
 
-// 导出单例
+// Export单例
 export const eventBus = new EventBus();

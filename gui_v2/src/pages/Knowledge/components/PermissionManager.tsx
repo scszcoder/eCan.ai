@@ -29,6 +29,7 @@ import {
   FileTextOutlined,
   SettingOutlined
 } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 
 const { Option } = Select;
 const { Title, Text } = Typography;
@@ -60,37 +61,38 @@ interface UserPermission {
 }
 
 const PermissionManager: React.FC = () => {
+  const { t } = useTranslation();
   const [selectedUser, setSelectedUser] = useState<UserPermission | null>(null);
   const [isPermissionModalVisible, setIsPermissionModalVisible] = useState(false);
   const [isRoleModalVisible, setIsRoleModalVisible] = useState(false);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
 
-  // 权限列表
+  // PermissionList
   const permissions: Permission[] = [
-    { id: 'read', name: '查看文档', description: '查看知识库中的文档', category: '文档权限' },
-    { id: 'write', name: '编辑文档', description: '创建和编辑文档', category: '文档权限' },
-    { id: 'delete', name: '删除文档', description: '删除文档', category: '文档权限' },
-    { id: 'comment', name: '评论', description: '在文档中添加评论', category: '协作权限' },
-    { id: 'approve', name: '审核', description: '审核问答和文档', category: '管理权限' },
-    { id: 'admin', name: '管理员', description: '系统管理员权限', category: '管理权限' },
-    { id: 'export', name: '导出', description: '导出文档和数据', category: '文档权限' },
-    { id: 'import', name: '导入', description: '导入文档和数据', category: '文档权限' },
+    { id: 'read', name: '查看Documentation', description: '查看知识库中的Documentation', category: 'DocumentationPermission' },
+    { id: 'write', name: 'EditDocumentation', description: 'Create和EditDocumentation', category: 'DocumentationPermission' },
+    { id: 'delete', name: 'DeleteDocumentation', description: 'DeleteDocumentation', category: 'DocumentationPermission' },
+    { id: 'comment', name: '评论', description: '在Documentation中Add评论', category: '协作Permission' },
+    { id: 'approve', name: '审核', description: '审核问答和Documentation', category: '管理Permission' },
+    { id: 'admin', name: '管理员', description: 'System管理员Permission', category: '管理Permission' },
+    { id: 'export', name: 'Export', description: 'ExportDocumentation和Data', category: 'DocumentationPermission' },
+    { id: 'import', name: 'Import', description: 'ImportDocumentation和Data', category: 'DocumentationPermission' },
   ];
 
-  // 角色列表
+  // RoleList
   const roles: Role[] = [
     {
       id: 'admin',
       name: '管理员',
-      description: '拥有所有权限',
+      description: '拥有AllPermission',
       permissions: ['read', 'write', 'delete', 'comment', 'approve', 'admin', 'export', 'import'],
       userCount: 3,
       isSystem: true,
     },
     {
       id: 'editor',
-      name: '编辑者',
-      description: '可以创建和编辑文档',
+      name: 'Edit者',
+      description: 'CanCreate和EditDocumentation',
       permissions: ['read', 'write', 'comment', 'export'],
       userCount: 8,
       isSystem: false,
@@ -98,7 +100,7 @@ const PermissionManager: React.FC = () => {
     {
       id: 'viewer',
       name: '查看者',
-      description: '只能查看文档',
+      description: '只能查看Documentation',
       permissions: ['read', 'comment'],
       userCount: 15,
       isSystem: false,
@@ -106,14 +108,14 @@ const PermissionManager: React.FC = () => {
     {
       id: 'moderator',
       name: '审核员',
-      description: '负责审核内容',
+      description: '负责审核Content',
       permissions: ['read', 'comment', 'approve'],
       userCount: 5,
       isSystem: false,
     },
   ];
 
-  // 用户权限列表
+  // UserPermissionList
   const userPermissions: UserPermission[] = [
     {
       id: '1',
@@ -153,10 +155,10 @@ const PermissionManager: React.FC = () => {
     },
   ];
 
-  // 用户权限表格列
+  // UserPermissionTable列
   const userColumns: ColumnsType<UserPermission> = [
     {
-      title: '用户',
+      title: 'User',
       key: 'user',
       render: (_, record) => (
         <div>
@@ -166,7 +168,7 @@ const PermissionManager: React.FC = () => {
       ),
     },
     {
-      title: '角色',
+      title: 'Role',
       dataIndex: 'role',
       key: 'role',
       render: (role) => {
@@ -179,7 +181,7 @@ const PermissionManager: React.FC = () => {
       },
     },
     {
-      title: '权限',
+      title: 'Permission',
       key: 'permissions',
       render: (_, record) => (
         <div>
@@ -198,7 +200,7 @@ const PermissionManager: React.FC = () => {
       ),
     },
     {
-      title: '状态',
+      title: 'Status',
       dataIndex: 'status',
       key: 'status',
       render: (status) => (
@@ -208,18 +210,18 @@ const PermissionManager: React.FC = () => {
       ),
     },
     {
-      title: '最后登录',
+      title: '最后Login',
       dataIndex: 'lastLogin',
       key: 'lastLogin',
       width: 150,
     },
     {
-      title: '操作',
+      title: 'Operation',
       key: 'action',
       width: 120,
       render: (_, record) => (
         <Space>
-          <Tooltip title="编辑权限">
+          <Tooltip title="EditPermission">
             <Button 
               type="text" 
               size="small" 
@@ -230,7 +232,7 @@ const PermissionManager: React.FC = () => {
               }}
             />
           </Tooltip>
-          <Tooltip title={record.status === 'active' ? '禁用' : '启用'}>
+          <Tooltip title={record.status === 'active' ? 'Disabled' : 'Enabled'}>
             <Button 
               type="text" 
               size="small" 
@@ -243,46 +245,46 @@ const PermissionManager: React.FC = () => {
     },
   ];
 
-  // 角色表格列
+  // RoleTable列
   const roleColumns: ColumnsType<Role> = [
     {
-      title: '角色名称',
+      title: 'RoleName',
       dataIndex: 'name',
       key: 'name',
       render: (name, record) => (
         <div>
           <div style={{ fontWeight: 500 }}>{name}</div>
-          {record.isSystem && <Tag color="orange">系统角色</Tag>}
+          {record.isSystem && <Tag color="orange">SystemRole</Tag>}
         </div>
       ),
     },
     {
-      title: '描述',
+      title: 'Description',
       dataIndex: 'description',
       key: 'description',
     },
     {
-      title: '权限数量',
+      title: 'PermissionCount',
       key: 'permissionCount',
       render: (_, record) => (
-        <Text>{record.permissions.length} 个权限</Text>
+        <Text>{record.permissions.length} 个Permission</Text>
       ),
     },
     {
-      title: '用户数量',
+      title: 'UserCount',
       dataIndex: 'userCount',
       key: 'userCount',
       render: (count) => (
-        <Text>{count} 个用户</Text>
+        <Text>{count} 个User</Text>
       ),
     },
     {
-      title: '操作',
+      title: 'Operation',
       key: 'action',
       width: 120,
       render: (_, record) => (
         <Space>
-          <Tooltip title="编辑角色">
+          <Tooltip title="EditRole">
             <Button 
               type="text" 
               size="small" 
@@ -295,11 +297,11 @@ const PermissionManager: React.FC = () => {
           </Tooltip>
           {!record.isSystem && (
             <Popconfirm
-              title="确认删除"
-              description="删除角色将影响所有使用该角色的用户"
+              title="ConfirmDelete"
+              description="DeleteRole将影响All使用该Role的User"
               onConfirm={() => handleDeleteRole(record)}
             >
-              <Tooltip title="删除角色">
+              <Tooltip title="DeleteRole">
                 <Button 
                   type="text" 
                   size="small" 
@@ -314,32 +316,32 @@ const PermissionManager: React.FC = () => {
     },
   ];
 
-  // 处理用户状态切换
+  // ProcessUserStatusToggle
   const handleToggleUserStatus = (user: UserPermission) => {
     const newStatus = user.status === 'active' ? 'inactive' : 'active';
-    message.success(`用户 ${user.username} 已${newStatus === 'active' ? '启用' : '禁用'}`);
+    message.success(`User ${user.username} 已${newStatus === 'active' ? 'Enabled' : 'Disabled'}`);
   };
 
-  // 处理删除角色
+  // ProcessDeleteRole
   const handleDeleteRole = (role: Role) => {
-    message.success(`角色 ${role.name} 已删除`);
+    message.success(`Role ${role.name} 已Delete`);
   };
 
-  // 处理权限更新
+  // ProcessPermissionUpdate
   const handlePermissionUpdate = (userId: string, newPermissions: string[]) => {
-    message.success('权限更新成功');
+    message.success('PermissionUpdateSuccess');
     setIsPermissionModalVisible(false);
     setSelectedUser(null);
   };
 
-  // 处理角色更新
+  // ProcessRoleUpdate
   const handleRoleUpdate = (roleData: Partial<Role>) => {
-    message.success('角色更新成功');
+    message.success('RoleUpdateSuccess');
     setIsRoleModalVisible(false);
     setEditingRole(null);
   };
 
-  // 按分类组织权限
+  // 按Category组织Permission
   const permissionsByCategory = permissions.reduce((acc, perm) => {
     if (!acc[perm.category]) {
       acc[perm.category] = [];
@@ -350,11 +352,11 @@ const PermissionManager: React.FC = () => {
 
   return (
     <div>
-      {/* 用户权限管理 */}
-      <Card title="用户权限管理" style={{ marginBottom: 24 }}>
+      {/* User Permission Management */}
+      <Card title={t('pages.knowledge.userPermissionManagement')} style={{ marginBottom: 24 }}>
         <div style={{ marginBottom: 16 }}>
           <Button type="primary" icon={<PlusOutlined />}>
-            添加用户
+            AddUser
           </Button>
         </div>
         <Table
@@ -364,16 +366,16 @@ const PermissionManager: React.FC = () => {
           pagination={{
             showSizeChanger: true,
             showQuickJumper: true,
-            showTotal: (total) => `共 ${total} 个用户`,
+            showTotal: (total) => `共 ${total} 个User`,
           }}
         />
       </Card>
 
-      {/* 角色管理 */}
-      <Card title="角色管理" style={{ marginBottom: 24 }}>
+      {/* Role Management */}
+      <Card title={t('pages.knowledge.roleManagement')} style={{ marginBottom: 24 }}>
         <div style={{ marginBottom: 16 }}>
           <Button type="primary" icon={<PlusOutlined />}>
-            创建角色
+            CreateRole
           </Button>
         </div>
         <Table
@@ -384,8 +386,8 @@ const PermissionManager: React.FC = () => {
         />
       </Card>
 
-      {/* 权限说明 */}
-      <Card title="权限说明">
+      {/* Permission说明 */}
+      <Card title="Permission说明">
         <div style={{ display: 'flex', gap: 16 }}>
           {Object.entries(permissionsByCategory).map(([category, perms]) => (
             <div key={category} style={{ flex: 1 }}>
@@ -403,9 +405,9 @@ const PermissionManager: React.FC = () => {
         </div>
       </Card>
 
-      {/* 用户权限编辑弹窗 */}
+      {/* UserPermissionEditModal */}
       <Modal
-        title={`编辑用户权限 - ${selectedUser?.username}`}
+        title={`EditUserPermission - ${selectedUser?.username}`}
         open={isPermissionModalVisible}
         onCancel={() => {
           setIsPermissionModalVisible(false);
@@ -417,11 +419,11 @@ const PermissionManager: React.FC = () => {
         {selectedUser && (
           <div>
             <div style={{ marginBottom: 16 }}>
-              <Text>用户: {selectedUser.username} ({selectedUser.email})</Text>
+              <Text>User: {selectedUser.username} ({selectedUser.email})</Text>
             </div>
             
             <div style={{ marginBottom: 16 }}>
-              <Text strong>角色:</Text>
+              <Text strong>Role:</Text>
               <Select
                 defaultValue={selectedUser.role}
                 style={{ width: 200, marginLeft: 8 }}
@@ -437,7 +439,7 @@ const PermissionManager: React.FC = () => {
             <Divider />
 
             <div>
-              <Text strong>详细权限:</Text>
+              <Text strong>DetailedPermission:</Text>
               {Object.entries(permissionsByCategory).map(([category, perms]) => (
                 <div key={category} style={{ marginTop: 16 }}>
                   <Text type="secondary">{category}</Text>
@@ -461,10 +463,10 @@ const PermissionManager: React.FC = () => {
             <div style={{ marginTop: 24, textAlign: 'right' }}>
               <Space>
                 <Button onClick={() => setIsPermissionModalVisible(false)}>
-                  取消
+                  Cancel
                 </Button>
                 <Button type="primary" onClick={() => handlePermissionUpdate(selectedUser.id, [])}>
-                  保存
+                  Save
                 </Button>
               </Space>
             </div>
@@ -472,9 +474,9 @@ const PermissionManager: React.FC = () => {
         )}
       </Modal>
 
-      {/* 角色编辑弹窗 */}
+      {/* RoleEditModal */}
       <Modal
-        title={editingRole ? `编辑角色 - ${editingRole.name}` : '创建角色'}
+        title={editingRole ? `EditRole - ${editingRole.name}` : 'CreateRole'}
         open={isRoleModalVisible}
         onCancel={() => {
           setIsRoleModalVisible(false);
@@ -486,12 +488,12 @@ const PermissionManager: React.FC = () => {
         {editingRole && (
           <div>
             <div style={{ marginBottom: 16 }}>
-              <Text strong>角色名称:</Text>
+              <Text strong>RoleName:</Text>
               <Input defaultValue={editingRole.name} style={{ marginTop: 8 }} />
             </div>
 
             <div style={{ marginBottom: 16 }}>
-              <Text strong>描述:</Text>
+              <Text strong>Description:</Text>
               <Input.TextArea 
                 defaultValue={editingRole.description} 
                 style={{ marginTop: 8 }}
@@ -502,7 +504,7 @@ const PermissionManager: React.FC = () => {
             <Divider />
 
             <div>
-              <Text strong>权限设置:</Text>
+              <Text strong>PermissionSettings:</Text>
               {Object.entries(permissionsByCategory).map(([category, perms]) => (
                 <div key={category} style={{ marginTop: 16 }}>
                   <Text type="secondary">{category}</Text>
@@ -526,10 +528,10 @@ const PermissionManager: React.FC = () => {
             <div style={{ marginTop: 24, textAlign: 'right' }}>
               <Space>
                 <Button onClick={() => setIsRoleModalVisible(false)}>
-                  取消
+                  Cancel
                 </Button>
                 <Button type="primary" onClick={() => handleRoleUpdate({})}>
-                  保存
+                  Save
                 </Button>
               </Space>
             </div>

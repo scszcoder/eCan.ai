@@ -1,6 +1,6 @@
 /**
  * Orgs Management Hook - Clean Architecture v2
- * 完全重新设计的简洁架构，避免所有状态管理问题
+ * 完全重新设计的Concise架构，避免AllStatus管理问题
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -11,7 +11,7 @@ import { get_ipc_api } from '../../../services/ipc_api';
 import { userStorageManager } from '../../../services/storage/UserStorageManager';
 import type { Org, OrgFormData } from '../types';
 
-// 极简状态接口 - 只包含必要状态
+// 极简StatusInterface - 只Include必要Status
 interface OrgState {
   orgs: Org[];
   selectedOrg: Org | null;
@@ -20,7 +20,7 @@ interface OrgState {
   loading: boolean;
 }
 
-// UI 状态单独管理
+// UI Status单独管理
 interface UIState {
   modalVisible: boolean;
   bindModalVisible: boolean;
@@ -33,7 +33,7 @@ export const useOrgs = () => {
   const navigate = useNavigate();
   const username = userStorageManager.getUsername();
   
-  // 数据状态 - 稳定的引用
+  // DataStatus - Stable的Reference
   const [dataState, setDataState] = useState<OrgState>({
     orgs: [],
     selectedOrg: null,
@@ -42,18 +42,18 @@ export const useOrgs = () => {
     loading: false,
   });
 
-  // UI 状态 - 独立管理
+  // UI Status - 独立管理
   const [uiState, setUIState] = useState<UIState>({
     modalVisible: false,
     bindModalVisible: false,
     editingOrg: null,
   });
 
-  // 使用 ref 避免依赖问题
+  // 使用 ref 避免Dependency问题
   const dataStateRef = useRef(dataState);
   dataStateRef.current = dataState;
 
-  // 稳定的更新函数 - 无依赖
+  // Stable的UpdateFunction - 无Dependency
   const updateDataState = useCallback((updates: Partial<OrgState>) => {
     setDataState(prev => ({ ...prev, ...updates }));
   }, []);
@@ -62,7 +62,7 @@ export const useOrgs = () => {
     setUIState(prev => ({ ...prev, ...updates }));
   }, []);
 
-  // API 函数 - 使用 ref 避免依赖
+  // API Function - 使用 ref 避免Dependency
   const loadOrgs = useCallback(async () => {
     if (!username) return;
 
@@ -94,14 +94,14 @@ export const useOrgs = () => {
     updateDataState({ loading: true });
     try {
       const api = get_ipc_api();
-      // 修改为 false，只加载当前组织的 agents，不包含子组织
+      // 修改为 false，只LoadWhen前组织的 agents，不Include子组织
       const response = await api.getOrgAgents(username, orgId, false);
 
       if (response.success && response.data) {
         const agents = (response.data as any).agents || [];
         const validAgents = agents.filter((agent: any) => agent && agent.id && agent.name);
         
-        // 额外加载完整的 agent 数据（包括 avatar）
+        // 额外Load完整的 agent Data（包括 avatar）
         if (validAgents.length > 0) {
           const agentIds = validAgents.map((a: any) => a.id || a.card?.id).filter(Boolean);
           const fullAgentsResponse = await api.getAgents(username, agentIds);
@@ -109,7 +109,7 @@ export const useOrgs = () => {
           if (fullAgentsResponse.success && fullAgentsResponse.data) {
             const fullAgents = (fullAgentsResponse.data as any).agents || [];
             
-            // 合并数据：将 avatar 信息合并到原始 agent 数据中
+            // 合并Data：将 avatar Information合并到原始 agent Data中
             const mergedAgents = validAgents.map((agent: any) => {
               const fullAgent = fullAgents.find((fa: any) => 
                 (fa.id || fa.card?.id) === (agent.id || agent.card?.id)
@@ -128,7 +128,7 @@ export const useOrgs = () => {
             
             updateDataState({ orgAgents: mergedAgents, loading: false });
           } else {
-            // 如果获取完整数据失败，使用原始数据
+            // IfGet完整DataFailed，使用原始Data
             updateDataState({ orgAgents: validAgents, loading: false });
           }
         } else {
@@ -163,7 +163,7 @@ export const useOrgs = () => {
       console.log('[loadAvailableAgents] allAgents count:', allAgents.length);
       console.log('[loadAvailableAgents] allAgents:', allAgents);
 
-      // 获取当前组织已绑定的 Agent IDs（用于区分当前组织绑定 vs 其他组织绑定）
+      // GetWhen前组织已绑定的 Agent IDs（Used for区分When前组织绑定 vs 其他组织绑定）
       let currentOrgAgentIds: string[] = [];
       if (selectedOrgId) {
         const boundAgentsResponse = await api.getOrgAgents(username, selectedOrgId, false);
@@ -181,7 +181,7 @@ export const useOrgs = () => {
         .map((agent: any) => {
           const agentId = agent.id || agent.card?.id;
           // Agent 已绑定的条件：
-          // 1. 绑定到当前组织：agent.org_id === selectedOrgId
+          // 1. 绑定到When前组织：agent.org_id === selectedOrgId
           // 2. 绑定到其他组织：agent.org_id 存在且不为空
           const isBoundToCurrentOrg = currentOrgAgentIds.includes(agentId);
           const isBoundToOtherOrg = agent.org_id && agent.org_id !== selectedOrgId;
@@ -207,7 +207,7 @@ export const useOrgs = () => {
     }
   }, [username, t, updateDataState]);
 
-  // 业务操作函数 - 使用新架构
+  // 业务OperationFunction - 使用新架构
   const selectOrg = useCallback((org: Org | null) => {
     updateDataState({ selectedOrg: org, orgAgents: [] });
     if (org) {
@@ -233,7 +233,7 @@ export const useOrgs = () => {
     }
   }, [username, t, loadOrgs, updateUIState]);
 
-  // 简化的其他业务函数
+  // 简化的其他业务Function
   const updateOrg = useCallback(async (id: string, data: Partial<OrgFormData>) => {
     if (!username) return;
     try {
@@ -241,12 +241,12 @@ export const useOrgs = () => {
       const response = await api.updateOrg(username, id, data.name, data.description);
       if (response.success) {
         message.success(t('pages.org.messages.updateSuccess'));
-        // 重新加载组织树
+        // 重新Load组织树
         await loadOrgs();
-        // 如果当前选中的组织是被编辑的组织，需要更新选中组织的信息
+        // IfWhen前选中的组织是被Edit的组织，NeedUpdate选中组织的Information
         const currentSelectedOrg = dataStateRef.current.selectedOrg;
         if (currentSelectedOrg && currentSelectedOrg.id === id) {
-          // 从更新后的组织树中找到对应的组织
+          // 从Update后的组织树中找到对应的组织
           const findOrgById = (orgs: Org[], targetId: string): Org | null => {
             for (const org of orgs) {
               if (org.id === targetId) return org;
@@ -257,7 +257,7 @@ export const useOrgs = () => {
             }
             return null;
           };
-          // 等待 loadOrgs 完成后再查找
+          // 等待 loadOrgs Completed后再查找
           setTimeout(() => {
             const updatedOrg = findOrgById(dataStateRef.current.orgs, id);
             if (updatedOrg) {
@@ -278,7 +278,7 @@ export const useOrgs = () => {
   const deleteOrg = useCallback(async (id: string, force: boolean = false) => {
     if (!username) return;
     
-    // 如果不是强制删除，先显示确认对话框
+    // Ifnot强制Delete，先DisplayConfirmDialog
     if (!force) {
       modal.confirm({
         title: t('pages.org.confirm.delete', 'Delete Organization'),
@@ -288,14 +288,14 @@ export const useOrgs = () => {
         cancelText: t('common.cancel', 'Cancel'),
         centered: true,
         onOk: async () => {
-          // 执行实际删除
+          // Execute实际Delete
           await performDelete(id, false);
         },
       });
       return;
     }
     
-    // 强制删除直接执行
+    // 强制Delete直接Execute
     await performDelete(id, true);
     
     async function performDelete(orgId: string, forceDelete: boolean) {
@@ -311,9 +311,9 @@ export const useOrgs = () => {
           }
         } else {
           const errorMsg = response.error?.message || '';
-          // 检查是否是因为有agents导致删除失败
+          // Check是否是因为有agents导致DeleteFailed
           if (errorMsg.includes('agents') && errorMsg.includes('force')) {
-            // 询问用户是否强制删除
+            // 询问User是否强制Delete
             modal.confirm({
               title: t('pages.org.messages.deleteConfirmTitle', 'Force Delete Organization'),
               content: t('pages.org.messages.deleteConfirmWithAgents', 'This organization contains agents. Do you want to force delete it? All agents will be moved to the parent organization or become orphaned.'),
@@ -322,7 +322,7 @@ export const useOrgs = () => {
               cancelText: t('common.cancel', 'Cancel'),
               centered: true,
               onOk: async () => {
-                // 强制删除
+                // 强制Delete
                 await deleteOrg(orgId, true);
               },
             });
@@ -400,7 +400,7 @@ export const useOrgs = () => {
 
   const chatWithAgent = useCallback((agent: any) => {
     try {
-      // 应用内路由跳转到 /chat 页面（聊天框），并传递 agentId 参数
+      // 应用内路由跳转到 /chat Page（聊天框），并传递 agentId Parameter
       navigate(`/chat?agentId=${encodeURIComponent(agent.id)}`);
     } catch (error) {
       console.error('Error navigating to chat:', error);
@@ -408,14 +408,14 @@ export const useOrgs = () => {
     }
   }, [navigate, message, t]);
 
-  // 初始化数据加载
+  // InitializeDataLoad
   useEffect(() => {
     if (username) {
       loadOrgs();
     }
   }, [username, loadOrgs]);
 
-  // 合并状态返回
+  // 合并Status返回
   const combinedState = {
     ...dataState,
     ...uiState,
@@ -424,7 +424,7 @@ export const useOrgs = () => {
   return {
     state: combinedState,
     actions: {
-      updateState: updateUIState, // 兼容现有组件
+      updateState: updateUIState, // Compatible现有Component
       loadOrgs,
       loadOrgAgents,
       loadAvailableAgents,

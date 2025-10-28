@@ -18,17 +18,17 @@ export const useOverflow = (params: { model: CommentEditorModel; height: number 
     return model.element.scrollHeight > model.element.clientHeight;
   }, [model, height, playground]);
 
-  // 更新 overflow
+  // Update overflow
   const updateOverflow = useCallback(() => {
     setOverflow(isOverflow());
   }, [isOverflow]);
 
-  // 监听高度变化
+  // ListenHeight变化
   useEffect(() => {
     updateOverflow();
   }, [height, updateOverflow]);
 
-  // 监听 change 事件
+  // Listen change Event
   useEffect(() => {
     const changeDisposer = model.on((params) => {
       if (params.type !== CommentEditorEvent.Change) {

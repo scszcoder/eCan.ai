@@ -21,10 +21,10 @@ export class AvatarEventManager {
   private eventIdCounter = 0;
   private processorIntervalId: NodeJS.Timeout | null = null;
   
-  // 队列限制配置
-  private readonly maxQueueSize = 1000; // 最大队列大小
-  private readonly maxEventsPerAgent = 100; // 每个 agent 最多保留的事件数
-  private readonly maxProcessPerTick = 10; // 每个 tick 处理的最大事件数，避免长帧
+  // 队列LimitConfiguration
+  private readonly maxQueueSize = 1000; // Maximum队列Size
+  private readonly maxEventsPerAgent = 100; // 每个 agent 最多保留的Event数
+  private readonly maxProcessPerTick = 10; // 每个 tick Process的MaximumEvent数，避免长帧
 
   constructor() {
     this.startEventProcessor();
@@ -116,17 +116,17 @@ export class AvatarEventManager {
       source
     };
 
-    // 检查队列大小限制
+    // Check队列SizeLimit
     if (this.eventQueue.length >= this.maxQueueSize) {
-      // 移除最旧的低优先级事件
+      // Remove最旧的低PriorityEvent
       this.evictOldestLowPriorityEvent();
       logger.warn(`[AvatarEventManager] Queue size limit reached (${this.maxQueueSize}), evicted oldest low-priority event`);
     }
     
-    // 检查单个 agent 的事件数量
+    // Check单个 agent 的EventCount
     const agentEventCount = this.eventQueue.filter(e => e.agentId === agentId).length;
     if (agentEventCount >= this.maxEventsPerAgent) {
-      // 移除该 agent 最旧的低优先级事件
+      // Remove该 agent 最旧的低PriorityEvent
       this.evictOldestEventForAgent(agentId);
       logger.warn(`[AvatarEventManager] Agent ${agentId} event limit reached (${this.maxEventsPerAgent}), evicted oldest event`);
     }
@@ -202,14 +202,14 @@ export class AvatarEventManager {
   }
 
   /**
-   * 移除最旧的低优先级事件
+   * Remove最旧的低PriorityEvent
    */
   private evictOldestLowPriorityEvent(): void {
-    // 优先淘汰非 HIGH 优先级中最旧的事件；若不存在，则淘汰全局最旧的事件作为回退
+    // 优先淘汰非 HIGH Priority中最旧的Event；若不存在，则淘汰全局最旧的Event作为回退
     let candidateIndex = -1;
     let candidateTimestamp = Date.now();
 
-    // 第一轮：寻找非 HIGH 的最旧事件
+    // 第一轮：寻找非 HIGH 的最旧Event
     for (let i = 0; i < this.eventQueue.length; i++) {
       const event = this.eventQueue[i];
       if (event.priority < ScenePriority.HIGH) {
@@ -240,10 +240,10 @@ export class AvatarEventManager {
   }
 
   /**
-   * 移除指定 agent 最旧的低优先级事件
+   * Remove指定 agent 最旧的低PriorityEvent
    */
   private evictOldestEventForAgent(agentId: string): void {
-    // 找到该 agent 的最旧低优先级事件
+    // 找到该 agent 的最旧低PriorityEvent
     let lowestPriority = ScenePriority.HIGH;
     let oldestIndex = -1;
     let oldestTimestamp = Date.now();
@@ -277,7 +277,7 @@ export class AvatarEventManager {
     this.isProcessing = true;
 
     try {
-      // 每个 tick 最多处理 maxProcessPerTick 个事件，避免长帧
+      // 每个 tick 最多Process maxProcessPerTick 个Event，避免长帧
       let processed = 0;
       while (this.eventQueue.length > 0 && processed < this.maxProcessPerTick) {
         const event = this.eventQueue.shift()!;
@@ -362,7 +362,7 @@ export class AvatarEventManager {
         this.eventIdCounter = 0;
         logger.info('[AvatarEventManager] Cleanup completed');
       },
-      priority: 15 // 较低优先级，让其他组件先清理
+      priority: 15 // 较低Priority，让其他Component先Cleanup
     });
   }
 

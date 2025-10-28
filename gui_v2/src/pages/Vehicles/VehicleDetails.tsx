@@ -23,11 +23,11 @@ const DetailContent = styled.div`
 `;
 
 const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange, onMaintenance, t }) => {
-  // 滚动位置保存
+  // ScrollPositionSave
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const savedScrollPositionRef = useRef<number>(0);
   
-  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
   useEffectOnActive(
     () => {
       const container = scrollContainerRef.current;
@@ -52,7 +52,7 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
     return (
         <DetailContent ref={scrollContainerRef}>
             <Space direction="vertical" style={{ width: '100%' }} size={24}>
-                {/* 新增：基础信息卡片 */}
+                {/* 新增：BaseInformation卡片 */}
                 <DetailCard
                     title={t('pages.vehicles.basicInfo')}
                     columns={2}
@@ -71,7 +71,7 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
                         { label: t('pages.vehicles.dailyMids'), value: Array.isArray(vehicle.daily_mids) ? vehicle.daily_mids.join(', ') : '' },
                     ]}
                 />
-                {/* 原有车辆信息卡片 */}
+                {/* 原有车辆Information卡片 */}
                 <DetailCard
                     title={t('pages.vehicles.vehicleInformation')}
                     columns={2}
@@ -98,7 +98,7 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
                         },
                     ]}
                 />
-                {/* 性能指标卡片 */}
+                {/* Performance指标卡片 */}
                 <DetailCard
                     title={t('pages.vehicles.performanceMetrics')}
                     columns={2}
@@ -154,18 +154,18 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
                     ]}
                 />
                 
-                {/* 设备状态卡片 */}
+                {/* 设备Status卡片 */}
                 <DetailCard
-                    title="设备状态"
+                    title="设备Status"
                     columns={2}
                     items={[
                         {
-                            label: '网络状态',
-                            value: vehicle.networkStatus === 'connected' ? '已连接' : '未连接',
+                            label: 'NetworkStatus',
+                            value: vehicle.networkStatus === 'connected' ? '已Connection' : '未Connection',
                             icon: <EnvironmentOutlined />,
                         },
                         {
-                            label: '运行时间',
+                            label: 'RunTime',
                             value: vehicle.uptime ? `${Math.floor(vehicle.uptime / 3600)}小时` : '未知',
                             icon: <ClockCircleOutlined />,
                         },
@@ -187,9 +187,9 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
                     ]}
                 />
                 
-                {/* 维护信息卡片 */}
+                {/* MaintenanceInformation卡片 */}
                 <DetailCard
-                    title="维护信息"
+                    title="MaintenanceInformation"
                     items={[
                         {
                             label: t('pages.vehicles.lastMaintenance'),

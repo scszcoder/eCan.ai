@@ -1,6 +1,6 @@
 /**
  * Schedule Calendar Page
- * 日程日历页面（新版）
+ * 日程日历Page（新版）
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -15,7 +15,7 @@ import { useTranslation } from 'react-i18next';
 const PageContainer = styled.div`
   width: 100%;
   height: 100%;
-  padding: 4px; // 最小化padding以最大化可视区域
+  padding: 4px; // Minimum化padding以Maximum化可视区域
   background: var(--bg-primary);
 `;
 
@@ -37,11 +37,11 @@ const ScheduleCalendar: React.FC = () => {
         setSchedules(scheduleData);
       } else {
         console.error('❌ Schedule API failed:', res);
-        message.error(t('pages.schedule.loadFailed', '加载日程失败'));
+        message.error(t('pages.schedule.loadFailed', 'Load日程Failed'));
       }
     } catch (error) {
       console.error('❌ Failed to load schedules:', error);
-      message.error(t('pages.schedule.loadFailed', '加载日程失败'));
+      message.error(t('pages.schedule.loadFailed', 'Load日程Failed'));
     } finally {
       setLoading(false);
     }
@@ -62,11 +62,11 @@ const ScheduleCalendar: React.FC = () => {
     try {
       // TODO: Implement create schedule API call
       console.log('Creating schedule:', scheduleData);
-      message.success(t('pages.schedule.createSuccess', '创建日程成功'));
+      message.success(t('pages.schedule.createSuccess', 'Create日程Success'));
       await loadSchedules();
     } catch (error) {
       console.error('Failed to create schedule:', error);
-      message.error(t('pages.schedule.createFailed', '创建日程失败'));
+      message.error(t('pages.schedule.createFailed', 'Create日程Failed'));
     } finally {
       setLoading(false);
     }
@@ -78,11 +78,11 @@ const ScheduleCalendar: React.FC = () => {
     try {
       // TODO: Implement update schedule API call
       console.log('Updating schedule:', schedule);
-      message.success(t('pages.schedule.updateSuccess', '更新日程成功'));
+      message.success(t('pages.schedule.updateSuccess', 'Update日程Success'));
       await loadSchedules();
     } catch (error) {
       console.error('Failed to update schedule:', error);
-      message.error(t('pages.schedule.updateFailed', '更新日程失败'));
+      message.error(t('pages.schedule.updateFailed', 'Update日程Failed'));
     } finally {
       setLoading(false);
     }
@@ -94,11 +94,11 @@ const ScheduleCalendar: React.FC = () => {
     try {
       // TODO: Implement delete schedule API call
       console.log('Deleting schedule:', schedule);
-      message.success(t('pages.schedule.deleteSuccess', '删除日程成功'));
+      message.success(t('pages.schedule.deleteSuccess', 'Delete日程Success'));
       await loadSchedules();
     } catch (error) {
       console.error('Failed to delete schedule:', error);
-      message.error(t('pages.schedule.deleteFailed', '删除日程失败'));
+      message.error(t('pages.schedule.deleteFailed', 'Delete日程Failed'));
     } finally {
       setLoading(false);
     }
@@ -112,7 +112,7 @@ const ScheduleCalendar: React.FC = () => {
       message.success(t('pages.schedule.runSuccess', '任务已启动'));
     } catch (error) {
       console.error('Failed to run task:', error);
-      message.error(t('pages.schedule.runFailed', '任务启动失败'));
+      message.error(t('pages.schedule.runFailed', '任务启动Failed'));
     }
   }, [t]);
 

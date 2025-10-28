@@ -1,6 +1,6 @@
 /**
  * Knowledge Store
- * 知识库状态管理
+ * Knowledge base state management
  */
 
 import { createExtendedResourceStore } from '../base/createBaseStore';
@@ -10,26 +10,26 @@ import { KnowledgeAPI } from '@/services/api/knowledgeApi';
 import { logger } from '@/utils/logger';
 
 /**
- * 缓存时间配置
+ * Cache duration configuration
  */
 const CACHE_DURATION = {
-  SHORT: 1 * 60 * 1000,   // 1 分钟
-  MEDIUM: 5 * 60 * 1000,  // 5 分钟
-  LONG: 15 * 60 * 1000,   // 15 分钟
+  SHORT: 1 * 60 * 1000,   // 1 minute
+  MEDIUM: 5 * 60 * 1000,  // 5 minutes
+  LONG: 15 * 60 * 1000,   // 15 minutes
 };
 
 /**
- * Knowledge Store 扩展状态
+ * Knowledge Store extended state
  */
 export interface KnowledgeStoreState extends BaseStoreState<Knowledge> {
-  // 扩展查询方法
+  // Extended query methods
   getKnowledgesByType: (type: KnowledgeType) => Knowledge[];
   getKnowledgesByStatus: (status: KnowledgeStatus) => Knowledge[];
   getKnowledgesByCategory: (category: string) => Knowledge[];
   getKnowledgesByOwner: (owner: string) => Knowledge[];
   searchKnowledges: (query: string) => Knowledge[];
   
-  // 扩展操作方法
+  // Extended operation methods
   createKnowledge: (username: string, knowledge: Knowledge) => Promise<void>;
   updateKnowledgeStatus: (username: string, id: string, status: KnowledgeStatus) => Promise<void>;
 }
@@ -41,13 +41,13 @@ export interface KnowledgeStoreState extends BaseStoreState<Knowledge> {
  * ```typescript
  * const { items: knowledges, loading, fetchItems } = useKnowledgeStore();
  * 
- * // 获取知识库
+ * // Get knowledge base
  * await fetchItems(username);
  * 
- * // 查询特定类型的知识
+ * // Query knowledge of specific type
  * const docKnowledges = useKnowledgeStore.getState().getKnowledgesByType(KnowledgeType.DOCUMENT);
  * 
- * // 创建新知识
+ * // Create new knowledge
  * await useKnowledgeStore.getState().createKnowledge(username, newKnowledge);
  * ```
  */
@@ -61,7 +61,7 @@ export const useKnowledgeStore = createExtendedResourceStore<Knowledge, Knowledg
   (baseState, set, get) => ({
     ...baseState,
     
-    // 扩展查询方法
+    // Extended query methods
     getKnowledgesByType: (type: KnowledgeType) => {
       return get().items.filter(k => k.knowledge_type === type);
     },
@@ -92,7 +92,7 @@ export const useKnowledgeStore = createExtendedResourceStore<Knowledge, Knowledg
       );
     },
     
-    // 扩展操作方法
+    // Extended operation methods
     createKnowledge: async (username: string, knowledge: Knowledge) => {
       try {
         set({ loading: true, error: null });
@@ -147,7 +147,7 @@ export const useKnowledgeStore = createExtendedResourceStore<Knowledge, Knowledg
   })
 );
 
-// 导出类型和枚举
+// Export types and enums
 export { KnowledgeType, KnowledgeStatus } from '@/types/domain/knowledge';
 export type { Knowledge } from '@/types/domain/knowledge';
 

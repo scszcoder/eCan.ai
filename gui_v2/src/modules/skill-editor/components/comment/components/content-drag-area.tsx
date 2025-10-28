@@ -19,7 +19,7 @@ export const ContentDragArea: FC<IContentDragArea> = (props) => {
   const [active, setActive] = useState(false);
 
   useEffect(() => {
-    // 当编辑器失去焦点时，取消激活状态
+    // WhenEdit器失去焦点时，CancelActiveStatus
     if (!focused) {
       setActive(false);
     }
@@ -44,7 +44,7 @@ export const ContentDragArea: FC<IContentDragArea> = (props) => {
     mouseDownEvent.stopPropagation();
     model.setFocus(false);
     selectNode(mouseDownEvent);
-    playground.node.focus(); // 防止节点无法被删除
+    playground.node.focus(); // 防止节点无法被Delete
 
     const startX = mouseDownEvent.clientX;
     const startY = mouseDownEvent.clientY;
@@ -52,10 +52,10 @@ export const ContentDragArea: FC<IContentDragArea> = (props) => {
     const handleMouseUp = (mouseMoveEvent: MouseEvent) => {
       const deltaX = mouseMoveEvent.clientX - startX;
       const deltaY = mouseMoveEvent.clientY - startY;
-      // 判断是拖拽还是点击
+      // 判断是Drag还是Click
       const delta = 5;
       if (Math.abs(deltaX) < delta && Math.abs(deltaY) < delta) {
-        // 点击后隐藏
+        // Click后Hide
         setActive(true);
       }
       document.removeEventListener('mouseup', handleMouseUp);

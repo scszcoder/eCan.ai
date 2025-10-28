@@ -19,11 +19,11 @@ const DetailContent = styled.div`
 const ToolDetail: React.FC<ToolDetailProps> = ({ tool }) => {
   const { t } = useTranslation();
   
-  // 滚动位置保存
+  // ScrollPositionSave
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const savedScrollPositionRef = useRef<number>(0);
   
-  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
   useEffectOnActive(
     () => {
       const container = scrollContainerRef.current;

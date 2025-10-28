@@ -1,11 +1,11 @@
 /**
  * Rank Store
- * 等级/职级数据管理 Store
+ * Rank/Level data management store
  * 
- * 注意：这个文件之前错误地命名为 taskStore.ts
- * 现在已经正确分离：
- * - rankStore.ts: 管理等级/职级数据
- * - taskStore.ts: 管理任务数据
+ * Note: This file was previously incorrectly named taskStore.ts
+ * Now correctly separated:
+ * - rankStore.ts: Manages rank/level data
+ * - taskStore.ts: Manages task data
  */
 
 import { create } from 'zustand';
@@ -18,14 +18,14 @@ interface RankState {
 /**
  * Rank Store
  * 
- * 用于存储当前选中的等级/职级名称
- * 这是一个简单的状态管理 store，不需要持久化或复杂的 CRUD 操作
+ * Used to store the currently selected rank/level name
+ * This is a simple state management store that doesn't require persistence or complex CRUD operations
  * 
  * @example
  * ```typescript
  * const { rankname, setRankname } = useRankStore();
  * 
- * // 设置等级
+ * // Set rank
  * setRankname('Senior');
  * ```
  */

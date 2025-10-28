@@ -1,12 +1,12 @@
 /**
  * Store Sync Manager
- * 统一管理所有 store 的数据同步
+ * 统一管理All store 的DataSync
  */
 
 import { logger } from '../../utils/logger';
 
 /**
- * Store 接口 - 所有需要同步的 store 必须实现
+ * Store Interface - AllNeedSync的 store MustImplementation
  */
 export interface SyncableStore {
   getState: () => {
@@ -17,19 +17,19 @@ export interface SyncableStore {
 }
 
 /**
- * 同步配置
+ * SyncConfiguration
  */
 export interface SyncConfig {
-  /** 是否并行同步 */
+  /** 是否并行Sync */
   parallel?: boolean;
-  /** 是否强制刷新（忽略缓存） */
+  /** 是否强制Refresh（忽略Cache） */
   force?: boolean;
-  /** 同步超时时间（毫秒） */
+  /** SyncTimeoutTime（毫秒） */
   timeout?: number;
 }
 
 /**
- * 同步结果
+ * SyncResult
  */
 export interface SyncResult {
   success: boolean;
@@ -39,25 +39,25 @@ export interface SyncResult {
 }
 
 /**
- * Store 同步管理器
+ * Store Sync管理器
  * 
- * 负责协调多个 store 的数据同步，提供统一的同步接口
+ * 负责协调多个 store 的DataSync，提供统一的SyncInterface
  * 
  * @example
  * ```typescript
  * const syncManager = StoreSyncManager.getInstance();
  * 
- * // 注册 stores
+ * // Register stores
  * syncManager.register('agent', useAgentStore);
  * syncManager.register('task', useTaskStore);
  * 
- * // 同步所有数据
+ * // SyncAllData
  * await syncManager.syncAll(username);
  * 
- * // 同步特定 stores
+ * // Sync特定 stores
  * await syncManager.sync(username, ['agent', 'task']);
  * 
- * // 清除所有数据
+ * // 清除AllData
  * syncManager.clearAll();
  * ```
  */
@@ -69,7 +69,7 @@ export class StoreSyncManager {
   private constructor() {}
 
   /**
-   * 获取单例实例
+   * Get单例实例
    */
   static getInstance(): StoreSyncManager {
     if (!StoreSyncManager.instance) {
@@ -79,9 +79,9 @@ export class StoreSyncManager {
   }
 
   /**
-   * 注册 store
+   * Register store
    * 
-   * @param name - Store 名称
+   * @param name - Store Name
    * @param store - Store 实例
    */
   register(name: string, store: SyncableStore): void {
@@ -96,7 +96,7 @@ export class StoreSyncManager {
   /**
    * 注销 store
    * 
-   * @param name - Store 名称
+   * @param name - Store Name
    */
   unregister(name: string): void {
     if (this.stores.has(name)) {
@@ -106,18 +106,18 @@ export class StoreSyncManager {
   }
 
   /**
-   * 获取已注册的 store 列表
+   * Get已Register的 store List
    */
   getRegisteredStores(): string[] {
     return Array.from(this.stores.keys());
   }
 
   /**
-   * 同步所有已注册的 stores
+   * SyncAll已Register的 stores
    * 
-   * @param username - 用户名
-   * @param config - 同步配置
-   * @returns 同步结果数组
+   * @param username - User名
+   * @param config - SyncConfiguration
+   * @returns SyncResult数组
    */
   async syncAll(
     username: string, 
@@ -128,12 +128,12 @@ export class StoreSyncManager {
   }
 
   /**
-   * 同步指定的 stores
+   * Sync指定的 stores
    * 
-   * @param username - 用户名
-   * @param storeNames - 要同步的 store 名称数组
-   * @param config - 同步配置
-   * @returns 同步结果数组
+   * @param username - User名
+   * @param storeNames - 要Sync的 store Name数组
+   * @param config - SyncConfiguration
+   * @returns SyncResult数组
    */
   async sync(
     username: string,
@@ -159,7 +159,7 @@ export class StoreSyncManager {
 
     try {
       if (parallel) {
-        // 并行同步
+        // 并行Sync
         const promises = storeNames.map(name => 
           this.syncStore(username, name, force, timeout)
         );
@@ -177,7 +177,7 @@ export class StoreSyncManager {
           }
         });
       } else {
-        // 串行同步
+        // 串行Sync
         for (const name of storeNames) {
           const result = await this.syncStore(username, name, force, timeout);
           results.push(result);
@@ -200,13 +200,13 @@ export class StoreSyncManager {
   }
 
   /**
-   * 同步单个 store
+   * Sync单个 store
    * 
-   * @param username - 用户名
-   * @param storeName - Store 名称
-   * @param force - 是否强制刷新
-   * @param timeout - 超时时间
-   * @returns 同步结果
+   * @param username - User名
+   * @param storeName - Store Name
+   * @param force - 是否强制Refresh
+   * @param timeout - TimeoutTime
+   * @returns SyncResult
    */
   private async syncStore(
     username: string,
@@ -230,7 +230,7 @@ export class StoreSyncManager {
     try {
       const state = store.getState();
       
-      // 检查是否需要同步
+      // Check是否NeedSync
       if (!force && !state.shouldFetch()) {
         logger.debug(`[SyncManager] Store "${storeName}" using cached data`);
         return {
@@ -240,12 +240,12 @@ export class StoreSyncManager {
         };
       }
 
-      // 创建超时 Promise
+      // CreateTimeout Promise
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error('Sync timeout')), timeout);
       });
 
-      // 执行同步
+      // ExecuteSync
       await Promise.race([
         state.fetchItems(username),
         timeoutPromise,
@@ -273,7 +273,7 @@ export class StoreSyncManager {
   }
 
   /**
-   * 清除所有 stores 的数据
+   * 清除All stores 的Data
    */
   clearAll(): void {
     logger.info('[SyncManager] Clearing all stores');
@@ -289,9 +289,9 @@ export class StoreSyncManager {
   }
 
   /**
-   * 清除指定 stores 的数据
+   * 清除指定 stores 的Data
    * 
-   * @param storeNames - 要清除的 store 名称数组
+   * @param storeNames - 要清除的 store Name数组
    */
   clear(storeNames: string[]): void {
     logger.info(`[SyncManager] Clearing stores: ${storeNames.join(', ')}`);
@@ -312,13 +312,13 @@ export class StoreSyncManager {
   }
 
   /**
-   * 检查是否有同步正在进行
+   * Check是否有Sync正在进行
    */
   isSyncing(): boolean {
     return this.syncInProgress;
   }
 }
 
-// 导出单例实例
+// Export单例实例
 export const storeSyncManager = StoreSyncManager.getInstance();
 

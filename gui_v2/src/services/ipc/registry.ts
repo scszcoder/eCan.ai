@@ -1,12 +1,12 @@
 /**
- * IPC 处理器注册表
- * 管理 IPC 请求处理器的注册和查找
+ * IPC Process器Register表
+ * 管理 IPC RequestProcess器的Register和查找
  */
 import { IPCRequestHandler } from './types';
 import { logger } from '../../utils/logger';
 
 /**
- * IPC 处理器注册表类
+ * IPC Process器Register表类
  */
 export class IPCHandlerRegistry {
     private static instance: IPCHandlerRegistry;
@@ -17,8 +17,8 @@ export class IPCHandlerRegistry {
     }
 
     /**
-     * 获取注册表单例
-     * @returns 注册表实例
+     * GetRegisterForm例
+     * @returns Register表实例
      */
     public static getInstance(): IPCHandlerRegistry {
         if (!IPCHandlerRegistry.instance) {
@@ -28,9 +28,9 @@ export class IPCHandlerRegistry {
     }
 
     /**
-     * 注册请求处理器
-     * @param method - 请求方法名
-     * @param handler - 请求处理器函数
+     * RegisterRequestProcess器
+     * @param method - RequestMethod名
+     * @param handler - RequestProcess器Function
      */
     public register(method: string, handler: IPCRequestHandler): void {
         if (this.handlers.has(method)) {
@@ -41,25 +41,25 @@ export class IPCHandlerRegistry {
     }
 
     /**
-     * 获取请求处理器
-     * @param method - 请求方法名
-     * @returns 请求处理器函数，如果不存在则返回 undefined
+     * GetRequestProcess器
+     * @param method - RequestMethod名
+     * @returns RequestProcess器Function，If不存在则返回 undefined
      */
     public getHandler(method: string): IPCRequestHandler | undefined {
         return this.handlers.get(method);
     }
 
     /**
-     * 列出所有已注册的处理器
-     * @returns 处理器方法名列表
+     * 列出All已Register的Process器
+     * @returns Process器Method名List
      */
     public listHandlers(): string[] {
         return Array.from(this.handlers.keys());
     }
 
     /**
-     * 清除所有处理器
-     * 主要用于测试或重置
+     * 清除AllProcess器
+     * MainUsed forTest或Reset
      */
     public clearHandlers(): void {
         this.handlers.clear();

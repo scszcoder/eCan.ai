@@ -222,7 +222,7 @@ const ChatList: React.FC<ChatListProps> = ({
         setHoveredDeleteButton(null);
     };
 
-    // 格式化时间显示
+    // FormatTimeDisplay
     const formatTime = (timestamp?: number): string => {
         if (!timestamp) return '--:--';
         
@@ -231,11 +231,11 @@ const ChatList: React.FC<ChatListProps> = ({
         
         const now = new Date();
         
-        // 同一天显示时间，不同天显示日期
+        // 同一天DisplayTime，不同天DisplayDate
         if (date.toDateString() === now.toDateString()) {
             return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         } else {
-            // 一周内显示星期几，否则显示日期
+            // 一周内Display星期几，否则DisplayDate
             const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
             if (diffDays < 7) {
                 const weekdays = [

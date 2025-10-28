@@ -25,7 +25,7 @@ const OrgModal: React.FC<OrgModalProps> = ({
 }) => {
   const { t } = useTranslation();
   
-  // 只在 Modal 可见时创建 Form 实例
+  // 只在 Modal 可见时Create Form 实例
   const [form] = Form.useForm();
 
   const isEditing = !!editingOrg;

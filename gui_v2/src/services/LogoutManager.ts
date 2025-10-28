@@ -1,6 +1,6 @@
 /**
- * 前端Logout管理器
- * 负责协调所有前端组件和服务的清理工作
+ * FrontendLogout管理器
+ * 负责协调AllFrontendComponent和Service的Cleanup工作
  */
 import { logger } from '../utils/logger';
 import { get_ipc_api } from './ipc_api';
@@ -8,7 +8,7 @@ import { get_ipc_api } from './ipc_api';
 export interface CleanupFunction {
   name: string;
   cleanup: () => void | Promise<void>;
-  priority?: number; // 优先级，数字越小越先执行
+  priority?: number; // Priority，数字越小越先Execute
 }
 
 export class LogoutManager {
@@ -26,17 +26,17 @@ export class LogoutManager {
   }
 
   /**
-   * 注册清理函数
+   * RegisterCleanupFunction
    */
   public registerCleanup(cleanup: CleanupFunction): void {
     this.cleanupFunctions.push(cleanup);
-    // 按优先级排序，优先级小的先执行
+    // 按PrioritySort，Priority小的先Execute
     this.cleanupFunctions.sort((a, b) => (a.priority || 100) - (b.priority || 100));
     logger.debug(`[LogoutManager] Registered cleanup function: ${cleanup.name}`);
   }
 
   /**
-   * 取消注册清理函数
+   * CancelRegisterCleanupFunction
    */
   public unregisterCleanup(name: string): void {
     const index = this.cleanupFunctions.findIndex(fn => fn.name === name);
@@ -47,14 +47,14 @@ export class LogoutManager {
   }
 
   /**
-   * 检查是否正在登出
+   * Check是否正在Logout
    */
   public isLoggingOutNow(): boolean {
     return this.isLoggingOut;
   }
 
   /**
-   * 执行logout流程
+   * Executelogout流程
    */
   public async logout(): Promise<void> {
     if (this.isLoggingOut) {
@@ -66,13 +66,13 @@ export class LogoutManager {
     logger.info('[LogoutManager] Starting logout process...');
 
     try {
-      // 1. 首先执行前端清理
+      // 1. 首先ExecuteFrontendCleanup
       await this.executeCleanup();
 
-      // 2. 然后调用后端logout
+      // 2. 然后调用Backendlogout
       await this.callBackendLogout();
 
-      // 3. 清理本地存储
+      // 3. CleanupLocalStorage
       this.clearLocalStorage();
 
       logger.info('[LogoutManager] Logout process completed successfully');
@@ -85,7 +85,7 @@ export class LogoutManager {
   }
 
   /**
-   * 执行所有注册的清理函数
+   * ExecuteAllRegister的CleanupFunction
    */
   private async executeCleanup(): Promise<void> {
     logger.info(`[LogoutManager] Executing ${this.cleanupFunctions.length} cleanup functions...`);
@@ -100,7 +100,7 @@ export class LogoutManager {
         logger.debug(`[LogoutManager] Cleanup completed: ${cleanupFn.name}`);
       } catch (error) {
         logger.error(`[LogoutManager] Error in cleanup function ${cleanupFn.name}:`, error);
-        // 继续执行其他清理函数，不因为一个失败而停止
+        // 继续Execute其他CleanupFunction，不因为一个Failed而停止
       }
     }
 
@@ -108,7 +108,7 @@ export class LogoutManager {
   }
 
   /**
-   * 调用后端logout API
+   * 调用Backendlogout API
    */
   private async callBackendLogout(): Promise<void> {
     try {
@@ -126,18 +126,18 @@ export class LogoutManager {
       }
     } catch (error) {
       logger.error('[LogoutManager] Error calling backend logout:', error);
-      // 不抛出错误，因为前端清理已经完成
+      // 不抛出Error，因为FrontendCleanup已经Completed
     }
   }
 
   /**
-   * 清理本地存储
+   * CleanupLocalStorage
    */
   private clearLocalStorage(): void {
     try {
       logger.info('[LogoutManager] Clearing local storage...');
       
-      // 清理用户相关的localStorage项
+      // CleanupUserRelated tolocalStorage项
       const keysToRemove = [
         'userSession',
         'loginSession',
@@ -153,7 +153,7 @@ export class LogoutManager {
         }
       });
 
-      // 清理sessionStorage
+      // CleanupsessionStorage
       sessionStorage.clear();
       logger.debug('[LogoutManager] Cleared sessionStorage');
 
@@ -164,7 +164,7 @@ export class LogoutManager {
   }
 
   /**
-   * 重置管理器状态（用于测试）
+   * Reset管理器Status（Used forTest）
    */
   public reset(): void {
     this.cleanupFunctions = [];
@@ -173,5 +173,5 @@ export class LogoutManager {
   }
 }
 
-// 导出单例实例
+// Export单例实例
 export const logoutManager = LogoutManager.getInstance();

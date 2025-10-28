@@ -9,7 +9,7 @@ import GraphTab from './GraphTab';
 const KnowledgePortedPage: React.FC = () => {
   const { token } = theme.useToken();
   
-  // 调试：输出 token 值
+  // Debug：Output token Value
   React.useEffect(() => {
     console.log('=== Knowledge Page Token Debug ===');
     console.log('colorBgLayout:', token.colorBgLayout);

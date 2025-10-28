@@ -7,15 +7,15 @@ import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
 
 /**
- * QuickActionMenu - 快速操作菜单组件
+ * QuickActionMenu - FastOperationMenuComponent
  * 
- * 提供快速添加各种资源的下拉菜单，可扩展支持更多操作
+ * 提供FastAdd各种资源的下拉Menu，可ExtendedSupport更多Operation
  * 
  * @example
  * <QuickActionMenu />
  */
 
-// 自定义下拉菜单样式，与主题一致
+// Custom下拉Menu样式，与主题一致
 const StyledDropdown = styled(Dropdown)`
     .ant-dropdown-menu {
         background: rgba(15, 23, 42, 0.98) !important;
@@ -74,13 +74,13 @@ const QuickActionMenu: React.FC = () => {
     const location = useLocation();
     const { t } = useTranslation();
 
-    // 从当前路径中提取组织ID
+    // 从When前Path中提取组织ID
     const currentOrgId = useMemo(() => {
         const orgMatches = location.pathname.match(/organization\/([^/]+)/g);
         if (orgMatches && orgMatches.length > 0) {
             const lastMatch = orgMatches[orgMatches.length - 1];
             const orgId = lastMatch.replace('organization/', '');
-            // 排除特殊的组织ID
+            // Exclude特殊的组织ID
             if (orgId !== 'root' && orgId !== 'unassigned') {
                 return orgId;
             }
@@ -88,14 +88,14 @@ const QuickActionMenu: React.FC = () => {
         return null;
     }, [location.pathname]);
 
-    // 定义菜单项 - 可以轻松扩展
+    // DefinitionMenu项 - Can轻松Extended
     const menuItems: MenuProps['items'] = [
         {
             key: 'add-agent',
             icon: <RobotOutlined />,
-            label: t('agents.addAgent', '添加代理'),
+            label: t('agents.addAgent', 'Add代理'),
             onClick: () => {
-                // 如果当前在组织页面，传递组织ID
+                // IfWhen前在组织Page，传递组织ID
                 const queryParams = new URLSearchParams();
                 if (currentOrgId) {
                     queryParams.set('orgId', currentOrgId);
@@ -106,11 +106,11 @@ const QuickActionMenu: React.FC = () => {
                 navigate(targetUrl);
             },
         },
-        // 可以在这里添加更多菜单项
+        // Can在这里Add更多Menu项
         // {
         //     key: 'add-skill',
         //     icon: <ToolOutlined />,
-        //     label: t('skills.addSkill', '添加技能'),
+        //     label: t('skills.addSkill', 'Add技能'),
         //     onClick: () => navigate('/skills/add'),
         // },
     ];

@@ -19,7 +19,7 @@ import { getDisplayMsg } from './utils/displayMsg';
 import { iTagManager } from './managers/ITagManager';
 import { chatStateManager } from './managers/ChatStateManager';
 
-// 工具函数：尝试将字符串解析为对象
+// ToolFunction：尝试将字符串Parse为对象
 function parseMaybeJson(str: any): any {
     if (typeof str === 'string') {
         try {
@@ -38,7 +38,7 @@ const ChatPage: React.FC = () => {
     const agents = useAgentStore(state => state.agents);
     const getMyTwinAgent = useAgentStore(state => state.getMyTwinAgent);
     
-    // 直接从 store 获取 myTwinAgent，确保始终是最新的
+    // 直接从 store Get myTwinAgent，确保始终是最新的
     const myTwinAgent = getMyTwinAgent();
     const myTwinAgentId = myTwinAgent?.card?.id;
     
@@ -92,7 +92,7 @@ const ChatPage: React.FC = () => {
     const [hasFetched, setHasFetched] = useState(false);
     const [isInitialLoading, setIsInitialLoading] = useState(false);
     
-    // 引用型状态，用于跟踪和控制
+    // Reference型Status，Used for跟踪和控制
     const lastFetchedAgentId = useRef<string | undefined>();
     const prevInitialized = useRef(initialized);
     const fetchOnceRef = useRef(false);
@@ -106,22 +106,22 @@ const ChatPage: React.FC = () => {
     const lastAutoSelectAgentId = useRef<string | undefined>(); // Track agentId when last auto-selected
     const handleChatSelectRef = useRef<((chatId: string) => Promise<void>) | null>(null); // Ref to handleChatSelect
     
-    // 每次渲染都更新 ref，确保它始终指向最新的 handleChatSelect
+    // 每次Render都Update ref，确保它始终指向最新的 handleChatSelect
     handleChatSelectRef.current = null; // Will be set later after handleChatSelect is defined
 
-    // 使用全局通知管理器和消息管理器
+    // 使用全局Notification管理器和Message管理器
     const { hasNew, markAsRead } = useChatNotifications(activeChatId || '');
     const { allMessages, unreadCounts, markAsRead: markMessageAsRead, updateMessages, addMessageToChat, updateMessage } = useMessages();
 
-    // 新增独立的 loading 状态
+    // 新增独立的 loading Status
     const [isInitialLoadingNotifications, setIsInitialLoadingNotifications] = useState(false);
     
-    // 过滤器和搜索状态
+    // Filter器和SearchStatus
     const [searchText, setSearchText] = useState('');
-    const searchTextRef = useRef(''); // 保存最新的搜索文本
+    const searchTextRef = useRef(''); // Save最新的Search文本
     const [showFilterModal, setShowFilterModal] = useState(false);
 
-    // 组件挂载时初始化并确保 agents 已加载
+    // ComponentMount时Initialize并确保 agents 已Load
     useEffect(() => {
         const initializeComponent = async () => {
             const agentStore = useAgentStore.getState();
@@ -129,9 +129,9 @@ const ChatPage: React.FC = () => {
                 await agentStore.fetchAgents(username);
             }
             
-            // 注意：滚动状态由 KeepAlive 自动管理，不需要手动清理
+            // Note：ScrollStatus由 KeepAlive 自动管理，不Need手动Cleanup
             
-            // agents 加载完成后，设置标志（移除 setTimeout，直接设置）
+            // agents LoadCompleted后，Settings标志（Remove setTimeout，直接Settings）
             effectsCompletedRef.current = true;
         };
         
@@ -144,21 +144,21 @@ const ChatPage: React.FC = () => {
         };
     }, [username]);
     
-    // 统一的数据获取 effect - 合并 myTwinAgentId、initialized 和 agentId 的监听
+    // 统一的DataGet effect - 合并 myTwinAgentId、initialized 和 agentId 的Listen
     useEffect(() => {
-        // 检查是否需要获取数据
+        // Check是否NeedGetData
         const shouldFetch = (
-            myTwinAgentId && // 必须有 myTwinAgentId
-            !isFetchingRef.current && // 不在获取中
+            myTwinAgentId && // Must有 myTwinAgentId
+            !isFetchingRef.current && // 不在Get中
             (
-                !fetchOnceRef.current || // 首次获取
+                !fetchOnceRef.current || // 首次Get
                 (initialized && !hasFetched) || // initialized 变化
                 agentId !== lastFetchedAgentId.current // agentId 变化
             )
         );
         
         if (shouldFetch) {
-            // 更新标志
+            // Update标志
             if (!fetchOnceRef.current) {
                 fetchOnceRef.current = true;
             }
@@ -169,21 +169,21 @@ const ChatPage: React.FC = () => {
                 lastFetchedAgentId.current = agentId || undefined;
             }
             
-            // 直接调用 fetchChats（移除 setTimeout）
+            // 直接调用 fetchChats（Remove setTimeout）
             fetchChats();
         }
         
-        // 更新 prevInitialized
+        // Update prevInitialized
         prevInitialized.current = initialized;
     }, [myTwinAgentId, initialized, hasFetched, agentId]);
 
-    // 追踪上一次的消息和未读数，避免不必要的更新
+    // 追踪上一次的Message和未读数，避免不必要的Update
     const prevMessagesRef = useRef<Map<string, Message[]>>(new Map());
     const prevUnreadRef = useRef<Map<string, number>>(new Map());
 
-    // 同步消息管理器中的消息到聊天列表（优化版本：只在真正变化时更新）
+    // SyncMessage管理器中的Message到聊天List（OptimizeVersion：只在真正变化时Update）
     useEffect(() => {
-        // 检查是否有真正的变化
+        // Check是否有真正的变化
         let hasChanges = false;
         
         for (const chat of chats) {
@@ -192,13 +192,13 @@ const ChatPage: React.FC = () => {
             const currentUnread = unreadCounts.get(chat.id) || 0;
             const prevUnread = prevUnreadRef.current.get(chat.id) || 0;
             
-            // 比较消息数量和未读数
+            // 比较MessageCount和未读数
             if (currentMessages.length !== prevMessages.length || currentUnread !== prevUnread) {
                 hasChanges = true;
                 break;
             }
             
-            // 如果数量相同，检查最后一条消息是否变化
+            // IfCount相同，Check最后一条Message是否变化
             if (currentMessages.length > 0 && prevMessages.length > 0) {
                 const lastCurrent = currentMessages[currentMessages.length - 1];
                 const lastPrev = prevMessages[prevMessages.length - 1];
@@ -209,22 +209,22 @@ const ChatPage: React.FC = () => {
             }
         }
         
-        // 只在有变化时才更新
+        // 只在有变化时才Update
         if (!hasChanges) {
             return;
         }
         
-        // 更新引用
+        // UpdateReference
         prevMessagesRef.current = new Map(allMessages);
         prevUnreadRef.current = new Map(unreadCounts);
         
-        // 更新 chats
+        // Update chats
         setChats(prevChats => {
             return prevChats.map(chat => {
                 const messages = allMessages.get(chat.id) || [];
                 const unreadCount = unreadCounts.get(chat.id) || 0;
 
-                // 乐观刷新：取已发送成功或发送中的消息
+                // 乐观Refresh：取已SendSuccess或Send中的Message
                 const validMessages = messages.filter(m => m.status === 'complete' || m.status === 'sending');
                 let lastMsg = chat.lastMsg;
                 let lastMsgTime = chat.lastMsgTime;
@@ -247,14 +247,14 @@ const ChatPage: React.FC = () => {
         });
     }, [allMessages, unreadCounts, chats, t]);
 
-    // 抽取获取聊天的函数，可以在多个地方调用
+    // 抽取Get聊天的Function，Can在多个地方调用
     const fetchChats = async () => {
-        // 如果已经在获取中，跳过
+        // If已经在Get中，跳过
         if (isFetchingRef.current) {
             return;
         }
         
-        // 设置加载状态和锁
+        // SettingsLoadStatus和锁
         setIsLoading(true);
         isFetchingRef.current = true;
         
@@ -271,7 +271,7 @@ const ChatPage: React.FC = () => {
                 return;
             }
             
-            // 使用 ref 获取最新的搜索文本
+            // 使用 ref Get最新的Search文本
             const currentSearchText = searchTextRef.current;
             
             // Only use cache if: no search text, cache exists, AND cache is for the same userId
@@ -279,7 +279,7 @@ const ChatPage: React.FC = () => {
                 allChatsCache.current.length > 0 && 
                 cachedUserId.current === targetUserId) {
                 setChats(prevChats => {
-                    // 如果缓存和当前数据相同，不更新（避免重新渲染）
+                    // IfCache和When前Data相同，不Update（避免重新Render）
                     if (prevChats === allChatsCache.current) {
                         return prevChats;
                     }
@@ -294,9 +294,9 @@ const ChatPage: React.FC = () => {
                 cachedUserId.current = targetUserId;
             }
             
-            // 根据是否有搜索文本选择不同的 API
+            // 根据是否有Search文本Select不同的 API
             if (currentSearchText && currentSearchText.trim()) {
-                // 使用搜索 API
+                // 使用Search API
                 const response = await get_ipc_api().chatApi.searchChats(
                     targetUserId,
                     currentSearchText,
@@ -310,11 +310,11 @@ const ChatPage: React.FC = () => {
                             ? response.data as Chat[]
                             : [];
                     
-                    // 解析并格式化 lastMsg 字段
+                    // Parse并Format lastMsg Field
                     chatData = chatData.map(chat => {
                         let parsedMsg = chat.lastMsg;
                         
-                        // 如果是字符串，先解析
+                        // If是字符串，先Parse
                         if (typeof parsedMsg === 'string') {
                             try {
                                 parsedMsg = JSON.parse(parsedMsg);
@@ -323,21 +323,21 @@ const ChatPage: React.FC = () => {
                             }
                         }
                         
-                        // 使用 getDisplayMsg 格式化显示
+                        // 使用 getDisplayMsg FormatDisplay
                         return {
                             ...chat,
                             lastMsg: getDisplayMsg(parsedMsg, t),
                         };
                     });
                     
-                    // 智能更新：保持现有聊天的引用，只更新变化的部分
+                    // 智能Update：保持现有聊天的Reference，只Update变化的部分
                     setChats(prevChats => {
-                        // 如果数据相同，不更新（避免闪烁）
+                        // IfData相同，不Update（避免闪烁）
                         if (prevChats.length === chatData.length && 
                             prevChats.every((chat, i) => chat.id === chatData[i]?.id)) {
                             return prevChats;
                         }
-                        // 如果搜索结果为空且之前有数据，也保持引用（避免闪烁）
+                        // IfSearchResult为空且之前有Data，也保持Reference（避免闪烁）
                         if (chatData.length === 0 && prevChats.length > 0) {
                             return prevChats;
                         }
@@ -348,39 +348,39 @@ const ChatPage: React.FC = () => {
                     setChats([]);
                 }
             } else {
-                // 使用普通查询 API
+                // 使用普通Query API
                 await getChatsAndSetState(targetUserId);
             }
         } catch (error) {
             logger.error("Error in fetchChats:", error);
         } finally {
-            // 重置加载状态和锁
+            // ResetLoadStatus和锁
             setIsLoading(false);
             isFetchingRef.current = false;
         }
     };
     
-    // 处理agentId变化的函数
+    // ProcessagentId变化的Function
     const handleAgentIdChange = async (targetAgentId: string) => {
         if (!targetAgentId) return;
         
         
-        // 查找是否存在包含该agentId的聊天
+        // 查找是否存在Include该agentId的聊天
         const chatWithAgent = chats.find(chat => 
             chat.members?.some(member => member.userId === targetAgentId)
         );
         
         if (chatWithAgent) {
-            // 如果找到，设置为活动聊天并获取消息
+            // If找到，Settings为活动聊天并GetMessage
             // 直接调用setActiveChatIdAndFetchMessages，避免重复调用handleChatSelect
             setActiveChatIdAndFetchMessages(chatWithAgent.id);
         } else {
-            // 如果没找到，创建新的聊天
+            // If没找到，Create新的聊天
             await createChatWithAgent(targetAgentId);
         }
     };
 
-    // 通用获取聊天数据的函数，使用新的 API，并在获取数据后处理agentId相关逻辑
+    // GeneralGet聊天Data的Function，使用新的 API，并在GetData后ProcessagentId相关逻辑
     const getChatsAndSetState = async (userId?: string) => {
         if (!userId) {
             logger.error("[getChatsAndSetState] Missing userId");
@@ -388,10 +388,10 @@ const ChatPage: React.FC = () => {
         }
         
         try {
-            // 使用新的 API 获取聊天数据
+            // 使用新的 API Get聊天Data
             const response = await get_ipc_api().chatApi.getChats(
                 userId,
-                false // deep 参数，按需可调整
+                false // deep Parameter，按需可调整
             );
             if (response.success && response.data) {
                 let chatData: Chat[] = Array.isArray((response.data as any).data)
@@ -407,44 +407,44 @@ const ChatPage: React.FC = () => {
                     }
                 }
                 
-                // 这里直接对 lastMsg 做 display 解析
+                // 这里直接对 lastMsg 做 display Parse
                 const processedChats = chatData.map(chat => ({
                     ...chat,
                     lastMsg: getDisplayMsg(chat.lastMsg, t),
                 }));
                 
-                // 更新缓存
+                // UpdateCache
                 allChatsCache.current = processedChats;
                 
                 setChats(processedChats);
                 
-                // 处理agentId相关逻辑
+                // ProcessagentId相关逻辑
                 if (agentId) {
                     // Get the latest myTwinAgentId
                     const currentMyTwinAgent = useAgentStore.getState().getMyTwinAgent();
                     const currentMyTwinAgentId = currentMyTwinAgent?.card?.id;
                     
-                    // 1. 查找是否存在包含该agentId的聊天
+                    // 1. 查找是否存在Include该agentId的聊天
                     const chatWithAgent = chatData.find(chat => 
                         chat.members?.some(member => member.userId === agentId)
                     );
                     
                     if (chatWithAgent) {
-                        // 2A. 如果找到，设置为活动聊天
+                        // 2A. If找到，Settings为活动聊天
                         // 直接调用setActiveChatIdAndFetchMessages，避免重复调用handleChatSelect
                         setActiveChatIdAndFetchMessages(chatWithAgent.id);
                     } else if (agentId === currentMyTwinAgentId) {
-                        // 2B. 如果 agentId 是 MyTwinAgent，不要创建聊天（会被过滤掉）
-                        // 而是选择第一个可用的聊天（但要排除 My Twin Agent 自己的聊天）
+                        // 2B. If agentId 是 MyTwinAgent，不要Create聊天（会被Filter掉）
+                        // 而是Select第一个Available的聊天（但要Exclude My Twin Agent 自己的聊天）
                         if (chatData.length > 0) {
-                            // 应用过滤逻辑，找到第一个不是 "My Twin Agent" 的聊天
+                            // 应用Filter逻辑，找到第一个not "My Twin Agent" 的聊天
                             const firstValidChat = chatData.find(chat => {
-                                // 过滤掉名为 "My Twin Agent" 的聊天
+                                // Filter掉名为 "My Twin Agent" 的聊天
                                 if (chat.name === 'My Twin Agent') {
                                     return false;
                                 }
                                 
-                                // 过滤掉只有 My Twin Agent 的聊天
+                                // Filter掉只有 My Twin Agent 的聊天
                                 if (chat.members && chat.members.length > 0) {
                                     const nonMyTwinMembers = chat.members.filter(m => m.userId !== currentMyTwinAgentId);
                                     if (nonMyTwinMembers.length === 0) {
@@ -452,7 +452,7 @@ const ChatPage: React.FC = () => {
                                     }
                                 }
                                 
-                                // 过滤掉 agent_id 等于 myTwinAgentId 的聊天
+                                // Filter掉 agent_id 等于 myTwinAgentId 的聊天
                                 if ((chat as any).agent_id === currentMyTwinAgentId) {
                                     return false;
                                 }
@@ -467,14 +467,14 @@ const ChatPage: React.FC = () => {
                             }
                         }
                     } else {
-                        // 2C. 如果没找到，且不是 MyTwinAgent，创建新的聊天
-                        // 检查是否已经在创建聊天中
+                        // 2C. If没找到，且not MyTwinAgent，Create新的聊天
+                        // Check是否已经在Create聊天中
                         if (!isCreatingChatRef.current) {
                             await createChatWithAgent(agentId);
                         }
                     }
                 } else if (chatData.length > 0) {
-                    // 如果没有agentId，但有聊天列表，选择第一个聊天
+                    // If没有agentId，但有聊天List，Select第一个聊天
                     const selectedChatId = chatData[0].id;
                     // 直接调用setActiveChatIdAndFetchMessages，避免重复调用handleChatSelect
                     setActiveChatIdAndFetchMessages(selectedChatId);
@@ -490,7 +490,7 @@ const ChatPage: React.FC = () => {
         }
     };
     
-    // 创建和Agent的聊天的辅助函数
+    // Create和Agent的聊天的HelperFunction
     const createChatWithAgent = async (targetAgentId: string) => {
         // Get the latest myTwinAgentId from store
         const currentMyTwinAgent = useAgentStore.getState().getMyTwinAgent();
@@ -501,28 +501,28 @@ const ChatPage: React.FC = () => {
             return;
         }
         
-        // 检查是否是和自己聊天（targetAgentId === currentMyTwinAgentId）
+        // Check是否是和自己聊天（targetAgentId === currentMyTwinAgentId）
         const isSelfChat = targetAgentId === currentMyTwinAgentId;
         
-        // 🚫 阻止创建只包含 My Twin Agent 的聊天（会被过滤掉）
+        // 🚫 阻止Create只Include My Twin Agent 的聊天（会被Filter掉）
         if (isSelfChat) {
             logger.warn("[createChatWithAgent] Preventing creation of self-chat with My Twin Agent (would be filtered)");
             return;
         }
         
-        // 如果已经在创建聊天中，跳过
+        // If已经在Create聊天中，跳过
         if (isCreatingChatRef.current) {
             return;
         }
         
-        // 设置创建聊天锁
+        // SettingsCreate聊天锁
         isCreatingChatRef.current = true;
         
         try {
             const my_twin_agent = useAgentStore.getState().getAgentById(currentMyTwinAgentId);
             const receiver_agent = useAgentStore.getState().getAgentById(targetAgentId);
             
-            // 创建聊天数据（isSelfChat 已经在前面被阻止了，这里不会执行）
+            // Create聊天Data（isSelfChat 已经在前面被阻止了，这里不会Execute）
             const chatData = {
                 members: [
                     {"userId": currentMyTwinAgentId, "role": "user", "name": my_twin_agent?.card.name || "you"},
@@ -530,7 +530,7 @@ const ChatPage: React.FC = () => {
                 ],
                 name: receiver_agent?.card.name || `Chat with ${targetAgentId}`,
                 type: 'user-agent',
-                agent_id: targetAgentId,  // ✅ 添加 agent_id
+                agent_id: targetAgentId,  // ✅ Add agent_id
             };
             
             const response = await get_ipc_api().chatApi.createChat(chatData);
@@ -540,10 +540,10 @@ const ChatPage: React.FC = () => {
             if (resp.success && resp.data) {
                 // Check if backend operation succeeded (new chat created)
                 if (resp.data.success && resp.data.data) {
-                    // 提取新聊天数据
+                    // 提取新聊天Data
                     const newChat = { ...resp.data.data, name: resp.data.data.name || chatData.name } as Chat;
                     
-                    // 更新聊天列表
+                    // Update聊天List
                     setChats(prevChats => {
                         const exists = prevChats.some(c => c.id === newChat.id);
                         return exists
@@ -551,7 +551,7 @@ const ChatPage: React.FC = () => {
                             : [...prevChats, newChat];
                     });
                     
-                    // 设置为活动聊天并获取消息
+                    // Settings为活动聊天并GetMessage
                     setActiveChatIdAndFetchMessages(newChat.id);
                 } else if (!resp.data.success && resp.data.data) {
                     // Chat already exists - backend returns existing chat data when duplicate detected
@@ -576,54 +576,54 @@ const ChatPage: React.FC = () => {
         } catch (error) {
             logger.error('[createChatWithAgent] Error creating chat:', error);
         } finally {
-            // 重置创建聊天锁
+            // ResetCreate聊天锁
             isCreatingChatRef.current = false;
         }
     };
 
-    // 页面初始化
+    // PageInitialize
     useEffect(() => {
-        // 只要 initialized 变 true，重置 hasFetched
+        // 只要 initialized 变 true，Reset hasFetched
         if (initialized) setHasFetched(false);
     }, [initialized]);
 
     const handleFilterChange = useCallback(() => {
     }, []);
 
-    // 新增：设置activeChatId并获取消息的函数，避免重复调用handleChatSelect
+    // 新增：SettingsactiveChatId并GetMessage的Function，避免重复调用handleChatSelect
     const setActiveChatIdAndFetchMessages = useCallback((chatId: string) => {
-        // 注意：选中的聊天ID由 KeepAlive 自动保持，不需要手动保存
+        // Note：选中的聊天ID由 KeepAlive 自动保持，不Need手动Save
         
         setActiveChatId(chatId);
-        // 直接调用 handleChatSelect（移除 setTimeout，使用 ref 确保最新函数）
+        // 直接调用 handleChatSelect（Remove setTimeout，使用 ref 确保最新Function）
         if (handleChatSelectRef.current) {
             handleChatSelectRef.current(chatId);
         }
     }, [username, agentId, chats, myTwinAgentId]);
 
-    // 设置活动聊天ID
+    // Settings活动聊天ID
     const setActiveChat = useCallback((chatId: string) => {
-        // 如果是通过setActiveChatIdAndFetchMessages调用的，不需要再次设置activeChatId
+        // If是通过setActiveChatIdAndFetchMessages调用的，不Need再次SettingsactiveChatId
         if (activeChatId !== chatId) {
             setActiveChatId(chatId);
         }
     }, [activeChatId]);
 
-    // 标记消息为已读
+    // 标记Message为已读
     const markChatAsRead = useCallback((chatId: string) => {
         markMessageAsRead(chatId);
     }, [markMessageAsRead]);
 
-    // 假设 PAGE_SIZE 已定义（如 20），否则加上 const PAGE_SIZE = 20;
+    // 假设 PAGE_SIZE 已Definition（如 20），否则加上 const PAGE_SIZE = 20;
     const PAGE_SIZE = 20;
-    // 获取并处理聊天消息
+    // Get并Process聊天Message
     const fetchAndProcessChatMessages = async (chatId: string, setIsInitialLoading?: (loading: boolean) => void) => {
         try {
             const response = await get_ipc_api().chatApi.getChatMessages({
                 chatId,
                 limit: PAGE_SIZE,
                 offset: 0,
-                reverse: true  // 获取最新的消息（倒序）
+                reverse: true  // Get最新的Message（倒序）
             });
             console.log("[chat message] result>>>", response.data);
             
@@ -634,16 +634,16 @@ const ChatPage: React.FC = () => {
                         ? response.data as Message[]
                         : [];
                 
-                // 确保每个消息都有唯一的 ID
+                // 确保每个Message都有唯一的 ID
                 messages = messages.map((message, index) => ({
                     ...message,
                     id: message.id || 'server_msg_' + Date.now() + '_' + index + '_' + Math.random().toString(36).substr(2, 9)
                 }));
                 
-                // 使用消息管理器更新消息
+                // 使用Message管理器UpdateMessage
                 updateMessages(chatId, messages);
             } else {
-                // 失败时清空消息并可选提示
+                // Failed时清空Message并OptionalPrompt
                 updateMessages(chatId, []);
                 if (response.error) {
                     setError(typeof response.error === 'string' ? response.error : response.error.message || 'Failed to load messages');
@@ -659,7 +659,7 @@ const ChatPage: React.FC = () => {
         }
     };
 
-    // 获取并处理聊天通知（仅首次加载，支持分页）
+    // Get并Process聊天Notification（仅首次Load，Support分页）
     const fetchAndProcessChatNotifications = async (chatId: string, setIsInitialLoading?: (loading: boolean) => void) => {
         try {
             if (typeof setIsInitialLoading === 'function') setIsInitialLoading(true);
@@ -689,15 +689,15 @@ const ChatPage: React.FC = () => {
         }
     };
 
-    // 点击chat时的主处理函数
+    // Clickchat时的主ProcessFunction
     const handleChatSelect = async (chatId: string) => {
         // 1. 标记为已读
         markChatAsRead(chatId);
         
-        // 2. 设置活动聊天
+        // 2. Settings活动聊天
         setActiveChat(chatId);
         
-        // 3. 并行获取消息和通知（通知只拉第一页，后续分页交给 useChatNotifications）
+        // 3. 并行GetMessage和Notification（Notification只拉第一页，后续分页交给 useChatNotifications）
         await Promise.all([
             fetchAndProcessChatMessages(chatId, setIsInitialLoading),
             fetchAndProcessChatNotifications(chatId, setIsInitialLoadingNotifications)
@@ -709,34 +709,34 @@ const ChatPage: React.FC = () => {
 
     const handleChatDelete = async (chatId: string) => {
         try {
-            // 先本地更新 UI（乐观更新）
+            // 先LocalUpdate UI（乐观Update）
             const updatedChats = chats.filter(c => c.id !== chatId);
             setChats(updatedChats);
 
-            // 如果删除的是当前聊天，则切换到第一个聊天
+            // IfDelete的是When前聊天，则Toggle到第一个聊天
             if (activeChatId === chatId) {
                 const nextChatId = updatedChats[0]?.id || null;
                 if (nextChatId) {
                     setActiveChatId(nextChatId);
                     handleChatSelect(nextChatId);
                 } else {
-                    // 没有剩余的 chat，清除 activeChatId 和 URL 参数
+                    // 没有剩余的 chat，清除 activeChatId 和 URL Parameter
                     setActiveChatId(null);
                     setSearchParams({});
                 }
             }
             
-            // 调用 API 删除聊天
+            // 调用 API Delete聊天
             const response = await get_ipc_api().chatApi.deleteChat(chatId);
             
             if (!response.success) {
-                // 删除失败，回滚 UI
+                // DeleteFailed，回滚 UI
                 setChats(chats);
                 logger.error('Failed to delete chat:', response.error);
                 setError(`Failed to delete chat: ${response.error?.message || 'Unknown error'}`);
             }
         } catch (err) {
-            // 删除失败，回滚 UI
+            // DeleteFailed，回滚 UI
             setChats(chats);
             const errorMessage = err instanceof Error ? err.message : 'Unknown error';
             logger.error('Error deleting chat:', errorMessage);
@@ -758,7 +758,7 @@ const ChatPage: React.FC = () => {
         ));
     };
 
-    // handleMessageSend 发送消息时加 log
+    // handleMessageSend SendMessage时加 log
     const handleMessageSend = useCallback(async (content: string, attachments: Attachment[]) => {
         console.log('[handleMessageSend] called, content:', content, 'attachments:', attachments);
         if (!activeChatId) {
@@ -775,12 +775,12 @@ const ChatPage: React.FC = () => {
         const senderName = my_twin_agent?.card.name;
         if (!senderId || !senderName) return;
 
-        // 只保留可序列化字段，优先使用 response 字段（如有）
+        // 只保留可SerializeField，优先使用 response Field（如有）
         const safeAttachments = (attachments || []).map(att => {
             if (!att) return att;
             const attAny = att as any;
             if (attAny.response && typeof attAny.response === 'object') {
-                // response 字段通常是后端返回的 attachment 信息
+                // response Field通常是Backend返回的 attachment Information
                 const resp = attAny.response;
                 return {
                     name: resp.name,
@@ -808,17 +808,17 @@ const ChatPage: React.FC = () => {
             createAt: Date.now(),
             senderId,
             senderName,
-            content: content, // 只做文本或结构化内容
+            content: content, // 只做文本或结构化Content
             status: 'sending',
-            attachments: safeAttachments // 标准附件数组
+            attachments: safeAttachments // Standard附件数组
         };
 
-        // 先乐观地更新 UI - 使用消息管理器
+        // 先乐观地Update UI - 使用Message管理器
         addMessageToChat(activeChatId, userMessage);
         console.log('[handleMessageSend] after addMessageToChat, allMessages:', allMessages);
 
         try {
-            // 使用新的 API 发送消息
+            // 使用新的 API SendMessage
             const messageData = {
                 chatId: activeChatId,
                 senderId, // 明确为 string
@@ -834,29 +834,29 @@ const ChatPage: React.FC = () => {
             const response = await get_ipc_api().chatApi.sendChat(messageData);
             if (!response.success) {
                 logger.error('Failed to send message:', response.error);
-                // 更新消息状态为错误
+                // UpdateMessageStatus为Error
                 updateMessage(activeChatId, userMessage.id, { status: 'error' as const });
                 return;
             }
             
-            // 更新消息状态为已发送，并使用服务器返回的消息 ID
+            // UpdateMessageStatus为已Send，并使用Service器返回的Message ID
             if (response.data && (response.data as any).id) {
-                // 替换乐观更新的消息，使用服务器返回的 ID
+                // 替换乐观Update的Message，使用Service器返回的 ID
                 updateMessage(activeChatId, userMessage.id, { 
                     id: (response.data as any).id, 
                     status: 'complete' as const,
-                    // 保留服务器返回的其他字段
+                    // 保留Service器返回的其他Field
                     ...(response.data as any)
                 });
             } else {
-                // 如果服务器没有返回消息 ID，则只更新状态
+                // IfService器没有返回Message ID，则只UpdateStatus
                 updateMessage(activeChatId, userMessage.id, { status: 'complete' as const });
             }
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Unknown error';
             logger.error('Error sending message:', errorMessage);
             
-            // 更新消息状态为错误
+            // UpdateMessageStatus为Error
             updateMessage(activeChatId, userMessage.id, { status: 'error' as const });
         }
     }, [activeChatId, chats, myTwinAgentId, addMessageToChat, allMessages, updateMessage]);
@@ -865,10 +865,10 @@ const ChatPage: React.FC = () => {
         ? null
         : chats.find((c) => c.id === activeChatId) || null;
 
-    // Compute left panel header agentId: 显示当前过滤的 agent 的视频
-    // 视频不跟随选中的 chat 改变，只跟随过滤器（agentId 参数）改变
+    // Compute left panel header agentId: DisplayWhen前Filter的 agent 的视频
+    // 视频不跟随选中的 chat 改变，只跟随Filter器（agentId Parameter）改变
     const headerAgentId = useMemo(() => {
-        // 优先级：URL agentId（过滤器选择）> myTwinAgentId（默认）> fallback
+        // Priority：URL agentId（Filter器Select）> myTwinAgentId（Default）> fallback
         if (agentId) {
             logger.debug(`[headerAgentId] Using URL agentId (filter): ${agentId}`);
             return agentId;
@@ -879,7 +879,7 @@ const ChatPage: React.FC = () => {
             return myTwinAgentId;
         }
         
-        // Fallback：随机选择一个系统 agent
+        // Fallback：随机Select一个System agent
         if (chats.length === 0) {
             const systemAgents = agents.filter(a => a.card?.id?.startsWith('system_'));
             if (systemAgents.length > 0) {
@@ -896,10 +896,10 @@ const ChatPage: React.FC = () => {
         return fallbackId;
     }, [agentId, myTwinAgentId, agents, chats.length]);
     
-    // 搜索防抖定时器 ref
+    // Search防抖定时器 ref
     const searchDebounceTimer = useRef<NodeJS.Timeout | null>(null);
     
-    // 处理搜索
+    // ProcessSearch
     const handleSearch = useCallback((text: string) => {
         setSearchText(text);
         searchTextRef.current = text;
@@ -910,13 +910,13 @@ const ChatPage: React.FC = () => {
             searchDebounceTimer.current = null;
         }
         
-        // 如果清空搜索，立即执行（不延迟）
+        // If清空Search，立即Execute（不Delay）
         if (!text || text.trim() === '') {
             if (effectsCompletedRef.current) {
                 fetchChats();
             }
         } else {
-            // 有搜索文本时，使用防抖定时器
+            // 有Search文本时，使用防抖定时器
             searchDebounceTimer.current = setTimeout(() => {
                 if (effectsCompletedRef.current) {
                     fetchChats();
@@ -926,7 +926,7 @@ const ChatPage: React.FC = () => {
         }
     }, []);
     
-    // 清理搜索防抖定时器
+    // CleanupSearch防抖定时器
     useEffect(() => {
         return () => {
             if (searchDebounceTimer.current) {
@@ -935,12 +935,12 @@ const ChatPage: React.FC = () => {
         };
     }, []);
     
-    // 处理过滤器选择
+    // ProcessFilter器Select
     const handleFilterSelect = useCallback((selectedAgentId: string | null) => {
         logger.info(`[Chat] Filter agent selected: ${selectedAgentId}`);
         setShowFilterModal(false);
         
-        // 更新 URL 参数
+        // Update URL Parameter
         if (selectedAgentId) {
             setSearchParams({ agentId: selectedAgentId });
         } else {
@@ -956,14 +956,14 @@ const ChatPage: React.FC = () => {
         }
         
         const filtered = chats.filter(chat => {
-            // 首先检查聊天名称 - 任何名为 "My Twin Agent" 的聊天都要过滤掉
+            // 首先Check聊天Name - 任何名为 "My Twin Agent" 的聊天都要Filter掉
             if (chat.name === 'My Twin Agent') {
                 return false;
             }
             
-            // 检查 members（如果存在）
+            // Check members（If存在）
             if (chat.members && chat.members.length > 0) {
-                // 过滤掉只有 My Twin Agent 的聊天
+                // Filter掉只有 My Twin Agent 的聊天
                 const nonMyTwinMembers = chat.members.filter(m => m.userId !== myTwinAgentId);
                 
                 if (nonMyTwinMembers.length === 0) {
@@ -971,12 +971,12 @@ const ChatPage: React.FC = () => {
                     return false;
                 }
                 
-                // 如果正在按 agentId 过滤，显示所有剩余的聊天（已经过滤掉了只有 My Twin Agent 的）
+                // If正在按 agentId Filter，DisplayAll剩余的聊天（已经Filter掉了只有 My Twin Agent 的）
                 if (agentId) {
                     return true;
                 }
                 
-                // 默认视图：也过滤掉包含 My Twin Agent 的聊天
+                // Default视图：也Filter掉Include My Twin Agent 的聊天
                 const hasMemberWithMyTwinAgent = chat.members.some(member => member.userId === myTwinAgentId);
                 
                 if (hasMemberWithMyTwinAgent) {
@@ -986,12 +986,12 @@ const ChatPage: React.FC = () => {
                 return true;
             }
             
-            // 如果没有 members 信息，通过 agent_id 判断
+            // If没有 members Information，通过 agent_id 判断
             if ((chat as any).agent_id === myTwinAgentId) {
                 return false;
             }
             
-            // 默认保留
+            // Default保留
             return true;
         });
         
@@ -1010,11 +1010,11 @@ const ChatPage: React.FC = () => {
         // Check if current activeChatId is in filteredChats
         const isActiveChatInFiltered = activeChatId && filteredChats.some(chat => chat.id === activeChatId);
         
-        // 注意：由于启用了 KeepAlive，activeChatId 会自动保持
-        // 不需要从 ChatStateManager 恢复状态
+        // Note：由于Enabled了 KeepAlive，activeChatId 会自动保持
+        // 不Need从 ChatStateManager RestoreStatus
         let restoredFromSavedState = false;
         try {
-            // 旧的状态恢复逻辑已移除
+            // 旧的StatusRestore逻辑已Remove
             const savedChatId = null;
             const savedAgentId = null;
             
@@ -1108,7 +1108,7 @@ const ChatPage: React.FC = () => {
         );
     };
 
-    // 处理消息已读回调
+    // ProcessMessage已读Callback
     const handleMessagesRead = useCallback((chatId: string, count: number) => {
         setChats(prevChats => {
             return prevChats.map(chat => {
@@ -1184,12 +1184,12 @@ const ChatPage: React.FC = () => {
         );
     };
 
-    // 显示加载状态或错误信息
+    // DisplayLoadStatus或ErrorInformation
     if (isLoading && chats.length === 0) {
         return <div className="loading-container">{t('common.loading')}</div>;
     }
 
-    // 优化：无论 chats 是否为空，都渲染 ChatLayout，只是 detailsContent 为空时显示提示
+    // Optimize：无论 chats 是否为空，都Render ChatLayout，只是 detailsContent 为空时DisplayPrompt
     return (
         <>
             <ChatLayout
@@ -1207,7 +1207,7 @@ const ChatPage: React.FC = () => {
                 }}
             />
             
-            {/* Agent 过滤器模态框 */}
+            {/* Agent Filter器模态框 */}
             <AgentFilterModal
                 visible={showFilterModal}
                 selectedAgentId={agentId}

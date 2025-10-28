@@ -3,18 +3,18 @@ import { logger } from '@/utils/logger';
 import { ensureMessageId, isDuplicateMessage, logMessageProcessing } from './messageUtils';
 
 /**
- * 向消息列表添加新消息，并处理去重逻辑
+ * 向MessageListAdd新Message，并Process去重逻辑
  * 
- * @param chatMessages 当前聊天的消息列表
- * @param message 要添加的新消息
- * @returns 处理后的结果，包含是否重复和处理后的消息
+ * @param chatMessages When前聊天的MessageList
+ * @param message 要Add的新Message
+ * @returns Process后的Result，Include是否重复和Process后的Message
  */
 export function addMessageToList(chatMessages: Message[], message: Message): { 
   isDuplicate: boolean; 
   messages: Message[];
   newMessage?: Message;
 } {
-  // 检查是否有重复消息
+  // Check是否有重复Message
   const isDuplicate = chatMessages.some(m => isDuplicateMessage(m, message));
   
   if (isDuplicate) {
@@ -22,10 +22,10 @@ export function addMessageToList(chatMessages: Message[], message: Message): {
     return { isDuplicate: true, messages: chatMessages };
   }
   
-  // 确保消息有唯一ID
+  // 确保Message有唯一ID
   const newMessage = ensureMessageId(message);
   
-  // 添加到消息列表
+  // Add到MessageList
   const updatedMessages = [...chatMessages, newMessage];
   
   return { 
@@ -36,12 +36,12 @@ export function addMessageToList(chatMessages: Message[], message: Message): {
 }
 
 /**
- * 更新消息列表中的指定消息
+ * UpdateMessageList中的指定Message
  * 
- * @param chatMessages 消息列表
- * @param messageId 要更新的消息ID
- * @param updates 更新内容
- * @returns 更新后的消息列表
+ * @param chatMessages MessageList
+ * @param messageId 要Update的MessageID
+ * @param updates UpdateContent
+ * @returns Update后的MessageList
  */
 export function updateMessageInList(
   chatMessages: Message[], 
@@ -57,21 +57,21 @@ export function updateMessageInList(
 }
 
 /**
- * 对消息列表进行排序
+ * 对MessageList进行Sort
  * 
- * @param messages 消息列表
- * @returns 排序后的消息列表
+ * @param messages MessageList
+ * @returns Sort后的MessageList
  */
 export function sortMessagesByTime(messages: Message[]): Message[] {
   return [...messages].sort((a, b) => (a.createAt || 0) - (b.createAt || 0));
 }
 
 /**
- * 从消息列表中移除指定ID的消息
+ * 从MessageList中Remove指定ID的Message
  * 
- * @param messages 消息列表
- * @param messageId 要移除的消息ID
- * @returns 移除后的消息列表
+ * @param messages MessageList
+ * @param messageId 要Remove的MessageID
+ * @returns Remove后的MessageList
  */
 export function removeMessageFromList(messages: Message[], messageId: string): Message[] {
   return messages.filter(message => message.id !== messageId);

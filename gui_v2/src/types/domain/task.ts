@@ -1,10 +1,10 @@
 /**
  * Task Domain Types
- * 任务相关的类型定义
+ * Type definitions for tasks
  */
 
 /**
- * 任务状态枚举
+ * Task status enumeration
  */
 export enum TaskStatus {
   PENDING = 'pending',
@@ -15,7 +15,7 @@ export enum TaskStatus {
 }
 
 /**
- * 任务优先级
+ * Task priority
  */
 export enum TaskPriority {
   LOW = 'low',
@@ -25,7 +25,7 @@ export enum TaskPriority {
 }
 
 /**
- * 任务类型
+ * Task type
  */
 export interface Task {
   id: string;
@@ -35,18 +35,18 @@ export interface Task {
   status?: TaskStatus | string;
   priority?: TaskPriority | string;
   
-  // Agent 和 Skill 关联
+  // Agent and Skill associations
   agentId?: string;
   skillId?: string;
-  skill?: string; // skill 名称
+  skill?: string; // skill name
   
-  // 任务状态
+  // Task state
   state?: {
-    top?: string; // 顶层状态：'ready', 'running', 'completed', 'failed'
+    top?: string; // Top-level state: 'ready', 'running', 'completed', 'failed'
     [key: string]: any;
   };
   
-  // 元数据
+  // Metadata
   metadata?: {
     state?: {
       top?: string;
@@ -55,13 +55,13 @@ export interface Task {
     [key: string]: any;
   };
   
-  // 任务配置
+  // Task configuration
   resume_from?: string;
   trigger?: string;
   schedule?: any;
   checkpoint_nodes?: any[];
   
-  // 时间戳
+  // Timestamps
   createdAt?: string;
   updatedAt?: string;
   startedAt?: string;
@@ -71,7 +71,7 @@ export interface Task {
 }
 
 /**
- * 创建任务的输入类型
+ * Create task input type
  */
 export interface CreateTaskInput {
   name: string;
@@ -83,7 +83,7 @@ export interface CreateTaskInput {
 }
 
 /**
- * 更新任务的输入类型
+ * Update task input type
  */
 export interface UpdateTaskInput {
   name?: string;

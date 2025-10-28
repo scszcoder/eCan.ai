@@ -1,8 +1,8 @@
 /**
- * Vehicles 页面特有类型定义
- * 基础类型请从 @/types/domain/vehicle 导入
+ * Vehicles Page特有TypeDefinition
+ * BaseType请从 @/types/domain/vehicle Import
  */
 
-// 从 domain 层导入基础类型
+// 从 domain 层ImportBaseType
 export type { Vehicle, SystemInfo } from '@/types/domain/vehicle';
 export { VehicleStatus, VehicleType } from '@/types/domain/vehicle'; 

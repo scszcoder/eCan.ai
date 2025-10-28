@@ -12,25 +12,25 @@ import {
 } from '../pages/Orgs/types';
 
 interface OrgStoreState {
-  // 树形数据结构
+  // Tree data structure
   root: RootNode | null;
   treeOrgs: TreeOrgNode[];
   rootAgents: OrgAgent[];
   
-  // 原始数据（向后兼容）
+  // Raw data (backward compatible)
   orgs: Org[];
   agents: OrgAgent[];
   unassignedAgents: OrgAgent[];
   
-  // 处理后的数据
+  // Processed data
   orgTree: OrgTreeNode[];
   displayNodes: DisplayNode[];
   
-  // 状态
+  // State
   loading: boolean;
   error: string | null;
   lastFetchTime: number | null;
-  lastUpdateTime: number;  // 用于强制重新渲染
+  lastUpdateTime: number;  // Used to force re-render
   
   // Actions
   setAllOrgAgents: (data: GetAllOrgAgentsResponse) => void;
@@ -50,21 +50,21 @@ interface OrgStoreState {
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 export const useOrgStore = create<OrgStoreState>((set, get) => ({
-  // 树形数据结构
+  // Tree data structure
   root: null,
   treeOrgs: [],
   rootAgents: [],
   
-  // 原始数据（向后兼容）
+  // Raw data (backward compatible)
   orgs: [],
   agents: [],
   unassignedAgents: [],
   
-  // 处理后的数据
+  // Processed data
   orgTree: [],
   displayNodes: [],
   
-  // 状态
+  // State
   loading: false,
   error: null,
   lastFetchTime: null,
@@ -74,16 +74,16 @@ export const useOrgStore = create<OrgStoreState>((set, get) => ({
     console.log('[OrgStore] setAllOrgAgents called with data:', data);
     console.log('[OrgStore] data.orgs:', data.orgs);
     
-    // 使用原始数据（避免 JSON 序列化丢失数据）
+    // Use raw data (avoid data loss from JSON serialization)
     const treeRoot = data.orgs;
     
-    // 从树形结构中提取扁平的组织列表和所有 agents（向后兼容）
+    // Extract flat organization list and all agents from tree structure (backward compatible)
     const flattenTree = (treeNode: TreeOrgNode): { orgs: Org[], agents: OrgAgent[] } => {
       const orgs: Org[] = [];
       const agents: OrgAgent[] = [];
       
       const traverse = (node: TreeOrgNode) => {
-        // 添加组织信息
+        // Add organization information
         orgs.push({
           id: node.id,
           name: node.name,
@@ -97,12 +97,12 @@ export const useOrgStore = create<OrgStoreState>((set, get) => ({
           updated_at: node.updated_at
         });
         
-        // 添加该节点的 agents
+        // Add agents from this node
         if (node.agents && node.agents.length > 0) {
           agents.push(...node.agents);
         }
         
-        // 递归处理子节点
+        // Recursively process child nodes
         if (node.children && node.children.length > 0) {
           node.children.forEach(traverse);
         }
@@ -120,34 +120,34 @@ export const useOrgStore = create<OrgStoreState>((set, get) => ({
       console.log('[OrgStore] Sample agent:', allAgents[0]);
     }
     
-    // 分离未分配的 Agent（向后兼容）
+    // Separate unassigned agents (backward compatible)
     const unassignedAgents = allAgents.filter(agent => !agent.org_id);
     
-    // 构建组织树（向后兼容）
+    // Build organization tree (backward compatible)
     const orgTree = buildOrgTree(flatOrgs);
     
-    // 构建显示节点 - 基于树形结构
+    // Build display nodes - based on tree structure
     const displayNodes = buildDisplayNodesFromTree(null, treeRoot);
     
     const now = Date.now();
     set({ 
-      // 新的树形数据
+      // New tree data
       root: {
         id: treeRoot.id,
         name: treeRoot.name,
         description: treeRoot.description || ''
       },
-      treeOrgs: [treeRoot],  // 包装成数组以保持兼容性
+      treeOrgs: [treeRoot],  // Wrap as array for compatibility
       rootAgents: treeRoot.agents || [],
       
-      // 向后兼容的扁平数据
+      // Backward compatible flat data
       orgs: flatOrgs,
-      agents: allAgents,  // 🔥 使用所有 agents（包括有和没有 org_id 的）
+      agents: allAgents,  // 🔥 Use all agents (with and without org_id)
       unassignedAgents: unassignedAgents,
       orgTree,
       displayNodes,
       lastFetchTime: now,
-      lastUpdateTime: now,  // 更新时间戳以强制重新渲染
+      lastUpdateTime: now,  // Update timestamp to force re-render
       error: null 
     });
   },
@@ -157,12 +157,12 @@ export const useOrgStore = create<OrgStoreState>((set, get) => ({
   setError: (error: string | null) => set({ error, loading: false }),
   
   clearData: () => set({ 
-    // 清理树形数据
+    // Clear tree data
     root: null,
     treeOrgs: [],
     rootAgents: [],
     
-    // 清理向后兼容数据
+    // Clear backward compatible data
     orgs: [],
     agents: [],
     unassignedAgents: [],

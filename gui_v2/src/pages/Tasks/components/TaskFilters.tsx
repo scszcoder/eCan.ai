@@ -138,11 +138,11 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({ filters, onChange }) =
     });
   };
 
-  // 优先级菜单项
+  // PriorityMenu项
   const priorityMenuItems: MenuProps['items'] = [
     {
       key: 'all',
-      label: t('pages.tasks.filter.allPriorities', '全部优先级'),
+      label: t('pages.tasks.filter.allPriorities', '全部Priority'),
     },
     { type: 'divider' },
     {
@@ -167,12 +167,12 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({ filters, onChange }) =
     },
   ];
 
-  // 处理菜单点击
+  // ProcessMenuClick
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     handleFilterChange('priority', key);
   };
 
-  // 获取当前优先级显示文本（用于 Tooltip）
+  // GetWhen前PriorityDisplay文本（Used for Tooltip）
   const getPriorityTooltip = () => {
     const priorityMap: Record<string, string> = {
       ASAP: t('pages.tasks.priority.ASAP', '立即'),
@@ -182,16 +182,16 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({ filters, onChange }) =
       LOW: t('pages.tasks.priority.LOW', '低'),
     };
     return filters.priority
-      ? `${t('pages.tasks.filter.priority', '优先级')}: ${priorityMap[filters.priority]}`
-      : t('pages.tasks.filter.filterByPriority', '筛选优先级');
+      ? `${t('pages.tasks.filter.priority', 'Priority')}: ${priorityMap[filters.priority]}`
+      : t('pages.tasks.filter.filterByPriority', '筛选Priority');
   };
 
   return (
     <FilterContainer>
       <FilterRow>
-        {/* 搜索框 */}
+        {/* Search框 */}
         <StyledInput
-          placeholder={t('pages.tasks.filter.searchPlaceholder', '搜索任务...')}
+          placeholder={t('pages.tasks.filter.searchPlaceholder', 'Search任务...')}
           prefix={<SearchOutlined />}
           value={filters.search}
           onChange={(e) => handleFilterChange('search', e.target.value)}
@@ -199,7 +199,7 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({ filters, onChange }) =
           allowClear
         />
 
-        {/* 优先级筛选按钮 - 只显示图标 */}
+        {/* Priority筛选Button - 只Display图标 */}
         <Dropdown
           menu={{ items: priorityMenuItems, onClick: handleMenuClick }}
           trigger={['click']}

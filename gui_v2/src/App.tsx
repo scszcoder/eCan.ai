@@ -23,7 +23,7 @@ import './utils/videoSupport'; // Initialize video support check on page load
 
 
 
-// 配置 React Router future flags
+// Configure React Router future flags
 // const router = {
 //     future: {
 //         v7_startTransition: true,
@@ -31,10 +31,10 @@ import './utils/videoSupport'; // Initialize video support check on page load
 //     }
 // };
 
-// 自定义主题配置 - 标准 Ant Design 架构
+// Custom theme configuration - Standard Ant Design Architecture
 const getThemeConfig = (isDark: boolean) => ({
     token: {
-        // 品牌色
+        // Brand colors
         colorPrimary: '#3b82f6',
         colorSuccess: '#22c55e',
         colorWarning: '#eab308',
@@ -42,21 +42,21 @@ const getThemeConfig = (isDark: boolean) => ({
         colorInfo: '#0ea5e9',
         borderRadius: 8,
         wireframe: false,
-        // 明确设置背景色，使用原来的配色方案
+        // Explicitly set background colors using original color scheme
         ...(isDark ? {
-            colorBgLayout: '#0f172a',      // 深蓝黑色页面背景（原来的颜色）
-            colorBgContainer: '#1e293b',   // 深蓝灰色容器背景（原来的颜色）
-            colorBgElevated: '#1e293b',    // 深蓝灰色浮层背景
+            colorBgLayout: '#0f172a',      // Deep blue-black page background (original color)
+            colorBgContainer: '#1e293b',   // Deep blue-gray container background (original color)
+            colorBgElevated: '#1e293b',    // Deep blue-gray elevated background
         } : {
-            colorBgLayout: '#f0f2f5',      // 浅灰色页面背景
-            colorBgContainer: '#ffffff',   // 白色容器背景
-            colorBgElevated: '#ffffff',    // 白色浮层背景
+            colorBgLayout: '#f0f2f5',      // Light gray page background
+            colorBgContainer: '#ffffff',   // White container background
+            colorBgElevated: '#ffffff',    // White elevated background
         }),
     },
     algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm,
     components: {
         Layout: {
-            // Layout 组件的背景色，使用原来的配色方案
+            // Layout component background colors using original color scheme
             bodyBg: isDark ? '#0f172a' : '#f0f2f5',
             headerBg: isDark ? '#1e293b' : '#ffffff',
             siderBg: isDark ? '#1e293b' : '#ffffff',
@@ -87,7 +87,7 @@ const getThemeConfig = (isDark: boolean) => ({
     },
 });
 
-// 递归渲染路由
+// Recursively render routes
 const renderRoutes = (routes: RouteConfig[]) => {
     return routes.map((route) => (
         <Route key={route.path} path={route.path} element={route.element}>
@@ -109,9 +109,9 @@ const AppContent = () => {
     const { theme: currentTheme } = useTheme();
     const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
-    // 应用全局背景色到 body 和 #root
+    // Apply global background color to body and #root
     React.useEffect(() => {
-        const bgColor = isDark ? '#0f172a' : '#f0f2f5';  // 恢复原来的深蓝黑色
+        const bgColor = isDark ? '#0f172a' : '#f0f2f5';  // Restore original deep blue-black color
         const textColor = isDark ? '#f8fafc' : '#000000';
         
         document.body.style.backgroundColor = bgColor;
@@ -125,7 +125,7 @@ const AppContent = () => {
 
     // Note: avoid immediate fetch on username to prevent racing backend init; we poll readiness below
 
-    // 初始化组织数据同步服务（后台监听器）
+    // Initialize organization data sync service (background listeners)
     React.useEffect(() => {
         orgDataSyncService.initialize();
         
@@ -142,27 +142,27 @@ const AppContent = () => {
                 try {
                     logger.info('[App] Cleaning up for logout...');
 
-                    // 清理用户状态
+                    // Clean up user state
                     const userStore = useUserStore.getState();
                     if (userStore && typeof userStore.setUsername === 'function') {
                         userStore.setUsername(null);
                         logger.debug('[App] User state cleared');
                     }
 
-                    // 清理 agents 状态
+                    // Clean up agents state
                     const agentStore = useAgentStore.getState();
                     if (agentStore && typeof agentStore.setAgents === 'function') {
                         agentStore.setAgents([]);
                         logger.debug('[App] Agent state cleared');
                     }
 
-                    // 工具状态清理已移至 Tools 页面按需处理
+                    // Tool state cleanup has been moved to Tools page for on-demand processing
                     
-                    // 清理 store 同步监听器
+                    // Clean up store sync listeners
                     cleanupStoreSync();
                     logger.debug('[App] Store sync listeners cleaned up');
 
-                    // 清理组织数据同步服务
+                    // Clean up organization data sync service
                     orgDataSyncService.cleanup();
                     logger.debug('[App] Org data sync service cleaned up');
 
@@ -171,7 +171,7 @@ const AppContent = () => {
                     logger.error('[App] Error during cleanup:', error);
                 }
             },
-            priority: 30 // 较低优先级，在其他服务清理后执行
+            priority: 30 // Lower priority, execute after other services cleanup
         });
     }, []);
 
@@ -198,27 +198,27 @@ function App() {
     const [isInitialized, setIsInitialized] = React.useState(false);
 
     React.useEffect(() => {
-        // 同步初始化关键服务，异步初始化其他服务
+        // Synchronously initialize critical services, asynchronously initialize other services
         try {
-            // 初始化 IPC 服务（同步）- 必须在平台检测之前
+            // Initialize IPC service (synchronous) - must be before platform detection
             set_ipc_api(createIPCAPI());
 
-            // 初始化平台配置（同步）- 依赖 IPC API 进行平台检测
+            // Initialize platform configuration (synchronous) - depends on IPC API for platform detection
             initializePlatform();
 
-            // 异步初始化其他服务
+            // Asynchronously initialize other services
             const initOtherServices = async () => {
                 try {
-                    // 初始化页面刷新管理器
+                    // Initialize page refresh manager
                     pageRefreshManager.initialize();
 
-                    // 初始化协议处理器
+                    // Initialize protocol handler
                     protocolHandler.init();
                     
-                    // 初始化 store 同步监听器
+                    // Initialize store sync listeners
                     initializeStoreSync();
 
-                    // 根据环境设置日志等级
+                    // Set log level based on environment
                     const isDevelopment = process.env.NODE_ENV === 'development';
 
                     if (isDevelopment) {
@@ -236,7 +236,7 @@ function App() {
             setIsInitialized(true);
         } catch (error) {
             console.error('Failed to initialize core services:', error);
-            setIsInitialized(true); // 仍然允许应用启动，但可能功能受限
+            setIsInitialized(true); // Still allow app to start, but functionality may be limited
         }
     }, []);
 

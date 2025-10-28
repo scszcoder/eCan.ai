@@ -1,7 +1,7 @@
 /**
- * 增强的 IPC 客户端
- * 集成请求队列、重试逻辑、token管理等高级功能
- * 负责与 Python 后端进行通信
+ * 增强的 IPC Client
+ * 集成Request队列、Retry逻辑、token管理等Advanced功能
+ * 负责与 Python Backend进行通信
  */
 import {
     IPCRequest,
@@ -25,7 +25,7 @@ const tokenStorage = {
     removeToken: () => userStorageManager.removeToken()
 };
 
-// 请求优先级枚举
+// RequestPriority枚举
 export enum RequestPriority {
   LOW = 0,
   NORMAL = 1,
@@ -33,7 +33,7 @@ export enum RequestPriority {
   URGENT = 3
 }
 
-// 请求状态枚举
+// RequestStatus枚举
 export enum RequestStatus {
   PENDING = 'pending',
   EXECUTING = 'executing',
@@ -43,7 +43,7 @@ export enum RequestStatus {
   RETRYING = 'retrying'
 }
 
-// 队列中的请求接口
+// 队列中的RequestInterface
 export interface QueuedRequest {
   id: string;
   method: string;
@@ -63,7 +63,7 @@ export interface QueuedRequest {
   metadata?: Record<string, any>;
 }
 
-// 请求选项接口
+// Request选项Interface
 export interface IPCRequestOptions {
   priority?: RequestPriority;
   timeout?: number;
@@ -73,11 +73,11 @@ export interface IPCRequestOptions {
   onProgress?: (progress: any) => void;
 }
 
-const DEFAULT_REQUEST_TIMEOUT = 60000; // 默认60秒超时（1分钟）
+const DEFAULT_REQUEST_TIMEOUT = 60000; // Default60秒Timeout（1分钟）
 
 /**
- * IPC 客户端类
- * 实现了与 Python 后端的通信功能
+ * IPC Client类
+ * Implementation了与 Python Backend的通信功能
  */
 export class IPCWCClient {
     private static instance: IPCWCClient;
@@ -86,17 +86,17 @@ export class IPCWCClient {
     private errorHandler: IPCErrorHandler | null = null;
     private initPromise: Promise<void> | null = null;
     
-    // 用于存储等待后台响应的请求
+    // Used forStorage等待后台Response的Request
     private pendingRequests: Map<string, { resolve: (value: any) => void; reject: (reason?: any) => void; }> = new Map();
     
-    // 请求队列管理
+    // Request队列管理
     private requestQueue: QueuedRequest[] = [];
     private requestMap = new Map<string, QueuedRequest>();
     private processingQueue = false;
     private maxConcurrentRequests = 5;
     private activeRequests = new Set<string>();
     
-    // 队列大小限制（防止内存泄漏）
+    // 队列SizeLimit（防止内存泄漏）
     private readonly MAX_PENDING_REQUESTS = 1000;
     private readonly MAX_QUEUE_SIZE = 500;
 
@@ -106,7 +106,7 @@ export class IPCWCClient {
     }
 
     /**
-     * 初始化 IPC 客户端
+     * Initialize IPC Client
      */
     private init(): void {
         logger.info('start ipc wc client init...');
@@ -140,7 +140,7 @@ export class IPCWCClient {
     }
 
     /**
-     * 等待 IPC 初始化完成
+     * 等待 IPC InitializeCompleted
      */
     private async waitForInit(): Promise<void> {
         if (this.ipcWebChannel) {
@@ -180,8 +180,8 @@ export class IPCWCClient {
     }
 
     /**
-     * 获取 IPC 客户端单例
-     * @returns IPC 客户端实例
+     * Get IPC Client单例
+     * @returns IPC Client实例
      */
     public static getInstance(): IPCWCClient {
         if (!IPCWCClient.instance) {
@@ -191,8 +191,8 @@ export class IPCWCClient {
     }
 
     /**
-     * 设置 IPC 对象
-     * @param ipcWebChannel - IPC 接口实例
+     * Settings IPC 对象
+     * @param ipcWebChannel - IPC Interface实例
      */
     public setIPCWebChannel(ipcWebChannel: IPCWebChannel): void {
         if (this.ipcWebChannel) {
@@ -205,8 +205,8 @@ export class IPCWCClient {
     }
 
     /**
-     * 设置错误处理器
-     * @param handler - 错误处理器函数
+     * SettingsErrorProcess器
+     * @param handler - ErrorProcess器Function
      */
     public setErrorHandler(handler: IPCErrorHandler): void {
         this.errorHandler = handler;
@@ -214,34 +214,34 @@ export class IPCWCClient {
     }
 
     /**
-     * 增强的发送请求方法，支持队列和重试
-     * @param method - 请求方法名
-     * @param params - 请求参数
-     * @param options - 请求选项
-     * @returns Promise 对象，解析为 IPC 响应结果
+     * 增强的SendRequestMethod，Support队列和Retry
+     * @param method - RequestMethod名
+     * @param params - RequestParameter
+     * @param options - Request选项
+     * @returns Promise 对象，Parse为 IPC ResponseResult
      */
     public async invoke(method: string, params?: unknown, options: IPCRequestOptions = {}): Promise<any> {
-        // 配置选项：是否使用队列（默认关闭以保持稳定性）
+        // Configuration选项：是否使用队列（DefaultClose以保持Stable性）
         const useQueue = options.priority !== undefined || options.maxRetries !== undefined || options.onProgress !== undefined;
 
         if (useQueue) {
             return this.enqueueRequest(method, params, options);
         } else {
-            // 直接发送请求（当前行为）
+            // 直接SendRequest（When前行为）
             return this.sendRequest(method, params, options.timeout);
         }
     }
 
     /**
-     * 将请求加入队列
-     * @param method - 请求方法名
-     * @param params - 请求参数
-     * @param options - 请求选项
-     * @returns Promise 对象，解析为 IPC 响应结果
+     * 将Request加入队列
+     * @param method - RequestMethod名
+     * @param params - RequestParameter
+     * @param options - Request选项
+     * @returns Promise 对象，Parse为 IPC ResponseResult
      */
     private async enqueueRequest(method: string, params?: unknown, options: IPCRequestOptions = {}): Promise<any> {
         return new Promise((resolve, reject) => {
-            // 检查队列大小限制
+            // Check队列SizeLimit
             if (this.requestQueue.length >= this.MAX_QUEUE_SIZE) {
                 const error = new Error(`Request queue is full (${this.MAX_QUEUE_SIZE} requests). Cannot enqueue new request: ${method}`);
                 logger.error('[IPCWCClient] Queue size limit exceeded:', error);
@@ -268,30 +268,30 @@ export class IPCWCClient {
                 metadata: {}
             };
 
-            // 添加到队列和映射
+            // Add到队列和Map
             this.requestQueue.push(queuedRequest);
             this.requestMap.set(queuedRequest.id, queuedRequest);
 
-            // 按优先级排序队列
+            // 按PrioritySort队列
             this.requestQueue.sort((a, b) => b.priority - a.priority);
 
-            // 开始处理队列
+            // 开始Process队列
             this.processQueue();
         });
     }
 
     /**
-     * 发送请求方法，保持 SYSTEM_NOT_READY 重试机制
-     * @param method - 请求方法名
-     * @param params - 请求参数
-     * @returns Promise 对象，解析为 IPC 响应结果
+     * SendRequestMethod，保持 SYSTEM_NOT_READY Retry机制
+     * @param method - RequestMethod名
+     * @param params - RequestParameter
+     * @returns Promise 对象，Parse为 IPC ResponseResult
      */
     public async sendRequest(method: string, params?: unknown, timeout: number = DEFAULT_REQUEST_TIMEOUT): Promise<any> {
-        // 对于 SYSTEM_NOT_READY 错误的重试配置
-        const maxRetries = 60; // 最大重试60次
-        const retryDelay = 1000; // 初始延迟1秒
+        // 对于 SYSTEM_NOT_READY Error的RetryConfiguration
+        const maxRetries = 60; // MaximumRetry60次
+        const retryDelay = 1000; // 初始Delay1秒
         const backoffMultiplier = 1.0; // 退避倍数
-        const maxRetryTime = 60000; // 最大重试时间60秒
+        const maxRetryTime = 60000; // MaximumRetryTime60秒
 
         let retryCount = 0;
         const startTime = Date.now();
@@ -300,46 +300,46 @@ export class IPCWCClient {
             try {
                 const response = await this._sendSingleRequest(method, params, timeout);
 
-                // 如果成功或者不是 SYSTEM_NOT_READY 错误，直接返回
+                // IfSuccessornot SYSTEM_NOT_READY Error，直接返回
                 if (response.status === 'success' ||
                     (response.status === 'error' && response.error?.code !== 'SYSTEM_NOT_READY')) {
                     return response;
                 }
 
-                // 检查是否超过最大重试时间
+                // Check是否超过MaximumRetryTime
                 if (Date.now() - startTime > maxRetryTime) {
                     logger.warn(`[IPCWCClient] ${method} exceeded max retry time (${maxRetryTime/1000}s), giving up`);
                     return response;
                 }
 
-                // 如果是 SYSTEM_NOT_READY 且还可以重试
+                // If是 SYSTEM_NOT_READY 且还CanRetry
                 if (retryCount < maxRetries) {
                     const delay = retryDelay * Math.pow(backoffMultiplier, retryCount);
                     logger.info(`[IPCWCClient] System not ready for ${method}, retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
 
-                    // 等待延迟后重试
+                    // 等待Delay后Retry
                     await new Promise(resolve => setTimeout(resolve, delay));
                     retryCount++;
                     continue;
                 }
 
-                // 达到最大重试次数，返回最后的响应
+                // 达到MaximumRetry次数，返回最后的Response
                 logger.warn(`[IPCWCClient] ${method} failed after ${maxRetries} retries - System initialization taking longer than expected`);
                 return response;
 
             } catch (error) {
-                // 对于网络错误等，不进行重试，直接抛出
+                // 对于NetworkError等，不进行Retry，直接抛出
                 throw error;
             }
         }
     }
 
     /**
-     * 发送单个请求（内部方法）
-     * @param method - 请求方法名
-     * @param params - 请求参数
-     * @param timeout - 超时时间
-     * @returns Promise 对象，解析为 IPC 响应结果
+     * Send单个Request（InternalMethod）
+     * @param method - RequestMethod名
+     * @param params - RequestParameter
+     * @param timeout - TimeoutTime
+     * @returns Promise 对象，Parse为 IPC ResponseResult
      */
     private async _sendSingleRequest(method: string, params?: unknown, timeout: number = DEFAULT_REQUEST_TIMEOUT): Promise<any> {
         console.log('[IPCWCClient] _sendSingleRequest:start', method, { params, timeout });
@@ -349,7 +349,7 @@ export class IPCWCClient {
             throw createErrorResponse(generateRequestId(), 'INIT_ERROR', 'IPC not initialized');
         }
 
-        // 检查 pendingRequests 大小限制
+        // Check pendingRequests SizeLimit
         if (this.pendingRequests.size >= this.MAX_PENDING_REQUESTS) {
             const error = `Too many pending requests (${this.MAX_PENDING_REQUESTS}). Cannot send new request: ${method}`;
             logger.error('[IPCWCClient] Pending requests limit exceeded:', error);
@@ -361,17 +361,17 @@ export class IPCWCClient {
         const truncatedParams = paramsStr.length > 500 ? paramsStr.substring(0, 500) + '...' : paramsStr;
         console.log('[IPCWCClient] sending web_to_python', { id: request.id, method, truncatedParams });
 
-        // 对于登录请求，使用更长的超时时间
+        // 对于LoginRequest，使用更长的TimeoutTime
         if (method === 'login') {
-            timeout = Math.max(timeout, 180000); // 登录至少3分钟超时
+            timeout = Math.max(timeout, 180000); // Login至少3分钟Timeout
             logger.info(`[IPCWCClient] Login request detected, using extended timeout: ${timeout/1000}s`);
         }
 
-        // 1. 设置一个超时Promise
+        // 1. Settings一个TimeoutPromise
         let timeoutId: number;
         const timeoutPromise = new Promise((_, reject) => {
             timeoutId = window.setTimeout(() => {
-                // 如果超时发生，从管理器中主动删除，这是它唯一的清理点
+                // IfTimeout发生，从管理器中主动Delete，这是它唯一的Cleanup点
                 this.pendingRequests.delete(request.id);
                 const errorMessage = method === 'login' 
                     ? `Login request timed out after ${timeout / 1000} seconds. This may be due to slow network or AWS service response.`
@@ -380,9 +380,9 @@ export class IPCWCClient {
             }, timeout);
         });
 
-        // 2. 设置主请求的Promise
+        // 2. Settings主Request的Promise
         const mainRequestPromise = new Promise(async (resolve, reject) => {
-            // 将 Promise 的控制器存储起来，供 handleMessage 或超时使用
+            // 将 Promise 的控制器Storage起来，供 handleMessage 或Timeout使用
             this.pendingRequests.set(request.id, { resolve, reject });
             
             try {
@@ -390,44 +390,44 @@ export class IPCWCClient {
                 console.log('[IPCWCClient] immediate response received', { id: request.id, method });
                 const immediateResponse = JSON.parse(responseStr) as IPCResponse;
                 
-                // 如果是同步任务，它会立即完成，我们不需要等待推送
+                // If是Sync任务，它会立即Completed，我们不Need等待推送
                 if (immediateResponse.status !== 'pending') {
-                    // 从管理器中移除，因为它已经完成了
+                    // 从管理器中Remove，因为它已经Completed了
                     this.pendingRequests.delete(request.id);
                     resolve(immediateResponse);
                     console.log('[IPCWCClient] completed synchronously', { id: request.id, method });
                 } else {
                     console.log('[IPCWCClient] pending response (await push)', { id: request.id, method });
                 }
-                // 如果是 'pending'，则我们什么都不做，把清理工作留给 handleMessage 或超时
+                // If是 'pending'，则我们什么都不做，把Cleanup工作留给 handleMessage 或Timeout
             } catch (error) {
-                this.pendingRequests.delete(request.id); // 发送失败，也要清理
+                this.pendingRequests.delete(request.id); // SendFailed，也要Cleanup
                 console.error('[IPCWCClient] send error', { id: request.id, method, error });
                 reject(error instanceof Error ? createErrorResponse(request.id, 'SEND_ERROR', error.message) : error);
             }
         });
 
         try {
-             // 3. 让主请求和超时"竞赛"
+             // 3. 让主Request和Timeout"竞赛"
             return await Promise.race([mainRequestPromise, timeoutPromise]);
         } finally {
-            // 4. 无论结果如何，清除定时器，防止它在请求成功后依然触发
+            // 4. 无论Result如何，清除定时器，防止它在RequestSuccess后依然Trigger
             clearTimeout(timeoutId!);
             console.log('[IPCWCClient] _sendSingleRequest:end', method);
         }
     }
     /**
-     * 处理来自 Python 后端的消息 (包括请求和推送的响应)
-     * @param message - 消息字符串
+     * Process来自 Python Backend的Message (包括Request和推送的Response)
+     * @param message - Message字符串
      */
     private handleMessage(message: string): void {
         try {
-            // 优化日志打印：超过500字符时只显示前500个字符
+            // OptimizeLogPrint：超过500字符时只Display前500个字符
             const truncatedMessage = message.length > 500 ? message.substring(0, 500) + '...' : message;
             console.log('[IPCWCClient] python_to_web message', truncatedMessage);
             const message_obj = JSON.parse(message);
 
-            // 检查这是否是一个对后台任务的最终响应
+            // Check这是否是一个对后台任务的最终Response
             if (isIPCResponse(message_obj) && this.pendingRequests.has(message_obj.id)) {
                 console.log('[IPCWCClient] pushed response for pending request', message_obj.id);
                 const response = message_obj as IPCResponse;
@@ -435,10 +435,10 @@ export class IPCWCClient {
                 const promiseCallbacks = this.pendingRequests.get(message_obj.id)!;
                 this.pendingRequests.delete(message_obj.id);
                 promiseCallbacks.resolve(response);
-                return; // 消息已处理，直接返回
+                return; // Message已Process，直接返回
             }
             
-            // 检查这是否是 Python 主动发起的请求
+            // Check这是否是 Python 主动发起的Request
             if (message_obj.type === 'request') {
                 this.handleRequest(message_obj);
             } else {
@@ -450,8 +450,8 @@ export class IPCWCClient {
     }
 
 /**
- * 处理请求消息
- * @param request - 请求对象
+ * ProcessRequestMessage
+ * @param request - Request对象
  */
 private async handleRequest(request: IPCRequest): Promise<void> {
     const handler = this.requestHandlers[request.method];
@@ -480,9 +480,9 @@ private async handleRequest(request: IPCRequest): Promise<void> {
 }
 
 /**
- * 发送响应给后端
- * @param requestId - 请求ID
- * @param result - 响应结果
+ * SendResponse给Backend
+ * @param requestId - RequestID
+ * @param result - ResponseResult
  */
 private sendResponse(requestId: string, result: any): void {
     if (!this.ipcWebChannel) {
@@ -507,9 +507,9 @@ private sendResponse(requestId: string, result: any): void {
 }
 
 /**
- * 发送错误响应给后端
- * @param requestId - 请求ID
- * @param error - 错误信息
+ * SendErrorResponse给Backend
+ * @param requestId - RequestID
+ * @param error - ErrorInformation
  */
 private sendErrorResponse(requestId: string, error: { code: string; message: string; details?: any }): void {
     if (!this.ipcWebChannel) {
@@ -534,12 +534,12 @@ private sendErrorResponse(requestId: string, error: { code: string; message: str
 }
 
 /**
- * 设置消息处理器，监听来自 Python 的消息
+ * SettingsMessageProcess器，Listen来自 Python 的Message
  */
 private setupMessageHandler(): void {
     if (!this.ipcWebChannel) return;
     
-    // 关键: 监听 python_to_web 信号
+    // 关键: Listen python_to_web 信号
     if (this.ipcWebChannel.python_to_web && typeof this.ipcWebChannel.python_to_web.connect === 'function') {
         this.ipcWebChannel.python_to_web.connect(this.handleMessage.bind(this));
         console.log('[IPCWCClient] Connected to python_to_web signal');
@@ -549,7 +549,7 @@ private setupMessageHandler(): void {
 }
 
     /**
-     * 处理请求队列
+     * ProcessRequest队列
      */
     private async processQueue(): Promise<void> {
         if (this.processingQueue || this.activeRequests.size >= this.maxConcurrentRequests) {
@@ -571,7 +571,7 @@ private setupMessageHandler(): void {
     }
 
     /**
-     * 从队列中取出请求
+     * 从队列中取出Request
      */
     private dequeueRequest(): QueuedRequest | null {
         const index = this.requestQueue.findIndex(req => req.status === RequestStatus.PENDING);
@@ -585,7 +585,7 @@ private setupMessageHandler(): void {
     }
 
     /**
-     * 执行队列中的请求
+     * Execute队列中的Request
      */
     private async executeQueuedRequest(request: QueuedRequest): Promise<void> {
         this.activeRequests.add(request.id);
@@ -597,19 +597,19 @@ private setupMessageHandler(): void {
             request.updatedAt = Date.now();
             request.onSuccess?.(response);
 
-            // 从队列中移除已完成的请求
+            // 从队列中Remove已Completed的Request
             this.removeFromQueue(request.id);
         } catch (error) {
             await this.handleQueuedRequestError(request, error);
         } finally {
             this.activeRequests.delete(request.id);
-            // 继续处理队列
+            // 继续Process队列
             setTimeout(() => this.processQueue(), 0);
         }
     }
 
     /**
-     * 处理队列请求错误和重试逻辑
+     * Process队列RequestError和Retry逻辑
      */
     private async handleQueuedRequestError(request: QueuedRequest, error: any): Promise<void> {
         const shouldRetry = this.isRetryableError(error) && request.retryCount < request.maxRetries;
@@ -621,7 +621,7 @@ private setupMessageHandler(): void {
 
             const delay = request.retryDelay * Math.pow(request.backoffMultiplier, request.retryCount - 1);
 
-            // 对于 SYSTEM_NOT_READY 错误，提供更友好的日志信息
+            // 对于 SYSTEM_NOT_READY Error，提供更友好的LogInformation
             if (error.code === 'SYSTEM_NOT_READY' || error.message?.includes('SYSTEM_NOT_READY')) {
                 logger.info(`[IPC] System not ready for ${request.method}, retrying in ${delay}ms (attempt ${request.retryCount}/${request.maxRetries})`);
             } else {
@@ -636,7 +636,7 @@ private setupMessageHandler(): void {
             request.status = RequestStatus.FAILED;
             request.updatedAt = Date.now();
 
-            // 对于 SYSTEM_NOT_READY 错误，提供更详细的失败信息
+            // 对于 SYSTEM_NOT_READY Error，提供更Detailed的FailedInformation
             if (error.code === 'SYSTEM_NOT_READY' || error.message?.includes('SYSTEM_NOT_READY')) {
                 logger.warn(`[IPC] ${request.method} failed after ${request.maxRetries} retries - System initialization taking longer than expected`);
             } else {
@@ -645,13 +645,13 @@ private setupMessageHandler(): void {
 
             request.onError?.(error);
 
-            // 从队列中移除失败的请求
+            // 从队列中RemoveFailed的Request
             this.removeFromQueue(request.id);
         }
     }
 
     /**
-     * 判断错误是否可重试
+     * 判断Error是否可Retry
      */
     private isRetryableError(error: any): boolean {
         const retryableErrors = [
@@ -671,7 +671,7 @@ private setupMessageHandler(): void {
     }
 
     /**
-     * 从队列中移除请求
+     * 从队列中RemoveRequest
      */
     private removeFromQueue(requestId: string): void {
         const index = this.requestQueue.findIndex(req => req.id === requestId);
@@ -692,8 +692,8 @@ private setupMessageHandler(): void {
     }
 
     /**
-     * 为请求添加认证 token
-     * 后端会根据白名单自动处理token验证，前端统一发送token
+     * 为RequestAdd认证 token
+     * Backend会根据白名单自动ProcesstokenValidate，Frontend统一Sendtoken
      */
     private addAuthToken(method: string, params: any): any {
         const token = tokenStorage.getToken();
@@ -702,19 +702,19 @@ private setupMessageHandler(): void {
             return params;
         }
         
-        // 如果参数是对象，添加 token 字段
+        // IfParameter是对象，Add token Field
         if (params && typeof params === 'object' && params !== null) {
             return { ...params, token };
         }
         
-        // 否则创建包含 token 的对象
+        // 否则CreateInclude token 的对象
         return { token, params };
     }
 
-    // ===== 公共队列管理接口 =====
+    // ===== Public队列管理Interface =====
 
     /**
-     * 获取队列统计信息
+     * Get队列统计Information
      */
     public getQueueStats() {
         const stats = {
@@ -750,21 +750,21 @@ private setupMessageHandler(): void {
     }
 
     /**
-     * 根据状态获取请求列表
+     * 根据StatusGetRequestList
      */
     public getRequestsByStatus(status: RequestStatus): QueuedRequest[] {
         return this.requestQueue.filter(req => req.status === status);
     }
 
     /**
-     * 获取所有请求列表
+     * GetAllRequestList
      */
     public getAllRequests(): QueuedRequest[] {
         return [...this.requestQueue];
     }
 
     /**
-     * 取消请求
+     * CancelRequest
      */
     public cancelRequest(requestId: string): boolean {
         const request = this.requestMap.get(requestId);
@@ -783,7 +783,7 @@ private setupMessageHandler(): void {
 
 }
 
-// 导出单例和便捷方法
+// Export单例和便捷Method
 export const ipcClient = IPCWCClient.getInstance();
 export const ipcInvoke = (method: string, params?: any, options?: IPCRequestOptions): Promise<any> => {
     return ipcClient.invoke(method, params, options);

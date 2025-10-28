@@ -79,10 +79,10 @@ const LoadingProgress: React.FC<LoadingProgressProps> = ({
         newProgress = Math.max(newProgress, 40);
         newCurrentStep = Math.max(newCurrentStep, 1);
 
-        // 当ui_ready时就可以跳转到主页面了，后台继续初始化
+        // Whenui_ready时就Can跳转到主Page了，后台继续Initialize
         setTimeout(() => {
           onComplete?.();
-        }, 200); // 减少延迟，提升响应性
+        }, 200); // 减少Delay，提升Response性
       } else {
         newSteps[1] = { ...newSteps[1], completed: false, loading: true };
       }

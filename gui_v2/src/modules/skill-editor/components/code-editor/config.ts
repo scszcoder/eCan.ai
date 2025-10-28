@@ -2,7 +2,7 @@ import type { editor } from 'monaco-editor';
 
 export const DEFAULT_EDITOR_HEIGHT = '400px';
 
-// 基础编辑器配置
+// BaseEdit器Configuration
 export const DEFAULT_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
   theme: 'vs-dark',
   fontSize: 14,
@@ -27,7 +27,7 @@ export const DEFAULT_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions
   },
 };
 
-// 预览模式配置
+// 预览模式Configuration
 export const getPreviewModeOptions = (baseOptions: editor.IStandaloneEditorConstructionOptions): editor.IStandaloneEditorConstructionOptions => ({
   ...baseOptions,
   readOnly: true,

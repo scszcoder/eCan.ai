@@ -1,6 +1,6 @@
 /**
  * Calendar View Component
- * 日历视图主组件
+ * 日历视图主Component
  */
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -46,7 +46,7 @@ const CalendarHeader = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px; // 最小化padding
+  padding: 8px 12px; // Minimum化padding
   background: rgba(0, 0, 0, 0.2);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   flex-shrink: 0;
@@ -85,7 +85,7 @@ const HeaderRight = styled.div`
 const CalendarBody = styled.div`
   flex: 1;
   overflow: hidden;
-  padding: 4px; // 最小化padding以最大化可视区域
+  padding: 4px; // Minimum化padding以Maximum化可视区域
 `;
 
 const StyledSegmented = styled(Segmented)`
@@ -160,14 +160,14 @@ const CalendarView: React.FC<CalendarViewProps> = ({
   const [detailDrawerVisible, setDetailDrawerVisible] = useState(false);
   const [formModalVisible, setFormModalVisible] = useState(false);
   
-  // 动态设置 dayjs locale
+  // 动态Settings dayjs locale
   useEffect(() => {
     const locale = i18n.language === 'zh-CN' ? 'zh-cn' : 'en';
     dayjs.locale(locale);
   }, [i18n.language]);
   const [editingSchedule, setEditingSchedule] = useState<TaskSchedule | null>(null);
   
-  // 更多事件Modal状态
+  // 更多EventModalStatus
   const [moreEventsModalVisible, setMoreEventsModalVisible] = useState(false);
   const [moreEventsDate, setMoreEventsDate] = useState<Date | null>(null);
   const [moreEventsList, setMoreEventsList] = useState<CalendarEvent[]>([]);
@@ -275,7 +275,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({
   
   // More events modal handlers
   const handleMoreEventsClick = useCallback((date: Date, events: CalendarEvent[]) => {
-    // 去重：按任务标题和开始时间去重（精确到分钟）
+    // 去重：按任务标题和开始Time去重（精确到分钟）
     const uniqueEvents = events.filter((event, index, self) => {
       return index === self.findIndex(e => 
         e.title === event.title && 

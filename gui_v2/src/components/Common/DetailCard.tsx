@@ -41,7 +41,7 @@ const DetailItemWrapper = styled.div<{ columns?: number }>`
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     transition: all 0.2s ease;
 
-    /* 多列布局时的边框处理 */
+    /* 多列Layout时的边框Process */
     ${props => props.columns && props.columns > 1 ? `
         border-right: 1px solid rgba(255, 255, 255, 0.06);
 
@@ -92,7 +92,7 @@ interface DetailCardProps {
     loading?: boolean;
     variant?: 'outlined' | 'borderless';
     size?: 'default' | 'small';
-    columns?: number; // 列数，默认为 1
+    columns?: number; // 列数，Default为 1
 }
 
 const DetailCard: React.FC<DetailCardProps> = ({

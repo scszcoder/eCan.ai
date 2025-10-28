@@ -21,7 +21,7 @@ const StyledHeader = styled(Header)`
     position: relative;
     z-index: 10;
     
-    /* 添加底部微光效果 */
+    /* AddBottom微光效果 */
     &::after {
         content: '';
         position: absolute;
@@ -145,33 +145,33 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
     const username = useUserStore((state) => state.username);
     const navigate = useNavigate();
 
-    // 控制下拉菜单的显示状态
+    // 控制下拉Menu的DisplayStatus
     const [dropdownVisible, setDropdownVisible] = useState(false);
 
-    // 处理主题切换
+    // Process主题Toggle
     const handleThemeChange = useCallback((value: 'light' | 'dark' | 'system') => {
         changeTheme(value);
         message.success(t('pages.settings.themeChanged'));
-        // 关闭下拉菜单
+        // Close下拉Menu
         setDropdownVisible(false);
     }, [changeTheme, message, t]);
 
-    // 处理语言切换
+    // Process语言Toggle
     const handleLanguageChange = useCallback(async (value: string) => {
         try {
             await i18n.changeLanguage(value);
             changeLanguage(value);
             message.success(t('pages.settings.languageChanged'));
-            console.log('当前语言已切换为:', i18n.language);
+            console.log('When前语言已Toggle为:', i18n.language);
         } catch (e) {
             message.error(t('pages.settings.languageChangeError'));
-            console.error('语言切换失败:', e);
+            console.error('语言ToggleFailed:', e);
         }
-        // 关闭下拉菜单
+        // Close下拉Menu
         setDropdownVisible(false);
     }, [i18n, changeLanguage, message, t]);
 
-    // 处理菜单项点击
+    // ProcessMenu项Click
     const handleMenuClick = useCallback((key: string) => {
         switch (key) {
             case 'settings':
@@ -181,18 +181,18 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
                 onLogout();
                 break;
             default:
-                // 处理用户自定义菜单项
+                // ProcessUserCustomMenu项
                 const userMenuItem = userMenuItems.find(item => item?.key === key);
                 if (userMenuItem && userMenuItem.onClick) {
                     userMenuItem.onClick();
                 }
                 break;
         }
-        // 关闭下拉菜单
+        // Close下拉Menu
         setDropdownVisible(false);
     }, [navigate, onLogout, userMenuItems]);
 
-    // 合并用户菜单和设置菜单
+    // 合并UserMenu和SettingsMenu
     const combinedMenuItems: MenuProps['items'] = [
         ...userMenuItems.map(item => ({
             ...item,

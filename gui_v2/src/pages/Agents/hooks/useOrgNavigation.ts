@@ -7,15 +7,15 @@ import { findTreeNodeById, extractAllAgents } from '../utils/orgTreeUtils';
 import { buildDoorsForNode, mapOrgAgentToAgent, UNASSIGNED_NODE_ID } from '../utils/agentMappers';
 
 /**
- * 组织导航的自定义 Hook
- * 负责处理组织树导航的所有逻辑
+ * 组织Navigation的Custom Hook
+ * 负责Process组织树Navigation的All逻辑
  */
 export function useOrgNavigation() {
   const { orgId } = useParams<{ orgId?: string }>();
   const location = useLocation();
   const { treeOrgs } = useOrgStore();
 
-  // 解析嵌套路径中的实际 orgId
+  // Parse嵌套Path中的实际 orgId
   const actualOrgId = useMemo(() => {
     const orgMatches = location.pathname.match(/organization\/([^/]+)/g);
     
@@ -31,7 +31,7 @@ export function useOrgNavigation() {
   const isRootView = !actualOrgId || actualOrgId === 'root';
   const isUnassignedView = actualOrgId === UNASSIGNED_NODE_ID;
 
-  // 获取当前节点
+  // GetWhen前节点
   const currentNode = useMemo(() => {
     if (!rootNode) {
       return null;
@@ -44,7 +44,7 @@ export function useOrgNavigation() {
     return findTreeNodeById(rootNode, actualOrgId!);
   }, [actualOrgId, isRootView, isUnassignedView, rootNode]);
 
-  // 构建当前层级的门列表
+  // 构建When前层级的门List
   const levelDoors = useMemo(() => {
     if (!rootNode) {
       return [] as DisplayNode[];
@@ -64,7 +64,7 @@ export function useOrgNavigation() {
     return buildDoorsForNode(targetNode, includeUnassignedDoor);
   }, [rootNode, currentNode, isRootView, isUnassignedView]);
 
-  // 获取原始 Agent 数据
+  // Get原始 Agent Data
   const rawAgents = useMemo(() => {
     if (!rootNode) {
       return [] as OrgAgent[];
@@ -81,7 +81,7 @@ export function useOrgNavigation() {
     return currentNode.agents || [];
   }, [rootNode, currentNode, isUnassignedView, actualOrgId]);
 
-  // 转换为展示用的 Agent 数据
+  // Convert为展示用的 Agent Data
   const agentsForDisplay = useMemo(() => {
     const currentOrgId = isUnassignedView ? undefined : actualOrgId;
     return rawAgents.map((agent) => mapOrgAgentToAgent(agent, currentOrgId));

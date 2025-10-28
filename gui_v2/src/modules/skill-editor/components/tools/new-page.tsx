@@ -21,7 +21,7 @@ export const NewPage = ({ disabled }: NewPageProps) => {
   const breakpoints = useSkillInfoStore((state) => state.breakpoints);
 
   const handleNewPage = useCallback(async () => {
-    // 1. 先保存当前 skill（如果有且有文件路径）- 不弹出对话框
+    // 1. 先SaveWhen前 skill（If有且有文件Path）- 不弹出Dialog
     const currentFilePath = useSkillInfoStore.getState().currentFilePath;
     if (skillInfo && currentFilePath) {
       try {
@@ -45,7 +45,7 @@ export const NewPage = ({ disabled }: NewPageProps) => {
           lastModified: new Date().toISOString(),
         };
 
-        // 直接保存到当前文件路径，不弹出对话框
+        // 直接Save到When前文件Path，不弹出Dialog
         const { IPCAPI } = await import('../../../../services/ipc/api');
         const ipcApi = IPCAPI.getInstance();
         const jsonString = JSON.stringify(updatedSkillInfo, null, 2);
@@ -56,7 +56,7 @@ export const NewPage = ({ disabled }: NewPageProps) => {
       }
     }
 
-    // 2. 弹出对话框让用户输入新 skill 的名称（只弹出一次）
+    // 2. 弹出Dialog让UserInput新 skill 的Name（只弹出一次）
     let scaffoldedName = 'untitled';
     let diagramJsonPath: string | null = null;
     
@@ -88,7 +88,7 @@ export const NewPage = ({ disabled }: NewPageProps) => {
       }
     } catch (e) {
       console.warn('[NewSkill] Failed to show dialog, using default name', e);
-      return; // 如果对话框失败，直接返回
+      return; // IfDialogFailed，直接返回
     }
 
     // 3. Clear the existing canvas data
@@ -102,21 +102,21 @@ export const NewPage = ({ disabled }: NewPageProps) => {
     info.skillName = scaffoldedName;
     setSkillInfo(info);
     
-    // 7. 立即保存新创建的 skill 到文件系统
+    // 7. 立即Save新Create的 skill 到文件System
     if (diagramJsonPath) {
       try {
-        // 保存新 skill 到文件
+        // Save新 skill 到文件
         const { IPCAPI } = await import('../../../../services/ipc/api');
         const ipcApi = IPCAPI.getInstance();
         const jsonString = JSON.stringify(info, null, 2);
         const writeResponse = await ipcApi.writeSkillFile(diagramJsonPath, jsonString);
         
         if (writeResponse.success) {
-          // 使用后端返回的实际文件路径（包含完整的文件夹结构）
+          // 使用Backend返回的实际文件Path（Include完整的文件夹结构）
           const actualFilePath = (writeResponse.data as any)?.filePath || diagramJsonPath;
           console.log('[NEW_SKILL] Created new skill file:', actualFilePath);
           
-          // 设置正确的文件路径
+          // Settings正确的文件Path
           useSkillInfoStore.getState().setCurrentFilePath(actualFilePath);
           useSkillInfoStore.getState().setHasUnsavedChanges(false);
         } else {

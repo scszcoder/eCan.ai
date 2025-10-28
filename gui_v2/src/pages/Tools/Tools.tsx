@@ -71,7 +71,7 @@ const Tools: React.FC = () => {
       fetchTools(username).catch(console.error);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [username, tools.length, loading]); // 移除 fetchTools 避免无限循环
+  }, [username, tools.length, loading]); // Remove fetchTools 避免无限Loop
 
   useEffect(() => {
     if (tools.length > 0 && !selectedTool) {

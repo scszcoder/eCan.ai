@@ -28,7 +28,7 @@ export interface SkillInfo {
 // @ts-ignore
 const genUUID = () => (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
-// 工具函数：生成一个新的 SkillInfo 对象
+// ToolFunction：生成一个新的 SkillInfo 对象
 export function createSkillInfo(workFlow: FlowDocumentJSON): SkillInfo {
   return {
     skillId: genUUID(),

@@ -1,6 +1,6 @@
 /**
  * Vehicle API Service
- * 设备/车辆相关的 API 调用封装
+ * 设备/车辆Related to API 调用封装
  */
 
 import { createIPCAPI } from '../ipc/api';
@@ -10,8 +10,8 @@ import { Vehicle, CreateVehicleInput, UpdateVehicleInput } from '../../types/dom
 import { logger } from '../../utils/logger';
 
 /**
- * Vehicle API 服务类
- * 实现 ResourceAPI 接口，提供标准化的 CRUD 操作
+ * Vehicle API Service类
+ * Implementation ResourceAPI Interface，提供Standard化的 CRUD Operation
  */
 export class VehicleAPI implements ResourceAPI<Vehicle> {
   private _api?: IPCAPI;
@@ -24,7 +24,7 @@ export class VehicleAPI implements ResourceAPI<Vehicle> {
   }
 
   /**
-   * 获取所有设备
+   * GetAll设备
    */
   async getAll(username: string): Promise<APIResponse<Vehicle[]>> {
     try {
@@ -33,7 +33,7 @@ export class VehicleAPI implements ResourceAPI<Vehicle> {
       const response = await this.api.getVehicles();
       
       if (response && response.success && response.data) {
-        // 处理不同的响应格式
+        // Process不同的Response格式
         let vehicles: Vehicle[] = [];
         
         if (Array.isArray(response.data)) {
@@ -42,7 +42,7 @@ export class VehicleAPI implements ResourceAPI<Vehicle> {
           vehicles = (response.data as any).vehicles || [];
         }
         
-        // 确保每个 vehicle 都有 id 字段
+        // 确保每个 vehicle 都有 id Field
         vehicles = vehicles.map(v => ({
           ...v,
           id: v.id || (v.vid ? String(v.vid) : ''),
@@ -72,13 +72,13 @@ export class VehicleAPI implements ResourceAPI<Vehicle> {
   }
 
   /**
-   * 根据 ID 获取单个设备
+   * 根据 ID Get单个设备
    */
   async getById(username: string, id: string): Promise<APIResponse<Vehicle>> {
     try {
       logger.debug('[VehicleAPI] Fetching vehicle by ID:', id);
       
-      // 通过 getAll 然后过滤
+      // 通过 getAll 然后Filter
       const allVehiclesResponse = await this.getAll(username);
       
       if (allVehiclesResponse.success && allVehiclesResponse.data) {
@@ -112,13 +112,13 @@ export class VehicleAPI implements ResourceAPI<Vehicle> {
   }
 
   /**
-   * 创建新设备
+   * Create新设备
    */
   async create(username: string, vehicle: Vehicle): Promise<APIResponse<Vehicle>> {
     try {
       logger.debug('[VehicleAPI] Creating new vehicle:', vehicle.name);
       
-      // 注意：后端可能没有专门的创建设备接口
+      // Note：Backend可能没有专门的Create设备Interface
       logger.warn('[VehicleAPI] Create vehicle not implemented in backend');
       
       return {
@@ -143,13 +143,13 @@ export class VehicleAPI implements ResourceAPI<Vehicle> {
   }
 
   /**
-   * 更新设备
+   * Update设备
    */
   async update(username: string, id: string, updates: Partial<Vehicle>): Promise<APIResponse<Vehicle>> {
     try {
       logger.debug('[VehicleAPI] Updating vehicle:', id);
       
-      // 先获取完整的设备数据
+      // 先Get完整的设备Data
       const vehicleResponse = await this.getById(username, id);
       
       if (!vehicleResponse.success || !vehicleResponse.data) {
@@ -158,7 +158,7 @@ export class VehicleAPI implements ResourceAPI<Vehicle> {
       
       const updatedVehicle = { ...vehicleResponse.data, ...updates };
       
-      // 如果只是更新状态，使用专门的接口
+      // If只是UpdateStatus，使用专门的Interface
       if (updates.status && Object.keys(updates).length === 1) {
         const vehicleId = updatedVehicle.vid || parseInt(id);
         const response = await this.api.updateVehicleStatus(vehicleId, updates.status);
@@ -175,7 +175,7 @@ export class VehicleAPI implements ResourceAPI<Vehicle> {
         }
       }
       
-      // 其他更新操作可能需要不同的接口
+      // 其他UpdateOperation可能Need不同的Interface
       logger.warn('[VehicleAPI] General vehicle update not fully implemented');
       
       return {
@@ -197,13 +197,13 @@ export class VehicleAPI implements ResourceAPI<Vehicle> {
   }
 
   /**
-   * 删除设备
+   * Delete设备
    */
   async delete(username: string, id: string): Promise<APIResponse<void>> {
     try {
       logger.debug('[VehicleAPI] Deleting vehicle:', id);
       
-      // 注意：后端可能没有专门的删除设备接口
+      // Note：Backend可能没有专门的Delete设备Interface
       logger.warn('[VehicleAPI] Delete vehicle not implemented in backend');
       
       return {
@@ -228,6 +228,6 @@ export class VehicleAPI implements ResourceAPI<Vehicle> {
   }
 }
 
-// 导出单例实例
+// Export单例实例
 export const vehicleApi = new VehicleAPI();
 

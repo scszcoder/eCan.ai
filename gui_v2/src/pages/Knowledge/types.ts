@@ -1,13 +1,13 @@
 /**
- * Knowledge 页面特有类型定义
- * 基础类型请从 @/types/domain/knowledge 导入
+ * Knowledge Page特有TypeDefinition
+ * BaseType请从 @/types/domain/knowledge Import
  */
 
-// 从 domain 层导入基础类型
+// 从 domain 层ImportBaseType
 export type { Knowledge } from '@/types/domain/knowledge';
 export { KnowledgeType, KnowledgeStatus } from '@/types/domain/knowledge';
 
-// 页面特有类型 - 问答对
+// Page特有Type - 问答对
 export interface QAPair {
   id: number;
   question: string;
@@ -18,7 +18,7 @@ export interface QAPair {
   relatedKnowledgeIds?: number[];
 }
 
-// 页面特有类型 - 知识分类
+// Page特有Type - 知识Category
 export interface KnowledgeCategory {
   id: number;
   name: string;

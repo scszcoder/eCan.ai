@@ -1,6 +1,6 @@
 /**
  * Colored Group Chat Icon
- * 彩色群组聊天图标 - 优化层次感和位置
+ * 彩色群组聊天图标 - Optimize层次感和Position
  */
 
 export const GroupIconColored = ({ size = 40 }: { size?: number }) => (

@@ -136,11 +136,11 @@ export const ConsoleFilters: React.FC<ConsoleFiltersProps> = ({ filters, onChang
     });
   };
 
-  // 状态菜单项
+  // StatusMenu项
   const statusMenuItems: MenuProps['items'] = [
     {
       key: 'all',
-      label: t('pages.console.filter.allStatus', '全部状态'),
+      label: t('pages.console.filter.allStatus', '全部Status'),
     },
     { type: 'divider' },
     {
@@ -157,11 +157,11 @@ export const ConsoleFilters: React.FC<ConsoleFiltersProps> = ({ filters, onChang
     },
   ];
 
-  // 类型菜单项
+  // TypeMenu项
   const typeMenuItems: MenuProps['items'] = [
     {
       key: 'all',
-      label: t('pages.console.filter.allTypes', '全部类型'),
+      label: t('pages.console.filter.allTypes', '全部Type'),
     },
     { type: 'divider' },
     {
@@ -174,7 +174,7 @@ export const ConsoleFilters: React.FC<ConsoleFiltersProps> = ({ filters, onChang
     },
   ];
 
-  // 处理菜单点击
+  // ProcessMenuClick
   const handleStatusClick: MenuProps['onClick'] = ({ key }) => {
     handleFilterChange('status', key);
   };
@@ -183,7 +183,7 @@ export const ConsoleFilters: React.FC<ConsoleFiltersProps> = ({ filters, onChang
     handleFilterChange('type', key);
   };
 
-  // 获取当前筛选显示文本（用于 Tooltip）
+  // GetWhen前筛选Display文本（Used for Tooltip）
   const getFilterTooltip = () => {
     const parts: string[] = [];
     
@@ -214,9 +214,9 @@ export const ConsoleFilters: React.FC<ConsoleFiltersProps> = ({ filters, onChang
   return (
     <FilterContainer>
       <FilterRow>
-        {/* 搜索框 */}
+        {/* Search框 */}
         <StyledInput
-          placeholder={t('pages.console.searchPlaceholder', '搜索...')}
+          placeholder={t('pages.console.searchPlaceholder', 'Search...')}
           prefix={<SearchOutlined />}
           value={filters.search}
           onChange={(e) => handleFilterChange('search', e.target.value)}
@@ -224,18 +224,18 @@ export const ConsoleFilters: React.FC<ConsoleFiltersProps> = ({ filters, onChang
           allowClear
         />
 
-        {/* 筛选按钮 - 只显示图标，支持多级菜单 */}
+        {/* 筛选Button - 只Display图标，Support多级Menu */}
         <Dropdown
           menu={{ 
             items: [
               {
                 key: 'status',
-                label: t('pages.console.status', '状态'),
+                label: t('pages.console.status', 'Status'),
                 children: statusMenuItems,
               },
               {
                 key: 'type',
-                label: t('pages.console.type', '类型'),
+                label: t('pages.console.type', 'Type'),
                 children: typeMenuItems,
               },
             ],

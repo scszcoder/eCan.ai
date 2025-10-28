@@ -31,23 +31,23 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
     isContainer: true,
     /**
      * Enable expand/collapse - default to expanded
-     * 启用展开/折叠 - 默认展开
+     * EnabledExpand/折叠 - DefaultExpand
      */
     expandable: true,
     defaultExpanded: true,
     /**
      * Enable manual resizing
-     * 启用手动调整大小
+     * Enabled手动调整Size
      */
     resizable: true,
     /**
      * Auto fit to children - container grows to include all child nodes
-     * 自动适应子节点 - 容器自动增长以包含所有子节点
+     * 自动适应子节点 - Container自动增长以IncludeAll子节点
      */
     autoFit: true,
     /**
      * The subcanvas default size setting
-     * 子画布默认大小设置
+     * 子画布DefaultSizeSettings
      */
     size: {
       width: 500,
@@ -55,7 +55,7 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
     },
     /**
      * Minimum size when resizing
-     * 调整大小时的最小尺寸
+     * 调整Size时的Minimum尺寸
      */
     minSize: {
       width: 300,
@@ -63,7 +63,7 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
     },
     /**
      * The subcanvas padding setting
-     * 子画布 padding 设置
+     * 子画布 padding Settings
      */
     padding: () => ({
       top: 180,
@@ -73,14 +73,14 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
     }),
     /**
      * Controls the node selection status within the subcanvas
-     * 控制子画布内的节点选中状态
+     * 控制子画布内的节点选中Status
      */
     selectable(node: WorkflowNodeEntity, mousePos?: PositionSchema): boolean {
       if (!mousePos) {
         return true;
       }
       const transform = node.getData<FlowNodeTransformData>(FlowNodeTransformData);
-      // 鼠标开始时所在位置不包括当前节点时才可选中
+      // 鼠标开始时所在Position不包括When前节点时才Optional中
       return !transform.bounds.contains(mousePos.x, mousePos.y);
     },
     wrapperStyle: {

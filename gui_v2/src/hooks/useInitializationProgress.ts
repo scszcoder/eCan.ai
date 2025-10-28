@@ -19,7 +19,7 @@ class InitializationProgressManager {
     if (!InitializationProgressManager.instance) {
       logger.debug('[InitProgressManager] Creating singleton instance');
       InitializationProgressManager.instance = new InitializationProgressManager();
-      // 注册清理函数到logout管理器
+      // RegisterCleanupFunction到logout管理器
       InitializationProgressManager.instance.registerLogoutCleanup();
     } else {
       logger.debug('[InitProgressManager] Returning existing singleton instance');
@@ -101,7 +101,7 @@ class InitializationProgressManager {
     }
 
     this.isPolling = true;
-    this.pollingStartTime = Date.now(); // 记录开始时间
+    this.pollingStartTime = Date.now(); // 记录开始Time
     logger.debug(`[InitProgressManager] Starting polling... (subscribers: ${this.subscribers.size})`);
 
     // Initial fetch
@@ -112,12 +112,12 @@ class InitializationProgressManager {
 
       // Start interval polling with timeout protection
       this.intervalId = setInterval(async () => {
-        // 检查是否超时
+        // Check是否Timeout
         if (this.pollingStartTime && Date.now() - this.pollingStartTime > this.maxPollingDuration) {
           logger.warn('[InitProgressManager] ⚠️ Polling timeout after 60s, stopping...');
           this.stopPolling();
           
-          // 通知订阅者超时状态
+          // Notification订阅者TimeoutStatus
           const timeoutProgress: InitializationProgress = {
             ui_ready: false,
             critical_services_ready: false,
@@ -146,7 +146,7 @@ class InitializationProgressManager {
     }
 
     this.isPolling = false;
-    this.pollingStartTime = null; // 重置开始时间
+    this.pollingStartTime = null; // Reset开始Time
 
     if (this.intervalId) {
       clearInterval(this.intervalId);
@@ -156,7 +156,7 @@ class InitializationProgressManager {
   }
 
   /**
-   * 注册logout清理函数
+   * RegisterlogoutCleanupFunction
    */
   private registerLogoutCleanup(): void {
     logoutManager.registerCleanup({
@@ -169,12 +169,12 @@ class InitializationProgressManager {
         this.isFetching = false;
         logger.info('[InitProgressManager] Cleanup completed');
       },
-      priority: 10 // 高优先级，尽早清理
+      priority: 10 // 高Priority，尽早Cleanup
     });
   }
 
   /**
-   * 强制清理所有状态（用于logout）
+   * 强制CleanupAllStatus（Used forlogout）
    */
   public forceCleanup(): void {
     logger.info('[InitProgressManager] Force cleanup initiated');

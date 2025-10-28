@@ -1,6 +1,6 @@
 /**
  * IPC API
- * 提供与 Python 后端通信的高级 API
+ * 提供与 Python Backend通信的Advanced API
  */
 import { IPCWCClient } from './ipcWCClient';
 import { IPCResponse } from './types';
@@ -9,20 +9,20 @@ import { createChatApi } from './chatApi';
 import { logoutManager } from '../LogoutManager';
 
 /**
- * API 响应类型
+ * API ResponseType
  */
 export interface APIResponse<T = unknown> {
-    /** 响应状态 */
+    /** ResponseStatus */
     success: boolean;
-    /** 响应数据 */
+    /** ResponseData */
     data?: T;
-    /** 错误信息 */
+    /** ErrorInformation */
     error?: {
-        /** 错误码 */
+        /** Error码 */
         code: string;
-        /** 错误描述 */
+        /** ErrorDescription */
         message: string;
-        /** 额外错误信息 */
+        /** 额外ErrorInformation */
         details?: unknown;
     };
 }
@@ -34,48 +34,48 @@ export interface TestConfig {
 }
 /**
  * IPC API 类
- * 提供与 Python 后端通信的高级 API 接口
+ * 提供与 Python Backend通信的Advanced API Interface
  */
 export class IPCAPI {
     private static instance: IPCAPI;
     private ipcWCClient: IPCWCClient;
 
-    // 新增 chat 字段
+    // 新增 chat Field
     public chatApi: ReturnType<typeof createChatApi>;
 
     private constructor() {
         this.ipcWCClient = IPCWCClient.getInstance();
-        // 初始化 chat api
+        // Initialize chat api
         this.chatApi = createChatApi(this);
-        // 注册logout清理函数
+        // RegisterlogoutCleanupFunction
         this.registerLogoutCleanup();
     }
 
     /**
-     * 清理IPC请求队列
+     * CleanupIPCRequest队列
      */
     public clearQueue(): void {
         this.ipcWCClient.clearQueue();
     }
 
     /**
-     * 注册logout清理函数
+     * RegisterlogoutCleanupFunction
      */
     private registerLogoutCleanup(): void {
         logoutManager.registerCleanup({
             name: 'IPCAPI',
             cleanup: () => {
                 logger.info('[IPCAPI] Cleaning up for logout...');
-                this.clearQueue(); // 清理IPC请求队列
-                // 可以在这里添加其他IPC相关的清理逻辑
+                this.clearQueue(); // CleanupIPCRequest队列
+                // Can在这里Add其他IPCRelated toCleanup逻辑
                 logger.info('[IPCAPI] Cleanup completed');
             },
-            priority: 5 // 最高优先级，最先清理IPC
+            priority: 5 // 最高Priority，最先CleanupIPC
         });
     }
 
     /**
-     * 获取 IPCAPI 单例
+     * Get IPCAPI 单例
      */
     public static getInstance(): IPCAPI {
         if (!IPCAPI.instance) {
@@ -85,16 +85,16 @@ export class IPCAPI {
     }
 
     /**
-     * 执行 IPC 请求 - 使用队列机制以避免并发问题
-     * @param method - 请求方法名
-     * @param params - 请求参数
-     * @returns Promise 对象，解析为 API 响应
+     * Execute IPC Request - 使用队列机制以避免并发问题
+     * @param method - RequestMethod名
+     * @param params - RequestParameter
+     * @returns Promise 对象，Parse为 API Response
      */
     private async executeRequest<T>(method: string, params?: unknown): Promise<APIResponse<T>> {
         const startTs = Date.now();
         console.log('[IPCAPI] executeRequest:start', method, { params });
         try {
-            // 对于 get_initialization_progress，使用 invoke 方法以利用队列和并发控制
+            // 对于 get_initialization_progress，使用 invoke Method以利用队列和并发控制
             let response: IPCResponse;
             if (method === 'get_initialization_progress') {
                 response = await this.ipcWCClient.invoke(method, params) as IPCResponse;
@@ -133,10 +133,10 @@ export class IPCAPI {
     }
 
     /**
-     * 用户登录
-     * @param username - 用户名
-     * @param password - 密码
-     * @returns Promise 对象，解析为登录响应
+     * UserLogin
+     * @param username - User名
+     * @param password - Password
+     * @returns Promise 对象，Parse为LoginResponse
      */
     public async login<T>(username: string, password: string, machine_role: string, lang?: string): Promise<APIResponse<T>> {
         return this.executeRequest<T>('login', { username, password, machine_role, lang });
@@ -434,11 +434,11 @@ export class IPCAPI {
     }
 
     /**
-     * 获取可调用函数列表
-     * @param filter - 过滤条件，可选包含：
-     *   - text: 文本过滤条件，会搜索函数名、描述和参数
-     *   - type: 类型过滤条件（'system' 或 'custom'）
-     * @returns Promise 对象，解析为可调用函数列表
+     * Get可调用FunctionList
+     * @param filter - Filter条件，OptionalInclude：
+     *   - text: 文本Filter条件，会SearchFunction名、Description和Parameter
+     *   - type: TypeFilter条件（'system' 或 'custom'）
+     * @returns Promise 对象，Parse为可调用FunctionList
      */
     public async getCallables<T>(filter?: { text?: string; type?: 'system' | 'custom' }): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_callables', filter);
@@ -475,8 +475,8 @@ export class IPCAPI {
     }
 
     /**
-     * 获取初始化进度
-     * @returns Promise 对象，解析为初始化进度信息
+     * GetInitialize进度
+     * @returns Promise 对象，Parse为Initialize进度Information
      */
     public async getInitializationProgress(): Promise<APIResponse<{
         ui_ready: boolean;
@@ -551,7 +551,7 @@ export class IPCAPI {
 }
 
 /**
- * 创建 IPC API 实例
+ * Create IPC API 实例
  * @returns IPC API 实例
  */
 export function createIPCAPI(): IPCAPI {
