@@ -61,10 +61,17 @@ def set_up_ec_procurement_agent(mainwin):
         )
         logger.info("ec_procurement agent card created:", agent_card.name, agent_card.url)
 
+        org_id = "org_rnd_001"
         chatter_task = create_ec_procurement_chat_task(mainwin)
         worker_task = create_ec_procurement_work_task(mainwin)
         browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
-        produrement_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=valid_skills, tasks=[chatter_task, worker_task])
+        produrement_agent = EC_Agent(mainwin=mainwin, skill_llm=llm,
+                                     llm=browser_use_llm,
+                                     task="",
+                                     card=agent_card,
+                                     org_id = org_id,
+                                     skills=valid_skills,
+                                     tasks=[chatter_task, worker_task])
         logger.info("ec_procurement agent ready to go!")
 
     except Exception as e:

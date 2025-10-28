@@ -1417,18 +1417,17 @@ async def api_ecan_ai_query_components(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
-
 async def api_ecan_ai_query_fom(mainwin, args):
     # call put work received from A2A channel, put into today's work data structure
     # the runbotworks task will then take over.....
     # including put reactive work into it.
     try:
         print("api_ecan_ai_query_fom args: ", args['input'])
-        components = ecan_ai_api_query_fom(mainwin, args['input']['component_results_info'])
+        foms = ecan_ai_api_query_fom(mainwin, args['input']['component_results_info'])
         msg = "completed API query components results"
         result = TextContent(type="text", text=msg)
         # meta must be a dict – wrap components list under a key to satisfy pydantic
-        result.meta = {"components": components}
+        result.meta = {"fom_template": foms}
         print("api_ecan_ai_query_fom about to return: ", result)
         return [result]
     except Exception as e:
@@ -1444,7 +1443,7 @@ async def api_ecan_ai_rerank_results(mainwin, args):
     # the runbotworks task will then take over.....
     # including put reactive work into it.
     try:
-        print("api_ecan_ai_query_fom args: ", args['input'])
+        print("api_ecan_ai_rerank_results args: ", args['input'])
         cloud_task_id = ecan_ai_api_rerank_results(mainwin, args['input'])
         msg = f"Starting cloud side re-rank result task completed- with task id of {cloud_task_id}"
 

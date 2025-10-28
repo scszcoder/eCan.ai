@@ -106,6 +106,7 @@ const AppContent = () => {
             console.warn('[App] Failed to initialize platform, defaulting to env-based config:', e);
         }
     }, []);
+
     const { theme: currentTheme } = useTheme();
     const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 

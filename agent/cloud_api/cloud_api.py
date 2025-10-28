@@ -19,6 +19,9 @@ from agent.cloud_api.constants import cloud_api, DataType, Operation
 # Import new generic GraphQL builder
 from agent.cloud_api.graphql_builder import build_mutation
 
+from utils.logger_helper import logger_helper as logger
+from utils.logger_helper import get_traceback
+
 
 limiter = AsyncLimiter(1, 1)  # Max 5 requests per second
 
@@ -1408,21 +1411,26 @@ def send_query_components_request_to_cloud(session, token, components, endpoint)
 
 
 def send_query_fom_request_to_cloud(session, token, fom_info, endpoint):
+    try:
+        queryInfo = gen_query_fom_string(fom_info)
 
-    queryInfo = gen_query_fom_string(fom_info)
-
-    jresp = appsync_http_request(queryInfo, session, token, endpoint)
-    logger.debug("send_query_fom_request_to_cloud, response:", jresp)
-    if "errors" in jresp:
-        screen_error = True
-        error = jresp["errors"][0] if jresp["errors"] else {}
-        error_type = error.get("errorType", "Unknown")
-        error_msg = error.get("message", str(error))
-        logger.error(f"ERROR Type: {error_type}, ERROR Info: {error_msg}")
-        logger.error(f"Full error response: {json.dumps(jresp, ensure_ascii=False)}")
-        jresponse = error
-    else:
-        jresponse = json.loads(jresp["data"]["queryFOM"])
+        jresp = appsync_http_request(queryInfo, session, token, endpoint)
+        logger.debug("send_query_fom_request_to_cloud, response:", jresp)
+        if "errors" in jresp:
+            screen_error = True
+            error = jresp["errors"][0] if jresp["errors"] else {}
+            error_type = error.get("errorType", "Unknown")
+            error_msg = error.get("message", str(error))
+            logger.error(f"ERROR Type: {error_type}, ERROR Info: {error_msg}")
+            logger.error(f"Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+            jresponse = error
+        else:
+            jresponse = json.loads(jresp["data"]["queryFOM"])
+        logger.debug(f"{jresponse}")
+    except Exception as e:
+        err_msg = get_traceback(e, "ErrorSendQueryFOMRequestToCloud")
+        logger.error(f"{err_msg}")
+        jresponse = err_msg
 
     return jresponse
 
