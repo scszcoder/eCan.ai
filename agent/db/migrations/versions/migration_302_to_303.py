@@ -138,9 +138,26 @@ class Migration302To303(BaseMigration):
             logger.info("Created new agent_task_rels_new table")
             
             # Step 2: Copy data from old table to new table
+            # Explicitly specify columns to handle schema differences
+            # Old table has 18 columns, new table has 22 columns
             copy_data_sql = """
             INSERT INTO agent_task_rels_new 
-            SELECT * FROM agent_task_rels
+            (id, agent_id, task_id, vehicle_id, status, priority, progress,
+             scheduled_start, actual_start, estimated_end, actual_end,
+             result, error_message, logs, cpu_usage, memory_usage, execution_time,
+             execution_context, retry_count, max_retries, created_at, updated_at)
+            SELECT 
+                id, agent_id, task_id, vehicle_id, 
+                COALESCE(status, 'pending') as status,
+                COALESCE(priority, 'medium') as priority,
+                COALESCE(progress, 0.0) as progress,
+                scheduled_start, actual_start, estimated_end, actual_end,
+                result, error_message, logs, cpu_usage, memory_usage, execution_time,
+                execution_context,
+                COALESCE(retry_count, 0) as retry_count,
+                COALESCE(max_retries, 3) as max_retries,
+                created_at, updated_at
+            FROM agent_task_rels
             """
             
             if not self.execute_sql(session, copy_data_sql):
@@ -196,6 +213,11 @@ class Migration302To303(BaseMigration):
         try:
             logger.info("Converting title column to JSON in agents table")
             
+            # First, check what columns exist in the current agents table
+            result = session.execute(text("PRAGMA table_info(agents)"))
+            existing_columns = {row[1] for row in result.fetchall()}
+            logger.info(f"Existing columns in agents table: {existing_columns}")
+            
             # SQLite doesn't support ALTER COLUMN, so we need to recreate the table
             # Step 1: Create new table with JSON title column
             create_new_table_sql = """
@@ -232,18 +254,41 @@ class Migration302To303(BaseMigration):
             logger.info("Created new agents_new table")
             
             # Step 2: Copy data, converting title to JSON array
-            # Use CASE to handle NULL, empty string, and existing values
-            copy_data_sql = """
+            # Build dynamic SQL based on which columns exist
+            # Handle column name variations (personality_traits vs personalities)
+            personality_col = 'personality_traits' if 'personality_traits' in existing_columns else 'personalities' if 'personalities' in existing_columns else None
+            
+            copy_data_sql = f"""
             INSERT INTO agents_new 
+            (id, name, description, owner, gender, title, rank, birthday, supervisor_id,
+             personality_traits, capabilities, tasks, skills, status, version, url, 
+             extra_data, vehicle_id, created_at, updated_at, ext)
             SELECT 
-                id, name, description, owner, gender,
+                id, 
+                name, 
+                description, 
+                owner, 
+                gender,
                 CASE 
                     WHEN title IS NULL OR title = '' THEN '[]'
+                    WHEN json_valid(title) THEN title
                     ELSE json_array(title)
                 END as title,
-                rank, birthday, supervisor_id, personality_traits, capabilities,
-                tasks, skills, status, version, url, extra_data, vehicle_id,
-                created_at, updated_at, ext
+                rank, 
+                birthday, 
+                supervisor_id,
+                {personality_col if personality_col else "'[]'"} as personality_traits,
+                COALESCE(capabilities, '[]') as capabilities,
+                {'tasks' if 'tasks' in existing_columns else "'[]'"} as tasks,
+                {'skills' if 'skills' in existing_columns else "'[]'"} as skills,
+                COALESCE(status, 'active') as status,
+                version, 
+                url, 
+                extra_data,
+                {'vehicle_id' if 'vehicle_id' in existing_columns else 'NULL'} as vehicle_id,
+                created_at, 
+                updated_at, 
+                {'ext' if 'ext' in existing_columns else 'NULL'} as ext
             FROM agents
             """
             
