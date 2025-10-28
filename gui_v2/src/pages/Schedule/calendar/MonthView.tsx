@@ -105,17 +105,16 @@ const DayCell = styled.div<{
   flex-direction: column;
   position: relative;
   cursor: pointer;
-  transition: all 0.3s ease;
   opacity: ${props => props.$isCurrentMonth ? 1 : 0.4};
   height: 100%; // 填充WeekRow的固定Height
   min-height: 0; // AllowContent收缩
   overflow: hidden; // 防止Content溢出
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   
   &:hover {
     background: rgba(24, 144, 255, 0.1);
     border-color: rgba(24, 144, 255, 0.3);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 2px 8px rgba(24, 144, 255, 0.15);
     z-index: 1; // 悬浮时提升层级
   }
 `;
@@ -171,12 +170,13 @@ const EventItem = styled.div<{ $color?: string; $backgroundColor?: string; $bord
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: all 0.2s ease;
   cursor: pointer;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
   
   &:hover {
-    transform: translateX(2px);
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    background: ${props => props.$backgroundColor ? `${props.$backgroundColor}dd` : 'rgba(24, 144, 255, 0.2)'};
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+    opacity: 0.95;
   }
 `;
 
@@ -319,7 +319,7 @@ const MonthView: React.FC<MonthViewProps> = ({
               </div>
             )}
             <div style={{ fontSize: 11, marginTop: 4, opacity: 0.8 }}>
-              {t('common.status')}: {event.status}
+              {t('common.status')}: {event.status ? t(`pages.schedule.status.${event.status}`) : '-'}
             </div>
           </div>
         }

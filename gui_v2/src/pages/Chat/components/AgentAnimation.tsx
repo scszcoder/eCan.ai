@@ -193,11 +193,7 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
               height: '100%', 
               objectFit: 'contain', 
               borderRadius: '12px',
-              background: 'transparent',
-              transform: 'translate3d(0, 0, 0)', // TriggerGPU硬件加速
-              willChange: 'transform', // PromptBrowserOptimize
-              backfaceVisibility: 'hidden', // OptimizeRenderPerformance
-              WebkitBackfaceVisibility: 'hidden' // SafariCompatible
+              background: 'transparent'
             }}
             poster=""
             onLoadedData={() => { loadedRef.current = true; }}

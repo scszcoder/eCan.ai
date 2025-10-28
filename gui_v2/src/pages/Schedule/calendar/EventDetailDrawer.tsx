@@ -270,13 +270,13 @@ const EventDetailDrawer: React.FC<EventDetailDrawerProps> = ({
               icon={<StatusIcon status={event.status} />} 
               color={getStatusColor(event.status)}
             >
-              {event.status}
+              {event.status ? t(`pages.schedule.status.${event.status}`) : '-'}
             </Tag>
             
             {/* Priority */}
             {event.priority && (
               <Tag color={getPriorityColor(event.priority)}>
-                {t('common.priority')}: {event.priority}
+                {t('common.priority')}: {t(`pages.tasks.priority.${event.priority}`)}
               </Tag>
             )}
             

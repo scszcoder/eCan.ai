@@ -213,11 +213,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
               height: '100%',
               objectFit: 'contain',
               borderRadius: 28,
-              background: 'transparent',
-              transform: 'translate3d(0, 0, 0)', // TriggerGPU硬件加速
-              willChange: 'transform', // PromptBrowserOptimize
-              backfaceVisibility: 'hidden', // OptimizeRenderPerformance
-              WebkitBackfaceVisibility: 'hidden' // SafariCompatible
+              background: 'transparent'
             }}
           />
         </div>

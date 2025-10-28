@@ -6,7 +6,16 @@ import {
     StarOutlined,
     CheckCircleOutlined,
     SyncOutlined,
-    ExperimentOutlined
+    ExperimentOutlined,
+    ThunderboltOutlined,
+    BulbOutlined,
+    ApiOutlined,
+    BranchesOutlined,
+    RadarChartOutlined,
+    MessageOutlined,
+    CodeOutlined,
+    EyeOutlined,
+    CloudOutlined
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
@@ -111,58 +120,99 @@ const SkillHeader = styled.div`
 `;
 
 const SkillIcon = styled.div<{ status?: string }>`
-    width: 44px;
-    height: 44px;
-    border-radius: 12px;
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 22px;
+    font-size: 24px;
     flex-shrink: 0;
     position: relative;
     background: ${props => {
         switch (props.status) {
-            case 'active': return 'linear-gradient(135deg, #52c41a 0%, #73d13d 100%)';
-            case 'learning': return 'linear-gradient(135deg, #1890ff 0%, #40a9ff 100%)';
-            case 'planned': return 'linear-gradient(135deg, #8c8c8c 0%, #bfbfbf 100%)';
-            default: return 'linear-gradient(135deg, #722ed1 0%, #9254de 100%)';
+            case 'active': 
+                return 'linear-gradient(135deg, #10b981 0%, #34d399 50%, #6ee7b7 100%)';
+            case 'learning': 
+                return 'linear-gradient(135deg, #3b82f6 0%, #60a5fa 50%, #93c5fd 100%)';
+            case 'planned': 
+                return 'linear-gradient(135deg, #6b7280 0%, #9ca3af 50%, #d1d5db 100%)';
+            case 'inactive':
+                return 'linear-gradient(135deg, #ef4444 0%, #f87171 50%, #fca5a5 100%)';
+            default: 
+                return 'linear-gradient(135deg, #8b5cf6 0%, #a78bfa 50%, #c4b5fd 100%)';
         }
     }};
     color: white;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 20px ${props => {
+        switch (props.status) {
+            case 'active': return 'rgba(16, 185, 129, 0.4)';
+            case 'learning': return 'rgba(59, 130, 246, 0.5)';
+            case 'planned': return 'rgba(107, 114, 128, 0.3)';
+            case 'inactive': return 'rgba(239, 68, 68, 0.3)';
+            default: return 'rgba(139, 92, 246, 0.4)';
+        }
+    }};
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     
+    /* AI科技感光晕效果 */
     &::before {
         content: '';
         position: absolute;
-        inset: 0;
-        border-radius: 12px;
+        inset: -2px;
+        border-radius: 16px;
         padding: 2px;
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.1));
+        background: linear-gradient(135deg, 
+            rgba(255, 255, 255, 0.6), 
+            rgba(255, 255, 255, 0.1), 
+            rgba(255, 255, 255, 0.4)
+        );
         -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
         -webkit-mask-composite: xor;
         mask-composite: exclude;
-        opacity: 0.7;
+        opacity: 0.8;
+        animation: ${props => props.status === 'learning' ? 'rotate 3s linear infinite' : 'none'};
     }
     
+    /* 内部高光效果 */
     &::after {
         content: '';
         position: absolute;
-        inset: 3px;
-        border-radius: 10px;
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.15), transparent);
-        opacity: 0.5;
+        inset: 4px;
+        border-radius: 11px;
+        background: linear-gradient(135deg, 
+            rgba(255, 255, 255, 0.25) 0%, 
+            transparent 50%
+        );
+        opacity: 0.6;
     }
     
     .anticon {
         position: relative;
         z-index: 1;
-        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+        filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.25));
     }
     
     &:hover {
-        transform: scale(1.08) rotate(5deg);
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        transform: scale(1.1) translateY(-2px);
+        box-shadow: 0 8px 28px ${props => {
+            switch (props.status) {
+                case 'active': return 'rgba(16, 185, 129, 0.6)';
+                case 'learning': return 'rgba(59, 130, 246, 0.7)';
+                case 'planned': return 'rgba(107, 114, 128, 0.5)';
+                case 'inactive': return 'rgba(239, 68, 68, 0.5)';
+                default: return 'rgba(139, 92, 246, 0.6)';
+            }
+        }};
+    }
+    
+    @keyframes rotate {
+        from {
+            transform: rotate(0deg);
+        }
+        to {
+            transform: rotate(360deg);
+        }
     }
 `;
 
@@ -225,6 +275,59 @@ const EmptyContainer = styled.div`
     text-align: center;
 `;
 
+// Infer category from skill name, description, and tags
+const inferCategory = (skill: Skill): string => {
+    const searchText = `${skill.name} ${skill.description || ''} ${(skill.tags || []).join(' ')}`.toLowerCase();
+    
+    // Pattern matching for different categories
+    if (/automat|workflow|process|batch|schedule/i.test(searchText)) return 'automation';
+    if (/analy[sz]|data|chart|report|metric|statistic/i.test(searchText)) return 'analysis';
+    if (/chat|message|email|communication|talk|conversation/i.test(searchText)) return 'communication';
+    if (/code|program|develop|script|function|debug/i.test(searchText)) return 'coding';
+    if (/vision|image|photo|visual|ocr|detect|recognize/i.test(searchText)) return 'vision';
+    if (/api|rest|http|integration|webhook|endpoint/i.test(searchText)) return 'api';
+    if (/logic|reason|think|decision|rule|condition/i.test(searchText)) return 'logic';
+    if (/cloud|aws|azure|gcp|server|deploy|network/i.test(searchText)) return 'cloud';
+    if (/search|find|query|lookup|browse/i.test(searchText)) return 'analysis';
+    if (/test|debug|check|verify|validate/i.test(searchText)) return 'development';
+    
+    return 'general';
+};
+
+// Get AI skill icon based on inferred category
+const getCategoryIcon = (skill: Skill, status?: Skill['status']) => {
+    const isLearning = status === 'learning';
+    const category = skill.category || inferCategory(skill);
+    
+    switch (category) {
+        case 'automation':
+            return isLearning ? <SyncOutlined spin /> : <ThunderboltOutlined />;
+        case 'analysis':
+            return isLearning ? <SyncOutlined spin /> : <RadarChartOutlined />;
+        case 'communication':
+            return isLearning ? <SyncOutlined spin /> : <MessageOutlined />;
+        case 'coding':
+        case 'development':
+            return isLearning ? <SyncOutlined spin /> : <CodeOutlined />;
+        case 'vision':
+        case 'image':
+            return isLearning ? <SyncOutlined spin /> : <EyeOutlined />;
+        case 'api':
+        case 'integration':
+            return isLearning ? <SyncOutlined spin /> : <ApiOutlined />;
+        case 'logic':
+        case 'reasoning':
+            return isLearning ? <SyncOutlined spin /> : <BranchesOutlined />;
+        case 'cloud':
+        case 'network':
+            return isLearning ? <SyncOutlined spin /> : <CloudOutlined />;
+        case 'general':
+        default:
+            if (status === 'planned') return <ExperimentOutlined />;
+            return isLearning ? <SyncOutlined spin /> : <BulbOutlined />;
+    }
+};
+
 const getStatusConfig = (status: Skill['status']) => {
     switch (status) {
         case 'active':
@@ -280,11 +383,12 @@ const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, s
         // 2. 在StatusFilterResult中，再按Search关键字匹配Name、Description和类别
         if (filters.search) {
             const searchLower = filters.search.toLowerCase();
-            result = result.filter(skill =>
-                skill.name?.toLowerCase().includes(searchLower) ||
-                skill.description?.toLowerCase().includes(searchLower) ||
-                skill.category?.toLowerCase().includes(searchLower)
-            );
+            result = result.filter(skill => {
+                const category = skill.category || inferCategory(skill);
+                return skill.name?.toLowerCase().includes(searchLower) ||
+                    skill.description?.toLowerCase().includes(searchLower) ||
+                    category.toLowerCase().includes(searchLower);
+            });
         }
 
         // Sort
@@ -364,7 +468,7 @@ const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, s
                         <SkillHeader>
                             <Space align="start" style={{ flex: 1 }}>
                                 <SkillIcon status={skill.status}>
-                                    {statusConfig.icon}
+                                    {getCategoryIcon(skill, skill.status)}
                                 </SkillIcon>
                                 <SkillMeta>
                                     <SkillName>{skill.name}</SkillName>
@@ -372,11 +476,14 @@ const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, s
                                         <Tag color={statusConfig.color} icon={statusConfig.icon}>
                                             {t(`pages.skills.status.${skill.status || 'unknown'}`, statusConfig.text)}
                                         </Tag>
-                                        {skill.category && (
-                                            <Tag color="blue">
-                                                {t(`pages.skills.categories.${skill.category}`, skill.category)}
-                                            </Tag>
-                                        )}
+                                        {(() => {
+                                            const displayCategory = skill.category || inferCategory(skill);
+                                            return (
+                                                <Tag color="blue">
+                                                    {t(`pages.skills.categories.${displayCategory}`, displayCategory)}
+                                                </Tag>
+                                            );
+                                        })()}
                                     </Space>
                                 </SkillMeta>
                             </Space>
