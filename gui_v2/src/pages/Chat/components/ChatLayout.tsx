@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Badge } from 'antd';
 import styled from '@emotion/styled';
-import SplitPane from 'react-split-pane';
+import SplitPane, { Pane } from 'split-pane-react';
+import 'split-pane-react/esm/themes/default.css';
 import { MenuFoldOutlined, MenuUnfoldOutlined, RobotOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 
@@ -226,36 +227,38 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
         {/* @ts-ignore */}
         <SplitPane
           split="vertical"
-          minSize={300}
-          maxSize={rightCollapsed ? "100%" : "50%"}
-          size={splitSize}
-          onChange={(size) => setSplitSize(size)}
-          allowResize={!rightCollapsed}
+          sizes={rightCollapsed ? [100, 0] : [40, 60]}
+          onChange={(sizes) => setSplitSize(sizes[0])}
+          sashRender={() => !rightCollapsed ? undefined : null}
           style={{ position: 'relative', flex: 1, overflow: 'hidden' }}
           className="custom-split-pane"
         >
-          <CenterPane>
-            <Card
-              title={centerTitle}
-              variant="borderless"
-              style={{ height: '100%', width: '100%', borderRadius: 0 }}
-              styles={{ body: { height: 'calc(100% - 48px)', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
-            >
-              {detailsContent}
-            </Card>
-          </CenterPane>
-          <div style={{ height: '100%', width: '100%', display: 'flex', overflow: 'hidden' }}>
-            {!rightCollapsed && (
+          <Pane minSize={300}>
+            <CenterPane>
               <Card
-                title={chatNotificationTitle}
+                title={centerTitle}
                 variant="borderless"
-                style={{ height: '100%', width: '100%', borderRadius: 0, flex: 1 }}
-                styles={{ body: { height: 'calc(100% - 48px)', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
+                style={{ height: '100%', width: '100%', borderRadius: 0 }}
+                styles={{ body: { height: 'calc(100% - 56px)', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
               >
-                {chatNotificationContent}
+                {detailsContent}
               </Card>
-            )}
-          </div>
+            </CenterPane>
+          </Pane>
+          {!rightCollapsed && (
+            <Pane>
+              <div style={{ height: '100%', width: '100%', display: 'flex', overflow: 'hidden' }}>
+                <Card
+                  title={chatNotificationTitle}
+                  variant="borderless"
+                  style={{ height: '100%', width: '100%', borderRadius: 0, flex: 1 }}
+                  styles={{ body: { height: 'calc(100% - 56px)', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
+                >
+                  {chatNotificationContent}
+                </Card>
+              </div>
+            </Pane>
+          )}
         </SplitPane>
       </LayoutContainer>
     </GlobalStyles>
