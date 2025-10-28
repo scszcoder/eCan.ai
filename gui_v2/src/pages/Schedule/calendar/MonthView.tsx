@@ -1,9 +1,9 @@
 /**
  * Month View Component
- * 月视图日历Component
+ * 月视图日历Component - 性能优化版
  */
 
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, memo, useCallback } from 'react';
 import styled from '@emotion/styled';
 import dayjs from 'dayjs';
 import { Badge, Tooltip } from 'antd';
@@ -77,7 +77,7 @@ const WeekRow = styled.div`
   grid-template-columns: repeat(7, minmax(120px, 1fr)); // 与Header保持一致
   gap: 3px; // 减少列间距
   margin-bottom: 3px; // 减少行间距
-  height: 150px; // 增加Height以Display更多任务
+  height: 145px; // 适配4行任务显示
   
   &:last-child {
     margin-bottom: 0;
@@ -100,22 +100,20 @@ const DayCell = styled.div<{
     return 'rgba(255, 255, 255, 0.08)';
   }};
   border-radius: 6px;
-  padding: 4px; // Minimum化内边距
+  padding: 4px;
   display: flex;
   flex-direction: column;
   position: relative;
   cursor: pointer;
   opacity: ${props => props.$isCurrentMonth ? 1 : 0.4};
-  height: 100%; // 填充WeekRow的固定Height
-  min-height: 0; // AllowContent收缩
-  overflow: hidden; // 防止Content溢出
-  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
   
   &:hover {
     background: rgba(24, 144, 255, 0.1);
     border-color: rgba(24, 144, 255, 0.3);
-    box-shadow: 0 2px 8px rgba(24, 144, 255, 0.15);
-    z-index: 1; // 悬浮时提升层级
+    z-index: 1;
   }
 `;
 
@@ -160,10 +158,10 @@ const EventsContainer = styled.div`
 const EventItem = styled.div<{ $color?: string; $backgroundColor?: string; $borderColor?: string }>`
   display: flex;
   align-items: center;
-  gap: 3px; // 减少间距
-  padding: 2px 5px; // Minimum化padding
+  gap: 3px;
+  padding: 2px 5px;
   background: ${props => props.$backgroundColor || 'rgba(24, 144, 255, 0.1)'};
-  border-left: 2px solid ${props => props.$borderColor || '#1890ff'}; // 减少边框Width
+  border-left: 2px solid ${props => props.$borderColor || '#1890ff'};
   border-radius: 3px;
   font-size: 11px;
   color: ${props => props.$color || '#1890ff'};
@@ -171,12 +169,9 @@ const EventItem = styled.div<{ $color?: string; $backgroundColor?: string; $bord
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
-  transition: background-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
   
   &:hover {
     background: ${props => props.$backgroundColor ? `${props.$backgroundColor}dd` : 'rgba(24, 144, 255, 0.2)'};
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
-    opacity: 0.95;
   }
 `;
 
@@ -218,6 +213,15 @@ const MoreEventsIndicator = styled.div`
   }
 `;
 
+// 性能优化：提取常量样式，避免每次渲染创建新对象
+const BADGE_STYLE = {
+  backgroundColor: 'rgba(24, 144, 255, 0.6)',
+  fontSize: 10,
+  height: 16,
+  minWidth: 16,
+  lineHeight: '16px',
+} as const;
+
 interface MonthViewProps {
   currentDate: Date;
   events: CalendarEvent[];
@@ -235,7 +239,7 @@ const MonthView: React.FC<MonthViewProps> = ({
   onEventClick,
   onDateClick,
   onMoreEventsClick,
-  maxEventsPerDay = 4, // 增加到4行任务
+  maxEventsPerDay = 4, // 显示4行任务，视觉效果更好
 }) => {
   const { t } = useTranslation();
   const calendarConfig = { ...DEFAULT_CALENDAR_CONFIG, ...config };
@@ -257,19 +261,19 @@ const MonthView: React.FC<MonthViewProps> = ({
     t('pages.schedule.calendar.weekdaysShort.sat')
   ];
   
-  const handleEventClick = (event: CalendarEvent, e: React.MouseEvent) => {
+  const handleEventClick = useCallback((event: CalendarEvent, e: React.MouseEvent) => {
     e.stopPropagation();
     onEventClick?.(event);
-  };
+  }, [onEventClick]);
   
-  const handleDateClick = (date: Date) => {
+  const handleDateClick = useCallback((date: Date) => {
     onDateClick?.(date);
-  };
+  }, [onDateClick]);
   
-  const handleMoreEventsClick = (date: Date, allEvents: CalendarEvent[], e: React.MouseEvent) => {
+  const handleMoreEventsClick = useCallback((date: Date, allEvents: CalendarEvent[], e: React.MouseEvent) => {
     e.stopPropagation();
     onMoreEventsClick?.(date, allEvents);
-  };
+  }, [onMoreEventsClick]);
   
   // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
   useEffectOnActive(
@@ -297,20 +301,21 @@ const MonthView: React.FC<MonthViewProps> = ({
     []
   );
   
-  const renderEvent = (event: CalendarEvent) => {
+  // 性能优化：使用useCallback缓存渲染函数
+  const renderEvent = useCallback((event: CalendarEvent) => {
     const eventTime = dayjs(event.start).format('HH:mm');
     const isSameTime = event.start.getTime() === event.end.getTime();
     
     return (
       <Tooltip 
         key={event.id} 
-          title={
+        title={
           <div>
             <div style={{ fontWeight: 600, marginBottom: 4 }}>{event.title}</div>
             <div style={{ fontSize: 12 }}>
               {isSameTime 
-                ? `${dayjs(event.start).format('HH:mm')} (${t('pages.schedule.calendar.instantTask')})`
-                : `${dayjs(event.start).format('HH:mm')} - ${dayjs(event.end).format('HH:mm')}`
+                ? `${eventTime} (${t('pages.schedule.calendar.instantTask')})`
+                : `${eventTime} - ${dayjs(event.end).format('HH:mm')}`
               }
             </div>
             {event.isRecurring && (
@@ -323,7 +328,8 @@ const MonthView: React.FC<MonthViewProps> = ({
             </div>
           </div>
         }
-        mouseEnterDelay={0.3}
+        mouseEnterDelay={0.5}
+        destroyTooltipOnHide
       >
         <EventItem
           $color={event.color}
@@ -343,7 +349,7 @@ const MonthView: React.FC<MonthViewProps> = ({
         </EventItem>
       </Tooltip>
     );
-  };
+  }, [handleEventClick, t]);
   
   return (
     <MonthViewContainer>
@@ -382,16 +388,7 @@ const MonthView: React.FC<MonthViewProps> = ({
                           <span>{dayjs(day.date).format('D')}</span>
                         )}
                         {day.hasEvents && !day.isToday && (
-                          <Badge 
-                            count={day.eventCount} 
-                            style={{ 
-                              backgroundColor: 'rgba(24, 144, 255, 0.6)',
-                              fontSize: 10,
-                              height: 16,
-                              minWidth: 16,
-                              lineHeight: '16px',
-                            }} 
-                          />
+                          <Badge count={day.eventCount} style={BADGE_STYLE} />
                         )}
                       </DayNumber>
                       
@@ -417,5 +414,6 @@ const MonthView: React.FC<MonthViewProps> = ({
   );
 };
 
-export default MonthView;
+// 性能优化：使用memo避免不必要的重渲染
+export default memo(MonthView);
 
