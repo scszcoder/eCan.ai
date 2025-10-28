@@ -121,8 +121,13 @@ class Migration303To304(BaseMigration):
             
             # Step 2: Copy data from old table to new table
             # Map personality_traits to personalities
+            # Explicitly specify all columns to prevent column count mismatch
             copy_data_sql = """
             INSERT INTO agents_new 
+            (id, name, description, owner, gender, title, rank, birthday, 
+             supervisor_id, personalities, capabilities, tasks, skills, 
+             status, version, url, extra_data, vehicle_id, 
+             created_at, updated_at, ext)
             SELECT 
                 id, name, description, owner, gender, title, rank, birthday, 
                 supervisor_id,
@@ -282,8 +287,13 @@ class Migration303To304(BaseMigration):
                 return False
             
             # Copy data, renaming personalities back to personality_traits
+            # Explicitly specify all columns to prevent column count mismatch
             copy_data_sql = """
             INSERT INTO agents_new 
+            (id, name, description, owner, gender, title, rank, birthday, 
+             supervisor_id, personality_traits, capabilities, tasks, skills, 
+             status, version, url, extra_data, vehicle_id, 
+             created_at, updated_at, ext)
             SELECT 
                 id, name, description, owner, gender, title, rank, birthday, 
                 supervisor_id,
