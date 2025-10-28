@@ -80,6 +80,7 @@
     "unknown": "Unknown",
     "description": "Description",
     "priority": "Priority",
+    "status": "Status",
     "continue": "Continue"
   },
   "personality": {
@@ -748,13 +749,25 @@
         "analysis": "Analysis",
         "communication": "Communication",
         "general": "General",
+        "coding": "Coding",
+        "development": "Development",
+        "vision": "Vision",
+        "image": "Image",
+        "api": "API",
+        "integration": "Integration",
+        "logic": "Logic",
+        "reasoning": "Reasoning",
+        "cloud": "Cloud",
+        "network": "Network",
         "unknown": "Unknown"
       },
       "time": {
         "justNow": "Just Now"
       },
       "usageCount": "Usage Count",
-      "viewHistory": "View History"
+      "viewHistory": "View History",
+      "neverUsed": "Never used",
+      "uses": "uses"
     },
     "tasks": {
       "title": "Task Management",
