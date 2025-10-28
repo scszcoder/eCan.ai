@@ -439,6 +439,15 @@ class MainWindow:
             logger.error(f"[MainWindow] ❌ Agents initialization failed: {e}")
             logger.warning("[MainWindow] ⚠️ System marked as ready despite agents initialization failure")
 
+        # Start completely independent delayed task to copy example my_skills
+        # This runs after all critical initialization is complete and won't block anything
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._delayed_copy_example_my_skills())
+            logger.debug("[MainWindow] 📚 Scheduled delayed copy of example my_skills (non-blocking)")
+        except RuntimeError as e:
+            logger.debug(f"[MainWindow] No event loop for delayed my_skills copy: {e}")
+
         logger.info("[MainWindow] ✅ Async initialization finalized")
 
     def _save_vehicles_to_database(self):
@@ -452,6 +461,88 @@ class MainWindow:
                     logger.error(f"[MainWindow] Failed to save vehicle {vehicle.getName()}: {e}")
         except Exception as e:
             logger.error(f"[MainWindow] Error in vehicle saving process: {e}")
+
+    async def _delayed_copy_example_my_skills(self):
+        """
+        Delayed async task to copy example skills after system is fully initialized
+        This runs completely independently and won't block any startup process
+        """
+        try:
+            # Wait 5 seconds after system is fully ready to ensure no impact on startup
+            logger.debug("[MainWindow] 📚 Waiting 5s before copying example my_skills...")
+            await asyncio.sleep(5.0)
+            
+            # Run the actual copy operation in executor to avoid blocking event loop
+            logger.debug("[MainWindow] 📚 Starting example my_skills copy in background thread...")
+            await asyncio.get_event_loop().run_in_executor(
+                None, self._copy_example_my_skills
+            )
+            logger.debug("[MainWindow] 📚 Example my_skills copy completed")
+            
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Delayed my_skills copy failed: {e}")
+            # Silently fail - this is a nice-to-have feature, not critical
+
+    def _copy_example_my_skills(self):
+        """
+        Copy example skills from resource/my_skills to appdata/my_skills directory
+        This method is synchronous and designed to be run in an executor
+        """
+        try:
+            from config.app_info import app_info
+            
+            # Source directory: resource/my_skills
+            source_dir = os.path.join(app_info.app_resources_path, "my_skills")
+            
+            # Target directory: appdata/my_skills  
+            target_dir = os.path.join(app_info.appdata_path, "my_skills")
+            
+            # Check if source directory exists
+            if not os.path.exists(source_dir):
+                logger.debug(f"[MainWindow] 📂 Source my_skills directory not found: {source_dir}")
+                return
+            
+            # Create target directory if it doesn't exist
+            if not os.path.exists(target_dir):
+                os.makedirs(target_dir, exist_ok=True)
+                logger.debug(f"[MainWindow] 📁 Created target my_skills directory: {target_dir}")
+            
+            # Copy each skill directory from source to target
+            copied_count = 0
+            skipped_count = 0
+            
+            for skill_name in os.listdir(source_dir):
+                source_skill_path = os.path.join(source_dir, skill_name)
+                target_skill_path = os.path.join(target_dir, skill_name)
+                
+                # Skip if not a directory
+                if not os.path.isdir(source_skill_path):
+                    continue
+                
+                # Skip if target already exists (don't overwrite user's existing skills)
+                if os.path.exists(target_skill_path):
+                    logger.debug(f"[MainWindow] ⏭️ Skill already exists, skipping: {skill_name}")
+                    skipped_count += 1
+                    continue
+                
+                try:
+                    # Copy the entire skill directory
+                    shutil.copytree(source_skill_path, target_skill_path)
+                    logger.debug(f"[MainWindow] ✅ Copied example skill: {skill_name}")
+                    copied_count += 1
+                except Exception as copy_error:
+                    logger.debug(f"[MainWindow] ❌ Failed to copy skill {skill_name}: {copy_error}")
+            
+            if copied_count > 0:
+                logger.info(f"[MainWindow] 🎉 Successfully copied {copied_count} example skill(s) to my_skills directory")
+            if skipped_count > 0:
+                logger.debug(f"[MainWindow] 📊 Skipped {skipped_count} existing skill(s)")
+            if copied_count == 0 and skipped_count == 0:
+                logger.debug(f"[MainWindow] 📂 No skills found to copy from {source_dir}")
+                
+        except Exception as e:
+            logger.debug(f"[MainWindow] ❌ Error copying example my_skills: {e}")
+            # Silently continue - this is a nice-to-have feature
 
     def is_ui_ready(self) -> bool:
         """Check if UI is ready for display (minimal initialization complete)"""
