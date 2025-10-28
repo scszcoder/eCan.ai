@@ -110,7 +110,7 @@ export const defaultFormMeta: FormMeta<FlowNodeJSON> = {
   },
   /**
    * Initialize (fromJSON) data transformation
-   * 初始化(fromJSON) 数据转换
+   * Initialize(fromJSON) DataConvert
    * @param value
    * @param ctx
    */
@@ -132,7 +132,7 @@ export const defaultFormMeta: FormMeta<FlowNodeJSON> = {
   },
   /**
    * Save (toJSON) data transformation
-   * 保存(toJSON) 数据转换
+   * Save(toJSON) DataConvert
    * @param value
    * @param ctx
    */

@@ -10,7 +10,7 @@ export const useVisible = (params: {
   const playground = usePlayground();
   const { line, selected = false, hovered } = params;
   if (line.disposed) {
-    // 在 dispose 后，再去获取 line.to | line.from 会导致错误创建端口
+    // 在 dispose 后，再去Get line.to | line.from 会导致ErrorCreate端口
     return false;
   }
   if (playground.config.readonly) {

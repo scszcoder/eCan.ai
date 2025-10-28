@@ -1,6 +1,6 @@
 /**
  * Base Store Factory
- * 创建标准化的 Zustand store
+ * CreateStandard化的 Zustand store
  */
 
 import { create } from 'zustand';
@@ -15,10 +15,10 @@ import {
 import { logger } from '../../utils/logger';
 
 /**
- * 创建标准化的资源 Store
+ * CreateStandard化的资源 Store
  * 
- * @param options - Store 配置选项
- * @param apiService - API 服务实例
+ * @param options - Store Configuration选项
+ * @param apiService - API Service实例
  * @returns Zustand store hook
  * 
  * @example
@@ -41,15 +41,15 @@ export function createResourceStore<T extends BaseResource>(
   } = options;
 
   const storeCreator = (set: any, get: any): BaseStoreState<T> => ({
-    // 数据
+    // Data
     items: [],
     
-    // 状态
+    // Status
     loading: false,
     error: null,
     lastFetched: null,
     
-    // 基础 CRUD 操作
+    // Base CRUD Operation
     setItems: (items: T[]) => {
       logger.debug(`[${name}Store] Setting ${items.length} items`);
       set({ items, lastFetched: Date.now(), error: null });
@@ -78,7 +78,7 @@ export function createResourceStore<T extends BaseResource>(
       }));
     },
     
-    // 查询方法
+    // QueryMethod
     getItemById: (id: string) => {
       const items = get().items;
       return items.find((item: T) => item.id === id) || null;
@@ -88,11 +88,11 @@ export function createResourceStore<T extends BaseResource>(
       return get().items;
     },
     
-    // 数据获取
+    // DataGet
     fetchItems: async (username: string, ...args: any[]) => {
       const state = get();
 
-      // 检查是否需要重新获取
+      // Check是否Need重新Get
       if (!state.shouldFetch()) {
         return;
       }
@@ -131,13 +131,13 @@ export function createResourceStore<T extends BaseResource>(
       return diff > cacheDuration;
     },
 
-    // 强制刷新数据（忽略缓存）
+    // 强制RefreshData（忽略Cache）
     forceRefresh: async (username: string, ...args: any[]) => {
       set({ lastFetched: null });
       await get().fetchItems(username, ...args);
     },
 
-    // 状态管理
+    // Status管理
     setLoading: (loading: boolean) => set({ loading }),
 
     setError: (error: string | null) => set({ error, loading: false }),
@@ -152,14 +152,14 @@ export function createResourceStore<T extends BaseResource>(
     },
   });
 
-  // 根据配置决定是否使用 persist 中间件
+  // 根据Configuration决定是否使用 persist 中间件
   if (enablePersist) {
     return create<BaseStoreState<T>>()(
       persist(
         storeCreator,
         {
           name: `${name}-storage`,
-          // 只持久化数据，不持久化 loading 和 error 状态（除非明确指定）
+          // 只持久化Data，不持久化 loading 和 error Status（除非明确指定）
           partialize: (state) => {
             const persistedState: any = {
               items: state.items,
@@ -182,12 +182,12 @@ export function createResourceStore<T extends BaseResource>(
 }
 
 /**
- * 创建扩展的资源 Store
- * 允许在标准 store 基础上添加自定义方法
+ * CreateExtended的资源 Store
+ * Allow在Standard store Base上AddCustomMethod
  * 
- * @param options - Store 配置选项
- * @param apiService - API 服务实例
- * @param extendStore - 扩展函数，接收标准 store 状态并返回扩展状态
+ * @param options - Store Configuration选项
+ * @param apiService - API Service实例
+ * @param extendStore - ExtendedFunction，ReceiveStandard store Status并返回ExtendedStatus
  * @returns Zustand store hook
  * 
  * @example
@@ -220,17 +220,17 @@ export function createExtendedResourceStore<
   } = options;
 
   const storeCreator = (set: any, get: any): E => {
-    // 创建基础 store 状态（内联实现，避免使用 getState()）
+    // CreateBase store Status（内联Implementation，避免使用 getState()）
     const baseState: BaseStoreState<T> = {
-      // 数据
+      // Data
       items: [],
       
-      // 状态
+      // Status
       loading: false,
       error: null,
       lastFetched: null,
       
-      // 基础 CRUD 操作
+      // Base CRUD Operation
       setItems: (items: T[]) => {
         set({ items, lastFetched: Date.now(), error: null });
       },
@@ -255,7 +255,7 @@ export function createExtendedResourceStore<
         }));
       },
       
-      // 查询方法
+      // QueryMethod
       getItemById: (id: string) => {
         const items = get().items;
         return items.find((item: T) => item.id === id) || null;
@@ -265,11 +265,11 @@ export function createExtendedResourceStore<
         return get().items;
       },
       
-      // 数据获取
+      // DataGet
       fetchItems: async (username: string, ...args: any[]) => {
         const state = get();
 
-        // 检查是否需要重新获取
+        // Check是否Need重新Get
         if (!state.shouldFetch()) {
           return;
         }
@@ -308,13 +308,13 @@ export function createExtendedResourceStore<
         return diff > cacheDuration;
       },
 
-      // 强制刷新数据（忽略缓存）
+      // 强制RefreshData（忽略Cache）
       forceRefresh: async (username: string, ...args: any[]) => {
         set({ lastFetched: null });
         await get().fetchItems(username, ...args);
       },
 
-      // 状态管理
+      // Status管理
       setLoading: (loading: boolean) => set({ loading }),
 
       setError: (error: string | null) => set({ error, loading: false }),
@@ -329,7 +329,7 @@ export function createExtendedResourceStore<
       },
     };
     
-    // 然后应用扩展
+    // 然后应用Extended
     return extendStore(baseState, set, get);
   };
 

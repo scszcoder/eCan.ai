@@ -25,7 +25,7 @@ const VehicleFormModal: React.FC<VehicleFormModalProps> = ({
 
     useEffect(() => {
         if (visible && vehicle) {
-            // 编辑模式：填充现有数据
+            // Edit模式：填充现有Data
             form.setFieldsValue({
                 name: vehicle.name,
                 ip: vehicle.ip,
@@ -36,7 +36,7 @@ const VehicleFormModal: React.FC<VehicleFormModalProps> = ({
                 test_disabled: vehicle.test_disabled || false,
             });
         } else if (visible && !vehicle) {
-            // 添加模式：设置默认值
+            // Add模式：SettingsDefaultValue
             form.setFieldsValue({
                 name: '',
                 ip: '0.0.0.0',

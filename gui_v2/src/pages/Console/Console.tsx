@@ -115,16 +115,16 @@ const Console: React.FC = () => {
         type: undefined,
     });
 
-    // 筛选后的日志列表
+    // 筛选后的LogList
     const filteredLogs = useMemo(() => {
         let result = [...agentLogs];
 
-        // 按状态筛选
+        // 按Status筛选
         if (filters.status) {
             result = result.filter(log => log.status === filters.status);
         }
 
-        // 按类型筛选
+        // 按Type筛选
         if (filters.type) {
             const typeMap: Record<string, string> = {
                 ground: t('pages.console.groundVehicle'),
@@ -136,7 +136,7 @@ const Console: React.FC = () => {
             }
         }
 
-        // 按搜索关键字筛选
+        // 按Search关键字筛选
         if (filters.search) {
             const searchLower = filters.search.toLowerCase();
             result = result.filter(log =>
@@ -190,7 +190,7 @@ const Console: React.FC = () => {
             {filteredLogs.length === 0 ? (
                 <Empty
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description={t('pages.console.noData', '没有找到匹配的数据')}
+                    description={t('pages.console.noData', '没有找到匹配的Data')}
                     style={{ marginTop: 40 }}
                 />
             ) : (

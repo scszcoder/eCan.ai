@@ -15,14 +15,14 @@ export const Info = () => {
   const [editCodeVisible, setEditCodeVisible] = useState(false);
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
 
-  // 直接用 skill-info-store 里的数据
+  // 直接用 skill-info-store 里的Data
   const skillId = skillInfo?.skillId || '';
   const skillName = skillInfo?.skillName || '';
   const version = skillInfo?.version || '';
   const lastModified = skillInfo?.lastModified || '';
   const jsonPreview = skillInfo ? JSON.stringify(skillInfo.workFlow, null, 2) : '';
 
-  // 代码编辑器逻辑
+  // CodeEdit器逻辑
   const handleCodeSave = useCallback((content: string) => {
     try {
       const data = JSON.parse(content);
@@ -42,14 +42,14 @@ export const Info = () => {
     onSave: handleCodeSave,
   });
 
-  // skillName 编辑保存（只更新 skill-info-store）
+  // skillName EditSave（只Update skill-info-store）
   const handleSkillNameChange = (v: string) => {
     if (skillInfo) {
       setSkillInfo({ ...skillInfo, skillName: v, lastModified: new Date().toISOString() });
     }
   };
 
-  // 打开代码编辑器
+  // OpenCodeEdit器
   const handleEditCode = () => {
     openEditor(jsonPreview);
     setEditCodeVisible(true);

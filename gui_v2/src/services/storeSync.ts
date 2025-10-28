@@ -1,8 +1,8 @@
 /**
  * Store Sync Service
  * 
- * 监听后端通知并同步更新前端 store
- * 确保数据在所有页面保持一致
+ * ListenBackendNotification并SyncUpdateFrontend store
+ * 确保Data在AllPage保持一致
  */
 
 import { eventBus } from './eventBus';
@@ -11,17 +11,17 @@ import { useAgentStore } from '../stores/agentStore';
 import { logger } from '../utils/logger';
 
 /**
- * 初始化 store 同步监听器
+ * Initialize store SyncListen器
  */
 export function initializeStoreSync() {
-  // 监听组织-代理更新事件
+  // Listen组织-代理UpdateEvent
   eventBus.on('org-agents-update', handleOrgAgentsUpdate);
   
   logger.info('[StoreSync] Store synchronization listeners initialized');
 }
 
 /**
- * 清理 store 同步监听器
+ * Cleanup store SyncListen器
  */
 export function cleanupStoreSync() {
   eventBus.off('org-agents-update', handleOrgAgentsUpdate);
@@ -30,7 +30,7 @@ export function cleanupStoreSync() {
 }
 
 /**
- * 处理组织-代理更新事件
+ * Process组织-代理UpdateEvent
  */
 function handleOrgAgentsUpdate(event: any) {
   try {
@@ -42,11 +42,11 @@ function handleOrgAgentsUpdate(event: any) {
       return;
     }
     
-    // 获取 store 实例
+    // Get store 实例
     const orgStore = useOrgStore.getState();
     const agentStore = useAgentStore.getState();
     
-    // 根据事件类型更新 store
+    // 根据EventTypeUpdate store
     const { action, org_id, agent_id, agent_data, org_data } = data;
     
     switch (action) {
@@ -55,7 +55,7 @@ function handleOrgAgentsUpdate(event: any) {
         if (org_id && agent_id && agent_data) {
           logger.info(`[StoreSync] Binding agent ${agent_id} to org ${org_id}`);
           
-          // 更新 org store
+          // Update org store
           orgStore.addAgentToOrg(org_id, {
             id: agent_id,
             name: agent_data.name || '',
@@ -63,7 +63,7 @@ function handleOrgAgentsUpdate(event: any) {
             ...agent_data
           });
           
-          // 更新 agent store
+          // Update agent store
           agentStore.updateAgentOrganization(agent_id, org_id);
         }
         break;
@@ -73,33 +73,33 @@ function handleOrgAgentsUpdate(event: any) {
         if (agent_id) {
           logger.info(`[StoreSync] Unbinding agent ${agent_id}`);
           
-          // 更新 org store
+          // Update org store
           orgStore.removeAgentFromOrg(agent_id);
           
-          // 更新 agent store
+          // Update agent store
           agentStore.updateAgentOrganization(agent_id, null);
         }
         break;
         
       case 'update_org':
-        // 更新组织信息
+        // Update组织Information
         if (org_id && org_data) {
           logger.info(`[StoreSync] Updating org ${org_id}`);
           
-          // 更新 org store
+          // Update org store
           orgStore.updateOrg(org_id, org_data);
         }
         break;
         
       case 'update_agent':
-        // 更新代理信息
+        // Update代理Information
         if (agent_id && agent_data) {
           logger.info(`[StoreSync] Updating agent ${agent_id}`);
           
-          // 更新 org store 中的 agent
+          // Update org store 中的 agent
           orgStore.updateAgent(agent_id, agent_data);
           
-          // 更新 agent store
+          // Update agent store
           agentStore.updateAgent(agent_id, agent_data);
         }
         break;
@@ -113,7 +113,7 @@ function handleOrgAgentsUpdate(event: any) {
 }
 
 /**
- * 手动触发 store 同步（用于测试或特殊情况）
+ * 手动Trigger store Sync（Used forTest或特殊情况）
  */
 export function triggerStoreSync(action: string, data: any) {
   eventBus.emit('org-agents-update', {

@@ -74,7 +74,7 @@ interface VehicleItemProps {
 
 const VehicleItem: React.FC<VehicleItemProps> = ({ vehicle, selected, onClick, t }) => (
   <VehicleItemCard $selected={selected} onClick={() => onClick(vehicle)}>
-    {/* 第一行：只显示名称 */}
+    {/* 第一行：只DisplayName */}
     <Row align="middle" style={{ width: '100%' }} wrap={false}>
       <Col flex="auto" style={{ minWidth: 0 }}>
         <Text
@@ -86,7 +86,7 @@ const VehicleItem: React.FC<VehicleItemProps> = ({ vehicle, selected, onClick, t
         </Text>
       </Col>
     </Row>
-    {/* 第二行：状态+标签（自动换行） */}
+    {/* 第二行：Status+Tag（自动换行） */}
     <Space size={8} wrap style={{ margin: '10px 0 0 0', width: '100%', minWidth: 0 }}>
       <StatusTag status={vehicle.status} />
       {vehicle.arch && <Tag icon={<LaptopOutlined />} color="default">{vehicle.arch}</Tag>}
@@ -106,7 +106,7 @@ const VehicleItem: React.FC<VehicleItemProps> = ({ vehicle, selected, onClick, t
         />
       </Tooltip>
     </div>
-    {/* 底部：位置+任务 */}
+    {/* Bottom：Position+任务 */}
     <Space size={8} style={{ width: '100%', marginTop: 10, minWidth: 0 }}>
       <EnvironmentOutlined />
       <Text type="secondary" ellipsis style={{ flex: 1, minWidth: 0 }}>

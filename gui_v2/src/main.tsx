@@ -11,21 +11,21 @@ const setInitialTheme = () => {
     document.documentElement.style.setProperty('--border-color', 'rgba(255, 255, 255, 0.1)');
 };
 
-// 立即设置主题
+// 立即Settings主题
 setInitialTheme();
 
-// 异步渲染应用，避免阻塞
+// AsyncRender应用，避免阻塞
 const renderApp = () => {
     const root = ReactDOM.createRoot(document.getElementById('root')!);
 
-    // 清除初始加载界面并渲染应用
+    // 清除初始Load界面并Render应用
     const rootElement = document.getElementById('root')!;
-    rootElement.innerHTML = ''; // 清除初始加载内容
+    rootElement.innerHTML = ''; // 清除初始LoadContent
 
     root.render(<App />);
 };
 
-// 使用 requestIdleCallback 或 setTimeout 来延迟渲染，让浏览器有时间处理其他任务
+// 使用 requestIdleCallback 或 setTimeout 来DelayRender，让Browser有TimeProcess其他任务
 if ('requestIdleCallback' in window) {
     requestIdleCallback(renderApp);
 } else {

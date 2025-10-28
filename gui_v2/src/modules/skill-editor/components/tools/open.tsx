@@ -37,7 +37,7 @@ export const Open = ({ disabled }: OpenProps) => {
 
         if (dialogResponse.success && dialogResponse.data && !dialogResponse.data.cancelled) {
           const filePath = (dialogResponse.data as any).filePaths?.[0] || (dialogResponse.data as any).filePath;
-          // 需求2: 获取后端返回的 skillName（从文件夹名称提取）
+          // 需求2: GetBackend返回的 skillName（从文件夹Name提取）
           const skillNameFromBackend = (dialogResponse.data as any).skillName;
           if (!filePath) { console.warn('[Open] No filePath from dialog'); return; }
           console.log('[SKILL_IO][FRONTEND][SELECTED_MAIN_JSON]', filePath);
@@ -50,8 +50,8 @@ export const Open = ({ disabled }: OpenProps) => {
 
           if (fileResponse.success && fileResponse.data) {
             const raw = JSON.parse(fileResponse.data.content);
-            // 需求2: 不再检查文件名和 skillName 是否匹配
-            // 因为我们会用后端返回的 skillName（从文件夹名称提取）覆盖文件中的 skillName
+            // 需求2: 不再Check文件名和 skillName 是否匹配
+            // 因为我们会用Backend返回的 skillName（从文件夹Name提取）覆盖文件中的 skillName
             const nameInFile = String((raw && (raw as any).skillName) || '').trim();
             if (nameInFile && skillNameFromBackend && nameInFile !== skillNameFromBackend) {
               console.log('[SKILL_IO][FRONTEND][WILL_OVERRIDE_SKILL_NAME]', { 
@@ -66,7 +66,7 @@ export const Open = ({ disabled }: OpenProps) => {
               const bundle = raw as SheetsBundle;
               console.log('[SKILL_IO][FRONTEND][PRIMARY_IS_BUNDLE] Loading primary bundle file:', filePath);
               loadBundle(bundle);
-              // 需求2: 使用后端返回的 skillName（从文件夹名称提取）
+              // 需求2: 使用Backend返回的 skillName（从文件夹Name提取）
               try {
                 const skillName = skillNameFromBackend || ((String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '').replace(/_skill$/i, ''));
                 console.log('[SKILL_IO][FRONTEND][SET_SKILL_NAME]', skillName);
@@ -88,7 +88,7 @@ export const Open = ({ disabled }: OpenProps) => {
               if (looksLikeBundle) {
                 console.log('[SKILL_IO][FRONTEND][PRIMARY_HAS_EMBEDDED_BUNDLE] Loading embedded bundle inside primary:', filePath);
                 loadBundle(embedded as SheetsBundle);
-                // 需求2: 使用后端返回的 skillName
+                // 需求2: 使用Backend返回的 skillName
                 try {
                   const skillName = skillNameFromBackend || ((String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '').replace(/_skill$/i, ''));
                   console.log('[SKILL_IO][FRONTEND][SET_SKILL_NAME]', skillName);
@@ -126,7 +126,7 @@ export const Open = ({ disabled }: OpenProps) => {
                     if (isSiblingBundle) {
                       console.log('[SKILL_IO][FRONTEND][FOUND_BUNDLE_JSON]', bundlePath);
                       loadBundle(maybeBundle as SheetsBundle);
-                      // 需求2: 使用后端返回的 skillName
+                      // 需求2: 使用Backend返回的 skillName
                       try {
                         const skillName = skillNameFromBackend || ((String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '').replace(/_skill$/i, ''));
                         console.log('[SKILL_IO][FRONTEND][SET_SKILL_NAME]', skillName);
@@ -152,7 +152,7 @@ export const Open = ({ disabled }: OpenProps) => {
             }
 
             const data = raw as SkillInfo;
-            // 需求2: 使用后端返回的 skillName 覆盖文件中的 skillName
+            // 需求2: 使用Backend返回的 skillName 覆盖文件中的 skillName
             if (skillNameFromBackend) {
               console.log('[SKILL_IO][FRONTEND][OVERRIDE_SKILL_NAME]', {
                 fromFile: data.skillName,

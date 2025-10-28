@@ -1,6 +1,6 @@
 /**
  * Schedule Form Modal Component
- * 日程表单弹窗组件（创建/编辑）
+ * 日程FormModalComponent（Create/Edit）
  */
 
 import React, { useEffect } from 'react';
@@ -32,7 +32,7 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
   
   useEffect(() => {
     if (visible && schedule) {
-      // 编辑模式：填充表单
+      // Edit模式：填充Form
       form.setFieldsValue({
         taskName: schedule.taskName,
         taskId: schedule.taskId,
@@ -48,7 +48,7 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
         months: schedule.months || [],
       });
     } else if (visible) {
-      // 创建模式：设置默认值
+      // Create模式：SettingsDefaultValue
       form.setFieldsValue({
         repeat_type: 'none',
         repeat_number: 1,
@@ -64,7 +64,7 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
     try {
       const values = await form.validateFields();
       
-      // 转换日期格式
+      // ConvertDate格式
       const [startDate, endDate] = values.dateRange;
       const formattedValues = {
         ...values,
@@ -136,7 +136,7 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
       title={
         <Space>
           <CalendarOutlined />
-          {isEdit ? '编辑日程' : '创建日程'}
+          {isEdit ? 'Edit日程' : 'Create日程'}
         </Space>
       }
       open={visible}
@@ -145,24 +145,24 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
       confirmLoading={loading}
       width={720}
       destroyOnHidden
-      okText={isEdit ? '保存' : '创建'}
-      cancelText="取消"
+      okText={isEdit ? 'Save' : 'Create'}
+      cancelText="Cancel"
     >
       <Form
         form={form}
         layout="vertical"
         autoComplete="off"
       >
-        {/* 基本信息 */}
+        {/* 基本Information */}
         <Row gutter={16}>
           <Col span={24}>
             <Form.Item
               name="taskName"
-              label="任务名称"
-              rules={[{ required: true, message: '请输入任务名称' }]}
+              label="任务Name"
+              rules={[{ required: true, message: '请Input任务Name' }]}
             >
               <Input 
-                placeholder="输入任务名称" 
+                placeholder="Input任务Name" 
                 prefix={<CalendarOutlined />}
                 size="large"
               />
@@ -183,13 +183,13 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
           </Row>
         )}
         
-        {/* 时间范围 */}
+        {/* TimeRange */}
         <Row gutter={16}>
           <Col span={24}>
             <Form.Item
               name="dateRange"
-              label="时间范围"
-              rules={[{ required: true, message: '请选择时间范围' }]}
+              label="TimeRange"
+              rules={[{ required: true, message: '请SelectTimeRange' }]}
             >
               <RangePicker
                 showTime
@@ -201,7 +201,7 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
           </Col>
         </Row>
         
-        {/* 重复设置 */}
+        {/* 重复Settings */}
         <Row gutter={16}>
           <Col span={12}>
             <Form.Item
@@ -209,12 +209,12 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
               label={
                 <Space>
                   <SyncOutlined />
-                  重复类型
+                  重复Type
                 </Space>
               }
-              rules={[{ required: true, message: '请选择重复类型' }]}
+              rules={[{ required: true, message: '请Select重复Type' }]}
             >
-              <Select placeholder="选择重复类型">
+              <Select placeholder="Select重复Type">
                 {repeatTypeOptions.map(option => (
                   <Option key={option.value} value={option.value}>
                     {option.label}
@@ -227,7 +227,7 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
             <Form.Item
               name="repeat_number"
               label="重复次数"
-              rules={[{ required: true, message: '请输入重复次数' }]}
+              rules={[{ required: true, message: '请Input重复次数' }]}
             >
               <InputNumber
                 min={1}
@@ -240,7 +240,7 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
             <Form.Item
               name="repeat_unit"
               label="重复单位"
-              rules={[{ required: true, message: '请选择重复单位' }]}
+              rules={[{ required: true, message: '请Select重复单位' }]}
             >
               <Select placeholder="单位">
                 {repeatUnitOptions.map(option => (
@@ -253,7 +253,7 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
           </Col>
         </Row>
         
-        {/* 超时设置 */}
+        {/* TimeoutSettings */}
         <Row gutter={16}>
           <Col span={12}>
             <Form.Item
@@ -261,28 +261,28 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
               label={
                 <Space>
                   <ClockCircleOutlined />
-                  超时时间（秒）
+                  TimeoutTime（秒）
                 </Space>
               }
-              rules={[{ required: true, message: '请输入超时时间' }]}
+              rules={[{ required: true, message: '请InputTimeoutTime' }]}
             >
               <InputNumber
                 min={1}
                 style={{ width: '100%' }}
-                placeholder="超时时间"
+                placeholder="TimeoutTime"
                 addonAfter="秒"
               />
             </Form.Item>
           </Col>
         </Row>
         
-        {/* 星期选择 */}
+        {/* 星期Select */}
         <Row gutter={16}>
           <Col span={24}>
             <Form.Item
               name="week_days"
-              label="重复星期（可选）"
-              tooltip="如果不选择，表示不限制星期"
+              label="重复星期（Optional）"
+              tooltip="If不Select，表示不Limit星期"
             >
               <Checkbox.Group 
                 options={weekDayOptions}
@@ -292,13 +292,13 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
           </Col>
         </Row>
         
-        {/* 月份选择 */}
+        {/* 月份Select */}
         <Row gutter={16}>
           <Col span={24}>
             <Form.Item
               name="months"
-              label="重复月份（可选）"
-              tooltip="如果不选择，表示不限制月份"
+              label="重复月份（Optional）"
+              tooltip="If不Select，表示不Limit月份"
             >
               <Checkbox.Group 
                 options={monthOptions}

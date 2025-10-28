@@ -135,7 +135,7 @@ export const ToolFilters: React.FC<ToolFiltersProps> = ({ filters, onChange }) =
     });
   };
 
-  // 类别菜单项
+  // 类别Menu项
   const categoryMenuItems: MenuProps['items'] = [
     {
       key: 'all',
@@ -144,24 +144,24 @@ export const ToolFilters: React.FC<ToolFiltersProps> = ({ filters, onChange }) =
     { type: 'divider' },
     {
       key: 'system',
-      label: t('pages.tools.category.system', '系统工具'),
+      label: t('pages.tools.category.system', 'SystemTool'),
     },
     {
       key: 'custom',
-      label: t('pages.tools.category.custom', '自定义工具'),
+      label: t('pages.tools.category.custom', 'CustomTool'),
     },
   ];
 
-  // 处理菜单点击
+  // ProcessMenuClick
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     handleFilterChange('category', key);
   };
 
-  // 获取当前类别显示文本（用于 Tooltip）
+  // GetWhen前类别Display文本（Used for Tooltip）
   const getCategoryTooltip = () => {
     const categoryMap: Record<string, string> = {
-      system: t('pages.tools.category.system', '系统工具'),
-      custom: t('pages.tools.category.custom', '自定义工具'),
+      system: t('pages.tools.category.system', 'SystemTool'),
+      custom: t('pages.tools.category.custom', 'CustomTool'),
     };
     return filters.category
       ? `${t('pages.tools.filter.category', '类别')}: ${categoryMap[filters.category]}`
@@ -171,9 +171,9 @@ export const ToolFilters: React.FC<ToolFiltersProps> = ({ filters, onChange }) =
   return (
     <FilterContainer>
       <FilterRow>
-        {/* 搜索框 */}
+        {/* Search框 */}
         <StyledInput
-          placeholder={t('pages.tools.filter.searchPlaceholder', '搜索工具...')}
+          placeholder={t('pages.tools.filter.searchPlaceholder', 'SearchTool...')}
           prefix={<SearchOutlined />}
           value={filters.search}
           onChange={(e) => handleFilterChange('search', e.target.value)}
@@ -181,7 +181,7 @@ export const ToolFilters: React.FC<ToolFiltersProps> = ({ filters, onChange }) =
           allowClear
         />
 
-        {/* 类别筛选按钮 - 只显示图标 */}
+        {/* 类别筛选Button - 只Display图标 */}
         <Dropdown
           menu={{ items: categoryMenuItems, onClick: handleMenuClick }}
           trigger={['click']}

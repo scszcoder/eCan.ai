@@ -45,7 +45,7 @@ const StyledTree = styled(Tree)`
     align-items: center;
   }
 
-  /* 节点内容包装器 - 默认无背景 */
+  /* 节点Content包装器 - Default无背景 */
   .ant-tree-node-content-wrapper {
     padding: 6px 10px;
     border-radius: 6px;
@@ -93,7 +93,7 @@ const StyledTree = styled(Tree)`
     line-height: normal;
   }
 
-  /* 展开/折叠开关 */
+  /* Expand/折叠开关 */
   .ant-tree-switcher {
     display: flex !important;
     align-items: center !important;
@@ -117,7 +117,7 @@ const StyledTree = styled(Tree)`
     }
   }
 
-  /* 连接线样式 */
+  /* Connection线样式 */
   .ant-tree-indent-unit {
     width: 16px;
   }
@@ -126,7 +126,7 @@ const StyledTree = styled(Tree)`
     border-right: 1px solid rgba(148, 163, 184, 0.15);
   }
 
-  /* 拖拽时的样式 */
+  /* Drag时的样式 */
   .ant-tree-treenode-draggable {
     .ant-tree-node-content-wrapper {
       cursor: move;
@@ -142,7 +142,7 @@ const StyledTree = styled(Tree)`
     user-select: none;
   }
 
-  /* 拖拽目标样式 */
+  /* Drag目标样式 */
   .ant-tree-drop-indicator {
     position: absolute;
     height: 2px;
@@ -170,7 +170,7 @@ const OrgTree: React.FC<OrgTreeProps> = ({
 }) => {
   const { t } = useTranslation();
   
-  // 管理展开的节点
+  // 管理Expand的节点
   const [expandedKeys, setExpandedKeys] = React.useState<React.Key[]>([]);
   const [autoExpandedExecuted, setAutoExpandedExecuted] = React.useState(false);
 
@@ -196,13 +196,13 @@ const OrgTree: React.FC<OrgTreeProps> = ({
   };
 
   const getOrgTypeIcon = (orgType: string) => {
-    // 可以根据类型返回不同图标，这里统一使用 ApartmentOutlined
+    // Can根据Type返回不同图标，这里统一使用 ApartmentOutlined
     return <ApartmentOutlined />;
   };
 
   const convertToTreeData = React.useCallback((orgs: Org[]): DataNode[] => {
     return orgs.map(org => {
-      // 使用 agent_count 显示总代理数量（包括子组织的代理）
+      // 使用 agent_count Display总代理Count（包括子组织的代理）
       const agentCount = (org as any).agent_count || 0;
       const orgColor = getOrgTypeColor(org.org_type);
       const hasChildren = org.children && org.children.length > 0;
@@ -262,7 +262,7 @@ const OrgTree: React.FC<OrgTreeProps> = ({
 
   const treeData = React.useMemo(() => convertToTreeData(orgs), [orgs, convertToTreeData]);
 
-  // 当组织数据加载完成后，自动展开第一层节点（只执行一次）
+  // When组织DataLoadCompleted后，自动Expand第一层节点（只Execute一次）
   React.useEffect(() => {
     if (!autoExpandedExecuted && orgs.length > 0 && !loading) {
       const firstLevelKeys = orgs.map(org => org.id);
@@ -271,7 +271,7 @@ const OrgTree: React.FC<OrgTreeProps> = ({
     }
   }, [orgs, loading, autoExpandedExecuted]);
 
-  // 处理展开/折叠事件
+  // ProcessExpand/折叠Event
   const handleExpand = (expandedKeysValue: React.Key[]) => {
     setExpandedKeys(expandedKeysValue);
   };

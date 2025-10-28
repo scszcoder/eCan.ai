@@ -1,7 +1,7 @@
 /**
- * 页面状态管理 Hooks
+ * PageStatus管理 Hooks
  * 
- * 提供便捷的 Hooks 来自动保存和恢复页面状态
+ * 提供便捷的 Hooks 来自动Save和RestorePageStatus
  */
 
 import { useEffect, useState } from 'react';
@@ -9,9 +9,9 @@ import { useLocation } from 'react-router-dom';
 import { usePageStateStore } from '../stores/pageStateStore';
 
 /**
- * 自动保存和恢复滚动位置
+ * 自动Save和RestoreScrollPosition
  * 
- * @param containerRef 可选的滚动容器引用，默认为 window
+ * @param containerRef Optional的ScrollContainerReference，Default为 window
  * @returns void
  * 
  * @example
@@ -23,22 +23,22 @@ export const useScrollPosition = (containerRef?: React.RefObject<HTMLElement>) =
     const pageName = location.pathname;
     const { saveScrollPosition, getScrollPosition } = usePageStateStore();
     
-    // 恢复滚动位置
+    // RestoreScrollPosition
     useEffect(() => {
         const savedPosition = getScrollPosition(pageName);
         const container = containerRef?.current || window;
         
-        console.log(`[useScrollPosition] 恢复滚动位置 - 页面: ${pageName}, 位置: ${savedPosition}`);
+        console.log(`[useScrollPosition] RestoreScrollPosition - Page: ${pageName}, Position: ${savedPosition}`);
         
         if (savedPosition > 0) {
-            // 延迟恢复，确保内容已渲染
+            // DelayRestore，确保Content已Render
             const timer = setTimeout(() => {
                 if (container === window) {
                     window.scrollTo(0, savedPosition);
-                    console.log(`[useScrollPosition] ✅ 已恢复到位置: ${savedPosition}`);
+                    console.log(`[useScrollPosition] ✅ 已Restore到Position: ${savedPosition}`);
                 } else {
                     (container as HTMLElement).scrollTop = savedPosition;
-                    console.log(`[useScrollPosition] ✅ 已恢复容器滚动到位置: ${savedPosition}`);
+                    console.log(`[useScrollPosition] ✅ 已RestoreContainerScroll到Position: ${savedPosition}`);
                 }
             }, 100);
             
@@ -46,7 +46,7 @@ export const useScrollPosition = (containerRef?: React.RefObject<HTMLElement>) =
         }
     }, [pageName, containerRef, getScrollPosition]);
     
-    // 保存滚动位置
+    // SaveScrollPosition
     useEffect(() => {
         const container = containerRef?.current || window;
         
@@ -54,7 +54,7 @@ export const useScrollPosition = (containerRef?: React.RefObject<HTMLElement>) =
             const position = container === window 
                 ? window.scrollY 
                 : (container as HTMLElement).scrollTop;
-            console.log(`[useScrollPosition] 保存滚动位置 - 页面: ${pageName}, 位置: ${position}`);
+            console.log(`[useScrollPosition] SaveScrollPosition - Page: ${pageName}, Position: ${position}`);
             saveScrollPosition(pageName, position);
         };
         
@@ -69,10 +69,10 @@ export const useScrollPosition = (containerRef?: React.RefObject<HTMLElement>) =
 };
 
 /**
- * 自动保存和恢复搜索文本
+ * 自动Save和RestoreSearch文本
  * 
- * @param initialValue 初始值
- * @returns [text, setText] 类似 useState 的返回值
+ * @param initialValue 初始Value
+ * @returns [text, setText] 类似 useState 的Return value
  * 
  * @example
  * const [searchText, setSearchText] = useSearchText();
@@ -92,10 +92,10 @@ export const useSearchText = (initialValue = '') => {
 };
 
 /**
- * 自动保存和恢复选中项
+ * 自动Save和Restore选中项
  * 
- * @param initialValue 初始值
- * @returns [items, setItems] 类似 useState 的返回值
+ * @param initialValue 初始Value
+ * @returns [items, setItems] 类似 useState 的Return value
  * 
  * @example
  * const [selectedIds, setSelectedIds] = useSelectedItems();
@@ -115,11 +115,11 @@ export const useSelectedItems = (initialValue: string[] = []) => {
 };
 
 /**
- * 通用的页面状态管理
+ * General的PageStatus管理
  * 
- * @param key 状态键名
- * @param initialValue 初始值
- * @returns [state, setState] 类似 useState 的返回值
+ * @param key Status键名
+ * @param initialValue 初始Value
+ * @returns [state, setState] 类似 useState 的Return value
  * 
  * @example
  * const [filterOptions, setFilterOptions] = usePageCustomState('filters', { status: 'all' });
@@ -142,11 +142,11 @@ export const usePageCustomState = <T,>(key: string, initialValue: T) => {
 };
 
 /**
- * 清除当前页面的所有状态
+ * 清除When前Page的AllStatus
  * 
  * @example
  * const clearState = useClearPageState();
- * // 在某个操作后清除状态
+ * // 在某个Operation后清除Status
  * clearState();
  */
 export const useClearPageState = () => {

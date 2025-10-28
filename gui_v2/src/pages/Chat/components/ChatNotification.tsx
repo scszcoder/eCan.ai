@@ -6,13 +6,13 @@ import { useChatNotifications, NOTIF_PAGE_SIZE } from '../hooks/useChatNotificat
 import ProductSearchNotification from './ProductSearchNotification';
 import i18n from '../../../i18n';
 
-// 日期格式化函数
+// DateFormatFunction
 const formatDate = (timestamp: string | number) => {
   if (!timestamp) return '';
   
   const date = new Date(timestamp);
   
-  // 简单的日期格式化实现
+  // Simple的DateFormatImplementation
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
@@ -75,11 +75,11 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
   const bottomRef = useRef<HTMLDivElement>(null);
   const loadMoreLock = useRef(false);
   const autoFillActiveRef = useRef(true);
-  const autoLoadCooldownRef = useRef(0); // 自动加载冷却时间戳
-  const recursiveLoadCount = useRef(0); // 递归加载计数器
-  const maxRecursiveLoads = 5; // 最大递归加载次数
+  const autoLoadCooldownRef = useRef(0); // 自动Load冷却Time戳
+  const recursiveLoadCount = useRef(0); // RecursiveLoad计数器
+  const maxRecursiveLoads = 5; // MaximumRecursiveLoad次数
 
-  // 平滑分页：加载更多前记录 scrollHeight 和 scrollTop，加载后补偿 scrollTop，保持用户当前视图不跳动（新数据加载在底部）
+  // 平滑分页：Load更多前记录 scrollHeight 和 scrollTop，Load后补偿 scrollTop，保持UserWhen前视图不跳动（新DataLoad在Bottom）
   const handleLoadMore = React.useCallback(async () => {
     if (loadMoreLock.current) {
       return;
@@ -94,7 +94,7 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
     loadMoreLock.current = false;
   }, [loadMore]);
 
-  // 只在首次加载时自动滚到顶部
+  // 只在首次Load时自动滚到Top
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -104,14 +104,14 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
     }
   }, [isInitialLoading, chatNotificationItems.length]);
 
-  // 切换 chatId 时重置自动补齐标志和滚动状态
+  // Toggle chatId 时Reset自动补齐标志和ScrollStatus
   useEffect(() => {
     autoFillActiveRef.current = true;
     hasInitLoadedRef.current = false;
-    recursiveLoadCount.current = 0; // 重置递归计数器
+    recursiveLoadCount.current = 0; // ResetRecursive计数器
   }, [chatId]);
 
-  // 监听 scroll 事件，用户向下滚动到底部时自动加载更多
+  // Listen scroll Event，User向下Scroll到Bottom时自动Load更多
   useEffect(() => {
     if (isInitialLoading) return;
     const container = containerRef.current;
@@ -132,7 +132,7 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
     return () => container.removeEventListener('scroll', handleScroll);
   }, [isInitialLoading, chatNotificationItems.length, hasMore, loadingMore]);
 
-  // 分页后补偿 scrollTop，保持用户当前视图不跳动（新数据加载在底部）
+  // 分页后补偿 scrollTop，保持UserWhen前视图不跳动（新DataLoad在Bottom）
   useEffect(() => {
     if (loadingMore) return;
     const container = containerRef.current;
@@ -153,12 +153,12 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
     }
   }, [chatNotificationItems, loadingMore, hasMore, handleLoadMore]);
 
-  // 数据和界面更新后再检查 bottomRef 是否可见，递归触发 handleLoadMore（带保护机制）
+  // Data和界面Update后再Check bottomRef 是否可见，RecursiveTrigger handleLoadMore（带保护机制）
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !bottomRef.current || loadingMore || !hasMore) return;
     
-    // 检查递归加载次数限制
+    // CheckRecursiveLoad次数Limit
     if (recursiveLoadCount.current >= maxRecursiveLoads) {
       console.warn('[ChatNotification] Recursive load limit reached, stopping auto-load');
       return;
@@ -175,9 +175,9 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
       recursiveLoadCount.current += 1;
       console.debug(`[ChatNotification] Auto-loading more (${recursiveLoadCount.current}/${maxRecursiveLoads})`);
       handleLoadMore().then(() => {
-        // 加载完成后，如果还有更多数据且未达到限制，允许继续
+        // LoadCompleted后，If还有更多Data且未达到Limit，Allow继续
         if (!hasMore) {
-          recursiveLoadCount.current = 0; // 没有更多数据时重置计数器
+          recursiveLoadCount.current = 0; // 没有更多Data时Reset计数器
         }
       });
     }

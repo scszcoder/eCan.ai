@@ -2,8 +2,8 @@ import styled from '@emotion/styled';
 import { Form, Card } from 'antd';
 
 /**
- * 全局统一的表单项样式
- * 解决 label 和输入框间距太近、输入框边框不明显的问题
+ * 全局统一的Form项样式
+ * 解决 label 和Input框间距太近、Input框边框不明显的问题
  */
 export const StyledFormItem = styled(Form.Item)`
   margin-bottom: 16px !important;
@@ -23,7 +23,7 @@ export const StyledFormItem = styled(Form.Item)`
     }
   }
   
-  /* 所有输入框的统一样式（排除 TextArea） */
+  /* AllInput框的统一样式（Exclude TextArea） */
   .ant-input:not(textarea),
   .ant-input-number,
   .ant-input-number-input,
@@ -48,7 +48,7 @@ export const StyledFormItem = styled(Form.Item)`
     }
   }
   
-  /* 禁用状态 */
+  /* DisabledStatus */
   .ant-input-disabled,
   .ant-input-number-disabled,
   .ant-select-disabled .ant-select-selector,
@@ -61,7 +61,7 @@ export const StyledFormItem = styled(Form.Item)`
     cursor: not-allowed !important;
   }
   
-  /* TextArea 容器样式 */
+  /* TextArea Container样式 */
   .ant-input-textarea {
     border: 1.5px solid rgba(255, 255, 255, 0.15) !important;
     border-radius: 6px !important;
@@ -80,7 +80,7 @@ export const StyledFormItem = styled(Form.Item)`
     }
   }
 
-  /* TextArea 内部 textarea 元素样式 */
+  /* TextArea Internal textarea 元素样式 */
   .ant-input-textarea textarea.ant-input {
     padding: 12px 14px !important;
     background: transparent !important;
@@ -150,7 +150,7 @@ export const StyledCard = styled(Card)`
 `;
 
 /**
- * 表单容器样式
+ * FormContainer样式
  */
 export const FormContainer = styled.div`
   max-height: 100%;
@@ -160,7 +160,7 @@ export const FormContainer = styled.div`
 `;
 
 /**
- * 按钮容器样式
+ * ButtonContainer样式
  */
 export const ButtonContainer = styled.div`
   display: flex;
@@ -174,7 +174,7 @@ export const ButtonContainer = styled.div`
 `;
 
 /**
- * 统一的按钮样式属性
+ * 统一的Button样式Property
  */
 export const buttonStyle = {
   height: '44px',
@@ -184,7 +184,7 @@ export const buttonStyle = {
 };
 
 /**
- * 统一的大按钮样式属性（用于主要操作）
+ * 统一的大Button样式Property（Used forMainOperation）
  */
 export const primaryButtonStyle = {
   ...buttonStyle,

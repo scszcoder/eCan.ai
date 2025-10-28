@@ -210,10 +210,10 @@ const Settings: React.FC = () => {
     }
   }, [username, loadSettings]);
 
-  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
   useEffectOnActive(
     () => {
-      // 组件激活时：恢复滚动位置
+      // ComponentActive时：RestoreScrollPosition
       const container = settingsContentRef.current;
       if (container && savedScrollPositionRef.current > 0) {
         requestAnimationFrame(() => {
@@ -222,7 +222,7 @@ const Settings: React.FC = () => {
         });
       }
       
-      // 返回清理函数，在组件失活前保存滚动位置
+      // 返回CleanupFunction，在Component失活前SaveScrollPosition
       return () => {
         const container = settingsContentRef.current;
         if (container) {
@@ -258,7 +258,7 @@ const Settings: React.FC = () => {
           preserve={true}
           initialValues={settingsData || initialSettings}
         >
-          {/* 基础模式设置 */}
+          {/* Base模式Settings */}
           <Card
             title={t('pages.settings.basic_mode_settings')}
             size="small"
@@ -292,7 +292,7 @@ const Settings: React.FC = () => {
             </Row>
           </Card>
 
-          {/* 硬件设置 */}
+          {/* 硬件Settings */}
           <Card
             title={t('pages.settings.hardware_settings')}
             size="small"
@@ -334,7 +334,7 @@ const Settings: React.FC = () => {
             </Row>
           </Card>
 
-          {/* 引擎和端口设置 */}
+          {/* 引擎和端口Settings */}
           <Card
             title={t('pages.settings.engine_port_settings')}
             size="small"
@@ -378,7 +378,7 @@ const Settings: React.FC = () => {
             </Row>
           </Card>
 
-          {/* OCR 设置 */}
+          {/* OCR Settings */}
           <Card
             title={t('pages.settings.ocr_settings')}
             size="small"
@@ -428,7 +428,7 @@ const Settings: React.FC = () => {
             </Row>
           </Card>
 
-          {/* 路径设置 */}
+          {/* PathSettings */}
           <Card
             title={t('pages.settings.path_settings')}
             size="small"
@@ -493,7 +493,7 @@ const Settings: React.FC = () => {
             </Row>
           </Card>
 
-          {/* 数据库设置 */}
+          {/* Data库Settings */}
           <Card
             title={t('pages.settings.database_settings')}
             size="small"
@@ -540,7 +540,7 @@ const Settings: React.FC = () => {
             </Row>
           </Card>
 
-          {/* API端点设置 */}
+          {/* API端点Settings */}
           <Card
             title={t('pages.settings.api_endpoint_settings')}
             size="small"
@@ -587,7 +587,7 @@ const Settings: React.FC = () => {
             </Row>
           </Card>
 
-          {/* 文件跟踪和其他设置 */}
+          {/* 文件跟踪和其他Settings */}
           <Card
             title={t('pages.settings.file_tracking_other_settings')}
             size="small"

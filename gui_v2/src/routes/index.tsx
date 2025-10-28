@@ -6,7 +6,7 @@ import { userStorageManager } from '../services/storage/UserStorageManager';
 import AgentsRouteWrapper from './AgentsRouteWrapper';
 import MainRouteWrapper from './MainRouteWrapper';
 
-// 页面组件懒加载
+// PageComponent懒Load
 const Login = React.lazy(() => import('../pages/Login/index'));
 const Dashboard = React.lazy(() => import('../pages/Dashboard/Dashboard'));
 const Vehicles = React.lazy(() => import('../pages/Vehicles/Vehicles'));
@@ -25,7 +25,7 @@ const OrgNavigator = React.lazy(() => import('../pages/Agents/OrgNavigator'));
 const AgentDetails = React.lazy(() => import('../pages/Agents/components/AgentDetails'));
 const Orgs = React.lazy(() => import('../pages/Orgs/Orgs'));
 
-// 加载组件包装器
+// LoadComponent包装器
 const LazyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     <Suspense fallback={
         <div style={{
@@ -42,21 +42,21 @@ const LazyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     </Suspense>
 );
 
-// 路由配置类型
+// 路由ConfigurationType
 export interface RouteConfig {
     path: string;
     element: React.ReactNode;
     children?: RouteConfig[];
     auth?: boolean;
-    keepAlive?: boolean; // 是否启用页面持久化
+    keepAlive?: boolean; // 是否EnabledPage持久化
 }
 
-// 检查认证状态
+// Check认证Status
 export const isAuthenticated = () => {
     return userStorageManager.isAuthenticated();
 };
 
-// 受保护的路由组件
+// 受保护的路由Component
 export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     if (!isAuthenticated()) {
         return <Navigate to="/login" replace />;
@@ -64,7 +64,7 @@ export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ childr
     return <MainLayout>{children}</MainLayout>;
 };
 
-// 公共路由
+// Public路由
 export const publicRoutes: RouteConfig[] = [
     {
         path: '/login',
@@ -124,19 +124,19 @@ export const protectedRoutes: RouteConfig[] = [
                     {
                         path: 'details/:id',
                         element: <LazyWrapper><AgentDetails /></LazyWrapper>,
-                        keepAlive: false, // 详情页不需要保活，每次都重新加载
+                        keepAlive: false, // Details页不Need保活，每次都重新Load
                     },
                     {
                         path: 'add',
                         element: <LazyWrapper><AgentDetails /></LazyWrapper>,
-                        keepAlive: false, // 添加页不需要保活
+                        keepAlive: false, // Add页不Need保活
                     },
                     {
                         path: 'organization/:orgId/*',
                         element: <LazyWrapper><OrgNavigator /></LazyWrapper>,
                         keepAlive: true,
-                        // 注意：所有 organization 路径共享同一个缓存实例（通过 AgentsRouteWrapper 实现）
-                        // 这样在不同组织间切换时，OrgNavigator 会保持状态
+                        // Note：All organization Path共享同一个Cache实例（通过 AgentsRouteWrapper Implementation）
+                        // 这样在不同组织间Toggle时，OrgNavigator 会保持Status
                     },
                 ],
             },
@@ -190,14 +190,14 @@ export const notFoundRoute: RouteConfig = {
     element: <Navigate to="/" replace />,
 };
 
-// 所有路由
+// All路由
 export const routes: RouteConfig[] = [
     ...publicRoutes,
     ...protectedRoutes,
     notFoundRoute,
 ];
 
-// 菜单配置
+// MenuConfiguration
 export const menuItems = [
     {
         key: '/dashboard',

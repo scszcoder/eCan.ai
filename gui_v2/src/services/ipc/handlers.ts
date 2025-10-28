@@ -1,6 +1,6 @@
 /**
- * IPC 处理器
- * 实现了与 Python 后端通信的请求处理器
+ * IPC Process器
+ * Implementation了与 Python Backend通信的RequestProcess器
  */
 import { IPCRequest } from './types';
 import { useNodeStatusStore } from '@/modules/skill-editor/stores/node-status-store';
@@ -23,14 +23,14 @@ import { useRuntimeStateStore } from '@/modules/skill-editor/stores/runtime-stat
 
 import { AvatarEventType } from '../avatarEventType';
 import { logger } from '@/utils/logger';
-// 处理器类型定义
+// Process器TypeDefinition
 type Handler = (request: IPCRequest) => Promise<unknown>;
 type HandlerMap = Record<string, Handler>;
 
-// 配置存储
+// ConfigurationStorage
 const config = new Map<string, unknown>();
 
-// 参数验证函数
+// ParameterValidateFunction
 function validateParams(request: IPCRequest, requiredParams: string[]): void {
     const params = request.params as Record<string, unknown> | undefined;
     if (!params) {
@@ -43,7 +43,7 @@ function validateParams(request: IPCRequest, requiredParams: string[]): void {
     }
 }
 
-// 处理器类
+// Process器类
 export class IPCHandlers {
     private handlers: HandlerMap = {};
 
@@ -81,7 +81,7 @@ export class IPCHandlers {
     async updateOrgAgents(request: IPCRequest): Promise<unknown> {
         logger.info('Received update_org_agents request:', request.params);
         
-        // 简单发送事件，让 agents 组件自己决定如何处理
+        // SimpleSendEvent，让 agents Component自己决定如何Process
         eventBus.emit('org-agents-update', {
             timestamp: Date.now(),
             source: 'backend_notification',
@@ -121,7 +121,7 @@ export class IPCHandlers {
         logger.info('Received update_agents request:', request.params);
         const agents = request.params as any;
         
-        // 只更新专用的 agentStore，移除重复更新
+        // 只Update专用的 agentStore，Remove重复Update
         useAgentStore.getState().setAgents(agents);
         
         logger.info('Updated agentStore with agents:', agents?.length || 0);
@@ -132,7 +132,7 @@ export class IPCHandlers {
         logger.info('Received update_agents_scenes request:', request.params);
         const agents = request.params as any;
         
-        // 只更新专用的 agentStore，移除重复更新
+        // 只Update专用的 agentStore，Remove重复Update
         useAgentStore.getState().setAgents(agents);
         
         logger.info('Updated agentStore with agents scenes:', agents?.length || 0);
@@ -169,7 +169,7 @@ export class IPCHandlers {
         logger.info('Received update_settings request:', request.params);
         const settings = request.params as any;
 
-        // 更新 settingsStore 中的应用级settings（application-level configuration）
+        // Update settingsStore 中的应用级settings（application-level configuration）
         if (settings) {
             useSettingsStore.getState().setSettings(settings);
             logger.info('[IPC] Updated application settings in settingsStore');
@@ -220,7 +220,7 @@ export class IPCHandlers {
         if (!chatId || !content) {
             throw new Error('pushChatNotification: chatId and notification are required');
         }
-        // 自动解析字符串 JSON
+        // 自动Parse字符串 JSON
         if (typeof content === 'string') {
             try {
                 content = JSON.parse(content);

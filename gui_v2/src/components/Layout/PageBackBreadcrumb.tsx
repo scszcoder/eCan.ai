@@ -10,7 +10,7 @@ import { useSkillStore } from '../../stores/domain/skillStore';
 import { useUserStore } from '../../stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 
-// ==================== 样式组件 ====================
+// ==================== 样式Component ====================
 const BreadcrumbContainer = styled.div`
     display: flex;
     align-items: center;
@@ -111,7 +111,7 @@ const StyledSearchInput = styled(Input)`
             inset 0 1px 3px rgba(0, 0, 0, 0.3) !important;
     }
     
-    /* 内部输入框 */
+    /* InternalInput框 */
     input {
         background: transparent !important;
         color: rgba(248, 250, 252, 0.95) !important;
@@ -137,7 +137,7 @@ const StyledSearchInput = styled(Input)`
         }
     }
     
-    /* 清除按钮 */
+    /* 清除Button */
     .ant-input-clear-icon {
         color: rgba(148, 163, 184, 0.6) !important;
         font-size: 12px;
@@ -181,7 +181,7 @@ const StyledRefreshButton = styled(Button)`
     }
 `;
 
-// ==================== 类型定义 ====================
+// ==================== TypeDefinition ====================
 interface BreadcrumbItem {
     key: string;
     title: React.ReactNode;
@@ -189,13 +189,13 @@ interface BreadcrumbItem {
 }
 
 interface PathHandler {
-    // 检查是否匹配该路径
+    // Check是否匹配该Path
     match: (segments: string[], path: string) => boolean;
-    // 生成面包屑项（添加 context 参数用于传递组件数据）
+    // 生成面包屑项（Add context ParameterUsed for传递ComponentData）
     generate: (segments: string[], path: string, t: any, navigate: any, context?: any) => BreadcrumbItem[];
 }
 
-// ==================== 工具函数 ====================
+// ==================== ToolFunction ====================
 // 查找树节点
 function findTreeNodeById(node: any, targetId: string): any | null {
     if (node.id === targetId) {
@@ -211,7 +211,7 @@ function findTreeNodeById(node: any, targetId: string): any | null {
     return null;
 }
 
-// 创建可点击的链接
+// Create可Click的Link
 function createClickableLink(text: string, path: string, navigate: any): React.ReactNode {
     return (
         <BreadcrumbLink 
@@ -223,12 +223,12 @@ function createClickableLink(text: string, path: string, navigate: any): React.R
     );
 }
 
-// 创建当前节点（不可点击）
+// CreateWhen前节点（不可Click）
 function createCurrentNode(text: string): React.ReactNode {
     return <BreadcrumbLink $isClickable={false}>{text}</BreadcrumbLink>;
 }
 
-// ==================== Agents 路径处理器 ====================
+// ==================== Agents PathProcess器 ====================
 const agentsPathHandler: PathHandler = {
     match: (segments) => segments[0] === 'agents',
     
@@ -240,7 +240,7 @@ const agentsPathHandler: PathHandler = {
         const rootNode = treeOrgs[0];
         console.log('[PageBackBreadcrumb] rootNode:', rootNode?.name);
         
-        // 添加 Agents 根节点
+        // Add Agents 根节点
         items.push({
             key: '/agents',
             title: (
@@ -255,7 +255,7 @@ const agentsPathHandler: PathHandler = {
             path: '/agents'
         });
         
-        // 解析 organization 路径
+        // Parse organization Path
         const orgMatches = path.match(/organization\/([^/]+)/g);
         if (orgMatches && rootNode) {
             let currentPath = '/agents';
@@ -278,18 +278,18 @@ const agentsPathHandler: PathHandler = {
             });
         }
         
-        // 如果是 details 页面或 add 页面，尝试从URL参数获取orgId
+        // If是 details Page或 add Page，尝试从URLParameterGetorgId
         if (path.includes('/details/') || path.includes('/add')) {
-            // 从URL中获取orgId参数
+            // 从URL中GetorgIdParameter
             const orgIdParam = searchParams?.get('orgId');
             console.log('[PageBackBreadcrumb] URL orgId param:', orgIdParam);
             console.log('[PageBackBreadcrumb] orgMatches:', orgMatches);
 
             if (orgIdParam && rootNode) {
-                // 如果URL中有orgId，构建组织路径
+                // IfURL中有orgId，构建组织Path
                 const node = findTreeNodeById(rootNode, orgIdParam);
                 if (node) {
-                    // 构建从根到当前组织的完整路径
+                    // 构建从根到When前组织的完整Path
                     const buildOrgPath = (targetNode: any, currentNode: any, pathSoFar: any[] = []): any[] | null => {
                         if (currentNode.id === targetNode.id) {
                             return [...pathSoFar, currentNode];
@@ -306,9 +306,9 @@ const agentsPathHandler: PathHandler = {
                     const orgPath = buildOrgPath(node, rootNode);
                     console.log('[PageBackBreadcrumb] Built org path:', orgPath?.map(n => n.name));
                     if (orgPath) {
-                        // 如果路径中已经有organization段，则不重复添加
+                        // IfPath中已经有organization段，则不重复Add
                         if (!orgMatches) {
-                            // 添加组织路径的面包屑（跳过根节点，因为已经添加了）
+                            // Add组织Path的面包屑（跳过根节点，因为已经Add了）
                             let currentOrgPath = '/agents';
                             orgPath.slice(1).forEach((orgNode) => {
                                 currentOrgPath += `/organization/${orgNode.id}`;
@@ -328,7 +328,7 @@ const agentsPathHandler: PathHandler = {
                 console.log('[PageBackBreadcrumb] Conditions not met - orgIdParam:', orgIdParam, 'rootNode:', !!rootNode);
             }
 
-            // 添加详情/新增页面标题
+            // AddDetails/新增Page标题
             items.push({
                 key: path,
                 title: createCurrentNode(
@@ -344,9 +344,9 @@ const agentsPathHandler: PathHandler = {
     }
 };
 
-// ==================== 默认路径处理器 ====================
+// ==================== DefaultPathProcess器 ====================
 const defaultPathHandler: PathHandler = {
-    match: () => true, // 匹配所有路径
+    match: () => true, // 匹配AllPath
     
     generate: (segments, _path, t, navigate) => {
         const items: BreadcrumbItem[] = [];
@@ -358,10 +358,10 @@ const defaultPathHandler: PathHandler = {
             // 尝试翻译
             let label = t(`breadcrumb.${seg}`);
             if (label === `breadcrumb.${seg}`) {
-                // 如果没有翻译，尝试菜单翻译
+                // If没有翻译，尝试Menu翻译
                 label = t(`menu.${seg}`);
                 if (label === `menu.${seg}`) {
-                    // 如果还是没有，使用原始值并解码
+                    // If还是没有，使用原始Value并解码
                     label = decodeURIComponent(seg);
                 }
             }
@@ -379,17 +379,17 @@ const defaultPathHandler: PathHandler = {
     }
 };
 
-// ==================== 路径处理器注册表 ====================
+// ==================== PathProcess器Register表 ====================
 const pathHandlers: PathHandler[] = [
     agentsPathHandler,
-    // 可以在这里添加其他模块的处理器
+    // Can在这里Add其他Module的Process器
     // tasksPathHandler,
     // skillsPathHandler,
     // ...
-    defaultPathHandler, // 默认处理器放在最后
+    defaultPathHandler, // DefaultProcess器放在最后
 ];
 
-// ==================== 主组件 ====================
+// ==================== 主Component ====================
 interface PageBackBreadcrumbProps {
     searchQuery?: string;
     onSearchChange?: (query: string) => void;
@@ -400,15 +400,15 @@ const PageBackBreadcrumb: React.FC<PageBackBreadcrumbProps> = ({ searchQuery = '
     const location = useLocation();
     const { t } = useTranslation();
     const { message } = App.useApp();
-    const { treeOrgs } = useOrgStore(); // 在组件中获取数据
+    const { treeOrgs } = useOrgStore(); // 在Component中GetData
     const username = useUserStore((state) => state.username);
     const path = location.pathname;
     const [refreshing, setRefreshing] = useState(false);
     
-    // 解析路径段 - 需要在 handleRefresh 之前定义
+    // ParsePath段 - Need在 handleRefresh 之前Definition
     const segments = path.split('/').filter(Boolean);
 
-    // 处理刷新数据 - 根据当前页面智能刷新
+    // ProcessRefreshData - 根据When前Page智能Refresh
     const handleRefresh = useCallback(async () => {
         if (refreshing || !username) return;
         
@@ -417,23 +417,23 @@ const PageBackBreadcrumb: React.FC<PageBackBreadcrumbProps> = ({ searchQuery = '
             const api = get_ipc_api();
             const currentPath = segments[0];
             
-            // 根据当前页面刷新对应的数据
+            // 根据When前PageRefresh对应的Data
             if (currentPath === 'agents') {
-                // Agents 页面：调用 get_all_org_agents 接口刷新组织和代理数据
+                // Agents Page：调用 get_all_org_agents InterfaceRefresh组织和代理Data
                 const res = await api.getAllOrgAgents(username).catch((e: any) => ({ success: false, error: e, data: null }));
                 
                 if (res.success && res.data) {
                     useOrgStore.getState().refreshOrgData();
                 }
             } else if (currentPath === 'tasks') {
-                // Tasks 页面：只刷新 tasks 数据
+                // Tasks Page：只Refresh tasks Data
                 const tasksRes = await api.getAgentTasks(username, []).catch((e: any) => ({ success: false, error: e, data: null }));
                 
                 if (tasksRes.success && tasksRes.data && (tasksRes.data as any).tasks) {
                     useTaskStore.getState().setItems((tasksRes.data as any).tasks);
                 }
             } else if (currentPath === 'skills') {
-                // Skills 页面：只刷新 skills 数据
+                // Skills Page：只Refresh skills Data
                 const skillsRes = await api.getAgentSkills(username, []).catch((e: any) => ({ success: false, error: e, data: null }));
                 
                 if (skillsRes.success && skillsRes.data && (skillsRes.data as any).skills) {
@@ -441,46 +441,46 @@ const PageBackBreadcrumb: React.FC<PageBackBreadcrumbProps> = ({ searchQuery = '
                 }
             }
             
-            message.success(t('common.refresh_success') || '数据刷新成功');
+            message.success(t('common.refresh_success') || 'DataRefreshSuccess');
         } catch (error) {
             console.error('[PageBackBreadcrumb] Refresh error:', error);
-            message.error(t('common.refresh_failed') || '数据刷新失败');
+            message.error(t('common.refresh_failed') || 'DataRefreshFailed');
         } finally {
             setRefreshing(false);
         }
     }, [refreshing, username, message, t, segments]);
 
-    // 从 location.search 获取查询参数
+    // 从 location.search GetQueryParameter
     const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
     
-    // 构建面包屑项 - 使用处理器模式
+    // 构建面包屑项 - 使用Process器模式
     const items = useMemo(() => {
-        // 找到第一个匹配的处理器
+        // 找到第一个匹配的Process器
         const handler = pathHandlers.find(h => h.match(segments, path));
 
-        // 准备上下文数据
+        // 准备上下文Data
         const context = {
             treeOrgs,
             searchParams
         };
 
-        // 使用处理器生成面包屑项
+        // 使用Process器生成面包屑项
         return handler ? handler.generate(segments, path, t, navigate, context) : [];
     }, [path, segments, t, navigate, treeOrgs, searchParams]);
     
-    // 计算返回路径
+    // 计算返回Path
     const parentPath = useMemo(() => {
-        // 如果是 details 或 add 页面，检查是否有 orgId 参数
+        // If是 details 或 add Page，Check是否有 orgId Parameter
         if (path.includes('/details/') || path.includes('/add')) {
             const orgIdParam = searchParams.get('orgId');
             if (orgIdParam) {
-                // 返回到对应的组织页面
-                // 需要构建完整的组织路径
+                // 返回到对应的组织Page
+                // Need构建完整的组织Path
                 const rootNode = treeOrgs[0];
                 if (rootNode) {
                     const node = findTreeNodeById(rootNode, orgIdParam);
                     if (node) {
-                        // 构建从根到当前组织的完整路径
+                        // 构建从根到When前组织的完整Path
                         const buildOrgPath = (targetNode: any, currentNode: any, pathSoFar: any[] = []): any[] | null => {
                             if (currentNode.id === targetNode.id) {
                                 return [...pathSoFar, currentNode];
@@ -496,7 +496,7 @@ const PageBackBreadcrumb: React.FC<PageBackBreadcrumbProps> = ({ searchQuery = '
 
                         const orgPath = buildOrgPath(node, rootNode);
                         if (orgPath && orgPath.length > 1) {
-                            // 构建完整的组织路径
+                            // 构建完整的组织Path
                             let fullOrgPath = '/agents';
                             orgPath.slice(1).forEach((orgNode) => {
                                 fullOrgPath += `/organization/${orgNode.id}`;
@@ -505,25 +505,25 @@ const PageBackBreadcrumb: React.FC<PageBackBreadcrumbProps> = ({ searchQuery = '
                         }
                     }
                 }
-                // 如果找不到节点，返回到 agents 根页面
+                // If找不到节点，返回到 agents 根Page
                 return '/agents';
             }
         }
 
-        // 如果是组织详情页，返回到组织列表
+        // If是组织Details页，返回到组织List
         if (path.includes('/organization/')) {
             const lastOrgIndex = path.lastIndexOf('/organization/');
             return path.substring(0, lastOrgIndex) || '/agents';
         }
-        // 默认返回上一级
+        // Default返回上一级
         return '/' + segments.slice(0, -1).join('/');
     }, [path, segments, treeOrgs, searchParams]);
     
-    // 总是显示面包屑（包括根目录）
-    // 只有在非根目录时显示返回按钮
+    // 总是Display面包屑（包括根目录）
+    // 只有在非根目录时Display返回Button
     const showBackButton = segments.length >= 2;
     
-    // 判断是否在 agents 页面（显示搜索框）
+    // 判断是否在 agents Page（DisplaySearch框）
     const isAgentsPage = segments[0] === 'agents';
     
     return (
@@ -563,10 +563,10 @@ const PageBackBreadcrumb: React.FC<PageBackBreadcrumbProps> = ({ searchQuery = '
             </LeftSection>
             
             <RightSection>
-                {/* 搜索框 - 仅在 agents 页面显示 */}
+                {/* Search框 - 仅在 agents PageDisplay */}
                 {isAgentsPage && onSearchChange && (
                     <StyledSearchInput
-                        placeholder={t('pages.agents.search_placeholder') || '请输入名称或其他关键字'}
+                        placeholder={t('pages.agents.search_placeholder') || '请InputName或其他关键字'}
                         prefix={<SearchOutlined />}
                         value={searchQuery}
                         onChange={(e) => onSearchChange(e.target.value)}
@@ -574,8 +574,8 @@ const PageBackBreadcrumb: React.FC<PageBackBreadcrumbProps> = ({ searchQuery = '
                     />
                 )}
                 
-                {/* 刷新按钮 */}
-                <Tooltip title={t('common.refresh') || '刷新数据'}>
+                {/* RefreshButton */}
+                <Tooltip title={t('common.refresh') || 'RefreshData'}>
                     <StyledRefreshButton
                         type="text"
                         icon={<ReloadOutlined spin={refreshing} />}

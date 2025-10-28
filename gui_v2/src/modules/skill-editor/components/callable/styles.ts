@@ -18,10 +18,10 @@ export const CallableSelectorWrapper = styled.div`
     margin-left: 0;
   }
 
-  /* 修复 semi-ui Select 输入时变窄的问题 */
+  /* FIX semi-ui Select Input时变窄的问题 */
   .selector-container .semi-select {
     flex: 1 1 0%;
-    min-width: 150px; /* 保证最小宽度 */
+    min-width: 150px; /* 保证MinimumWidth */
     max-width: 100%;
   }
 `;

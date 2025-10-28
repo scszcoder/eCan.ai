@@ -64,11 +64,11 @@ function checkWeightSum(components: ScoreComponent[]): boolean {
   return Math.abs(sum - 1) < 1e-6;
 }
 
-// 1. 工具函数：生成唯一ID
+// 1. ToolFunction：生成唯一ID
 function genRowId() {
   return Math.random().toString(36).slice(2) + Date.now();
 }
-// 初始化时为每个 score_lut 生成 _lutRowIds
+// Initialize时为每个 score_lut 生成 _lutRowIds
 function addLutRowIds(obj: any) {
   if (obj && typeof obj === 'object') {
     if (obj.score_lut && !obj._lutRowIds) {
@@ -91,21 +91,21 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
   });
   const [collapsedStates, setCollapsedStates] = useState<Record<string, boolean>>({});
 
-  // 工具函数：递归定位到path的对象
+  // ToolFunction：RecursivePositioning到path的对象
   const getNodeByPath = (obj: any, path: string[]) => {
     let node = obj;
     for (const p of path) node = node[p];
     return node;
   };
 
-  // score_lut 操作
+  // score_lut Operation
   const updateLutKey = (path: string[], idx: number, newKey: string) => {
     setFormState(prev => {
       const newState = JSON.parse(JSON.stringify(prev));
       const node = getNodeByPath(newState, path);
       const entries = Object.entries(node.score_lut || {});
       const [oldKey, value] = entries[idx];
-      // 更新 _lutRowIds
+      // Update _lutRowIds
       if (!node._lutRowIds) node._lutRowIds = {};
       const rowId = node._lutRowIds[oldKey] || genRowId();
       delete node._lutRowIds[oldKey];
@@ -155,7 +155,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
     });
   };
 
-  // 切换折叠状态
+  // Toggle折叠Status
   const toggleCollapse = (path: string[]) => {
     const pathKey = path.join('.');
     setCollapsedStates(prev => ({
@@ -164,12 +164,12 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
     }));
   };
 
-  // 递归渲染评分项/分组
+  // RecursiveRender评分项/分组
   const renderComponent = (comp: ScoreComponent, path: string[] = [], parentComponents?: ScoreComponent[]) => {
     const pathKey = path.join('.');
     const isCollapsed = collapsedStates[pathKey] || false;
 
-    // 分组组件
+    // 分组Component
     if (comp.components && Array.isArray(comp.components)) {
       // 校验同级weight
       const weightOk = checkWeightSum(comp.components);
@@ -243,7 +243,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
       }
       return (
         <div key={pathKey} style={{ marginBottom: 20 }}>
-          {/* 父组件 */}
+          {/* 父Component */}
           <Card
             style={{
               marginBottom: 16,
@@ -295,7 +295,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
             
             {!isCollapsed && (
               <>
-                {/* 父组件字段 */}
+                {/* 父ComponentField */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <span style={{ minWidth: 64, color: 'var(--semi-color-text-2)', textAlign: 'left' }}>{t('pages.chat.scoreForm.scoreFormula')}</span>
@@ -373,7 +373,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
           </Card>
           
           {!isCollapsed && (
-            /* 子组件容器 */
+            /* 子ComponentContainer */
             <div style={{ 
               marginLeft: path.length > 1 ? 32 : 8, 
               paddingLeft: 16, 
@@ -398,14 +398,14 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
                 <IconFile style={{ fontSize: 10 }} />
               </div>
               
-              {/* 渲染子组件 */}
+              {/* Render子Component */}
               <div style={{ paddingTop: 16 }}>
                 {Object.entries(comp.raw_value).map(([k, v]) => {
-                  // 为子组件添加名称显示
+                  // 为子ComponentAddNameDisplay
                   const childComponent = v as ScoreComponent;
                   const childWithName = {
                     ...childComponent,
-                    name: k // 使用key作为名称
+                    name: k // 使用key作为Name
                   };
                   return renderComponent(childWithName, [...path, 'raw_value', k], Object.values(comp.raw_value) as ScoreComponent[]);
                 })}
@@ -591,7 +591,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
           </>
         )}
         
-        {/* 渲染所有第一层组件 */}
+        {/* RenderAll第一层Component */}
         {Array.isArray(formState.components) && formState.components.map((comp, idx) => renderComponent(comp, ['components', String(idx)], formState.components))}
         
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: 24 }}>

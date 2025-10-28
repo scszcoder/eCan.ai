@@ -1,4 +1,4 @@
-// 统一导出所有 store
+// 统一ExportAll store
 
 // === 应用级 Store ===
 export { useUserStore } from './userStore';
@@ -15,10 +15,10 @@ export { useRankStore } from './domain/rankStore';
 export { useKnowledgeStore } from './domain/knowledgeStore';
 export { useChatStore } from './domain/chatStore';
 
-// === 工具和服务 ===
+// === Tool和Service ===
 export { storeSyncManager } from './sync/syncManager';
 
-// === 基础类型 ===
+// === BaseType ===
 export type {
   BaseResource,
   BaseStoreState,
@@ -28,8 +28,8 @@ export type {
   CACHE_DURATION,
 } from './base/types';
 
-// === 领域类型 ===
-// 导出类型和枚举（枚举需要作为值导出）
+// === 领域Type ===
+// ExportType和枚举（枚举Need作为ValueExport）
 export type { Task } from '../types/domain/task';
 export { TaskStatus, TaskPriority } from '../types/domain/task';
 
@@ -45,7 +45,7 @@ export { KnowledgeType, KnowledgeStatus } from '../types/domain/knowledge';
 export type { Chat, Message, Member } from '../types/domain/chat';
 export { ChatType, MessageStatus, MemberStatus } from '../types/domain/chat';
 
-// 导出数据类型
+// ExportDataType
 // export type {
 //   Agent,
 //   Skill,

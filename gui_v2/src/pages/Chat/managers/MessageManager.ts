@@ -9,9 +9,9 @@ class MessageManager {
   private unreadCounts: Map<string, number> = new Map(); // chatId -> unread count
   private chatAccessOrder: string[] = []; // LRU 追踪聊天访问顺序
   
-  // 内存限制配置
-  private readonly maxMessagesPerChat = 500; // 每个聊天最多保存 500 条消息
-  private readonly maxChats = 100; // 最多保存 100 个聊天的消息
+  // 内存LimitConfiguration
+  private readonly maxMessagesPerChat = 500; // 每个聊天最多Save 500 条Message
+  private readonly maxChats = 100; // 最多Save 100 个聊天的Message
 
   constructor() {
     this.initEventListeners();
@@ -27,32 +27,32 @@ class MessageManager {
         return;
       }
 
-      // 从事件接收的消息需要自动更新未读数
+      // 从EventReceive的MessageNeed自动Update未读数
       this.addMessageInternal(realChatId, message, true);
     });
   }
 
   /**
-   * 内部通用的添加消息方法
+   * InternalGeneral的AddMessageMethod
    * @param chatId 聊天ID
-   * @param message 消息对象
-   * @param updateUnread 是否更新未读计数
+   * @param message Message对象
+   * @param updateUnread 是否Update未读计数
    */
   private addMessageInternal(chatId: string, message: Message, updateUnread: boolean = false) {
     const chatMessages = this.messages.get(chatId) || [];
     
-    // 使用共享的处理函数添加消息
+    // 使用共享的ProcessFunctionAddMessage
     const result = addMessageToList(chatMessages, message);
     
-    // 如果是重复消息，则不做处理
+    // If是重复Message，则不做Process
     if (result.isDuplicate) {
       return;
     }
     
-    // 更新消息列表
+    // UpdateMessageList
     this.messages.set(chatId, sortMessagesByTime(result.messages));
     
-    // 更新未读计数（如果需要）
+    // Update未读计数（IfNeed）
     if (updateUnread) {
       this.updateUnreadCount(chatId);
     }
@@ -77,20 +77,20 @@ class MessageManager {
   }
 
   /**
-   * 更新聊天访问顺序（LRU）
+   * Update聊天访问顺序（LRU）
    */
   private updateAccessOrder(chatId: string): void {
-    // 移除旧位置
+    // Remove旧Position
     const index = this.chatAccessOrder.indexOf(chatId);
     if (index > -1) {
       this.chatAccessOrder.splice(index, 1);
     }
-    // 添加到末尾（最新访问）
+    // Add到末尾（最新访问）
     this.chatAccessOrder.push(chatId);
   }
 
   /**
-   * 清理最旧的聊天（LRU）
+   * Cleanup最旧的聊天（LRU）
    */
   private evictOldestChat(): void {
     if (this.chatAccessOrder.length > 0) {
@@ -103,37 +103,37 @@ class MessageManager {
     }
   }
 
-  // 订阅消息更新
+  // 订阅MessageUpdate
   subscribe(listener: (messages: Map<string, Message[]>) => void): () => void {
     this.listeners.add(listener);
     
-    // 立即通知当前状态
+    // 立即NotificationWhen前Status
     listener(new Map(this.messages));
     
-    // 返回取消订阅函数
+    // 返回Cancel订阅Function
     return () => {
       this.listeners.delete(listener);
     };
   }
 
-  // 获取指定聊天的消息
+  // Get指定聊天的Message
   getMessages(chatId: string): Message[] {
-    // 更新访问顺序
+    // Update访问顺序
     this.updateAccessOrder(chatId);
     return this.messages.get(chatId) || [];
   }
 
-  // 获取所有消息
+  // GetAllMessage
   getAllMessages(): Map<string, Message[]> {
     return new Map(this.messages);
   }
 
-  // 获取未读消息数
+  // Get未读Message数
   getUnreadCount(chatId: string): number {
     return this.unreadCounts.get(chatId) || 0;
   }
 
-  // 获取所有未读消息数
+  // GetAll未读Message数
   getAllUnreadCounts(): Map<string, number> {
     return new Map(this.unreadCounts);
   }
@@ -143,18 +143,18 @@ class MessageManager {
     this.unreadCounts.set(chatId, 0);
   }
 
-  // 设置聊天消息（用于初始化或更新）
+  // Settings聊天Message（Used forInitialize或Update）
   setMessages(chatId: string, messages: Message[]): void {
-    // 限制单个聊天的消息数量
+    // Limit单个聊天的MessageCount
     const limitedMessages = messages.slice(-this.maxMessagesPerChat);
     
-    // 强制排序，保证老→新
+    // 强制Sort，保证老→新
     this.messages.set(chatId, sortMessagesByTime(limitedMessages));
     
-    // 更新访问顺序
+    // Update访问顺序
     this.updateAccessOrder(chatId);
     
-    // 限制聊天数量（LRU）
+    // Limit聊天Count（LRU）
     if (this.messages.size > this.maxChats) {
       this.evictOldestChat();
     }
@@ -167,35 +167,35 @@ class MessageManager {
     }
   }
 
-  // 添加消息到聊天（用于发送新消息时）
+  // AddMessage到聊天（Used forSend新Message时）
   addMessageToChat(chatId: string, message: Message): void {
-    // 调用通用的添加消息方法，但不更新未读计数（因为是自己发送的）
+    // 调用General的AddMessageMethod，但不Update未读计数（因为是自己Send的）
     const chatMessages = this.messages.get(chatId) || [];
     const result = addMessageToList(chatMessages, message);
-    // 强制排序，保证老→新
+    // 强制Sort，保证老→新
     this.messages.set(chatId, sortMessagesByTime(result.messages));
     this.notifyListeners();
   }
 
-  // 更新消息（用于更新现有消息的状态）
+  // UpdateMessage（Used forUpdate现有Message的Status）
   updateMessage(chatId: string, messageId: string, updates: Partial<Message>): void {
     const chatMessages = this.messages.get(chatId) || [];
     
-    // 使用共享的处理函数更新消息
+    // 使用共享的ProcessFunctionUpdateMessage
     const updatedMessages = updateMessageInList(chatMessages, messageId, updates);
     this.messages.set(chatId, updatedMessages);
     
     this.notifyListeners();
   }
 
-  // 清空指定聊天的消息
+  // 清空指定聊天的Message
   clearMessages(chatId: string): void {
     this.messages.delete(chatId);
     this.unreadCounts.delete(chatId);
     this.notifyListeners();
   }
 
-  // 清空所有消息
+  // 清空AllMessage
   clearAll(): void {
     this.messages.clear();
     this.unreadCounts.clear();
@@ -203,5 +203,5 @@ class MessageManager {
   }
 }
 
-// 创建全局单例
+// Create全局单例
 export const messageManager = new MessageManager(); 

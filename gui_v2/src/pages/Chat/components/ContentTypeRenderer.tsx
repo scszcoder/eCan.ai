@@ -7,7 +7,7 @@ import { processStringContent } from '../utils/contentUtils';
 import { useTranslation } from 'react-i18next';
 
 
-// 基础的文本内容渲染
+// Base的文本ContentRender
 const TextContent: React.FC<{ text?: string }> = ({ text }) => {
   if (!text?.trim()) return null;
   return (
@@ -17,7 +17,7 @@ const TextContent: React.FC<{ text?: string }> = ({ text }) => {
   );
 };
 
-// 代码块渲染
+// Code块Render
 const CodeContent: React.FC<{ code?: { lang: string; value: string } }> = ({ code }) => {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -87,7 +87,7 @@ const CodeContent: React.FC<{ code?: { lang: string; value: string } }> = ({ cod
   );
 };
 
-// 系统消息渲染
+// SystemMessageRender
 const SystemContent: React.FC<{ system?: { text: string; level: string } }> = ({ system }) => {
   const { t } = useTranslation();
   if (!system?.text) return null;
@@ -117,13 +117,13 @@ const SystemContent: React.FC<{ system?: { text: string; level: string } }> = ({
   );
 };
 
-// 通用渲染函数
+// GeneralRenderFunction
 const renderGenericContent = (key: string, value: any, t: any): React.ReactNode => {
   if (value === null || value === undefined) return null;
   
-  // 处理不同数据类型
+  // Process不同DataType
   if (typeof value === 'string') {
-    // 特殊处理包含统计信息的字符串
+    // 特殊ProcessInclude统计Information的字符串
     if (value.includes('Statistics:')) {
       const parts = value.split('Statistics:');
       const mainContent = parts[0].trim();
@@ -216,7 +216,7 @@ const renderGenericContent = (key: string, value: any, t: any): React.ReactNode 
   }
   
   if (typeof value === 'object') {
-    // 特殊处理已知的对象结构
+    // 特殊Process已知的对象结构
     if (value.isError && value.content) {
       return (
         <div style={{
@@ -233,7 +233,7 @@ const renderGenericContent = (key: string, value: any, t: any): React.ReactNode 
       );
     }
     
-    // 表格数据处理
+    // TableDataProcess
     if (Object.keys(value).length > 0 && Object.values(value).every(v => typeof v === 'object' && v !== null)) {
       const firstValue = Object.values(value)[0] as any;
       if (typeof firstValue === 'object' && firstValue !== null) {
@@ -260,7 +260,7 @@ const renderGenericContent = (key: string, value: any, t: any): React.ReactNode 
       }
     }
     
-    // 统计数据网格处理
+    // 统计Data网格Process
     if (Object.values(value).every(v => typeof v === 'number' || typeof v === 'string')) {
       return (
         <div style={{
@@ -303,7 +303,7 @@ const renderGenericContent = (key: string, value: any, t: any): React.ReactNode 
       );
     }
     
-    // 通用对象渲染
+    // General对象Render
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {Object.entries(value).map(([k, v]) => (
@@ -323,7 +323,7 @@ const renderGenericContent = (key: string, value: any, t: any): React.ReactNode 
   return <Typography.Text>{String(value)}</Typography.Text>;
 };
 
-// 表格单元格渲染函数
+// Table单元格RenderFunction
 const renderTableCell = (value: any, t?: any): React.ReactNode => {
   if (value === null || value === undefined) {
     return <Typography.Text type="secondary">-</Typography.Text>;
@@ -338,7 +338,7 @@ const renderTableCell = (value: any, t?: any): React.ReactNode => {
   }
   
   if (typeof value === 'string') {
-    // 检查是否是URL
+    // Check是否是URL
     if (value.startsWith('http://') || value.startsWith('https://')) {
       return (
         <a href={value} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--semi-color-primary)' }}>
@@ -359,7 +359,7 @@ const renderTableCell = (value: any, t?: any): React.ReactNode => {
     return <Typography.Text>{value}</Typography.Text>;
   }
   
-  // 对象或数组，转换为JSON字符串
+  // 对象或数组，Convert为JSON字符串
   if (typeof value === 'object') {
     const jsonStr = JSON.stringify(value, null, 2);
     return (
@@ -372,16 +372,16 @@ const renderTableCell = (value: any, t?: any): React.ReactNode => {
   return <Typography.Text>{String(value)}</Typography.Text>;
 };
 
-// 通知内容渲染
+// NotificationContentRender
 const NotificationContent: React.FC<{ notification?: any }> = ({ notification }) => {
   const { t } = useTranslation();
   if (!notification) return null;
   
-  // 处理新的嵌套结构
+  // Process新的嵌套结构
   const actualNotification = notification.content?.notification || notification;
   const { title, ...otherFields } = actualNotification;
   
-  // 如果只有简单的字符串内容且没有其他字段，使用简单格式
+  // If只有Simple的字符串Content且没有其他Field，使用Simple格式
   if (Object.keys(otherFields).length === 1 && typeof otherFields.content === 'string') {
     return (
       <Banner
@@ -413,7 +413,7 @@ const NotificationContent: React.FC<{ notification?: any }> = ({ notification })
         </Typography.Title>
       )}
       
-      {/* 动态渲染所有其他字段 */}
+      {/* 动态RenderAll其他Field */}
       {Object.entries(otherFields).map(([key, value]) => (
         <div key={key} style={{ marginBottom: 12 }}>
           <Typography.Text strong style={{ display: 'block', marginBottom: 8, color: 'var(--semi-color-text-1)' }}>
@@ -430,7 +430,7 @@ const NotificationContent: React.FC<{ notification?: any }> = ({ notification })
         </div>
       ))}
       
-      {/* 特殊处理链接字段 */}
+      {/* 特殊ProcessLinkField */}
       {otherFields.behind_the_scene && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--semi-color-border)' }}>
           <Button 
@@ -443,7 +443,7 @@ const NotificationContent: React.FC<{ notification?: any }> = ({ notification })
         </div>
       )}
       
-      {/* 特殊处理反馈选项 */}
+      {/* 特殊Process反馈选项 */}
       {otherFields.show_feedback_options && (
         <div style={{ 
           display: 'flex', 
@@ -502,7 +502,7 @@ const CardContent: React.FC<{
   );
 };
 
-// Markdown内容渲染
+// MarkdownContentRender
 const MarkdownContent: React.FC<{ markdown?: string }> = ({ markdown }) => {
   if (!markdown) return null;
   
@@ -521,7 +521,7 @@ const MarkdownContent: React.FC<{ markdown?: string }> = ({ markdown }) => {
   );
 };
 
-// 表格内容渲染
+// TableContentRender
 const TableContent: React.FC<{ table?: { headers: string[]; rows: string[][] } }> = ({ table }) => {
   const { t } = useTranslation();
   if (!table?.headers || !table?.rows) return null;
@@ -560,7 +560,7 @@ const TableContent: React.FC<{ table?: { headers: string[]; rows: string[][] } }
   );
 };
 
-// 附件渲染组件，之后引入原来的附件处理组件
+// 附件RenderComponent，之后引入原来的附件ProcessComponent
 const ImageUrlContent: React.FC<{ image_url?: { url: string } }> = ({ image_url }) => {
   const { t } = useTranslation();
   if (!image_url?.url) return null;
@@ -619,7 +619,7 @@ const FileUrlContent: React.FC<{ file_url?: { url: string; name: string; size: s
   );
 };
 
-// 主内容类型渲染器组件
+// 主ContentTypeRender器Component
 interface ContentTypeRendererProps {
   content: Content | string;
   chatId?: string;
@@ -636,18 +636,18 @@ interface ContentTypeRendererProps {
 
 const ContentTypeRenderer: React.FC<ContentTypeRendererProps> = ({ content, chatId, messageId, onFormSubmit, onCardAction }) => {
   const { t } = useTranslation();
-  // 1. 预处理字符串内容，支持富内容解析
+  // 1. 预Process字符串Content，Support富ContentParse
   const parsedContent = useMemo(() => {
     if (typeof content === 'string') return processStringContent(content);
     return content;
   }, [content]);
 
-  // 2. 根据结构化内容类型分支渲染
+  // 2. 根据结构化ContentType分支Render
   if (typeof parsedContent === 'string') {
     return <TextContent text={parsedContent} />;
   }
   if (parsedContent && typeof parsedContent === 'object') {
-    // 支持 text+attachments 混合内容
+    // Support text+attachments 混合Content
     if (
       parsedContent.type === 'text' &&
       Array.isArray((parsedContent as any).attachments)
@@ -666,7 +666,7 @@ const ContentTypeRenderer: React.FC<ContentTypeRendererProps> = ({ content, chat
         </div>
       );
     }
-    // 支持单一 image_url/file_url 结构
+    // Support单一 image_url/file_url 结构
     if (
       parsedContent.type === 'image_url' &&
       ((parsedContent as any).image_url || (parsedContent as any).url)
@@ -687,7 +687,7 @@ const ContentTypeRenderer: React.FC<ContentTypeRendererProps> = ({ content, chat
         type: file.type || file.fileType || ''
       }} />;
     }
-    // 其它类型走原有 switch
+    // 其它Type走原有 switch
     switch (parsedContent.type) {
       case 'text':
         return <TextContent text={(parsedContent as any).text} />;

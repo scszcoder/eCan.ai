@@ -101,7 +101,7 @@ export const AvatarSelector: React.FC<AvatarSelectorProps> = ({
   };
 
   const handleDeleteAvatar = async (avatar: AvatarData, e: React.MouseEvent) => {
-    e.stopPropagation(); // 阻止事件冒泡到卡片的 onClick
+    e.stopPropagation(); // 阻止Event冒泡到卡片的 onClick
     
     if (!avatar.id) {
       message.error(t('avatar.delete_no_id') || 'Cannot delete avatar without ID');
@@ -121,9 +121,9 @@ export const AvatarSelector: React.FC<AvatarSelectorProps> = ({
           
           if (response.success) {
             message.success(t('avatar.delete_success') || 'Avatar deleted successfully');
-            // 刷新上传的 Avatar 列表
+            // Refresh上传的 Avatar List
             await loadUploadedAvatars();
-            // 如果删除的是当前选中的 Avatar，清除选中状态
+            // IfDelete的是When前选中的 Avatar，清除选中Status
             if (selectedAvatar?.id === avatar.id) {
               setSelectedAvatar(undefined);
               if (onChange) {

@@ -10,29 +10,29 @@ interface OrgDoorProps {
   agentCount?: number; // Total agent count in this org and its children
 }
 
-// 全局缓存：系统视频列表（页面生命周期内永久有效）
+// 全局Cache：System视频List（PageLifecycle内永久有效）
 let systemVideosCache: string[] | null = null;
 
-// 获取随机系统视频（带永久缓存）
+// Get随机System视频（带永久Cache）
 const getRandomSystemVideo = async (): Promise<string | null> => {
   try {
-    // 检查缓存是否存在
+    // CheckCache是否存在
     if (systemVideosCache && systemVideosCache.length > 0) {
-      // 从缓存中随机选择
+      // 从Cache中随机Select
       const randomIndex = Math.floor(Math.random() * systemVideosCache.length);
       const videoPath = systemVideosCache[randomIndex];
       console.log('[OrgDoor] Using cached video:', videoPath);
       return videoPath;
     }
     
-    // 缓存不存在，通过 IPC 获取系统视频列表
+    // Cache不存在，通过 IPC GetSystem视频List
     console.log('[OrgDoor] Fetching system avatars from IPC...');
     const response: any = await IPCWCClient.getInstance().sendRequest('avatar.get_system_avatars', {
       username: 'system'
     });
     
     if (response?.status === 'success' && response.result && Array.isArray(response.result)) {
-      // 提取所有有视频的 avatar
+      // 提取All有视频的 avatar
       const videos: string[] = [];
       response.result.forEach((avatar: any) => {
         // 优先使用 webm 格式
@@ -44,10 +44,10 @@ const getRandomSystemVideo = async (): Promise<string | null> => {
       });
       
       if (videos.length > 0) {
-        // 永久缓存（直到页面重新加载）
+        // 永久Cache（直到Page重新Load）
         systemVideosCache = videos;
         
-        // 随机选择一个
+        // 随机Select一个
         const randomIndex = Math.floor(Math.random() * videos.length);
         const selectedVideo = videos[randomIndex];
         console.log('[OrgDoor] Cached', videos.length, 'videos, selected:', selectedVideo);
@@ -78,7 +78,7 @@ const OrgDoor: React.FC<OrgDoorProps> = ({ name, isActive = false, agentCount = 
   // Determine if video should be shown: only when agentCount > 0
   const shouldShowVideo = agentCount > 0;
 
-  // 检测文本是否溢出（用于添加overflow类名）
+  // 检测文本是否溢出（Used forAddoverflow类名）
   useEffect(() => {
     const checkOverflow = () => {
       if (nameRef.current) {
@@ -129,14 +129,14 @@ const OrgDoor: React.FC<OrgDoorProps> = ({ name, isActive = false, agentCount = 
   }, []);
 
   const handleNameplateMouseLeave = useCallback((e: React.MouseEvent) => {
-    // 检查鼠标是否还在门的区域内
+    // Check鼠标是否还在门的区域内
     const doorElement = e.currentTarget.closest('.org-door');
     if (doorElement) {
       const rect = doorElement.getBoundingClientRect();
       const mouseX = e.clientX;
       const mouseY = e.clientY;
       
-      // 如果鼠标还在门的区域内，恢复开门状态
+      // If鼠标还在门的区域内，Restore开门Status
       if (mouseX >= rect.left && mouseX <= rect.right && 
           mouseY >= rect.top && mouseY <= rect.bottom) {
         setHovered(true);
@@ -149,7 +149,7 @@ const OrgDoor: React.FC<OrgDoorProps> = ({ name, isActive = false, agentCount = 
     setTimeout(() => setClicked(false), 300);
   }, []);
 
-  // 解析名称和计数
+  // ParseName和计数
   const parseNameAndCount = useCallback((displayName: string) => {
     // 匹配形如 "Name (count)" 的格式
     const match = displayName.match(/^(.+?)\s*\((\d+)\)$/);
@@ -157,7 +157,7 @@ const OrgDoor: React.FC<OrgDoorProps> = ({ name, isActive = false, agentCount = 
       return {
         name: match[1].trim(),
         count: match[2],
-        fullName: match[1].trim() // 完整名称（不含计数）
+        fullName: match[1].trim() // 完整Name（不含计数）
       };
     }
     return {
@@ -180,7 +180,7 @@ const OrgDoor: React.FC<OrgDoorProps> = ({ name, isActive = false, agentCount = 
       {/* 悬停光晕效果 */}
       {hovered && <div className="door-glow" />}
       
-      {/* 状态指示器 */}
+      {/* Status指示器 */}
       {isActive && (
         <div className="door-status-indicator">
           <div className="status-dot" />
@@ -222,7 +222,7 @@ const OrgDoor: React.FC<OrgDoorProps> = ({ name, isActive = false, agentCount = 
                 className={`nameplate-name ${isOverflow ? 'overflow' : ''}`}
               >
                 {doorName}
-                {/* 跑马灯容器 */}
+                {/* 跑马灯Container */}
                 {isOverflow && (
                   <div className="nameplate-name-marquee">
                     <div className="nameplate-name-marquee-text" data-text={fullName}>

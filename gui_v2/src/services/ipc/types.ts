@@ -1,114 +1,114 @@
 /**
- * IPC (Inter-Process Communication) 类型定义
- * 提供 Python 后端和 Web 前端之间的通信类型定义
+ * IPC (Inter-Process Communication) TypeDefinition
+ * 提供 Python Backend和 Web Frontend之间的通信TypeDefinition
  */
 
 /**
- * IPC 接口定义
- * 定义了与 Python 后端通信的基本接口
+ * IPC InterfaceDefinition
+ * Definition了与 Python Backend通信的基本Interface
  */
 export interface IPCWebChannel {
-    /** 发送消息到 Python 后端 */
+    /** SendMessage到 Python Backend */
     web_to_python: (message: string) => string;
-    /** 接收来自 Python 后端的消息 */
+    /** Receive来自 Python Backend的Message */
     python_to_web: {
-        /** 连接消息处理器 */
+        /** ConnectionMessageProcess器 */
         connect: (callback: (message: string) => void) => void;
     };
 }
 
 /**
- * IPC 消息类型
+ * IPC MessageType
  */
 export type IPCMessageType = 'request' | 'response';
 
 /**
- * IPC 基础消息接口
+ * IPC BaseMessageInterface
  */
 export interface IPCBaseMessage {
-    /** 消息唯一标识 */
+    /** Message唯一标识 */
     id: string;
-    /** 消息类型 */
+    /** MessageType */
     type: IPCMessageType;
-    /** 消息时间戳 */
+    /** MessageTime戳 */
     timestamp?: number;
 }
 
 /**
- * IPC 请求
- * 用于从 Web 前端发送到 Python 后端的请求
+ * IPC Request
+ * Used for从 Web FrontendSend到 Python Backend的Request
  */
 export interface IPCRequest extends IPCBaseMessage {
     type: 'request';
-    /** 请求方法名 */
+    /** RequestMethod名 */
     method: string;
-    /** 请求参数 */
+    /** RequestParameter */
     params?: unknown;
-    /** 元数据 */
+    /** 元Data */
     meta?: Record<string, unknown>;
 }
 
 /**
- * IPC 响应
- * 用于从 Python 后端返回给 Web 前端的响应
+ * IPC Response
+ * Used for从 Python Backend返回给 Web Frontend的Response
  */
 export interface IPCResponse extends IPCBaseMessage {
     type: 'response';
-    /** 回显请求的方法名 */
+    /** 回显Request的Method名 */
     method?: string;
-    /** 响应状态 */
+    /** ResponseStatus */
     status: 'success' | 'error' | 'pending';
-    /** 响应结果（成功时） */
+    /** ResponseResult（Success时） */
     result?: unknown;
-    /** 错误信息（失败时） */
+    /** ErrorInformation（Failed时） */
     error?: IPCError;
-    /** 元数据 */
+    /** 元Data */
     meta?: Record<string, unknown>;
 }
 
 /**
- * IPC 错误
- * 定义了错误响应的结构
+ * IPC Error
+ * Definition了ErrorResponse的结构
  */
 export interface IPCError {
-    /** 错误码 */
+    /** Error码 */
     code: string | number;
-    /** 错误描述 */
+    /** ErrorDescription */
     message: string;
-    /** 额外错误信息 */
+    /** 额外ErrorInformation */
     details?: unknown;
 }
 
 /**
- * IPC 请求处理器
- * 用于处理来自 Python 后端的请求
+ * IPC RequestProcess器
+ * Used forProcess来自 Python Backend的Request
  */
 export interface IPCRequestHandler {
     (request: IPCRequest): Promise<unknown>;
 }
 
 /**
- * IPC 响应处理器
- * 用于处理来自 Python 后端的响应
+ * IPC ResponseProcess器
+ * Used forProcess来自 Python Backend的Response
  */
 export interface IPCResponseHandler {
     (response: IPCResponse): void;
 }
 
 /**
- * IPC 错误处理器
- * 用于处理通信过程中的错误
+ * IPC ErrorProcess器
+ * Used forProcess通信过程中的Error
  */
 export interface IPCErrorHandler {
     (error: IPCError): void;
 }
 
 /**
- * 创建 IPC 请求
- * @param method - 请求方法名
- * @param params - 请求参数
- * @param meta - 元数据
- * @returns IPC 请求对象
+ * Create IPC Request
+ * @param method - RequestMethod名
+ * @param params - RequestParameter
+ * @param meta - 元Data
+ * @returns IPC Request对象
  */
 export function createRequest(
     method: string,
@@ -126,10 +126,10 @@ export function createRequest(
 }
 
 /**
- * 创建成功响应
- * @param id - 请求 ID
- * @param result - 响应结果
- * @returns IPC 响应对象
+ * CreateSuccessResponse
+ * @param id - Request ID
+ * @param result - ResponseResult
+ * @returns IPC Response对象
  */
 export function createSuccessResponse(
     id: string,
@@ -145,12 +145,12 @@ export function createSuccessResponse(
 }
 
 /**
- * 创建错误响应
- * @param id - 请求 ID
- * @param code - 错误码
- * @param message - 错误描述
- * @param details - 额外错误信息
- * @returns IPC 响应对象
+ * CreateErrorResponse
+ * @param id - Request ID
+ * @param code - Error码
+ * @param message - ErrorDescription
+ * @param details - 额外ErrorInformation
+ * @returns IPC Response对象
  */
 export function createErrorResponse(
     id: string,
@@ -172,11 +172,11 @@ export function createErrorResponse(
 }
 
 /**
- * 创建 pending 响应
- * @param id - 请求 ID
- * @param message - 描述信息
- * @param details - 额外信息
- * @returns IPC 响应对象
+ * Create pending Response
+ * @param id - Request ID
+ * @param message - DescriptionInformation
+ * @param details - 额外Information
+ * @returns IPC Response对象
  */
 export function createPendingResponse(
     id: string,
@@ -196,36 +196,36 @@ export function createPendingResponse(
 }
 
 /**
- * 生成请求 ID
- * @returns 唯一的请求 ID
+ * 生成Request ID
+ * @returns 唯一的Request ID
  */
 export function generateRequestId(): string {
     return crypto.randomUUID();
 }
 
 /**
- * Qt WebChannel 接口定义
- * 定义了与 Qt WebChannel 交互的接口
+ * Qt WebChannel InterfaceDefinition
+ * Definition了与 Qt WebChannel 交互的Interface
  */
 export interface QtWebChannel {
-    /** 发送消息到 Python 后端 */
+    /** SendMessage到 Python Backend */
     web_to_python: (message: string) => string;
-    /** 接收来自 Python 后端的消息 */
+    /** Receive来自 Python Backend的Message */
     python_to_web: {
-        /** 连接消息处理器 */
+        /** ConnectionMessageProcess器 */
         connect: (callback: (message: string) => void) => void;
     };
 }
 
-// 全局 Window 类型扩展
+// 全局 Window TypeExtended
 declare global {
     interface Window {
         /** Qt WebChannel 传输对象 */
         qt: {
             webChannelTransport: {
-                /** 发送消息 */
+                /** SendMessage */
                 send: (message: string) => void;
-                /** 接收消息 */
+                /** ReceiveMessage */
                 onmessage: (message: { data: string }) => void;
             };
         };
@@ -234,7 +234,7 @@ declare global {
     }
 }
 
-// 添加 isIPCResponse 类型守卫
+// Add isIPCResponse Type守卫
 export function isIPCResponse(obj: any): obj is IPCResponse {
     return obj && typeof obj.id === 'string' && obj.type === 'response' &&
            (obj.status === 'success' || obj.status === 'error' || obj.status === 'pending');

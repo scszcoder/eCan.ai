@@ -118,7 +118,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
   const getFieldRules = (field: any) => {
     const rules: Array<{ validator: (rule: any, value: any) => boolean | Error | Error[]; message: string }> = [];
     
-    // 安全获取 label 字符串
+    // SecurityGet label 字符串
     const safeLabel = Array.isArray(field.label) 
       ? field.label.join(' ') 
       : String(field.label || '');
@@ -187,15 +187,15 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
   };
 
   const renderField = (field: any) => {
-    // 确保 id 是字符串类型
+    // 确保 id 是字符串Type
     const fieldId = Array.isArray(field.id) 
-      ? field.id.join('_') // 如果是数组，用下划线连接
+      ? field.id.join('_') // If是数组，用下划线Connection
       : String(field.id || ''); // 确保是字符串
     
-    // 确保 label 是字符串类型
+    // 确保 label 是字符串Type
     const rawLabel = field.label;
     const label = Array.isArray(rawLabel) 
-      ? rawLabel.join(' ') // 如果是数组，用空格连接
+      ? rawLabel.join(' ') // If是数组，用空格Connection
       : (t(rawLabel) || String(rawLabel || '')); // 确保是字符串
     
     const placeholder = field.placeholder ? t(field.placeholder) : '';
@@ -207,9 +207,9 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
       ? (localOptions[fieldId] || [])
       : (getFieldOptions(field).map((opt: { label: string; value: string | number }) => ({ label: t(opt.label) || String(opt.label), value: opt.value })));
     
-    // 为 Semi-UI 组件创建标签
-    // 有些组件需要字符串类型的 label，有些可以接受 React 元素
-    const labelText = label; // 纯文本标签
+    // 为 Semi-UI ComponentCreateTag
+    // 有些ComponentNeed字符串Type的 label，有些Can接受 React 元素
+    const labelText = label; // 纯文本Tag
     const labelNode = (
       <label className="semi-form-field-label" htmlFor={fieldId}>
         {required && <span className="semi-form-field-label-asterisk">*</span>}
@@ -417,7 +417,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
         }
       }
       case 'pull_down': {
-        // pull_down 与 select 处理方式相同
+        // pull_down 与 select Process方式相同
         if (isCustom) {
           let errorMsg = '';
           if (formRef.current && formRef.current.getFieldError) {
@@ -585,7 +585,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
                 label={labelText} 
                 options={options.map((opt: { label: string; value: string | number }) => opt as { label: string; value: string | number })} />;
       case 'checkboxes':
-        // 处理 checkboxes 类型 (复数形式)，与 checkbox 相同
+        // Process checkboxes Type (复数形式)，与 checkbox 相同
         return <Form.CheckboxGroup 
                 key={fieldId} 
                 field={fieldId} 
@@ -659,7 +659,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
               fontSize: '12px',
               fontWeight: 500,
               whiteSpace: 'nowrap',
-              zIndex: 100, // 内容层级
+              zIndex: 100, // Content层级
               boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
             }}>
               {currentValue}{unit}

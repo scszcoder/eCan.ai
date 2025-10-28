@@ -1,6 +1,6 @@
 /**
  * Orgs Management Page
- * 组织管理页面 - 完整实现UI需求和国际化
+ * 组织管理Page - 完整ImplementationUI需求和国际化
  */
 
 import React from 'react';
@@ -90,7 +90,7 @@ const Orgs: React.FC = () => {
   };
 
   const handleAgentBindingModalOk = async (values: AgentBindingFormData) => {
-    await actions.bindAgents([values.agent_id]);  // 将单个 agent_id 转换为数组
+    await actions.bindAgents([values.agent_id]);  // 将单个 agent_id Convert为数组
   };
 
   const handleAgentBindingModalCancel = () => {

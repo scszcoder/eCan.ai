@@ -5,7 +5,7 @@
 
 import { CallableFunction } from '../../typings/callable';
 
-// 系统函数列表
+// SystemFunctionList
 export const systemFunctions: CallableFunction[] = [
   {
     name: 'calculateTotal',
@@ -19,7 +19,7 @@ export const systemFunctions: CallableFunction[] = [
         },
         quantity: {
           type: 'number',
-          description: '商品数量'
+          description: '商品Count'
         },
         taxRate: {
           type: 'number',
@@ -64,13 +64,13 @@ export const systemFunctions: CallableFunction[] = [
   },
   {
     name: 'formatDate',
-    desc: '格式化日期字符串',
+    desc: 'FormatDate字符串',
     params: {
       type: 'object',
       properties: {
         date: {
           type: 'string',
-          description: '日期字符串'
+          description: 'Date字符串'
         },
         format: {
           type: 'string',
@@ -82,7 +82,7 @@ export const systemFunctions: CallableFunction[] = [
     },
     returns: {
       type: 'string',
-      description: '格式化后的日期字符串'
+      description: 'Format后的Date字符串'
     },
     type: 'system',
     sysId: 'format_date_v1',
@@ -105,13 +105,13 @@ def format_date(params):
   },
   {
     name: 'validateEmail',
-    desc: '验证邮箱地址格式',
+    desc: 'Validate邮箱Address格式',
     params: {
       type: 'object',
       properties: {
         email: {
           type: 'string',
-          description: '邮箱地址'
+          description: '邮箱Address'
         }
       },
       required: ['email']
@@ -125,7 +125,7 @@ def format_date(params):
         },
         message: {
           type: 'string',
-          description: '验证结果说明'
+          description: 'ValidateResult说明'
         }
       }
     },
@@ -156,12 +156,12 @@ def validate_email(params):
         },
         discountType: {
           type: 'string',
-          description: '折扣类型',
+          description: '折扣Type',
           enum: ['percentage', 'fixed']
         },
         discountValue: {
           type: 'number',
-          description: '折扣值（百分比或固定金额）'
+          description: '折扣Value（百分比或固定金额）'
         }
       },
       required: ['price', 'discountType', 'discountValue']
@@ -207,11 +207,11 @@ def validate_email(params):
   }
 ];
 
-// 自定义函数列表
+// CustomFunctionList
 export const customFunctions: CallableFunction[] = [
   {
     name: 'customGreeting',
-    desc: '生成自定义问候语',
+    desc: '生成Custom问候语',
     params: {
       type: 'object',
       properties: {
@@ -221,7 +221,7 @@ export const customFunctions: CallableFunction[] = [
         },
         timeOfDay: {
           type: 'string',
-          description: '时间段',
+          description: 'Time段',
           enum: ['morning', 'afternoon', 'evening']
         }
       },
@@ -246,7 +246,7 @@ export const customFunctions: CallableFunction[] = [
   }
 ];
 
-// 合并所有函数
+// 合并AllFunction
 export const allFunctions: CallableFunction[] = [
   ...systemFunctions,
   ...customFunctions

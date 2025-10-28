@@ -1,11 +1,11 @@
 /**
- * ChatStateManager - 管理 Chat 页面的跨会话状态持久化
+ * ChatStateManager - 管理 Chat Page的跨会话Status持久化
  * 
- * 注意：由于 Chat 页面已启用 KeepAlive，大部分状态（如选中的聊天、滚动位置等）
- * 会自动保持，不需要手动管理。此管理器只负责需要跨会话持久化的状态。
+ * Note：由于 Chat Page已Enabled KeepAlive，大部分Status（如选中的聊天、ScrollPosition等）
+ * 会自动保持，不Need手动管理。此管理器只负责Need跨会话持久化的Status。
  * 
  * 功能：
- * 1. 保存和恢复 Agent 过滤器状态（需要跨会话保持）
+ * 1. Save和Restore Agent Filter器Status（Need跨会话保持）
  */
 
 interface ChatPageState {
@@ -28,14 +28,14 @@ class ChatStateManager {
   }
 
   /**
-   * 获取存储键
+   * GetStorage键
    */
   private getStorageKey(userId: string): string {
     return `${STORAGE_KEY_PREFIX}_${userId}`;
   }
 
   /**
-   * 保存页面状态
+   * SavePageStatus
    */
   private savePageState(userId: string, state: Partial<ChatPageState>): void {
     try {
@@ -60,7 +60,7 @@ class ChatStateManager {
   }
 
   /**
-   * 加载页面状态
+   * LoadPageStatus
    */
   private loadPageState(userId: string): ChatPageState | null {
     try {
@@ -71,7 +71,7 @@ class ChatStateManager {
 
       const state: ChatPageState = JSON.parse(stored);
       
-      // 检查是否过期（超过1小时）
+      // Check是否过期（超过1小时）
       const isExpired = Date.now() - state.timestamp > 60 * 60 * 1000;
       if (isExpired) {
         this.clearPageState(userId);
@@ -86,7 +86,7 @@ class ChatStateManager {
   }
 
   /**
-   * 清除页面状态
+   * 清除PageStatus
    */
   clearPageState(userId: string): void {
     try {
@@ -97,14 +97,14 @@ class ChatStateManager {
   }
 
   /**
-   * 保存 Agent ID（过滤器状态）
+   * Save Agent ID（Filter器Status）
    */
   saveAgentId(userId: string, agentId: string | null): void {
     this.savePageState(userId, { agentId });
   }
 
   /**
-   * 获取 Agent ID（过滤器状态）
+   * Get Agent ID（Filter器Status）
    */
   getAgentId(userId: string): string | null {
     const state = this.loadPageState(userId);

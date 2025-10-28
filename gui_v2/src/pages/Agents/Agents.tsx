@@ -1,10 +1,10 @@
 /**
- * Agents 路由容器组件
+ * Agents 路由ContainerComponent
  * 
  * 职责：
- * 1. 作为路由容器，渲染子路由
- * 2. 协调数据获取，避免重复加载
- * 3. 监听组织数据变化，及时更新 agents 数据
+ * 1. 作为路由Container，Render子路由
+ * 2. 协调DataGet，避免重复Load
+ * 3. Listen组织Data变化，及时Update agents Data
  */
 
 import React, { useRef, useCallback, useEffect, useImperativeHandle, forwardRef } from 'react';
@@ -24,7 +24,7 @@ const Agents = forwardRef<any, any>((props, ref) => {
   const hasFetchedRef = useRef(false);
   const isInitializedRef = useRef(false);
 
-  // 使用 useImperativeHandle 暴露刷新方法
+  // 使用 useImperativeHandle 暴露RefreshMethod
   useImperativeHandle(ref, () => ({
     refresh: () => {
       if (username) {
@@ -36,7 +36,7 @@ const Agents = forwardRef<any, any>((props, ref) => {
   const fetchAgents = useCallback(async () => {
     if (!username) return;
 
-    // 首先检查 agentStore 中是否已经有数据
+    // 首先Check agentStore 中是否已经有Data
     const currentAgents = useAgentStore.getState().agents;
     
     if (currentAgents && currentAgents.length > 0) {
@@ -45,11 +45,11 @@ const Agents = forwardRef<any, any>((props, ref) => {
       return;
     }
 
-    // 检查是否已经有组织数据（从 OrgNavigator 获取）
+    // Check是否已经有组织Data（从 OrgNavigator Get）
     const { displayNodes, loading: orgLoading } = useOrgStore.getState();
     
     if (displayNodes && displayNodes.length > 0) {
-      // 从 displayNodes 中提取所有 agents
+      // 从 displayNodes 中提取All agents
       const allAgents: Agent[] = [];
       displayNodes.forEach((node: DisplayNode) => {
         if (node.agents) {
@@ -66,7 +66,7 @@ const Agents = forwardRef<any, any>((props, ref) => {
     }
 
     if (orgLoading) {
-      // 组织数据正在加载，等待后重试
+      // 组织Data正在Load，等待后Retry
       setTimeout(() => {
         if (!hasFetchedRef.current) {
           fetchAgents();
@@ -75,18 +75,18 @@ const Agents = forwardRef<any, any>((props, ref) => {
       return;
     }
     
-    // 显示空状态
+    // Display空Status
     setAgents([]);
     hasFetchedRef.current = true;
   }, [username, setError, setAgents]);
 
-  // 监听组织数据变化
+  // Listen组织Data变化
   const displayNodes = useOrgStore((state) => state.displayNodes);
   const orgLoading = useOrgStore((state) => state.loading);
   const agentStoreAgents = useAgentStore((state) => state.agents);
   
   useEffect(() => {
-    // 如果 agentStore 中有数据，直接使用
+    // If agentStore 中有Data，直接使用
     if (agentStoreAgents && agentStoreAgents.length > 0 && !hasFetchedRef.current) {
       setAgents(agentStoreAgents);
       hasFetchedRef.current = true;
@@ -94,12 +94,12 @@ const Agents = forwardRef<any, any>((props, ref) => {
       return;
     }
     
-    // 只有在用户名存在且未初始化时才获取数据
+    // 只有在User名存在且未Initialize时才GetData
     if (username && !isInitializedRef.current) {
       fetchAgents();
       isInitializedRef.current = true;
     }
-    // 如果组织数据加载完成且之前没有成功获取到 agents，重新尝试
+    // If组织DataLoadCompleted且之前没有SuccessGet到 agents，重新尝试
     else if (username && !orgLoading && displayNodes && displayNodes.length > 0 && !hasFetchedRef.current) {
       fetchAgents();
     }

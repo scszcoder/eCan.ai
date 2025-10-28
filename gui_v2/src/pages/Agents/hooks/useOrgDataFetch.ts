@@ -9,8 +9,8 @@ import { extractAllAgents } from '../utils/orgTreeUtils';
 import { mapOrgAgentToAgent } from '../utils/agentMappers';
 
 /**
- * 组织数据获取的自定义 Hook
- * 负责从后端获取组织和 Agent 数据
+ * 组织DataGet的Custom Hook
+ * 负责从BackendGet组织和 Agent Data
  */
 export function useOrgDataFetch() {
   const username = useUserStore((state) => state.username);
@@ -22,7 +22,7 @@ export function useOrgDataFetch() {
   } = useOrgStore();
   const setAgents = useAgentStore((state) => state.setAgents);
 
-  // 获取组织结构数据
+  // Get组织结构Data
   const fetchOrgStructure = useCallback(async () => {
     if (!username || !shouldFetchData()) {
       return;
@@ -38,7 +38,7 @@ export function useOrgDataFetch() {
       if (response.success && response.data) {
         setAllOrgAgents(response.data);
 
-        // 提取所有 Agent 并保存到 agentStore
+        // 提取All Agent 并Save到 agentStore
         const allAgents = extractAllAgents(response.data.orgs);
 
         if (allAgents.length > 0) {
@@ -65,7 +65,7 @@ export function useOrgDataFetch() {
     }
   }, [username, shouldFetchData, setLoading, setError, setAllOrgAgents, setAgents]);
 
-  // 强制刷新组织结构
+  // 强制Refresh组织结构
   const forceRefreshOrgStructure = useCallback(async () => {
     if (!username) {
       return;
@@ -107,7 +107,7 @@ export function useOrgDataFetch() {
     }
   }, [username, setAllOrgAgents, setLoading, setError, setAgents]);
 
-  // 初始加载
+  // 初始Load
   useEffect(() => {
     fetchOrgStructure();
   }, [fetchOrgStructure]);

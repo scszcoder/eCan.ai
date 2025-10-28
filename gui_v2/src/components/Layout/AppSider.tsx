@@ -24,7 +24,7 @@ const Logo = styled.div`
     );
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     
-    /* 添加顶部高光效果 */
+    /* AddTop高光效果 */
     &::before {
         content: '';
         position: absolute;
@@ -90,7 +90,7 @@ const MenuWrapper = styled.div`
     height: calc(100vh - 64px);
     padding: 12px 0;
     
-    /* 优化滚动条样式 */
+    /* OptimizeScroll条样式 */
     &::-webkit-scrollbar {
         width: 6px;
     }
@@ -125,7 +125,7 @@ const StyledSider = styled(Sider)`
     box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3);
     position: relative;
     
-    /* 添加右侧微光效果 */
+    /* AddRight微光效果 */
     &::after {
         content: '';
         position: absolute;
@@ -161,7 +161,7 @@ const StyledMenu = styled(Menu)`
         position: relative;
         overflow: hidden;
         
-        /* 添加微妙的背景纹理 */
+        /* Add微妙的背景纹理 */
         &::before {
             content: '';
             position: absolute;
@@ -186,7 +186,7 @@ const StyledMenu = styled(Menu)`
                 opacity: 1;
             }
             
-            /* 悬停时左侧发光条 */
+            /* 悬停时Left发光条 */
             &::after {
                 content: '';
                 position: absolute;
@@ -223,7 +223,7 @@ const StyledMenu = styled(Menu)`
             inset 0 1px 0 rgba(255, 255, 255, 0.1);
         border: 1px solid rgba(59, 130, 246, 0.3);
         
-        /* 选中状态的左侧彩色条 */
+        /* 选中Status的Left彩色条 */
         &::before {
             content: '';
             position: absolute;

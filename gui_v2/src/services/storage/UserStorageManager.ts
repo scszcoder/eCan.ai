@@ -57,7 +57,7 @@ export class UserStorageManager {
   public static getInstance(): UserStorageManager {
     if (!UserStorageManager.instance) {
       UserStorageManager.instance = new UserStorageManager();
-      // 注册logout清理函数
+      // RegisterlogoutCleanupFunction
       UserStorageManager.instance.registerLogoutCleanup();
     }
     return UserStorageManager.instance;
@@ -463,17 +463,17 @@ export class UserStorageManager {
   }
 
   /**
-   * 注册logout清理函数
+   * RegisterlogoutCleanupFunction
    */
   private registerLogoutCleanup(): void {
     logoutManager.registerCleanup({
       name: 'UserStorageManager',
       cleanup: () => {
         logger.info('[UserStorageManager] Cleaning up for logout...');
-        this.logout(); // 使用现有的logout方法
+        this.logout(); // 使用现有的logoutMethod
         logger.info('[UserStorageManager] Cleanup completed');
       },
-      priority: 25 // 中等优先级
+      priority: 25 // 中等Priority
     });
   }
 }

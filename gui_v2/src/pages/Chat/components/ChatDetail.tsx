@@ -32,7 +32,7 @@ function mergeAndSortMessages(...msgArrays: any[][]) {
   msgArrays.flat().forEach(msg => {
     if (msg && msg.id) map.set(msg.id, msg);
   });
-  // 按 createAt 升序（老消息在前，新消息在后）
+  // 按 createAt 升序（老Message在前，新Message在后）
   return Array.from(map.values()).sort((a, b) => (a.createAt || 0) - (b.createAt || 0));
 }
 
@@ -54,7 +54,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     const chatBoxRef = useRef<HTMLDivElement | null>(null);
     const prevMsgCountRef = useRef(pageMessages.length);
     
-    // 获取当前用户信息
+    // GetWhen前UserInformation
     const username = useUserStore(state => state.username) || 'default_user';
     const getMyTwinAgent = useAgentStore(state => state.getMyTwinAgent);
     const myTwinAgent = getMyTwinAgent();
@@ -71,7 +71,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     // Scroll position restoration
     const scrollPositionRestoredRef = useRef(false);
     const saveScrollPositionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-    const savedScrollPositionRef = useRef<number>(0); // 保存滚动位置
+    const savedScrollPositionRef = useRef<number>(0); // SaveScrollPosition
     
     // Timer management refs for cleanup
     const scrollTimersRef = useRef<NodeJS.Timeout[]>([]);
@@ -111,7 +111,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         focusTimersRef.current = [];
     }, []);
     
-    // 加载更多消息
+    // Load更多Message
     const handleLoadMore = useCallback(async () => {
         if (loadingMore || isInitialLoading || !hasMore || !chatId) {
             return;
@@ -128,7 +128,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             chatId,
             limit: PAGE_SIZE,
             offset: pageMessages.length,
-            reverse: true  // 获取更早的消息（倒序）
+            reverse: true  // Get更早的Message（倒序）
         });
         let newMsgs: any[] = [];
         if (res.success && res.data && typeof res.data === 'object' && Array.isArray((res.data as any).data)) {
@@ -140,10 +140,10 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         setLoadingMore(false);
     }, [loadingMore, isInitialLoading, hasMore, chatId, pageMessages.length, offset]);
 
-    // 注意：滚动位置由 KeepAlive 自动保持，不需要手动保存
-    // 这个回调保留是为了兼容性，但实际上不做任何事情
+    // Note：ScrollPosition由 KeepAlive 自动保持，不Need手动Save
+    // 这个Callback保留是为了Compatible性，但实际上不做任何事情
     const saveScrollPosition = useCallback(() => {
-        // KeepAlive 会自动保持滚动位置
+        // KeepAlive 会自动保持ScrollPosition
     }, []);
     
     // Handle scroll position detection
@@ -173,7 +173,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         }
     }, [isAtBottom, handleLoadMore, saveScrollPosition]);
     
-    // 懒加载可见内容：仅在可见时渲染消息内容，减少首屏渲染压力
+    // 懒Load可见Content：仅在可见时RenderMessageContent，减少首屏Render压力
     const LazyVisible = React.memo<{ children: React.ReactNode }>(({ children }) => {
         const [visible, setVisible] = useState(false);
         const itemRef = useRef<HTMLDivElement | null>(null);
@@ -196,21 +196,21 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         return <div ref={itemRef}>{visible ? children : null}</div>;
     });
 
-    // 初始化协议处理器
+    // Initialize协议Process器
     useEffect(() => {
         protocolHandler.init();
     }, []);
 
-    // 根据 chatId 获取对应的聊天数据
+    // 根据 chatId Get对应的聊天Data
     const currentChat = useMemo(() => {
         if (!chatId || !chats.length) return null;
         return chats.find(chat => chat.id === chatId);
     }, [chatId, chats]);
 
 
-    // 处理消息，确保content是字符串
+    // ProcessMessage，确保content是字符串
     const messages = useMemo<any[]>(() => {
-        // 如果有当前聊天，使用其消息
+        // If有When前聊天，使用其Message
         if (currentChat && Array.isArray(currentChat.messages)) {
             return currentChat.messages;
         }
@@ -218,13 +218,13 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         return [];
     }, [currentChat]);
 
-    // 聚焦输入框的函数
+    // 聚焦Input框的Function
     const focusInputArea = useCallback(() => {
         try {
-            // 尝试多种选择器找到输入框
+            // 尝试多种Select器找到Input框
             let inputArea: HTMLTextAreaElement | null = null;
             
-            // 尝试不同的选择器找到输入框
+            // 尝试不同的Select器找到Input框
             inputArea = document.querySelector('.semi-chat-inputbox textarea') as HTMLTextAreaElement;
             if (!inputArea) {
                 inputArea = document.querySelector('.semi-input-textarea') as HTMLTextAreaElement;
@@ -236,39 +236,39 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             if (inputArea) {
                 inputArea.focus();
                 
-                // 尝试将光标移动到文本末尾
+                // 尝试将光标Move到文本末尾
                 if (typeof inputArea.selectionStart === 'number') {
                     try {
                         const length = inputArea.value.length;
                         inputArea.selectionStart = length;
                         inputArea.selectionEnd = length;
                     } catch (e) {
-                        // 忽略错误
+                        // 忽略Error
                     }
                 }
             }
         } catch (error) {
-            // 忽略错误
+            // 忽略Error
         }
     }, []);
 
-    // 检测消息列表变化，如果有新消息，尝试聚焦输入框
+    // 检测MessageList变化，If有新Message，尝试聚焦Input框
     useEffect(() => {
         if (messages.length > lastMessageLengthRef.current) {
-            // 消息列表增加了，可能是发送了新消息
+            // MessageList增加了，可能是Send了新Message
             setTimeout(focusInputArea, 100);
         }
         lastMessageLengthRef.current = messages.length;
     }, [messages.length, focusInputArea]);
 
-    // 自定义消息发送处理函数
+    // CustomMessageSendProcessFunction
     const handleMessageSend = useCallback((content: string, attachments: any[]) => {
         justSentMessageRef.current = true;
         // When user sends a message, they should auto-scroll to see their message and responses
         shouldAutoScrollRef.current = true;
         isAtBottomRef.current = true;
         
-        // 构造新消息对象
+        // 构造新Message对象
         const tempId = `user_msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         const userMessage = {
             id: tempId,
@@ -299,7 +299,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         }
         focusInputArea();
         
-        // 使用多次尝试确保聚焦成功
+        // 使用多次尝试确保聚焦Success
         const attempts = [100, 200, 300, 500, 1000];
         focusTimersRef.current = attempts.map(delay => 
             setTimeout(() => {
@@ -309,23 +309,23 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             }, delay)
         );
         
-        // 最后一次尝试后重置标志
+        // 最后一次尝试后Reset标志
         const resetTimer = setTimeout(() => {
             justSentMessageRef.current = false;
         }, Math.max(...attempts) + 100);
         focusTimersRef.current.push(resetTimer);
     }, [chatId, onSend, focusInputArea, scrollToBottom, clearAllTimers]);
 
-    // 添加事件监听，防止输入框失去焦点
-    // 优化：在 useEffect 内部定义处理函数，避免闭包陷阱
+    // AddEventListen，防止Input框失去焦点
+    // Optimize：在 useEffect InternalDefinitionProcessFunction，避免闭包陷阱
     useEffect(() => {
         const chatContainer = wrapperRef.current?.querySelector('.semi-chat-container');
         if (!chatContainer) return;
         
-        // 在 useEffect 内部定义处理函数，避免闭包问题
+        // 在 useEffect InternalDefinitionProcessFunction，避免闭包问题
         const preventFocusLoss = () => {
             if (justSentMessageRef.current) {
-                // 直接访问 DOM 元素聚焦，避免依赖外部函数
+                // 直接访问 DOM 元素聚焦，避免DependencyExternalFunction
                 const inputArea = wrapperRef.current?.querySelector('.semi-chat-input');
                 if (inputArea instanceof HTMLElement) {
                     setTimeout(() => inputArea.focus(), 0);
@@ -338,7 +338,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         return () => {
             chatContainer.removeEventListener('click', preventFocusLoss, true);
         };
-    }, []); // 移除依赖，避免重复创建监听器
+    }, []); // RemoveDependency，避免重复CreateListen器
 
     // Chat title - show member names with priority agent first, with length limit
     const chatTitle = useMemo(() => {
@@ -381,7 +381,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         return currentChat.name;
     }, [currentChat, t, filterAgentId, currentUserId]);
 
-    // 为 Semi UI Chat 生成稳定的 key
+    // 为 Semi UI Chat 生成Stable的 key
     // Use a hash of chatTitle to avoid special characters in key
     const chatKey = useMemo(() => {
         // Create a simple hash from chatTitle to ensure key changes when title changes
@@ -391,7 +391,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         return `chat_${chatId}_${titleHash}`;
     }, [chatId, chatTitle]);
 
-    // 处理表单提交
+    // ProcessFormSubmit
     const handleFormSubmit = useCallback(async (formId: string, values: any, chatId: string, messageId: string, processedForm: any) => {
         const response = await get_ipc_api().chatApi.chatFormSubmit(chatId, messageId, formId, processedForm)
         if (response.success) {
@@ -401,10 +401,10 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         }
     }, [t]);
 
-    // 处理卡片动作
+    // Process卡片Action
     const handleCardAction = useCallback((action: string) => {
         if (onSend) {
-            // 创建卡片动作消息
+            // Create卡片ActionMessage
             const actionContent = JSON.stringify({
                 type: 'card_action',
                 action
@@ -413,7 +413,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         }
     }, [onSend]);
 
-    // 删除消息处理函数
+    // DeleteMessageProcessFunction
     const handleMessageDelete = useCallback(async (message?: any) => {
         const messageId = message?.id;
         const chatId: string = message?.chatId ?? '';
@@ -422,11 +422,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             onMessageDelete(messageId);
             return;
         }
-        // 默认行为：调用 ipc_api 删除消息
+        // Default行为：调用 ipc_api DeleteMessage
         const response = await get_ipc_api().chatApi.deleteMessage(chatId, messageId);
         if (response.success) {
             Toast.success(t('pages.chat.deleteMessageSuccess'));
-            // 本地移除消息
+            // LocalRemoveMessage
             updateMessages(chatId, removeMessageFromList(messages, messageId));
         } else {
             Toast.error(t('pages.chat.deleteMessageFail'));
@@ -447,7 +447,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         prevMsgCountRef.current = pageMessages.length;
     }, [pageMessages]);
 
-    // 监听消息区滚动事件
+    // ListenMessage区ScrollEvent
     useEffect(() => {
         if (!wrapperRef.current) return;
         const chatBox = wrapperRef.current.querySelector('.semi-chat-container');
@@ -463,14 +463,14 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         };
     }, [handleScroll]);
 
-    // 注意：滚动位置由 KeepAlive 自动保持，不需要手动恢复
-    // 这个函数保留是为了兼容性，但实际上不做任何事情
+    // Note：ScrollPosition由 KeepAlive 自动保持，不Need手动Restore
+    // 这个Function保留是为了Compatible性，但实际上不做任何事情
     const restoreScrollPosition = useCallback(() => {
-        // KeepAlive 会自动保持滚动位置
+        // KeepAlive 会自动保持ScrollPosition
         return;
     }, []);
     
-    // 初始化加载第一页
+    // InitializeLoad第一页
     useEffect(() => {
         setOffset(0);
         setHasMore(true);
@@ -492,7 +492,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                         chatId,
                         limit: PAGE_SIZE,
                         offset: 0,
-                        reverse: true  // 获取最新的消息（倒序）
+                        reverse: true  // Get最新的Message（倒序）
                     });
                     
                     let initialMsgs: any[] = [];
@@ -500,14 +500,14 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                         initialMsgs = (res.data as any).data;
                     }
                     
-                    // 使用 mergeAndSortMessages 确保消息按时间升序排列（老消息在前，新消息在后）
+                    // 使用 mergeAndSortMessages 确保Message按Time升序排列（老Message在前，新Message在后）
                     setPageMessages(mergeAndSortMessages(initialMsgs));
                     setOffset(initialMsgs.length);
                     setHasMore(initialMsgs.length === PAGE_SIZE);
                     
-                    // 标记未读消息为已读
+                    // 标记未读Message为已读
                     if (initialMsgs.length > 0 && currentUserId) {
-                        // 只提取未读消息的 ID
+                        // 只提取未读Message的 ID
                         const unreadMessageIds = initialMsgs
                             .filter(msg => msg.isRead === false)
                             .map(msg => msg.id)
@@ -516,11 +516,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                         if (unreadMessageIds.length > 0) {
                             get_ipc_api().chatApi.markMessageAsRead(unreadMessageIds, currentUserId)
                                 .then((response: any) => {
-                                    // 后端返回实际更新的消息数量
+                                    // Backend返回实际Update的MessageCount
                                     if (response.success && response.data) {
                                         const actualUpdatedCount = response.data.updated_ids?.length || unreadMessageIds.length;
                                         
-                                        // 通知父组件更新 unread 计数
+                                        // Notification父ComponentUpdate unread 计数
                                         if (onMessagesRead) {
                                             onMessagesRead(chatId, actualUpdatedCount);
                                         }
@@ -532,21 +532,21 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                         }
                     }
                     
-                    // 尝试恢复滚动位置，如果没有保存的位置则滚动到底部
-                    // 增加延迟确保消息和 DOM 完全渲染
+                    // 尝试RestoreScrollPosition，If没有Save的Position则Scroll到Bottom
+                    // 增加Delay确保Message和 DOM 完全Render
                     setTimeout(() => {
-                        // 注意：滚动位置由 KeepAlive 自动保持
-                        // 这里只需要处理新消息的滚动
+                        // Note：ScrollPosition由 KeepAlive 自动保持
+                        // 这里只NeedProcess新Message的Scroll
                         if (false) {
-                            // 旧的滚动恢复逻辑已移除
+                            // 旧的ScrollRestore逻辑已Remove
                             restoreScrollPosition();
                         } else {
-                            // 没有保存的位置，滚动到底部（新聊天或首次打开）
+                            // 没有Save的Position，Scroll到Bottom（新聊天或首次Open）
                             shouldAutoScrollRef.current = true;
                             isAtBottomRef.current = true;
                             scrollToBottom(false);
                         }
-                    }, 300); // 增加延迟从 200ms 到 300ms
+                    }, 300); // 增加Delay从 200ms 到 300ms
                 } catch (error) {
                     console.error('Failed to load initial messages:', error);
                 } finally {
@@ -624,13 +624,13 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     // Memoized message renderer to prevent unnecessary re-renders
     const MessageRenderer = React.memo<{ message: any }>(({ message }) => {
         const content = message?.content || '';
-        // 只处理 content 字段，不再解析附件标记
+        // 只Process content Field，不再Parse附件标记
         let parsedContent = content;
         if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
             try {
                 parsedContent = JSON.parse(content);
             } catch (e) {
-                // 解析失败，按普通文本处理
+                // ParseFailed，按普通文本Process
             }
         }
         return (
@@ -669,7 +669,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         );
     });
 
-    // 自定义渲染配置
+    // CustomRenderConfiguration
     const chatBoxRenderConfig = useMemo(() => ({
         renderChatBoxContent: (props: any) => {
             const { message } = props;
@@ -677,37 +677,37 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         }
     }), []);
 
-    // 上传组件的配置
+    // 上传Component的Configuration
     const uploadProps = getUploadProps();
 
-    // 在组件挂载和更新时尝试聚焦输入框
+    // 在ComponentMount和Update时尝试聚焦Input框
     useEffect(() => {
-        // 延迟聚焦，确保组件已经完全渲染
+        // Delay聚焦，确保Component已经完全Render
         const timer = setTimeout(focusInputArea, 200);
         return () => clearTimeout(timer);
-    }, [chatId, focusInputArea]); // 当聊天ID变化时重新聚焦
+    }, [chatId, focusInputArea]); // When聊天ID变化时重新聚焦
     
-    // 组件卸载时清理所有定时器
+    // ComponentUnmount时CleanupAll定时器
     useEffect(() => {
         return () => {
             clearAllTimers();
         };
     }, [clearAllTimers]);
 
-    // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+    // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
     useEffectOnActive(
         () => {
-            // 组件激活时：恢复滚动位置
+            // ComponentActive时：RestoreScrollPosition
             const chatBox = chatBoxRef.current;
             if (chatBox && savedScrollPositionRef.current > 0) {
-                // 使用 requestAnimationFrame 确保 DOM 已经渲染
+                // 使用 requestAnimationFrame 确保 DOM 已经Render
                 requestAnimationFrame(() => {
                     chatBox.scrollTop = savedScrollPositionRef.current;
                     // console.log('[ChatDetail] Restored scroll position:', savedScrollPositionRef.current);
                 });
             }
             
-            // 返回清理函数，在组件失活前保存滚动位置
+            // 返回CleanupFunction，在Component失活前SaveScrollPosition
             return () => {
                 const chatBox = chatBoxRef.current;
                 if (chatBox) {

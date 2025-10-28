@@ -6,7 +6,7 @@ import { editorStyles } from './styles';
 import { DEFAULT_EDITOR_HEIGHT, DEFAULT_EDITOR_OPTIONS, getPreviewModeOptions } from './config';
 import ReactDOM from 'react-dom';
 
-// 配置Monaco Editor使用本地路径
+// ConfigurationMonaco Editor使用LocalPath
 loader.config({
   paths: {
     // Use absolute path so Vite serves from public/monaco-editor correctly
@@ -14,7 +14,7 @@ loader.config({
   }
 });
 
-// 配置Monaco Editor的worker
+// ConfigurationMonaco Editor的worker
 if (typeof window !== 'undefined') {
   (window as any).MonacoEnvironment = {
     getWorkerUrl: function (_moduleId: string, _label: string) {
@@ -101,7 +101,7 @@ loader.init().then(monaco => {
   console.error('Failed to initialize Monaco Editor:', error);
 });
 
-// 添加语言切换函数
+// Add语言ToggleFunction
 export const setMonacoLanguage = (language: 'en' | 'zh-cn') => {
   loader.config({
     'vs/nls': {

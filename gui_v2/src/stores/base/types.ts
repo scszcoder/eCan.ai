@@ -1,50 +1,50 @@
 /**
  * Base Store Types
- * 定义所有 store 的基础类型和接口
+ * Defines base types and interfaces for all stores
  */
 
 /**
- * 基础资源接口 - 所有资源必须有 id
+ * Base resource interface - all resources must have an id
  */
 export interface BaseResource {
   id: string;
 }
 
 /**
- * 基础 Store 状态接口
+ * Base Store state interface
  */
 export interface BaseStoreState<T extends BaseResource> {
-  // 数据
+  // Data
   items: T[];
   
-  // 状态
+  // State
   loading: boolean;
   error: string | null;
   lastFetched: number | null;
   
-  // 基础 CRUD 操作
+  // Basic CRUD operations
   setItems: (items: T[]) => void;
   addItem: (item: T) => void;
   updateItem: (id: string, updates: Partial<T>) => void;
   removeItem: (id: string) => void;
   
-  // 查询方法
+  // Query methods
   getItemById: (id: string) => T | null;
   getItems: () => T[];
   
-  // 数据获取
+  // Data fetching
   fetchItems: (username: string, ...args: any[]) => Promise<void>;
   shouldFetch: () => boolean;
   forceRefresh: (username: string, ...args: any[]) => Promise<void>;
 
-  // 状态管理
+  // State management
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   clearData: () => void;
 }
 
 /**
- * API 响应接口
+ * API response interface
  */
 export interface APIResponse<T> {
   success: boolean;
@@ -56,7 +56,7 @@ export interface APIResponse<T> {
 }
 
 /**
- * 资源 API 接口 - 所有 API 服务必须实现
+ * Resource API interface - all API services must implement this
  */
 export interface ResourceAPI<T extends BaseResource> {
   getAll(username: string, ...args: any[]): Promise<APIResponse<T[]>>;
@@ -67,33 +67,33 @@ export interface ResourceAPI<T extends BaseResource> {
 }
 
 /**
- * Store 配置选项
+ * Store configuration options
  */
 export interface StoreOptions {
-  /** Store 名称，用于持久化存储的 key */
+  /** Store name, used as key for persistent storage */
   name: string;
   
-  /** 是否启用持久化 */
+  /** Whether to enable persistence */
   persist?: boolean;
   
-  /** 缓存过期时间（毫秒），默认 5 分钟 */
+  /** Cache expiration time (milliseconds), defaults to 5 minutes */
   cacheDuration?: number;
   
-  /** 是否在持久化时包含 loading 和 error 状态 */
+  /** Whether to include loading and error state in persistence */
   persistLoadingState?: boolean;
 }
 
 /**
- * 缓存策略
+ * Cache strategy
  */
 export const CACHE_DURATION = {
-  /** 1 分钟 */
+  /** 1 minute */
   SHORT: 1 * 60 * 1000,
-  /** 5 分钟 */
+  /** 5 minutes */
   MEDIUM: 5 * 60 * 1000,
-  /** 15 分钟 */
+  /** 15 minutes */
   LONG: 15 * 60 * 1000,
-  /** 1 小时 */
+  /** 1 hour */
   VERY_LONG: 60 * 60 * 1000,
 } as const;
 

@@ -64,11 +64,11 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
 }) => {
   const { t } = useTranslation();
   
-  // 滚动位置保存
+  // ScrollPositionSave
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const savedScrollPositionRef = useRef<number>(0);
   
-  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
   useEffectOnActive(
     () => {
       const container = scrollContainerRef.current;
@@ -107,7 +107,7 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
   const statusConfig = getStatusConfig(org.status);
   const typeConfig = getTypeConfig(org.org_type);
 
-  // 准备 DetailCard 的数据
+  // 准备 DetailCard 的Data
   const orgInfoItems = [
     {
       label: t('pages.org.form.name'),
@@ -197,17 +197,17 @@ const OrgDetails: React.FC<OrgDetailsProps> = ({
 
       {/* Agents Section */}
       <div style={{ marginTop: 16 }}>
-        {/* 非叶子节点显示子节点数量和所有叶子节点的Agent */}
+        {/* 非叶子节点Display子节点Count和All叶子节点的Agent */}
         {org.children && org.children.length > 0 ? (
           <AgentList
             agents={agents}
             onBindAgents={onBindAgents}
             onUnbindAgent={onUnbindAgent}
             onChatWithAgent={onChatWithAgent}
-            title={t('pages.org.agents.allLeafAgents') || '所有子部门的代理'}
+            title={t('pages.org.agents.allLeafAgents') || 'All子部门的代理'}
           />
         ) : (
-          /* 叶子节点显示绑定的Agent */
+          /* 叶子节点Display绑定的Agent */
           <AgentList
             agents={agents}
             onBindAgents={onBindAgents}

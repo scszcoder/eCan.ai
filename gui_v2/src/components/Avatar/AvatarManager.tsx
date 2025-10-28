@@ -24,7 +24,7 @@ export const AvatarManager: React.FC<AvatarManagerProps> = ({
   const [refreshKey, setRefreshKey] = useState(0);  // Key to trigger AvatarSelector refresh
   const [activeTab, setActiveTab] = useState('system');  // Control active tab in AvatarSelector
 
-  // 同步外部 value 的变化
+  // SyncExternal value 的变化
   useEffect(() => {
     setSelectedAvatar(value);
   }, [value]);

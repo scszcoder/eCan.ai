@@ -31,21 +31,21 @@ const ToolsList: React.FC<ToolsListProps> = ({ tools, selectedTool, onSelect, lo
     category: undefined,
   });
 
-  // 过滤和排序工具列表
+  // Filter和SortToolList
   const filteredTools = useMemo(() => {
     let result = [...tools];
 
     // 按类别筛选
     if (filters.category) {
       result = result.filter(tool => {
-        // 这里可以根据实际的工具类别字段进行筛选
-        // 假设工具有一个 category 或 type 字段
+        // 这里Can根据实际的Tool类别Field进行筛选
+        // 假设Tool有一个 category 或 type Field
         const toolCategory = (tool as any).category || (tool as any).type || 'custom';
         return toolCategory === filters.category;
       });
     }
 
-    // 按搜索关键字筛选（匹配名称和描述）
+    // 按Search关键字筛选（匹配Name和Description）
     if (filters.search) {
       const searchLower = filters.search.toLowerCase();
       result = result.filter(tool =>
@@ -67,7 +67,7 @@ const ToolsList: React.FC<ToolsListProps> = ({ tools, selectedTool, onSelect, lo
         {filteredTools.length === 0 ? (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="没有找到匹配的工具"
+            description="没有找到匹配的Tool"
             style={{ marginTop: 40 }}
           />
         ) : (

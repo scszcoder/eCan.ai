@@ -194,10 +194,10 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
               objectFit: 'contain', 
               borderRadius: '12px',
               background: 'transparent',
-              transform: 'translate3d(0, 0, 0)', // 触发GPU硬件加速
-              willChange: 'transform', // 提示浏览器优化
-              backfaceVisibility: 'hidden', // 优化渲染性能
-              WebkitBackfaceVisibility: 'hidden' // Safari兼容
+              transform: 'translate3d(0, 0, 0)', // TriggerGPU硬件加速
+              willChange: 'transform', // PromptBrowserOptimize
+              backfaceVisibility: 'hidden', // OptimizeRenderPerformance
+              WebkitBackfaceVisibility: 'hidden' // SafariCompatible
             }}
             poster=""
             onLoadedData={() => { loadedRef.current = true; }}

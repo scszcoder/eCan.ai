@@ -1,10 +1,10 @@
 /**
- * AgentCard 组件
+ * AgentCard Component
  * 
  * 改进：
- * 1. 改善类型安全
- * 2. 优化 React.memo 比较函数
- * 3. 保持原有的简洁性
+ * 1. 改善TypeSecurity
+ * 2. Optimize React.memo 比较Function
+ * 3. 保持原有的Concise性
  */
 
 import { useMemo, memo } from 'react';
@@ -27,7 +27,7 @@ interface AgentCardProps {
 }
 
 /**
- * 安全获取 Agent ID
+ * SecurityGet Agent ID
  */
 function getAgentId(agent: Agent | AgentCardType): string {
   if ('id' in agent) return agent.id;
@@ -36,7 +36,7 @@ function getAgentId(agent: Agent | AgentCardType): string {
 }
 
 /**
- * 安全获取 Agent 名称
+ * SecurityGet Agent Name
  */
 function getAgentName(agent: Agent | AgentCardType): string {
   if ('name' in agent && typeof agent.name === 'string') return agent.name;
@@ -45,7 +45,7 @@ function getAgentName(agent: Agent | AgentCardType): string {
 }
 
 /**
- * 安全获取 Agent 描述
+ * SecurityGet Agent Description
  */
 function getAgentDescription(agent: Agent | AgentCardType): string {
   if ('description' in agent && typeof agent.description === 'string') return agent.description;
@@ -54,7 +54,7 @@ function getAgentDescription(agent: Agent | AgentCardType): string {
 }
 
 /**
- * AgentCard 组件
+ * AgentCard Component
  */
 function AgentCard({ agent, onChat }: AgentCardProps) {
   const { t } = useTranslation();
@@ -64,13 +64,13 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
   const username = useUserStore((state) => state.username);
   const myTwinAgent = useAgentStore((state) => state.getMyTwinAgent());
 
-  // 安全获取属性
+  // SecurityGetProperty
   const id = getAgentId(agent);
   const name = getAgentName(agent);
   const description = getAgentDescription(agent);
   const myTwinAgentId = myTwinAgent?.card?.id;
 
-  // 获取当前组织ID（从URL路径中提取）
+  // GetWhen前组织ID（从URLPath中提取）
   const currentOrgId = useMemo(() => {
     const orgMatches = location.pathname.match(/organization\/([^/]+)/g);
     if (orgMatches && orgMatches.length > 0) {
@@ -80,12 +80,12 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
     return null;
   }, [location.pathname]);
   
-  // 获取 agent 的 avatar 信息（后端保证总是返回，要么是指定的，要么是随机系统头像）
+  // Get agent 的 avatar Information（Backend保证总是返回，要么是指定的，要么是随机System头像）
   const agentAvatar = 'avatar' in agent ? agent.avatar : undefined;
 
-  // 使用 useMemo 获取媒体 URL
+  // 使用 useMemo Get媒体 URL
   const mediaUrl = useMemo<string>(() => {
-    // 优先使用视频，如果没有则使用图片
+    // 优先使用视频，If没有则使用图片
     if (agentAvatar?.videoExists && agentAvatar.videoPath) {
       return agentAvatar.videoPath;
     }
@@ -105,14 +105,14 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
      mediaUrl.includes('.mp4'))
   );
   
-  // 处理编辑
+  // ProcessEdit
   const handleEdit = () => {
     if (!id) {
       console.error('[AgentCard] handleEdit: No agent ID found', { agent });
       return;
     }
     
-    // 传递当前组织ID作为查询参数
+    // 传递When前组织ID作为QueryParameter
     const queryParams = new URLSearchParams();
     if (currentOrgId) {
       queryParams.set('orgId', currentOrgId);
@@ -122,10 +122,10 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
     navigate(targetUrl);
   };
   
-  // 使用 App 组件的上下文
+  // 使用 App Component的上下文
   const { message } = App.useApp();
   
-  // 处理删除
+  // ProcessDelete
   const handleDelete = () => {
     if (!id || !username) {
       console.error('[AgentCard] handleDelete: No agent ID or username');
@@ -145,15 +145,15 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
           if (res.success) {
             message.success(t('common.deleted_successfully') || 'Deleted successfully');
             
-            // 从 agentStore 中移除已删除的 agent
+            // 从 agentStore 中Remove已Delete的 agent
             const removeAgent = useAgentStore.getState().removeAgent;
             removeAgent(id);
             
-            // 同时从 orgStore 中移除
+            // 同时从 orgStore 中Remove
             const removeAgentFromOrg = useOrgStore.getState().removeAgentFromOrg;
             removeAgentFromOrg(id);
             
-            // 刷新组织和 agent 数据以确保界面更新
+            // Refresh组织和 agent Data以确保界面Update
             try {
               const refreshResponse = await api.getAllOrgAgents(username);
               if (refreshResponse?.success && refreshResponse.data) {
@@ -172,7 +172,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
     });
   };
   
-  // 菜单项
+  // Menu项
   const menuItems: MenuProps['items'] = [
     { key: 'edit', label: t('common.edit') || 'Edit', onClick: handleEdit },
     { key: 'delete', label: t('common.delete') || 'Delete', onClick: handleDelete, danger: true },
@@ -180,7 +180,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
   
   return (
     <div className="agent-card" style={{ position: 'relative' }}>
-      {/* 媒体内容 */}
+      {/* 媒体Content */}
       {isVideo ? (
         <div
           className="agent-gif-video-wrapper"
@@ -214,10 +214,10 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
               objectFit: 'contain',
               borderRadius: 28,
               background: 'transparent',
-              transform: 'translate3d(0, 0, 0)', // 触发GPU硬件加速
-              willChange: 'transform', // 提示浏览器优化
-              backfaceVisibility: 'hidden', // 优化渲染性能
-              WebkitBackfaceVisibility: 'hidden' // Safari兼容
+              transform: 'translate3d(0, 0, 0)', // TriggerGPU硬件加速
+              willChange: 'transform', // PromptBrowserOptimize
+              backfaceVisibility: 'hidden', // OptimizeRenderPerformance
+              WebkitBackfaceVisibility: 'hidden' // SafariCompatible
             }}
           />
         </div>
@@ -250,7 +250,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
         />
       )}
       
-      {/* 信息行 */}
+      {/* Information行 */}
       <div
         className="agent-info-row"
         style={{
@@ -283,7 +283,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
         </span>
       </div>
       
-      {/* 描述 */}
+      {/* Description */}
       {description && (
         <div className="agent-desc">{t(description)}</div>
       )}
@@ -292,8 +292,8 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
 }
 
 /**
- * 使用 React.memo 优化性能，避免不必要的重渲染
- * 自定义比较函数：只在 agent ID 或关键属性变化时重新渲染
+ * 使用 React.memo OptimizePerformance，避免不必要的重Render
+ * Custom比较Function：只在 agent ID 或关键Property变化时重新Render
  */
 export default memo(AgentCard, (prevProps, nextProps) => {
   const prevId = getAgentId(prevProps.agent);
@@ -301,18 +301,18 @@ export default memo(AgentCard, (prevProps, nextProps) => {
   const prevName = getAgentName(prevProps.agent);
   const nextName = getAgentName(nextProps.agent);
   
-  // 如果 ID 或名称变化，需要重新渲染
+  // If ID 或Name变化，Need重新Render
   if (prevId !== nextId || prevName !== nextName) {
     return false;
   }
   
-  // 检查 avatar 是否变化
+  // Check avatar 是否变化
   const prevAvatar = 'avatar' in prevProps.agent ? prevProps.agent.avatar : undefined;
   const nextAvatar = 'avatar' in nextProps.agent ? nextProps.agent.avatar : undefined;
   if (prevAvatar?.id !== nextAvatar?.id) {
     return false;
   }
   
-  // onChat 回调变化不触发重渲染（通常是稳定的）
+  // onChat Callback变化不Trigger重Render（通常是Stable的）
   return true;
 });

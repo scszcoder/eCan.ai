@@ -17,7 +17,7 @@ import { useTranslation } from 'react-i18next';
 
 const { Text } = Typography;
 
-// 主容器 - 简化版本，去掉边框和内边距
+// 主Container - 简化Version，去掉边框和内边距
 const SearchContainer = styled.div`
   margin-bottom: 0;
   background-color: transparent;
@@ -28,7 +28,7 @@ const SearchContainer = styled.div`
   transition: var(--transition-normal);
 `;
 
-// 搜索输入框包装器
+// SearchInput框包装器
 const SearchInputWrapper = styled.div`
   position: relative;
   margin-bottom: 0;
@@ -36,7 +36,7 @@ const SearchInputWrapper = styled.div`
   min-width: 0;
 `;
 
-// 搜索输入框 - 与现有输入框风格一致
+// SearchInput框 - 与现有Input框风格一致
 const StyledInput = styled(Input)`
   &.ant-input-affix-wrapper {
     height: 36px;
@@ -116,7 +116,7 @@ const StyledInput = styled(Input)`
   }
 `;
 
-// 操作按钮组
+// OperationButton组
 const ActionButtons = styled.div`
   display: flex;
   gap: 6px;
@@ -124,7 +124,7 @@ const ActionButtons = styled.div`
   flex-shrink: 0;
 `;
 
-// 操作按钮 - 与TaskFilters一致的样式（只显示图标）
+// OperationButton - 与TaskFilters一致的样式（只Display图标）
 const ActionButton = styled(Button)`
   height: 36px !important;
   width: 36px !important;
@@ -175,14 +175,14 @@ const ActionButton = styled(Button)`
   }
 `;
 
-// 搜索区域布局
+// Search区域Layout
 const SearchLayout = styled.div`
   display: flex;
   gap: 8px;
   align-items: flex-start;
 `;
 
-// 筛选标签
+// 筛选Tag
 const FilterTags = styled.div`
   display: flex;
   flex-wrap: wrap;
@@ -190,7 +190,7 @@ const FilterTags = styled.div`
   margin-top: 8px;
 `;
 
-// 标签 - 与现有标签风格一致
+// Tag - 与现有Tag风格一致
 const FilterTag = styled(Tag)`
   margin: 0;
   padding: 3px 8px;
@@ -221,7 +221,7 @@ const FilterTag = styled(Tag)`
   }
 `;
 
-// 搜索统计
+// Search统计
 const SearchStats = styled.div`
   display: flex;
   align-items: center;
@@ -241,7 +241,7 @@ const StatsItem = styled.div`
   font-size: 12px;
 `;
 
-// 历史记录下拉菜单
+// 历史记录下拉Menu
 const HistoryDropdown = styled.div`
   max-width: 400px;
   max-height: 300px;
@@ -316,7 +316,7 @@ const HistoryItem = styled.div`
   }
 `;
 
-// 筛选下拉菜单
+// 筛选下拉Menu
 const FilterDropdown = styled.div`
   min-width: 200px;
   max-width: 300px;
@@ -338,7 +338,7 @@ const FilterSectionTitle = styled.div`
   background-color: var(--bg-secondary);
 `;
 
-// 接口定义
+// InterfaceDefinition
 interface SearchFilterProps {
   value?: string;
   onSearch: (value: string) => void;
@@ -377,7 +377,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
   const [showFilters, setShowFilters] = useState(false);
   const inputRef = useRef<any>(null);
 
-  // 防抖搜索
+  // 防抖Search
   const debouncedSearch = useCallback(
     debounce((value: string) => {
       onSearch(value);
@@ -385,14 +385,14 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
     [onSearch]
   );
 
-  // 处理搜索输入
+  // ProcessSearchInput
   const handleSearchInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setSearchValue(value);
     debouncedSearch(value);
   };
 
-  // 处理历史记录点击
+  // Process历史记录Click
   const handleHistoryItemClick = (item: { text: string; timestamp: number; type?: 'recent' | 'popular' }) => {
     setSearchValue(item.text);
     onSearch(item.text);
@@ -400,13 +400,13 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
     onHistoryClick?.(item);
   };
 
-  // 处理历史记录删除
+  // Process历史记录Delete
   const handleHistoryItemDelete = (e: React.MouseEvent, item: { text: string; timestamp: number; type?: 'recent' | 'popular' }) => {
     e.stopPropagation();
     onHistoryDelete?.(item);
   };
 
-  // 处理筛选变化
+  // Process筛选变化
   const handleFilterChange = (key: string, value: any) => {
     const newFilters = { ...activeFilters };
     if (value) {
@@ -418,7 +418,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
     onFilter?.(newFilters);
   };
 
-  // 处理移除筛选
+  // ProcessRemove筛选
   const handleRemoveFilter = (key: string) => {
     const newFilters = { ...activeFilters };
     delete newFilters[key];
@@ -426,13 +426,13 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
     onFilter?.(newFilters);
   };
 
-  // 处理重置
+  // ProcessReset
   const handleReset = () => {
     setActiveFilters({});
     onFilterReset?.();
   };
 
-  // 格式化时间
+  // FormatTime
   const formatTime = (timestamp: number) => {
     const now = Date.now();
     const diff = now - timestamp;
@@ -446,7 +446,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
     return t('search.daysAgo', { count: days });
   };
 
-  // 历史记录菜单
+  // 历史记录Menu
   const historyMenu = {
     items: [
       ...searchHistory.slice(0, 5).map((item, index) => ({
@@ -465,7 +465,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
                 <CloseOutlined 
                   className="action-btn"
                   onClick={(e) => handleHistoryItemDelete(e, item)}
-                  aria-label="删除历史"
+                  aria-label="Delete历史"
                 />
               </Tooltip>
             </div>
@@ -502,7 +502,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
     ]
   };
 
-  // 筛选菜单
+  // 筛选Menu
   const filterMenu = {
     items: [
       ...filterOptions.map((option, index) => ({
@@ -560,7 +560,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
             suffix={value && <CloseOutlined onClick={() => {
               setSearchValue('');
               onSearch('');
-              // 延迟重新聚焦，确保在状态更新后
+              // Delay重新聚焦，确保在StatusUpdate后
               setTimeout(() => {
                 inputRef.current?.focus();
               }, 0);
@@ -611,7 +611,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
         </ActionButtons>
       </SearchLayout>
 
-      {/* 筛选标签 */}
+      {/* 筛选Tag */}
       {Object.keys(activeFilters).length > 0 && (
         <FilterTags>
           {Object.entries(activeFilters).map(([key, value]) => {
@@ -627,7 +627,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
         </FilterTags>
       )}
 
-      {/* 搜索统计 */}
+      {/* Search统计 */}
       {searchStats && (
         <SearchStats>
           <StatsItem>

@@ -267,17 +267,17 @@ const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, s
         sortBy: 'name',
     });
 
-    // 筛选和排序技能
+    // 筛选和Sort技能
     const filteredAndSortedSkills = useMemo(() => {
         let result = [...skills];
 
-        // 1. 先按状态过滤（如果有选择状态）
-        // 没选择状态时，filters.status 为 undefined，默认显示所有状态
+        // 1. 先按StatusFilter（If有SelectStatus）
+        // 没SelectStatus时，filters.status 为 undefined，DefaultDisplayAllStatus
         if (filters.status) {
             result = result.filter(skill => skill.status === filters.status);
         }
 
-        // 2. 在状态过滤结果中，再按搜索关键字匹配名称、描述和类别
+        // 2. 在StatusFilterResult中，再按Search关键字匹配Name、Description和类别
         if (filters.search) {
             const searchLower = filters.search.toLowerCase();
             result = result.filter(skill =>
@@ -287,7 +287,7 @@ const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, s
             );
         }
 
-        // 排序
+        // Sort
         result.sort((a, b) => {
             switch (filters.sortBy) {
                 case 'name': {
@@ -303,7 +303,7 @@ const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, s
                 case 'level': {
                     const levelA = typeof a.level === 'string' ? parseInt(a.level, 10) : (a.level || 0);
                     const levelB = typeof b.level === 'string' ? parseInt(b.level, 10) : (b.level || 0);
-                    return levelB - levelA; // 高级别在前
+                    return levelB - levelA; // 高Level在前
                 }
                 default:
                     return 0;
@@ -351,7 +351,7 @@ const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, s
                         loading={loading}
                         renderItem={skill => {
                 const statusConfig = getStatusConfig(skill.status);
-                // 确保两边都是字符串类型进行比较
+                // 确保两边都是字符串Type进行比较
                 const skillIdStr = String(skill.id);
                 const isSelected = selectedSkillId !== undefined && selectedSkillId === skillIdStr;
                 const levelValue = typeof skill.level === 'string' ? parseInt(skill.level, 10) : (skill.level || 0);

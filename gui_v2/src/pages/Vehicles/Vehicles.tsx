@@ -55,7 +55,7 @@ const Vehicles: React.FC = () => {
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
 
-  // 获取车辆数据
+  // Get车辆Data
   const fetchVehicles = useCallback(async () => {
     if (!username) return;
 
@@ -88,7 +88,7 @@ const Vehicles: React.FC = () => {
     try {
       await updateVehicleStatus(username, String(id), newStatus as VehicleStatus);
       message.success(t('pages.vehicles.statusUpdateSuccess') || 'Status updated successfully');
-      await fetchVehicles(); // 刷新列表
+      await fetchVehicles(); // RefreshList
     } catch (error) {
       logger.error('[Vehicles] Failed to update vehicle status:', error);
       message.error(t('pages.vehicles.statusUpdateFailed') || 'Failed to update status');
@@ -101,7 +101,7 @@ const Vehicles: React.FC = () => {
     try {
       await updateVehicleStatus(username, String(id), VehicleStatus.MAINTENANCE);
       message.success(t('pages.vehicles.maintenanceSuccess') || 'Vehicle set to maintenance');
-      await fetchVehicles(); // 刷新列表
+      await fetchVehicles(); // RefreshList
     } catch (error) {
       logger.error('[Vehicles] Failed to set vehicle to maintenance:', error);
       message.error(t('pages.vehicles.maintenanceFailed') || 'Failed to set maintenance status');
@@ -157,7 +157,7 @@ const Vehicles: React.FC = () => {
   const handleDelete = useCallback(async () => {
     if (!selectedVehicle) return;
 
-    // 确认删除
+    // ConfirmDelete
     if (!window.confirm(t('pages.vehicles.confirmDelete', { name: selectedVehicle.name }))) {
       return;
     }
@@ -167,7 +167,7 @@ const Vehicles: React.FC = () => {
       const vehicleId = typeof selectedVehicle.id === 'string' ? parseInt(selectedVehicle.id) : selectedVehicle.id;
       const response = await get_ipc_api().deleteVehicle(vehicleId);
       if (response?.success) {
-        await fetchVehicles(); // 刷新列表
+        await fetchVehicles(); // RefreshList
       } else {
         alert(t('pages.vehicles.deleteFailed'));
       }
@@ -178,7 +178,7 @@ const Vehicles: React.FC = () => {
   }, [selectedVehicle, fetchVehicles, t]);
 
   const handleSearch = (_value: string) => {
-    // TODO: 实现搜索逻辑
+    // TODO: ImplementationSearch逻辑
   };
 
   const handleFilterChange = (newFilters: Record<string, any>) => {
@@ -193,14 +193,14 @@ const Vehicles: React.FC = () => {
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
       <span style={{ fontSize: '16px', fontWeight: 600, lineHeight: '24px' }}>{t('pages.vehicles.title')}</span>
       <Space size={0}>
-        <Tooltip title={t('pages.vehicles.refreshVehicles', '刷新')}>
+        <Tooltip title={t('pages.vehicles.refreshVehicles', 'Refresh')}>
           <StyledActionButton
             shape="circle"
             icon={<ReloadOutlined />}
             onClick={handleRefresh}
           />
         </Tooltip>
-        <Tooltip title={t('pages.vehicles.addVehicle', '添加车辆')}>
+        <Tooltip title={t('pages.vehicles.addVehicle', 'Add车辆')}>
           <StyledActionButton
             shape="circle"
             icon={<PlusOutlined />}
@@ -240,7 +240,7 @@ const Vehicles: React.FC = () => {
         }
       />
       
-      {/* 添加 Vehicle 对话框 */}
+      {/* Add Vehicle Dialog */}
       <VehicleFormModal
         visible={isAddModalVisible}
         vehicle={null}
@@ -249,7 +249,7 @@ const Vehicles: React.FC = () => {
         t={t}
       />
       
-      {/* 编辑 Vehicle 对话框 */}
+      {/* Edit Vehicle Dialog */}
       <VehicleFormModal
         visible={isEditModalVisible}
         vehicle={selectedVehicle}

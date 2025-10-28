@@ -69,27 +69,27 @@ interface AgentListProps {
   onBindAgents: () => void;
   onUnbindAgent: (agentId: string) => void;
   onChatWithAgent: (agent: OrgAgent) => void;
-  title?: string; // 可选的自定义标题
+  title?: string; // Optional的Custom标题
 }
 
 /**
- * 获取 Agent 的头像 URL
- * 支持多种 avatar 数据格式：
- * 1. avatar 是对象且包含 imageUrl 字段
+ * Get Agent 的头像 URL
+ * Support多种 avatar Data格式：
+ * 1. avatar 是对象且Include imageUrl Field
  * 2. avatar 是字符串（直接作为 URL）
- * 3. 没有 avatar（返回 undefined，显示默认图标）
+ * 3. 没有 avatar（返回 undefined，DisplayDefault图标）
  */
 const getAgentAvatarUrl = (agent: OrgAgent): string | undefined => {
   if (!agent.avatar) {
     return undefined;
   }
   
-  // 如果 avatar 是对象且有 imageUrl 字段
+  // If avatar 是对象且有 imageUrl Field
   if (typeof agent.avatar === 'object' && 'imageUrl' in agent.avatar) {
     return (agent.avatar as { imageUrl: string }).imageUrl;
   }
   
-  // 如果 avatar 是字符串
+  // If avatar 是字符串
   if (typeof agent.avatar === 'string') {
     return agent.avatar;
   }
@@ -107,7 +107,7 @@ const AgentList: React.FC<AgentListProps> = ({
   const { t } = useTranslation();
   const navigate = useNavigate();
 
-  // 跳转到 Agent 详情页（编辑页面）
+  // 跳转到 Agent Details页（EditPage）
   const handleViewDetails = (agentId: string) => {
     navigate(`/agents/details/${agentId}`);
   };

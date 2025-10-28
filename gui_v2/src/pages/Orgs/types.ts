@@ -26,10 +26,10 @@ export interface Org {
   is_leaf?: boolean;
 }
 
-// 显示节点类型枚举
+// Display节点Type枚举
 export type DisplayNodeType = 'org_with_children' | 'org_with_agents' | 'unassigned_agents';
 
-// 显示节点类型（用于 OrgNavigator 页面的门组件显示）
+// Display节点Type（Used for OrgNavigator Page的门ComponentDisplay）
 export interface DisplayNode {
   id: string;
   name: string;
@@ -37,22 +37,22 @@ export interface DisplayNode {
   description: string;
   sort_order: number;
   
-  // 可选字段，根据类型不同而不同
-  org?: Org | OrgTreeNode | TreeOrgNode;  // 组织信息（对于组织类型节点）
-  agents?: OrgAgent[];     // Agent 列表（对于 agent 类型节点）
-  agentCount?: number;     // Agent 数量
-  hasChildren?: boolean;   // 是否有子节点（对于组织类型节点）
-  childrenCount?: number;  // 子节点数量（对于组织类型节点）
+  // OptionalField，根据Type不同而不同
+  org?: Org | OrgTreeNode | TreeOrgNode;  // 组织Information（对于组织Type节点）
+  agents?: OrgAgent[];     // Agent List（对于 agent Type节点）
+  agentCount?: number;     // Agent Count
+  hasChildren?: boolean;   // 是否有子节点（对于组织Type节点）
+  childrenCount?: number;  // 子节点Count（对于组织Type节点）
 }
 
-// Tree node interface for hierarchical display (保持向后兼容)
+// Tree node interface for hierarchical display (保持向后Compatible)
 export interface OrgTreeNode extends Org {
   children: OrgTreeNode[];
   hasAgents?: boolean;
   agentCount?: number;
 }
 
-// Organization-Agent association interface (专门用于组织-Agent 关联)
+// Organization-Agent association interface (专门Used for组织-Agent 关联)
 export interface OrgAgent {
   id: string;
   name: string;
@@ -69,7 +69,7 @@ export interface OrgAgent {
   updated_at?: string;
   capabilities?: string[];
   isBound?: boolean; // 是否已绑定（到任何组织）
-  isBoundToCurrentOrg?: boolean; // 是否绑定到当前选中的组织
+  isBoundToCurrentOrg?: boolean; // 是否绑定到When前选中的组织
   boundOrgId?: string; // 绑定到的组织 ID
 }
 
@@ -84,22 +84,22 @@ export interface GetOrgAgentsResponse {
   message: string;
 }
 
-// 根节点信息
+// 根节点Information
 export interface RootNode {
   id: string;
   name: string;
   description: string;
 }
 
-// 树形组织节点（包含子节点和直属 Agent）
+// 树形组织节点（Include子节点和直属 Agent）
 export interface TreeOrgNode extends Org {
   children: TreeOrgNode[];
   agents: OrgAgent[];
 }
 
-// 新的整合数据响应类型：获取所有组织和对应的 Agent 数据（完整树形结构）
+// 新的整合DataResponseType：GetAll组织和对应的 Agent Data（完整树形结构）
 export interface GetAllOrgAgentsResponse {
-  orgs: TreeOrgNode;        // 完整的树形结构：根节点包含 children 和 agents
+  orgs: TreeOrgNode;        // 完整的树形结构：根节点Include children 和 agents
   message: string;
 }
 
@@ -126,8 +126,8 @@ export interface OrgTreeComponentNode {
 export interface OrgState {
   orgs: Org[];
   selectedOrg: Org | null;
-  orgAgents: OrgAgent[]; // 组织关联的 Agent 信息
-  availableAgents: Agent[]; // 可用的 Agent（使用 Agents 模块的 Agent 类型）
+  orgAgents: OrgAgent[]; // 组织关联的 Agent Information
+  availableAgents: Agent[]; // Available的 Agent（使用 Agents Module的 Agent Type）
   loading: boolean;
   modalVisible: boolean;
   bindModalVisible: boolean;
@@ -146,7 +146,7 @@ export interface OrgActions {
   bindAgents: (agentIds: string[]) => Promise<void>;
   unbindAgent: (agentId: string) => Promise<void>;
   moveOrg: (dragNodeId: string, targetNodeId: string, dropToGap: boolean) => Promise<void>;
-  chatWithAgent: (agent: Agent) => void; // 使用 Agents 模块的 Agent 类型
+  chatWithAgent: (agent: Agent) => void; // 使用 Agents Module的 Agent Type
 }
 
 // Enum types
@@ -225,7 +225,7 @@ export function findOrgById(nodes: OrgTreeNode[], id: string): OrgTreeNode | nul
   return null;
 }
 
-// 构建显示节点列表的函数（基于扁平组织数据）
+// 构建Display节点List的Function（Based on扁平组织Data）
 export function buildDisplayNodes(
   organizations: Org[], 
   agents: OrgAgent[]
@@ -239,7 +239,7 @@ export function buildDisplayNodes(
   const orgAgents = agents.filter(agent => agent.org_id);
   const unassignedAgents = agents.filter(agent => !agent.org_id);
   
-  // 创建 Agent 按组织分组的映射
+  // Create Agent 按组织分组的Map
   const agentsByOrg = new Map<string, OrgAgent[]>();
   orgAgents.forEach(agent => {
     if (agent.org_id) {
@@ -250,12 +250,12 @@ export function buildDisplayNodes(
     }
   });
   
-  // 处理根节点的子节点
+  // Process根节点的子节点
   orgTree.forEach(rootNode => {
     processOrgNode(rootNode, agentsByOrg, displayNodes);
   });
   
-  // 添加无归属的 Agent 作为独立节点
+  // Add无归属的 Agent 作为独立节点
   if (unassignedAgents.length > 0) {
     displayNodes.push({
       id: 'unassigned',
@@ -268,29 +268,29 @@ export function buildDisplayNodes(
     });
   }
   
-  // 按 sort_order 排序
+  // 按 sort_order Sort
   displayNodes.sort((a, b) => a.sort_order - b.sort_order);
   
   return displayNodes;
 }
 
-// 构建显示节点列表的函数（基于树形数据结构）
-// 直接显示根节点的内容（children 和 agents），不显示根节点本身
+// 构建Display节点List的Function（Based on树形Data结构）
+// 直接Display根节点的Content（children 和 agents），不Display根节点本身
 export function buildDisplayNodesFromTree(
-  _root: RootNode | null,  // 根节点信息，暂时未使用但保留用于将来的路径显示
+  _root: RootNode | null,  // 根节点Information，暂时未使用但保留Used for将来的PathDisplay
   treeRoot: TreeOrgNode,   // 完整的树形根节点
-  _rootAgents?: OrgAgent[] // 向后兼容参数，现在从 treeRoot.agents 获取
+  _rootAgents?: OrgAgent[] // 向后CompatibleParameter，现在从 treeRoot.agents Get
 ): DisplayNode[] {
   const displayNodes: DisplayNode[] = [];
   
-  // 直接处理根节点的子组织（不显示根节点本身）
+  // 直接Process根节点的子组织（不Display根节点本身）
   if (treeRoot.children && treeRoot.children.length > 0) {
     treeRoot.children.forEach(childNode => {
       processTreeOrgNode(childNode, displayNodes);
     });
   }
   
-  // 添加根节点的 Agent（未分配的代理）- 显示在最后面
+  // Add根节点的 Agent（未分配的代理）- Display在最后面
   if (treeRoot.agents && treeRoot.agents.length > 0) {
     displayNodes.push({
       id: 'root_agents',
@@ -303,13 +303,13 @@ export function buildDisplayNodesFromTree(
     });
   }
   
-  // 按 sort_order 排序
+  // 按 sort_order Sort
   displayNodes.sort((a, b) => a.sort_order - b.sort_order);
   
   return displayNodes;
 }
 
-// 递归处理组织节点
+// RecursiveProcess组织节点
 function processOrgNode(
   orgNode: OrgTreeNode, 
   agentsByOrg: Map<string, OrgAgent[]>, 
@@ -330,7 +330,7 @@ function processOrgNode(
       hasChildren: true
     });
     
-    // 如果该组织也有直属 Agent，单独添加一个 Agent 节点
+    // If该组织也有直属 Agent，单独Add一个 Agent 节点
     if (orgAgents.length > 0) {
       displayNodes.push({
         id: `${orgNode.id}_agents`,
@@ -344,7 +344,7 @@ function processOrgNode(
       });
     }
   } else {
-    // 叶子节点组织，只显示 Agent
+    // 叶子节点组织，只Display Agent
     if (orgAgents.length > 0) {
       displayNodes.push({
         id: orgNode.id,
@@ -357,7 +357,7 @@ function processOrgNode(
         agentCount: orgAgents.length
       });
     } else {
-      // 空的叶子节点，也显示（可能将来会有 Agent）
+      // 空的叶子节点，也Display（可能将来会有 Agent）
       displayNodes.push({
         id: orgNode.id,
         name: orgNode.name,
@@ -372,7 +372,7 @@ function processOrgNode(
   }
 }
 
-// 递归处理树形组织节点
+// RecursiveProcess树形组织节点
 function processTreeOrgNode(
   treeNode: TreeOrgNode, 
   displayNodes: DisplayNode[]
@@ -384,7 +384,7 @@ function processTreeOrgNode(
   const orgSortOrder = treeNode.sort_order;
   
   if (hasChildren) {
-    // 有子节点的组织 - 显示为部门 room（可进入的组织节点）
+    // 有子节点的组织 - Display为部门 room（可进入的组织节点）
     displayNodes.push({
       id: treeNode.id,
       name: treeNode.name,
@@ -396,13 +396,13 @@ function processTreeOrgNode(
       childrenCount: treeNode.children.length
     });
     
-    // 如果该组织也有直属 Agent，单独添加一个 Agent 列表节点
+    // If该组织也有直属 Agent，单独Add一个 Agent List节点
     if (hasAgents) {
       displayNodes.push({
         id: `${treeNode.id}_agents`,
-        name: `${treeNode.name} (直属代理)`, // 组织名 + 固定文本，在显示时需要国际化处理
+        name: `${treeNode.name} (直属代理)`, // 组织名 + 固定文本，在Display时Need国际化Process
         type: 'org_with_agents',
-        description: `pages.org.direct_agents_desc`, // 国际化键，需要在显示时插值组织名
+        description: `pages.org.direct_agents_desc`, // 国际化键，Need在Display时插Value组织名
         sort_order: orgSortOrder + 0.1, // 紧跟在组织节点后面
         org: treeNode,
         agents: treeNode.agents,
@@ -410,7 +410,7 @@ function processTreeOrgNode(
       });
     }
   } else if (hasAgents) {
-    // 叶子节点组织，直接显示为 Agent 列表
+    // 叶子节点组织，直接Display为 Agent List
     displayNodes.push({
       id: treeNode.id,
       name: treeNode.name,
@@ -422,11 +422,11 @@ function processTreeOrgNode(
       agentCount: treeNode.agents.length
     });
   } else {
-    // 空组织（既没有子节点也没有 agents）- 显示为部门 room
+    // 空组织（既没有子节点也没有 agents）- Display为部门 room
     displayNodes.push({
       id: treeNode.id,
       name: treeNode.name,
-      type: 'org_with_children', // 显示为组织节点，可能将来会有内容
+      type: 'org_with_children', // Display为组织节点，可能将来会有Content
       description: treeNode.description || '空组织',
       sort_order: orgSortOrder,
       org: treeNode,

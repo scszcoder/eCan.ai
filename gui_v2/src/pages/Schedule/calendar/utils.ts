@@ -1,6 +1,6 @@
 /**
  * Calendar Utility Functions
- * 日历工具函数
+ * 日历ToolFunction
  */
 
 import dayjs from 'dayjs';
@@ -31,10 +31,10 @@ import type {
 } from './types';
 
 /**
- * 默认日历配置
+ * Default日历Configuration
  */
 export const DEFAULT_CALENDAR_CONFIG: CalendarConfig = {
-  weekStartsOn: 0, // Sunday (标准日历格式)
+  weekStartsOn: 0, // Sunday (Standard日历格式)
   timeSlotDuration: 30, // 30 minutes
   dayStartHour: 0, // 从0点开始
   dayEndHour: 24, // 到24点结束（全天24小时）
@@ -44,7 +44,7 @@ export const DEFAULT_CALENDAR_CONFIG: CalendarConfig = {
 };
 
 /**
- * 状态对应的颜色
+ * Status对应的颜色
  */
 export const STATUS_COLORS: Record<string, { bg: string; border: string; text: string }> = {
   pending: {
@@ -80,7 +80,7 @@ export const STATUS_COLORS: Record<string, { bg: string; border: string; text: s
 };
 
 /**
- * 优先级对应的颜色
+ * Priority对应的颜色
  */
 export const PRIORITY_COLORS: Record<string, string> = {
   low: '#52c41a',
@@ -90,7 +90,7 @@ export const PRIORITY_COLORS: Record<string, string> = {
 };
 
 /**
- * 将TaskSchedule转换为CalendarEvent
+ * 将TaskScheduleConvert为CalendarEvent
  */
 export function scheduleToEvent(schedule: TaskSchedule, task?: any): CalendarEvent {
   // Parse time string: "2025-03-31 23:59:59:000" -> "2025-03-31T23:59:59.000"
@@ -180,7 +180,7 @@ export function scheduleToEvent(schedule: TaskSchedule, task?: any): CalendarEve
 }
 
 /**
- * 将TaskSchedule数组转换为CalendarEvent数组
+ * 将TaskSchedule数组Convert为CalendarEvent数组
  */
 export function schedulesToEvents(
   schedules: TaskSchedule[],
@@ -193,7 +193,7 @@ export function schedulesToEvents(
 }
 
 /**
- * 将跨天长任务拆分为每日事件
+ * 将跨天长任务拆分为每日Event
  * Split long-duration tasks into daily events
  */
 export function splitLongTaskIntoDays(
@@ -205,7 +205,7 @@ export function splitLongTaskIntoDays(
   const endDate = dayjs(event.end);
   const duration = endDate.diff(startDate, 'day', true);
   
-  // 如果任务持续时间小于1天，不需要拆分
+  // If任务持续Time小于1天，不Need拆分
   if (duration < 1) {
     return [event];
   }
@@ -214,33 +214,33 @@ export function splitLongTaskIntoDays(
   const rangeStartDayjs = dayjs(rangeStart);
   const rangeEndDayjs = dayjs(rangeEnd);
   
-  // 从任务开始日期到结束日期，每天创建一个事件
+  // 从任务开始Date到结束Date，每天Create一个Event
   let currentDay = startDate.startOf('day');
   const taskEndDay = endDate.startOf('day');
   
   while (currentDay.isSameOrBefore(taskEndDay)) {
-    // 只处理在视图范围内的日期
+    // 只Process在视图Range内的Date
     if (currentDay.isSameOrAfter(rangeStartDayjs.startOf('day')) && 
         currentDay.isSameOrBefore(rangeEndDayjs.endOf('day'))) {
       
       let dayStart: dayjs.Dayjs;
       let dayEnd: dayjs.Dayjs;
       
-      // 第一天：使用实际开始时间
+      // 第一天：使用实际开始Time
       if (currentDay.isSame(startDate, 'day')) {
         dayStart = startDate;
         dayEnd = startDate.endOf('day');
-        // 如果任务在当天就结束，使用实际结束时间
+        // If任务在When天就结束，使用实际结束Time
         if (endDate.isSame(startDate, 'day')) {
           dayEnd = endDate;
         }
       }
-      // 最后一天：从00:00开始，到实际结束时间
+      // 最后一天：从00:00开始，到实际结束Time
       else if (currentDay.isSame(endDate, 'day')) {
         dayStart = currentDay.startOf('day');
         dayEnd = endDate;
       }
-      // 中间的天：整天显示 (00:00 - 23:59:59)
+      // 中间的天：整天Display (00:00 - 23:59:59)
       else {
         dayStart = currentDay.startOf('day');
         dayEnd = currentDay.endOf('day');
@@ -251,7 +251,7 @@ export function splitLongTaskIntoDays(
         id: `${event.id}_day_${currentDay.format('YYYY-MM-DD')}`,
         start: dayStart.toDate(),
         end: dayEnd.toDate(),
-        // 标记这是拆分的事件
+        // 标记这是拆分的Event
         metadata: {
           ...event.metadata,
           isSplitDay: true,
@@ -270,7 +270,7 @@ export function splitLongTaskIntoDays(
 }
 
 /**
- * 生成重复事件的所有实例（在指定日期范围内）
+ * 生成重复Event的All实例（在指定DateRange内）
  */
 export function generateRecurringEvents(
   event: CalendarEvent,
@@ -289,14 +289,14 @@ export function generateRecurringEvents(
   const originalDuration = dayjs(event.end).diff(event.start, 'minute');
   
   let instanceCount = 0;
-  const maxInstances = 1000; // 防止无限循环
+  const maxInstances = 1000; // 防止无限Loop
   
   const rangeEndDayjs = dayjs(rangeEnd);
   
   while (currentDate.isSameOrBefore(rangeEndDayjs) && instanceCount < maxInstances) {
-    // 检查是否在范围内
+    // Check是否在Range内
     if (currentDate.isSameOrAfter(dayjs(rangeStart))) {
-      // 检查星期限制
+      // Check星期Limit
       const dayOfWeek = currentDate.format('dd'); // Mo, Tu, We, Th, Fr, Sa, Su
       const dayMap: Record<string, string> = {
         '一': 'M',
@@ -313,7 +313,7 @@ export function generateRecurringEvents(
         schedule.week_days.length === 0 || 
         schedule.week_days.includes(mappedDay as any);
       
-      // 检查月份限制
+      // Check月份Limit
       const monthName = currentDate.format('MMM'); // Jan, Feb, etc.
       const monthsMatch = !schedule.months || 
         schedule.months.length === 0 || 
@@ -322,7 +322,7 @@ export function generateRecurringEvents(
       if (weekDaysMatch && monthsMatch) {
         const eventEnd = currentDate.add(originalDuration, 'minute');
         
-        // 创建这个重复实例的事件
+        // Create这个重复实例的Event
         const instanceEvent: CalendarEvent = {
           ...event,
           id: `${event.id}_${currentDate.format('YYYY-MM-DD-HH-mm')}`,
@@ -330,14 +330,14 @@ export function generateRecurringEvents(
           end: eventEnd.toDate(),
         };
         
-        // 重复任务不需要拆分！
+        // 重复任务不Need拆分！
         // 因为重复任务本身就是"每天一次"的概念
-        // 每个实例代表一天的执行
+        // 每个实例代表一天的Execute
         events.push(instanceEvent);
       }
     }
     
-    // 计算下一个实例的时间
+    // 计算下一个实例的Time
     switch (schedule.repeat_type) {
       case 'by seconds':
         currentDate = currentDate.add(schedule.repeat_number || 1, 'second');
@@ -361,7 +361,7 @@ export function generateRecurringEvents(
         currentDate = currentDate.add(schedule.repeat_number || 1, 'year');
         break;
       default:
-        // 如果类型不匹配，跳出循环
+        // IfType不匹配，跳出Loop
         currentDate = rangeEndDayjs.add(1, 'day');
     }
     
@@ -371,11 +371,11 @@ export function generateRecurringEvents(
   return events;
 }
 
-// 缓存已展开的事件，避免重复展开
+// Cache已Expand的Event，避免重复Expand
 const expandedEventsCache = new Map<string, CalendarEvent[]>();
 
 /**
- * 获取日期范围内的所有事件（包括重复事件的实例）
+ * GetDateRange内的AllEvent（包括重复Event的实例）
  */
 export function getEventsInRange(
   events: CalendarEvent[],
@@ -387,11 +387,11 @@ export function getEventsInRange(
   const rangeEndDayjs = dayjs(rangeEnd);
   
   for (const event of events) {
-    // 生成缓存键
+    // 生成Cache键
     const cacheKey = `${event.id}_${rangeStart.getTime()}_${rangeEnd.getTime()}`;
     
     if (event.isRecurring) {
-      // 重复任务：检查缓存
+      // 重复任务：CheckCache
       if (expandedEventsCache.has(cacheKey)) {
         allEvents.push(...expandedEventsCache.get(cacheKey)!);
       } else {
@@ -400,7 +400,7 @@ export function getEventsInRange(
         allEvents.push(...instances);
       }
     } else {
-      // 一次性事件：检查是否在范围内
+      // 一次性Event：Check是否在Range内
       const eventStart = dayjs(event.start);
       const eventEnd = dayjs(event.end);
       
@@ -409,7 +409,7 @@ export function getEventsInRange(
         eventEnd.isBetween(rangeStartDayjs, rangeEndDayjs, null, '[]') ||
         (eventStart.isSameOrBefore(rangeStartDayjs) && eventEnd.isSameOrAfter(rangeEndDayjs))
       ) {
-        // 一次性任务：检查缓存
+        // 一次性任务：CheckCache
         if (expandedEventsCache.has(cacheKey)) {
           allEvents.push(...expandedEventsCache.get(cacheKey)!);
         } else {
@@ -421,12 +421,12 @@ export function getEventsInRange(
     }
   }
   
-  // 按开始时间排序
+  // 按开始TimeSort
   return allEvents.sort((a, b) => dayjs(a.start).valueOf() - dayjs(b.start).valueOf());
 }
 
 /**
- * 生成月视图数据
+ * 生成月视图Data
  */
 export function generateMonthView(
   date: Date,
@@ -436,7 +436,7 @@ export function generateMonthView(
   const monthStart = dayjs(date).startOf('month');
   const monthEnd = dayjs(date).endOf('month');
   
-  // 获取日历显示的第一天和最后一天（包含前后月份的日期）
+  // Get日历Display的第一天和最后一天（Include前后月份的Date）
   // 从周日开始 (day() === 0)
   const firstDayOfMonth = monthStart.day(); // 0 = Sunday, 1 = Monday, ...
   const calendarStart = monthStart.subtract(firstDayOfMonth, 'day');
@@ -444,10 +444,10 @@ export function generateMonthView(
   const lastDayOfMonth = monthEnd.day();
   const calendarEnd = monthEnd.add(6 - lastDayOfMonth, 'day');
   
-  // 获取范围内的所有事件
+  // GetRange内的AllEvent
   const rangeEvents = getEventsInRange(events, calendarStart.toDate(), calendarEnd.toDate());
   
-  // 生成所有周
+  // 生成All周
   const weeks: CalendarWeek[] = [];
   let currentWeekStart = calendarStart;
   
@@ -457,8 +457,8 @@ export function generateMonthView(
     for (let i = 0; i < 7; i++) {
       const day = currentWeekStart.add(i, 'day');
       
-      // 获取当天的事件
-      // 只匹配开始时间在当天的事件
+      // GetWhen天的Event
+      // 只匹配开始Time在When天的Event
       const dayEvents = rangeEvents.filter(event => {
         const eventStart = dayjs(event.start);
         return eventStart.isSame(day, 'day');
@@ -493,7 +493,7 @@ export function generateMonthView(
 }
 
 /**
- * 生成周视图数据
+ * 生成周视图Data
  */
 export function generateWeekView(
   date: Date,
@@ -513,7 +513,7 @@ export function generateWeekView(
   for (let i = 0; i < 7; i++) {
     const day = weekStart.add(i, 'day');
     
-    // 只匹配开始时间在当天的事件
+    // 只匹配开始Time在When天的Event
     const dayEvents = rangeEvents.filter(event => {
       const eventStart = dayjs(event.start);
       return eventStart.isSame(day, 'day');
@@ -534,7 +534,7 @@ export function generateWeekView(
 }
 
 /**
- * 生成日视图的时间槽
+ * 生成日视图的Time槽
  */
 export function generateTimeSlots(
   date: Date,
@@ -543,7 +543,7 @@ export function generateTimeSlots(
 ): TimeSlot[] {
   const slots: TimeSlot[] = [];
   
-  // 确保时间范围有效
+  // 确保TimeRange有效
   const startHour = Math.max(0, Math.min(23, config.dayStartHour));
   const endHour = Math.max(startHour + 1, Math.min(24, config.dayEndHour));
   
@@ -564,7 +564,7 @@ export function generateTimeSlots(
 }
 
 /**
- * 检测事件时间冲突
+ * 检测EventTime冲突
  */
 export function detectEventConflicts(events: CalendarEvent[]): EventConflict[] {
   const conflicts: EventConflict[] = [];
@@ -579,7 +579,7 @@ export function detectEventConflicts(events: CalendarEvent[]): EventConflict[] {
       const event2Start = dayjs(event2.start);
       const event2End = dayjs(event2.end);
       
-      // 检查时间是否重叠
+      // CheckTime是否重叠
       if (
         (event1Start.isSameOrBefore(event2Start) && event1End.isAfter(event2Start)) ||
         (event2Start.isSameOrBefore(event1Start) && event2End.isAfter(event1Start))
@@ -601,7 +601,7 @@ export function detectEventConflicts(events: CalendarEvent[]): EventConflict[] {
 }
 
 /**
- * 格式化日期范围
+ * FormatDateRange
  */
 export function formatDateRange(start: Date, end: Date, language: string = 'zh-CN'): string {
   const startDayjs = dayjs(start);
@@ -618,7 +618,7 @@ export function formatDateRange(start: Date, end: Date, language: string = 'zh-C
 }
 
 /**
- * 导航到上一个周期
+ * Navigation到上一个周期
  */
 export function navigatePrevious(date: Date, viewType: 'month' | 'week' | 'day'): Date {
   const dateDayjs = dayjs(date);
@@ -636,7 +636,7 @@ export function navigatePrevious(date: Date, viewType: 'month' | 'week' | 'day')
 }
 
 /**
- * 导航到下一个周期
+ * Navigation到下一个周期
  */
 export function navigateNext(date: Date, viewType: 'month' | 'week' | 'day'): Date {
   const dateDayjs = dayjs(date);
@@ -654,7 +654,7 @@ export function navigateNext(date: Date, viewType: 'month' | 'week' | 'day'): Da
 }
 
 /**
- * 格式化视图标题
+ * Format视图标题
  */
 export function formatViewTitle(date: Date, viewType: 'month' | 'week' | 'day', language: string = 'zh-CN'): string {
   const dateDayjs = dayjs(date);

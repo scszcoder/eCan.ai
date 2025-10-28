@@ -11,7 +11,7 @@ interface AgentsResponse {
 
 interface AgentStoreState {
   agents: Agent[];
-  items: Agent[]; // 别名，兼容标准接口
+  items: Agent[]; // Alias for standard interface compatibility
   loading: boolean;
   error: string | null;
   lastFetched: number | null;
@@ -20,7 +20,7 @@ interface AgentStoreState {
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setAgents: (agents: Agent[]) => void;
-  setItems: (items: Agent[]) => void; // 别名，兼容标准接口
+  setItems: (items: Agent[]) => void; // Alias for standard interface compatibility
   addAgent: (agent: Agent) => void;
   updateAgent: (id: string, updates: Partial<Agent>) => void;
   removeAgent: (id: string) => void;
@@ -36,7 +36,7 @@ interface AgentStoreState {
   fetchAgents: (username: string, skillIds?: string[]) => Promise<void>;
   shouldFetchAgents: () => boolean;
 
-  // 兼容 SyncManager 的标准接口
+  // Standard interface compatible with SyncManager
   fetchItems: (username: string, ...args: any[]) => Promise<void>;
   shouldFetch: () => boolean;
   clearData: () => void;
@@ -51,7 +51,7 @@ export const useAgentStore = create<AgentStoreState>()(
   persist(
     (set, get) => ({
       agents: [],
-      items: [], // 别名，兼容标准接口
+      items: [], // Alias for standard interface compatibility
       loading: false,
       error: null,
       lastFetched: null,
@@ -60,7 +60,7 @@ export const useAgentStore = create<AgentStoreState>()(
       setLoading: (loading) => set({ loading }),
       setError: (error) => set({ error }),
       setAgents: (agents) => set({ agents, items: agents, lastFetched: Date.now() }),
-      setItems: (items) => set({ agents: items, items: items, lastFetched: Date.now() }), // 别名，兼容标准接口
+      setItems: (items) => set({ agents: items, items: items, lastFetched: Date.now() }), // Alias for standard interface compatibility
       
       addAgent: (agent) => set((state) => {
         const newAgents = [...state.agents, agent];
@@ -76,7 +76,7 @@ export const useAgentStore = create<AgentStoreState>()(
       
       removeAgent: (id) => set((state) => {
         const newAgents = state.agents.filter(agent => {
-          // 支持两种数据结构：agent.card?.id 或 agent.id
+          // Support two data structures: agent.card?.id or agent.id
           const agentId = agent.card?.id || (agent as any).id;
           return agentId !== id;
         });
@@ -104,14 +104,14 @@ export const useAgentStore = create<AgentStoreState>()(
       
       getMyTwinAgent: () => {
         const agents = get().agents;
-        // 优先通过 ID 查找（更可靠）
+        // Priority: find by ID (more reliable)
         const myTwinById = agents.find(agent => 
           agent.card?.id?.startsWith('system_my_twin') || 
           agent.card?.id === 'system_my_twin_agent'
         );
         if (myTwinById) return myTwinById;
         
-        // 备用：通过名称查找
+        // Fallback: find by name
         const myTwinByName = agents.find(agent => 
           agent.card?.name === 'My Twin Agent' ||
           agent.card?.name?.includes('Twin')
@@ -237,7 +237,7 @@ export const useAgentStore = create<AgentStoreState>()(
         }
       },
 
-      // 兼容 SyncManager 的标准接口（别名方法）
+      // Standard interface compatible with SyncManager (alias methods)
       fetchItems: async (username: string, ...args: any[]) => {
         return get().fetchAgents(username, args[0]);
       },

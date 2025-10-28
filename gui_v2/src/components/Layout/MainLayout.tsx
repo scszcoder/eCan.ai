@@ -48,18 +48,18 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const location = useLocation();
     const { t, i18n } = useTranslation();
     
-    // 记住最后访问的 agents 路径（用于从其他页面返回时恢复）
+    // 记住最后访问的 agents Path（Used for从其他Page返回时Restore）
     const lastAgentsPathRef = React.useRef<string>('/agents');
     
-    // 监听路径变化，记录最后访问的 agents 路径
+    // ListenPath变化，记录最后访问的 agents Path
     useEffect(() => {
         if (location.pathname.startsWith('/agents')) {
             lastAgentsPathRef.current = location.pathname;
         }
     }, [location.pathname]);
     
-    // 从 window 对象获取搜索状态（由 OrgNavigator 设置）
-    // 优化：移除依赖项避免重复创建定时器，增加轮询间隔减少 CPU 占用
+    // 从 window 对象GetSearchStatus（由 OrgNavigator Settings）
+    // Optimize：RemoveDependency项避免重复Create定时器，增加轮询Interval减少 CPU 占用
     useEffect(() => {
         const interval = setInterval(() => {
             const query = (window as any).__agentsSearchQuery;
@@ -68,9 +68,9 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             }
         }, 300); // 从 100ms 增加到 300ms，减少 CPU 占用
         return () => clearInterval(interval);
-    }, []); // 移除 searchQuery 依赖，避免每次状态变化都重新创建定时器
+    }, []); // Remove searchQuery Dependency，避免每次Status变化都重新Create定时器
     
-    // 处理搜索变化
+    // ProcessSearch变化
     const handleSearchChange = (query: string) => {
         setSearchQuery(query);
         if ((window as any).__setAgentsSearchQuery) {
@@ -87,14 +87,14 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
     const handleLogout = async () => {
         try {
-            // 使用新的LogoutManager进行统一的logout处理
+            // 使用新的LogoutManager进行统一的logoutProcess
             await logoutManager.logout();
 
-            // 跳转到登录页面
+            // 跳转到LoginPage
             window.location.replace('/login');
         } catch (error) {
             console.error('Logout error:', error);
-            // 即使logout过程中出现错误，也要跳转到登录页面
+            // 即使logout过程中出现Error，也要跳转到LoginPage
             window.location.replace('/login');
         }
     };
@@ -125,7 +125,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     ], [t]) as NonNullable<MenuProps['items']>;
 
     const onMenuClick = ({ key }: { key: string }) => {
-        // 如果点击 Agents 菜单，恢复到最后访问的 agents 路径
+        // IfClick Agents Menu，Restore到最后访问的 agents Path
         if (key === '/agents') {
             navigate(lastAgentsPathRef.current);
         } else {
@@ -134,7 +134,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     };
 
     const isSkillEditor = location.pathname.startsWith('/skill_editor');
-    // 检查是否在 agents 相关页面，只有这些页面才显示右侧快速操作菜单
+    // Check是否在 agents 相关Page，只有这些Page才DisplayRightFastOperationMenu
     const isAgentsPage = location.pathname.startsWith('/agents');
 
     return (

@@ -1,10 +1,10 @@
 /**
  * Vehicle Domain Types
- * 设备/车辆相关的类型定义
+ * Type definitions for devices/vehicles
  */
 
 /**
- * 设备状态
+ * Device status
  */
 export enum VehicleStatus {
   ACTIVE = 'active',
@@ -15,7 +15,7 @@ export enum VehicleStatus {
 }
 
 /**
- * 设备类型
+ * Device type
  */
 export enum VehicleType {
   COMPUTER = 'Computer',
@@ -27,7 +27,7 @@ export enum VehicleType {
 }
 
 /**
- * 网络状态
+ * Network status
  */
 export enum NetworkStatus {
   CONNECTED = 'connected',
@@ -36,59 +36,59 @@ export enum NetworkStatus {
 }
 
 /**
- * 设备/车辆类型
+ * Device/Vehicle type
  */
 export interface Vehicle {
-  // 基础信息
+  // Basic information
   id: string;
-  vid?: number; // 兼容旧数据
+  vid?: number; // Compatible with old data
   name: string;
   owner?: string;
   description?: string;
   
-  // 设备类型和系统信息
+  // Device type and system information
   type?: VehicleType | string;
   os?: string;
   arch?: string;
   platform?: string;
   
-  // 网络信息
+  // Network information
   ip?: string;
   hostname?: string;
   port?: number;
   url?: string;
   
-  // 状态
+  // Status
   status: VehicleStatus | string;
   health_score?: number; // 0.0 to 1.0
   last_heartbeat?: string;
   last_update_time?: string;
   
-  // 硬件规格
+  // Hardware specifications
   cpu_cores?: number;
   memory_gb?: number;
   storage_gb?: number;
   gpu_info?: any;
   
-  // 系统性能指标
+  // System performance metrics
   cpuUsage?: number;
   memoryUsage?: number;
   diskUsage?: number;
   networkStatus?: NetworkStatus | string;
-  uptime?: number; // 运行时间（秒）
+  uptime?: number; // Uptime in seconds
   
-  // 设备特定信息
-  battery?: number; // 电池百分比
+  // Device-specific information
+  battery?: number; // Battery percentage
   location?: string;
   timezone?: string;
   environment?: string; // production, staging, development, test
   
-  // 维护信息
+  // Maintenance information
   lastMaintenance?: string;
   nextMaintenance?: string;
   totalDistance?: number;
   
-  // 任务和能力
+  // Tasks and capabilities
   currentTask?: string;
   bot_ids?: any[];
   functions?: string;
@@ -96,13 +96,13 @@ export interface Vehicle {
   limitations?: string[];
   max_concurrent_tasks?: number;
   
-  // 安全和访问
+  // Security and access
   security_level?: string;
   access_token?: string;
   ssl_enabled?: boolean;
   test_disabled?: boolean;
   
-  // 扩展字段
+  // Extended fields
   CAP?: number;
   mstats?: any[];
   field_link?: string;
@@ -110,13 +110,13 @@ export interface Vehicle {
   settings?: Record<string, any>;
   extra_metadata?: Record<string, any>;
   
-  // 时间戳
+  // Timestamps
   createdAt?: string;
   updatedAt?: string;
 }
 
 /**
- * 创建设备的输入类型
+ * Create device input type
  */
 export interface CreateVehicleInput {
   name: string;
@@ -130,7 +130,7 @@ export interface CreateVehicleInput {
 }
 
 /**
- * 更新设备的输入类型
+ * Update device input type
  */
 export interface UpdateVehicleInput {
   name?: string;
@@ -147,7 +147,7 @@ export interface UpdateVehicleInput {
 }
 
 /**
- * 系统信息
+ * System information
  */
 export interface SystemInfo {
   cpu_usage: number;

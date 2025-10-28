@@ -11,7 +11,7 @@ import { systemFunctions, customFunctions } from './test-data';
 import { CallableEditor } from './callable-editor';
 import { CallableSelectorWrapper } from './styles';
 
-// 配置是否使用远程搜索
+// Configuration是否使用RemoteSearch
 const USE_REMOTE_SEARCH = false; // Set to false to use props
 
 interface CallableSelectorProps {
@@ -40,7 +40,7 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
     setSelectedValue(value?.name);
   }, [value]);
 
-  // 使用 useMemo 优化本地过滤函数列表的性能
+  // 使用 useMemo OptimizeLocalFilterFunctionList的Performance
   const localFilteredFunctions = useMemo(() => {
     if (!searchText) {
       return [...propSystemFunctions, ...customFunctions];
@@ -48,22 +48,22 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
 
     const searchLower = searchText.toLowerCase();
     return [...propSystemFunctions, ...customFunctions].filter(func => {
-      // 检查函数名
+      // CheckFunction名
       if (func.name.toLowerCase().includes(searchLower)) {
         return true;
       }
-      // 检查函数描述
+      // CheckFunctionDescription
       if (func.desc.toLowerCase().includes(searchLower)) {
         return true;
       }
-      // 检查参数名称
+      // CheckParameterName
       if (func.params.properties) {
         const paramNames = Object.keys(func.params.properties);
         if (paramNames.some(name => name.toLowerCase().includes(searchLower))) {
           return true;
         }
       }
-      // 检查返回值类型
+      // CheckReturn valueType
       if (func.returns.type && func.returns.type.toLowerCase().includes(searchLower)) {
         return true;
       }
@@ -197,7 +197,7 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
     }
   ];
 
-  // 确保函数列表始终是数组
+  // 确保FunctionList始终是数组
   const functions = localFilteredFunctions;
   const optionList = Array.isArray(functions) ? functions : [];
 

@@ -98,7 +98,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   const { message } = App.useApp();
   const showDeleteConfirm = useDeleteConfirm();
   
-  // 滚动位置保存
+  // ScrollPositionSave
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const savedScrollPositionRef = useRef<number>(0);
 
@@ -152,19 +152,19 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     if (task) {
       const metaStr = (task as any).metadata ? JSON.stringify((task as any).metadata, null, 2) : '';
 
-      // 使用 name 字段，如果不存在则使用 skill 字段作为后备
+      // 使用 name Field，If不存在则使用 skill Field作为后备
       const taskName = (task as any).name || (task as any).skill || '';
 
-      // 使用 description 字段，如果不存在则使用 metadata 中的描述作为后备
+      // 使用 description Field，If不存在则使用 metadata 中的Description作为后备
       const taskDescription = (task as any).description
         || (task as any).metadata?.description
         || '';
 
-      // 确保所有字段都正确设置
+      // 确保AllField都正确Settings
       const formValues = {
         ...(task as any),
         name: taskName,  // 使用 name 或 skill
-        description: taskDescription,  // 使用 description 或其他后备字段
+        description: taskDescription,  // 使用 description 或其他后备Field
         metadata_text: metaStr,
       };
 
@@ -177,13 +177,13 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
 
   const handleCancel = () => {
     if (isNew) {
-      // 新建模式：清空表单并通知父组件关闭面板
+      // 新建模式：清空Form并Notification父ComponentClose面板
       form.resetFields();
       if (onCancel) {
         onCancel();
       }
     } else {
-      // 编辑模式：恢复原始数据并退出编辑模式（不关闭面板）
+      // Edit模式：Restore原始Data并退出Edit模式（不Close面板）
       if (task) {
         const metaStr = (task as any).metadata ? JSON.stringify((task as any).metadata, null, 2) : '';
         const taskName = (task as any).name || (task as any).skill || '';
@@ -201,7 +201,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         form.setFieldsValue(formValues);
       }
       setEditMode(false);
-      // 编辑模式下不调用 onCancel，保持面板打开
+      // Edit模式下不调用 onCancel，保持面板Open
     }
   };
 
@@ -271,7 +271,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     showDeleteConfirm({
       title: t('pages.tasks.deleteConfirmTitle', 'Delete Task'),
       message: t('pages.tasks.deleteConfirmMessage', `Are you sure you want to delete "${(task as any)?.name}"? This action cannot be undone.`),
-      warningText: t('pages.tasks.deleteWarning', '此操作无法撤销'),
+      warningText: t('pages.tasks.deleteWarning', '此Operation无法撤销'),
       okText: t('common.delete', 'Delete'),
       cancelText: t('common.cancel', 'Cancel'),
       onOk: async () => {
@@ -310,13 +310,13 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           height: '100%',
           color: '#999'
         }}>
-          {t('pages.tasks.selectTask', '请选择一个任务')}
+          {t('pages.tasks.selectTask', '请Select一个任务')}
         </div>
       </FormContainer>
     );
   }
 
-  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
   useEffectOnActive(
     () => {
       const container = scrollContainerRef.current;
@@ -470,7 +470,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                             textTransform: 'uppercase',
                             letterSpacing: '0.5px'
                           }}>
-                            {t('pages.tasks.repeatSettings', '重复设置')}
+                            {t('pages.tasks.repeatSettings', '重复Settings')}
                           </div>
                           <Row gutter={[12, 12]}>
                             <Col span={8}>
@@ -525,7 +525,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                             textTransform: 'uppercase',
                             letterSpacing: '0.5px'
                           }}>
-                            {t('pages.tasks.timeSettings', '时间设置')}
+                            {t('pages.tasks.timeSettings', 'TimeSettings')}
                           </div>
                           <Row gutter={[12, 12]}>
                             <Col span={12}>
@@ -579,12 +579,12 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                     validateTrigger={['onChange', 'onBlur']}
                     rules={[{
                       validator: (_, value) => {
-                        // 允许空值
+                        // Allow空Value
                         if (!value || value.trim() === '') {
                           return Promise.resolve();
                         }
                         
-                        // 必须是有效的 JSON 格式
+                        // Must是有效的 JSON 格式
                         try {
                           JSON.parse(value);
                           return Promise.resolve();
@@ -629,7 +629,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           background: 'transparent',
           borderTop: '1px solid rgba(255, 255, 255, 0.05)'
         }}>
-          {/* 编辑/新建模式：显示保存和取消按钮 */}
+          {/* Edit/新建模式：DisplaySave和CancelButton */}
           {(editMode || isNew) && (
             <>
               <Button
@@ -655,7 +655,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
             </>
           )}
 
-          {/* 查看模式：显示编辑和删除按钮 */}
+          {/* 查看模式：DisplayEdit和DeleteButton */}
           {!editMode && !isNew && task && (
             <>
               <Button

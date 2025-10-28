@@ -30,11 +30,11 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
   const [searchText, setSearchText] = useState('');
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
   
-  // 获取 MyTwin agent
+  // Get MyTwin agent
   const myTwinAgent = getMyTwinAgent();
   const myTwinAgentId = myTwinAgent?.card?.id;
 
-  // 当 Modal 打开时加载组织数据
+  // When Modal Open时Load组织Data
   useEffect(() => {
     if (visible && treeOrgs.length === 0 && username) {
       const loadOrgData = async () => {
@@ -60,7 +60,7 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
       const countAgents = (node: any): number => {
         let count = 0;
         if (node.agents && Array.isArray(node.agents)) {
-          // 如果有搜索文本，只计算匹配的代理
+          // If有Search文本，只计算匹配的代理
           if (searchText) {
             count = node.agents.filter((agent: any) => {
               const agentName = agent.name || agent.card?.name || '';
@@ -79,7 +79,7 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
       const agentCount = countAgents(orgNode);
       const children: DataNode[] = [];
 
-      // 1. 先添加直属代理
+      // 1. 先Add直属代理
       if (orgNode.agents && Array.isArray(orgNode.agents)) {
         const agentNodes: DataNode[] = orgNode.agents
           .filter((agent: any) => {
@@ -87,7 +87,7 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
             const searchLower = searchText.toLowerCase();
             const agentName = (agent.name || agent.card?.name || '').toLowerCase();
             const agentDesc = (agent.description || agent.card?.description || '').toLowerCase();
-            // 模糊匹配：name 或 description 包含搜索关键字即可
+            // 模糊匹配：name 或 description IncludeSearch关键字即可
             return agentName.includes(searchLower) || agentDesc.includes(searchLower);
           })
           .map((agent: any) => {
@@ -113,12 +113,12 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
         children.push(...agentNodes);
       }
 
-      // 2. 再添加子组织
+      // 2. 再Add子组织
       if (orgNode.children && Array.isArray(orgNode.children)) {
         const childOrgNodes = orgNode.children
           .map((child: any) => buildTreeNode(child))
           .filter((childNode: DataNode) => {
-            // 如果有搜索文本，过滤掉没有匹配代理的组织
+            // If有Search文本，Filter掉没有匹配代理的组织
             if (searchText) {
               return childNode.children && childNode.children.length > 0;
             }
@@ -127,7 +127,7 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
         children.push(...childOrgNodes);
       }
 
-      // 组织节点的标题，包含图标和代理数量
+      // 组织节点的标题，Include图标和代理Count
       const orgTitle = (
         <Space>
           <ApartmentOutlined style={{ color: '#1890ff' }} />
@@ -153,7 +153,7 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
       return treeOrgs
         .map(treeOrg => buildTreeNode(treeOrg))
         .filter((node: DataNode) => {
-          // 如果有搜索文本，过滤掉没有匹配代理的根组织
+          // If有Search文本，Filter掉没有匹配代理的根组织
           if (searchText) {
             return node.children && node.children.length > 0;
           }
@@ -161,18 +161,18 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
         });
     }
 
-    // 如果没有组织树，创建一个虚拟根节点包含所有 agents
+    // If没有组织树，Create一个虚拟根节点IncludeAll agents
     if (agents && agents.length > 0) {
       const filteredAgents = agents.filter((agent: any) => {
         if (!searchText) return true;
         const searchLower = searchText.toLowerCase();
         const agentName = (agent.name || agent.card?.name || '').toLowerCase();
         const agentDesc = (agent.description || agent.card?.description || '').toLowerCase();
-        // 模糊匹配：name 或 description 包含搜索关键字即可
+        // 模糊匹配：name 或 description IncludeSearch关键字即可
         return agentName.includes(searchLower) || agentDesc.includes(searchLower);
       });
 
-      // 创建一个虚拟的"所有代理"节点
+      // Create一个虚拟的"All代理"节点
       return [{
         title: (
           <Space>
@@ -213,7 +213,7 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
     return [];
   }, [treeOrgs, agents, searchText, t, myTwinAgentId]);
 
-  // 收集所有组织节点的 key 用于展开
+  // 收集All组织节点的 key Used forExpand
   useEffect(() => {
     const collectOrgKeys = (nodes: DataNode[]): React.Key[] => {
       const keys: React.Key[] = [];

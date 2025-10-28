@@ -5,15 +5,15 @@ export enum CommentEditorFormField {
   Note = 'note',
 }
 
-/** 编辑器事件 */
+/** Edit器Event */
 export enum CommentEditorEvent {
-  /** 内容变更事件 */
+  /** Content变更Event */
   Change = 'change',
-  /** 多选事件 */
+  /** 多选Event */
   MultiSelect = 'multiSelect',
-  /** 单选事件 */
+  /** 单选Event */
   Select = 'select',
-  /** 失焦事件 */
+  /** 失焦Event */
   Blur = 'blur',
 }
 

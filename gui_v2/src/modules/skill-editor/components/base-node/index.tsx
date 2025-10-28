@@ -14,12 +14,12 @@ import { WorkflowNodeType } from '../../nodes/constants';
 export const BaseNode = ({ node }: { node: FlowNodeEntity }) => {
   /**
    * Provides methods related to node rendering
-   * 提供节点渲染相关的方法
+   * 提供节点RenderRelated toMethod
    */
   const nodeRender = useNodeRender();
   /**
    * It can only be used when nodeEngine is enabled
-   * 只有在节点引擎开启时候才能使用表单
+   * 只有在节点引擎开启时候才能使用Form
    */
   const form = nodeRender.form;
   const { schema, loading } = useNodeStateSchema();
@@ -45,7 +45,7 @@ export const BaseNode = ({ node }: { node: FlowNodeEntity }) => {
 
   /**
    * Used to make the Tooltip scale with the node, which can be implemented by itself depending on the UI library
-   * 用于让 Tooltip 跟随节点缩放, 这个可以根据不同的 ui 库自己实现
+   * Used for让 Tooltip 跟随节点Scale, 这个Can根据不同的 ui 库自己Implementation
    */
   const getPopupContainer = useCallback(() => node.renderData.node || document.body, []);
 

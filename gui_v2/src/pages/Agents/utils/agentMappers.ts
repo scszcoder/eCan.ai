@@ -5,7 +5,7 @@ import { sortTreeChildren, extractAllAgents } from './orgTreeUtils';
 export const UNASSIGNED_NODE_ID = 'unassigned';
 
 /**
- * 将 OrgAgent 转换为 Agent 类型
+ * 将 OrgAgent Convert为 Agent Type
  */
 export function mapOrgAgentToAgent(
   orgAgent: OrgAgent,
@@ -18,11 +18,11 @@ export function mapOrgAgentToAgent(
       : undefined;
 
   return {
-    // 顶层字段（AgentCard 优先读取这些）
+    // 顶层Field（AgentCard 优先读取这些）
     id: orgAgent.id,
     name: orgAgent.name,
     description: orgAgent.description || '',
-    // card 字段（向后兼容）
+    // card Field（向后Compatible）
     card: {
       id: orgAgent.id,
       name: orgAgent.name,
@@ -49,7 +49,7 @@ export function mapOrgAgentToAgent(
 }
 
 /**
- * 为节点构建 Door 显示列表
+ * 为节点构建 Door DisplayList
  */
 export function buildDoorsForNode(
   node: TreeOrgNode,
@@ -61,7 +61,7 @@ export function buildDoorsForNode(
   sortedChildren.forEach((child) => {
     const hasChildren = !!(child.children && child.children.length > 0);
     
-    // 递归统计当前节点及其所有子节点的 agent 总数
+    // Recursive统计When前节点及其All子节点的 agent 总数
     const allAgents = extractAllAgents(child);
     const totalAgentCount = allAgents.length;
 
@@ -73,13 +73,13 @@ export function buildDoorsForNode(
       sort_order: child.sort_order,
       org: child,
       agents: child.agents,
-      agentCount: totalAgentCount,  // 使用递归统计的总数
+      agentCount: totalAgentCount,  // 使用Recursive统计的总数
       hasChildren,
       childrenCount: child.children?.length || 0,
     });
   });
 
-  // 添加未分配的 Agent 门
+  // Add未分配的 Agent 门
   if (includeUnassignedDoor && node.agents && node.agents.length > 0) {
     doors.push({
       id: UNASSIGNED_NODE_ID,

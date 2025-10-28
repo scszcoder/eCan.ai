@@ -71,11 +71,11 @@ const MemberCountBadge = styled.div`
     }
 `;
 
-// 辅助函数：格式化 lastMsg 显示
+// HelperFunction：Format lastMsg Display
 const formatLastMsg = (lastMsg: any): string => {
     if (!lastMsg) return '';
     
-    // 如果是字符串，尝试解析
+    // If是字符串，尝试Parse
     if (typeof lastMsg === 'string') {
         try {
             const parsed = JSON.parse(lastMsg);
@@ -85,7 +85,7 @@ const formatLastMsg = (lastMsg: any): string => {
         }
     }
     
-    // 如果是对象，提取 text 或 content
+    // If是对象，提取 text 或 content
     if (typeof lastMsg === 'object') {
         return lastMsg.text || lastMsg.content || JSON.stringify(lastMsg);
     }
@@ -343,11 +343,11 @@ const ChatList: React.FC<ChatListProps> = ({
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
     const [hoveredDeleteButton, setHoveredDeleteButton] = useState<string | null>(null);
     
-    // 滚动位置保存
+    // ScrollPositionSave
     const chatListAreaRef = useRef<HTMLDivElement>(null);
     const savedScrollPosition = useRef<number>(0);
     
-    // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+    // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
     useEffectOnActive(
         () => {
             const container = chatListAreaRef.current;
@@ -528,7 +528,7 @@ const ChatList: React.FC<ChatListProps> = ({
         setHoveredDeleteButton(null);
     };
 
-    // 格式化时间显示
+    // FormatTimeDisplay
     const formatTime = (timestamp?: number): string => {
         if (!timestamp) return '--:--';
         
@@ -537,11 +537,11 @@ const ChatList: React.FC<ChatListProps> = ({
         
         const now = new Date();
         
-        // 同一天显示时间，不同天显示日期
+        // 同一天DisplayTime，不同天DisplayDate
         if (date.toDateString() === now.toDateString()) {
             return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         } else {
-            // 一周内显示星期几，否则显示日期
+            // 一周内Display星期几，否则DisplayDate
             const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
             if (diffDays < 7) {
                 const weekdays = [

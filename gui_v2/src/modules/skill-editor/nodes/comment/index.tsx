@@ -21,6 +21,6 @@ export const CommentNodeRegistry: FlowNodeRegistry = {
   formMeta: {
     render: () => <></>,
   },
-  getInputPoints: () => [], // Comment 节点没有输入
-  getOutputPoints: () => [], // Comment 节点没有输出
+  getInputPoints: () => [], // Comment 节点没有Input
+  getOutputPoints: () => [], // Comment 节点没有Output
 };

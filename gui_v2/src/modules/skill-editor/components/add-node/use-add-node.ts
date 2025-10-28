@@ -19,12 +19,12 @@ import {
 } from '@flowgram.ai/free-layout-editor';
 import { nodeRegistries } from '../../nodes';
 
-// hook to get panel position from mouse event - 从鼠标事件获取面板位置的 hook
+// hook to get panel position from mouse event - 从鼠标EventGet面板Position的 hook
 const useGetPanelPosition = () => {
   const playground = usePlayground();
   return useCallback(
     (targetBoundingRect: DOMRect): PositionSchema =>
-      // convert mouse position to canvas position - 将鼠标位置转换为画布位置
+      // convert mouse position to canvas position - 将鼠标PositionConvert为画布Position
       playground.config.getPosFromMouseEvent({
         clientX: targetBoundingRect.left + 64,
         clientY: targetBoundingRect.top - 7,
@@ -32,7 +32,7 @@ const useGetPanelPosition = () => {
     [playground]
   );
 };
-// hook to handle node selection - 处理节点选择的 hook
+// hook to handle node selection - Process节点Select的 hook
 const useSelectNode = () => {
   const selectService = useService(WorkflowSelectService);
   return useCallback(
@@ -40,7 +40,7 @@ const useSelectNode = () => {
       if (!node) {
         return;
       }
-      // select the target node - 选择目标节点
+      // select the target node - Select目标节点
       selectService.selectNode(node);
     },
     [selectService]
@@ -63,7 +63,7 @@ const getContainerNode = (selectService: WorkflowSelectService) => {
   return parentNode;
 };
 
-// main hook for adding new nodes - 添加新节点的主 hook
+// main hook for adding new nodes - Add新节点的主 hook
 export const useAddNode = () => {
   const workflowDocument = useService(WorkflowDocument);
   const nodePanelService = useService<WorkflowNodePanelService>(WorkflowNodePanelService);
@@ -151,7 +151,7 @@ export const useAddNode = () => {
     el.style.top = '0px';
     el.style.transform = 'translate(-50%, -50%)';
     el.style.pointerEvents = 'none';
-    el.style.zIndex = '1500'; // 拖拽预览层级
+    el.style.zIndex = '1500'; // Drag预览层级
     el.style.width = '280px';
     el.style.height = '120px';
     el.style.border = '1px dashed rgba(82,100,154,0.5)';
@@ -219,17 +219,17 @@ export const useAddNode = () => {
 
   return useCallback(
     async (targetBoundingRect: DOMRect): Promise<void> => {
-      // calculate panel position based on target element - 根据目标元素计算面板位置
+      // calculate panel position based on target element - 根据目标元素计算面板Position
       const panelPosition = getPanelPosition(targetBoundingRect);
       const containerNode = getContainerNode(selectService);
       await new Promise<void>((resolve) => {
-        // call the node panel service to show the panel - 调用节点面板服务来显示面板
+        // call the node panel service to show the panel - 调用节点面板Service来Display面板
         nodePanelService.callNodePanel({
           position: panelPosition,
           enableMultiAdd: true,
           containerNode,
           panelProps: {},
-          // handle node selection from panel - 处理从面板中选择节点
+          // handle node selection from panel - Process从面板中Select节点
           onSelect: async (panelParams?: NodePanelResult) => {
             if (!panelParams) {
               return;
@@ -263,7 +263,7 @@ export const useAddNode = () => {
               }
             } catch {}
           },
-          // handle panel close - 处理面板关闭
+          // handle panel close - Process面板Close
           onClose: () => {
             resolve();
           },

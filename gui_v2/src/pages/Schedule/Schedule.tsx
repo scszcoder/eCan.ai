@@ -1,6 +1,6 @@
 /**
  * Schedule Page - Main Entry
- * 日程页面 - 主入口
+ * 日程Page - 主入口
  * 
  * 使用新的日历UI来展示和管理日程
  */

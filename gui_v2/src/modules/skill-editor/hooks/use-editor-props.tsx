@@ -47,13 +47,13 @@ export function useEditorProps(
        */
       background: true,
       /**
-       * 画布相关配置
+       * 画布相关Configuration
        * Canvas-related configurations
        */
       playground: {
         /**
          * Prevent Mac browser gestures from turning pages
-         * 阻止 mac 浏览器手势翻页
+         * 阻止 mac Browser手势翻页
          */
         preventGlobalGesture: true,
       },
@@ -63,17 +63,17 @@ export function useEditorProps(
       readonly: false,
       /**
        * Initial data
-       * 初始化数据
+       * InitializeData
        */
       initialData,
       /**
        * Node registries
-       * 节点注册
+       * 节点Register
        */
       nodeRegistries,
       /**
        * Get the default node registry, which will be merged with the 'nodeRegistries'
-       * 提供默认的节点注册，这个会和 nodeRegistries 做合并
+       * 提供Default的节点Register，这个会和 nodeRegistries 做合并
        */
       getNodeDefaultRegistry(type) {
         return {
@@ -85,7 +85,7 @@ export function useEditorProps(
         };
       },
       /**
-       * 节点数据转换, 由 ctx.document.fromJSON 调用
+       * 节点DataConvert, 由 ctx.document.fromJSON 调用
        * Node data transformation, called by ctx.document.fromJSON
        * @param node
        * @param json
@@ -94,7 +94,7 @@ export function useEditorProps(
         return json;
       },
       /**
-       * 节点数据转换, 由 ctx.document.toJSON 调用
+       * 节点DataConvert, 由 ctx.document.toJSON 调用
        * Node data transformation, called by ctx.document.toJSON
        * @param node
        * @param json
@@ -116,11 +116,11 @@ export function useEditorProps(
        * 判断是否连线
        */
       canAddLine(ctx, fromPort, toPort) {
-        // Cannot be a self-loop on the same node / 不能是同一节点自循环
+        // Cannot be a self-loop on the same node / 不能是同一节点自Loop
         if (fromPort.node === toPort.node) {
           return false;
         }
-        // Cannot be in different containers - 不能在不同容器
+        // Cannot be in different containers - 不能在不同Container
         if (
           fromPort.node.parent?.id !== toPort.node.parent?.id &&
           ![fromPort.node.parent?.flowNodeType, toPort.node.parent?.flowNodeType].includes(
@@ -130,33 +130,33 @@ export function useEditorProps(
           return false;
         }
         /**
-         * 线条环检测，不允许连接到前面的节点
+         * 线条环检测，不AllowConnection到前面的节点
          * Line loop detection, which is not allowed to connect to the node in front of it
          */
         return !fromPort.node.getData(WorkflowNodeLinesData).allInputNodes.includes(toPort.node);
       },
       /**
        * Check whether the line can be deleted, this triggers on the default shortcut `Bakspace` or `Delete`
-       * 判断是否能删除连线, 这个会在默认快捷键 (Backspace or Delete) 触发
+       * 判断是否能Delete连线, 这个会在Default快捷键 (Backspace or Delete) Trigger
        */
       canDeleteLine(ctx, line, newLineInfo, silent) {
         return true;
       },
       /**
        * Check whether the node can be deleted, this triggers on the default shortcut `Bakspace` or `Delete`
-       * 判断是否能删除节点, 这个会在默认快捷键 (Backspace or Delete) 触发
+       * 判断是否能Delete节点, 这个会在Default快捷键 (Backspace or Delete) Trigger
        */
       canDeleteNode(ctx, node) {
         return true;
       },
       /**
-       * 是否允许拖入子画布 (loop or group)
+       * 是否Allow拖入子画布 (loop or group)
        * Whether to allow dragging into the sub-canvas (loop or group)
        */
       canDropToNode: (ctx, params) => {
         const { dragNodeType, dropNodeType } = params;
         /**
-         * 开始/结束节点无法更改容器
+         * 开始/结束节点无法更改Container
          * The start and end nodes cannot change container
          */
         if (
@@ -170,7 +170,7 @@ export function useEditorProps(
           return false;
         }
         /**
-         * 继续循环与终止循环只能在循环节点中
+         * 继续Loop与终止Loop只能在Loop节点中
          * Continue loop and break loop can only be in loop nodes
          */
         if (
@@ -182,7 +182,7 @@ export function useEditorProps(
           return false;
         }
         /**
-         * 循环节点无法嵌套循环节点
+         * Loop节点无法嵌套Loop节点
          * Loop node cannot nest loop node
          */
         if (dragNodeType === WorkflowNodeType.Loop && dropNodeType === WorkflowNodeType.Loop) {
@@ -192,8 +192,8 @@ export function useEditorProps(
       },
       /**
        * Drag the end of the line to create an add panel (feature optional)
-       * 拖拽线条结束需要创建一个添加面板 （功能可选）
-       * 希望提供控制线条粗细的配置项
+       * Drag线条结束NeedCreate一个Add面板 （功能Optional）
+       * 希望提供控制线条粗细的Configuration项
        */
       onDragLineEnd,
       /**
@@ -205,7 +205,7 @@ export function useEditorProps(
       scroll: {
         /**
          * Whether to restrict the node from rolling out of the canvas needs to be closed because there is a running results pane
-         * 是否限制节点不能滚出画布，由于有运行结果面板，所以需要关闭
+         * 是否Limit节点不能滚出画布，由于有RunResult面板，所以NeedClose
          */
         enableScrollLimit: false,
       },
@@ -271,7 +271,7 @@ export function useEditorProps(
         const cleaned = sanitize(raw);
         console.log('Auto Save: ', event, cleaned);
 
-        // 自动同步 skillInfo 的 workFlow 字段 (without runtime state)
+        // 自动Sync skillInfo 的 workFlow Field (without runtime state)
         const setSkillInfo = useSkillInfoStore.getState().setSkillInfo;
         const skillInfo = useSkillInfoStore.getState().skillInfo;
         if (skillInfo) {
@@ -324,8 +324,8 @@ export function useEditorProps(
         locale: navigator.language,
         languages: {
           'zh-CN': {
-            'Never Remind': '不再提示',
-            'Hold {{key}} to drag node out': '按住 {{key}} 可以将节点拖出',
+            'Never Remind': '不再Prompt',
+            'Hold {{key}} to drag node out': '按住 {{key}} Can将节点拖出',
           },
           'en-US': {},
         },
@@ -333,7 +333,7 @@ export function useEditorProps(
       plugins: () => [
         /**
          * Line render plugin
-         * 连线渲染插件
+         * 连线Render插件
          */
         createFreeLinesPlugin({
           renderInsideLine: LineAddButton,
@@ -366,7 +366,7 @@ export function useEditorProps(
 
         /**
          * Snap plugin
-         * 自动对齐及辅助线插件
+         * 自动Align及Helper线插件
          */
         createFreeSnapPlugin({
           edgeColor: '#00B2B2',
@@ -377,14 +377,14 @@ export function useEditorProps(
         }),
         /**
          * NodeAddPanel render plugin
-         * 节点添加面板渲染插件
+         * 节点Add面板Render插件
          */
         createFreeNodePanelPlugin({
           renderer: NodePanel,
         }),
         /**
          * This is used for the rendering of the loop node sub-canvas
-         * 这个用于 loop 节点子画布的渲染
+         * 这个Used for loop 节点子画布的Render
          */
         createContainerNodePlugin({}),
         /**

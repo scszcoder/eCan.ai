@@ -1,13 +1,13 @@
 /**
- * Tasks 页面特有类型定义
- * 基础类型请从 @/types/domain/task 导入
+ * Tasks Page特有TypeDefinition
+ * BaseType请从 @/types/domain/task Import
  */
 
-// 从 domain 层导入基础类型
+// 从 domain 层ImportBaseType
 export type { Task } from '@/types/domain/task';
 export { TaskStatus, TaskPriority } from '@/types/domain/task';
 
-// 页面特有类型
+// Page特有Type
 export interface Schedule {
   repeat_type: string;
   repeat_number: number;

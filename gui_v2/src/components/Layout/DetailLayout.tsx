@@ -66,14 +66,14 @@ const DetailLayout: React.FC<DetailLayoutProps> = ({
     listContent,
     detailsContent,
 }) => {
-    // 列表滚动位置保存
+    // ListScrollPositionSave
     const listCardRef = useRef<HTMLDivElement>(null);
     const savedListScrollPosition = useRef<number>(0);
     
-    // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+    // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
     useEffectOnActive(
         () => {
-            // 获取实际的滚动容器（Card body）
+            // Get实际的ScrollContainer（Card body）
             const container = listCardRef.current?.querySelector('.ant-card-body') as HTMLDivElement;
             if (container && savedListScrollPosition.current > 0) {
                 requestAnimationFrame(() => {

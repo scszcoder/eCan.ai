@@ -26,7 +26,7 @@ export function findTreeNodeById(
 }
 
 /**
- * 从树形结构中提取所有 Agent
+ * 从树形结构中提取All Agent
  */
 export function extractAllAgents(node: TreeOrgNode): OrgAgent[] {
   let allAgents: OrgAgent[] = [];
@@ -45,7 +45,7 @@ export function extractAllAgents(node: TreeOrgNode): OrgAgent[] {
 }
 
 /**
- * 排序子节点
+ * Sort子节点
  */
 export function sortTreeChildren(children: TreeOrgNode[]): TreeOrgNode[] {
   return [...children].sort((a, b) => {

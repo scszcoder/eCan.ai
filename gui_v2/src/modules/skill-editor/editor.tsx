@@ -55,7 +55,7 @@ const SkillNameLabel = styled.div`
 export const Editor = () => {
   const emptyData: FlowDocumentJSON = emptyFlowData;
 
-  // 生产环境不加载初始数据，开发环境根据配置决定
+  // ProductionEnvironment不Load初始Data，DevelopmentEnvironment根据Configuration决定
   const shouldLoadInitialData = process.env.NODE_ENV === 'development' ? true : false;
   const { skillInfo } = useSkillInfoStore();
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);

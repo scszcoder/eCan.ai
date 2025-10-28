@@ -1,6 +1,6 @@
 /**
  * IPC API
- * 提供与 Python 后端通信的高级 API
+ * 提供与 Python Backend通信的Advanced API
  */
 
 import { IPCAPI } from "./ipc/api";

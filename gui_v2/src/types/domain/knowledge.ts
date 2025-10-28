@@ -1,10 +1,10 @@
 /**
  * Knowledge Domain Types
- * 知识库相关的类型定义
+ * Type definitions for knowledge base
  */
 
 /**
- * 知识类型
+ * Knowledge type
  */
 export enum KnowledgeType {
   DOCUMENT = 'document',
@@ -16,7 +16,7 @@ export enum KnowledgeType {
 }
 
 /**
- * 知识状态
+ * Knowledge status
  */
 export enum KnowledgeStatus {
   ACTIVE = 'active',
@@ -26,54 +26,54 @@ export enum KnowledgeStatus {
 }
 
 /**
- * 知识库条目类型
+ * Knowledge entry type
  */
 export interface Knowledge {
-  // 基础信息
+  // Basic information
   id: string;
   name: string;
   title?: string;
   description?: string;
   owner: string;
   
-  // 知识属性
+  // Knowledge attributes
   knowledge_type?: KnowledgeType | string;
   version?: string;
   path?: string;
-  level?: number; // 复杂度级别 1-5
+  level?: number; // Complexity level 1-5
   
-  // 内容
+  // Content
   content?: string;
   tags?: string[];
   categories?: string[];
-  category?: string; // 兼容旧字段
+  category?: string; // Compatible with old field
   
-  // 配置
+  // Configuration
   config?: Record<string, any>;
   access_methods?: string[];
   limitations?: string[];
   
-  // 访问和定价
+  // Access and pricing
   public?: boolean;
   rentable?: boolean;
   price?: number;
   price_model?: string; // free, per_access, subscription
   
-  // 状态
+  // Status
   status?: KnowledgeStatus | string;
   
-  // 元数据
+  // Metadata
   settings?: Record<string, any>;
   
-  // 时间戳
+  // Timestamps
   createdAt?: string;
   updatedAt?: string;
-  created_at?: string; // 兼容后端字段
-  updated_at?: string; // 兼容后端字段
+  created_at?: string; // Compatible with backend fields
+  updated_at?: string; // Compatible with backend fields
 }
 
 /**
- * 问答对类型
+ * Q&A pair type
  */
 export interface QAPair {
   id: string;
@@ -87,7 +87,7 @@ export interface QAPair {
 }
 
 /**
- * 知识分类类型
+ * Knowledge category type
  */
 export interface KnowledgeCategory {
   id: string;
@@ -98,7 +98,7 @@ export interface KnowledgeCategory {
 }
 
 /**
- * 创建知识的输入类型
+ * Create knowledge input type
  */
 export interface CreateKnowledgeInput {
   name: string;
@@ -111,7 +111,7 @@ export interface CreateKnowledgeInput {
 }
 
 /**
- * 更新知识的输入类型
+ * Update knowledge input type
  */
 export interface UpdateKnowledgeInput {
   name?: string;

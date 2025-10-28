@@ -1,4 +1,4 @@
-// 表单类型定义
+// FormTypeDefinition
 import { FormField as IFormField } from '../../types/chat';
 
 export interface ScoreForm {

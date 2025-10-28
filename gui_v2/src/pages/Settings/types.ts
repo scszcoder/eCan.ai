@@ -1,6 +1,6 @@
-// 统一的类型定义文件
+// 统一的TypeDefinition文件
 
-// LLM Provider 相关类型 - 匹配后端返回的数据结构
+// LLM Provider 相关Type - 匹配Backend返回的Data结构
 export interface LLMProvider {
   name: string;
   display_name: string;
@@ -18,7 +18,7 @@ export interface LLMProvider {
   is_preferred: boolean;
   preferred_model: string | null;
   custom_parameters: any;
-  api_key_configured: boolean;  // 使用后端的字段名
+  api_key_configured: boolean;  // 使用Backend的Field名
 
   // Validation status
   is_valid: boolean;
@@ -26,7 +26,7 @@ export interface LLMProvider {
   missing_env_vars: string[];
 }
 
-// Settings 主接口
+// Settings 主Interface
 export interface Settings {
   debug_mode: boolean;
   default_wifi: string;
@@ -57,14 +57,14 @@ export interface Settings {
   last_order_file: string;
   last_order_file_time: number;
   new_orders_path: string;
-  default_llm: string;  // 默认使用的LLM提供商
+  default_llm: string;  // Default使用的LLM提供商
   ocr_engine: string;  // OCR 引擎
   ocr_endpoint: string;  // OCR 端点
   ocr_port: string;  // OCR 端口
   ocr_api_key: string;  // OCR API 密钥
 }
 
-// 工具函数
+// ToolFunction
 export const maskApiKey = (apiKey: string | null): string => {
   if (!apiKey) return '';
   if (apiKey.length <= 10) return '*'.repeat(apiKey.length);

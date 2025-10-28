@@ -1,6 +1,6 @@
 /**
  * Day View Component
- * 日视图日历组件
+ * 日视图日历Component
  */
 
 import React, { useMemo, useRef, useEffect } from 'react';
@@ -30,7 +30,7 @@ const DayHeader = styled.div`
   padding: 16px 20px;
   position: sticky;
   top: 0;
-  z-index: 1; // 只需要在日历内容上方，不能遮挡下拉菜单
+  z-index: 1; // 只Need在日历Content上方，不能遮挡下拉Menu
   
   .date-info {
     display: flex;
@@ -265,7 +265,7 @@ const DayView: React.FC<DayViewProps> = ({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const savedScrollPositionRef = useRef<number>(0);
   
-  // 动态设置 dayjs locale
+  // 动态Settings dayjs locale
   useEffect(() => {
     const locale = i18n.language === 'zh-CN' ? 'zh-cn' : 'en';
     dayjs.locale(locale);
@@ -311,10 +311,10 @@ const DayView: React.FC<DayViewProps> = ({
     onTimeSlotClick?.(currentDate, hour, minute);
   };
   
-  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
   useEffectOnActive(
     () => {
-      // 组件激活时：恢复滚动位置
+      // ComponentActive时：RestoreScrollPosition
       const container = scrollContainerRef.current;
       if (container && savedScrollPositionRef.current > 0) {
         requestAnimationFrame(() => {
@@ -322,7 +322,7 @@ const DayView: React.FC<DayViewProps> = ({
         });
       }
       
-      // 返回清理函数，在组件失活前保存滚动位置
+      // 返回CleanupFunction，在Component失活前SaveScrollPosition
       return () => {
         const container = scrollContainerRef.current;
         if (container) {
@@ -333,7 +333,7 @@ const DayView: React.FC<DayViewProps> = ({
     []
   );
   
-  // 获取某个时间槽内的任务（处理跨天任务）
+  // Get某个Time槽内的任务（Process跨天任务）
   const getEventsForSlot = (slotHour: number, slotMinute: number) => {
     const slotStart = dayjs(currentDate).hour(slotHour).minute(slotMinute).second(0);
     const slotEnd = slotStart.add(calendarConfig.timeSlotDuration, 'minute');
@@ -345,10 +345,10 @@ const DayView: React.FC<DayViewProps> = ({
         const eventStart = dayjs(event.start);
         const eventEnd = dayjs(event.end);
         
-        // 如果任务在这个时间槽内开始，显示它
+        // If任务在这个Time槽内开始，Display它
         const startsInSlot = eventStart.isSameOrAfter(slotStart) && eventStart.isBefore(slotEnd);
         
-        // 如果是当天的第一个时间槽，且任务是跨天进行中的（开始时间早于今天，结束时间晚于今天开始）
+        // If是When天的第一个Time槽，且任务是跨天In progress的（开始Time早于今天，结束Time晚于今天开始）
         const isContinuingTask = isFirstSlotOfDay && 
                                  eventStart.isBefore(dayStart) && 
                                  eventEnd.isAfter(dayStart);
@@ -356,20 +356,20 @@ const DayView: React.FC<DayViewProps> = ({
         return startsInSlot || isContinuingTask;
       })
       .sort((a, b) => {
-        // 优先显示今天开始的任务，然后是继续进行中的任务
+        // 优先Display今天开始的任务，然后是继续In progress的任务
         const aStartsToday = dayjs(a.start).isSame(dayStart, 'day');
         const bStartsToday = dayjs(b.start).isSame(dayStart, 'day');
         
         if (aStartsToday && !bStartsToday) return -1;
         if (!aStartsToday && bStartsToday) return 1;
         
-        // 按开始时间排序，相同时间按名称排序
+        // 按开始TimeSort，相同Time按NameSort
         const timeDiff = a.start.getTime() - b.start.getTime();
         if (timeDiff !== 0) return timeDiff;
         return (a.title || '').localeCompare(b.title || '');
       })
       .map(event => {
-        // 标记任务是今天开始还是继续进行中
+        // 标记任务是今天开始还是继续In progress
         const startsToday = dayjs(event.start).isSame(dayStart, 'day');
         return { ...event, startsToday };
       });
@@ -442,7 +442,7 @@ const DayView: React.FC<DayViewProps> = ({
                   $isHour={isHour}
                   onClick={() => handleTimeSlotClick(slot.hour, slot.minute)}
                 >
-                  {/* 渲染该时间槽的任务 */}
+                  {/* Render该Time槽的任务 */}
                   {getEventsForSlot(slot.hour, slot.minute).map((eventWithFlag: any) => {
                     const event = eventWithFlag as CalendarEvent;
                     const startsToday = (eventWithFlag as any).startsToday;

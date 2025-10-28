@@ -153,7 +153,7 @@ const ImageViewer: React.FC<ImageViewerProps> = memo(({
     const imageRef = useRef<HTMLImageElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    // 缩放功能
+    // Scale功能
     const handleZoomIn = useCallback(() => {
         setScale(prev => Math.min(prev * 1.2, 5));
     }, []);
@@ -162,12 +162,12 @@ const ImageViewer: React.FC<ImageViewerProps> = memo(({
         setScale(prev => Math.max(prev / 1.2, 0.1));
     }, []);
 
-    // 旋转功能
+    // Rotate功能
     const handleRotate = useCallback(() => {
         setRotation(prev => (prev + 90) % 360);
     }, []);
 
-    // 重置功能
+    // Reset功能
     const handleReset = useCallback(() => {
         setScale(1);
         setRotation(0);
@@ -220,7 +220,7 @@ const ImageViewer: React.FC<ImageViewerProps> = memo(({
         return () => document.removeEventListener('keydown', handleKeyDown);
     }, [onClose, handleZoomIn, handleZoomOut, handleRotate, handleToggleFullscreen, handleReset]);
 
-    // 鼠标滚轮缩放
+    // 鼠标滚轮Scale
     const handleWheel = useCallback((e: WheelEvent) => {
         e.preventDefault();
         if (e.deltaY < 0) {
@@ -238,7 +238,7 @@ const ImageViewer: React.FC<ImageViewerProps> = memo(({
         }
     }, [handleWheel]);
 
-    // 鼠标拖拽
+    // 鼠标Drag
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
         if (e.button === 0) { // 左键
             setIsDragging(true);
@@ -259,12 +259,12 @@ const ImageViewer: React.FC<ImageViewerProps> = memo(({
         setIsDragging(false);
     }, []);
 
-    // 工具栏点击事件处理
+    // Tool栏ClickEventProcess
     const handleToolbarClick = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
     }, []);
 
-    // 图片容器点击事件处理
+    // 图片ContainerClickEventProcess
     const handleImageContainerClick = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
     }, []);
@@ -272,9 +272,9 @@ const ImageViewer: React.FC<ImageViewerProps> = memo(({
     // 下载功能
     const handleDownload = useCallback(async () => {
         try {
-            // 如果 imageUrl 已经是 data URL，直接使用
+            // If imageUrl 已经是 data URL，直接使用
             if (imageUrl.startsWith('data:')) {
-                // 从 data URL 创建 Blob
+                // 从 data URL Create Blob
                 const base64Data = imageUrl.split(',')[1];
                 const binaryData = atob(base64Data);
                 const bytes = new Uint8Array(binaryData.length);
@@ -284,7 +284,7 @@ const ImageViewer: React.FC<ImageViewerProps> = memo(({
                 
                 const blob = new Blob([bytes], { type: mimeType });
 
-                // 尝试使用 File System Access API（现代浏览器）
+                // 尝试使用 File System Access API（现代Browser）
                 if ('showSaveFilePicker' in window) {
                     try {
                         const handle = await (window as any).showSaveFilePicker({
@@ -308,7 +308,7 @@ const ImageViewer: React.FC<ImageViewerProps> = memo(({
                     }
                 }
 
-                // 回退到传统的下载方法
+                // 回退到传统的下载Method
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.style.display = 'none';
@@ -317,13 +317,13 @@ const ImageViewer: React.FC<ImageViewerProps> = memo(({
                 document.body.appendChild(a);
                 a.click();
                 
-                // 清理
+                // Cleanup
                 setTimeout(() => {
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
                 }, 100);
             } else {
-                // 如果是网络图片，直接下载
+                // If是Network图片，直接下载
                 const a = document.createElement('a');
                 a.style.display = 'none';
                 a.href = imageUrl;
@@ -331,7 +331,7 @@ const ImageViewer: React.FC<ImageViewerProps> = memo(({
                 document.body.appendChild(a);
                 a.click();
                 
-                // 清理
+                // Cleanup
                 setTimeout(() => {
                     document.body.removeChild(a);
                 }, 100);
@@ -365,12 +365,12 @@ const ImageViewer: React.FC<ImageViewerProps> = memo(({
                 />
             </ImageContainer>
 
-            {/* 关闭按钮 */}
+            {/* CloseButton */}
             <CloseButton onClick={onClose}>
                 <IconClose />
             </CloseButton>
 
-            {/* 工具栏 */}
+            {/* Tool栏 */}
             <Toolbar onClick={handleToolbarClick}>
                 <ToolbarRow>
                     <Button
@@ -460,12 +460,12 @@ const ImageViewer: React.FC<ImageViewerProps> = memo(({
                 </ToolbarRow>
             </Toolbar>
 
-            {/* 缩放信息 */}
+            {/* ScaleInformation */}
             <ZoomInfo>
                 {Math.round(scale * 100)}% | {rotation}°
             </ZoomInfo>
 
-            {/* 图片信息 */}
+            {/* 图片Information */}
             <ImageInfo>
                 {fileName} ({mimeType})
             </ImageInfo>

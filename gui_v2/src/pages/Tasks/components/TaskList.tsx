@@ -37,7 +37,7 @@ interface TaskListProps {
   scrollToTaskId?: string;
 }
 
-// 优先级排序权重
+// PrioritySort权重
 const PRIORITY_ORDER: Record<string, number> = {
   ASAP: 5,
   asap: 5,
@@ -65,15 +65,15 @@ export const TaskList: React.FC<TaskListProps> = ({
     sortBy: 'priority',
   });
   
-  // 用于存储每个task item的ref
+  // Used forStorage每个task item的ref
   const taskItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-  // 当scrollToTaskId变化时，滚动到对应的task
+  // WhenscrollToTaskId变化时，Scroll到对应的task
   useEffect(() => {
     if (scrollToTaskId && taskItemRefs.current.has(scrollToTaskId)) {
       const element = taskItemRefs.current.get(scrollToTaskId);
       if (element) {
-        // 使用setTimeout确保DOM已经渲染
+        // 使用setTimeout确保DOM已经Render
         setTimeout(() => {
           element.scrollIntoView({
             behavior: 'smooth',
@@ -84,11 +84,11 @@ export const TaskList: React.FC<TaskListProps> = ({
     }
   }, [scrollToTaskId]);
 
-  // 筛选和排序任务
+  // 筛选和Sort任务
   const filteredAndSortedTasks = useMemo(() => {
     let result = [...tasks];
 
-    // 搜索过滤
+    // SearchFilter
     if (filters.search) {
       const searchLower = filters.search.toLowerCase();
       result = result.filter(task =>
@@ -97,7 +97,7 @@ export const TaskList: React.FC<TaskListProps> = ({
       );
     }
 
-    // 状态过滤
+    // StatusFilter
     if (filters.status) {
       result = result.filter(task => {
         const status = task.state?.top || task.status;
@@ -105,28 +105,28 @@ export const TaskList: React.FC<TaskListProps> = ({
       });
     }
 
-    // 优先级过滤
+    // PriorityFilter
     if (filters.priority) {
       result = result.filter(task => task.priority === filters.priority);
     }
 
-    // 触发方式过滤
+    // Trigger方式Filter
     if (filters.trigger) {
       result = result.filter(task => task.trigger === filters.trigger);
     }
 
-    // 排序
+    // Sort
     result.sort((a, b) => {
       switch (filters.sortBy) {
         case 'priority': {
           const priorityA = PRIORITY_ORDER[a.priority || 'none'] || 0;
           const priorityB = PRIORITY_ORDER[b.priority || 'none'] || 0;
-          return priorityB - priorityA; // 高优先级在前
+          return priorityB - priorityA; // 高Priority在前
         }
         case 'lastRun': {
           const timeA = a.last_run_datetime ? new Date(a.last_run_datetime).getTime() : 0;
           const timeB = b.last_run_datetime ? new Date(b.last_run_datetime).getTime() : 0;
-          return timeB - timeA; // 最近运行的在前
+          return timeB - timeA; // 最近Run的在前
         }
         case 'name': {
           const nameA = a.skill || '';

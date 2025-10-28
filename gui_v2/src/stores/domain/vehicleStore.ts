@@ -1,8 +1,8 @@
 /**
  * Vehicle Store
- * 设备/车辆数据管理 Store
+ * Device/Vehicle data management store
  * 
- * 使用标准化的 store 模式，提供完整的 CRUD 功能
+ * Uses standardized store pattern with complete CRUD functionality
  */
 
 import { createExtendedResourceStore } from '../base/createBaseStore';
@@ -11,15 +11,15 @@ import { Vehicle, VehicleStatus, VehicleType } from '../../types/domain/vehicle'
 import { VehicleAPI } from '../../services/api/vehicleApi';
 
 /**
- * Vehicle Store 扩展接口
- * 在基础 store 之上添加设备特定的查询方法
+ * Vehicle Store extended interface
+ * Adds device-specific query methods on top of the base store
  */
 export interface VehicleStoreState extends BaseStoreState<Vehicle> {
-  // 当前选中的设备名称（兼容旧的 vehicleStore）
+  // Current selected device name (compatible with old vehicleStore)
   vehiclename: string | null;
   setVehiclename: (vehiclename: string | null) => void;
   
-  // 扩展查询方法
+  // Extended query methods
   getVehiclesByStatus: (status: VehicleStatus) => Vehicle[];
   getVehiclesByType: (type: VehicleType) => Vehicle[];
   getOnlineVehicles: () => Vehicle[];
@@ -27,7 +27,7 @@ export interface VehicleStoreState extends BaseStoreState<Vehicle> {
   getAvailableVehicles: () => Vehicle[];
   getVehiclesByLocation: (location: string) => Vehicle[];
   
-  // 扩展操作方法
+  // Extended operation methods
   createVehicle: (username: string, vehicle: Vehicle) => Promise<void>;
   updateVehicle: (username: string, vehicleId: string, updates: Partial<Vehicle>) => Promise<void>;
   updateVehicleStatus: (username: string, vehicleId: string, status: VehicleStatus) => Promise<void>;
@@ -41,13 +41,13 @@ export interface VehicleStoreState extends BaseStoreState<Vehicle> {
  * ```typescript
  * const { items: vehicles, loading, fetchItems } = useVehicleStore();
  * 
- * // 获取设备
+ * // Get devices
  * await fetchItems(username);
  * 
- * // 查询在线设备
+ * // Query online devices
  * const onlineVehicles = useVehicleStore.getState().getOnlineVehicles();
  * 
- * // 更新设备状态
+ * // Update device status
  * await useVehicleStore.getState().updateVehicleStatus(username, vehicleId, VehicleStatus.ACTIVE);
  * ```
  */
@@ -61,11 +61,11 @@ export const useVehicleStore = createExtendedResourceStore<Vehicle, VehicleStore
   (baseState, set, get) => ({
     ...baseState,
     
-    // 当前选中的设备名称（兼容旧的 vehicleStore）
+    // Current selected device name (compatible with old vehicleStore)
     vehiclename: null,
     setVehiclename: (vehiclename: string | null) => set({ vehiclename }),
     
-    // 扩展查询方法
+    // Extended query methods
     getVehiclesByStatus: (status: VehicleStatus) => {
       const items = get().items;
       return items.filter(vehicle => vehicle.status === status);
@@ -108,7 +108,7 @@ export const useVehicleStore = createExtendedResourceStore<Vehicle, VehicleStore
       return items.filter(vehicle => vehicle.location === location);
     },
     
-    // 扩展操作方法
+    // Extended operation methods
     createVehicle: async (username: string, vehicle: Vehicle) => {
       set({ loading: true, error: null });
       
@@ -117,7 +117,7 @@ export const useVehicleStore = createExtendedResourceStore<Vehicle, VehicleStore
         const response = await api.create(username, vehicle);
         
         if (response.success && response.data) {
-          // 添加到本地状态
+          // Add to local state
           get().addItem(response.data);
           set({ loading: false });
         } else {
@@ -138,7 +138,7 @@ export const useVehicleStore = createExtendedResourceStore<Vehicle, VehicleStore
         const response = await api.update(username, vehicleId, updates);
         
         if (response.success && response.data) {
-          // 更新本地状态
+          // Update local state
           get().updateItem(vehicleId, updates);
           set({ loading: false });
         } else {
@@ -159,7 +159,7 @@ export const useVehicleStore = createExtendedResourceStore<Vehicle, VehicleStore
         const response = await api.update(username, vehicleId, { status });
         
         if (response.success && response.data) {
-          // 更新本地状态
+          // Update local state
           get().updateItem(vehicleId, { status });
           set({ loading: false });
         } else {
@@ -180,7 +180,7 @@ export const useVehicleStore = createExtendedResourceStore<Vehicle, VehicleStore
         const response = await api.delete(username, vehicleId);
         
         if (response.success) {
-          // 从本地状态移除
+          // Remove from local state
           get().removeItem(vehicleId);
           set({ loading: false });
         } else {

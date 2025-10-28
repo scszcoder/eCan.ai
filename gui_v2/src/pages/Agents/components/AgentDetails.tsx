@@ -46,7 +46,7 @@ const knownPersonalities = [
   'personality.innovative'
 ];
 
-// 预定义的职称选项（使用国际化 key）
+// 预Definition的职称选项（使用国际化 key）
 const knownTitles = [
   'title.engineer',
   'title.manager',
@@ -73,11 +73,11 @@ const AgentDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
   
-  // 滚动位置保存
+  // ScrollPositionSave
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const savedScrollPositionRef = useRef<number>(0);
   
-  // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+  // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
   useEffectOnActive(
     () => {
       const container = scrollContainerRef.current;
@@ -96,18 +96,18 @@ const AgentDetails: React.FC = () => {
     },
     []
   );
-  // 支持两种新建模式：/agents/add 和 /agents/details/new
+  // Support两种新建模式：/agents/add 和 /agents/details/new
   const isNew = id === 'new' || location.pathname === '/agents/add';
   const username = useUserStore((s: any) => s.username);
   
-  // 从查询参数中获取 orgId（用于保存后返回）
+  // 从QueryParameter中Get orgId（Used forSave后返回）
   const searchParams = new URLSearchParams(location.search);
   const defaultOrgId = searchParams.get('orgId');
 
-  // 获取 vehicles 列表
+  // Get vehicles List
   const { items: vehicles, fetchItems: fetchVehicles } = useVehicleStore();
 
-  // 计算本机 vehicle ID（假设本机是 hostname 为 localhost 或 name 包含 "本机" 的）
+  // 计算本机 vehicle ID（假设本机是 hostname 为 localhost 或 name Include "本机" 的）
   const localVehicleId = useMemo(() => {
     if (!vehicles || vehicles.length === 0) return null;
     // 优先查找 hostname 为 localhost 的
@@ -126,14 +126,14 @@ const AgentDetails: React.FC = () => {
   const setTasks = useTaskStore((state) => state.setItems);
   const setSkills = useSkillStore((state) => state.setItems);
   
-  // 获取组织数据
+  // Get组织Data
   const { treeOrgs, setAllOrgAgents, shouldFetchData, setLoading: setOrgLoading, setError: setOrgError } = useOrgStore();
   
-  // 获取 agentStore 用于读取最新的 agent 数据
+  // Get agentStore Used for读取最新的 agent Data
   const getAgentById = useAgentStore((state) => state.getAgentById);
 
   // Build options for selects with full object data for tooltips
-  // 保存完整的task和skill对象映射，用于显示详细信息
+  // Save完整的task和skill对象Map，Used forDisplayDetailedInformation
   const taskMap = useMemo(() => {
     const map = new Map();
     (storeTasks || []).forEach((t: any) => {
@@ -164,33 +164,33 @@ const AgentDetails: React.FC = () => {
     const names = (storeSkills || [])
       .map((s: any) => s.name)
       .filter(Boolean);
-    // 使用 Set 去重，确保没有重复的名称
+    // 使用 Set 去重，确保没有重复的Name
     const unique = Array.from(new Set(names));
     return unique.length > 0 ? unique : knownSkills;
   }, [storeSkills]);
 
-  // 构建组织树形数据供TreeSelect使用（避免循环引用）
+  // 构建组织树形Data供TreeSelect使用（避免LoopReference）
   const organizationTreeData = useMemo(() => {
     const buildTreeData = (node: any, parentPath: string = ''): any => {
-      if (!node || !node.id) return null; // 添加 id 检查
+      if (!node || !node.id) return null; // Add id Check
       
-      // 构建当前节点的完整路径
+      // 构建When前节点的完整Path
       const currentPath = parentPath ? `${parentPath} / ${node.name}` : node.name;
       
-      // 只提取必要的字段，避免循环引用
+      // 只提取必要的Field，避免LoopReference
       const treeNode: any = {
         title: node.name || node.id, // 确保有 title
         value: node.id,
         key: node.id,
-        fullPath: currentPath, // 存储完整路径，用于选中后显示
+        fullPath: currentPath, // Storage完整Path，Used for选中后Display
       };
       
-      // 递归处理子节点，只传递必要的数据
+      // RecursiveProcess子节点，只传递必要的Data
       if (node.children && Array.isArray(node.children) && node.children.length > 0) {
         treeNode.children = node.children
-          .filter((child: any) => child && child.id) // 过滤掉无效节点
+          .filter((child: any) => child && child.id) // Filter掉无效节点
           .map((child: any) => {
-            // 为每个子节点创建简化的对象，只包含必要字段
+            // 为每个子节点Create简化的对象，只Include必要Field
             const simplifiedChild = {
               id: child.id,
               name: child.name,
@@ -205,7 +205,7 @@ const AgentDetails: React.FC = () => {
     };
 
     if (treeOrgs && treeOrgs.length > 0) {
-      // 创建根节点的简化版本
+      // Create根节点的简化Version
       const rootNode = {
         id: treeOrgs[0].id,
         name: treeOrgs[0].name,
@@ -217,10 +217,10 @@ const AgentDetails: React.FC = () => {
     return [];
   }, [treeOrgs]);
 
-  // 获取当前层级及以上的所有agents（用于上级选择）
+  // GetWhen前层级及以上的Allagents（Used for上级Select）
   const [supervisorTreeData, setSupervisorTreeData] = useState<any[]>([]);
 
-  // 获取 vehicles 列表
+  // Get vehicles List
   useEffect(() => {
     if (username) {
       fetchVehicles(username).catch((error: any) => {
@@ -229,7 +229,7 @@ const AgentDetails: React.FC = () => {
     }
   }, [username, fetchVehicles]);
 
-  // 获取组织名称的辅助函数
+  // Get组织Name的HelperFunction
   const getOrgName = useCallback((orgId: string) => {
     const findOrgName = (node: any, targetId: string): string | null => {
       if (node.id === targetId) {
@@ -285,25 +285,25 @@ const AgentDetails: React.FC = () => {
   const [form] = Form.useForm<AgentDetailsForm>();
   const [editMode, setEditMode] = useState(isNew);
   const [loading, setLoading] = useState(false);
-  // 初始化 selectedOrgId 为 defaultOrgId（如果存在）
+  // Initialize selectedOrgId 为 defaultOrgId（If存在）
   const [selectedOrgId, setSelectedOrgId] = useState<string | undefined>(defaultOrgId || undefined);
-  // Avatar 状态
+  // Avatar Status
   const [avatarData, setAvatarData] = useState<AvatarData | undefined>();
   
-  // 确定页面模式：view（查看）、edit（编辑）、create（新增）
+  // 确定Page模式：view（查看）、edit（Edit）、create（新增）
   const pageMode = useMemo(() => {
     if (isNew) return 'create';
     return editMode ? 'edit' : 'view';
   }, [isNew, editMode]);
 
-  // 主动加载组织数据（如果未加载）
+  // 主动Load组织Data（If未Load）
   useEffect(() => {
     const loadOrgData = async () => {
       if (!username) return;
       
-      // 如果已有数据且不需要刷新，则跳过
+      // If已有Data且不NeedRefresh，则跳过
       if (treeOrgs && treeOrgs.length > 0 && !shouldFetchData()) {
-        // 即使使用缓存数据，也要确保新建模式下设置默认组织
+        // 即使使用CacheData，也要确保新建模式下SettingsDefault组织
         if (isNew && defaultOrgId) {
           const currentOrg = form.getFieldValue('org_id');
           if (!currentOrg || currentOrg !== defaultOrgId) {
@@ -322,9 +322,9 @@ const AgentDetails: React.FC = () => {
         if (response?.success && response.data?.orgs) {
           setAllOrgAgents(response.data);
 
-          // 数据加载完成后，如果是新建模式且有默认组织，设置默认值
+          // DataLoadCompleted后，If是新建模式且有Default组织，SettingsDefaultValue
           if (isNew && defaultOrgId) {
-            // 使用 setTimeout 确保在组织树数据更新后再设置表单值
+            // 使用 setTimeout 确保在组织树DataUpdate后再SettingsFormValue
             setTimeout(() => {
               form.setFieldsValue({ org_id: defaultOrgId });
               setSelectedOrgId(defaultOrgId);
@@ -345,15 +345,15 @@ const AgentDetails: React.FC = () => {
     loadOrgData();
   }, [username, treeOrgs, shouldFetchData, setAllOrgAgents, setOrgLoading, setOrgError, isNew, defaultOrgId, form]);
 
-  // 从IPC获取agent数据（编辑模式）
-  // 添加一个 ref 来跟踪是否刚刚保存过
+  // 从IPCGetagentData（Edit模式）
+  // Add一个 ref 来跟踪是否刚刚Save过
   const justSavedRef = useRef(false);
   
   useEffect(() => {
     const fetchAgentData = async () => {
       if (isNew || !id || !username) return;
       
-      // 如果刚刚保存过，跳过这次获取（因为数据已经通过 agentStore 更新了）
+      // If刚刚Save过，跳过这次Get（因为Data已经通过 agentStore Update了）
       if (justSavedRef.current) {
         justSavedRef.current = false;
         return;
@@ -367,8 +367,8 @@ const AgentDetails: React.FC = () => {
         if (response?.success && response.data?.agents && Array.isArray(response.data.agents) && response.data.agents.length > 0) {
           const agent = response.data.agents[0];
 
-          // 更新表单数据
-          // 优先使用 agent 自身的 org_id，如果没有则使用 URL 参数中的 defaultOrgId
+          // UpdateFormData
+          // 优先使用 agent 自身的 org_id，If没有则使用 URL Parameter中的 defaultOrgId
           const orgId = agent.org_id || agent.organization || defaultOrgId || '';
           
           // Convert skills and tasks from objects to names (for Select component)
@@ -417,12 +417,12 @@ const AgentDetails: React.FC = () => {
             description: agent.description || '',
             extra_data: extraDataText
           });
-          // 设置选中的组织ID以显示完整路径
+          // Settings选中的组织ID以Display完整Path
           if (orgId) {
             setSelectedOrgId(orgId);
           }
           
-          // 设置 Avatar 数据 - 保留完整的数据结构
+          // Settings Avatar Data - 保留完整的Data结构
           if (agent.avatar?.imageUrl) {
             setAvatarData({
               type: agent.avatar.type || 'system',
@@ -434,10 +434,10 @@ const AgentDetails: React.FC = () => {
             });
           }
           
-          // 从 AgentCard 编辑进入时，自动进入编辑模式
+          // 从 AgentCard Edit进入时，自动进入Edit模式
           setEditMode(true);
         } else {
-          // 如果没有找到 agent 数据，显示错误
+          // If没有找到 agent Data，DisplayError
           message.error(t('pages.agents.fetch_failed') || 'Agent not found');
         }
       } catch (e) {
@@ -451,14 +451,14 @@ const AgentDetails: React.FC = () => {
     fetchAgentData();
   }, [id, isNew, username, form, message, t, defaultOrgId]);
 
-  // 不再使用 initialValues，改为在 useEffect 中逐个设置字段，避免循环引用警告
+  // 不再使用 initialValues，改为在 useEffect 中逐个SettingsField，避免LoopReferenceWarning
 
-  // 使用 useEffect 来设置初始表单值（仅新建模式）
+  // 使用 useEffect 来Settings初始FormValue（仅新建模式）
   useEffect(() => {
     if (isNew) {
-      // 只有在组织树数据加载完成后才设置表单值
+      // 只有在组织树DataLoadCompleted后才SettingsFormValue
       if (organizationTreeData.length > 0) {
-        // 使用 setTimeout 延迟设置，确保在下一个事件循环中执行
+        // 使用 setTimeout DelaySettings，确保在下一个EventLoop中Execute
         const timeoutId = setTimeout(() => {
           try {
             // Create completely independent initial values object to avoid any possible references
@@ -541,7 +541,7 @@ const AgentDetails: React.FC = () => {
           return null;
         };
         
-        // 根据组织 ID 获取完整的组织节点（从原始 treeOrgs 中查找）
+        // 根据组织 ID Get完整的组织节点（从原始 treeOrgs 中查找）
         const getOrgNodeById = (root: any, orgId: string): any => {
           if (root.id === orgId) return root;
           if (root.children && Array.isArray(root.children)) {
@@ -553,17 +553,17 @@ const AgentDetails: React.FC = () => {
           return null;
         };
         
-        // 构建上级选择的树形数据（按组织分组）
+        // 构建上级Select的树形Data（按组织分组）
         const buildAgentTree = (orgId: string, orgName: string): any => {
-          // 从原始树中获取组织节点
+          // 从原始树中Get组织节点
           const orgNode = getOrgNodeById(treeOrgs[0], orgId);
           const agents = orgNode?.agents || [];
 
           if (agents.length === 0) return null;
 
-          // 只提取必要的字段，避免循环引用，过滤掉无效节点
+          // 只提取必要的Field，避免LoopReference，Filter掉无效节点
           const agentNodes = agents
-            .filter((agent: any) => agent && agent.id) // 过滤掉无效的 agent
+            .filter((agent: any) => agent && agent.id) // Filter掉无效的 agent
             .map((agent: any) => ({
               title: agent.name || agent.id,
               value: agent.id,
@@ -583,14 +583,14 @@ const AgentDetails: React.FC = () => {
         const treeData: any[] = [];
         const processedOrgIds = new Set<string>();
         
-        // 对每个选中的组织，获取其到根节点的路径（包含所有父级组织）
+        // 对每个选中的组织，Get其到根节点的Path（IncludeAll父级组织）
         for (const orgId of currentOrgIds) {
           const orgPath = findOrgPath(treeOrgs[0], orgId);
 
           if (orgPath) {
-            // 为路径上的每个组织构建agent树（从根到当前节点）
+            // 为Path上的每个组织构建agent树（从根到When前节点）
             for (const simplifiedOrg of orgPath) {
-              // 避免重复添加
+              // 避免重复Add
               if (!processedOrgIds.has(simplifiedOrg.id)) {
                 processedOrgIds.add(simplifiedOrg.id);
                 const tree = buildAgentTree(simplifiedOrg.id, simplifiedOrg.name);
@@ -612,8 +612,8 @@ const AgentDetails: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form, defaultOrgId, treeOrgs.length]);
 
-  // 多选标签编辑器 - 使用 Select mode="tags" 实现友好交互
-  // 支持预定义选项（国际化）和用户自定义输入
+  // 多选TagEdit器 - 使用 Select mode="tags" Implementation友好交互
+  // Support预Definition选项（国际化）和UserCustomInput
   const TagsEditor: React.FC<{
     value?: string[];
     onChange?: (value: string[]) => void;
@@ -623,15 +623,15 @@ const AgentDetails: React.FC = () => {
     isOrgField?: boolean;
     'aria-label'?: string;
     id?: string;
-    dataMap?: Map<string, any>;  // 用于显示详细信息的数据映射
-    dataType?: 'task' | 'skill';  // 数据类型，用于显示不同的详细信息
+    dataMap?: Map<string, any>;  // Used forDisplayDetailedInformation的DataMap
+    dataType?: 'task' | 'skill';  // DataType，Used forDisplay不同的DetailedInformation
   }> = ({ value, onChange, options, disabled, placeholder, isOrgField, 'aria-label': ariaLabel, id, dataMap, dataType }) => {
-    // 详细信息Modal状态
+    // DetailedInformationModalStatus
     const [detailModalVisible, setDetailModalVisible] = React.useState(false);
     const [selectedDetailItem, setSelectedDetailItem] = React.useState<any>(null);
-    // 获取显示文本
-    // 如果是预定义选项（如 personality.friendly），显示国际化翻译
-    // 如果是用户自定义输入，直接显示原文
+    // GetDisplay文本
+    // If是预Definition选项（如 personality.friendly），Display国际化翻译
+    // If是UserCustomInput，直接Display原文
     const getDisplayText = useCallback((val: string) => {
       if (!val) return '';
 
@@ -639,54 +639,54 @@ const AgentDetails: React.FC = () => {
         return getOrgName(val);
       }
 
-      // 检查是否是预定义的国际化 key（包含 . 的格式）
+      // Check是否是预Definition的国际化 key（Include . 的格式）
       if (val.includes('.')) {
         const translated = t(val);
 
-        // 如果翻译成功（翻译结果不等于原 key），返回翻译
+        // If翻译Success（翻译Result不等于原 key），返回翻译
         if (translated && translated !== val) {
           return translated;
         }
-        // 如果翻译失败，返回 key 的最后一部分作为后备（如 friendly）
+        // If翻译Failed，返回 key 的最后一部分作为后备（如 friendly）
         const parts = val.split('.');
         return parts[parts.length - 1];
       }
 
-      // 否则直接返回原值（用户自定义输入）
+      // 否则直接返回原Value（UserCustomInput）
       return val;
     }, [isOrgField, getOrgName, t]);
 
-    // 使用 useMemo 缓存选项，避免重复计算
+    // 使用 useMemo Cache选项，避免重复计算
     const selectOptions = useMemo(() => {
       return options.map((opt, index) => {
         const displayText = getDisplayText(opt);
         return {
-          label: displayText,  // 下拉列表中显示的文本（翻译后）
-          value: opt,          // 实际存储的值（国际化 key）
-          key: `option-${index}-${opt}`,  // 使用索引+值确保唯一性（索引在前更可靠）
+          label: displayText,  // 下拉List中Display的文本（翻译后）
+          value: opt,          // 实际Storage的Value（国际化 key）
+          key: `option-${index}-${opt}`,  // 使用索引+Value确保唯一性（索引在前更Reliable）
           title: ''            // 清空title，避免原生tooltip
         };
       });
     }, [options, getDisplayText]);
 
-    // 处理选择变化 - 当用户选择预定义选项时，存储国际化 key；自定义输入时，存储原文
+    // ProcessSelect变化 - WhenUserSelect预Definition选项时，Storage国际化 key；CustomInput时，Storage原文
     const handleChange = useCallback((newValue: string[]) => {
       if (!onChange) return;
 
-      // 处理每个值：检查是否是翻译文本，如果是则转换回国际化 key
+      // Process每个Value：Check是否是翻译文本，If是则Convert回国际化 key
       const processedValues = newValue.map(val => {
-        // 检查是否已经是国际化 key
+        // Check是否已经是国际化 key
         if (val.includes('.')) {
           return val;
         }
 
-        // 检查是否是翻译文本，需要转换回国际化 key
+        // Check是否是翻译文本，NeedConvert回国际化 key
         const matchedOption = selectOptions.find(opt => opt.label === val);
         if (matchedOption) {
           return matchedOption.value;
         }
 
-        // 否则是用户自定义输入，直接返回
+        // 否则是UserCustomInput，直接返回
         return val;
       });
 
@@ -708,7 +708,7 @@ const AgentDetails: React.FC = () => {
         allowClear
         tokenSeparators={[',']}
         aria-label={ariaLabel}
-        // 搜索过滤 - 支持模糊搜索label和value
+        // SearchFilter - Support模糊Searchlabel和value
         filterOption={(input, option) => {
           if (!input) return true;
           const searchText = input.toLowerCase();
@@ -716,11 +716,11 @@ const AgentDetails: React.FC = () => {
           const value = (option?.value || '').toString().toLowerCase();
           return label.includes(searchText) || value.includes(searchText);
         }}
-        // 下拉框定位 - 避免遮挡输入框
+        // 下拉框Positioning - 避免遮挡Input框
         popupMatchSelectWidth={false}
         listHeight={400}
         placement="bottomLeft"
-        // 标签渲染 - 添加tooltip显示描述
+        // TagRender - AddtooltipDisplayDescription
         tagRender={(props) => {
           const { value: tagValue, closable, onClose } = props;
           const displayText = getDisplayText(tagValue as string);
@@ -730,7 +730,7 @@ const AgentDetails: React.FC = () => {
 
           const tagContent = (
             <Tag
-              key={`tag-${tagValue}`}  // ✅ 添加 key
+              key={`tag-${tagValue}`}  // ✅ Add key
               color={isCustom ? 'green' : 'blue'}
               closable={closable && !disabled}
               onClose={onClose}
@@ -747,7 +747,7 @@ const AgentDetails: React.FC = () => {
             </Tag>
           );
 
-          // 如果有描述信息，添加tooltip
+          // If有DescriptionInformation，Addtooltip
           if (description && dataMap) {
             return (
               <Tooltip 
@@ -773,9 +773,9 @@ const AgentDetails: React.FC = () => {
 
           return tagContent;
         }}
-        // 下拉选项配置 - 使用缓存的选项
+        // 下拉选项Configuration - 使用Cache的选项
         options={selectOptions}
-        // 自定义下拉选项渲染 - 添加tooltip显示描述
+        // Custom下拉选项Render - AddtooltipDisplayDescription
         optionRender={(option) => {
           const itemData = dataMap?.get(option.value as string);
           const description = itemData?.description || '';
@@ -806,16 +806,16 @@ const AgentDetails: React.FC = () => {
           
           return <div style={{ padding: '4px 0' }}>{option.label}</div>;
         }}
-        // 禁用Select自带的title属性，避免tooltip冲突
+        // DisabledSelect自带的titleProperty，避免tooltip冲突
         optionFilterProp="label"
-        // 不使用 getPopupContainer，让下拉框自然定位，避免遮挡
-        // 不显示下拉箭头，更像输入框
+        // 不使用 getPopupContainer，让下拉框自然Positioning，避免遮挡
+        // 不Display下拉箭头，更像Input框
         suffixIcon={null}
-        // 自动获取焦点时不自动打开下拉框
+        // 自动Get焦点时不自动Open下拉框
         open={undefined}
       />
       
-      {/* 详细信息Modal */}
+      {/* DetailedInformationModal */}
       {dataMap && selectedDetailItem && (
         <Modal
           title={dataType === 'task' ? t('pages.tasks.details', 'Task Details') : t('pages.skills.details', 'Skill Details')}
@@ -830,7 +830,7 @@ const AgentDetails: React.FC = () => {
           centered
         >
           <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-            {/* 名称 */}
+            {/* Name */}
             <div style={{ marginBottom: 16 }}>
               <strong>{t('common.name', 'Name')}:</strong>{' '}
               <span style={{ color: selectedDetailItem.name || selectedDetailItem.skill ? 'inherit' : '#999' }}>
@@ -838,7 +838,7 @@ const AgentDetails: React.FC = () => {
               </span>
             </div>
             
-            {/* 描述 */}
+            {/* Description */}
             <div style={{ marginBottom: 16 }}>
               <strong>{t('common.description', 'Description')}:</strong>
               <div style={{ marginTop: 8, padding: 12, background: 'rgba(0,0,0,0.02)', borderRadius: 4, color: selectedDetailItem.description ? 'inherit' : '#999' }}>
@@ -846,7 +846,7 @@ const AgentDetails: React.FC = () => {
               </div>
             </div>
             
-            {/* Task特有字段 */}
+            {/* Task特有Field */}
             {dataType === 'task' && (
               <>
                 <div style={{ marginBottom: 16 }}>
@@ -870,7 +870,7 @@ const AgentDetails: React.FC = () => {
               </>
             )}
             
-            {/* Skill特有字段 */}
+            {/* Skill特有Field */}
             {dataType === 'skill' && (
               <>
                 <div style={{ marginBottom: 16 }}>
@@ -923,15 +923,15 @@ const AgentDetails: React.FC = () => {
           if (response.success) {
             message.success(t('pages.agents.deleteSuccess', 'Agent deleted successfully'));
             
-            // 从 agentStore 中移除已删除的 agent
+            // 从 agentStore 中Remove已Delete的 agent
             const { removeAgent } = useAgentStore.getState();
             removeAgent(id);
             
-            // 同时从 orgStore 中移除
+            // 同时从 orgStore 中Remove
             const { removeAgentFromOrg } = useOrgStore.getState();
             removeAgentFromOrg(id);
             
-            // 刷新组织和 agent 数据
+            // Refresh组织和 agent Data
             try {
               const api = get_ipc_api();
               const refreshResponse = await api.getAllOrgAgents(username);
@@ -942,7 +942,7 @@ const AgentDetails: React.FC = () => {
               console.error('[AgentDetails] Error refreshing org data after delete:', error);
             }
             
-            // 跳转回agents列表页
+            // 跳转回agentsList页
             navigate('/agents');
           } else {
             message.error(response.error?.message || t('pages.agents.deleteError', 'Failed to delete agent'));
@@ -974,11 +974,11 @@ const AgentDetails: React.FC = () => {
       // Serialize dayjs and metadata
       const payload = {
         ...values,
-        id: values.id || id,  // 确保包含 id 字段
+        id: values.id || id,  // 确保Include id Field
         birthday: values.birthday ? (values.birthday as Dayjs).toISOString() : null,
-        skills: skillIds,  // 只发送 ID 数组
-        tasks: taskIds,    // 只发送 ID 数组
-        // Avatar 数据 - 发送 avatar_resource_id 而不是完整的 avatar 数据
+        skills: skillIds,  // 只Send ID 数组
+        tasks: taskIds,    // 只Send ID 数组
+        // Avatar Data - Send avatar_resource_id 而not完整的 avatar Data
         avatar_resource_id: avatarData?.id || null
       };
       setLoading(true);
@@ -990,17 +990,17 @@ const AgentDetails: React.FC = () => {
       if (res.success) {
         message.success(t('common.saved_successfully') || 'Saved');
         
-        // 策略：先用返回的数据快速更新 UI，然后刷新完整数据确保一致性
+        // 策略：先用返回的DataFastUpdate UI，然后Refresh完整Data确保一致性
         let savedAgentData: any = null;
         try {
           const responseData = res.data as any;
           
-          // 第一步：使用返回的 agent 数据立即更新 UI（快速响应）
+          // 第一步：使用返回的 agent Data立即Update UI（FastResponse）
           if (responseData?.agents && Array.isArray(responseData.agents) && responseData.agents.length > 0) {
             savedAgentData = responseData.agents[0];
             console.log('[AgentDetails] Step 1: Using updated agent from response:', savedAgentData.id);
             
-            // 临时更新 agentStore 中的这个 agent（仅用于立即显示）
+            // TemporaryUpdate agentStore 中的这个 agent（仅Used for立即Display）
             const agentStore = useAgentStore.getState();
             const currentAgents = agentStore.agents;
             const agentIndex = currentAgents.findIndex((a: any) => a.id === savedAgentData.id);
@@ -1013,18 +1013,18 @@ const AgentDetails: React.FC = () => {
             }
           }
           
-          // 第二步：等待后端数据完全更新后，刷新完整的组织和 agent 数据
-          // 这样可以确保：
-          // 1. 组织关系正确（如果 agent 移动到了不同组织）
-          // 2. 统计数据正确（组织的 agent 数量等）
-          // 3. 所有关联数据都是最新的
+          // 第二步：等待BackendData完全Update后，Refresh完整的组织和 agent Data
+          // 这样Can确保：
+          // 1. 组织关系正确（If agent Move到了不同组织）
+          // 2. 统计Data正确（组织的 agent Count等）
+          // 3. All关联Data都是最新的
           console.log('[AgentDetails] Step 2: Waiting for backend to complete, then refresh all data...');
-          await new Promise(resolve => setTimeout(resolve, 500)); // 增加延迟确保后端完成
+          await new Promise(resolve => setTimeout(resolve, 500)); // 增加Delay确保BackendCompleted
           
           const refreshResponse = await api.getAllOrgAgents(username);
           
           if (refreshResponse?.success && refreshResponse.data) {
-            // 这会更新 orgStore 和 agentStore，确保所有数据一致
+            // 这会Update orgStore 和 agentStore，确保AllData一致
             useOrgStore.getState().setAllOrgAgents(refreshResponse.data as any);
             console.log('[AgentDetails] Step 2 completed: All org and agent data refreshed');
           } else {
@@ -1034,29 +1034,29 @@ const AgentDetails: React.FC = () => {
           console.error('[AgentDetails] Error updating agent data:', error);
         }
         
-        // 如果是创建模式，跳转到 agent 列表或组织页面
+        // If是Create模式，跳转到 agent List或组织Page
         if (isNew) {
-          // 添加延迟确保数据已经更新到 store
+          // AddDelay确保Data已经Update到 store
           await new Promise(resolve => setTimeout(resolve, 100));
           
           const orgId = form.getFieldValue('org_id');
           if (orgId) {
-            // 跳转到该组织的页面，使用 replace 强制刷新
+            // 跳转到该组织的Page，使用 replace 强制Refresh
             navigate(`/agents/organization/${orgId}`, { replace: true });
           } else {
-            // 跳转到 agents 根页面
+            // 跳转到 agents 根Page
             navigate('/agents', { replace: true });
           }
           return;
         }
         
-        // 如果是编辑模式，使用保存返回的数据更新表单（保留在编辑页面）
+        // If是Edit模式，使用Save返回的DataUpdateForm（保留在EditPage）
         if (!isNew && id) {
-          // 优先使用 savedAgentData（来自 save_agent 响应），避免从 store 获取可能的旧数据
+          // 优先使用 savedAgentData（来自 save_agent Response），避免从 store Get可能的旧Data
           try {
             let updatedAgent = savedAgentData;
             
-            // 如果没有 savedAgentData（不应该发生），fallback 到 store
+            // If没有 savedAgentData（不Should发生），fallback 到 store
             if (!updatedAgent) {
               console.warn('[AgentDetails] No savedAgentData, trying to get from agentStore...');
               updatedAgent = getAgentById(id) as any;
@@ -1108,12 +1108,12 @@ const AgentDetails: React.FC = () => {
               
               form.setFieldsValue(formData);
               
-              // 更新组织选择状态（用于显示完整路径）
+              // Update组织SelectStatus（Used forDisplay完整Path）
               if (updatedAgent.org_id) {
                 setSelectedOrgId(updatedAgent.org_id);
               }
               
-              // 更新 Avatar 数据 - 保留完整的 avatar 数据结构
+              // Update Avatar Data - 保留完整的 avatar Data结构
               if (updatedAgent.avatar) {
                 setAvatarData({
                   type: updatedAgent.avatar.type || 'system',
@@ -1125,18 +1125,18 @@ const AgentDetails: React.FC = () => {
                 });
               }
               
-              // 设置标志，防止 useEffect 重新获取数据
+              // Settings标志，防止 useEffect 重新GetData
               justSavedRef.current = true;
             } else {
               console.warn('[AgentDetails] ⚠️ Agent not found in agentStore, falling back to API call');
-              // 如果 store 中没有数据，fallback 到 API 调用
+              // If store 中没有Data，fallback 到 API 调用
               const api = get_ipc_api();
               const refreshResponse = await api.getAgents(username, [id]) as any;
               
               if (refreshResponse?.success && refreshResponse.data?.agents && refreshResponse.data.agents.length > 0) {
                 const apiAgent = refreshResponse.data.agents[0];
                 
-                // 转换并更新表单（使用相同的逻辑）
+                // Convert并UpdateForm（使用相同的逻辑）
                 const skillNames = (apiAgent.skills || []).map((s: any) => {
                   if (typeof s === 'string') return s;
                   return s.name || s.skill_name || s.id || String(s);
@@ -1198,17 +1198,17 @@ const AgentDetails: React.FC = () => {
           }
         }
         
-        // ✅ 保持在编辑模式，允许用户继续编辑
-        // setEditMode(false);  // ← 移除这行，保持编辑模式
+        // ✅ 保持在Edit模式，AllowUser继续Edit
+        // setEditMode(false);  // ← Remove这行，保持Edit模式
         
         if (isNew) {
           // After creation, navigate back to the OrgNavigator page with refresh flag
           const orgId = values.org_id;
           if (orgId && orgId !== 'root') {
-            // 跳转到对应组织的navigator页面，添加时间戳强制刷新
+            // 跳转到对应组织的navigatorPage，AddTime戳强制Refresh
             navigate(`/agents/organization/${orgId}?refresh=${Date.now()}`);
           } else {
-            // 跳转到根navigator页面，添加时间戳强制刷新
+            // 跳转到根navigatorPage，AddTime戳强制Refresh
             navigate(`/agents?refresh=${Date.now()}`);
           }
         }
@@ -1352,7 +1352,7 @@ const AgentDetails: React.FC = () => {
                 </div>
               </Col>
               
-              {/* 第二行：描述 */}
+              {/* 第二行：Description */}
               <Col span={24}>
                 <StyledFormItem name="description" label={t('pages.agents.description') || 'Description'} htmlFor="agent-description">
                   <Input.TextArea
@@ -1389,7 +1389,7 @@ const AgentDetails: React.FC = () => {
                     allowClear
                     placeholder={t('common.select_vehicle') || 'Select vehicle'}
                     options={vehicles.map((v: any, index: number) => ({
-                      key: v.id || `vehicle-${index}`,  // 添加唯一 key
+                      key: v.id || `vehicle-${index}`,  // Add唯一 key
                       value: v.id,
                       label: `${v.name || v.id}${v.ip ? ` (${v.ip})` : ''}`
                     }))}
@@ -1446,7 +1446,7 @@ const AgentDetails: React.FC = () => {
                 </StyledFormItem>
               </Col>
 
-              {/* 第六行：Skills（必填）和 Tasks - 移到 Organization 后面 */}
+              {/* 第六行：Skills（Required）和 Tasks - 移到 Organization 后面 */}
               <Col span={12}>
                 <StyledFormItem
                   name="skills"
@@ -1539,12 +1539,12 @@ const AgentDetails: React.FC = () => {
                   rules={[
                     {
                       validator: (_, value) => {
-                        // 允许空值
+                        // Allow空Value
                         if (!value || value.trim() === '') {
                           return Promise.resolve();
                         }
                         
-                        // 必须是有效的 JSON 格式
+                        // Must是有效的 JSON 格式
                         try {
                           JSON.parse(value);
                           return Promise.resolve();
@@ -1577,7 +1577,7 @@ const AgentDetails: React.FC = () => {
           </div>
         </Card>
 
-        {/* 操作按钮区域 - 固定在底部，不随表单滚动 */}
+        {/* OperationButton区域 - 固定在Bottom，不随FormScroll */}
         <div 
           style={{ 
             marginTop: '16px',
@@ -1590,42 +1590,42 @@ const AgentDetails: React.FC = () => {
             gap: 12
           }}
         >
-          {/* 新增模式：显示关闭和保存按钮 */}
+          {/* 新增模式：DisplayClose和SaveButton */}
           {pageMode === 'create' && (
             <>
               <Button icon={<CloseOutlined />} onClick={() => navigate(-1)} size="large">
-                {t('common.close') || '关闭'}
+                {t('common.close') || 'Close'}
               </Button>
               <Button icon={<SaveOutlined />} type="primary" loading={loading} onClick={handleSave} size="large">
-                {t('common.create') || '创建'}
+                {t('common.create') || 'Create'}
               </Button>
             </>
           )}
           
-          {/* 查看模式：显示关闭、删除和编辑按钮 */}
+          {/* 查看模式：DisplayClose、Delete和EditButton */}
           {pageMode === 'view' && (
             <>
               <Button icon={<CloseOutlined />} onClick={() => navigate(-1)} size="large">
-                {t('common.close') || '关闭'}
+                {t('common.close') || 'Close'}
               </Button>
               <Button icon={<DeleteOutlined />} danger onClick={handleDelete} size="large">
-                {t('common.delete') || '删除'}
+                {t('common.delete') || 'Delete'}
               </Button>
               <Button icon={<EditOutlined />} type="default" onClick={() => setEditMode(true)} size="large">
-                {t('common.edit') || '编辑'}
+                {t('common.edit') || 'Edit'}
               </Button>
             </>
           )}
           
-          {/* 编辑模式：显示关闭、取消和保存按钮 */}
+          {/* Edit模式：DisplayClose、Cancel和SaveButton */}
           {pageMode === 'edit' && (
             <>
               <Button icon={<CloseOutlined />} onClick={() => navigate(-1)} size="large">
-                {t('common.close') || '关闭'}
+                {t('common.close') || 'Close'}
               </Button>
               <Button onClick={() => {
                 setEditMode(false);
-                // 重新加载数据
+                // 重新LoadData
                 if (!isNew && id && username) {
                   const api = get_ipc_api();
                   api.getAgents(username, [id]).then((response: any) => {
@@ -1646,9 +1646,9 @@ const AgentDetails: React.FC = () => {
                         skills: agent.skills || [],
                         vehicle_id: agent.vehicle_id || agent.vehicle || localVehicleId || '',
                         description: agent.description || '',
-                        extra_data: agent.extra_data || agent.metadata || ''  // 兼容旧字段 metadata
+                        extra_data: agent.extra_data || agent.metadata || ''  // Compatible旧Field metadata
                       });
-                      // 设置选中的组织ID
+                      // Settings选中的组织ID
                       if (orgId) {
                         setSelectedOrgId(orgId);
                       }
@@ -1656,10 +1656,10 @@ const AgentDetails: React.FC = () => {
                   });
                 }
               }} size="large">
-                {t('common.cancel') || '取消'}
+                {t('common.cancel') || 'Cancel'}
               </Button>
               <Button icon={<SaveOutlined />} type="primary" loading={loading} onClick={handleSave} size="large">
-                {t('common.save') || '保存'}
+                {t('common.save') || 'Save'}
               </Button>
             </>
           )}

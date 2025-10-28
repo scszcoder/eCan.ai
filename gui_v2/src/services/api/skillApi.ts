@@ -1,6 +1,6 @@
 /**
  * Skill API Service
- * 技能相关的 API 调用封装
+ * 技能Related to API 调用封装
  */
 
 import { createIPCAPI } from '../ipc/api';
@@ -10,8 +10,8 @@ import { Skill } from '../../types/domain/skill';
 import { logger } from '../../utils/logger';
 
 /**
- * Skill API 服务类
- * 实现 ResourceAPI 接口，提供标准化的 CRUD 操作
+ * Skill API Service类
+ * Implementation ResourceAPI Interface，提供Standard化的 CRUD Operation
  */
 export class SkillAPI implements ResourceAPI<Skill> {
   private _api?: IPCAPI;
@@ -24,7 +24,7 @@ export class SkillAPI implements ResourceAPI<Skill> {
   }
 
   /**
-   * 获取所有技能
+   * GetAll技能
    */
   async getAll(username: string, skillIds: string[] = []): Promise<APIResponse<Skill[]>> {
     try {
@@ -33,7 +33,7 @@ export class SkillAPI implements ResourceAPI<Skill> {
       const response = await this.api.getAgentSkills(username, skillIds);
 
       if (response && response.success && response.data) {
-        // 处理不同的响应格式
+        // Process不同的Response格式
         let skills: Skill[] = [];
 
         if (Array.isArray(response.data)) {
@@ -67,13 +67,13 @@ export class SkillAPI implements ResourceAPI<Skill> {
   }
 
   /**
-   * 根据 ID 获取单个技能
+   * 根据 ID Get单个技能
    */
   async getById(username: string, id: string): Promise<APIResponse<Skill>> {
     try {
       logger.debug('[SkillAPI] Fetching skill by ID:', id);
       
-      // 通过 getAll 然后过滤
+      // 通过 getAll 然后Filter
       const allSkillsResponse = await this.getAll(username, [id]);
       
       if (allSkillsResponse.success && allSkillsResponse.data) {
@@ -105,7 +105,7 @@ export class SkillAPI implements ResourceAPI<Skill> {
   }
 
   /**
-   * 创建新技能
+   * Create新技能
    */
   async create(username: string, skill: Skill): Promise<APIResponse<Skill>> {
     try {
@@ -144,13 +144,13 @@ export class SkillAPI implements ResourceAPI<Skill> {
   }
 
   /**
-   * 更新技能
+   * Update技能
    */
   async update(username: string, id: string, updates: Partial<Skill>): Promise<APIResponse<Skill>> {
     try {
       logger.debug('[SkillAPI] Updating skill:', id);
       
-      // 先获取完整的技能数据
+      // 先Get完整的技能Data
       const skillResponse = await this.getById(username, id);
       
       if (!skillResponse.success || !skillResponse.data) {
@@ -186,14 +186,14 @@ export class SkillAPI implements ResourceAPI<Skill> {
   }
 
   /**
-   * 删除技能
+   * Delete技能
    */
   async delete(username: string, id: string): Promise<APIResponse<void>> {
     try {
       logger.debug('[SkillAPI] Deleting skill:', id);
       
-      // 注意：后端可能没有专门的删除技能接口
-      // 这里可能需要调用其他接口或者标记为删除状态
+      // Note：Backend可能没有专门的Delete技能Interface
+      // 这里可能Need调用其他Interfaceor标记为DeleteStatus
       logger.warn('[SkillAPI] Delete skill not implemented in backend');
       
       return {
@@ -218,6 +218,6 @@ export class SkillAPI implements ResourceAPI<Skill> {
   }
 }
 
-// 导出单例实例
+// Export单例实例
 export const skillApi = new SkillAPI();
 

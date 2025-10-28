@@ -52,13 +52,13 @@ interface SkillDetailsProps {
 }
 
 /**
- * 扩展的技能类型，包含所有 DBAgentSkill 和 EC_Skill 字段
+ * Extended的技能Type，IncludeAll DBAgentSkill 和 EC_Skill Field
  */
 type ExtendedSkill = Skill & {
-    // DBAgentSkill 字段
+    // DBAgentSkill Field
     askid?: number;
 
-    // EC_Skill 字段
+    // EC_Skill Field
     ui_info?: {
         text?: string;
         icon?: string;
@@ -68,7 +68,7 @@ type ExtendedSkill = Skill & {
     run_mode?: SkillRunMode | string;
     mapping_rules?: any;
 
-    // 序列化字段（用于表单）
+    // SerializeField（Used forForm）
     config_json?: string;
     apps_json?: string;
     limitations_json?: string;
@@ -95,18 +95,18 @@ const DEFAULT_SKILL: Partial<ExtendedSkill> = {
 };
 
 /**
- * JSON 格式验证器
- * 允许：空值、有效的 JSON
- * 拒绝：任何非 JSON 格式的内容
+ * JSON 格式Validate器
+ * Allow：空Value、有效的 JSON
+ * 拒绝：任何非 JSON 格式的Content
  */
 const validateJSON = (t: any) => ({
     validator: (_: any, value: string) => {
-        // 允许空值
+        // Allow空Value
         if (!value || value.trim() === '') {
             return Promise.resolve();
         }
         
-        // 必须是有效的 JSON 格式
+        // Must是有效的 JSON 格式
         try {
             JSON.parse(value);
             return Promise.resolve();
@@ -122,7 +122,7 @@ const validateJSON = (t: any) => ({
 });
 
 /**
- * 辅助函数：将对象/数组转换为 JSON 字符串
+ * HelperFunction：将对象/数组Convert为 JSON 字符串
  */
 const toJsonString = (value: any): string => {
     if (!value) return '';
@@ -135,7 +135,7 @@ const toJsonString = (value: any): string => {
 };
 
 /**
- * 辅助函数：将 JSON 字符串转换为对象/数组
+ * HelperFunction：将 JSON 字符串Convert为对象/数组
  */
 const fromJsonString = (value: string): any => {
     if (!value || value.trim() === '') return undefined;
@@ -155,7 +155,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     const addItem = useSkillStore((s) => s.addItem);
     const updateItem = useSkillStore((s) => s.updateItem);
 
-    // 滚动位置保存
+    // ScrollPositionSave
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const savedScrollPositionRef = useRef<number>(0);
 
@@ -166,7 +166,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         if (skill) {
             const s = skill as ExtendedSkill;
             form.setFieldsValue({
-                // 基础字段
+                // BaseField
                 id: s.id,
                 askid: s.askid,
                 name: s.name,
@@ -176,16 +176,16 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 path: s.path,
                 level: s.level,
 
-                // EC_Skill 字段
+                // EC_Skill Field
                 run_mode: s.run_mode || 'development',
 
-                // 扩展字段
+                // ExtendedField
                 price: s.price,
                 price_model: s.price_model,
                 public: s.public,
                 rentable: s.rentable,
 
-                // JSON 字段（序列化为字符串）
+                // JSON Field（Serialize为字符串）
                 config_json: toJsonString(s.config),
                 apps_json: toJsonString(s.apps),
                 limitations_json: toJsonString(s.limitations),
@@ -221,17 +221,17 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
 
     const handleCancel = () => {
         if (isNew) {
-            // 新建模式：清空表单并通知父组件关闭面板
+            // 新建模式：清空Form并Notification父ComponentClose面板
             form.resetFields();
             if (onCancel) {
                 onCancel();
             }
         } else {
-            // 编辑模式：恢复原始数据并退出编辑模式（不关闭面板）
+            // Edit模式：Restore原始Data并退出Edit模式（不Close面板）
             if (skill) {
                 const s = skill as ExtendedSkill;
                 form.setFieldsValue({
-                    // 基础字段
+                    // BaseField
                     id: s.id,
                     askid: s.askid,
                     name: s.name,
@@ -241,16 +241,16 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                     path: s.path,
                     level: s.level,
 
-                    // EC_Skill 字段
+                    // EC_Skill Field
                     run_mode: s.run_mode || 'development',
 
-                    // 扩展字段
+                    // ExtendedField
                     price: s.price,
                     price_model: s.price_model,
                     public: s.public,
                     rentable: s.rentable,
 
-                    // JSON 字段（序列化为字符串）
+                    // JSON Field（Serialize为字符串）
                     config_json: toJsonString(s.config),
                     apps_json: toJsonString(s.apps),
                     limitations_json: toJsonString(s.limitations),
@@ -264,7 +264,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 });
             }
             setEditMode(false);
-            // 编辑模式下不调用 onCancel，保持面板打开
+            // Edit模式下不调用 onCancel，保持面板Open
         }
     };
 
@@ -272,9 +272,9 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         try {
             const values = await form.validateFields();
 
-            // 将 JSON 字符串字段转换回对象/数组
+            // 将 JSON 字符串FieldConvert回对象/数组
             const payload: Partial<Skill> = {
-                // 基础字段
+                // BaseField
                 id: values.id,
                 askid: values.askid,
                 name: values.name,
@@ -284,16 +284,16 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 path: values.path,
                 level: values.level,
 
-                // EC_Skill 字段
+                // EC_Skill Field
                 run_mode: values.run_mode,
 
-                // 扩展字段
+                // ExtendedField
                 price: values.price,
                 price_model: values.price_model,
                 public: values.public,
                 rentable: values.rentable,
 
-                // 反序列化 JSON 字段
+                // 反Serialize JSON Field
                 config: fromJsonString(values.config_json || ''),
                 apps: fromJsonString(values.apps_json || ''),
                 limitations: fromJsonString(values.limitations_json || ''),
@@ -378,7 +378,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         const filePath = form.getFieldValue('path') || (skill as any).path;
         
         if (!filePath) {
-            message.warning(t('pages.skills.noPathWarning', '该技能没有关联的文件路径'));
+            message.warning(t('pages.skills.noPathWarning', '该技能没有关联的文件Path'));
             return;
         }
         
@@ -447,7 +447,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     const tabItems: TabsProps['items'] = [
         {
             key: 'basic',
-            label: <span><SettingOutlined /> {t('pages.skills.tabs.basic', '基础信息')}</span>,
+            label: <span><SettingOutlined /> {t('pages.skills.tabs.basic', 'BaseInformation')}</span>,
             children: (
                 <Row gutter={[24, 0]}>
                     <Col span={12}>
@@ -519,7 +519,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         },
         {
             key: 'config',
-            label: <span><CodeOutlined /> {t('pages.skills.tabs.config', '配置')}</span>,
+            label: <span><CodeOutlined /> {t('pages.skills.tabs.config', 'Configuration')}</span>,
             children: (
                 <Row gutter={[24, 0]}>
                     <Col span={24}>
@@ -557,7 +557,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         },
         {
             key: 'metadata',
-            label: <span><TagsOutlined /> {t('pages.skills.tabs.metadata', '元数据')}</span>,
+            label: <span><TagsOutlined /> {t('pages.skills.tabs.metadata', '元Data')}</span>,
             children: (
                 <Row gutter={[24, 0]}>
                     <Col span={24}>
@@ -653,7 +653,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         },
         {
             key: 'extended',
-            label: <span><AppstoreOutlined /> {t('pages.skills.tabs.extended', '扩展')}</span>,
+            label: <span><AppstoreOutlined /> {t('pages.skills.tabs.extended', 'Extended')}</span>,
             children: (
                 <Row gutter={[24, 0]}>
                     <Col span={24}>
@@ -713,7 +713,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         },
     ];
 
-    // 使用 useEffectOnActive 在组件激活时恢复滚动位置
+    // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
     useEffectOnActive(
         () => {
             const container = scrollContainerRef.current;
@@ -746,7 +746,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 >
                     <Space direction="vertical" style={{ width: '100%' }} size="middle">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '24px' }}>
-                            {/* 左侧：技能信息 */}
+                            {/* Left：技能Information */}
                             <div style={{ flex: 1 }}>
                                 <Title level={3} style={{ color: 'white', margin: 0, marginBottom: 8 }}>
                                     {name || t('pages.skills.newSkill', 'New Skill')}
@@ -756,7 +756,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                 </Text>
                             </div>
                             
-                            {/* 右侧：熟练度等级（仅非新建时显示）*/}
+                            {/* Right：熟练度等级（仅非新建时Display）*/}
                             {!isNew && (
                                 <div style={{ 
                                     minWidth: '280px',
@@ -872,7 +872,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 background: 'transparent',
                 borderTop: '1px solid rgba(255, 255, 255, 0.05)'
             }}>
-                {/* 编辑模式按钮 */}
+                {/* Edit模式Button */}
                 {!isNew && editMode && (
                     <>
                         <Button 
@@ -894,7 +894,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                     </>
                 )}
                 
-                {/* 新建模式按钮 */}
+                {/* 新建模式Button */}
                 {isNew && (
                     <>
                         <Button 
@@ -916,7 +916,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                     </>
                 )}
                 
-                {/* 查看模式按钮 */}
+                {/* 查看模式Button */}
                 {!editMode && !isNew && (
                     <>
                         <Button

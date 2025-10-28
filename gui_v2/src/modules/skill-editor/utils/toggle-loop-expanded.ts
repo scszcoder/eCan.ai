@@ -6,7 +6,7 @@
 import { WorkflowNodeEntity, WorkflowNodeLinesData, FlowNodeTransformData } from '@flowgram.ai/free-layout-editor';
 
 // Collapsed size constants - must match form-meta.tsx
-// 折叠尺寸常量 - 必须与 form-meta.tsx 中的定义一致
+// 折叠尺寸常量 - Must与 form-meta.tsx 中的Definition一致
 export const LOOP_COLLAPSED_WIDTH = 400;
 
 // Expanded size constants
@@ -142,7 +142,7 @@ export function toggleLoopExpanded(
     }
   }
 
-  // 隐藏子节点线条
+  // Hide子节点线条
   // Hide the child node lines
   node.blocks.forEach((block) => {
     block.getData(WorkflowNodeLinesData).allLines.forEach((line) => {

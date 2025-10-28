@@ -5,15 +5,15 @@ import OrgDoor from '../components/OrgDoor';
 import { DisplayNode } from '../../Orgs/types';
 
 /**
- * 组织门渲染的自定义 Hook
- * 负责处理门的点击和渲染逻辑
+ * 组织门Render的Custom Hook
+ * 负责Process门的Click和Render逻辑
  */
 export function useOrgDoorRenderer(levelDoors: DisplayNode[], actualOrgId?: string) {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
 
-  // 处理门点击事件
+  // Process门ClickEvent
   const handleDoorClick = useCallback(
     (door: DisplayNode) => {
       if (door.type === 'unassigned_agents') {
@@ -22,8 +22,8 @@ export function useOrgDoorRenderer(levelDoors: DisplayNode[], actualOrgId?: stri
         return;
       }
 
-      // 构建正确的嵌套路径：当前路径 + /organization/:orgId
-      const currentPath = location.pathname.replace(/\/$/, ''); // 移除末尾斜杠
+      // 构建正确的嵌套Path：When前Path + /organization/:orgId
+      const currentPath = location.pathname.replace(/\/$/, ''); // Remove末尾斜杠
       const newPath = `${currentPath}/organization/${door.id}`;
       
       console.log('[OrgNavigator] Navigating from:', currentPath, 'to:', newPath);
@@ -34,7 +34,7 @@ export function useOrgDoorRenderer(levelDoors: DisplayNode[], actualOrgId?: stri
     [navigate, location.pathname, actualOrgId]
   );
 
-  // 渲染门组件
+  // Render门Component
   const doorComponents = useMemo(() => {
     return levelDoors.map((door) => {
       let displayName = door.name;
