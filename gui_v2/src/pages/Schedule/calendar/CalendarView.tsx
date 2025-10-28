@@ -112,7 +112,7 @@ const ActionButton = styled(Button)`
     background: transparent !important;
     border: 1px solid rgba(255, 255, 255, 0.2) !important;
     color: rgba(255, 255, 255, 0.85) !important;
-    transition: all 0.3s ease !important;
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease !important;
     
     &:hover {
       background: rgba(24, 144, 255, 0.1) !important;
@@ -474,15 +474,17 @@ const CalendarView: React.FC<CalendarViewProps> = ({
                 cursor: 'pointer',
                 border: '1px solid rgba(255, 255, 255, 0.1)',
                 background: 'rgba(255, 255, 255, 0.05)',
-                transition: 'all 0.2s',
+                transition: 'background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
                 e.currentTarget.style.borderColor = event.color || '#1890ff';
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(24, 144, 255, 0.2)';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
                 e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                e.currentTarget.style.boxShadow = 'none';
               }}
             >
               <div style={{ 
