@@ -67,7 +67,7 @@ const REPEAT_OPTIONS = [
 interface TaskDetailProps {
   task: Task | null | object;
   isNew?: boolean;
-  onSave?: () => void;
+  onSave?: (taskId?: string) => void; // 修改：支持传递新创建的task ID
   onCancel?: () => void;
   onDelete?: () => void;
 }
@@ -252,7 +252,14 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       if (response.success) {
         message.success(t(isNew ? 'common.createSuccess' : 'common.saveSuccess'));
         setEditMode(false);
-        if (onSave) onSave();
+        // 传递新创建的task ID给父组件
+        if (onSave) {
+          // API返回的task_id在response.data.task_id
+          const newTaskId = isNew ? response.data?.task_id || response.data?.id || response.data?.task?.id || payload.id : undefined;
+          console.log('[TaskDetail] 保存成功，Task ID:', newTaskId);
+          console.log('[TaskDetail] API响应数据:', response.data);
+          onSave(newTaskId);
+        }
       } else {
         message.error(response.error?.message || 
           t(isNew ? 'common.createFailed' : 'common.saveFailed'));
