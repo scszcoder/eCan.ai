@@ -60,7 +60,9 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         str: JSON formatted response message
     """
     try:
-        logger.debug(f"Get start skill run handler called with request: {request}")
+        request_str = str(request)
+        truncated_request = request_str[:300] + "..." if len(request_str) > 300 else request_str
+        logger.debug(f"Get start skill run handler called with request: {truncated_request}")
 
         # Lazy import to avoid slow startup
         from agent.ec_skills.dev_utils.skill_dev_utils import run_dev_skill

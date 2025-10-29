@@ -1602,10 +1602,19 @@ async def api_ecan_ai_img2text_icons(mainwin, args):
 
         screen_data = await readRandomWindow8(mission, args["input"]["win_title_keyword"], log_user, session, token)
 
+        # Check if screen_data contains an error
+        if isinstance(screen_data, dict) and "error" in screen_data:
+            error_msg = f"Image analysis failed: {screen_data.get('message', 'Unknown error')}"
+            logger.warning(f"⚠️ {error_msg}")
+            logger.debug(f"Error details: {screen_data.get('details', 'No details')}")
+            result = TextContent(type="text", text=error_msg)
+            result.meta = {"error": screen_data, "status": "failed"}
+            return [result]
+
         msg = "completed rpa operator report work results"
         result = TextContent(type="text", text=msg)
         # meta must be a dictionary
-        result.meta = {"screen_data": screen_data}
+        result.meta = {"screen_data": screen_data, "status": "success"}
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorAPIECANAIImg2TextIcons")
