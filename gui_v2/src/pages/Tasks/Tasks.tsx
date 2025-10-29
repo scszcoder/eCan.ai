@@ -39,6 +39,7 @@ const Tasks: React.FC = () => {
   const [isAddingNew, setIsAddingNew] = React.useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const [scrollToTaskId, setScrollToTaskId] = React.useState<string | undefined>(undefined);
+  const [pendingTaskId, setPendingTaskId] = React.useState<string | undefined>(undefined);
 
   // Handle taskId from URL parameter
   useEffect(() => {
@@ -59,6 +60,31 @@ const Tasks: React.FC = () => {
       }
     }
   }, [searchParams, tasks, selectItem, setSearchParams]);
+
+  // Handle pending task selection after refresh
+  useEffect(() => {
+    console.log('[Tasks] useEffect 检查 pendingTaskId:', pendingTaskId, 'tasks.length:', tasks.length, 'loading:', loading);
+    
+    if (pendingTaskId && tasks.length > 0 && !loading) {
+      
+      const newTask = tasks.find(t => t.id === pendingTaskId);
+      
+      if (newTask) {
+        // 设置要滚动到的task ID
+        setScrollToTaskId(pendingTaskId);
+        // 选中新创建的task
+        selectItem(newTask);
+        // 清除pending状态
+        setPendingTaskId(undefined);
+        // 清除scroll状态
+        setTimeout(() => {
+          setScrollToTaskId(undefined);
+        }, 500);
+      } else {
+        console.warn('[Tasks] 未找到对应的 task，ID:', pendingTaskId);
+      }
+    }
+  }, [pendingTaskId, tasks, loading, selectItem]);
 
   const listTitle = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
@@ -84,9 +110,15 @@ const Tasks: React.FC = () => {
     </div>
   );
 
-  const handleTaskSave = () => {
+  const handleTaskSave = async (newTaskId?: string) => {
     setIsAddingNew(false);
-    handleRefresh();
+    
+    // 如果是新创建的task，保存ID等待列表刷新后选中
+    if (newTaskId) {
+      setPendingTaskId(newTaskId);
+    }
+    
+    await handleRefresh();
   };
 
   const handleTaskCancel = () => {
