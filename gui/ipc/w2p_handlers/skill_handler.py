@@ -123,6 +123,16 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
         if not skill_id:
             return create_error_response(request, 'INVALID_PARAMS', 'Skill ID is required for save operation')
 
+        # Check if this is a code-based skill (read-only)
+        source = skill_info.get('source', 'ui')
+        if source == 'code':
+            logger.warning(f"Attempted to save code-based skill: {skill_info.get('name')}")
+            return create_error_response(
+                request, 
+                'SKILL_READ_ONLY', 
+                'Code-based skills cannot be edited or saved. Please modify the source code file instead.'
+            )
+
         logger.info(f"Saving agent skill for user: {username}, skill_id: {skill_id}")
 
         # Get database service

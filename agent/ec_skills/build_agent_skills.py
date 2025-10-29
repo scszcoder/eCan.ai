@@ -215,19 +215,36 @@ async def build_agent_skills(mainwin, skill_path=""):
             logger.error(f"[build_agent_skills] ❌ Local build failed: {e}")
             local_code_skills = []
 
-        # Step 6: Merge all skill data
+        # Step 6: Merge all skill data with deduplication
         logger.info("[build_agent_skills] Step 6: Merging all skills...")
-        all_skills = []
-
+        
+        # Use a dictionary to track skills by name (code skills override DB skills)
+        skills_dict = {}
+        code_skill_names = set()
+        
         # First add database/cloud skills
-        all_skills.extend(memory_skills)
-
-        # Then add locally built skills from code
+        for skill in memory_skills:
+            if skill is not None and hasattr(skill, 'name'):
+                skills_dict[skill.name] = skill
+        
+        # Then add locally built skills from code (these will override DB skills with same name)
         if local_code_skills:
-            all_skills.extend(local_code_skills)
-
-        # Filter out None objects
-        all_skills = [skill for skill in all_skills if skill is not None]
+            for skill in local_code_skills:
+                if skill is not None and hasattr(skill, 'name'):
+                    code_skill_names.add(skill.name)
+                    if skill.name in skills_dict:
+                        logger.info(f"[build_agent_skills] 🔄 Code skill '{skill.name}' overrides DB skill")
+                        logger.info(f"[build_agent_skills] 💡 Consider deleting '{skill.name}' from database to avoid conflicts")
+                    skills_dict[skill.name] = skill
+        
+        # Convert back to list and mark source
+        all_skills = []
+        for skill_name, skill in skills_dict.items():
+            if skill_name in code_skill_names:
+                skill.source = "code"
+            else:
+                skill.source = "ui"  # Assuming skills not from code are from UI
+            all_skills.append(skill)
 
         # Step 7: Update mainwindow.agent_skills memory
         logger.info("[build_agent_skills] Step 7: Updating mainwindow.agent_skills...")
@@ -513,7 +530,27 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
             return None
 
         def load_from_code(skill_root: Path, code_dir: Path) -> Optional[EC_Skill]:
-            print("loading from code:", skill_root, "...", code_dir)
+            """
+            Dynamically load a skill from code directory.
+            
+            ⚠️ IMPORTANT: This is for EXTERNAL/PLUGIN skills only!
+            
+            Current Usage:
+            --------------
+            - NOT used for built-in skills (they use build_agent_skills_parallel)
+            - Only used for user-defined skills in ec_skills/ directory
+            - Requires skill to have a build_skill() function
+            
+            How It Works:
+            -------------
+            1. Scans code_dir for *_skill.py files
+            2. Dynamically imports the module
+            3. Calls build_skill() function (standard interface)
+            4. Returns the created EC_Skill object
+            
+            See: agent/ec_skills/skill_build_template.py for build_skill() template
+            """
+            logger.debug(f"[build_agent_skills] Loading from code: {skill_root} / {code_dir}")
             pkg = find_package_dir_in_code(code_dir)
             if not pkg:
                 logger.warning(f"[build_agent_skills] No package with *_skill.py under {code_dir}")
@@ -542,7 +579,7 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                     return None
                 # Build using run_context if supported; remain backward compatible with (mainwin)
                 build_fn = getattr(mod, "build_skill")
-                print("build_skill function found!!!")
+                logger.debug(f"[build_agent_skills] Found build_skill() in {module_base} (dynamic loading)")
                 ctx = None
                 try:
                     ctx = AppContext.get_useful_context()
@@ -553,16 +590,16 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                     sig = inspect.signature(build_fn)
                     params = sig.parameters
                     if "run_context" in params and "mainwin" in params:
-                        print("build with ctx and mainwin.....")
+                        logger.debug("[build_agent_skills] Calling build_skill(run_context, mainwin)")
                         built = build_fn(run_context=ctx, mainwin=mainwin)
                     elif "run_context" in params:
-                        print("build with ctx.....")
+                        logger.debug("[build_agent_skills] Calling build_skill(run_context)")
                         built = build_fn(run_context=ctx)
                     elif "mainwin" in params:
-                        print("build with mainwin.....")
+                        logger.debug("[build_agent_skills] Calling build_skill(mainwin)")
                         built = build_fn(mainwin)
                     else:
-                        print("build with .....")
+                        logger.debug("[build_agent_skills] Calling build_skill()")
                         built = build_fn()
                 except Exception as e:
                     logger.warning(f"[build_agent_skills] build_skill signature fallback due to: {e}")
@@ -572,11 +609,11 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                     except Exception:
                         built = build_fn()
 
-                print("just built....", built)
+                logger.debug(f"[build_agent_skills] Skill built: {type(built)}")
                 # Accept either EC_Skill or (dto, stategraph)
                 sk = None
                 if isinstance(built, EC_Skill):
-                    print("built is EC_Skill")
+                    logger.debug("[build_agent_skills] Built object is EC_Skill")
                     sk = built
                 elif isinstance(built, tuple) and len(built) == 2:
                     dto, sg = built
@@ -594,9 +631,12 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                     logger.error("[build_agent_skills] build_skill() returned unsupported type")
                     return None
 
-                print("sk ready?", sk)
+                logger.debug(f"[build_agent_skills] Skill ready: {sk.name if sk else None}")
                 # Load mapping rules from data_mapping.json
                 if sk:
+                    # Mark as code-based skill
+                    sk.source = "code"
+                    
                     mapping_file = skill_root / "data_mapping.json"
                     if mapping_file.exists():
                         try:

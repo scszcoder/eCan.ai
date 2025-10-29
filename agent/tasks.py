@@ -310,6 +310,17 @@ class ManagedTask(Task):
             effective_config.setdefault("configurable", {})
             effective_config["configurable"].update(step_control)
         
+        # Add comprehensive skill validation logging
+        if self.skill is None:
+            logger.error(f"[SKILL_MISSING] Task {self.id} has skill=None! Task name: {self.name}")
+            raise AttributeError(f"Task {self.id} ({self.name}) has no skill assigned")
+        
+        if not hasattr(self.skill, 'runnable') or self.skill.runnable is None:
+            logger.error(f"[SKILL_MISSING] Task {self.id} skill '{self.skill.name if hasattr(self.skill, 'name') else 'UNKNOWN'}' has runnable=None!")
+            logger.error(f"[SKILL_MISSING] Skill type: {type(self.skill)}, Skill attributes: {dir(self.skill)}")
+            raise AttributeError(f"Skill '{self.skill.name if hasattr(self.skill, 'name') else 'UNKNOWN'}' has no runnable")
+        
+        logger.debug(f"[SKILL_CHECK] Task {self.id} using skill: {self.skill.name}, runnable type: {type(self.skill.runnable)}")
         print("current langgraph run time state0:", self.skill.runnable.get_state(config=effective_config))
 
         # Support Command inputs (e.g., Command(resume=...)) and normal state runs
@@ -1121,6 +1132,17 @@ class TaskRunner(Generic[Context]):
 
     async def create_task(self, skill, state: dict, session_id: Optional[str] = None, resume_from: Optional[str] = None, trigger: Optional[str] = None) -> str:
         task_id = str(uuid.uuid4())
+        
+        # Validate skill before creating task
+        if skill is None:
+            logger.error(f"[SKILL_MISSING] Attempting to create task with skill=None!")
+            logger.error(f"[SKILL_MISSING] Agent: {self.agent.name if hasattr(self.agent, 'name') else 'UNKNOWN'}")
+            raise ValueError("Cannot create task with None skill")
+        
+        logger.info(f"[TASK_CREATE] Creating task {task_id} with skill: {skill.name if hasattr(skill, 'name') else 'UNKNOWN'}")
+        if not hasattr(skill, 'runnable') or skill.runnable is None:
+            logger.warning(f"[SKILL_WARNING] Skill '{skill.name if hasattr(skill, 'name') else 'UNKNOWN'}' has runnable=None at task creation")
+        
         task = ManagedTask(
             id=task_id,
             sessionId=session_id,
@@ -1878,6 +1900,22 @@ class TaskRunner(Generic[Context]):
                 # Validate task exists before proceeding
                 if not current_task:
                     logger.warning(f"No valid task for trigger_type={trigger_type}")
+                    continue
+                
+                # Add comprehensive task and skill validation
+                logger.info(f"[TASK_VALIDATE] Task ID: {current_task.id}, Task name: {current_task.name}")
+                if current_task.skill is None:
+                    logger.error(f"[SKILL_MISSING] Task {current_task.id} ({current_task.name}) has skill=None!")
+                    logger.error(f"[SKILL_MISSING] Agent: {self.agent.name if hasattr(self.agent, 'name') else 'UNKNOWN'}")
+                    logger.error(f"[SKILL_MISSING] Agent skills count: {len(self.agent.skills) if hasattr(self.agent, 'skills') else 'N/A'}")
+                    if hasattr(self.agent, 'skills'):
+                        logger.error(f"[SKILL_MISSING] Available skills: {[s.name if hasattr(s, 'name') else str(s) for s in self.agent.skills]}")
+                    continue
+                
+                logger.info(f"[SKILL_CHECK] Task {current_task.id} has skill: {current_task.skill.name if hasattr(current_task.skill, 'name') else 'UNKNOWN'}")
+                if not hasattr(current_task.skill, 'runnable') or current_task.skill.runnable is None:
+                    logger.error(f"[SKILL_MISSING] Skill '{current_task.skill.name}' has runnable=None!")
+                    logger.error(f"[SKILL_MISSING] Skill type: {type(current_task.skill)}")
                     continue
                 
                 # 2. Execute task (initial run or resume)

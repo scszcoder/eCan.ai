@@ -197,5 +197,31 @@ async def create_my_twin_chatter_skill(mainwin: 'MainWindow'):
     return chatter_skill
 
 
-
-#
+def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
+    """
+    Standard entry point for skill building system.
+    
+    ⚠️ IMPORTANT: This function is currently NOT actively used!
+    
+    Current Loading Method:
+    -----------------------
+    This skill is loaded via build_agent_skills_parallel() which directly calls:
+        await create_my_twin_chatter_skill(mainwin)
+    
+    When Would This Be Used:
+    ------------------------
+    This build_skill() function would only be called if:
+    1. This skill file is moved to ec_skills/ as an external/plugin skill
+    2. It's NOT hardcoded in build_agent_skills_parallel()
+    3. The system uses build_agent_skills_from_files() for dynamic loading
+    
+    Why Keep It:
+    ------------
+    - Future plugin architecture support
+    - Backward compatibility
+    - Standard interface for all code-based skills
+    
+    See: agent/ec_skills/skill_build_template.py for detailed documentation
+    """
+    from agent.ec_skills.skill_build_template import sync_to_async_bridge
+    return sync_to_async_bridge(create_my_twin_chatter_skill, mainwin, run_context)

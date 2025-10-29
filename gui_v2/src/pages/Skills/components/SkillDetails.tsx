@@ -14,6 +14,7 @@ import {
     AppstoreOutlined,
     TagsOutlined,
     DeleteOutlined,
+    LockOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { Skill, SkillRunMode, SkillNeedInput } from '@/types/domain/skill';
@@ -154,6 +155,9 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     const username = useUserStore((s) => s.username) || '';
     const addItem = useSkillStore((s) => s.addItem);
     const updateItem = useSkillStore((s) => s.updateItem);
+
+    // Check if this is a code-based skill (read-only)
+    const isCodeSkill = skill?.source === 'code';
 
     // ScrollPositionSave
     const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -826,6 +830,11 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             <Tag color="blue" style={{ padding: '4px 12px', fontSize: 13 }}>
                                 <ThunderboltOutlined /> {String(t(`pages.skills.categories.${category || 'unknown'}`, (category as any) || t('common.unknown', '未知')))}
                             </Tag>
+                            {isCodeSkill && (
+                                <Tag color="orange" style={{ padding: '4px 12px', fontSize: 13 }}>
+                                    <LockOutlined /> {t('pages.skills.codeSkillReadOnly', 'Code-based (Read-only)')}
+                                </Tag>
+                            )}
                             {!isNew && (
                                 <>
                                     <Tag style={{ color: 'white', padding: '4px 12px', fontSize: 13 }}>
@@ -919,23 +928,38 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 {/* 查看模式Button */}
                 {!editMode && !isNew && (
                     <>
-                        <Button
-                            icon={<EditOutlined />}
-                            onClick={handleEdit}
-                            size="large"
-                            style={buttonStyle}
-                        >
-                            {t('pages.skills.editSkill')}
-                        </Button>
-                        <Button 
-                            icon={<DeleteOutlined />} 
-                            danger 
-                            size="large" 
-                            onClick={handleDelete}
-                            style={buttonStyle}
-                        >
-                            {t('common.delete', 'Delete')}
-                        </Button>
+                        {isCodeSkill ? (
+                            <Tooltip title={t('pages.skills.codeSkillCannotEdit', 'Code-based skills cannot be edited. Please modify the source code file instead.')}>
+                                <Button
+                                    icon={<LockOutlined />}
+                                    disabled
+                                    size="large"
+                                    style={buttonStyle}
+                                >
+                                    {t('pages.skills.readOnly', 'Read-only')}
+                                </Button>
+                            </Tooltip>
+                        ) : (
+                            <>
+                                <Button
+                                    icon={<EditOutlined />}
+                                    onClick={handleEdit}
+                                    size="large"
+                                    style={buttonStyle}
+                                >
+                                    {t('pages.skills.editSkill')}
+                                </Button>
+                                <Button 
+                                    icon={<DeleteOutlined />} 
+                                    danger 
+                                    size="large" 
+                                    onClick={handleDelete}
+                                    style={buttonStyle}
+                                >
+                                    {t('common.delete', 'Delete')}
+                                </Button>
+                            </>
+                        )}
                     </>
                 )}
             </div>

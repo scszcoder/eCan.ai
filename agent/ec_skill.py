@@ -182,6 +182,7 @@ class EC_Skill(AgentSkill):
     level: str = "entry"
     path: str = ""
     run_mode: str = "released"      # has to be either "development" or "released"
+    source: str = "ui"              # "code" for code-based skills, "ui" for UI-created skills
     # Optional: per-skill mapping rules for resume/state mapping DSL
     mapping_rules: dict | None = DEFAULT_MAPPING_RULE
 
@@ -236,6 +237,7 @@ class EC_Skill(AgentSkill):
             "version": self.version,
             "level": self.level,
             "path": self.path,
+            "source": self.source,  # 'code' or 'ui'
         }
 
 
