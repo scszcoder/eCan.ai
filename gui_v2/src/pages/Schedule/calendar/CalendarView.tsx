@@ -86,6 +86,7 @@ const CalendarBody = styled.div`
   flex: 1;
   overflow: hidden;
   padding: 4px; // Minimum化padding以Maximum化可视区域
+  contain: layout style paint; // CSS containment 优化渲染性能
 `;
 
 const StyledSegmented = styled(Segmented)`
@@ -100,7 +101,7 @@ const StyledSegmented = styled(Segmented)`
       }
       
       &-selected {
-        background: linear-gradient(135deg, #1890ff 0%, #40a9ff 100%);
+        background: #1890ff; // 使用纯色替代渐变，减少GPU消耗
         color: white;
       }
     }
@@ -121,16 +122,69 @@ const ActionButton = styled(Button)`
     }
     
     &.ant-btn-primary {
-      background: linear-gradient(135deg, #1890ff 0%, #40a9ff 100%) !important;
+      background: #1890ff !important; // 使用纯色替代渐变，减少GPU消耗
       border: none !important;
       color: white !important;
       
       &:hover {
-        background: linear-gradient(135deg, #40a9ff 0%, #69c0ff 100%) !important;
+        background: #40a9ff !important;
       }
     }
   }
 `;
+
+// 性能优化：提取Modal中的常量样式对象，避免每次渲染创建新对象
+const MORE_EVENTS_CONTAINER_STYLE = {
+  maxHeight: '60vh',
+  overflowY: 'auto' as const,
+};
+
+const MORE_EVENT_ITEM_BASE_STYLE = {
+  padding: '12px',
+  marginBottom: '8px',
+  borderRadius: '6px',
+  cursor: 'pointer' as const,
+  border: '1px solid rgba(255, 255, 255, 0.1)',
+  background: 'rgba(255, 255, 255, 0.05)',
+  transition: 'background-color 0.2s ease, border-color 0.2s ease', // 移除box-shadow transition，减少GPU消耗
+};
+
+const MORE_EVENT_HEADER_STYLE = {
+  display: 'flex',
+  alignItems: 'center' as const,
+  gap: '8px',
+  marginBottom: '4px',
+};
+
+const MORE_EVENT_DOT_STYLE = {
+  width: '8px',
+  height: '8px',
+  borderRadius: '50%',
+  flexShrink: 0,
+};
+
+const MORE_EVENT_TITLE_STYLE = {
+  fontWeight: 500,
+  fontSize: '14px',
+  flex: 1,
+};
+
+const MORE_EVENT_TIME_STYLE = {
+  fontSize: '12px',
+  color: 'rgba(255, 255, 255, 0.6)',
+  marginLeft: '16px',
+};
+
+const MORE_EVENT_BADGE_STYLE = {
+  backgroundColor: '#52c41a',
+  fontSize: '10px',
+};
+
+const NO_EVENTS_STYLE = {
+  textAlign: 'center' as const,
+  padding: '40px',
+  color: 'rgba(255, 255, 255, 0.4)',
+};
 
 interface CalendarViewProps {
   schedules: TaskSchedule[];
@@ -174,9 +228,12 @@ const CalendarView: React.FC<CalendarViewProps> = ({
   
   const calendarConfig = { ...DEFAULT_CALENDAR_CONFIG, ...config };
   
-  // Convert schedules to events
+  // Convert schedules to events - 性能优化：缓存转换结果
   const events = useMemo(() => {
-    return schedulesToEvents(schedules);
+    console.time('schedulesToEvents');
+    const result = schedulesToEvents(schedules);
+    console.timeEnd('schedulesToEvents');
+    return result;
   }, [schedules]);
   
   // Calculate statistics
@@ -273,15 +330,17 @@ const CalendarView: React.FC<CalendarViewProps> = ({
     handleCloseFormModal();
   }, [editingSchedule, onCreateSchedule, onUpdateSchedule, handleCloseFormModal]);
   
-  // More events modal handlers
+  // More events modal handlers - 性能优化：使用Map去重更快
   const handleMoreEventsClick = useCallback((date: Date, events: CalendarEvent[]) => {
-    // 去重：按任务标题和开始Time去重（精确到分钟）
-    const uniqueEvents = events.filter((event, index, self) => {
-      return index === self.findIndex(e => 
-        e.title === event.title && 
-        dayjs(e.start).isSame(dayjs(event.start), 'minute')
-      );
+    // 去重：使用Map提升性能
+    const eventMap = new Map<string, CalendarEvent>();
+    events.forEach(event => {
+      const key = `${event.title}_${dayjs(event.start).format('YYYY-MM-DD-HH-mm')}`;
+      if (!eventMap.has(key)) {
+        eventMap.set(key, event);
+      }
     });
+    const uniqueEvents = Array.from(eventMap.values());
     
     setMoreEventsDate(date);
     setMoreEventsList(uniqueEvents);
@@ -294,10 +353,17 @@ const CalendarView: React.FC<CalendarViewProps> = ({
     setMoreEventsList([]);
   }, []);
   
-  // Get title text
+  // Get title text - 性能优化：缓存标题文本
   const titleText = useMemo(() => {
     return formatViewTitle(currentDate, viewType, i18n.language);
   }, [currentDate, viewType, i18n.language]);
+  
+  // 性能优化：缓存 view 的 options，避免每次渲染创建新数组
+  const viewOptions = useMemo(() => [
+    { label: t('pages.schedule.calendar.month'), value: CalendarViewType.MONTH },
+    { label: t('pages.schedule.calendar.week'), value: CalendarViewType.WEEK },
+    { label: t('pages.schedule.calendar.day'), value: CalendarViewType.DAY },
+  ], [t]);
   
   // Render appropriate view
   const renderView = () => {
@@ -397,11 +463,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({
           <StyledSegmented
             value={viewType}
             onChange={handleViewChange}
-            options={[
-              { label: t('pages.schedule.calendar.month'), value: CalendarViewType.MONTH },
-              { label: t('pages.schedule.calendar.week'), value: CalendarViewType.WEEK },
-              { label: t('pages.schedule.calendar.day'), value: CalendarViewType.DAY },
-            ]}
+            options={viewOptions}
           />
           
           {/* Action Buttons */}
@@ -451,15 +513,16 @@ const CalendarView: React.FC<CalendarViewProps> = ({
         loading={loading}
       />
       
-      {/* More Events Modal */}
+      {/* More Events Modal - 性能优化：使用提取的常量样式 */}
       <Modal
         title={moreEventsDate ? `${dayjs(moreEventsDate).format(i18n.language === 'zh-CN' ? 'YYYY年M月D日' : 'YYYY-MM-DD')} - ${t('pages.schedule.calendar.allEvents')}` : t('pages.schedule.calendar.allEvents')}
         open={moreEventsModalVisible}
         onCancel={handleCloseMoreEventsModal}
         footer={null}
         width={600}
+        destroyOnClose
       >
-        <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+        <div style={MORE_EVENTS_CONTAINER_STYLE}>
           {moreEventsList.map((event, index) => (
             <div
               key={`${event.id}-${index}`}
@@ -467,71 +530,39 @@ const CalendarView: React.FC<CalendarViewProps> = ({
                 handleEventClick(event);
                 handleCloseMoreEventsModal();
               }}
-              style={{
-                padding: '12px',
-                marginBottom: '8px',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                background: 'rgba(255, 255, 255, 0.05)',
-                transition: 'background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease',
-              }}
+              style={MORE_EVENT_ITEM_BASE_STYLE}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
                 e.currentTarget.style.borderColor = event.color || '#1890ff';
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(24, 144, 255, 0.2)';
+                // 移除box-shadow减少GPU消耗
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
                 e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-                e.currentTarget.style.boxShadow = 'none';
               }}
             >
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '8px',
-                marginBottom: '4px',
-              }}>
+              <div style={MORE_EVENT_HEADER_STYLE}>
                 <div style={{
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
+                  ...MORE_EVENT_DOT_STYLE,
                   background: event.color || '#1890ff',
-                  flexShrink: 0,
                 }} />
-                <div style={{
-                  fontWeight: 500,
-                  fontSize: '14px',
-                  flex: 1,
-                }}>
+                <div style={MORE_EVENT_TITLE_STYLE}>
                   {event.title}
                 </div>
                 {event.isRecurring && (
                   <Badge 
                     count={t('pages.schedule.calendar.recurringTask')} 
-                    style={{ 
-                      backgroundColor: '#52c41a',
-                      fontSize: '10px',
-                    }} 
+                    style={MORE_EVENT_BADGE_STYLE} 
                   />
                 )}
               </div>
-              <div style={{
-                fontSize: '12px',
-                color: 'rgba(255, 255, 255, 0.6)',
-                marginLeft: '16px',
-              }}>
+              <div style={MORE_EVENT_TIME_STYLE}>
                 {dayjs(event.start).format('HH:mm')} - {dayjs(event.end).format('HH:mm')}
               </div>
             </div>
           ))}
           {moreEventsList.length === 0 && (
-            <div style={{
-              textAlign: 'center',
-              padding: '40px',
-              color: 'rgba(255, 255, 255, 0.4)',
-            }}>
+            <div style={NO_EVENTS_STYLE}>
               {t('pages.schedule.calendar.noEvents')}
             </div>
           )}

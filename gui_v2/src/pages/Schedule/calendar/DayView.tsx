@@ -133,13 +133,14 @@ const EventBlock = styled.div<{
   cursor: pointer;
   overflow: hidden;
   z-index: 1;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  transition: box-shadow 0.2s ease, transform 0.15s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15); // 减小阴影范围
+  transition: all 0.2s ease; // 恢复hover效果
   
   &:hover {
     z-index: 5;
-    box-shadow: 0 4px 16px rgba(24, 144, 255, 0.3);
-    transform: translateY(-1px);
+    background: ${props => props.$backgroundColor ? `${props.$backgroundColor}ee` : 'rgba(24, 144, 255, 0.15)'}; // 增加背景亮度
+    box-shadow: 0 3px 10px rgba(24, 144, 255, 0.3); // 增强hover阴影
+    border-left-width: 4px; // 增加左边框宽度，更明显的反馈
   }
   
   .event-header {
@@ -206,7 +207,7 @@ const CurrentTimeIndicator = styled.div<{ $top: number }>`
   height: 2px;
   background: #ff4d4f;
   z-index: 10;
-  box-shadow: 0 0 8px rgba(255, 77, 79, 0.6);
+  box-shadow: 0 0 3px rgba(255, 77, 79, 0.4); // 减小阴影范围
   
   &::before {
     content: '';
@@ -217,7 +218,7 @@ const CurrentTimeIndicator = styled.div<{ $top: number }>`
     height: 12px;
     border-radius: 50%;
     background: #ff4d4f;
-    box-shadow: 0 0 8px rgba(255, 77, 79, 0.8);
+    box-shadow: 0 0 4px rgba(255, 77, 79, 0.5); // 减小阴影范围
   }
   
   &::after {
