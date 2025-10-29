@@ -339,6 +339,11 @@ class LightragServer:
         """Get environment-specific default values - only for values not in .env file"""
         base_defaults = {}
         
+        # Set common defaults for both environments
+        base_defaults['EMBEDDING_TIMEOUT'] = '120'
+        base_defaults['EMBEDDING_FUNC_MAX_ASYNC'] = '2'
+        base_defaults['LLM_TIMEOUT'] = '300'
+        
         # Only set defaults for values that are truly environment-specific
         # and not already configured in .env file
         if self.is_frozen:
@@ -357,29 +362,33 @@ class LightragServer:
         if not env.get('OPENAI_API_KEY'):
             critical_issues.append("OPENAI_API_KEY is missing")
         
-        # Check timeout settings
+        # Check timeout settings (optional, with defaults)
         embedding_timeout = env.get('EMBEDDING_TIMEOUT')
-        if not embedding_timeout:
-            critical_issues.append("EMBEDDING_TIMEOUT is not set")
-        else:
+        if embedding_timeout:
             try:
                 timeout_val = int(embedding_timeout)
                 if timeout_val < 30:
-                    critical_issues.append(f"EMBEDDING_TIMEOUT ({timeout_val}s) is too low, recommend >= 60s")
+                    logger.warning(f"[LightragServer] EMBEDDING_TIMEOUT ({timeout_val}s) is low, recommend >= 60s")
             except ValueError:
                 critical_issues.append(f"EMBEDDING_TIMEOUT ({embedding_timeout}) is not a valid number")
-        
-        # Check concurrency settings
-        max_async = env.get('EMBEDDING_FUNC_MAX_ASYNC')
-        if not max_async:
-            critical_issues.append("EMBEDDING_FUNC_MAX_ASYNC is not set")
         else:
+            # Set default value
+            env['EMBEDDING_TIMEOUT'] = '120'
+            logger.info("[LightragServer] EMBEDDING_TIMEOUT not set, using default: 120s")
+        
+        # Check concurrency settings (optional, with defaults)
+        max_async = env.get('EMBEDDING_FUNC_MAX_ASYNC')
+        if max_async:
             try:
                 async_val = int(max_async)
                 if async_val > 5:
-                    critical_issues.append(f"EMBEDDING_FUNC_MAX_ASYNC ({async_val}) is too high, recommend <= 2")
+                    logger.warning(f"[LightragServer] EMBEDDING_FUNC_MAX_ASYNC ({async_val}) is high, recommend <= 2")
             except ValueError:
                 critical_issues.append(f"EMBEDDING_FUNC_MAX_ASYNC ({max_async}) is not a valid number")
+        else:
+            # Set default value
+            env['EMBEDDING_FUNC_MAX_ASYNC'] = '2'
+            logger.info("[LightragServer] EMBEDDING_FUNC_MAX_ASYNC not set, using default: 2")
         
         if critical_issues:
             logger.warning("[LightragServer] ⚠️ Critical environment variable issues:")
