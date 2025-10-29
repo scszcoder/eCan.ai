@@ -42,9 +42,7 @@ const CalendarContent = styled.div`
 const WeekdayHeader = styled.div`
   display: grid;
   grid-template-columns: repeat(7, minmax(120px, 1fr)); // Minimum120px，屏幕宽时自动Extended
-  background: rgba(0, 0, 0, 0.6); // 增加不透明度，避免Scroll叠影
-  backdrop-filter: blur(10px); // Add模糊效果
-  -webkit-backdrop-filter: blur(10px); // SafariSupport
+  background: rgba(0, 0, 0, 0.85); // 提高不透明度，移除backdrop-filter以减少GPU消耗
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   padding: 6px 4px; // Minimum化padding
   gap: 3px;
@@ -136,14 +134,14 @@ const TodayIndicator = styled.div`
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #1890ff 0%, #40a9ff 100%);
+  background: #1890ff; // 使用纯色替代渐变，减少GPU消耗
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
   font-size: 12px;
   font-weight: 700;
-  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.4);
+  box-shadow: 0 2px 4px rgba(24, 144, 255, 0.3); // 减小阴影范围
 `;
 
 const EventsContainer = styled.div`
@@ -221,6 +219,81 @@ const BADGE_STYLE = {
   minWidth: 16,
   lineHeight: '16px',
 } as const;
+
+// 性能优化：日期格式化缓存，避免重复调用dayjs.format
+const dateFormatCache = new Map<string, string>();
+const formatDateNumber = (date: Date): string => {
+  const key = date.toISOString();
+  if (!dateFormatCache.has(key)) {
+    dateFormatCache.set(key, dayjs(date).format('D'));
+    // 限制缓存大小
+    if (dateFormatCache.size > 100) {
+      const firstKey = dateFormatCache.keys().next().value;
+      if (firstKey) {
+        dateFormatCache.delete(firstKey);
+      }
+    }
+  }
+  return dateFormatCache.get(key)!;
+};
+
+// 性能优化：提取EventItem组件，避免重复创建
+const EventItemComponent = memo<{
+  event: CalendarEvent;
+  onClick: (event: CalendarEvent, e: React.MouseEvent) => void;
+  t: any;
+}>(({ event, onClick, t }) => {
+  const eventTime = useMemo(() => dayjs(event.start).format('HH:mm'), [event.start]);
+  const isSameTime = useMemo(() => event.start.getTime() === event.end.getTime(), [event.start, event.end]);
+  const endTime = useMemo(() => dayjs(event.end).format('HH:mm'), [event.end]);
+  
+  const tooltipTitle = useMemo(() => (
+    <div>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>{event.title}</div>
+      <div style={{ fontSize: 12 }}>
+        {isSameTime 
+          ? `${eventTime} (${t('pages.schedule.calendar.instantTask')})`
+          : `${eventTime} - ${endTime}`
+        }
+      </div>
+      {event.isRecurring && (
+        <div style={{ fontSize: 11, marginTop: 4, color: '#52c41a' }}>
+          {t('pages.schedule.calendar.recurringTask')}
+        </div>
+      )}
+      <div style={{ fontSize: 11, marginTop: 4, opacity: 0.8 }}>
+        {t('common.status')}: {event.status ? t(`pages.schedule.status.${event.status}`) : '-'}
+      </div>
+    </div>
+  ), [event.title, eventTime, endTime, isSameTime, event.isRecurring, event.status, t]);
+  
+  return (
+    <Tooltip 
+      title={tooltipTitle}
+      mouseEnterDelay={0.5}
+      destroyTooltipOnHide
+    >
+      <EventItem
+        $color={event.color}
+        $backgroundColor={event.backgroundColor}
+        $borderColor={event.borderColor}
+        onClick={(e) => onClick(event, e)}
+      >
+        <EventDot $color={event.borderColor} />
+        <EventTitle>
+          {eventTime} {event.title}
+        </EventTitle>
+        {event.isRecurring && (
+          <RecurringBadge title={t('pages.schedule.calendar.recurringTask')}>
+            <SyncOutlined />
+          </RecurringBadge>
+        )}
+      </EventItem>
+    </Tooltip>
+  );
+});
+
+EventItemComponent.displayName = 'EventItemComponent';
 
 interface MonthViewProps {
   currentDate: Date;
@@ -301,53 +374,15 @@ const MonthView: React.FC<MonthViewProps> = ({
     []
   );
   
-  // 性能优化：使用useCallback缓存渲染函数
+  // 性能优化：使用复用组件渲染事件
   const renderEvent = useCallback((event: CalendarEvent) => {
-    const eventTime = dayjs(event.start).format('HH:mm');
-    const isSameTime = event.start.getTime() === event.end.getTime();
-    
     return (
-      <Tooltip 
-        key={event.id} 
-        title={
-          <div>
-            <div style={{ fontWeight: 600, marginBottom: 4 }}>{event.title}</div>
-            <div style={{ fontSize: 12 }}>
-              {isSameTime 
-                ? `${eventTime} (${t('pages.schedule.calendar.instantTask')})`
-                : `${eventTime} - ${dayjs(event.end).format('HH:mm')}`
-              }
-            </div>
-            {event.isRecurring && (
-              <div style={{ fontSize: 11, marginTop: 4, color: '#52c41a' }}>
-                {t('pages.schedule.calendar.recurringTask')}
-              </div>
-            )}
-            <div style={{ fontSize: 11, marginTop: 4, opacity: 0.8 }}>
-              {t('common.status')}: {event.status ? t(`pages.schedule.status.${event.status}`) : '-'}
-            </div>
-          </div>
-        }
-        mouseEnterDelay={0.5}
-        destroyTooltipOnHide
-      >
-        <EventItem
-          $color={event.color}
-          $backgroundColor={event.backgroundColor}
-          $borderColor={event.borderColor}
-          onClick={(e) => handleEventClick(event, e)}
-        >
-          <EventDot $color={event.borderColor} />
-          <EventTitle>
-            {eventTime} {event.title}
-          </EventTitle>
-          {event.isRecurring && (
-            <RecurringBadge title={t('pages.schedule.calendar.recurringTask')}>
-              <SyncOutlined />
-            </RecurringBadge>
-          )}
-        </EventItem>
-      </Tooltip>
+      <EventItemComponent
+        key={event.id}
+        event={event}
+        onClick={handleEventClick}
+        t={t}
+      />
     );
   }, [handleEventClick, t]);
   
@@ -369,8 +404,10 @@ const MonthView: React.FC<MonthViewProps> = ({
             {monthData.weeks.map((week, weekIndex) => (
               <WeekRow key={`week-${weekIndex}`}>
                 {week.days.map((day, dayIndex) => {
-                  const visibleEvents = day.events.slice(0, maxEventsPerDay);
-                  const remainingCount = Math.max(0, day.events.length - maxEventsPerDay);
+                  // 性能优化：使用useMemo缓存切片和计数，避免重复计算
+                  const visibleEvents = useMemo(() => day.events.slice(0, maxEventsPerDay), [day.events, maxEventsPerDay]);
+                  const remainingCount = useMemo(() => Math.max(0, day.events.length - maxEventsPerDay), [day.events.length, maxEventsPerDay]);
+                  const dayNumber = useMemo(() => formatDateNumber(day.date), [day.date]);
                   
                   return (
                     <DayCell
@@ -383,9 +420,9 @@ const MonthView: React.FC<MonthViewProps> = ({
                     >
                       <DayNumber $isToday={day.isToday} $isWeekend={day.isWeekend}>
                         {day.isToday ? (
-                          <TodayIndicator>{dayjs(day.date).format('D')}</TodayIndicator>
+                          <TodayIndicator>{dayNumber}</TodayIndicator>
                         ) : (
-                          <span>{dayjs(day.date).format('D')}</span>
+                          <span>{dayNumber}</span>
                         )}
                         {day.hasEvents && !day.isToday && (
                           <Badge count={day.eventCount} style={BADGE_STYLE} />
