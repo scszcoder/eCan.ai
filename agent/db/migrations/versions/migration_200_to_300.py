@@ -184,14 +184,14 @@ class Migration200To300(BaseMigration):
                     org_id VARCHAR(64) NOT NULL,
                     role VARCHAR(64) DEFAULT 'member',
                     status VARCHAR(32) DEFAULT 'active',
-                    joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    left_at DATETIME,
+                    join_date DATETIME,
+                    leave_date DATETIME,
                     permissions JSON,
                     access_level VARCHAR(32) DEFAULT 'read',
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (agent_id) REFERENCES agents(id),
-                    FOREIGN KEY (org_id) REFERENCES agent_orgs(id),
+                    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+                    FOREIGN KEY (org_id) REFERENCES agent_orgs(id) ON DELETE CASCADE,
                     UNIQUE(agent_id, org_id)
                 )
                 """
@@ -205,16 +205,17 @@ class Migration200To300(BaseMigration):
                     skill_id VARCHAR(64) NOT NULL,
                     proficiency_level VARCHAR(32) DEFAULT 'beginner',
                     experience_points INTEGER DEFAULT 0,
-                    last_used_at DATETIME,
-                    acquired_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     certification_level VARCHAR(32),
-                    notes TEXT,
-                    is_primary BOOLEAN DEFAULT FALSE,
+                    usage_count INTEGER DEFAULT 0,
+                    success_rate FLOAT DEFAULT 0.0,
+                    last_used DATETIME,
+                    status VARCHAR(32) DEFAULT 'active',
+                    is_favorite BOOLEAN DEFAULT FALSE,
                     priority INTEGER DEFAULT 0,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (agent_id) REFERENCES agents(id),
-                    FOREIGN KEY (skill_id) REFERENCES agent_skills(id),
+                    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+                    FOREIGN KEY (skill_id) REFERENCES agent_skills(id) ON DELETE CASCADE,
                     UNIQUE(agent_id, skill_id)
                 )
                 """

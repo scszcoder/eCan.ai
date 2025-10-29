@@ -137,26 +137,62 @@ class Migration302To303(BaseMigration):
             
             logger.info("Created new agent_task_rels_new table")
             
-            # Step 2: Copy data from old table to new table
-            # Explicitly specify columns to handle schema differences
-            # Old table has 18 columns, new table has 22 columns
-            copy_data_sql = """
+            # Step 2: Detect which columns exist in the old table
+            result = session.execute(text("PRAGMA table_info(agent_task_rels)"))
+            existing_columns = {row[1] for row in result.fetchall()}
+            logger.info(f"Existing columns in agent_task_rels: {existing_columns}")
+            
+            # Build dynamic SQL based on which columns exist
+            # Required columns that must exist
+            required_cols = ['id', 'agent_id', 'task_id', 'vehicle_id']
+            
+            # Optional columns with defaults
+            optional_cols = {
+                'status': "'pending'",
+                'priority': "'medium'",
+                'progress': "0.0",
+                'scheduled_start': "NULL",
+                'actual_start': "NULL",
+                'estimated_end': "NULL",
+                'actual_end': "NULL",
+                'result': "NULL",
+                'error_message': "NULL",
+                'logs': "NULL",
+                'cpu_usage': "NULL",
+                'memory_usage': "NULL",
+                'execution_time': "NULL",
+                'execution_context': "NULL",
+                'retry_count': "0",
+                'max_retries': "3",
+                'created_at': "NULL",
+                'updated_at': "NULL"
+            }
+            
+            # Build SELECT clause dynamically
+            select_parts = []
+            for col in required_cols:
+                if col not in existing_columns:
+                    logger.error(f"Required column {col} missing from old table")
+                    self.execute_sql(session, "DROP TABLE IF EXISTS agent_task_rels_new")
+                    return False
+                select_parts.append(col)
+            
+            for col, default in optional_cols.items():
+                if col in existing_columns:
+                    if col in ['status', 'priority', 'progress', 'retry_count', 'max_retries']:
+                        select_parts.append(f"COALESCE({col}, {default}) as {col}")
+                    else:
+                        select_parts.append(col)
+                else:
+                    select_parts.append(f"{default} as {col}")
+            
+            # Build and execute the copy SQL
+            all_cols = required_cols + list(optional_cols.keys())
+            copy_data_sql = f"""
             INSERT INTO agent_task_rels_new 
-            (id, agent_id, task_id, vehicle_id, status, priority, progress,
-             scheduled_start, actual_start, estimated_end, actual_end,
-             result, error_message, logs, cpu_usage, memory_usage, execution_time,
-             execution_context, retry_count, max_retries, created_at, updated_at)
+            ({', '.join(all_cols)})
             SELECT 
-                id, agent_id, task_id, vehicle_id, 
-                COALESCE(status, 'pending') as status,
-                COALESCE(priority, 'medium') as priority,
-                COALESCE(progress, 0.0) as progress,
-                scheduled_start, actual_start, estimated_end, actual_end,
-                result, error_message, logs, cpu_usage, memory_usage, execution_time,
-                execution_context,
-                COALESCE(retry_count, 0) as retry_count,
-                COALESCE(max_retries, 3) as max_retries,
-                created_at, updated_at
+                {', '.join(select_parts)}
             FROM agent_task_rels
             """
             
@@ -276,7 +312,7 @@ class Migration302To303(BaseMigration):
                 END as title,
                 rank, 
                 birthday, 
-                supervisor_id,
+                {'supervisor_id' if 'supervisor_id' in existing_columns else 'NULL'} as supervisor_id,
                 {personality_col if personality_col else "'[]'"} as personality_traits,
                 COALESCE(capabilities, '[]') as capabilities,
                 {'tasks' if 'tasks' in existing_columns else "'[]'"} as tasks,
