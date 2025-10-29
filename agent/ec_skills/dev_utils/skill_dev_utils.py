@@ -39,9 +39,9 @@ async def create_test_dev_skill(mainwin):
 
 def setup_dev_skill(mainwin, skill):
     try:
-        print("all main task names:", [task.name for task in mainwin.agent_tasks])
+        logger.debug(f"[setup_dev_skill] All main task names: {[task.name for task in mainwin.agent_tasks]}")
         dev_run_task = next((task for task in mainwin.agent_tasks if "run task for skill under development" in task.name.lower()), None)
-        print("dev_run_task: ", dev_run_task)
+        logger.debug(f"[setup_dev_skill] Dev run task: {dev_run_task}")
         tester_agent = next((ag for ag in mainwin.agents if "test" in ag.card.name.lower()), None)
         logger.debug("tester_agent: ", type(skill), tester_agent)
         
@@ -53,7 +53,7 @@ def setup_dev_skill(mainwin, skill):
         bundle_json = (flow_payload.get("bundle") if isinstance(flow_payload, dict) else None)
         try:
             bcnt = len((bundle_json or {}).get("sheets", [])) if isinstance(bundle_json, dict) else 0
-            print(f"[setup_dev_skill] bundle sheets to pass: {bcnt}")
+            logger.debug(f"[setup_dev_skill] Bundle sheets to pass: {bcnt}")
         except Exception:
             pass
         # Use v2 layered converter (flat mode for now)
@@ -63,7 +63,7 @@ def setup_dev_skill(mainwin, skill):
         
         # Ensure the dev_run_task exists before using it; if missing, create and register it
         if not dev_run_task:
-            print("Dev run task missing - creating one now...")
+            logger.info("[setup_dev_skill] Dev run task missing - creating one now...")
             try:
                 new_task = create_skill_dev_task(mainwin)
                 if new_task:
@@ -80,7 +80,7 @@ def setup_dev_skill(mainwin, skill):
 
         # Set the breakpoints on the runner's breakpoint manager
         if tester_agent and breakpoints:
-            print("SETTING BREAKPOINTS:", breakpoints)
+            logger.debug(f"[setup_dev_skill] Setting breakpoints: {breakpoints}")
             tester_agent.runner.bp_manager.set_breakpoints(breakpoints)
             logger.info(f"Breakpoints set for dev run: {breakpoints}")
             logger.info(f"BreakpointManager now holds: {tester_agent.runner.bp_manager.get_breakpoints()}")
@@ -195,5 +195,40 @@ def clear_bps_dev_skill(mainwin, bps):
         run_results = {"success": False, "error": "ErrorClearBpsDevSkill", "run_status": None}
 
     return run_results
+
+
+def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
+    """
+    Standard entry point for skill building system.
+    
+    ⚠️ IMPORTANT: This function is currently NOT actively used!
+    
+    Current Loading Method:
+    -----------------------
+    This skill is loaded via build_agent_skills_parallel() which directly calls:
+        await create_test_dev_skill(mainwin)
+    
+    When Would This Be Used:
+    ------------------------
+    This build_skill() function would only be called if:
+    1. This skill file is moved to ec_skills/ as an external/plugin skill
+    2. It's NOT hardcoded in build_agent_skills_parallel()
+    3. The system uses build_agent_skills_from_files() for dynamic loading
+    
+    Why Keep It:
+    ------------
+    - Future plugin architecture support
+    - Backward compatibility
+    - Standard interface for all code-based skills
+    
+    Special Note:
+    -------------
+    This is a development/testing skill without a predefined workflow.
+    The workflow is dynamically set when running tests via setup_dev_skill().
+    
+    See: agent/ec_skills/skill_build_template.py for detailed documentation
+    """
+    from agent.ec_skills.skill_build_template import sync_to_async_bridge
+    return sync_to_async_bridge(create_test_dev_skill, mainwin, run_context)
 
 

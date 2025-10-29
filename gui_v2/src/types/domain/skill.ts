@@ -115,6 +115,9 @@ export interface Skill {
   status?: SkillStatus | string; // UI status
   category?: string; // Category
 
+  // Source type: 'code' for code-based skills, 'ui' for UI-created skills
+  source?: 'ui' | 'code';
+
   // Usage statistics
   usageCount?: number;
   lastUsed?: string;

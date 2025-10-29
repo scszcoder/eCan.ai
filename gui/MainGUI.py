@@ -2108,6 +2108,35 @@ class MainWindow:
             
             logger.info(f"[MainWindow] ✅ Final agent list: {ec_agent_count} EC_Agent objects")
             
+            # Log detailed agent and skill information before launch
+            logger.info("[AGENT_INVENTORY] ========== Agent Skills Inventory ==========")
+            for idx, agent in enumerate(self.agents):
+                try:
+                    agent_name = agent.get_card().name if hasattr(agent, 'get_card') and agent.get_card() else f"Agent_{idx}"
+                    logger.info(f"[AGENT_INVENTORY] Agent {idx}: {agent_name}")
+                    
+                    if hasattr(agent, 'skills'):
+                        skills_count = len(agent.skills) if agent.skills else 0
+                        logger.info(f"[AGENT_INVENTORY]   - Skills count: {skills_count}")
+                        
+                        if skills_count > 0:
+                            for skill_idx, skill in enumerate(agent.skills):
+                                if skill is None:
+                                    logger.error(f"[AGENT_INVENTORY]   - Skill[{skill_idx}]: None (MISSING!)")
+                                else:
+                                    skill_name = skill.name if hasattr(skill, 'name') else f"Skill_{skill_idx}"
+                                    has_runnable = hasattr(skill, 'runnable') and skill.runnable is not None
+                                    logger.info(f"[AGENT_INVENTORY]   - Skill[{skill_idx}]: {skill_name}, has_runnable: {has_runnable}")
+                                    if not has_runnable:
+                                        logger.error(f"[AGENT_INVENTORY]     ⚠️ Skill '{skill_name}' has no runnable!")
+                        else:
+                            logger.warning(f"[AGENT_INVENTORY]   - No skills assigned")
+                    else:
+                        logger.warning(f"[AGENT_INVENTORY]   - No 'skills' attribute")
+                except Exception as e:
+                    logger.error(f"[AGENT_INVENTORY] Error inspecting agent {idx}: {e}")
+            logger.info("[AGENT_INVENTORY] =============================================")
+            
             # Step 4: Launch agents in background (non-blocking)
             self._launch_agents_async(self.agents)
             
@@ -2238,6 +2267,32 @@ class MainWindow:
     async def _launch_single_agent_with_name_async(self, agent_name: str, agent):
         """Asynchronously launch a single Agent (returns launch result)"""
         try:
+            # Log comprehensive agent and skill information
+            agent_card_name = agent.get_card().name if hasattr(agent, 'get_card') and agent.get_card() else agent_name
+            logger.info(f"[AGENT_LAUNCH] Starting launch for agent: {agent_card_name}")
+            
+            # Check and log agent skills
+            if hasattr(agent, 'skills'):
+                skills_count = len(agent.skills) if agent.skills else 0
+                logger.info(f"[AGENT_SKILLS] Agent '{agent_card_name}' has {skills_count} skills")
+                
+                if skills_count > 0:
+                    for idx, skill in enumerate(agent.skills):
+                        if skill is None:
+                            logger.error(f"[SKILL_MISSING] Agent '{agent_card_name}' skill[{idx}] is None!")
+                        else:
+                            skill_name = skill.name if hasattr(skill, 'name') else f"Skill_{idx}"
+                            has_runnable = hasattr(skill, 'runnable') and skill.runnable is not None
+                            runnable_type = type(skill.runnable).__name__ if has_runnable else "None"
+                            logger.info(f"[SKILL_CHECK] Agent '{agent_card_name}' skill[{idx}]: {skill_name}, runnable: {runnable_type}")
+                            
+                            if not has_runnable:
+                                logger.error(f"[SKILL_MISSING] Agent '{agent_card_name}' skill '{skill_name}' has runnable=None!")
+                else:
+                    logger.warning(f"[AGENT_SKILLS] Agent '{agent_card_name}' has no skills!")
+            else:
+                logger.warning(f"[AGENT_SKILLS] Agent '{agent_card_name}' has no 'skills' attribute")
+            
             # Check if Agent has a launch method
             if hasattr(agent, 'launch') and callable(agent.launch):
                 # Execute launch in thread pool (avoid blocking)
