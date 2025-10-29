@@ -840,7 +840,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             logger.debug("state tool_result:", state['tool_result'])
         except Exception as e:
             error_msg = get_traceback(e, f"ErrorMCPToolCallable({tool_name})")
-            print(error_msg)
+            logger.error(error_msg)
             state['error'] = error_msg
 
         return state

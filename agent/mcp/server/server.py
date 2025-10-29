@@ -171,7 +171,7 @@ async def os_wait(mainwin, args):
     except Exception as e:
         # Get the traceback information
         err_trace = get_traceback(e, "ErrorOSWait")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 async def in_browser_wait_for_element(mainwin, args):
@@ -190,7 +190,7 @@ async def in_browser_wait_for_element(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserWaitForElement")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -209,7 +209,7 @@ async def in_browser_click_element_by_index(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserClickElementByIndex")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -232,7 +232,7 @@ async def in_browser_click_element_by_selector(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserClickElementBySelector")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -256,7 +256,7 @@ async def in_browser_click_element_by_xpath(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserClickElementByXpath")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -286,7 +286,7 @@ async def in_browser_click_element_by_text(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserClickElementByText")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -319,7 +319,7 @@ async def in_browser_input_text(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserInputText")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 # Save PDF
@@ -340,7 +340,7 @@ async def in_browser_switch_tab(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserSwitchTab")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -372,7 +372,7 @@ async def in_browser_open_tab(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserOpenTab")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -396,7 +396,7 @@ async def in_browser_close_tab(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserCloseTab")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 # Content Actions
@@ -417,7 +417,7 @@ async def in_browser_scrape_content(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserScrapeContents")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -435,7 +435,7 @@ async def in_browser_execute_javascript(mainwin, args):
         return tool_result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserExecuteJavascript")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -470,7 +470,7 @@ async def in_browser_build_dom_tree(mainwin, args):
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserBuildDomTree")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -492,7 +492,7 @@ async def in_browser_save_href_to_file(mainwin, args) -> CallToolResult:
         return tool_result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserSaveHtmlToFile")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -518,7 +518,7 @@ async def in_browser_scroll(mainwin, args):
         return tool_result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserScrollDown")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 # send keys
@@ -543,7 +543,7 @@ async def in_browser_send_keys(mainwin, args):
         return tool_result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserSendKeys")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -565,7 +565,7 @@ async def in_browser_scroll_to_text(mainwin, args):  # type: ignore
         return tool_result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserScrollToText")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -585,7 +585,7 @@ async def in_browser_get_dropdown_options(mainwin, args) -> CallToolResult:
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserGetDropdownOptions")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -602,7 +602,7 @@ async def in_browser_select_dropdown_option(mainwin, args) -> CallToolResult:
         return tool_result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserSelectDropdownOption")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -625,7 +625,7 @@ async def in_browser_drag_drop(mainwin, args) -> CallToolResult:
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserDragDrop")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 async def in_browser_multi_actions(mainwin, args):
@@ -729,7 +729,7 @@ async def in_browser_multi_actions(mainwin, args):
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserMultiCardAction")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 async def mouse_click(mainwin, args):
@@ -747,7 +747,7 @@ async def mouse_click(mainwin, args):
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseClick")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -768,7 +768,7 @@ async def mouse_press_hold(mainwin, args):
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMousePressHold")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -785,7 +785,7 @@ async def mouse_move(mainwin, args):
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseMove")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 async def mouse_drag_drop(mainwin, args):
@@ -799,7 +799,7 @@ async def mouse_drag_drop(mainwin, args):
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseDragDrop")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 async def mouse_scroll(mainwin, args):
@@ -815,7 +815,7 @@ async def mouse_scroll(mainwin, args):
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseScroll")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -841,7 +841,7 @@ async def mouse_act_on_screen(mainwin, args):
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseActOnScreen")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -857,7 +857,7 @@ async def keyboard_text_input(mainwin, args):
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorKeyboardTextInput")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 async def keyboard_keys_input(mainwin, args):
@@ -872,7 +872,7 @@ async def keyboard_keys_input(mainwin, args):
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorKeyboardKeysInput")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 async def http_call_api(mainwin, args):
@@ -883,7 +883,7 @@ async def http_call_api(mainwin, args):
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorHttpCallApi")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -964,7 +964,7 @@ def connect_to_adspower(mainwin, url):
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorConnectToAdspower")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         webdriver = None
 
     return webdriver
@@ -1019,7 +1019,7 @@ async def os_connect_to_adspower(mainwin, args):
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSConnectToAdspower")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1050,7 +1050,7 @@ async def os_connect_to_chrome(mainwin, args):
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSConnectToChrome")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1074,7 +1074,7 @@ async def os_open_app(mainwin, args):
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSOpenApp")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1088,7 +1088,7 @@ async def os_close_app(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSCloseApp")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 async def os_switch_to_app(mainwin, args):
@@ -1103,7 +1103,7 @@ async def os_switch_to_app(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSSwitchToApp")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1118,7 +1118,7 @@ async def python_run_extern(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorPythonRunExtern")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 async def os_make_dir(mainwin, args):
@@ -1132,7 +1132,7 @@ async def os_make_dir(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSMakeDir")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1147,7 +1147,7 @@ async def os_delete_dir(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSDeleteDir")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1162,7 +1162,7 @@ async def os_delete_file(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSDeleteFile")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1178,7 +1178,7 @@ async def os_move_file(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSMoveFile")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1191,7 +1191,7 @@ async def os_copy_file_dir(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSCopyFileDir")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1210,7 +1210,7 @@ async def os_screen_analyze(mainwin, args):
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSScreenAnalyze")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1228,7 +1228,7 @@ async def os_screen_capture(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSScreenCapture")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1256,7 +1256,7 @@ async def os_seven_zip(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSSevenZip")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1269,7 +1269,7 @@ async def os_kill_processes(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSKillProcesses")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 # Element Interaction Actions
@@ -1305,7 +1305,7 @@ async def rpa_supervisor_scheduling_work(mainwin, args) -> CallToolResult:
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorRPASupervisorSchedulingWork")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 # class Result(BaseModel):
@@ -1334,7 +1334,7 @@ async def rpa_operator_dispatch_works(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorRPAOperatorDispatchWorks")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1348,7 +1348,7 @@ async def rpa_supervisor_process_work_results(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorRPASupervisorProcessWorkResults")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1362,7 +1362,7 @@ async def rpa_supervisor_run_daily_housekeeping(mainwin, args):
         return text_content
     except Exception as e:
         err_trace = get_traceback(e, "ErrorRPASupervisorRunDailyHousekeeping")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 async def rpa_operator_report_work_results(mainwin, args):
@@ -1394,7 +1394,7 @@ async def os_reconnect_wifi(mainwin, args):
         return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSReconnectWifi")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1413,7 +1413,7 @@ async def api_ecan_ai_query_components(mainwin, args):
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorAPIECANAIQueryComponents")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1432,7 +1432,7 @@ async def api_ecan_ai_query_fom(mainwin, args):
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorAPIECANAIQueryComponents")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1454,7 +1454,7 @@ async def api_ecan_ai_rerank_results(mainwin, args):
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorAPIECANAIReRankResults")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1476,7 +1476,7 @@ async def api_ecan_ai_show_status(mainwin, args):
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorAPIECANAIReRankResults")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1530,7 +1530,7 @@ async def ecan_local_search_components(mainwin, args):
             return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorECANAILocalSearchComponents")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1583,7 +1583,7 @@ async def ecan_local_sort_search_results(mainwin, args):
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorECANAILocalSortSearchResults")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -1609,7 +1609,7 @@ async def api_ecan_ai_img2text_icons(mainwin, args):
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorAPIECANAIImg2TextIcons")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
