@@ -1503,34 +1503,97 @@ def get_top_visible_window(win_title_keyword):
             win_rect = win32gui.GetWindowRect(window_handle)
             log3("default top window: " + names[0] + " rect: " + json.dumps(win_rect))
 
-        return win_title, win_rect
+        # Convert from (left, top, right, bottom) to (left, top, width, height) for pyautogui
+        # GetWindowRect returns (left, top, right, bottom) but pyautogui.screenshot needs (left, top, width, height)
+        win_rect_converted = [win_rect[0], win_rect[1], win_rect[2] - win_rect[0], win_rect[3] - win_rect[1]]
+        log3(f"Converted win_rect from {win_rect} to {win_rect_converted} (left, top, width, height)")
+        
+        return win_title, win_rect_converted
     elif sys.platform == 'darwin':
         # 获取当前激活的应用
         active_app = NSWorkspace.sharedWorkspace().frontmostApplication()
         active_app_name = active_app.localizedName()
         window_rect = []
+        
+        log3(f"Looking for window with keyword: '{win_title_keyword}', active app: '{active_app_name}'")
 
         # 获取所有可见窗口的列表
         window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
+        
+        # 调试：列出所有窗口
+        if not window_list:
+            log3("WARNING: No windows found in window list")
+        else:
+            log3(f"Found {len(window_list)} windows in total")
+            # 列出前几个窗口用于调试
+            for i, window in enumerate(window_list[:5]):
+                owner = window.get('kCGWindowOwnerName', '')
+                name = window.get('kCGWindowName', 'No Title')
+                layer = window.get('kCGWindowLayer', 0)
+                log3(f"  Window {i}: Owner='{owner}', Name='{name}', Layer={layer}")
 
-        # 查找最上层的窗口（即当前激活的应用的窗口）
+        # 查找最上层的窗口
+        matched_windows = []
         for window in window_list:
             window_owner_name = window.get('kCGWindowOwnerName', '')
-            if window_owner_name == active_app_name:
-                window_name = window.get('kCGWindowName', 'Unknown')
-                mac_window_rect = window.get('kCGWindowBounds', {'X': 0, 'Y': 0, 'Width': 0, 'Height': 0})
-                log3(f"Window: {window_owner_name}-{window_name}, Rect: {mac_window_rect}")
-                # 转换为 (left, top, right, bottom) 格式
-                left = mac_window_rect['X']
-                top = mac_window_rect['Y']
-                right = left + mac_window_rect['Width']
-                bottom = top + mac_window_rect['Height']
+            window_name = window.get('kCGWindowName', '')
+            window_layer = window.get('kCGWindowLayer', 0)
+            
+            # 只处理普通窗口层级（layer 0）
+            if window_layer != 0:
+                continue
+                
+            # 如果指定了关键词，优先匹配窗口标题
+            if win_title_keyword and window_name and win_title_keyword in window_name:
+                matched_windows.append((window, window_owner_name, window_name, 2))  # 优先级2：关键词匹配
+            # 匹配应用名称
+            elif window_owner_name == active_app_name:
+                # 有窗口标题的优先
+                priority = 1 if window_name else 0
+                matched_windows.append((window, window_owner_name, window_name, priority))
+        
+        # 按优先级排序，取第一个
+        if matched_windows:
+            matched_windows.sort(key=lambda x: x[3], reverse=True)
+            window, window_owner_name, window_name, priority = matched_windows[0]
+            
+            mac_window_rect = window.get('kCGWindowBounds', {'X': 0, 'Y': 0, 'Width': 0, 'Height': 0})
+            log3(f"Matched Window: {window_owner_name}-{window_name}, Rect: {mac_window_rect}, Priority: {priority}")
+            
+            # 转换为 (left, top, width, height) 格式（pyautogui.screenshot 需要）
+            # 注意：macOS 的坐标系统原点在左上角，与 Windows 一致
+            left = mac_window_rect['X']
+            top = mac_window_rect['Y']
+            width = mac_window_rect['Width']
+            height = mac_window_rect['Height']
+            
+            # 验证窗口尺寸是否有效
+            if width > 0 and height > 0:
+                window_rect = [round(left), round(top), round(width), round(height)]
+                log3(f"Window Rect (left, top, width, height): {window_rect}")
+            else:
+                log3(f"WARNING: Invalid window size (w={width}, h={height})")
 
-                window_rect.extend([round(left), round(top), round(right), round(bottom)])
-
-                log3(f"Window Rect: ({window_rect[0], window_rect[1], window_rect[2], window_rect[3]})")
-
-                break
+        # 如果没有找到窗口，使用全屏幕作为默认值
+        if not window_rect:
+            log3(f"Warning: No valid window found for app '{active_app_name}' with keyword '{win_title_keyword}'")
+            log3(f"Using primary screen as fallback")
+            
+            # 获取主屏幕尺寸（支持多屏幕）
+            try:
+                from AppKit import NSScreen
+                main_screen = NSScreen.mainScreen()
+                if main_screen:
+                    frame = main_screen.frame()
+                    # NSScreen 返回的是 (origin, size) 格式
+                    window_rect = [0, 0, round(frame.size.width), round(frame.size.height)]
+                    log3(f"Primary screen size: {window_rect[2]}x{window_rect[3]}")
+                else:
+                    raise Exception("No main screen found")
+            except Exception as e:
+                log3(f"Failed to get NSScreen info: {e}, using pyautogui fallback")
+                screen_size = lazy.pyautogui.size()
+                window_rect = [0, 0, screen_size[0], screen_size[1]]
 
         return active_app_name, window_rect
 
@@ -1553,34 +1616,33 @@ def list_windows():
         return effective_names
 
     elif sys.platform == 'darwin':
-        # 获取当前激活的应用
-        active_app = NSWorkspace.sharedWorkspace().frontmostApplication()
-        active_app_name = active_app.localizedName()
-        window_rect = []
-
         # 获取所有可见窗口的列表
         window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
-
-        # 查找最上层的窗口（即当前激活的应用的窗口）
+        
+        names = []
+        seen = set()  # 避免重复
+        
         for window in window_list:
             window_owner_name = window.get('kCGWindowOwnerName', '')
-            if window_owner_name == active_app_name:
-                window_name = window.get('kCGWindowName', 'Unknown')
-                mac_window_rect = window.get('kCGWindowBounds', {'X': 0, 'Y': 0, 'Width': 0, 'Height': 0})
-                log3(f"Window: {window_owner_name}-{window_name}, Rect: {mac_window_rect}")
-                # 转换为 (left, top, right, bottom) 格式
-                left = mac_window_rect['X']
-                top = mac_window_rect['Y']
-                right = left + mac_window_rect['Width']
-                bottom = top + mac_window_rect['Height']
-
-                window_rect.extend([round(left), round(top), round(right), round(bottom)])
-
-                log3(f"Window Rect: ({window_rect[0], window_rect[1], window_rect[2], window_rect[3]})")
-
-                break
-
-        return active_app_name, window_rect
+            window_name = window.get('kCGWindowName', '')
+            window_layer = window.get('kCGWindowLayer', 0)
+            
+            # 只处理普通窗口层级（layer 0）
+            if window_layer != 0:
+                continue
+            
+            # 构建完整的窗口标识
+            if window_name:
+                full_name = f"{window_owner_name} - {window_name}"
+            else:
+                full_name = window_owner_name
+            
+            if full_name and full_name not in seen:
+                names.append(full_name)
+                seen.add(full_name)
+        
+        print("list of windows:", names)
+        return names
 
 
 def captureScreen(win_title_keyword, subArea=None):
@@ -1588,12 +1650,18 @@ def captureScreen(win_title_keyword, subArea=None):
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BX: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
     if win_title_keyword:
         window_name, window_rect = get_top_visible_window(win_title_keyword)
-        # now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
-        im0 = lazy.pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
     else:
         log3("capture default top window")
         window_name, window_rect = get_top_visible_window("")
-        im0 = lazy.pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+    
+    # Validate window_rect before using it
+    if not window_rect or len(window_rect) < 4:
+        log3(f"ERROR: Invalid window_rect: {window_rect}, using full screen as fallback")
+        screen_size = lazy.pyautogui.size()
+        window_rect = [0, 0, screen_size[0], screen_size[1]]
+    
+    # now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
+    im0 = lazy.pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
 
     if subArea:
         subimage = im0.crop(subArea)
@@ -1676,19 +1744,20 @@ def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mis
             request[0]["options"] = symTab[options]
 
         elif isinstance(symTab[options], dict):
-            full_width = window_rect[2] - window_rect[0]
-            full_height = window_rect[3] - window_rect[1]
+            # window_rect is now (left, top, width, height)
+            full_width = window_rect[2]
+            full_height = window_rect[3]
             if "txt_attention_area" in symTab[options]:
-                full_width = window_rect[2] - window_rect[0]
-                full_height = window_rect[3] - window_rect[1]
+                full_width = window_rect[2]
+                full_height = window_rect[3]
                 symTab[options]["txt_attention_area"] = [ int(symTab[options]["txt_attention_area"][0]*full_width),
                                                       int(symTab[options]["txt_attention_area"][1]*full_height),
                                                       int(symTab[options]["txt_attention_area"][2]*full_width),
                                                       int(symTab[options]["txt_attention_area"][3]*full_height) ]
 
             if "icon_attention_area" in symTab[options]:
-                full_width = window_rect[2] - window_rect[0]
-                full_height = window_rect[3] - window_rect[1]
+                full_width = window_rect[2]
+                full_height = window_rect[3]
                 symTab[options]["icon_attention_area"] = [ int(symTab[options]["icon_attention_area"][0]*full_width),
                                                       int(symTab[options]["icon_attention_area"][1]*full_height),
                                                       int(symTab[options]["icon_attention_area"][2]*full_width),
@@ -1705,10 +1774,11 @@ def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mis
         # robust image to text algorithms on the cloud side to get a better reading of the results. The downside is the image process time
         # is long, so limiting only certain area of the image helps keep speed in tact. Usually we home in on right half of the screen.
         # or center half of the screen.
-        half_width = int((window_rect[2] - window_rect[0])/2)
-        half_height = int((window_rect[3] - window_rect[1]) / 2)
-        full_width = window_rect[2] - window_rect[0]
-        full_height = window_rect[3] - window_rect[1]
+        # window_rect is now (left, top, width, height)
+        half_width = int(window_rect[2] / 2)
+        half_height = int(window_rect[3] / 2)
+        full_width = window_rect[2]
+        full_height = window_rect[3]
         # request[0]["options"]["txt_attention_area"] = [half_width, 0, full_width, full_height]
         # request[0]["options"]["attention_targets"] = []
         request[0]["options"] = json.dumps({"display_resolution": sk_settings["display_resolution"], "txt_attention_area": [half_width, 0, full_width, full_height], "attention_targets": ["OK"]}).replace('"', '\\"')
@@ -2306,12 +2376,18 @@ def takeScreenShot(win_title_keyword, subArea=None):
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BBX: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
     if win_title_keyword:
         window_name, window_rect = get_top_visible_window(win_title_keyword)
-        # now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
-        im0 = lazy.pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
     else:
         log3("capture default top window")
         window_name, window_rect = get_top_visible_window("")
-        im0 = lazy.pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+    
+    # Validate window_rect before using it
+    if not window_rect or len(window_rect) < 4:
+        log3(f"ERROR: Invalid window_rect: {window_rect}, using full screen as fallback")
+        screen_size = lazy.pyautogui.size()
+        window_rect = [0, 0, screen_size[0], screen_size[1]]
+    
+    # now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
+    im0 = lazy.pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
 
     return im0, window_rect
 
@@ -2992,6 +3068,12 @@ def processMouseClick(step, i, mission):
 
         window_name, window_rect = get_top_visible_window("")
         log3("top windows rect:"+json.dumps(window_rect))
+        
+        # Validate window_rect before using it
+        if not window_rect or len(window_rect) < 4:
+            log3(f"ERROR: Invalid window_rect: {window_rect}, using full screen as fallback")
+            screen_size = lazy.pyautogui.size()
+            window_rect = [0, 0, screen_size[0], screen_size[1]]
 
         if loc:
             # loc[0] = int(loc[0]) + window_rect[0]

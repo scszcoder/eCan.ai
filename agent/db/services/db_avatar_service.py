@@ -226,6 +226,7 @@ class DBAvatarService(BaseService):
     def delete_avatar_resource(self, avatar_id: str) -> bool:
         """
         Delete an avatar resource from database.
+        Also clears all agent references to this avatar to maintain data consistency.
         
         Args:
             avatar_id: Avatar resource ID
@@ -243,6 +244,22 @@ class DBAvatarService(BaseService):
                     logger.warning(f"[DBAvatarService] Avatar resource not found for deletion: {avatar_id}")
                     return False
                 
+                # First, clear all agent references to this avatar to prevent data inconsistency
+                from ..models.agent_model import DBAgent
+                agents_using_avatar = session.query(DBAgent).filter_by(
+                    avatar_resource_id=avatar_id
+                ).all()
+                
+                if agents_using_avatar:
+                    logger.warning(f"[DBAvatarService] Found {len(agents_using_avatar)} agents using avatar {avatar_id}, clearing references...")
+                    for agent in agents_using_avatar:
+                        logger.info(f"[DBAvatarService] Clearing avatar reference for agent {agent.id}")
+                        agent.avatar_resource_id = None
+                        agent.avatar_type = None
+                    session.flush()
+                    logger.info(f"[DBAvatarService] ✅ Cleared avatar references for {len(agents_using_avatar)} agents")
+                
+                # Now delete the avatar resource
                 session.delete(avatar_resource)
                 session.flush()
                 
@@ -395,9 +412,26 @@ class DBAvatarService(BaseService):
             if not avatar_resource:
                 # Data inconsistency: agent references non-existent avatar
                 logger.error(f"[DBAvatarService] ❌ DATA INCONSISTENCY: Agent {agent.id} references non-existent uploaded avatar {agent.avatar_resource_id}")
-                logger.error(f"[DBAvatarService] This indicates a bug in avatar upload or deletion logic")
-                # Return None to expose the issue instead of hiding it
-                return None
+                logger.error(f"[DBAvatarService] This indicates a bug in avatar upload or deletion logic. 加保护")
+                
+                # Auto-fix: Clear the invalid avatar reference and use default avatar
+                try:
+                    logger.warning(f"[DBAvatarService] Auto-fixing: Clearing invalid avatar_resource_id for agent {agent.id}")
+                    with self.session_scope() as s:
+                        agent_to_fix = s.get(DBAgent, agent.id)
+                        if agent_to_fix:
+                            agent_to_fix.avatar_resource_id = None
+                            agent_to_fix.avatar_type = None
+                            s.flush()
+                            logger.info(f"[DBAvatarService] ✅ Successfully cleared invalid avatar reference for agent {agent.id}")
+                        else:
+                            logger.error(f"[DBAvatarService] Failed to find agent {agent.id} for auto-fix")
+                except Exception as fix_error:
+                    logger.error(f"[DBAvatarService] Failed to auto-fix agent {agent.id}: {fix_error}")
+                
+                # Return default avatar to keep system running
+                logger.info(f"[DBAvatarService] Returning default avatar for agent {agent.id}")
+                return self.generate_default_avatar(agent.id, owner)
             
             logger.debug(f"[DBAvatarService] Found uploaded avatar resource: {avatar_resource['id']}")
             from app_context import AppContext

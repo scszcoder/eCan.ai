@@ -113,8 +113,32 @@ class DBSkillService(BaseService):
         return self._add(DBAgentSkill, data)
 
     def delete_skill(self, skill_id):
-        """Delete a skill"""
-        return self._delete(DBAgentSkill, skill_id)
+        """Delete a skill and all its relationships"""
+        try:
+            with self.session_scope() as s:
+                # First, delete all related records to avoid foreign key constraint issues
+                # Delete agent-skill relationships
+                s.query(DBAgentSkillRel).filter(DBAgentSkillRel.skill_id == skill_id).delete()
+                
+                # Delete skill-tool relationships
+                s.query(DBSkillToolRel).filter(DBSkillToolRel.skill_id == skill_id).delete()
+                
+                # Delete skill-knowledge relationships
+                s.query(DBAgentSkillKnowledgeRel).filter(DBAgentSkillKnowledgeRel.skill_id == skill_id).delete()
+                
+                # Delete task-skill relationships
+                s.query(DBAgentTaskSkillRel).filter(DBAgentTaskSkillRel.skill_id == skill_id).delete()
+                
+                # Finally, delete the skill itself
+                skill = s.get(DBAgentSkill, skill_id)
+                if skill:
+                    s.delete(skill)
+                    s.flush()
+                    return {"success": True, "id": skill_id, "data": None, "error": None}
+                else:
+                    return {"success": False, "id": skill_id, "data": None, "error": "Skill not found"}
+        except SQLAlchemyError as e:
+            return {"success": False, "id": skill_id, "data": None, "error": str(e)}
 
     def update_skill(self, skill_id, fields):
         """Update a skill"""

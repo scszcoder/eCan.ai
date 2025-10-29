@@ -23,6 +23,12 @@ def create_my_twin_chat_task(mainwin: 'MainWindow'):
         chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for my digital twin"), None)
     else:
         chatter_skill = None
+    
+    # Critical check: skill must exist before creating task
+    if chatter_skill is None:
+        logger.error(f"[create_my_twin_chat_task] Cannot find skill 'chatter for my digital twin' in agent_skills")
+        logger.error(f"[create_my_twin_chat_task] Available skills: {[sk.name for sk in agent_skills] if agent_skills else 'None'}")
+        return None
 
     if agent_tasks:
         logger.trace("agent_tasks: ", agent_tasks)
