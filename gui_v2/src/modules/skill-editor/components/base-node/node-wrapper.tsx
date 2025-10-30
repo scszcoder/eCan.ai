@@ -111,7 +111,8 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
           position: 'relative',
         }}
       >
-        <RunningIcon />
+        {/* Show running GIF on all running nodes except End node */}
+        {!(isRunning && isEndNode) && <RunningIcon />}
         {children}
         {isBreakpoint && <BreakpointIcon />}
         {isEndNode && (
