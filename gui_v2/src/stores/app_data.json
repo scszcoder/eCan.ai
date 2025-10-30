@@ -1997,7 +1997,7 @@
         "default_printer": "EPSON481B68 (ET-3750 Series)",
         "display_resolution": "",
         "default_webdriver": "",
-        "img_engine": "lan",
+        "network_api_engine": "lan",
         "local_user_db_host": "127.0.0.1",
         "local_user_db_port": "5080",
         "local_agent_db_host": "192.168.0.4",

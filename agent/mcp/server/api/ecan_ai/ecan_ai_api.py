@@ -17,12 +17,12 @@ def ecan_ai_api_query_components(mainwin, empty_components):
         session = mainwin.session
         token = mainwin.get_auth_token()
 
-        img_engine = mainwin.getImageEngine()
-        if img_engine == "lan":
-            img_endpoint = mainwin.getLanImageEndpoint()
+        network_api_engine = mainwin.getNetworkApiEngine()
+        if network_api_engine == "lan":
+            img_endpoint = mainwin.getLanApiEndpoint()
             logger.debug("img endpoint:", img_endpoint)
         else:
-            img_endpoint = mainwin.getWanImageEndpoint()
+            img_endpoint = mainwin.getWanApiEndpoint()
 
         response = send_query_components_request_to_cloud(session, token, empty_components, img_endpoint)
         logger.debug("send_query_components_request_to_cloud: respnose:", response)
@@ -52,12 +52,12 @@ def ecan_ai_api_query_fom(mainwin, fom_query):
         session = mainwin.session
         token = mainwin.get_auth_token()
 
-        img_engine = mainwin.getImageEngine()
-        if img_engine == "lan":
-            img_endpoint = mainwin.getLanImageEndpoint()
+        network_api_engine = mainwin.getNetworkApiEngine()
+        if network_api_engine == "lan":
+            img_endpoint = mainwin.getLanApiEndpoint()
             logger.debug("img endpoint:", img_endpoint)
         else:
-            img_endpoint = mainwin.getWanImageEndpoint()
+            img_endpoint = mainwin.getWanApiEndpoint()
 
         response = send_query_fom_request_to_cloud(session, token, fom_query, img_endpoint)
         logger.debug("send_query_fom_request_to_cloud: respnose:", response)
@@ -90,12 +90,12 @@ def ecan_ai_api_query_fom(mainwin, fom_query):
 #         session = mainwin.session
 #         token = mainwin.get_auth_token()
 #
-#         img_engine = mainwin.getImageEngine()
-#         if img_engine == "lan":
-#             img_endpoint = mainwin.getLanImageEndpoint()
+#         network_api_engine = mainwin.getNetworkApiEngine()
+#         if network_api_engine == "lan":
+#             img_endpoint = mainwin.getLanApiEndpoint()
 #             logger.debug("img endpoint:", img_endpoint)
 #         else:
-#             img_endpoint = mainwin.getWanImageEndpoint()
+#             img_endpoint = mainwin.getWanApiEndpoint()
 #
 #         response = send_rank_results_request_to_cloud(session, token, rank_query, img_endpoint)
 #         logger.debug("send_query_fom_request_to_cloud: respnose:", response)
@@ -131,12 +131,12 @@ def ecan_ai_api_rerank_results(mainwin, rank_query):
         session = mainwin.session
         token = mainwin.get_auth_token()
 
-        img_engine = mainwin.getImageEngine()
-        if img_engine == "lan":
-            img_endpoint = mainwin.getLanImageEndpoint()
+        network_api_engine = mainwin.getNetworkApiEngine()
+        if network_api_engine == "lan":
+            img_endpoint = mainwin.getLanApiEndpoint()
             logger.debug("img endpoint:", img_endpoint)
         else:
-            img_endpoint = mainwin.getWanImageEndpoint()
+            img_endpoint = mainwin.getWanApiEndpoint()
 
         rank_request = {
             "acct_site_id": mainwin.getAcctSiteID(),
