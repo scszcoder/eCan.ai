@@ -1004,12 +1004,24 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
                         results = data.get('documents') or data.get('results') or data.get('hits') or []
         except Exception as e:
             logger.debug(f"RAG backend error: {e}")
-        state.setdefault("tool_result", {})
-        state["tool_result"][node_name] = {"query": query, "documents": results}
+        # Ensure tool_result is a dict; previous nodes may set non-dict objects here
+        try:
+            tr = state.get("tool_result") if isinstance(state, dict) else None
+            if not isinstance(tr, dict):
+                tr = {}
+                state["tool_result"] = tr
+            tr[node_name] = {"query": query, "documents": results}
+        except Exception as _e:
+            # Best-effort: record error without raising to keep the workflow moving
+            try:
+                from utils.logger_helper import get_traceback as _gt
+                logger.debug(_gt(_e, "ErrorRAGNodeToolResult"))
+            except Exception:
+                logger.debug(f"RAG node tool_result set failed: {_e}")
+            state["error"] = f"rag node failed to set tool_result: {_e}"
         return state
 
     return node_builder(_rag, node_name, skill_name, owner, bp_manager)
-
 
 def build_browser_automation_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     """Browser automation scaffold.

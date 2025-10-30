@@ -334,6 +334,53 @@ def safe_click(driver, el: WebElement, desc: str = "click", *, settle_ms: int = 
     with step(driver, desc, settle_ms=settle_ms):
         el.click()
 
+def safe_click_robust(driver,
+                      el: WebElement,
+                      desc: str = "click",
+                      *,
+                      settle_ms: int = 250):
+    """
+    Minimal-risk robust click:
+      1) normal click
+      2) scrollIntoView(center) and retry
+      3) JS el.click()
+      4) Dispatch MouseEvents via JS (mousedown/mouseup/click)
+    Wrapped with PX guard via step().
+    """
+    with step(driver, desc, settle_ms=settle_ms):
+        try:
+            el.click()
+            return
+        except Exception:
+            pass
+        try:
+            driver.execute_script("arguments[0].scrollIntoView({block:'center', inline:'center'});", el)
+            time.sleep(0.05)
+            el.click()
+            return
+        except Exception:
+            pass
+        try:
+            driver.execute_script("arguments[0].click();", el)
+            return
+        except Exception:
+            pass
+        # Last resort: synthesize mouse events
+        driver.execute_script(
+            """
+            (function(el){
+              try{
+                const ev = (t)=>new MouseEvent(t,{bubbles:true,cancelable:true,view:window});
+                el.dispatchEvent(ev('mousedown'));
+                el.dispatchEvent(ev('mouseup'));
+                el.dispatchEvent(ev('click'));
+                return true;
+              }catch(e){ return false; }
+            })(arguments[0]);
+            """,
+            el
+        )
+
 def _px_tick(driver, tag: str, *, settle_ms: int = 0):
     """Lightweight mid-action PX check (optional)."""
     _after_any_action_px_guard(driver, tag=tag, settle_ms=settle_ms)
@@ -515,6 +562,22 @@ def safe_input_text(driver,
         if guard_mid:
             _px_tick(driver, f"{desc} [after input]")
         return el  # chaining
+
+def safe_exec_js(driver,
+                 script: str,
+                 *args,
+                 desc: str = "exec js",
+                 settle_ms: int = 0,
+                 guard_mid: bool = True):
+    """
+    Execute a small JS snippet with arguments, wrapped with PX guard.
+    Use this for simple execute_script calls. For injecting scripts, use safe_inject_js.
+    """
+    with step(driver, desc, settle_ms=settle_ms):
+        res = driver.execute_script(script, *args)
+        if guard_mid:
+            _px_tick(driver, f"{desc} [after exec]", settle_ms=0)
+        return res
 
 def safe_inject_js(driver,
                    *,
@@ -1036,8 +1099,22 @@ def _visible_option_nodes(card):
 
 def _find_visible_option_by_text(card, target_text: str):
     want = _norm(target_text)
+    # Elements in virtualized lists can go stale as the DOM re-renders during scroll/filtering.
+    # Guard against StaleElementReferenceException and fall back to textContent when needed.
     for node in _visible_option_nodes(card):
-        if _norm(node.text) == want:
+        txt = ""
+        try:
+            txt = node.text or ""
+        except StaleElementReferenceException:
+            # Node detached between enumeration and text read; skip and continue
+            continue
+        except Exception:
+            try:
+                # Fallback to attribute read which can be more permissive in some cases
+                txt = node.get_attribute("textContent") or ""
+            except Exception:
+                txt = ""
+        if _norm(txt) == want:
             return node
     return None
 
@@ -1051,19 +1128,19 @@ def _scroll_and_probe_for_option(driver, card, target_text: str, max_jumps: int 
         return _find_visible_option_by_text(card, target_text)
 
     # Try from the top first
-    safe_inject_js(driver, "arguments[0].scrollTop = 0;", [outer], desc="scroll list top")
+    safe_exec_js(driver, "arguments[0].scrollTop = 0;", outer, desc="scroll list top")
     time.sleep(0.05)
     found = _find_visible_option_by_text(card, target_text)
     if found:
         return found
 
     # Compute scroll metrics via JS
-    scroll_h = safe_inject_js(driver, "return arguments[0].scrollHeight;", [outer], desc="get scrollHeight")
-    client_h = safe_inject_js(driver, "return arguments[0].clientHeight;", [outer], desc="get clientHeight")
+    scroll_h = safe_exec_js(driver, "return arguments[0].scrollHeight;", outer, desc="get scrollHeight")
+    client_h = safe_exec_js(driver, "return arguments[0].clientHeight;", outer, desc="get clientHeight")
     if not scroll_h or not client_h:
         # fallback brute check
         for _ in range(12):
-            safe_inject_js(driver, "arguments[0].scrollTop += 200;", [outer], desc="scroll step")
+            safe_exec_js(driver, "arguments[0].scrollTop += 200;", outer, desc="scroll step")
             time.sleep(0.05)
             hit = _find_visible_option_by_text(card, target_text)
             if hit:
@@ -1075,14 +1152,14 @@ def _scroll_and_probe_for_option(driver, card, target_text: str, max_jumps: int 
     pos = 0
     for _ in range(max_jumps):
         pos = min(pos + step, int(scroll_h) - int(client_h))
-        safe_inject_js(driver, "arguments[0].scrollTop = arguments[1];", [outer, pos], desc="scroll step abs")
+        safe_exec_js(driver, "arguments[0].scrollTop = arguments[1];", outer, pos, desc="scroll step abs")
         time.sleep(0.05)
         hit = _find_visible_option_by_text(card, target_text)
         if hit:
             return hit
 
     # Try the very bottom once
-    safe_inject_js(driver, "arguments[0].scrollTop = arguments[0].scrollHeight;", [outer], desc="scroll bottom")
+    safe_exec_js(driver, "arguments[0].scrollTop = arguments[0].scrollHeight;", outer, desc="scroll bottom")
     time.sleep(0.05)
     return _find_visible_option_by_text(card, target_text)
 
@@ -1109,7 +1186,7 @@ def _set_single_filter_value(driver, header: str, value: str, timeout: int = 20)
         search = _get_search_input(card)
         if search:
             # Clear & type, then wait for options to refresh
-            safe_input_text(driver, search, value, clear=True, desc=f"type '{value}' in '{header}' search")
+            safe_input_text(driver, search, value, clear="auto", desc=f"type '{value}' in '{header}' search")
             # wait for an option matching the value to be present
             try:
                 safe_wait(
@@ -1134,18 +1211,76 @@ def _set_single_filter_value(driver, header: str, value: str, timeout: int = 20)
         except Exception:
             pass
 
+        # Re-resolve the node after scrolling to avoid stale references
+        try:
+            node = _find_visible_option_by_text(card, value) or node
+        except Exception:
+            pass
+
+        # Guard: do not try to click disabled options (common after a prior filter constrains results)
+        def _is_disabled(n: WebElement) -> bool:
+            try:
+                return bool(safe_exec_js(
+                    driver,
+                    """
+                    const el = arguments[0];
+                    if (!el) return false;
+                    const disabledAttr = el.getAttribute('data-disabled');
+                    const ariaDis = el.getAttribute('aria-disabled');
+                    const hasDisabled = el.hasAttribute('disabled');
+                    const cls = (el.className || '');
+                    const disabledClass = /options-disabled|disabled/i.test(cls);
+                    return (disabledAttr === 'true') || hasDisabled || (ariaDis === 'true') || disabledClass;
+                    """,
+                    n,
+                    desc=f"probe disabled '{value}' in '{header}'"
+                ))
+            except StaleElementReferenceException:
+                # Attempt one refresh read
+                refreshed = _find_visible_option_by_text(card, value)
+                if not refreshed:
+                    return False
+                try:
+                    return bool(safe_exec_js(
+                        driver,
+                        """
+                        const el = arguments[0];
+                        if (!el) return false;
+                        const disabledAttr = el.getAttribute('data-disabled');
+                        const ariaDis = el.getAttribute('aria-disabled');
+                        const hasDisabled = el.hasAttribute('disabled');
+                        const cls = (el.className || '');
+                        const disabledClass = /options-disabled|disabled/i.test(cls);
+                        return (disabledAttr === 'true') || hasDisabled || (ariaDis === 'true') || disabledClass;
+                        """,
+                        refreshed,
+                        desc=f"probe disabled '{value}' in '{header}' (retry)"
+                    ))
+                except Exception:
+                    return False
+            except Exception:
+                return False
+
+        if _is_disabled(node):
+            logger.warning("Option '%s' in '%s' appears disabled; skipping click.", value, header)
+            return False
+
         # Click the inner label span (more reliable than the container)
         try:
-            safe_click(driver, node, desc=f"select '{value}' in '{header}'")
+            safe_click_robust(driver, node, desc=f"select '{value}' in '{header}'")
             return True
-        except (ElementClickInterceptedException, ElementNotInteractableException):
-            # JS fallback
-            logger.warning("Standard click failed for '%s', trying JS click fallback...", value)
+        except StaleElementReferenceException:
+            # Refresh once and retry
+            refreshed = _find_visible_option_by_text(card, value)
+            if not refreshed:
+                return False
             try:
-                safe_inject_js(driver, "arguments[0].click();", [node], desc=f"js click '{value}' in '{header}'")
+                safe_click_robust(driver, refreshed, desc=f"select '{value}' in '{header}' (retry)")
                 return True
             except Exception:
                 return False
+        except Exception:
+            return False
 
 # -----------------------------
 # Public API
@@ -1204,6 +1339,14 @@ def apply_parametric_filters_safe(driver, filters: List[Dict], timeout: int = 20
                 logger.debug("'Apply All' button clicked. Waiting for page to update.")
                 # Wait for the page to process the filters and reload the results.
                 selenium_wait_for_page_load(driver)
+                # Lightweight readiness wait (non-invasive)
+                try:
+                    safe_wait_js(driver, "return document.readyState==='complete'", timeout=min(10, timeout), desc="wait readyState complete")
+                except Exception:
+                    pass
+
+                # quick hack only
+                break
             except TimeoutException:
                 logger.warning("'Apply All' button was not found or not clickable within the timeout period.")
                 # Depending on the desired behavior, you might want to handle this case differently.

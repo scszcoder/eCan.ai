@@ -608,6 +608,7 @@ def gen_query_fom_string(fom_info):
 
     # Use json.dumps to safely format the list of strings for product_app.
     # This handles quoting and commas automatically, creating a valid JSON array string.
+    logger.debug(f"fom_info: {fom_info}")
     product_app_str = json.dumps(fom_info.get('product_app', []))
 
     # Manually build the string for the 'params' list because GraphQL keys are not quoted.
