@@ -48,15 +48,122 @@ if sys.platform == 'win32':
     import win32gui
     import win32con
     import win32api
-    import win32process
-    # import pyscreeze
 elif sys.platform == 'darwin':
+    # macOS-specific imports for window management
     from AppKit import NSWorkspace
     from Quartz import (
         CGWindowListCopyWindowInfo,
         kCGWindowListOptionOnScreenOnly,
         kCGNullWindowID
     )
+
+
+def check_macos_screen_recording_permission():
+    """
+    Check macOS screen recording permission
+    Returns: (has_permission: bool, app_name: str)
+    """
+    if platform.system() != "Darwin":
+        return True, None
+    
+    try:
+        # Try a small screenshot to test permission
+        test_img = lazy.pyautogui.screenshot(region=(0, 0, 10, 10))
+        if test_img and test_img.size[0] > 0 and test_img.size[1] > 0:
+            logger.info("✅ macOS screen recording permission granted")
+            return True, None
+    except Exception as e:
+        logger.debug(f"Permission test failed: {e}")
+    
+    # Detect current running application name
+    app_name = "Python"  # Default value
+    try:
+        # Check if running in PyInstaller packaged environment
+        if getattr(sys, 'frozen', False):
+            # Packaged application
+            app_name = "eCan"
+        else:
+            # Development environment: check if running through IDE
+            if 'TERM_PROGRAM' in os.environ:
+                term_program = os.environ['TERM_PROGRAM']
+                if 'vscode' in term_program.lower():
+                    app_name = "Visual Studio Code" if 'Visual Studio Code' in term_program else "Code"
+                elif 'pycharm' in term_program.lower():
+                    app_name = "PyCharm"
+                elif 'cursor' in term_program.lower():
+                    app_name = "Cursor"
+            
+            # Check Python interpreter path
+            python_path = sys.executable
+            if 'Cursor' in python_path:
+                app_name = "Cursor"
+            elif 'Visual Studio Code' in python_path or 'VSCode' in python_path:
+                app_name = "Visual Studio Code"
+            elif 'PyCharm' in python_path:
+                app_name = "PyCharm"
+            elif '/Library/Frameworks/Python.framework' in python_path:
+                app_name = "Python (Official)"
+            else:
+                app_name = f"Python ({os.path.basename(python_path)})"
+    except Exception as e:
+        logger.debug(f"Failed to detect app name: {e}")
+    
+    return False, app_name
+
+
+def show_macos_permission_guide(app_name):
+    """Show macOS screen recording permission setup guide"""
+    logger.error("=" * 80)
+    logger.error("⚠️  macOS Screen Recording Permission Not Granted!")
+    logger.error("=" * 80)
+    logger.error("")
+    logger.error("📋 Please follow these steps to grant permission:")
+    logger.error("")
+    logger.error("1️⃣  Open 'System Settings' (System Settings)")
+    logger.error("   or 'System Preferences' (System Preferences for older macOS)")
+    logger.error("")
+    logger.error("2️⃣  Navigate to 'Privacy & Security' → 'Screen Recording'")
+    logger.error("   (Privacy & Security → Screen Recording)")
+    logger.error("")
+    logger.error(f"3️⃣  Find and check the box for: '{app_name}'")
+    logger.error("")
+    logger.error("4️⃣  If the app is not in the list:")
+    logger.error("   - Click the '+' button")
+    if app_name == "Cursor":
+        logger.error("   - Navigate to: /Applications/Cursor.app")
+    elif app_name == "Visual Studio Code":
+        logger.error("   - Navigate to: /Applications/Visual Studio Code.app")
+    elif app_name == "PyCharm":
+        logger.error("   - Navigate to: /Applications/PyCharm.app")
+    elif "Python" in app_name:
+        logger.error(f"   - Navigate to: {sys.executable}")
+        logger.error("   - Or add the entire Python.framework directory")
+    else:
+        logger.error("   - Manually add the currently running application")
+    logger.error("")
+    logger.error("5️⃣  After checking the box, restart the application for changes to take effect")
+    logger.error("")
+    logger.error("💡 Tips:")
+    logger.error(f"   - Detected application: {app_name}")
+    logger.error(f"   - Python path: {sys.executable}")
+    logger.error("   - For development environment, grant permission to IDE (e.g., Cursor/VSCode)")
+    logger.error("")
+    logger.error("=" * 80)
+    logger.error("")
+    
+    # Try to open System Settings (macOS 13+) or System Preferences
+    try:
+        # macOS 13 Ventura and above
+        subprocess.run(['open', 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'], 
+                      check=False, timeout=2)
+        logger.info("✅ Attempted to open System Settings automatically")
+    except:
+        try:
+            # Older macOS versions
+            subprocess.run(['open', 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'], 
+                          check=False, timeout=2)
+        except:
+            logger.warning("⚠️  Unable to open System Settings automatically, please open manually")
 
 
 symTab = globals()
@@ -1510,49 +1617,49 @@ def get_top_visible_window(win_title_keyword):
         
         return win_title, win_rect_converted
     elif sys.platform == 'darwin':
-        # 获取当前激活的应用
+        # Get currently active application
         active_app = NSWorkspace.sharedWorkspace().frontmostApplication()
         active_app_name = active_app.localizedName()
         window_rect = []
         
         logger.info(f"Looking for window with keyword: '{win_title_keyword}', active app: '{active_app_name}'")
 
-        # 获取所有可见窗口的列表
+        # Get list of all visible windows
         window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
         
-        # 调试：列出所有窗口
+        # Debug: list all windows
         if not window_list:
             logger.warning("No windows found in window list.")
         else:
             logger.info(f"Found {len(window_list)} windows in total")
-            # 列出前几个窗口用于调试
+            # List first few windows for debugging
             for i, window in enumerate(window_list[:5]):
                 owner = window.get('kCGWindowOwnerName', '')
                 name = window.get('kCGWindowName', 'No Title')
                 layer = window.get('kCGWindowLayer', 0)
                 logger.debug(f"  Window {i}: Owner='{owner}', Name='{name}', Layer={layer}")
 
-        # 查找最上层的窗口
+        # Find topmost window
         matched_windows = []
         for window in window_list:
             window_owner_name = window.get('kCGWindowOwnerName', '')
             window_name = window.get('kCGWindowName', '')
             window_layer = window.get('kCGWindowLayer', 0)
             
-            # 只处理普通窗口层级（layer 0）
+            # Only process normal window layer (layer 0)
             if window_layer != 0:
                 continue
                 
-            # 如果指定了关键词，优先匹配窗口标题
+            # If keyword specified, prioritize matching window title
             if win_title_keyword and window_name and win_title_keyword in window_name:
-                matched_windows.append((window, window_owner_name, window_name, 2))  # 优先级2：关键词匹配
-            # 匹配应用名称
+                matched_windows.append((window, window_owner_name, window_name, 2))  # Priority 2: keyword match
+            # Match application name
             elif window_owner_name == active_app_name:
-                # 有窗口标题的优先
+                # Windows with title have higher priority
                 priority = 1 if window_name else 0
                 matched_windows.append((window, window_owner_name, window_name, priority))
         
-        # 按优先级排序，取第一个
+        # Sort by priority and take the first one
         if matched_windows:
             matched_windows.sort(key=lambda x: x[3], reverse=True)
             window, window_owner_name, window_name, priority = matched_windows[0]
@@ -1560,31 +1667,31 @@ def get_top_visible_window(win_title_keyword):
             mac_window_rect = window.get('kCGWindowBounds', {'X': 0, 'Y': 0, 'Width': 0, 'Height': 0})
             logger.info(f"Matched Window: {window_owner_name}-{window_name}, Rect: {mac_window_rect}, Priority: {priority}")
             
-            # 转换为 (left, top, width, height) 格式（pyautogui.screenshot 需要）
-            # 注意：macOS 的坐标系统原点在左上角，与 Windows 一致
+            # Convert to (left, top, width, height) format (required by pyautogui.screenshot)
+            # Note: macOS coordinate system origin is at top-left, same as Windows
             left = mac_window_rect['X']
             top = mac_window_rect['Y']
             width = mac_window_rect['Width']
             height = mac_window_rect['Height']
             
-            # 验证窗口尺寸是否有效
+            # Verify window size is valid
             if width > 0 and height > 0:
                 window_rect = [round(left), round(top), round(width), round(height)]
                 logger.info(f"Window Rect (left, top, width, height): {window_rect}")
             else:
                 logger.warning(f"Invalid window size (w={width}, h={height}).")
 
-        # 如果没有找到窗口，使用全屏幕作为默认值
+        # If no window found, use full screen as default
         if not window_rect:
             logger.warning(f"No valid window found for app '{active_app_name}' with keyword '{win_title_keyword}'. Using primary screen as fallback.")
             
-            # 获取主屏幕尺寸（支持多屏幕）
+            # Get main screen size (supports multiple screens)
             try:
                 from AppKit import NSScreen
                 main_screen = NSScreen.mainScreen()
                 if main_screen:
                     frame = main_screen.frame()
-                    # NSScreen 返回的是 (origin, size) 格式
+                    # NSScreen returns (origin, size) format
                     window_rect = [0, 0, round(frame.size.width), round(frame.size.height)]
                     logger.info(f"Primary screen size: {window_rect[2]}x{window_rect[3]}")
                 else:
@@ -1615,22 +1722,22 @@ def list_windows():
         return effective_names
 
     elif sys.platform == 'darwin':
-        # 获取所有可见窗口的列表
+        # Get list of all visible windows
         window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
         
         names = []
-        seen = set()  # 避免重复
+        seen = set()  # Avoid duplicates
         
         for window in window_list:
             window_owner_name = window.get('kCGWindowOwnerName', '')
             window_name = window.get('kCGWindowName', '')
             window_layer = window.get('kCGWindowLayer', 0)
             
-            # 只处理普通窗口层级（layer 0）
+            # Only process normal window layer (layer 0)
             if window_layer != 0:
                 continue
             
-            # 构建完整的窗口标识
+            # Build full window identifier
             if window_name:
                 full_name = f"{window_owner_name} - {window_name}"
             else:
@@ -1647,6 +1754,14 @@ def list_windows():
 def captureScreen(win_title_keyword, subArea=None):
     global screen_loc
     logger.info(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BX: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
+    
+    # Check macOS screen recording permission first
+    has_permission, app_name = check_macos_screen_recording_permission()
+    if not has_permission:
+        show_macos_permission_guide(app_name)
+        # Still try to capture, but user has been warned
+        logger.warning("⚠️  Continuing to attempt screenshot, but it may fail...")
+    
     if win_title_keyword:
         window_name, window_rect = get_top_visible_window(win_title_keyword)
     else:
@@ -1659,8 +1774,55 @@ def captureScreen(win_title_keyword, subArea=None):
         screen_size = lazy.pyautogui.size()
         window_rect = [0, 0, screen_size[0], screen_size[1]]
     
+    # Validate window_rect values are positive and reasonable
+    if window_rect[2] <= 0 or window_rect[3] <= 0:
+        logger.error(f"ERROR: Invalid window dimensions (w={window_rect[2]}, h={window_rect[3]}), using full screen")
+        screen_size = lazy.pyautogui.size()
+        window_rect = [0, 0, screen_size[0], screen_size[1]]
+    
     # now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
-    im0 = lazy.pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+    im0 = None
+    max_retries = 3
+    
+    for attempt in range(max_retries):
+        try:
+            # Try to capture with the specified region
+            im0 = lazy.pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+            
+            # Validate the captured image
+            if im0 is None or im0.size[0] == 0 or im0.size[1] == 0:
+                raise ValueError(f"Captured image has invalid size: {im0.size if im0 else 'None'}")
+            
+            # Successfully captured
+            logger.info(f"Successfully captured screenshot: {im0.size}")
+            break
+            
+        except Exception as e:
+            logger.warning(f"Screenshot attempt {attempt + 1}/{max_retries} failed: {e}")
+            
+            if attempt < max_retries - 1:
+                # Try with full screen on next attempt
+                screen_size = lazy.pyautogui.size()
+                window_rect = [0, 0, screen_size[0], screen_size[1]]
+                logger.info(f"Retrying with full screen: {window_rect}")
+            else:
+                # Last attempt failed, try alternative method
+                logger.error("All screenshot attempts failed, trying alternative method")
+                try:
+                    # Try capturing full screen without region parameter
+                    im0 = lazy.pyautogui.screenshot()
+                    if im0 and im0.size[0] > 0 and im0.size[1] > 0:
+                        logger.info(f"Alternative method succeeded: {im0.size}")
+                        # Update window_rect to match full screen
+                        window_rect = [0, 0, im0.size[0], im0.size[1]]
+                    else:
+                        raise ValueError("Alternative method also failed")
+                except Exception as e2:
+                    logger.error(f"Alternative screenshot method failed: {e2}")
+                    raise RuntimeError(f"Failed to capture screenshot after {max_retries} attempts: {e}") from e
+    
+    if im0 is None:
+        raise RuntimeError("Failed to capture screenshot: image is None")
 
     if subArea:
         subimage = im0.crop(subArea)
@@ -1860,15 +2022,15 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
 
     logger.info(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BXXX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
     mwin = mission.get_main_win()
-    img_engine = mwin.getImageEngine()
-    if img_engine == "lan":
+    network_api_engine = mwin.getNetworkApiEngine()
+    if network_api_engine == "lan":
         img_endpoint = mwin.getLanOCREndpoint()
         logger.info("Using LAN OCR endpoint: %s", img_endpoint)
     else:
-        img_endpoint = mwin.getWanImageEndpoint()
+        img_endpoint = mwin.getWanApiEndpoint()
 
     #upload screen to S3
-    if img_engine == "wan":
+    if network_api_engine == "wan":
         await upload_file8(session, img_file, token, mwin.getWanApiEndpoint(),"screen")
 
     full_width, full_height = screen_image.size
@@ -1955,7 +2117,7 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
         logger.debug("OCR API key detected (length=%d).", len(api_key))
     else:
         logger.warning("OCR API key missing or empty.")
-    result = await req_read_screen8(session, request, token, api_key, local_info, imgs, img_engine, img_endpoint)
+    result = await req_read_screen8(session, request, token, api_key, local_info, imgs, network_api_engine, img_endpoint)
     
     # Check if result contains an error from network failure
     if isinstance(result, dict) and 'error' in result:
@@ -1963,7 +2125,7 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
         logger.error(f"Error details: {result.get('details', 'No details available')}")
         return []
     
-    if img_engine == "wan":
+    if network_api_engine == "wan":
         jresult = json.loads(result['body'])
     else:
         jresult = result['body']
@@ -1975,7 +2137,7 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
         return []
     else:
         # logger.info("cloud result data body: "+json.dumps(result["body"]))
-        if img_engine == "wan":
+        if network_api_engine == "wan":
             jbody = json.loads(result['body'])
         else:
             jbody = json.loads(result['body']['data']['body'])
@@ -3369,7 +3531,7 @@ def processOpenApp(step, i, mission):
                 # start the app afresh
                 # exec("global oa_exe\noa_exe = "+step["app_type"])
                 if step["cargs_type"] == "direct":
-                    # 将字符串命令转换为列表格式
+                    # Convert string command to list format
                     from utils.subprocess_helper import run_no_window
                     if step["cargs"]:
                         cmd_args = step["cargs"].split()

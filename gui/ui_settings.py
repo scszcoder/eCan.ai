@@ -147,7 +147,7 @@ class SettingsManager:
     def get_auto_schedule_mode(self) -> bool:
         """Get auto schedule mode setting (maps to general_settings.schedule_mode)"""
         if hasattr(self.parent, 'config_manager'):
-            return self.parent.config_manager.general_settings.schedule_mode == "auto"
+            return self.parent.config_manager.general_settings.is_auto_mode()
         return False
 
     def set_auto_schedule_mode(self, value: bool):

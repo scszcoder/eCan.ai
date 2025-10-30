@@ -26,42 +26,72 @@ export interface LLMProvider {
   missing_env_vars: string[];
 }
 
-// Settings 主Interface
+// Settings 主Interface - 与settings_template.json对齐
 export interface Settings {
+  // General
+  schedule_mode: string;
   debug_mode: boolean;
+  
+  // Hardware
   default_wifi: string;
   default_printer: string;
   display_resolution: string;
+  
+  // Paths
   default_webdriver_path: string;
-  img_engine: string;
+  build_dom_tree_script_path: string;
+  new_orders_dir: string;
+  new_bots_file_path: string;
+  new_orders_path: string;
+  browser_use_file_system_path: string;
+  browser_use_download_dir: string;
+  browser_use_user_data_dir: string;
+  gui_flowgram_schema: string;
+  
+  // Local DB
   local_user_db_host: string;
   local_user_db_port: string;
   local_agent_db_host: string;
   local_agent_db_port: string;
   local_agent_ports: number[];
   local_server_port: string;
+  
+  // API Endpoints
   lan_api_endpoint: string;
-  last_bots_file: string;
-  last_bots_file_time: number;
-  mids_forced_to_run: any[];
-  new_orders_dir: string;
-  new_bots_file_path: string;
   wan_api_endpoint: string;
   ws_api_endpoint: string;
-  schedule_engine: string;
-  schedule_mode: string;
+  ws_api_host: string;
+  ecan_cloud_searcher_url: string;
+  
+  // API Keys
   wan_api_key: string;
-  browser_use_file_system_path: string;
-  gui_flowgram_schema: string;
-  build_dom_tree_script_path: string;
+  ocr_api_key: string;
+  
+  // Engines
+  network_api_engine: string;
+  schedule_engine: string;
+  
+  // OCR
+  ocr_api_endpoint: string;
+  
+  // LLM
+  default_llm: string;
+  cn_llm_provider: string;
+  cn_llm_model: string;
+  us_llm_provider: string;
+  us_llm_model: string;
+  eu_llm_provider: string;
+  eu_llm_model: string;
+  
+  // Skill
+  skill_use_git: boolean;
+  
+  // Internal
+  last_bots_file: string;
+  last_bots_file_time: number;
   last_order_file: string;
   last_order_file_time: number;
-  new_orders_path: string;
-  default_llm: string;  // Default使用的LLM提供商
-  ocr_engine: string;  // OCR 引擎
-  ocr_endpoint: string;  // OCR 端点
-  ocr_port: string;  // OCR 端口
-  ocr_api_key: string;  // OCR API 密钥
+  mids_forced_to_run: any[];
 }
 
 // ToolFunction

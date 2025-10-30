@@ -1629,7 +1629,7 @@ def testCloudAccessWithAPIKey(session, token, mainwin):
 
 
 
-    req_cloud_obtain_review_w_aipkey(session, req, apikey, mainwin.getWanImageEndpoint())
+    req_cloud_obtain_review_w_aipkey(session, req, apikey, mainwin.getWanApiEndpoint())
 
 
 
@@ -2050,11 +2050,11 @@ async def testLocalImageAPI3(mwin):
         "factor": "{}"
     }]
 
-    img_engine = mwin.getImageEngine()
-    if img_engine == "lan":
-        img_endpoint = mwin.getLanImageEndpoint()
+    network_api_engine = mwin.getNetworkApiEngine()
+    if network_api_engine == "lan":
+        img_endpoint = mwin.getLanApiEndpoint()
     else:
-        img_endpoint = mwin.getWanImageEndpoint()
+        img_endpoint = mwin.getWanApiEndpoint()
 
     local_info = {
         "user": mwin.getUser(),
@@ -2068,7 +2068,7 @@ async def testLocalImageAPI3(mwin):
                 "bytes": image_bytes
             }
         ]
-        await req_read_screen8(None, request, None, local_info, imgs, img_engine, img_endpoint)
+        await req_read_screen8(None, request, None, local_info, imgs, network_api_engine, img_endpoint)
 
 
 async def stressTestImageAPI(mwin, iterations):

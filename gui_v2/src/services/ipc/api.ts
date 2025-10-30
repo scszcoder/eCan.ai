@@ -90,7 +90,7 @@ export class IPCAPI {
      * @param params - RequestParameter
      * @returns Promise 对象，Parse为 API Response
      */
-    private async executeRequest<T>(method: string, params?: unknown): Promise<APIResponse<T>> {
+    public async executeRequest<T>(method: string, params?: unknown): Promise<APIResponse<T>> {
         const startTs = Date.now();
         console.log('[IPCAPI] executeRequest:start', method, { params });
         try {

@@ -5,6 +5,8 @@ Provides platform-aware file dialogs and file I/O operations.
 
 import os
 import json
+import sys
+import subprocess
 from typing import Any, Optional, Dict
 # Lazy import extern_skills to avoid blocking during module initialization
 # from agent.ec_skills.extern_skills.extern_skills import scaffold_skill, rename_skill, user_skills_root
@@ -605,3 +607,54 @@ def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) 
     except Exception as e:
         logger.error(f"[IPC] skills.rename error: {e}")
         return create_error_response(request, 'RENAME_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('open_folder')
+def handle_open_folder(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Open folder in system file explorer.
+    
+    Args:
+        request: IPC request object
+        params: Parameters containing 'path' - folder path to open
+        
+    Returns:
+        IPCResponse: Response indicating success or failure
+    """
+    try:
+        ok, data, err = validate_params(params, ['path'])
+        if not ok:
+            return create_error_response(request, 'INVALID_PARAMS', err or 'Path is required')
+        
+        path = data['path']
+        
+        # Normalize path
+        path = os.path.expanduser(path)
+        path = os.path.abspath(path)
+        
+        # Check if path exists
+        if not os.path.exists(path):
+            logger.warning(f"[OPEN_FOLDER] Path does not exist: {path}")
+            return create_error_response(request, 'PATH_NOT_FOUND', f'Path does not exist: {path}')
+        
+        # If path is a file, get its directory
+        if os.path.isfile(path):
+            path = os.path.dirname(path)
+        
+        logger.info(f"[OPEN_FOLDER] Opening folder: {path}")
+        
+        # Open folder based on platform
+        if sys.platform == 'darwin':  # macOS
+            subprocess.run(['open', path], check=True)
+        elif sys.platform == 'win32':  # Windows
+            os.startfile(path)
+        else:  # Linux and other Unix-like systems
+            subprocess.run(['xdg-open', path], check=True)
+        
+        return create_success_response(request, {'success': True, 'path': path})
+        
+    except subprocess.CalledProcessError as e:
+        logger.error(f"[OPEN_FOLDER] Failed to open folder: {e}")
+        return create_error_response(request, 'OPEN_FOLDER_ERROR', f'Failed to open folder: {str(e)}')
+    except Exception as e:
+        logger.error(f"[OPEN_FOLDER] Error: {e}")
+        return create_error_response(request, 'OPEN_FOLDER_ERROR', str(e))

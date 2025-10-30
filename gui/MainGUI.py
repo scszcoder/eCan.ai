@@ -1048,7 +1048,7 @@ class MainWindow:
             self.dailySkillsetUpdate()
 
             # Mark that cloud sync should be started after async initialization
-            if not self.config_manager.general_settings.debug_mode or self.config_manager.general_settings.schedule_mode == "auto":
+            if not self.config_manager.general_settings.is_debug_enabled() or self.config_manager.general_settings.is_auto_mode():
                 logger.info("[MainWindow] Cloud sync will be started after async initialization...")
                 self._should_start_cloud_sync = True
             else:
@@ -1133,7 +1133,7 @@ class MainWindow:
             }
 
             # Add to work queue if in auto mode and not debug
-            if not self.config_manager.general_settings.debug_mode and self.config_manager.general_settings.schedule_mode == "auto":
+            if not self.config_manager.general_settings.is_debug_enabled() and self.config_manager.general_settings.is_auto_mode():
                 logger.info("[MainWindow] Adding fetch schedule to work queue")
                 self.todays_work["tbd"].append(fetchCloudScheduledWork)
             else:
@@ -2721,7 +2721,7 @@ class MainWindow:
     # 3) regenerate psk files for each skill
     # 4) build up skill_table (a look up table)
     def dailySkillsetUpdate(self):
-        if not self.is_test_mode():
+        if not self.general_settings.is_test_mode():
             cloud_skills_results = self.skill_manager.fetch_my_skills()
             logger.trace("DAILY SKILL FETCH:", cloud_skills_results)
         else:
@@ -2836,7 +2836,7 @@ class MainWindow:
         return get_cpu_info_safely()
 
     def getWifis(self):
-        return self.config_manager.general_settings.wifis
+        return self.config_manager.general_settings.get_wifi_networks()
 
     def getWebDriverPath(self):
         return self.config_manager.general_settings.default_webdriver_path
@@ -2989,30 +2989,18 @@ class MainWindow:
             return False
 
     @property
-    def debug_mode(self):
-        return self.config_manager.general_settings.debug_mode
-
-    @property
-    def schedule_mode(self):
-        return self.config_manager.general_settings.schedule_mode
-
-    @property
-    def default_wifi(self):
-        return self.config_manager.general_settings.default_wifi
-
-    @property
-    def default_printer(self):
-        return self.config_manager.general_settings.default_printer
-
-    def get_schedule_mode(self):
-        return self.config_manager.general_settings.schedule_mode
-
-    def set_schedule_mode(self, mode: str):
-        self.config_manager.general_settings.schedule_mode = mode
-        self.config_manager.general_settings.save()
-
-    def get_local_server_port(self):
-        return self.config_manager.general_settings.local_server_port
+    def general_settings(self):
+        """
+        Unified access to general settings.
+        Use this property to access any general settings field directly:
+        
+        Examples:
+            self.general_settings.debug_mode
+            self.general_settings.schedule_mode
+            self.general_settings.default_wifi
+            self.general_settings.lan_api_endpoint
+        """
+        return self.config_manager.general_settings
     
     def get_server_base_url(self) -> str:
         """
@@ -3033,54 +3021,8 @@ class MainWindow:
             logger.warning(f"Failed to get server URL from server_manager: {e}")
         
         # Fallback: construct from config port
-        port = self.get_local_server_port()
+        port = self.general_settings.local_server_port
         return f"http://localhost:{port}"
-
-    def is_debug_mode(self):
-        return self.config_manager.general_settings.debug_mode
-
-    def is_test_mode(self):
-        return self.config_manager.general_settings.schedule_mode == "test"
-
-    def get_mids_forced_to_run(self):
-        return self.config_manager.general_settings.data.get("mids_forced_to_run", [])
-
-    def has_new_bots_file_path(self):
-        return bool(self.config_manager.general_settings.data.get("new_bots_file_path"))
-
-    def get_new_bots_file_path(self):
-        return self.config_manager.general_settings.data.get("new_bots_file_path", "")
-
-    def has_new_orders_dir(self):
-        return bool(self.config_manager.general_settings.new_orders_dir)
-
-    def get_new_orders_dir(self):
-        return self.config_manager.general_settings.new_orders_dir
-
-    def get_last_bots_file_info(self):
-        data = self.config_manager.general_settings.data
-        return {
-            "file": data.get("last_bots_file", ""),
-            "time": data.get("last_bots_file_time", 0)
-        }
-
-    def set_last_bots_file_info(self, file_path: str, file_time: int):
-        self.config_manager.general_settings.data["last_bots_file"] = file_path
-        self.config_manager.general_settings.data["last_bots_file_time"] = file_time
-        self.config_manager.general_settings.save()
-
-    def get_last_order_file_info(self):
-        data = self.config_manager.general_settings.data
-        return {
-            "file": data.get("last_order_file", ""),
-            "time": data.get("last_order_file_time", 0)
-        }
-
-    def set_last_order_file_info(self, file_path: str, file_time: int):
-        self.config_manager.general_settings.data["last_order_file"] = file_path
-        self.config_manager.general_settings.data["last_order_file_time"] = file_time
-        self.config_manager.general_settings.save()
-
 
     def get_host_role(self):
         return self.host_role
@@ -3098,11 +3040,8 @@ class MainWindow:
     def getUser(self):
         return self.user
 
-    def getImageEngine(self):
-        return self.config_manager.general_settings.img_engine
-
-    def getLanImageEndpoint(self):
-        return self.config_manager.general_settings.lan_api_endpoint
+    def getNetworkApiEngine(self):
+        return self.config_manager.general_settings.network_api_engine
 
     def getLanOCREndpoint(self):
         return self.config_manager.general_settings.ocr_api_endpoint
@@ -3110,8 +3049,11 @@ class MainWindow:
     def getLanOCRApiKey(self):
         return self.config_manager.general_settings.ocr_api_key
 
-    def getWanImageEndpoint(self):
-        return self.config_manager.general_settings.wan_api_endpoint
+    def getLanApiEndpoint(self):
+        return self.config_manager.general_settings.lan_api_endpoint
+
+    def get_local_server_port(self):
+        return self.config_manager.general_settings.local_server_port
 
     def getWanApiEndpoint(self):
         return self.config_manager.general_settings.wan_api_endpoint
@@ -3129,9 +3071,6 @@ class MainWindow:
         site = self.machine_name
         user = self.user.replace("@", "_").replace(".", "_")
         return f"{user}_{site}"
-
-    def getLanApiEndpoint(self):
-        return self.config_manager.general_settings.lan_api_endpoint
 
     def setMILANServer(self, ip, port="8848"):
         self.config_manager.general_settings.lan_api_endpoint = f"http://{ip}:{port}"
@@ -3257,7 +3196,7 @@ class MainWindow:
             log3("Done handling today's new Buy orders...", "fetchSchedule", self)
             bodyobj = {}
             # next line commented out for testing purpose....
-            if not self.config_manager.general_settings.debug_mode and self.config_manager.general_settings.schedule_mode == "auto":
+            if not self.config_manager.general_settings.is_debug_enabled() and self.config_manager.general_settings.is_auto_mode():
                 log3("schedule setting:"+json.dumps(settings), "fetchSchedule", self)
 
                 log3(f"schedule file {schedule_file} exists: {todaysScheduleExists}", "fetchSchedule", self)
@@ -3277,7 +3216,7 @@ class MainWindow:
             else:
                 # first, need to decompress the body.
                 # very important to use compress and decompress on Base64
-                if not self.config_manager.general_settings.debug_mode and self.config_manager.general_settings.schedule_mode == "auto":
+                if not self.config_manager.general_settings.is_debug_enabled() and self.config_manager.general_settings.is_auto_mode():
                     if not todaysScheduleExists or forceful:
                         uncompressed = self.zipper.decompressFromBase64(jresp["body"])   # commented out for testing
                     else:
@@ -3294,7 +3233,7 @@ class MainWindow:
 
                     bodyobj = {"task_groups": {}, "added_missions": []}
 
-                    if not self.config_manager.general_settings.debug_mode and self.config_manager.general_settings.schedule_mode == "auto":
+                    if not self.config_manager.general_settings.is_debug_enabled() and self.config_manager.general_settings.is_auto_mode():
                         if not todaysScheduleExists or forceful:
                             bodyobj = json.loads(uncompressed)                      # for test purpose, comment out, put it back when test is done....
                         else:
@@ -3311,7 +3250,7 @@ class MainWindow:
                 else:
                     self.warn("Warning: Empty Network Response.")
 
-            if ((not todaysScheduleExists) or forceful) and (not self.config_manager.general_settings.debug_mode) and (self.config_manager.general_settings.schedule_mode == "auto"):
+            if ((not todaysScheduleExists) or forceful) and (not self.config_manager.general_settings.is_debug_enabled()) and (self.config_manager.general_settings.is_auto_mode()):
                 log3(f"saving schedule file {schedule_file}", "fetchSchedule", self)
 
                 with open(schedule_file, 'w') as sf:
@@ -4471,7 +4410,7 @@ class MainWindow:
             worksettings = getWorkRunSettings(self, worksTBD)
             mid2br = worksettings["mid"]
 
-            if (not self.checkMissionAlreadyRun(worksettings)) or mid2br in self.get_mids_forced_to_run():
+            if (not self.checkMissionAlreadyRun(worksettings)) or mid2br in self.general_settings.mids_forced_to_run:
                 log3("worksettings: bid, mid "+str(worksettings["botid"])+" "+str(worksettings["mid"])+" "+str(worksettings["midx"])+" "+json.dumps([m.getFingerPrintProfile() for m in self.missions]), "runRPA", self)
 
                 bot_idx = next((i for i, b in enumerate(self.bots) if str(b.getBid()) == str(worksettings["botid"])), -1)
@@ -10414,7 +10353,7 @@ class MainWindow:
             found_vehicle.setStatus("running_idle")       # this vehicle is ready to take more work if needed.
             vehicle_report = self.prepVehicleReportData(found_vehicle)
             log3("vehicle status report"+json.dumps(vehicle_report))
-            if not self.is_test_mode():
+            if not self.general_settings.is_test_mode():
                 resp = send_report_vehicles_to_cloud(self.session, self.get_auth_token(),
                                                  vehicle_report, self.getWanApiEndpoint())
             self.saveVehiclesJsonFile()
@@ -10619,8 +10558,8 @@ class MainWindow:
     def checkNewBotsFiles(self):
         bfiles = []
 
-        if self.has_new_bots_file_path():
-            bfiles = self.get_new_bot_files(self.get_new_bots_file_path())
+        if bool(self.general_settings.new_bots_file_path):
+            bfiles = self.get_new_bot_files(self.general_settings.new_bots_file_path)
 
         return bfiles
 
@@ -10637,14 +10576,14 @@ class MainWindow:
         # Filter files modified after yesterday's 12 AM
         new_bot_files = [file for file in bot_files if os.path.getmtime(file) > timestamp_cutoff]
 
-        last_bots_info = self.get_last_bots_file_info()
-        if not last_bots_info["file"]:
+        last_bots_file = self.general_settings.last_bots_file
+        if not last_bots_file:
             latest_file = ""
             latest_time = 0
             last_time = 0
         else:
-            latest_file = last_bots_info["file"]
-            latest_time = last_bots_info["time"]
+            latest_file = last_bots_file
+            latest_time = self.general_settings.last_bots_file_time
             last_time = latest_time
 
         not_yet_touched_files = []
@@ -10665,7 +10604,9 @@ class MainWindow:
         else:
             print("No new bot files found since yesterday at 12 AM.")
 
-        self.set_last_bots_file_info(latest_file, latest_time)
+        self.general_settings.last_bots_file = latest_file
+        self.general_settings.last_bots_file_time = latest_time
+        self.general_settings.save()
         return not_yet_touched_files
 
 
@@ -10673,9 +10614,9 @@ class MainWindow:
     def checkNewMissionsFiles(self):
         mfiles = []
 
-        if self.has_new_orders_dir():
-            log3("new_orders_dir:" + self.get_new_orders_dir())
-            mfiles = self.get_yesterday_orders_files(self.get_new_orders_dir())
+        if bool(self.general_settings.new_orders_dir):
+            log3("new_orders_dir:" + self.general_settings.new_orders_dir)
+            mfiles = self.get_yesterday_orders_files(self.general_settings.new_orders_dir)
             log3("New order files since yesterday" + json.dumps(mfiles))
 
         return mfiles
@@ -10698,14 +10639,14 @@ class MainWindow:
 
         # Find all .xlsx files in yesterday's directory
         order_files = glob.glob(os.path.join(yesterday_dir, "Order*.xlsx"))
-        last_order_info = self.get_last_order_file_info()
-        if not last_order_info["file"]:
+        last_order_file = self.general_settings.last_order_file
+        if not last_order_file:
             latest_file = ""
             latest_time = 0
             last_time = 0
         else:
-            latest_file = last_order_info["file"]
-            latest_time = last_order_info["time"]
+            latest_file = last_order_file
+            latest_time = self.general_settings.last_order_file_time
             last_time = latest_time
 
         not_yet_touched_files = []
@@ -10726,7 +10667,9 @@ class MainWindow:
         else:
             print(f"No order files found for {yesterday.strftime('%Y-%m-%d')}.")
 
-        self.set_last_order_file_info(latest_file, latest_time)
+        self.general_settings.last_order_file = latest_file
+        self.general_settings.last_order_file_time = latest_time
+        self.general_settings.save()
         return not_yet_touched_files
 
     # assume one sheet only in the xlsx file. at this moment no support for multi-sheet.

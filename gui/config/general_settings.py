@@ -41,53 +41,69 @@ class GeneralSettings:
         self._hardware_initialized = False
 
     def _load_settings(self) -> dict:
-        """Load settings data with LLM providers initialization"""
-        default_settings = {
-            "schedule_mode": "auto",
-            "debug_mode": False,
-            "default_wifi": "",
-            "default_printer": "",
-            "display_resolution": "D1920X1080",
-            "default_webdriver_path": "",
-            "build_dom_tree_script_path": "",
-            "new_orders_dir": "c:/ding_dan/",
-            "local_user_db_host": "127.0.0.1",
-            "local_user_db_port": "5080",
-            "local_agent_db_host": "192.168.0.16",
-            "local_agent_db_port": "6668",
-            "lan_api_endpoint": "",
-            "wan_api_endpoint": "",
-            "ws_api_endpoint": "wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql",
-            "ws_api_host": "3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com",
-            "img_engine": "lan",
-            "ocr_engine": "lan",
-            "ocr_api_endpoint": "http://47.120.48.82:8848/graphql/reqScreenTxtRead",
-            "ocr_api_port": "8848",
-            "ocr_api_key": "xxxxxxxxxxxxxx",
-            "schedule_engine": "wan",
-            "local_agent_ports": [3600, 3800],
-            "browser_use_file_system_path": "",
-            "local_server_port": "4668",
-            "gui_flowgram_schema": "",
-            "wan_api_key": "",
-            "last_bots_file": "",
-            "last_bots_file_time": 0,
-            "last_order_file": "",
-            "last_order_file_time": 0,
-            "new_bots_file_path": "",
-            "new_orders_path": "",
-            "mids_forced_to_run": [],
-            "default_llm": ""  # Default LLM provider to use
-        }
+        """Load settings data from template and user settings file"""
+        # Load default settings from template file
+        template_file = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            'resource/data/settings_template.json'
+        )
+        
+        default_settings = {}
+        if os.path.exists(template_file):
+            try:
+                default_settings = self.config_manager.load_json(template_file, {})
+                logger.info(f"Loaded default settings from template: {template_file}")
+            except Exception as e:
+                logger.error(f"Failed to load settings template: {e}")
+                # Fallback to minimal defaults if template loading fails
+                default_settings = {
+                    "schedule_mode": "auto",
+                    "debug_mode": False,
+                    "network_api_engine": "lan"
+                }
+        else:
+            logger.warning(f"Settings template not found: {template_file}")
 
-        # Load basic settings
+        # Load user settings
         settings = self.config_manager.load_json(self.settings_file, default_settings)
 
-        # Ensure all required fields exist
+        # Data migration: handle field name changes and fill empty values
+        settings_updated = False
+        
+        # Migration 1: img_engine -> network_api_engine
+        if "img_engine" in settings and "network_api_engine" not in settings:
+            settings["network_api_engine"] = settings["img_engine"]
+            del settings["img_engine"]
+            settings_updated = True
+            logger.info(f"Migrated 'img_engine' -> 'network_api_engine': {settings['network_api_engine']}")
+        
+        # Migration 2: Remove deprecated img_engine from _groups if exists
+        if "_groups" in settings and "engines" in settings["_groups"]:
+            if "img_engine" in settings["_groups"]["engines"]:
+                settings["_groups"]["engines"].remove("img_engine")
+                if "network_api_engine" not in settings["_groups"]["engines"]:
+                    settings["_groups"]["engines"].append("network_api_engine")
+                settings_updated = True
+                logger.info("Updated _groups: img_engine -> network_api_engine")
+
+        # Ensure all required fields exist and add missing ones to user settings
         for key, value in default_settings.items():
             if key not in settings:
                 settings[key] = value
+                settings_updated = True
                 logger.info(f"Added missing field '{key}' with default value: {value}")
+            # Fill empty endpoint URLs with template defaults (but preserve user-set values)
+            elif key in ['wan_api_endpoint', 'ws_api_endpoint', 'ws_api_host', 'ecan_cloud_searcher_url', 'ocr_api_endpoint']:
+                # If user's value is empty and template has a non-empty default, use template default
+                if (not settings[key] or settings[key].strip() == "") and value and value.strip() != "":
+                    settings[key] = value
+                    settings_updated = True
+                    logger.info(f"Filled empty endpoint '{key}' with template default: {value}")
+        
+        # Save updated settings back to file if any fields were added or migrated
+        if settings_updated:
+            self.config_manager.save_json(self.settings_file, settings)
+            logger.info(f"Updated user settings file (added missing fields and performed migrations)")
 
         return settings
 
@@ -201,6 +217,24 @@ class GeneralSettings:
     def browser_use_file_system_path(self, value: str):
         self._data["browser_use_file_system_path"] = value
 
+    @property
+    def browser_use_download_dir(self) -> str:
+        """Browser download directory"""
+        return self._data.get("browser_use_download_dir", "")
+
+    @browser_use_download_dir.setter
+    def browser_use_download_dir(self, value: str):
+        self._data["browser_use_download_dir"] = value
+
+    @property
+    def browser_use_user_data_dir(self) -> str:
+        """Browser user data directory"""
+        return self._data.get("browser_use_user_data_dir", "")
+
+    @browser_use_user_data_dir.setter
+    def browser_use_user_data_dir(self, value: str):
+        self._data["browser_use_user_data_dir"] = value
+
     # ==================== Database Settings ====================
     
     @property
@@ -286,31 +320,31 @@ class GeneralSettings:
     def wan_api_key(self, value: str):
         self._data["wan_api_key"] = value
 
+    @property
+    def ecan_cloud_searcher_url(self) -> str:
+        """eCan Cloud Searcher URL"""
+        return self._data.get("ecan_cloud_searcher_url", "")
+
+    @ecan_cloud_searcher_url.setter
+    def ecan_cloud_searcher_url(self, value: str):
+        self._data["ecan_cloud_searcher_url"] = value
+
     # ==================== Engine Settings ====================
     
     @property
-    def img_engine(self) -> str:
-        """Image engine: lan, wan"""
-        return self._data.get("img_engine", "lan")
+    def network_api_engine(self) -> str:
+        """Network API engine: lan, wan"""
+        return self._data.get("network_api_engine", "lan")
 
-    @img_engine.setter
-    def img_engine(self, value: str):
-        self._data["img_engine"] = value
+    @network_api_engine.setter
+    def network_api_engine(self, value: str):
+        self._data["network_api_engine"] = value
 
-
-    @property
-    def ocr_engine(self) -> str:
-        """Image engine: lan, wan"""
-        return self._data.get("ocr_engine", "lan")
-
-    @ocr_engine.setter
-    def ocr_engine(self, value: str):
-        self._data["ocr_engine"] = value
 
     @property
     def ocr_api_key(self) -> str:
-        """Image engine: lan, wan"""
-        return self._data.get("ocr_api_key", "lan")
+        """OCR API key"""
+        return self._data.get("ocr_api_key", "")
 
     @ocr_api_key.setter
     def ocr_api_key(self, value: str):
@@ -318,22 +352,12 @@ class GeneralSettings:
 
     @property
     def ocr_api_endpoint(self) -> str:
-        """Image engine: lan, wan"""
-        return self._data.get("ocr_api_endpoint", "lan")
+        """OCR API endpoint"""
+        return self._data.get("ocr_api_endpoint", "http://47.120.48.82:8848/graphql/reqScreenTxtRead")
 
     @ocr_api_endpoint.setter
     def ocr_api_endpoint(self, value: str):
         self._data["ocr_api_endpoint"] = value
-
-
-    @property
-    def ocr_api_port(self) -> str:
-        """Image engine: lan, wan"""
-        return self._data.get("ocr_api_port", "lan")
-
-    @ocr_api_port.setter
-    def ocr_api_port(self, value: str):
-        self._data["ocr_api_port"] = value
 
     @property
     def schedule_engine(self) -> str:
@@ -451,14 +475,71 @@ class GeneralSettings:
     def default_llm(self, value: str):
         self._data["default_llm"] = value
 
+    @property
+    def cn_llm_provider(self) -> str:
+        """China LLM provider"""
+        return self._data.get("cn_llm_provider", "")
+
+    @cn_llm_provider.setter
+    def cn_llm_provider(self, value: str):
+        self._data["cn_llm_provider"] = value
+
+    @property
+    def cn_llm_model(self) -> str:
+        """China LLM model"""
+        return self._data.get("cn_llm_model", "")
+
+    @cn_llm_model.setter
+    def cn_llm_model(self, value: str):
+        self._data["cn_llm_model"] = value
+
+    @property
+    def us_llm_provider(self) -> str:
+        """US LLM provider"""
+        return self._data.get("us_llm_provider", "")
+
+    @us_llm_provider.setter
+    def us_llm_provider(self, value: str):
+        self._data["us_llm_provider"] = value
+
+    @property
+    def us_llm_model(self) -> str:
+        """US LLM model"""
+        return self._data.get("us_llm_model", "")
+
+    @us_llm_model.setter
+    def us_llm_model(self, value: str):
+        self._data["us_llm_model"] = value
+
+    @property
+    def eu_llm_provider(self) -> str:
+        """Europe LLM provider"""
+        return self._data.get("eu_llm_provider", "")
+
+    @eu_llm_provider.setter
+    def eu_llm_provider(self, value: str):
+        self._data["eu_llm_provider"] = value
+
+    @property
+    def eu_llm_model(self) -> str:
+        """Europe LLM model"""
+        return self._data.get("eu_llm_model", "")
+
+    @eu_llm_model.setter
+    def eu_llm_model(self, value: str):
+        self._data["eu_llm_model"] = value
+
+    @property
+    def skill_use_git(self) -> bool:
+        """Whether skills use git"""
+        return self._data.get("skill_use_git", False)
+
+    @skill_use_git.setter
+    def skill_use_git(self, value: bool):
+        self._data["skill_use_git"] = value
+
     # ==================== Convenience Methods ====================
     
-    def set_milan_server(self, ip: str, port: str = "8848"):
-        """Set MILAN server"""
-        self._data["lan_api_host"] = ip
-        self._data["lan_api_port"] = port
-        self._data["lan_api_endpoint"] = f"http://{ip}:{port}/graphql"
-
     def set_lan_db_server(self, ip: str, port: str = "5080"):
         """Set LAN database server"""
         self._data["local_user_db_host"] = ip
@@ -471,6 +552,40 @@ class GeneralSettings:
     def update_data(self, data: dict):
         """Batch update settings data"""
         self._data.update(data)
+
+    # ==================== Mode Check Methods ====================
+    
+    def is_auto_mode(self) -> bool:
+        """Check if schedule mode is 'auto'"""
+        return self.schedule_mode == "auto"
+    
+    def is_manual_mode(self) -> bool:
+        """Check if schedule mode is 'manual'"""
+        return self.schedule_mode == "manual"
+    
+    def is_test_mode(self) -> bool:
+        """Check if schedule mode is 'test'"""
+        return self.schedule_mode == "test"
+    
+    def is_debug_enabled(self) -> bool:
+        """Check if debug mode is enabled"""
+        return self.debug_mode
+    
+    def is_lan_network_api(self) -> bool:
+        """Check if network API engine is 'lan'"""
+        return self.network_api_engine == "lan"
+    
+    def is_wan_network_api(self) -> bool:
+        """Check if network API engine is 'wan'"""
+        return self.network_api_engine == "wan"
+    
+    def is_lan_schedule_engine(self) -> bool:
+        """Check if schedule engine is 'lan'"""
+        return self.schedule_engine == "lan"
+    
+    def is_wan_schedule_engine(self) -> bool:
+        """Check if schedule engine is 'wan'"""
+        return self.schedule_engine == "wan"
 
     # ==================== Hardware Detection Functions (integrated from ui_settings.py) ====================
 
@@ -495,21 +610,18 @@ class GeneralSettings:
                     self._wifi_networks = ssids or []
                     logger.info(f"WiFi scan completed (background): {len(self._wifi_networks)} networks")
                     
-                    # Always update default_wifi to current connected WiFi
+                    # Only auto-set default_wifi if it's empty
                     current_wifi = detector.get_current_wifi()
-                    if current_wifi:
-                        # Update to current WiFi (overwrite old value)
-                        if self.default_wifi != current_wifi:
-                            old_wifi = self.default_wifi
-                            self.default_wifi = current_wifi
-                            logger.info(f"Updated default WiFi: '{old_wifi}' -> '{current_wifi}'")
-                            try:
-                                self.save()
-                                logger.info("WiFi settings saved successfully")
-                            except Exception as save_err:
-                                logger.error(f"Failed to save WiFi settings: {save_err}")
-                        else:
-                            logger.debug(f"Default WiFi already up to date: {current_wifi}")
+                    if current_wifi and not self.default_wifi:
+                        self.default_wifi = current_wifi
+                        logger.info(f"Auto-set default WiFi: '{current_wifi}'")
+                        try:
+                            self.save()
+                            logger.info("WiFi settings saved successfully")
+                        except Exception as save_err:
+                            logger.error(f"Failed to save WiFi settings: {save_err}")
+                    elif current_wifi:
+                        logger.debug(f"Default WiFi already configured: {self.default_wifi}, current: {current_wifi}")
                     else:
                         logger.debug("No current WiFi detected, keeping existing default_wifi")
                 except Exception as e:
@@ -523,21 +635,19 @@ class GeneralSettings:
                 self._wifi_networks = detector.get_wifi_networks()
                 logger.debug(f"Using cached WiFi networks: {len(self._wifi_networks)} networks")
 
-            # Always update default printer to first detected printer
+            # Only auto-set default printer if it's empty
             printer_names = detector.get_printer_names()
-            if printer_names:
+            if printer_names and not self.default_printer:
                 first_printer = printer_names[0]
-                if self.default_printer != first_printer:
-                    old_printer = self.default_printer
-                    self.default_printer = first_printer
-                    logger.info(f"Updated default printer: '{old_printer}' -> '{first_printer}'")
-                    try:
-                        self.save()
-                        logger.info("Printer settings saved successfully")
-                    except Exception as save_err:
-                        logger.error(f"Failed to save printer settings: {save_err}")
-                else:
-                    logger.debug(f"Default printer already up to date: {first_printer}")
+                self.default_printer = first_printer
+                logger.info(f"Auto-set default printer: '{first_printer}'")
+                try:
+                    self.save()
+                    logger.info("Printer settings saved successfully")
+                except Exception as save_err:
+                    logger.error(f"Failed to save printer settings: {save_err}")
+            elif printer_names:
+                logger.debug(f"Default printer already configured: {self.default_printer}")
             else:
                 logger.debug("No printers detected, keeping existing default_printer")
 
