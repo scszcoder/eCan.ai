@@ -557,7 +557,7 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
     if not api_endpoint:
         logger.error("'api_endpoint' is missing in config_metadata for api_node.")
-        return lambda state: {**state, 'error': 'API endpoint not configured'}
+        return lambda state, runtime=None, store=None, **kwargs: {**state, 'error': 'API endpoint not configured'}
 
     def _format_from_state(template, attributes):
         """Recursively format strings in a template dict/list with state attributes."""

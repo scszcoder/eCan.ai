@@ -277,10 +277,10 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
                     placement="bottomRight"
                     overlayClassName="user-profile-dropdown"
                     overlayStyle={{
-                        zIndex: 1060,
+                        zIndex: 3000,
                         minWidth: 200,
                     }}
-                    getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
+                    getPopupContainer={() => document.body}
                 >
                     <UserSection
                         onClick={(e) => {
