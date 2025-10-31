@@ -3,7 +3,7 @@ import { Chat as SemiChat } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import { useEffectOnActive } from 'keepalive-for-react';
 import { Chat } from '../types/chat';
-import { defaultRoleConfig } from '../types/chat';
+import { defaultRoleConfig, RoleConfig } from '../types/chat';
 import { getUploadProps } from '../utils/attachmentHandler';
 import ContentTypeRenderer from './ContentTypeRenderer';
 
@@ -16,6 +16,8 @@ import { removeMessageFromList } from '../utils/messageHandlers';
 import { useMessages } from '../hooks/useMessages';
 import { useUserStore } from '@/stores/userStore';
 import { useAgentStore } from '@/stores/agentStore';
+import { useChatStore } from '@/stores/domain/chatStore';
+import { messageManager } from '../managers/MessageManager';
 
 interface ChatDetailProps {
     chatId?: string | null;
@@ -57,6 +59,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     // GetWhen前UserInformation
     const username = useUserStore(state => state.username) || 'default_user';
     const getMyTwinAgent = useAgentStore(state => state.getMyTwinAgent);
+    const getAgentById = useAgentStore(state => state.getAgentById);
     const myTwinAgent = getMyTwinAgent();
     const currentUserId = myTwinAgent?.card?.id || `system_${username}`;
     const prevScrollHeightRef = useRef(0);
@@ -72,6 +75,8 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     const scrollPositionRestoredRef = useRef(false);
     const saveScrollPositionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const savedScrollPositionRef = useRef<number>(0); // SaveScrollPosition
+    const unreadClearedRef = useRef(false);
+    const clearingUnreadRef = useRef(false);
     
     // Timer management refs for cleanup
     const scrollTimersRef = useRef<NodeJS.Timeout[]>([]);
@@ -147,12 +152,45 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     }, []);
     
     // Handle scroll position detection
+    const markChatAsRead = useCallback((targetChatId: string) => {
+        try {
+            // Update both chatStore and messageManager
+            useChatStore.getState().markAsRead(targetChatId);
+            messageManager.markAsRead(targetChatId);
+        } catch (error) {
+            console.error('Failed to update chat unread state:', error);
+        }
+    }, []);
+
+    const clearUnread = useCallback((targetChatId: string) => {
+        if (!targetChatId || unreadClearedRef.current || clearingUnreadRef.current) {
+            return;
+        }
+
+        clearingUnreadRef.current = true;
+        get_ipc_api().chatApi.cleanChatUnRead(targetChatId)
+            .then(() => {
+                markChatAsRead(targetChatId);
+                unreadClearedRef.current = true;
+            })
+            .catch(err => {
+                console.error('Failed to clean chat unread:', err);
+            })
+            .finally(() => {
+                clearingUnreadRef.current = false;
+            });
+    }, [markChatAsRead]);
+
     const handleScroll = useCallback((e: Event) => {
         const target = e.target as HTMLElement;
         
         // Update scroll position tracking
         const nowAtBottom = isAtBottom();
         shouldAutoScrollRef.current = nowAtBottom;
+
+        if (nowAtBottom) {
+            clearUnread(chatId);
+        }
         
         // Clear any pending scroll timeout
         if (scrollTimeoutRef.current) {
@@ -171,7 +209,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         if (target.scrollTop === 0) {
             handleLoadMore();
         }
-    }, [isAtBottom, handleLoadMore, saveScrollPosition]);
+    }, [isAtBottom, handleLoadMore, saveScrollPosition, clearUnread, chatId]);
     
     // 懒Load可见Content：仅在可见时RenderMessageContent，减少首屏Render压力
     const LazyVisible = React.memo<{ children: React.ReactNode }>(({ children }) => {
@@ -391,8 +429,76 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         return `chat_${chatId}_${titleHash}`;
     }, [chatId, chatTitle]);
 
+    const { enhancedMessages, roleConfig } = useMemo(() => {
+        const baseConfig: RoleConfig = {
+            user: { ...defaultRoleConfig.user },
+            assistant: { ...defaultRoleConfig.assistant },
+            system: { ...defaultRoleConfig.system },
+            agent: { ...defaultRoleConfig.agent }
+        };
+
+        if (myTwinAgent?.card) {
+            const { name } = myTwinAgent.card;
+            const avatarUrl = myTwinAgent.avatar?.imageUrl;
+            baseConfig.user = {
+                ...baseConfig.user,
+                name: name || baseConfig.user.name,
+                avatar: avatarUrl || baseConfig.user.avatar
+            };
+        }
+        const members = currentChat?.members || [];
+
+        const enhanced = pageMessages.map(message => {
+            if (message?.role === 'agent' && message?.senderId) {
+                const member = members.find(m => m.userId === message.senderId);
+                const agentInfo = getAgentById?.(message.senderId);
+                const roleKey = `agent_${message.senderId}`;
+                baseConfig[roleKey] = {
+                    ...baseConfig.agent,
+                    name: member?.agentName || member?.name || agentInfo?.card?.name || message.senderName || baseConfig.agent.name,
+                    avatar: member?.avatar || agentInfo?.avatar?.imageUrl || baseConfig.agent.avatar,
+                };
+                return {
+                    ...message,
+                    role: roleKey
+                };
+            }
+
+            if (message?.role === 'user' && message?.senderId && message.senderId !== currentUserId) {
+                const member = members.find(m => m.userId === message.senderId);
+                const agentInfo = getAgentById?.(message.senderId);
+                const roleKey = `user_${message.senderId}`;
+                baseConfig[roleKey] = {
+                    ...baseConfig.user,
+                    name: member?.agentName || member?.name || agentInfo?.card?.name || message.senderName || baseConfig.user.name,
+                    avatar: member?.avatar || agentInfo?.avatar?.imageUrl || baseConfig.user.avatar,
+                };
+                return {
+                    ...message,
+                    role: roleKey
+                };
+            }
+
+            if (message?.role === 'system') {
+                const member = members.find(m => m.userId === message.senderId);
+                const agentInfo = message?.senderId ? getAgentById?.(message.senderId) : null;
+                if (member || agentInfo) {
+                    baseConfig.system = {
+                        ...baseConfig.system,
+                        name: member?.agentName || member?.name || agentInfo?.card?.name || baseConfig.system.name,
+                        avatar: member?.avatar || agentInfo?.avatar?.imageUrl || baseConfig.system.avatar,
+                    };
+                }
+            }
+
+            return message;
+        });
+
+        return { enhancedMessages: enhanced, roleConfig: baseConfig };
+    }, [currentChat, currentUserId, myTwinAgent, pageMessages, getAgentById]);
+
     // ProcessFormSubmit
-    const handleFormSubmit = useCallback(async (formId: string, values: any, chatId: string, messageId: string, processedForm: any) => {
+    const handleFormSubmit = useCallback(async (formId: string, _values: any, chatId: string, messageId: string, processedForm: any) => {
         const response = await get_ipc_api().chatApi.chatFormSubmit(chatId, messageId, formId, processedForm)
         if (response.success) {
             Toast.success(t('pages.chat.formSubmitSuccess'));
@@ -484,6 +590,9 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         
         if (setIsInitialLoading) setIsInitialLoading(true); else _setIsInitialLoading(true);
         
+        unreadClearedRef.current = false;
+        clearingUnreadRef.current = false;
+
         // Load initial messages when chatId changes
         if (chatId) {
             const loadInitialMessages = async () => {
@@ -514,21 +623,19 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                             .filter(Boolean);
                         
                         if (unreadMessageIds.length > 0) {
-                            get_ipc_api().chatApi.markMessageAsRead(unreadMessageIds, currentUserId)
-                                .then((response: any) => {
-                                    // Backend返回实际Update的MessageCount
-                                    if (response.success && response.data) {
-                                        const actualUpdatedCount = response.data.updated_ids?.length || unreadMessageIds.length;
-                                        
-                                        // Notification父ComponentUpdate unread 计数
-                                        if (onMessagesRead) {
-                                            onMessagesRead(chatId, actualUpdatedCount);
-                                        }
+                            try {
+                                const response = await get_ipc_api().chatApi.markMessageAsRead(unreadMessageIds, currentUserId);
+                                if (response.success && response.data) {
+                                    const actualUpdatedCount = (response.data as any)?.updated_ids?.length || unreadMessageIds.length;
+                                    if (onMessagesRead) {
+                                        onMessagesRead(chatId, actualUpdatedCount);
                                     }
-                                })
-                                .catch(err => {
-                                    console.error('Failed to mark messages as read:', err);
-                                });
+                                }
+                            } catch (err) {
+                                console.error('Failed to mark messages as read:', err);
+                            }
+
+                            clearUnread(chatId);
                         }
                     }
                     
@@ -567,7 +674,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             saveScrollPosition();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [chatId, scrollToBottom, restoreScrollPosition, saveScrollPosition, username]);
+    }, [chatId, scrollToBottom, restoreScrollPosition, saveScrollPosition, username, clearUnread, currentUserId, onMessagesRead]);
 
     // Sync allMessages from useMessages hook to pageMessages for display
     useEffect(() => {
@@ -575,6 +682,8 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         
         const globalMsgs = allMessages.get(chatId) || [];
         if (globalMsgs.length > 0) {
+            let shouldClearUnread = false;
+
             setPageMessages(prev => {
                 // Remove local "sending" messages that match global messages
                 const filteredPrev = prev.filter(
@@ -590,6 +699,14 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                 // Check if user is at bottom before new messages arrive
                 const wasAtBottom = isAtBottomRef.current;
                 
+                // If new incoming messages arrive, reset unread cleared flag
+                if (newMsgs.length > 0) {
+                    const hasIncoming = newMsgs.some(msg => msg.senderId && msg.senderId !== currentUserId);
+                    if (hasIncoming) {
+                        unreadClearedRef.current = false;
+                    }
+                }
+
                 // If there are new messages and user was at bottom, auto-scroll
                 // BUT only if we haven't just restored scroll position (to preserve user's viewing position)
                 if (newMsgs.length > 0 && wasAtBottom && !scrollPositionRestoredRef.current) {
@@ -608,6 +725,10 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                             }, delay);
                         });
                     });
+
+                    if (!unreadClearedRef.current) {
+                        shouldClearUnread = true;
+                    }
                 } else if (scrollPositionRestoredRef.current && newMsgs.length > 0) {
                     // If we just restored scroll position, reset the flag after processing new messages
                     // This allows future new messages to trigger auto-scroll if user scrolls to bottom
@@ -618,8 +739,12 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                 
                 return merged;
             });
+
+            if (shouldClearUnread) {
+                clearUnread(chatId);
+            }
         }
-    }, [allMessages, chatId, scrollToBottom, isAtBottom]);
+    }, [allMessages, chatId, scrollToBottom, isAtBottom, clearUnread, currentUserId]);
 
     // Memoized message renderer to prevent unnecessary re-renders
     const MessageRenderer = React.memo<{ message: any }>(({ message }) => {
@@ -726,14 +851,14 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
 
             <SemiChat
                 key={chatKey}
-                chats={pageMessages}
+                chats={enhancedMessages}
                 style={{ ...commonOuterStyle }}
                 align="leftRight"
                 mode="bubble"
                 placeholder={t('pages.chat.typeMessage')}
                 onMessageSend={handleMessageSend}
                 onMessageDelete={handleMessageDelete}
-                roleConfig={defaultRoleConfig}
+                roleConfig={roleConfig}
                 uploadProps={uploadProps}
                 title={chatTitle}
                 showAvatar={true}

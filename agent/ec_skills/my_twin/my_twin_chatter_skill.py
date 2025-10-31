@@ -2,6 +2,7 @@ import traceback
 import typing
 from typing import TypedDict
 import uuid
+import time
 
 from langgraph.constants import START, END
 from langgraph.graph import StateGraph
@@ -49,19 +50,25 @@ def parrot(state: NodeState) -> NodeState:
             logger.debug("[my_twin_chatter_skill] parrot showing agent msg", state)
             params = state["attributes"]["params"]
             if isinstance(params, TaskSendParams):
-                # mtype = params.metadata["mtype"]
-                dtype = params.metadata["params"]["content"]["dtype"]
-                card = params.metadata["params"]["content"].get("card", "")
-                code = params.metadata["params"]["content"].get("code", "")
-                form = params.metadata["params"]["content"].get("form", "")
-                i_tag = params.metadata["params"]["content"].get("i_tag", "")
-                notification = params.metadata["params"]["content"].get("notification", "")
-                role = params.message.role
-                senderId = params.metadata["params"]["senderId"]
-                createAt = params.metadata["params"]["createAt"]
-                senderName = params.metadata["params"]["senderName"]
-                status = params.metadata["params"]["status"]
-                ext = params.metadata["params"]["ext"]
+                payload_params = params.metadata.get("params", {}) if params.metadata else {}
+                content_meta = payload_params.get("content", {}) if isinstance(payload_params, dict) else {}
+
+                dtype = content_meta.get("dtype", "text")
+                card = content_meta.get("card", "")
+                code = content_meta.get("code", "")
+                form = content_meta.get("form", "")
+                i_tag = content_meta.get("i_tag", "")
+                notification = content_meta.get("notification", "")
+
+                raw_role = payload_params.get("role") if isinstance(payload_params, dict) else None
+                if not raw_role and params.message:
+                    raw_role = params.message.role
+
+                senderId = payload_params.get("senderId") if isinstance(payload_params, dict) else None
+                createAt = payload_params.get("createAt") if isinstance(payload_params, dict) else None
+                senderName = payload_params.get("senderName") if isinstance(payload_params, dict) else None
+                status = payload_params.get("status") if isinstance(payload_params, dict) else None
+                ext = payload_params.get("ext") if isinstance(payload_params, dict) else None
             else:
                 logger.warning("strange... shold we be here???")
                 dtype = params["metadata"]["dtype"]
@@ -70,12 +77,30 @@ def parrot(state: NodeState) -> NodeState:
                 form = params["metadata"]["form"]
                 i_tag = params["metadata"]["i_tag"]
                 notification = params["metadata"]["notification"]
-                role = params["role"]
+                raw_role = params.get("role")
                 senderId = params["senderId"]
                 createAt = params["createAt"]
                 senderName = params["senderName"]
                 status = params["status"]
                 ext = params["ext"]
+
+            # Determine final role to use in frontend payload
+            role = raw_role or "agent"
+            if notification:
+                role = "system"
+            else:
+                twin_agent_id = getattr(agent.card, "id", None) if agent and getattr(agent, "card", None) else None
+                if role == "user" or not role:
+                    if senderId and twin_agent_id and senderId != twin_agent_id:
+                        role = "agent"
+                    elif role == "user":
+                        role = "user"
+                    else:
+                        role = "agent"
+
+            senderId = senderId or getattr(agent.card, "id", "")
+            createAt = createAt or int(time.time() * 1000)
+            senderName = senderName or getattr(agent.card, "name", "")
 
             frontend_message = {
                 "content": {
@@ -91,8 +116,8 @@ def parrot(state: NodeState) -> NodeState:
                 "senderId": senderId,
                 "createAt": createAt,
                 "senderName": senderName,
-                "status": status,
-                "ext": ext,
+                "status": status or "success",
+                "ext": ext or {},
             }
             logger.debug("[my_twin_chatter_skill] parrot supposed chat id:", state["messages"][1])
             logger.debug("[my_twin_chatter_skill] parrot pushing frontend message", frontend_message)

@@ -141,6 +141,7 @@ class MessageManager {
   // 标记聊天为已读
   markAsRead(chatId: string): void {
     this.unreadCounts.set(chatId, 0);
+    this.notifyListeners(); // Notify subscribers so UI updates immediately
   }
 
   // Settings聊天Message（Used forInitialize或Update）
