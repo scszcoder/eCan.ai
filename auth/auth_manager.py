@@ -260,10 +260,24 @@ class AuthManager:
                 else:
                     logger.warning(f"Could not retrieve password: {result}")
 
+            # Read language and theme from uli.json
+            language = None
+            theme = None
+            if exists(self.acct_file):
+                try:
+                    with open(self.acct_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        language = data.get('language')
+                        theme = data.get('theme')
+                except Exception as e:
+                    logger.warning(f"Error reading preferences from {self.acct_file}: {e}")
+            
             return {
                 "machine_role": self.machine_role,
                 "username": username or "",
-                "password": password
+                "password": password,
+                "language": language,
+                "theme": theme
             }
         except Exception as e:
             logger.error(f"Error getting saved login info: {e}")
@@ -282,10 +296,12 @@ class AuthManager:
 
             data["user"] = username
             data["machine_role"] = role
+            # Preserve language and theme if they exist
+            # (don't overwrite them during login)
 
             try:
-                with open(self.acct_file, 'w') as f:
-                    json.dump(data, f, indent=2)
+                with open(self.acct_file, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
             except Exception as e:
                 logger.error(f"Error writing to {self.acct_file}: {e}")
 

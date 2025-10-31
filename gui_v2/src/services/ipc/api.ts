@@ -258,6 +258,13 @@ export class IPCAPI {
         return this.executeRequest<T>('get_settings', {username});
     }
 
+    public async updateUserPreferences<T>(language?: string, theme?: string): Promise<APIResponse<T>> {
+        const params: any = {};
+        if (language) params.language = language;
+        if (theme) params.theme = theme;
+        return this.executeRequest<T>('update_user_preferences', params);
+    }
+
     // LLM Management APIs
     public async getLLMProviders<T>(): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_llm_providers', {});

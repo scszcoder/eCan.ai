@@ -1,6 +1,9 @@
 import traceback
+import json
+from os.path import exists
 from typing import Any, Optional, Dict
 from app_context import AppContext
+from bot.envi import getECBotDataHome
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
@@ -173,3 +176,111 @@ def handle_save_settings(request: IPCRequest, params: Optional[list[Any]]) -> IP
             f"Error during save settings: {str(e)}"
         )
 
+
+@IPCHandlerRegistry.handler('update_user_preferences')
+def handle_update_user_preferences(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Update user preferences (language, theme) in uli.json
+    
+    This handler is whitelisted and can be called before login.
+    
+    Args:
+        request: IPC request object
+        params: Request parameters containing 'language' and/or 'theme' fields
+        
+    Returns:
+        IPCResponse indicating success or failure
+    """
+    try:
+        logger.debug(f"Update user preferences handler called with params: {params}")
+        
+        # Validate parameters
+        if not params or not isinstance(params, dict):
+            logger.warning("Invalid parameters for update user preferences")
+            return create_error_response(
+                request,
+                'INVALID_PARAMS',
+                'Parameters must be a dictionary'
+            )
+        
+        language = params.get('language')
+        theme = params.get('theme')
+        
+        if not language and not theme:
+            logger.warning("No language or theme provided")
+            return create_error_response(
+                request,
+                'INVALID_PARAMS',
+                'At least one of language or theme must be provided'
+            )
+        
+        # Validate language if provided
+        if language:
+            valid_languages = ['zh-CN', 'en-US']
+            if language not in valid_languages:
+                logger.warning(f"Invalid language code: {language}")
+                return create_error_response(
+                    request,
+                    'INVALID_PARAMS',
+                    f'Language must be one of: {", ".join(valid_languages)}'
+                )
+        
+        # Validate theme if provided
+        if theme:
+            valid_themes = ['light', 'dark', 'system']
+            if theme not in valid_themes:
+                logger.warning(f"Invalid theme: {theme}")
+                return create_error_response(
+                    request,
+                    'INVALID_PARAMS',
+                    f'Theme must be one of: {", ".join(valid_themes)}'
+                )
+        
+        # Update uli.json
+        uli_file = f"{getECBotDataHome()}/uli.json"
+        data = {}
+        
+        if exists(uli_file):
+            try:
+                with open(uli_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except Exception as e:
+                logger.warning(f"Error reading {uli_file}: {e}")
+        
+        # Update preferences
+        if language:
+            data['language'] = language
+            logger.info(f"Updated language preference to: {language}")
+        
+        if theme:
+            data['theme'] = theme
+            logger.info(f"Updated theme preference to: {theme}")
+        
+        # Save back to file
+        try:
+            with open(uli_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            
+            result = {'message': 'User preferences updated successfully'}
+            if language:
+                result['language'] = language
+            if theme:
+                result['theme'] = theme
+            
+            logger.info(f"User preferences saved to {uli_file}")
+            return create_success_response(request, result)
+            
+        except Exception as e:
+            logger.error(f"Failed to save user preferences: {e}")
+            return create_error_response(
+                request,
+                'SAVE_ERROR',
+                f'Failed to save user preferences: {str(e)}'
+            )
+        
+    except Exception as e:
+        logger.error(f"Error in update user preferences handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'PREFERENCES_ERROR',
+            f"Error updating user preferences: {str(e)}"
+        )
