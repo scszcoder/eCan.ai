@@ -828,7 +828,10 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         logger.debug(f"prepared request args: {request_args}")
 
         try:
-            with httpx.Client() as client:
+            # Configure timeout for proxy compatibility (especially Clash)
+            # Increased read timeout to handle slow proxy responses
+            timeout = httpx.Timeout(connect=15.0, read=180.0, write=30.0, pool=15.0)
+            with httpx.Client(timeout=timeout) as client:
                 # follow redirects to avoid 302 on some endpoints
                 response = client.request(**request_args, follow_redirects=True)
                 logger.debug(f"HTTP API response received: {response}")
@@ -871,7 +874,10 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         logger.info(f"Executing async API node for endpoint: {api_endpoint}")
         request_args, file_handles = _prepare_request_args(state)
         try:
-            async with httpx.AsyncClient() as client:
+            # Configure timeout for proxy compatibility (especially Clash)
+            # Increased read timeout to handle slow proxy responses
+            timeout = httpx.Timeout(connect=15.0, read=180.0, write=30.0, pool=15.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.request(**request_args)
                 response.raise_for_status()
                 state.setdefault('results', []).append(response.json())
