@@ -213,6 +213,7 @@ def initialize_proxy_environment():
     logger.info(f"🌐 Set NO_PROXY for local/LAN: {no_proxy}")
     
     logger.info("✅ Proxy environment initialized - all external requests will use proxy")
+    logger.info("✅ Proxy settings will be inherited by all subprocess (including lightrag_server)")
 
 
 def get_proxy_for_httpx() -> Optional[str]:

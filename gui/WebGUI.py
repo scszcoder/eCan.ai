@@ -1174,6 +1174,17 @@ class WebGUI(QMainWindow):
             try:
                 from PySide6.QtGui import QCursor
                 msg = ctypes.wintypes.MSG.from_address(int(message))
+                
+                # WM_NCLBUTTONDBLCLK = 0x00A3 - Handle double-click on non-client area (title bar)
+                if msg.message == 0x00A3:
+                    # wParam contains hit test code
+                    hit_test = msg.wParam
+                    # HTCAPTION = 2 (title bar area)
+                    if hit_test == 2:
+                        # Toggle maximize/restore on title bar double-click
+                        self._toggle_maximize()
+                        return True, 0  # Message handled
+                
                 # WM_NCHITTEST = 0x0084
                 if msg.message == 0x0084:
                     rect = self.rect()

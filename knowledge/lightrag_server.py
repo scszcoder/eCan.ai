@@ -207,6 +207,20 @@ class LightragServer:
         # Apply environment-specific optimizations - unified approach
         self._apply_environment_optimizations(env)
 
+        # Log proxy settings for debugging (inherited from parent process)
+        proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'NO_PROXY', 'no_proxy']
+        proxy_settings = {k: v for k, v in env.items() if k in proxy_vars}
+        if proxy_settings:
+            logger.info(f"[LightragServer] 🌐 Proxy settings inherited from parent process:")
+            for k, v in proxy_settings.items():
+                # Mask proxy URL for security (show only host:port)
+                if v and '://' in v:
+                    logger.info(f"[LightragServer]   {k}={v}")
+                else:
+                    logger.info(f"[LightragServer]   {k}={v}")
+        else:
+            logger.info("[LightragServer] 🌐 No proxy settings detected")
+
         # Set path-related environment variables
         if 'APP_DATA_PATH' in env:
             app_data_path = env['APP_DATA_PATH']
