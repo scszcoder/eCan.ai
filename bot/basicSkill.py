@@ -42,6 +42,9 @@ import zipfile
 
 import psutil
 
+# Process-level guard to avoid repeated macOS permission prompts
+_mac_screen_perm_prompted = False
+
 import pyperclip
 
 if sys.platform == 'win32':
@@ -60,41 +63,69 @@ elif sys.platform == 'darwin':
 
 def check_macos_screen_recording_permission():
     """
-    Check macOS screen recording permission
-    Returns: (has_permission: bool, app_name: str)
+    Check macOS screen recording permission with multiple methods
+    Returns: (has_permission: bool, app_name: str, python_path: str)
     """
     if platform.system() != "Darwin":
-        return True, None
+        return True, None, None
     
+    python_path = sys.executable
+    
+    # Method 1: Try native CGPreflightScreenCaptureAccess (most reliable, no side effects)
     try:
-        # Try a small screenshot to test permission
-        test_img = lazy.pyautogui.screenshot(region=(0, 0, 10, 10))
-        if test_img and test_img.size[0] > 0 and test_img.size[1] > 0:
-            logger.info("✅ macOS screen recording permission granted")
-            return True, None
+        from Quartz import CGPreflightScreenCaptureAccess  # type: ignore
+        ok = CGPreflightScreenCaptureAccess()
+        if ok:
+            logger.info("✅ macOS screen recording permission granted (native API)")
+            return True, None, python_path
     except Exception as e:
-        logger.debug(f"Permission test failed: {e}")
+        logger.debug(f"Native permission check unavailable: {e}")
     
-    # Detect current running application name
-    app_name = "Python"  # Default value
+    # Method 2: Try screencapture command (system utility, most compatible)
     try:
-        # Check if running in PyInstaller packaged environment
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            result = subprocess.run(
+                ['screencapture', '-x', '-R', '0,0,1,1', tmp_path],
+                capture_output=True,
+                timeout=2
+            )
+            if result.returncode == 0 and os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
+                logger.info("✅ macOS screen recording permission granted (screencapture)")
+                os.unlink(tmp_path)
+                return True, None, python_path
+            os.unlink(tmp_path) if os.path.exists(tmp_path) else None
+        except Exception:
+            os.unlink(tmp_path) if os.path.exists(tmp_path) else None
+    except Exception as e:
+        logger.debug(f"screencapture test failed: {e}")
+    
+    # Method 3: Minimal pyautogui test (last resort, may trigger permission prompts)
+    try:
+        test_img = lazy.pyautogui.screenshot(region=(0, 0, 1, 1))
+        if test_img and test_img.size[0] > 0 and test_img.size[1] > 0:
+            logger.info("✅ macOS screen recording permission granted (pyautogui)")
+            return True, None, python_path
+    except Exception as e:
+        logger.debug(f"pyautogui permission test failed: {e}")
+    
+    # No permission detected - determine app name for guidance
+    app_name = "Python"
+    try:
         if getattr(sys, 'frozen', False):
-            # Packaged application
             app_name = "eCan"
         else:
-            # Development environment: check if running through IDE
             if 'TERM_PROGRAM' in os.environ:
                 term_program = os.environ['TERM_PROGRAM']
-                if 'vscode' in term_program.lower():
-                    app_name = "Visual Studio Code" if 'Visual Studio Code' in term_program else "Code"
+                if 'cursor' in term_program.lower():
+                    app_name = "Cursor"
+                elif 'vscode' in term_program.lower():
+                    app_name = "Visual Studio Code"
                 elif 'pycharm' in term_program.lower():
                     app_name = "PyCharm"
-                elif 'cursor' in term_program.lower():
-                    app_name = "Cursor"
             
-            # Check Python interpreter path
-            python_path = sys.executable
             if 'Cursor' in python_path:
                 app_name = "Cursor"
             elif 'Visual Studio Code' in python_path or 'VSCode' in python_path:
@@ -108,62 +139,53 @@ def check_macos_screen_recording_permission():
     except Exception as e:
         logger.debug(f"Failed to detect app name: {e}")
     
-    return False, app_name
+    return False, app_name, python_path
 
 
-def show_macos_permission_guide(app_name):
+def show_macos_permission_guide(app_name, python_path):
     """Show macOS screen recording permission setup guide"""
     logger.error("=" * 80)
     logger.error("⚠️  macOS Screen Recording Permission Not Granted!")
     logger.error("=" * 80)
     logger.error("")
-    logger.error("📋 Please follow these steps to grant permission:")
+    logger.error("🔍 IMPORTANT: You need to authorize THIS specific executable:")
+    logger.error(f"   📍 {python_path}")
     logger.error("")
-    logger.error("1️⃣  Open 'System Settings' (System Settings)")
-    logger.error("   or 'System Preferences' (System Preferences for older macOS)")
+    logger.error("📋 Steps to grant permission:")
     logger.error("")
-    logger.error("2️⃣  Navigate to 'Privacy & Security' → 'Screen Recording'")
-    logger.error("   (Privacy & Security → Screen Recording)")
+    logger.error("1️⃣  Open 'System Settings' → 'Privacy & Security' → 'Screen Recording'")
     logger.error("")
-    logger.error(f"3️⃣  Find and check the box for: '{app_name}'")
+    logger.error(f"2️⃣  Look for '{app_name}' in the list and check the box")
     logger.error("")
-    logger.error("4️⃣  If the app is not in the list:")
-    logger.error("   - Click the '+' button")
+    logger.error("3️⃣  If NOT in the list, click '+' button and add:")
     if app_name == "Cursor":
-        logger.error("   - Navigate to: /Applications/Cursor.app")
+        logger.error("   → /Applications/Cursor.app")
+        logger.error(f"   → OR: {python_path}")
     elif app_name == "Visual Studio Code":
-        logger.error("   - Navigate to: /Applications/Visual Studio Code.app")
+        logger.error("   → /Applications/Visual Studio Code.app")
+        logger.error(f"   → OR: {python_path}")
     elif app_name == "PyCharm":
-        logger.error("   - Navigate to: /Applications/PyCharm.app")
-    elif "Python" in app_name:
-        logger.error(f"   - Navigate to: {sys.executable}")
-        logger.error("   - Or add the entire Python.framework directory")
+        logger.error("   → /Applications/PyCharm.app")
+        logger.error(f"   → OR: {python_path}")
     else:
-        logger.error("   - Manually add the currently running application")
+        logger.error(f"   → {python_path}")
     logger.error("")
-    logger.error("5️⃣  After checking the box, restart the application for changes to take effect")
+    logger.error("4️⃣  RESTART this process after checking the box")
+    logger.error("   (permissions only take effect after restart)")
     logger.error("")
-    logger.error("💡 Tips:")
-    logger.error(f"   - Detected application: {app_name}")
-    logger.error(f"   - Python path: {sys.executable}")
-    logger.error("   - For development environment, grant permission to IDE (e.g., Cursor/VSCode)")
+    logger.error("💡 Quick command to verify Python path:")
+    logger.error(f"   which python3  # Should match: {python_path}")
     logger.error("")
     logger.error("=" * 80)
     logger.error("")
     
-    # Try to open System Settings (macOS 13+) or System Preferences
+    # Try to open System Settings
     try:
-        # macOS 13 Ventura and above
         subprocess.run(['open', 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'], 
                       check=False, timeout=2)
-        logger.info("✅ Attempted to open System Settings automatically")
-    except:
-        try:
-            # Older macOS versions
-            subprocess.run(['open', 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'], 
-                          check=False, timeout=2)
-        except:
-            logger.warning("⚠️  Unable to open System Settings automatically, please open manually")
+        logger.info("✅ System Settings opened automatically")
+    except Exception:
+        logger.warning("⚠️  Please open System Settings manually")
 
 
 symTab = globals()
@@ -1649,15 +1671,29 @@ def get_top_visible_window(win_title_keyword):
             # Only process normal window layer (layer 0)
             if window_layer != 0:
                 continue
+            
+            # Skip eCan's own windows when no keyword specified (avoid capturing self)
+            if not win_title_keyword and window_owner_name in ['eCan', 'Python']:
+                logger.debug(f"Skipping self window: {window_owner_name} - {window_name}")
+                continue
                 
             # If keyword specified, prioritize matching window title
             if win_title_keyword and window_name and win_title_keyword in window_name:
                 matched_windows.append((window, window_owner_name, window_name, 2))  # Priority 2: keyword match
-            # Match application name
-            elif window_owner_name == active_app_name:
+            # If no keyword, match active app windows (but not eCan itself)
+            elif not win_title_keyword and window_owner_name == active_app_name:
                 # Windows with title have higher priority
                 priority = 1 if window_name else 0
                 matched_windows.append((window, window_owner_name, window_name, priority))
+            # If no keyword and active app is eCan, get first non-eCan window
+            elif not win_title_keyword:
+                # Collect all non-eCan windows with lower priority
+                priority = 0 if window_name else -1
+                matched_windows.append((window, window_owner_name, window_name, priority))
+            # If keyword specified but no match yet, collect all windows as fallback
+            elif win_title_keyword:
+                # Lower priority for non-matching windows
+                matched_windows.append((window, window_owner_name, window_name, -1))
         
         # Sort by priority and take the first one
         if matched_windows:
@@ -1751,16 +1787,112 @@ def list_windows():
         return names
 
 
+def _captureScreenWithCommand(win_title_keyword, subArea=None):
+    """
+    Capture screen using macOS screencapture command (inherits Terminal/IDE permission)
+    Returns: (image, image_bytes, window_rect)
+    """
+    import tempfile
+    from PIL import Image
+    import io
+    
+    # Get window info
+    if win_title_keyword:
+        window_name, window_rect = get_top_visible_window(win_title_keyword)
+    else:
+        logger.info("capture default top window")
+        window_name, window_rect = get_top_visible_window("")
+    
+    # Validate window_rect
+    if not window_rect or len(window_rect) < 4:
+        logger.error(f"Invalid window_rect: {window_rect}, using full screen")
+        screen_size = lazy.pyautogui.size()
+        window_rect = [0, 0, screen_size[0], screen_size[1]]
+    
+    # Create temp file for screenshot
+    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+        tmp_path = tmp.name
+    
+    try:
+        # Capture with region if specified
+        x, y, w, h = window_rect[0], window_rect[1], window_rect[2], window_rect[3]
+        
+        # screencapture -R x,y,w,h captures a region
+        cmd = ['screencapture', '-x', '-R', f'{x},{y},{w},{h}', tmp_path]
+        result = subprocess.run(cmd, capture_output=True, timeout=3)
+        
+        logger.debug(f"screencapture region cmd: {' '.join(cmd)}")
+        logger.debug(f"screencapture returncode: {result.returncode}")
+        logger.debug(f"screencapture stderr: {result.stderr.decode('utf-8') if result.stderr else 'none'}")
+        logger.debug(f"File exists: {os.path.exists(tmp_path)}, Size: {os.path.getsize(tmp_path) if os.path.exists(tmp_path) else 0}")
+        
+        if result.returncode != 0 or not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
+            # Fallback to full screen
+            logger.warning(f"Region capture failed (rc={result.returncode}), trying full screen...")
+            cmd = ['screencapture', '-x', tmp_path]
+            result = subprocess.run(cmd, capture_output=True, timeout=3)
+            
+            logger.debug(f"screencapture fullscreen returncode: {result.returncode}")
+            logger.debug(f"screencapture fullscreen stderr: {result.stderr.decode('utf-8') if result.stderr else 'none'}")
+            logger.debug(f"File exists: {os.path.exists(tmp_path)}, Size: {os.path.getsize(tmp_path) if os.path.exists(tmp_path) else 0}")
+            
+            if result.returncode == 0 and os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
+                # Update window_rect to full screen
+                im = Image.open(tmp_path)
+                window_rect = [0, 0, im.size[0], im.size[1]]
+            else:
+                logger.error(f"screencapture command failed: returncode={result.returncode}, stderr={result.stderr.decode('utf-8') if result.stderr else 'none'}")
+        
+        # Load and return image
+        if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
+            im = Image.open(tmp_path)
+            
+            # Convert to bytes
+            img_byte_arr = io.BytesIO()
+            im.save(img_byte_arr, format='PNG')
+            image_bytes = img_byte_arr.getvalue()
+            
+            logger.info(f"✅ screencapture command succeeded: {im.size}")
+            
+            # Apply subArea if specified
+            if subArea and len(subArea) == 4:
+                x1, y1, x2, y2 = subArea
+                im = im.crop((x1, y1, x2, y2))
+                img_byte_arr = io.BytesIO()
+                im.save(img_byte_arr, format='PNG')
+                image_bytes = img_byte_arr.getvalue()
+            
+            return im, image_bytes, window_rect
+        else:
+            raise RuntimeError("screencapture produced empty file")
+    finally:
+        # Clean up temp file
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
 def captureScreen(win_title_keyword, subArea=None):
     global screen_loc
     logger.info(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BX: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
     
     # Check macOS screen recording permission first
-    has_permission, app_name = check_macos_screen_recording_permission()
+    has_permission, app_name, python_path = check_macos_screen_recording_permission()
     if not has_permission:
-        show_macos_permission_guide(app_name)
-        # Still try to capture, but user has been warned
-        logger.warning("⚠️  Continuing to attempt screenshot, but it may fail...")
+        # Show guide only once per process
+        global _mac_screen_perm_prompted
+        if not _mac_screen_perm_prompted:
+            show_macos_permission_guide(app_name, python_path)
+            _mac_screen_perm_prompted = True
+        
+        # Try screencapture command first on macOS (inherits parent process permission)
+        if platform.system() == "Darwin":
+            logger.info("⚡ Trying screencapture command (uses Terminal/IDE permission)...")
+            try:
+                return _captureScreenWithCommand(win_title_keyword, subArea)
+            except Exception as e:
+                logger.warning(f"screencapture fallback failed: {e}, trying pyautogui...")
+        else:
+            logger.warning("⚠️  Screenshot may fail without permission")
     
     if win_title_keyword:
         window_name, window_rect = get_top_visible_window(win_title_keyword)
@@ -1806,20 +1938,52 @@ def captureScreen(win_title_keyword, subArea=None):
                 window_rect = [0, 0, screen_size[0], screen_size[1]]
                 logger.info(f"Retrying with full screen: {window_rect}")
             else:
-                # Last attempt failed, try alternative method
-                logger.error("All screenshot attempts failed, trying alternative method")
+                # Last attempt failed, try alternative methods
+                logger.error("All pyautogui attempts failed, trying alternative methods")
+                
+                # Alternative 1: Try pyautogui full screen
                 try:
-                    # Try capturing full screen without region parameter
                     im0 = lazy.pyautogui.screenshot()
                     if im0 and im0.size[0] > 0 and im0.size[1] > 0:
-                        logger.info(f"Alternative method succeeded: {im0.size}")
-                        # Update window_rect to match full screen
+                        logger.info(f"✅ Alternative pyautogui succeeded: {im0.size}")
                         window_rect = [0, 0, im0.size[0], im0.size[1]]
-                    else:
-                        raise ValueError("Alternative method also failed")
+                        break
                 except Exception as e2:
-                    logger.error(f"Alternative screenshot method failed: {e2}")
-                    raise RuntimeError(f"Failed to capture screenshot after {max_retries} attempts: {e}") from e
+                    logger.debug(f"Alternative pyautogui failed: {e2}")
+                
+                # Alternative 2: Try macOS screencapture command (most reliable on macOS)
+                if platform.system() == "Darwin":
+                    try:
+                        import tempfile
+                        from PIL import Image
+                        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                            tmp_path = tmp.name
+                        try:
+                            # Use screencapture with full screen
+                            result = subprocess.run(
+                                ['screencapture', '-x', tmp_path],
+                                capture_output=True,
+                                timeout=3
+                            )
+                            if result.returncode == 0 and os.path.exists(tmp_path):
+                                im0 = Image.open(tmp_path)
+                                if im0 and im0.size[0] > 0 and im0.size[1] > 0:
+                                    logger.info(f"✅ screencapture command succeeded: {im0.size}")
+                                    window_rect = [0, 0, im0.size[0], im0.size[1]]
+                                    os.unlink(tmp_path)
+                                    break
+                            if os.path.exists(tmp_path):
+                                os.unlink(tmp_path)
+                        except Exception:
+                            if os.path.exists(tmp_path):
+                                os.unlink(tmp_path)
+                            raise
+                    except Exception as e3:
+                        logger.debug(f"screencapture command failed: {e3}")
+                
+                # All methods failed
+                logger.error(f"All screenshot methods failed")
+                raise RuntimeError(f"Failed to capture screenshot after {max_retries} attempts: {e}") from e
     
     if im0 is None:
         raise RuntimeError("Failed to capture screenshot: image is None")

@@ -1,17 +1,18 @@
 /**
  * LLM node custom form: adds Model Provider dropdown above Model Name, using model-store
  */
-import React, { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
 import { Divider, Select, Button, Space, Tag, Tooltip } from '@douyinfe/semi-ui';
-import { IconPaperclip, IconDelete } from '@douyinfe/semi-icons';
+import { IconPaperclip } from '@douyinfe/semi-icons';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormContent, FormHeader, FormItem, FormInputs } from '../../form-components';
 import { DisplayOutputs, createInferInputsPlugin } from '@flowgram.ai/form-materials';
-import { getModelMap } from '../../stores/model-store';
+import { getModelMap, getProviderConfig } from '../../stores/model-store';
 
-export const FormRender = ({ form }: FormRenderProps<any>) => {
+export const FormRender = (_props: FormRenderProps<any>) => {
   const modelMap = getModelMap();
+  const providerConfig = getProviderConfig();
   const providers = Object.keys(modelMap);
 
   return (
@@ -25,17 +26,45 @@ export const FormRender = ({ form }: FormRenderProps<any>) => {
             {({ field: providerField }) => {
               const currentProvider = (providerField.value as string) || providers[0] || 'OpenAI';
               const providerOptions = providers.map(p => ({ label: p, value: p }));
+              
               return (
-                <div style={{ width: '100%', maxWidth: '100%' }}>
-                  <Select
-                    value={currentProvider}
-                    onChange={(val) => providerField.onChange(val as string)}
-                    optionList={providerOptions}
-                    style={{ width: '100%' }}
-                    dropdownMatchSelectWidth
-                    size="small"
-                  />
-                </div>
+                <Field<string> name="inputsValues.apiHost.content">
+                  {({ field: apiHostField }) => (
+                    <Field<string> name="inputsValues.apiKey.content">
+                      {({ field: apiKeyField }) => {
+                        // Auto-fill apiHost and apiKey when provider changes
+                        useEffect(() => {
+                          const config = providerConfig[currentProvider];
+                          if (config) {
+                            // Always set apiHost to provider default on provider change
+                            setTimeout(() => apiHostField.onChange(config.apiHost), 0);
+
+                            // Only auto-fill apiKey if empty or default placeholder
+                            const currentApiKey = apiKeyField.value as string || '';
+                            
+                            // Auto-fill apiKey if empty or is a placeholder pattern
+                            if (!currentApiKey || /^[sx]k-x+$/i.test(currentApiKey) || currentApiKey === 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx') {
+                              setTimeout(() => apiKeyField.onChange(config.apiKeyTemplate), 0);
+                            }
+                          }
+                        }, [currentProvider]);
+
+                        return (
+                          <div style={{ width: '100%', maxWidth: '100%' }}>
+                            <Select
+                              value={currentProvider}
+                              onChange={(val) => providerField.onChange(val as string)}
+                              optionList={providerOptions}
+                              style={{ width: '100%' }}
+                              dropdownMatchSelectWidth
+                              size="small"
+                            />
+                          </div>
+                        );
+                      }}
+                    </Field>
+                  )}
+                </Field>
               );
             }}
           </Field>

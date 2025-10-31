@@ -38,7 +38,7 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
           },
           modelName: {
             type: 'constant',
-            content: 'gpt-3.5-turbo',
+            content: 'gpt-4o-mini',
           },
           attachments: {
             type: 'constant',
@@ -50,7 +50,7 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
           },
           apiHost: {
             type: 'constant',
-            content: 'https://mock-ai-url/api/v3',
+            content: 'https://api.openai.com/v1',
           },
           temperature: {
             type: 'constant',

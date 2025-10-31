@@ -50,7 +50,7 @@ async def wait_until_server_ready(url: str, timeout=30):
     http_attempts = 0
     timeout_cfg = httpx.Timeout(connect=1.0, read=2.0, write=1.0, pool=1.0)
     
-    async with httpx.AsyncClient(timeout=timeout_cfg, trust_env=False) as client:
+    async with httpx.AsyncClient(timeout=timeout_cfg) as client:
         while time.time() < deadline:
             http_attempts += 1
             try:
