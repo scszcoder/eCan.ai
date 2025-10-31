@@ -203,7 +203,21 @@ class MainWindow:
         self._init_database()
 
         # 9. Setup local web server
-        os.environ["NO_PROXY"] = "localhost,127.0.0.1"
+        def _ensure_no_proxy_entries(extra_hosts: list[str]):
+            existing = (
+                os.environ.get("NO_PROXY")
+                or os.environ.get("no_proxy")
+                or ""
+            )
+            entries = [part.strip() for part in existing.split(',') if part.strip()]
+            for host in extra_hosts:
+                if host not in entries:
+                    entries.append(host)
+            no_proxy_value = ",".join(entries)
+            os.environ["NO_PROXY"] = no_proxy_value
+            os.environ["no_proxy"] = no_proxy_value
+
+        _ensure_no_proxy_entries(["localhost", "127.0.0.1"])
 
         from agent.mcp.server.server import set_server_main_win
         from gui.LocalServer import start_local_server_in_thread
