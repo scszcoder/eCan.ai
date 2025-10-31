@@ -9,6 +9,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { App } from 'antd';
 import { useNavigate } from 'react-router-dom';
+import { get_ipc_api } from '../../services/ipc_api';
 
 const StyledHeader = styled(Header)`
     padding: 0 24px;
@@ -161,6 +162,22 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
         try {
             await i18n.changeLanguage(value);
             changeLanguage(value);
+            
+            // Save language preference to uli.json via IPC
+            try {
+                const api = get_ipc_api();
+                if (api) {
+                    const response = await api.updateUserPreferences(value);
+                    if (response?.success) {
+                        console.log('[AppHeader] Language preference saved to uli.json:', value);
+                    } else {
+                        console.warn('[AppHeader] Failed to save language preference:', response?.error);
+                    }
+                }
+            } catch (ipcError) {
+                console.error('[AppHeader] Error saving language preference:', ipcError);
+            }
+            
             message.success(t('pages.settings.languageChanged'));
             console.log('When前语言已Toggle为:', i18n.language);
         } catch (e) {

@@ -68,7 +68,7 @@ const Login: React.FC = () => {
 		}
 	}, [initProgress, loading, showInitProgress, navigate, loginSuccessful]);
 
-	// Initialize IPC API and load login info
+	// Initialize IPC API and load login info and language preference
 	useEffect(() => {
 		const initialize = async () => {
 			try {
@@ -84,6 +84,7 @@ const Login: React.FC = () => {
 					return;
 				}
 
+				// Load login info (includes language and theme preferences)
 				const response = await Promise.race([
 					api.getLastLoginInfo(),
 					timeoutPromise
@@ -91,9 +92,19 @@ const Login: React.FC = () => {
 
 				console.log('[Login] Last login info', response.data);
 				if (response?.data?.last_login) {
-					const { username, password, machine_role } = response.data.last_login;
+					const { username, password, machine_role, language } = response.data.last_login;
 					console.log('last_login', response.data.last_login);
-					// 直接UpdateForm，不Need等待 i18n Initialize
+					
+					// Apply saved language preference if available
+					if (language && i18n.language !== language) {
+						console.log('[Login] Applying saved language:', language);
+						await i18n.changeLanguage(language);
+						localStorage.setItem('i18nextLng', language);
+					}
+					
+					// TODO: Theme preference will be handled by ThemeContext
+					
+					// Update form with login credentials
 					updateFormWithRole(username, password, machine_role);
 				}
 			} catch (error) {
@@ -129,10 +140,25 @@ const Login: React.FC = () => {
 	};
 
 	// Handlers
-	const handleLanguageChange = useCallback((value: string) => {
+	const handleLanguageChange = useCallback(async (value: string) => {
 		if (i18n.language !== value) {
-			i18n.changeLanguage(value);
+			await i18n.changeLanguage(value);
 			localStorage.setItem('i18nextLng', value);
+			
+			// Save language preference to uli.json via IPC
+			try {
+				const api = get_ipc_api();
+				if (api) {
+					const response = await api.updateUserPreferences(value);
+					if (response?.success) {
+						console.log('[Login] Language preference saved to uli.json:', value);
+					} else {
+						console.warn('[Login] Failed to save language preference:', response?.error);
+					}
+				}
+			} catch (error) {
+				console.error('[Login] Error saving language preference:', error);
+			}
 		}
 	}, [i18n]);
 
