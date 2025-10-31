@@ -132,6 +132,14 @@ try:
             initialize_runtime_environment()
         except Exception as e:
             print(f"Warning: Runtime initialization failed: {e}")
+        
+        # Initialize proxy environment from macOS system settings
+        # This must be done early so all HTTP libraries can use the proxy
+        try:
+            from agent.ec_skills.macos_proxy import initialize_proxy_environment
+            initialize_proxy_environment()
+        except Exception as e:
+            print(f"Warning: Proxy initialization failed: {e}")
 
 
         # Ensure Windows uses SelectorEventLoop to support subprocesses (e.g., Playwright)
@@ -215,6 +223,13 @@ try:
     from utils.logger_helper import logger_helper as logger
     from app_context import AppContext
     progress_manager.update_progress(15, "Loading configuration...")
+    
+    # Configure third-party package loggers to use unified logger
+    try:
+        from utils.thirdparty_logger_config import configure_all_thirdparty_loggers
+        configure_all_thirdparty_loggers()
+    except Exception as e:
+        logger.warning(f"Failed to configure third-party loggers: {e}")
 
     # Runtime environment is already initialized above
     progress_manager.update_progress(20, "Setting up environment...")

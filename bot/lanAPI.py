@@ -177,12 +177,10 @@ async def lan_http_request8(query_js, imgs, session, token, api_key, lan_endpoin
     }
     logger.info(f"endpoint: {LAN_API_ENDPOINT_URL}, headers: {headers}")
 
-    def print_on_request(request: httpx.Request):
-        logger.debug(f"🔍 Raw HTTP Request (sync hook): {request}")
     # Increased read timeout to handle slow server responses
     timeout = httpx.Timeout(connect=60.0, read=180.0, write=60.0, pool=60.0)
     limits = httpx.Limits(max_keepalive_connections=0, max_connections=20)
-    async with httpx.AsyncClient(timeout=timeout, limits=limits, http2=False, trust_env=False) as client:
+    async with httpx.AsyncClient(timeout=timeout, limits=limits, http2=False) as client:
         try:
             logger.debug(f"preparing multipart files for upload... {len(imgs or [])}")
             # Build multipart parts exactly like requests test: ("files", (filename, bytes, "image/png"))

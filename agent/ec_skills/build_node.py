@@ -59,7 +59,6 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                               or "You are an AI assistant.")
     user_prompt_template = ((inputs.get("prompt") or {}).get("content")
                             or "You are an AI assistant.")
-
     # Infer provider when not explicitly set
     def _infer_provider(host: str, model: str) -> str:
         try:
@@ -76,18 +75,203 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     model_provider = raw_provider or _infer_provider(api_host, model_name)
     llm_provider = (model_provider or "openai").lower()
 
+    # Normalize provider names (handle spaces in provider names)
+    # Map frontend provider names to backend identifiers
+    provider_mapping = {
+        'azure openai': 'azure',
+        'anthropic claude': 'anthropic',
+        'aws bedrock': 'bedrock',
+        'google gemini': 'google',
+        'qwen (dashscope)': 'qwen',
+        'ollama (local)': 'ollama',
+        'bytedance doubao': 'bytedance',
+    }
+    llm_provider = provider_mapping.get(llm_provider, llm_provider)
+
     # Factory function to get the correct LLM client
     def get_llm_client(provider, model, temp):
+        # Common timeout settings - balanced for reliability and responsiveness
+        # Longer timeouts to handle unstable networks
+        timeout_config = {
+            'timeout': 120.0,  # Total timeout - 2 minutes for most requests
+            'request_timeout': 120.0  # Per-request timeout
+        }
+
+        def create_httpx_client(connect=15.0, read=120.0, write=15.0, pool=10.0):
+            """
+            Create custom httpx client to control HTTP request timeout behavior.
+            
+            Why custom httpx client is needed:
+            1. Precise timeout control: langchain's default timeout may not be flexible enough.
+               Custom client allows separate timeout settings for connection, read, write stages.
+            2. Prevent request hanging: Without proper timeout settings, network issues can
+               cause requests to hang indefinitely.
+            3. Connection pool management: Control max connections and keepalive connections
+               to improve performance.
+            4. SSL verification: Ensure HTTPS connection security.
+            5. Redirect handling: Automatically follow HTTP redirects.
+            6. Proxy support: Automatically detects macOS system proxy or environment variables.
+            
+            Timeout parameters:
+            - connect: Connection timeout (DNS resolution + TCP handshake)
+            - read: Response read timeout (most critical, prevents slow server response)
+            - write: Request write timeout
+            - pool: Connection pool acquisition timeout
+            - timeout: Total timeout (covers all stages)
+            
+            Proxy handling:
+            - Proxy environment variables are set at application startup (in main.py)
+            - httpx automatically uses HTTP_PROXY/HTTPS_PROXY environment variables
+            - No explicit proxy configuration needed here
+            - Works seamlessly whether app is launched from GUI or terminal
+            """
+            return httpx.Client(
+                timeout=httpx.Timeout(
+                    timeout=timeout_config['timeout'],  # Total timeout
+                    connect=connect,  # Connection timeout (DNS + TCP handshake)
+                    read=read,  # Read timeout (most critical for slow responses)
+                    write=write,  # Write timeout
+                    pool=pool  # Connection pool timeout
+                ),
+                limits=httpx.Limits(
+                    max_connections=100,  # Maximum concurrent connections
+                    max_keepalive_connections=20  # Keepalive connections
+                ),
+                follow_redirects=True,  # Follow redirects automatically
+                verify=True  # Verify SSL certificates
+                # Note: httpx automatically uses HTTP_PROXY/HTTPS_PROXY environment variables (trust_env=True by default)
+            )
+
         if provider == "openai":
-            return ChatOpenAI(model=model, temperature=temp)
+            # Create a custom httpx client with strict timeout control
+            # This ensures timeout works even when using proxies
+            httpx_client = create_httpx_client()
+            
+            # Log proxy settings if configured
+            import os
+            proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']
+            active_proxies = {var: os.environ.get(var) for var in proxy_vars if os.environ.get(var)}
+            if active_proxies:
+                logger.debug(f"🌐 Proxy settings detected: {active_proxies}")
+            
+            logger.debug("🔧 Created httpx client with timeouts (connect=15s, read=120s, total=120s)")
+
+            # Get base_url from api_host if provided
+            openai_config = {
+                'model': model,
+                'temperature': temp,
+                'http_client': httpx_client,
+                'timeout': timeout_config['timeout'],
+                'request_timeout': timeout_config['request_timeout']
+            }
+            if api_host:
+                openai_config['base_url'] = api_host
+                logger.debug(f"🌐 Using custom OpenAI base_url: {api_host}")
+            if api_key:
+                openai_config['api_key'] = api_key
+                logger.debug("🔑 API key configured for OpenAI provider")
+            return ChatOpenAI(**openai_config)
+        elif provider == "azure":
+            # Azure OpenAI requires custom endpoint
+            if not api_host:
+                error_msg = ("Azure OpenAI requires 'apiHost' configuration. "
+                             "Please set it in the GUI (e.g., https://YOUR_RESOURCE.openai.azure.com)")
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            # Azure OpenAI uses OpenAI-compatible API
+            httpx_client = create_httpx_client()
+            logger.debug("🔧 Created httpx client for Azure OpenAI with strict timeouts")
+
+            azure_config = {
+                'model': model,
+                'temperature': temp,
+                'http_client': httpx_client,
+                'timeout': timeout_config['timeout'],
+                'request_timeout': timeout_config['request_timeout'],
+                'base_url': api_host
+            }
+            logger.debug(f"🌐 Using Azure OpenAI endpoint: {api_host}")
+            if api_key:
+                azure_config['api_key'] = api_key
+                logger.debug("🔑 API key configured for Azure OpenAI provider")
+            return ChatOpenAI(**azure_config)
         elif provider == "anthropic":
-            return ChatAnthropic(model=model, temperature=temp)
+            anthropic_config = {
+                'model': model,
+                'temperature': temp,
+                'timeout': timeout_config['timeout']
+            }
+            if api_host:
+                anthropic_config['base_url'] = api_host
+                logger.debug(f"🌐 Using custom Anthropic base_url: {api_host}")
+            if api_key:
+                anthropic_config['api_key'] = api_key
+                logger.debug("🔑 API key configured for Anthropic provider")
+            return ChatAnthropic(**anthropic_config)
+        elif provider == "bedrock":
+            # AWS Bedrock support (using ChatBedrock from langchain-aws)
+            try:
+                from langchain_aws import ChatBedrock
+                bedrock_config = {
+                    'model_id': model,
+                    'model_kwargs': {'temperature': temp}
+                }
+                logger.debug(f"🔧 Using AWS Bedrock with model: {model}")
+                return ChatBedrock(**bedrock_config)
+            except ImportError:
+                logger.warning("langchain-aws not installed. Install with: pip install langchain-aws")
+                logger.warning("Falling back to OpenAI-compatible mode for Bedrock")
         elif provider == "google":
-            return ChatGoogleGenerativeAI(model=model, temperature=temp)
+            return ChatGoogleGenerativeAI(
+                model=model,
+                temperature=temp,
+                timeout=timeout_config['timeout']
+            )
+        elif provider in ["qwen", "deepseek", "bytedance", "ollama"]:
+            # These providers require apiHost configuration from frontend
+            if not api_host:
+                error_msg = f"Provider '{provider}' requires 'apiHost' configuration. Please set it in the GUI."
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            # Create custom httpx client for OpenAI-compatible APIs
+            httpx_client = create_httpx_client()
+            logger.debug(f"🔧 Created httpx client for {provider} with strict timeouts")
+
+            # These APIs are OpenAI-compatible
+            compatible_config = {
+                'model': model,
+                'temperature': temp,
+                'http_client': httpx_client,
+                'timeout': timeout_config['timeout'],
+                'request_timeout': timeout_config['request_timeout'],
+                'base_url': api_host
+            }
+            logger.debug(f"🌐 Using {provider} endpoint: {api_host}")
+
+            # Set API key if provided
+            if api_key:
+                compatible_config['api_key'] = api_key
+                logger.debug(f"🔑 API key configured for {provider} provider")
+
+            return ChatOpenAI(**compatible_config)
         else:
             # Default to OpenAI if provider is unknown
-            print(f"Warning: Unknown LLM provider '{provider}'. Defaulting to OpenAI.")
-            return ChatOpenAI(model=model, temperature=temp)
+            logger.warning(f"Unknown LLM provider '{provider}'. Defaulting to OpenAI.")
+            fallback_config = {
+                'model': model,
+                'temperature': temp,
+                'timeout': timeout_config['timeout'],
+                'request_timeout': timeout_config['request_timeout']
+            }
+            if api_host:
+                fallback_config['base_url'] = api_host
+                logger.debug(f"🌐 Using custom fallback base_url: {api_host}")
+            if api_key:
+                fallback_config['api_key'] = api_key
+                logger.debug("🔑 API key configured for fallback provider")
+            return ChatOpenAI(**fallback_config)
 
     # This is the actual function that will be executed as the node in the graph
     def llm_node_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
@@ -95,7 +279,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         The runtime callable for the LLM node. It formats prompts, invokes the LLM,
         and updates the state with the response.
         """
-        print(f"Executing LLM node with state: {state}")
+        logger.info(f"🤖 Executing LLM node: {node_name}")
+        logger.debug(f"State: {state}")
 
         # Find all variable placeholders (e.g., {var_name}) in the prompts
         variables = re.findall(r'\{(\w+)\}', system_prompt_template + user_prompt_template)
@@ -109,7 +294,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             if var in prompt_refs:
                 format_context[var] = prompt_refs[var]
             else:
-                print(f"Warning: Variable '{{{var}}}' not found in state prompt_refs. Using empty string.")
+                logger.warning(f"Warning: Variable '{{{var}}}' not found in state prompt_refs. Using empty string.")
                 format_context[var] = ""
 
         # Format the final prompts with values from the state
@@ -118,7 +303,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             final_user_prompt = user_prompt_template.format(**format_context)
         except KeyError as e:
             error_message = f"Error formatting prompt: Missing key {e} in state prompt_refs."
-            print(error_message)
+            logger.error(error_message)
             state['error'] = error_message
             return state
 
@@ -131,23 +316,121 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         # Instantiate the LLM client
         llm = get_llm_client(llm_provider, model_name, temperature)
 
+        # Log LLM configuration for debugging
+        logger.info(f"🔧 LLM Config: provider={llm_provider}, model={model_name}, temperature={temperature}")
+        logger.debug(f"📝 Prompt length: system={len(final_system_prompt)}, user={len(final_user_prompt)}")
+
         # Invoke the LLM and update the state
         try:
-            response = llm.invoke(messages)
+            import time
+            import threading
+            import queue
+
+            result_queue = queue.Queue()
+            exception_queue = queue.Queue()
+
+            def invoke_llm():
+                try:
+                    logger.debug("🔄 LLM invocation thread started")
+                    result = llm.invoke(messages)
+                    result_queue.put(result)
+                    logger.debug("✅ LLM invocation thread completed")
+                except Exception as exc:  # capture exception for main thread
+                    logger.debug(f"❌ LLM invocation thread error: {exc}")
+                    exception_queue.put(exc)
+
+            start_time = time.time()
+
+            # Start LLM invocation in a separate thread
+            llm_thread = threading.Thread(target=invoke_llm, daemon=True)
+            llm_thread.start()
+
+            # Wait for result with timeout (150s = 120s httpx timeout + 30s buffer)
+            # Give httpx timeout enough time to trigger, plus extra buffer
+            timeout_seconds = 150.0
+            llm_thread.join(timeout=timeout_seconds)
+
+            elapsed = time.time() - start_time
+
+            # Check if thread is still alive (timeout occurred)
+            if llm_thread.is_alive():
+                error_message = f"⏱️ LLM request timed out after {timeout_seconds}s (thread still running)"
+                logger.error(error_message)
+                logger.warning(f"⚠️ Network issue detected: The request to {llm_provider} is hanging. "
+                              f"This usually indicates network connectivity problems, firewall blocking, "
+                              f"or the API endpoint being unreachable. Consider checking your network connection.")
+                raise TimeoutError(error_message)
+
+            # Check for exceptions from the thread
+            if not exception_queue.empty():
+                raise exception_queue.get()
+
+            # Get the result
+            if result_queue.empty():
+                error_message = "❌ LLM thread completed but no result available"
+                logger.error(error_message)
+                raise RuntimeError(error_message)
+
+            response = result_queue.get()
+            logger.debug(f"⏱️ Request completed in {elapsed:.2f}s")
+            logger.info(f"✅ LLM response received from {llm_provider}")
+
             # It's good practice to put results in specific keys
             if 'llm_responses' not in state:
                 state['llm_responses'] = []
-            state['llm_responses'].append({'provider': llm_provider, 'model': model_name, 'content': response.content})
+            state['llm_responses'].append({
+                'provider': llm_provider,
+                'model': model_name,
+                'content': response.content
+            })
             # Ensure messages list exists before appending
             if 'messages' not in state or not isinstance(state.get('messages'), list):
                 state['messages'] = []
             state['messages'].append(response.content)
 
-
         except Exception as e:
-            error_message = f"LLM invocation failed: {e}"
-            print(error_message)
+            error_type = type(e).__name__
+            error_str = str(e)
+
+            # Detect specific error types and provide helpful messages
+            if "AuthenticationError" in error_type or "authentication" in error_str.lower():
+                error_message = (f"❌ LLM Authentication Failed: Invalid API key for {llm_provider}. "
+                                 "Please check your API key configuration.")
+                logger.error(f"{error_message} | Original error: {e}")
+            elif "RateLimitError" in error_type or "rate limit" in error_str.lower() or "quota" in error_str.lower():
+                error_message = (f"❌ LLM Rate Limit Exceeded: {llm_provider} quota exhausted or rate limit reached. "
+                                 "Please check your usage limits.")
+                logger.error(f"{error_message} | Original error: {e}")
+            elif "timeout" in error_str.lower() or "timed out" in error_str.lower():
+                error_message = (f"⏱️ LLM Request Timeout: Connection to {llm_provider} timed out. "
+                                 "This may be due to network issues or API endpoint unreachable.")
+                logger.error(f"{error_message} | Original error: {e}")
+            elif "connection" in error_str.lower() or "network" in error_str.lower():
+                error_message = (f"🌐 LLM Connection Error: Cannot connect to {llm_provider} API. "
+                                 "Please check your network connection and API endpoint configuration.")
+                logger.error(f"{error_message} | Original error: {e}")
+            elif "InvalidRequestError" in error_type or "invalid" in error_str.lower() or "model" in error_str.lower():
+                error_message = (f"⚠️ LLM Invalid Request: The request to {llm_provider} was invalid. "
+                                 f"Model: '{model_name}'. Error: {error_str}")
+                logger.error(f"{error_message} | Original error: {e}")
+                # Check if it's a model not found error
+                if "model" in error_str.lower() and ("not found" in error_str.lower() or "does not exist" in error_str.lower()):
+                    logger.error(f"💡 Hint: Model '{model_name}' does not exist. "
+                                 "Common OpenAI models: gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo")
+            else:
+                # Generic error with full details
+                error_message = f"❌ LLM Invocation Failed ({error_type}): {error_str}"
+                logger.error(f"LLM invocation error for {llm_provider}/{model_name}: {e}", exc_info=True)
+
             state['error'] = error_message
+
+            # Add detailed error info for debugging
+            state['error_details'] = {
+                'error_type': error_type,
+                'provider': llm_provider,
+                'model': model_name,
+                'original_error': error_str
+            }
 
         return state
 
@@ -168,9 +451,9 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
         code_source = (config_metadata or {}).get('script', {}).get('content')
     except Exception:
         code_source = None
-    print("code_source:", code_source)
+    logger.debug(f"code_source: {code_source}")
     if not code_source or not isinstance(code_source, str):
-        print("Error: 'code' key is missing or invalid in config_metadata for basic_node.")
+        logger.error("Error: 'code' key is missing or invalid in config_metadata for basic_node.")
         # Return a no-op function that just passes the state through
         return lambda state: state
 
@@ -190,10 +473,10 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
             if hasattr(module, 'run'):
                 node_callable = getattr(module, 'run')
             else:
-                print(f"Warning: Basic node file {code_source} is missing a 'run(state)' function.")
+                logger.warning(f"Basic node file {code_source} is missing a 'run(state)' function.")
 
         except Exception as e:
-            print(f"Error loading module from {code_source}: {e}")
+            logger.error(f"Error loading module from {code_source}: {e}")
 
     # Scenario 2: Code is an inline script
     else:
@@ -206,20 +489,20 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
             main_func = local_scope.get('main')
             if callable(main_func):
                 node_callable = main_func
-                print("callable obtained.....")
+                logger.debug("Callable obtained from inline basic node code")
             else:
-                 print(f"Warning: No function definition found in inline code for basic node.")
+                logger.warning("No function definition found in inline code for basic node.")
 
         except Exception as e:
             err_msg = get_traceback(e, "ErrorExecutingInlineCodeForBasicNode")
-            print(f"{err_msg}")
+            logger.error(err_msg)
             node_callable = None
 
     # If callable creation failed, return a no-op function
     if node_callable is None:
         return lambda state: state
 
-    print("done building basic node", node_name)
+    logger.debug(f"done building basic node {node_name}")
     full_node_callable = node_builder(node_callable, node_name, skill_name, owner, bp_manager)
 
     return full_node_callable
@@ -273,7 +556,7 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     is_sync = bool((config_metadata or {}).get('sync', True))
 
     if not api_endpoint:
-        print("Error: 'api_endpoint' is missing in config_metadata for api_node.")
+        logger.error("'api_endpoint' is missing in config_metadata for api_node.")
         return lambda state: {**state, 'error': 'API endpoint not configured'}
 
     def _format_from_state(template, attributes):
@@ -370,7 +653,7 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         else:
             final_params = {}
 
-        print("final_params:", final_params)
+        logger.debug(f"final_params: {final_params}")
         # Convenience: if GET/DELETE and no explicit params provided, promote non-standard headers to query params
         # This supports simple GUI inputs where users add foo1/bar1 in headers area.
         if method in ['GET', 'DELETE'] and not final_params and isinstance(headers_template, dict):
@@ -540,15 +823,15 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
     # Define the synchronous version of the callable
     def sync_api_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
-        print(f"Executing sync API node for endpoint: {api_endpoint}, current state is:", state)
+        logger.info(f"Executing sync API node for endpoint: {api_endpoint}, current state is: {state}")
         request_args, file_handles = _prepare_request_args(state)
-        print(f"prepared request args::", request_args)
+        logger.debug(f"prepared request args: {request_args}")
 
         try:
             with httpx.Client() as client:
                 # follow redirects to avoid 302 on some endpoints
                 response = client.request(**request_args, follow_redirects=True)
-                print("HTTP API response received:", response)
+                logger.debug(f"HTTP API response received: {response}")
                 response.raise_for_status() # Raise an exception for bad status codes
                 # Prefer JSON; fall back to text for non-JSON endpoints
                 payload = None
@@ -566,14 +849,14 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     'headers': dict(response.headers),
                     'body': payload,
                 })
-                print("recevied response payload is:", payload)
+                logger.debug(f"received response payload: {payload}")
         except httpx.HTTPStatusError as e:
             error_msg = f"API call failed with status {e.response.status_code}: {e.response.text}"
-            print(error_msg)
+            logger.error(error_msg)
             state['error'] = error_msg
         except Exception as e:
             error_msg = f"API call failed: {e}"
-            print(error_msg)
+            logger.error(error_msg)
             state['error'] = error_msg
         finally:
             for fh in file_handles:
@@ -585,7 +868,7 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
     # Define the asynchronous version of the callable
     async def async_api_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
-        print(f"Executing async API node for endpoint: {api_endpoint}")
+        logger.info(f"Executing async API node for endpoint: {api_endpoint}")
         request_args, file_handles = _prepare_request_args(state)
         try:
             async with httpx.AsyncClient() as client:
@@ -594,11 +877,11 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 state.setdefault('results', []).append(response.json())
         except httpx.HTTPStatusError as e:
             error_msg = f"API call failed with status {e.response.status_code}: {e.response.text}"
-            print(error_msg)
+            logger.error(error_msg)
             state['error'] = error_msg
         except Exception as e:
             error_msg = f"API call failed: {e}"
-            print(error_msg)
+            logger.error(error_msg)
             state['error'] = error_msg
         finally:
             for fh in file_handles:
@@ -645,7 +928,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         tool_name = None
 
     if not tool_name:
-        print("Error: 'tool_name' is missing in config_metadata for mcp_tool_calling_node.")
+        logger.error("'tool_name' is missing in config_metadata for mcp_tool_calling_node.")
         return lambda state: {**state, 'error': 'MCP tool_name not configured'}
 
     # --- MCP tool input helpers (schema-aware) ---
@@ -805,7 +1088,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         return out
 
     def mcp_tool_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
-        print(f"Executing MCP tool node for tool: {tool_name}")
+        logger.info(f"Executing MCP tool node for tool: {tool_name}")
 
         # By convention, the input for the tool is expected in state['tool_input']
         tool_input = state.get('tool_input', {})
@@ -826,7 +1109,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
 
         async def run_tool_call():
             """A local async function to perform the actual tool call."""
-            print(f"Calling MCP tool '{tool_name}' with input: {tool_input}")
+            logger.info(f"Calling MCP tool '{tool_name}' with input: {tool_input}")
             return await mcp_call_tool(tool_name, tool_input)
 
         try:
