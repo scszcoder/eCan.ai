@@ -177,75 +177,52 @@ const ChatPage: React.FC = () => {
         prevInitialized.current = initialized;
     }, [myTwinAgentId, initialized, hasFetched, agentId]);
 
-    // 追踪上一次的Message和未读数，避免不必要的Update
-    const prevMessagesRef = useRef<Map<string, Message[]>>(new Map());
-    const prevUnreadRef = useRef<Map<string, number>>(new Map());
-
-    // SyncMessage管理器中的Message到聊天List（OptimizeVersion：只在真正变化时Update）
+    // SyncMessage管理器中的Message到聊天List
+    // Update chats when messages or unread counts change
     useEffect(() => {
-        // Check是否有真正的变化
-        let hasChanges = false;
-        
-        for (const chat of chats) {
-            const currentMessages = allMessages.get(chat.id) || [];
-            const prevMessages = prevMessagesRef.current.get(chat.id) || [];
-            const currentUnread = unreadCounts.get(chat.id) || 0;
-            const prevUnread = prevUnreadRef.current.get(chat.id) || 0;
-            
-            // 比较MessageCount和未读数
-            if (currentMessages.length !== prevMessages.length || currentUnread !== prevUnread) {
-                hasChanges = true;
-                break;
-            }
-            
-            // IfCount相同，Check最后一条Message是否变化
-            if (currentMessages.length > 0 && prevMessages.length > 0) {
-                const lastCurrent = currentMessages[currentMessages.length - 1];
-                const lastPrev = prevMessages[prevMessages.length - 1];
-                if (lastCurrent.id !== lastPrev.id || lastCurrent.status !== lastPrev.status) {
-                    hasChanges = true;
-                    break;
-                }
-            }
-        }
-        
-        // 只在有变化时才Update
-        if (!hasChanges) {
-            return;
-        }
-        
-        // UpdateReference
-        prevMessagesRef.current = new Map(allMessages);
-        prevUnreadRef.current = new Map(unreadCounts);
-        
-        // Update chats
         setChats(prevChats => {
             return prevChats.map(chat => {
                 const messages = allMessages.get(chat.id) || [];
                 const unreadCount = unreadCounts.get(chat.id) || 0;
 
-                // 乐观Refresh：取已SendSuccess或Send中的Message
-                const validMessages = messages.filter(m => m.status === 'complete' || m.status === 'sending');
+                // Get the last message from messages (includes both sent and received)
+                // Messages are sorted by time (oldest to newest)
                 let lastMsg = chat.lastMsg;
                 let lastMsgTime = chat.lastMsgTime;
-                if (validMessages.length > 0) {
-                    const lastMessage = validMessages[validMessages.length - 1];
-                    lastMsg = getDisplayMsg(lastMessage.content, t);
-                    lastMsgTime = lastMessage.createAt;
-                } else if (lastMsg && typeof lastMsg === 'object' && lastMsg !== null) {
-                    lastMsg = getDisplayMsg(lastMsg, t);
+                
+                if (messages.length > 0) {
+                    // Get the last message regardless of status
+                    const lastMessage = messages[messages.length - 1];
+                    // Only use completed/success/sending messages for display (skip failed messages)
+                    if (lastMessage.status !== 'failed' && lastMessage.status !== 'error') {
+                        lastMsg = getDisplayMsg(lastMessage.content, t);
+                        lastMsgTime = lastMessage.createAt;
+                    }
+                } else if (lastMsg) {
+                    // Fallback: if no messages in memory but chat has lastMsg from DB, format it
+                    // Parse if it's a JSON string, then format
+                    let parsedMsg = lastMsg;
+                    if (typeof lastMsg === 'string') {
+                        try {
+                            parsedMsg = JSON.parse(lastMsg);
+                        } catch {
+                            // If parsing fails, it's already a string, use it directly
+                            parsedMsg = lastMsg;
+                        }
+                    }
+                    lastMsg = getDisplayMsg(parsedMsg, t);
                 }
 
                 return {
                     ...chat,
                     messages,
                     unread: unreadCount,
-                    lastMsg: getDisplayMsg(parseMaybeJson(lastMsg), t),
+                    lastMsg: lastMsg || '', // Already processed by getDisplayMsg, ensure it's not null
                     lastMsgTime,
                 };
             });
         });
-    }, [allMessages, unreadCounts, chats, t]);
+    }, [allMessages, unreadCounts, t]);
 
     // 抽取Get聊天的Function，Can在多个地方调用
     const fetchChats = async () => {
@@ -391,7 +368,7 @@ const ChatPage: React.FC = () => {
             // 使用新的 API Get聊天Data
             const response = await get_ipc_api().chatApi.getChats(
                 userId,
-                false // deep Parameter，按需可调整
+                true // deep Parameter，包含 members 数据
             );
             if (response.success && response.data) {
                 let chatData: Chat[] = Array.isArray((response.data as any).data)

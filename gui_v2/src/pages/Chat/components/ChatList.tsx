@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useEffectOnActive } from 'keepalive-for-react';
-import { List, Badge, Avatar, Space, Typography, Tag, Button, Popconfirm, Modal, Tooltip } from 'antd';
-import { UserOutlined, RobotOutlined, TeamOutlined, MinusOutlined, FilterOutlined } from '@ant-design/icons';
+import { List, Badge, Avatar, Typography, Button, Modal, Tooltip } from 'antd';
+import { RobotOutlined, TeamOutlined, MinusOutlined, FilterOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { Chat, Member } from '../types/chat';
@@ -323,17 +323,17 @@ const ChatList: React.FC<ChatListProps> = ({
     activeChatId,
     onChatSelect,
     onChatDelete,
-    onChatPin,
-    onChatMute,
-    onFilterChange,
+    onChatPin: _onChatPin,
+    onChatMute: _onChatMute,
+    onFilterChange: _onFilterChange,
     onSearch = () => {},
-    onReset = () => {},
-    onAdd = () => {},
-    onEdit = () => {},
-    onRefresh = () => {},
-    onExport = () => {},
-    onImport = () => {},
-    onSettings = () => {},
+    onReset: _onReset,
+    onAdd: _onAdd,
+    onEdit: _onEdit,
+    onRefresh: _onRefresh,
+    onExport: _onExport,
+    onImport: _onImport,
+    onSettings: _onSettings,
     currentAgentId,
     onFilterClick,
     filterAgentId,
@@ -401,22 +401,54 @@ const ChatList: React.FC<ChatListProps> = ({
     }, [currentAgentId, agents, activeChatId]);
 
     // Ensure chats is always an array to prevent crashes
-    const safeChats = Array.isArray(chats) ? chats.filter(chat => chat && chat.id) : [];
+    const safeChats = useMemo(() => (
+        Array.isArray(chats) ? chats.filter(chat => chat && chat.id) : []
+    ), [chats]);
+
+    const getActivityTimestamp = useCallback((chat: Chat): number => {
+        const candidates: (number | string | undefined)[] = [
+            chat.lastMsgTime,
+            chat.updatedAt,
+            chat.updated_at,
+            chat.createdAt,
+            chat.created_at,
+        ];
+
+        for (const candidate of candidates) {
+            if (typeof candidate === 'number' && !Number.isNaN(candidate)) {
+                return candidate;
+            }
+            if (typeof candidate === 'string' && candidate) {
+                const parsed = Date.parse(candidate);
+                if (!Number.isNaN(parsed)) {
+                    return parsed;
+                }
+            }
+        }
+        return 0;
+    }, []);
+
+    const sortedChats = useMemo(() => {
+        return [...safeChats].sort((a, b) => {
+            const aPinned = a.pinned ? 1 : 0;
+            const bPinned = b.pinned ? 1 : 0;
+            if (aPinned !== bPinned) {
+                return bPinned - aPinned; // pinned chats first
+            }
+
+            const aTime = getActivityTimestamp(a);
+            const bTime = getActivityTimestamp(b);
+            if (aTime !== bTime) {
+                return bTime - aTime; // latest activity first
+            }
+
+            return (b.unread ?? 0) - (a.unread ?? 0);
+        });
+    }, [safeChats, getActivityTimestamp]);
 
     const handleDeleteConfirm = (chatId: string) => {
         setSelectedChatId(chatId);
         setIsDeleteConfirmOpen(true);
-    };
-
-    const getAvatarIcon = (type: Chat['type']) => {
-        switch (type) {
-            case 'user-agent':
-                return <RobotOutlined />;
-            case 'group':
-                return <TeamOutlined />;
-            default:
-                return <UserOutlined />;
-        }
     };
     
     // Get My Twin Agent ID
@@ -477,8 +509,8 @@ const ChatList: React.FC<ChatListProps> = ({
         return undefined;
     };
     
-    // Render group avatar with grid layout (up to 9 members)
-    const renderGroupAvatar = (members: Member[], chatType?: Chat['type']) => {
+    // Render chat avatar based on members count
+    const renderGroupAvatar = (members: Member[], _chatType?: Chat['type']) => {
         if (!members || members.length === 0) {
             return <GroupIconColored size={40} />;
         }
@@ -487,21 +519,14 @@ const ChatList: React.FC<ChatListProps> = ({
         const filteredMembers = members.filter(m => m.userId !== myTwinAgentId);
         
         if (filteredMembers.length === 0) {
-            // If only My Twin Agent, show colored group icon
+            // If only My Twin Agent, show default group icon
             return <GroupIconColored size={40} />;
         }
         
-        // Show up to 9 member avatars in grid
-        const displayMembers = filteredMembers.slice(0, 9);
-        
-        if (displayMembers.length === 1) {
-            // Single member after filtering - check if it's a group chat
-            if (chatType === 'group') {
-                // For group chat with only 1 other member, show colored group icon
-                return <GroupIconColored size={40} />;
-            }
-            // For non-group chat, show member avatar
-            const member = displayMembers[0];
+        // Case 1: Only 1 other member (2 people total including My Twin)
+        // Show the other member's avatar
+        if (filteredMembers.length === 1) {
+            const member = filteredMembers[0];
             // Try to get latest avatar from agent store, fallback to member.avatar
             const avatarSrc = getAgentAvatar(member.userId) || member.avatar;
             return (
@@ -513,7 +538,10 @@ const ChatList: React.FC<ChatListProps> = ({
             );
         }
         
-        // Multiple members - show grid layout
+        // Case 2: More than 1 other member (3+ people total)
+        // Show composite avatar with up to 9 members
+        const displayMembers = filteredMembers.slice(0, 9);
+        
         return (
             <GroupAvatar $memberCount={displayMembers.length}>
                 {displayMembers.map((member) => {
@@ -633,7 +661,7 @@ const ChatList: React.FC<ChatListProps> = ({
             <ChatListArea ref={chatListAreaRef}>
                 <List
                     rowKey={(chat) => (chat as any).id}
-                    dataSource={safeChats}
+                    dataSource={sortedChats}
                     renderItem={chat => {
                         return (
                             <ChatItem
@@ -731,7 +759,7 @@ const ChatList: React.FC<ChatListProps> = ({
                         marginTop: '8px'
                     }}>
                         <strong style={{ color: 'var(--text-primary)' }}>
-                            {selectedChatId && safeChats.length > 0 ? (safeChats.find(chat => chat.id === selectedChatId)?.name || '') : ''}
+                            {selectedChatId && sortedChats.length > 0 ? (sortedChats.find(chat => chat.id === selectedChatId)?.name || '') : ''}
                         </strong>
                     </div>
                 </div>
