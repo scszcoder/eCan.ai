@@ -133,15 +133,13 @@ try:
         except Exception as e:
             print(f"Warning: Runtime initialization failed: {e}")
         
-        # Initialize proxy environment from macOS system settings
+        # Initialize proxy environment from system settings (cross-platform)
         # This must be done early so all HTTP libraries can use the proxy
-        if sys.platform == 'darwin':
-            try:
-                from agent.ec_skills.macos_proxy import initialize_proxy_environment
-                initialize_proxy_environment()
-            except Exception as e:
-                print(f"Warning: Proxy initialization failed: {e}")
-
+        try:
+            from agent.ec_skills.system_proxy import initialize_proxy_environment
+            initialize_proxy_environment()
+        except Exception as e:
+            print(f"Warning: Proxy initialization failed: {e}")
 
         # Ensure Windows uses SelectorEventLoop to support subprocesses (e.g., Playwright)
         try:
