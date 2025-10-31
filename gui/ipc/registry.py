@@ -42,6 +42,8 @@ class IPCHandlerRegistry:
         'skill_editor.get_node_state_schema',  # Allow schema retrieval pre-auth/init for editor boot
         # File operations should be usable early for local open/save
         'show_open_dialog', 'show_save_dialog', 'read_skill_file', 'write_skill_file', 'open_folder',
+        # User preferences (language, theme) should be available before login
+        'update_user_preferences',
     }
 
     @classmethod
