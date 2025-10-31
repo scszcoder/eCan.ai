@@ -135,11 +135,12 @@ try:
         
         # Initialize proxy environment from macOS system settings
         # This must be done early so all HTTP libraries can use the proxy
-        try:
-            from agent.ec_skills.macos_proxy import initialize_proxy_environment
-            initialize_proxy_environment()
-        except Exception as e:
-            print(f"Warning: Proxy initialization failed: {e}")
+        if sys.platform == 'darwin':
+            try:
+                from agent.ec_skills.macos_proxy import initialize_proxy_environment
+                initialize_proxy_environment()
+            except Exception as e:
+                print(f"Warning: Proxy initialization failed: {e}")
 
 
         # Ensure Windows uses SelectorEventLoop to support subprocesses (e.g., Playwright)

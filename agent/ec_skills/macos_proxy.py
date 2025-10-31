@@ -127,11 +127,15 @@ def initialize_proxy_environment():
     no_proxy_list = [
         'localhost',
         '127.0.0.1',
-        '*.local',
-        '10.*',           # Private network (10.0.0.0/8)
-        '172.16.*',       # Private network (172.16.0.0/12)
-        '192.168.*',      # Private network (192.168.0.0/16)
-        '47.120.48.82',   # Cloud API server (direct connection faster)
+        '::1',
+        '.local',        # Domains ending with .local
+        '.lan',          # Common intranet suffix
+        '.home',
+        '.internal',
+        '10.0.0.0/8',    # Private network (10.0.0.0/8)
+        '172.16.0.0/12', # Private network (172.16.0.0/12)
+        '192.168.0.0/16',# Private network (192.168.0.0/16)
+        '47.120.48.82',  # Cloud API server (direct connection faster)
     ]
     no_proxy = ','.join(no_proxy_list)
     os.environ['NO_PROXY'] = no_proxy
