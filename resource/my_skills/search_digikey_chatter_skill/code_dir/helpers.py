@@ -36,13 +36,13 @@ def is_preliminary_component_info_ready(state: NodeState, *, runtime: Runtime) -
 
 def are_component_specs_filled(state: NodeState) -> str:
     logger.debug("[search_digikey_chatter_skill] are_component_specs_filled input:", state)
-    return "prep_query_fom" if state.get('condition') else "pend_for_next_human_msg1"
+    return "prep_run_search" if state.get('condition') else "pend_for_next_human_msg1"
 
 
 def is_FOM_filled(state: NodeState) -> str:
     logger.debug("[search_digikey_chatter_skill] is_FOM_filled input:", state)
     # return "prep_local_sort" if state.get('condition') else "pend_for_human_input_fill_FOM"
-    return "prep_run_search" if state.get('condition') else "pend_for_human_input_fill_FOM"
+    return "prep_local_sort" if state.get('condition') else "pend_for_human_input_fill_FOM"
 
 
 def has_parametric_filters(state: dict) -> bool:
@@ -50,6 +50,13 @@ def has_parametric_filters(state: dict) -> bool:
         return "filled_parametric_filter" in state["metadata"]
     except (KeyError, IndexError, TypeError):
         return False
+
+def extract_first_non_none_content_meta_dict(tr: dict) -> dict | None:
+    for part in (tr.get("content") or []):
+        meta = part.get("meta")
+        if meta:
+            return meta
+    return None
 
 
 def is_form_filled(form: Any) -> bool:
@@ -242,7 +249,18 @@ def pend_for_human_input_node(state: NodeState, *, runtime: Runtime, store: Base
     logger.debug("[search_digikey_chatter_skill] node resume payload received:", resume_payload)
     logger.debug("[search_digikey_chatter_skill] node resumed, state:", state)
 
-    data = try_parse_json(resume_payload.get("human_text"))
+    # Normalize human_text: it may be a list with one JSON string, a string, or already a dict
+    raw_ht = resume_payload.get("human_text")
+    if isinstance(raw_ht, list):
+        raw_ht = raw_ht[0] if raw_ht else None
+    if isinstance(raw_ht, dict):
+        data = raw_ht
+    else:
+        data = try_parse_json(raw_ht)
+
+    # Ensure metadata container exists
+    state.setdefault("metadata", {})
+
     if isinstance(data, dict):
         if data.get("type", "") == "normal":
             logger.debug("[search_digikey_chatter_skill] saving filled parametric filter form......")
@@ -255,9 +273,11 @@ def pend_for_human_input_node(state: NodeState, *, runtime: Runtime, store: Base
 
 
 def pend_for_human_fill_FOM_node(state: NodeState, *, runtime: Runtime, store: BaseStore):
+    logger.debug("[search_digikey_chatter_skill] pend_for_human_fill_FOM_node state:", state)
+
     agent_id = state["messages"][0]
     _ = get_agent_by_id(agent_id)
-    logger.debug("[search_digikey_chatter_skill] run time:", runtime)
+    logger.debug("[search_digikey_chatter_skill] pend_for_human_fill_FOM_node run time:", runtime)
     current_node_name = runtime.context["this_node"].get("name")
 
     logger.debug("[search_digikey_chatter_skill] pend_for_human_fill_FOM_node:", current_node_name, state)
@@ -302,8 +322,17 @@ def pend_for_human_fill_FOM_node(state: NodeState, *, runtime: Runtime, store: B
                  resume_payload)
     logger.debug("[search_digikey_chatter_skill] pend_for_human_fill_FOM_node resumed, state:", state)
 
-    data = try_parse_json(resume_payload.get("human_text"))
+    # Normalize human_text and parse
+    raw_ht = resume_payload.get("human_text")
+    if isinstance(raw_ht, list):
+        raw_ht = raw_ht[0] if raw_ht else None
+    if isinstance(raw_ht, dict):
+        data = raw_ht
+    else:
+        data = try_parse_json(raw_ht)
     logger.debug("[search_digikey_chatter_skill] pend_for_human_fill_FOM_node resumed, data:", data)
+
+    state.setdefault("metadata", {})
 
     if isinstance(data, dict):
         if data.get("type", "") == "normal":
@@ -368,7 +397,15 @@ def pend_for_human_fill_specs_node(state: NodeState, *, runtime: Runtime, store:
     logger.debug("[search_digikey_chatter_skill] pend_for_human_fill_specs_nodenode resume payload received:", resume_payload)
     logger.debug("[search_digikey_chatter_skill] pend_for_human_fill_specs_nodenode resumed, state:", state)
 
-    data = try_parse_json(resume_payload.get("human_text"))
+    # Normalize human_text and parse
+    raw_ht = resume_payload.get("human_text")
+    if isinstance(raw_ht, list):
+        raw_ht = raw_ht[0] if raw_ht else None
+    if isinstance(raw_ht, dict):
+        data = raw_ht
+    else:
+        data = try_parse_json(raw_ht)
+    state.setdefault("metadata", {})
     if isinstance(data, dict):
         if data.get("type", "") == "normal":
             state["metadata"]["filled_parametric_filter"] = data
@@ -379,6 +416,30 @@ def pend_for_human_fill_specs_node(state: NodeState, *, runtime: Runtime, store:
 
     return state
 
+def _extract_fields(parametric_filters):
+    # cases:
+    # 1) dict with 'fields'
+    if isinstance(parametric_filters, dict) and "fields" in parametric_filters:
+        return parametric_filters["fields"]
+
+    # 2) list whose first element is dict with 'fields'
+    if isinstance(parametric_filters, list) and parametric_filters:
+        first = parametric_filters[0]
+        if isinstance(first, dict) and "fields" in first:
+            return first["fields"]
+        # 3) list of field dicts directly
+        if all(isinstance(x, dict) and "id" in x for x in parametric_filters):
+            return parametric_filters
+
+    # 4) try common resume locations if you pass the larger state chunk
+    try:
+        return (
+            (((parametric_filters.get("attributes") or {}).get("params") or {})
+             .get("metadata") or {}).get("params", {})
+        ).get("formData", {}).get("fields", [])
+    except Exception:
+        return []
+
 
 def examine_filled_specs_node(state: NodeState, *, runtime: Runtime, store: BaseStore):
     logger.debug("[search_digikey_chatter_skill] examine filled specs node.......", state)
@@ -387,10 +448,14 @@ def examine_filled_specs_node(state: NodeState, *, runtime: Runtime, store: Base
         parametric_filters = state["metadata"]["filled_parametric_filter"]
         print("pf_exists...", state["metadata"])
     else:
+        print("pf not exists in state...")
         parametric_filters = []
 
     logger.debug("[search_digikey_chatter_skill] parametric_filters", parametric_filters)
-    if is_form_filled(parametric_filters["fields"]):
+    fields = _extract_fields(parametric_filters)
+    logger.debug("[search_digikey_chatter_skill] parametric_filters fields", fields)
+
+    if is_form_filled(fields):
         state["condition"] = True
     else:
         state["condition"] = False
