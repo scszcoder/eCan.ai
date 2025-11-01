@@ -7816,7 +7816,7 @@ class MainWindow:
                 # self.showMsg("loading a mission: "+json.dumps(row.to_dict()))
                 new_mission = EBMISSION(self)
                 new_mission.loadDBData(row)
-                new_mission.setData(row)
+                # new_mission.setData(row)
                 self.cuspas_to_diaplayable(new_mission)
                 new_mission.updateDisplay()
                 self.missions.append(new_mission)
