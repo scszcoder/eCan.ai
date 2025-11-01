@@ -133,13 +133,7 @@ try:
         except Exception as e:
             print(f"Warning: Runtime initialization failed: {e}")
         
-        # Initialize proxy environment from system settings (cross-platform)
-        # This must be done early so all HTTP libraries can use the proxy
-        try:
-            from agent.ec_skills.system_proxy import initialize_proxy_environment
-            initialize_proxy_environment()
-        except Exception as e:
-            print(f"Warning: Proxy initialization failed: {e}")
+        # Proxy initialization will be done after splash screen (to avoid blocking startup)
 
         # Ensure Windows uses SelectorEventLoop to support subprocesses (e.g., Playwright)
         try:
@@ -352,6 +346,27 @@ try:
         # Finish splash screen
         progress_manager.update_progress(100, "Ready to launch!")
         progress_manager.finish(web_gui)
+        
+        # Initialize proxy environment after splash (non-blocking, in background)
+        # This avoids blocking startup UI and allows splash to complete smoothly
+        def init_proxy_after_splash():
+            """Initialize proxy environment in background after splash completes."""
+            try:
+                logger.info("🌐 Initializing proxy environment (after splash)...")
+                from agent.ec_skills.system_proxy import initialize_proxy_environment
+                initialize_proxy_environment()
+                logger.info("✅ Proxy environment initialized")
+            except Exception as e:
+                logger.warning(f"⚠️  Proxy initialization failed: {e}")
+        
+        # Schedule proxy initialization in background thread
+        import threading
+        proxy_init_thread = threading.Thread(
+            target=init_proxy_after_splash,
+            name="ProxyInitAfterSplash",
+            daemon=True
+        )
+        proxy_init_thread.start()
 
         # Run main loop
         loop.run_forever()

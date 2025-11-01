@@ -250,10 +250,33 @@ def _find_provider_by_name(provider_name, llm_providers):
 def _select_regional_provider(country, llm_providers):
     """Select best available provider based on region"""
     # Define regional preferences
+    # Note: CN region excludes providers that are not accessible in China (OpenAI, Claude, Google)
+    us_preferences = [
+        'openai',        # US provider, preferred in US
+        'claude',        # US provider (Anthropic), preferred in US
+        'anthropic',     # US provider (Anthropic), preferred in US
+        'google',        # US provider (Google), preferred in US
+        'gemini',        # US provider (Google), preferred in US
+        'deepseek',      # Available globally
+        'qwen',          # Available globally
+        'qwq',           # Available globally
+        'azure',         # Available globally
+        'bedrock',       # AWS service, preferred in US
+        'ollama'         # Local deployment
+    ]
+    
     regional_preferences = {
-        'CN': ['deepseek', 'qwen', 'openai', 'claude'],  # China prefers local providers
-        'US': ['openai', 'claude', 'deepseek', 'qwen'],  # US prefers US providers
-        'default': ['openai', 'claude', 'qwen', 'deepseek']  # Default order
+        'CN': [
+            'deepseek',      # Chinese provider, accessible in CN
+            'qwen',          # Chinese provider (Alibaba), accessible in CN
+            'qwq',           # Chinese provider (Alibaba DashScope), accessible in CN
+            'azure',         # Azure OpenAI (if configured), may be accessible depending on region
+            'bedrock',       # AWS Bedrock (if configured), may be accessible depending on region
+            'ollama'         # Local deployment, accessible anywhere
+            # Excluded: 'openai', 'claude', 'anthropic', 'google', 'gemini' (not accessible in CN)
+        ],
+        'US': us_preferences,
+        'default': us_preferences  # Same as US
     }
     
     preferences = regional_preferences.get(country, regional_preferences['default'])
@@ -388,10 +411,26 @@ def _create_llm_instance(provider):
             if not deepseek_api_key:
                 logger.error("DeepSeek requires DEEPSEEK_API_KEY environment variable")
                 return None
+            
+            # Log proxy settings if configured (for debugging)
+            proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']
+            active_proxies = {var: os.environ.get(var) for var in proxy_vars if os.environ.get(var)}
+            if active_proxies:
+                logger.info(f"[DeepSeek] 🌐 Proxy settings detected: {active_proxies}")
+            else:
+                logger.debug("[DeepSeek] No proxy environment variables detected")
+            
+            # ChatDeepSeek uses OpenAI-compatible API and should automatically respect
+            # HTTP_PROXY/HTTPS_PROXY environment variables (set by system_proxy.py)
+            # timeout: Total timeout in seconds (120s = 2 minutes)
+            # Note: langchain_deepseek uses httpx/requests under the hood, which automatically
+            # reads HTTP_PROXY/HTTPS_PROXY from environment variables
+            logger.debug(f"[DeepSeek] 🔧 Creating ChatDeepSeek with timeout=120.0s")
             return ChatDeepSeek(
                 model=model_name,
                 api_key=deepseek_api_key,
-                temperature=0
+                temperature=0,
+                timeout=120.0  # 120 seconds total timeout to handle slow networks/proxies
             )
         
         # Check for Qwen/QwQ

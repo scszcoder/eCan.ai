@@ -69,6 +69,25 @@ class LightragServer:
             self.extra_env.setdefault("WORKING_DIR", working_dir)
             self.extra_env.setdefault("LOG_DIR", log_dir)
             logger.info(f"[LightragServer] INPUT_DIR: {input_dir}, WORKING_DIR: {working_dir}, LOG_DIR: {log_dir}")
+        
+        # Proxy state change callback registration (deferred to avoid blocking startup)
+        self._proxy_callback_unregister = None
+        self._initialized_time = time.time()  # Track initialization time
+        # Register callback in background thread to avoid blocking initialization
+        def _register_in_background():
+            """Register proxy callback in background to avoid blocking startup."""
+            try:
+                time.sleep(0.5)  # Brief delay to ensure ProxyManager is initialized and avoid race conditions
+                self._register_proxy_callback()
+            except Exception as e:
+                logger.debug(f"[LightragServer] Failed to register proxy callback in background: {e}")
+        
+        registration_thread = threading.Thread(
+            target=_register_in_background,
+            name="LightragProxyCallbackReg",
+            daemon=True
+        )
+        registration_thread.start()
 
     def _setup_signal_handlers(self):
         """Setup signal handlers (only works in main thread)"""
@@ -165,7 +184,7 @@ class LightragServer:
             return {}
 
     def build_env(self):
-        # Start with current environment
+        # Start with current environment (includes latest proxy settings from ProxyManager)
         env = os.environ.copy()
         
         # Load .env file content
@@ -1020,9 +1039,82 @@ class LightragServer:
 
         return self.proc
 
+    def _register_proxy_callback(self):
+        """Register callback for proxy state changes."""
+        try:
+            from agent.ec_skills.system_proxy import get_proxy_manager
+            
+            proxy_manager = get_proxy_manager()
+            if proxy_manager is None:
+                logger.debug("[LightragServer] Proxy manager not available, skipping proxy callback registration")
+                return
+            
+            def on_proxy_state_change(proxies):
+                """Handle proxy state change notification (called from background thread - non-blocking)."""
+                try:
+                    # Ignore callback if called too soon after initialization (avoid restart during startup)
+                    if time.time() - self._initialized_time < 2.0:
+                        logger.debug("[LightragServer] Ignoring proxy state change during initialization phase")
+                        return
+                    
+                    if proxies is None:
+                        logger.info("[LightragServer] 🌐 Proxy state changed: Proxy is now unavailable")
+                    else:
+                        proxy_info = f"HTTP: {proxies.get('http://', 'N/A')}, HTTPS: {proxies.get('https://', 'N/A')}"
+                        logger.info(f"[LightragServer] 🌐 Proxy state changed: Proxy is now available - {proxy_info}")
+                    
+                    # If subprocess is running, restart it to pick up new proxy settings
+                    # This is necessary because subprocess environment variables are set at startup
+                    if self.is_running():
+                        logger.info("[LightragServer] 🔄 Restarting subprocess to apply new proxy settings...")
+                        
+                        def _do_restart():
+                            """Perform restart in a separate thread to avoid blocking."""
+                            try:
+                                logger.info("[LightragServer] 🔄 Stopping subprocess...")
+                                self.stop()
+                                time.sleep(0.5)  # Brief delay before restart
+                                logger.info("[LightragServer] 🔄 Restarting subprocess with new proxy settings...")
+                                self.start(wait_gating=False)  # Non-blocking restart
+                                logger.info("[LightragServer] ✅ Subprocess restarted with new proxy settings")
+                            except Exception as e:
+                                logger.error(f"[LightragServer] Error during proxy-triggered restart: {e}")
+                        
+                        # Schedule restart in background thread (non-blocking)
+                        restart_thread = threading.Thread(
+                            target=_do_restart,
+                            name="LightragProxyRestart",
+                            daemon=True
+                        )
+                        restart_thread.start()
+                    else:
+                        logger.info(
+                            "[LightragServer] ℹ️  Proxy settings updated. "
+                            "Server will use new proxy settings on next start."
+                        )
+                            
+                except Exception as e:
+                    logger.error(f"[LightragServer] Error handling proxy state change: {e}")
+            
+            self._proxy_callback_unregister = proxy_manager.register_callback(on_proxy_state_change)
+            logger.info("[LightragServer] ✅ Registered proxy state change callback (auto-restart enabled)")
+            
+        except ImportError:
+            logger.debug("[LightragServer] Proxy manager module not available")
+        except Exception as e:
+            logger.warning(f"[LightragServer] Failed to register proxy callback: {e}")
+    
     def stop(self):
         """Stop the server"""
         logger.info("[LightragServer] Stopping server...")
+        
+        # Unregister proxy callback on stop
+        if self._proxy_callback_unregister is not None:
+            try:
+                self._proxy_callback_unregister()
+                self._proxy_callback_unregister = None
+            except Exception as e:
+                logger.debug(f"[LightragServer] Error unregistering proxy callback: {e}")
 
         # Stop monitoring threads
         self._monitor_running = False
