@@ -361,6 +361,15 @@ def flowgram2langgraph(flow: dict, bundle_json: dict | None = None, bp_mgr: Brea
         nodes = (wf.get("nodes") or []) if isinstance(wf, dict) else []
         edges = (wf.get("edges") or []) if isinstance(wf, dict) else []
 
+        # New fallback: some exports provide nodes/edges at the top-level (no workFlow)
+        if (not nodes or not edges) and isinstance(flow.get("nodes"), list) and isinstance(flow.get("edges"), list):
+            try:
+                logger.debug("[flowgram2langgraph] using top-level nodes/edges fallback")
+            except Exception:
+                pass
+            nodes = flow.get("nodes") or []
+            edges = flow.get("edges") or []
+
         # Detect virtual start/end node IDs that may only exist in top-level flow['nodes']
         top_nodes = flow.get("nodes") or []
         start_ids = set()
@@ -484,7 +493,14 @@ def flowgram2langgraph(flow: dict, bundle_json: dict | None = None, bp_mgr: Brea
                 continue
 
             # Resolve START/END (support ids like 'start_0' present only in top-level nodes)
-            if src == "start" or id_to_type.get(src) == "start" or src in start_ids or str(src).startswith("start"):
+            # Also treat 'sheet-inputs' as START-equivalent entry for the sheet
+            if (
+                src == "start"
+                or id_to_type.get(src) == "start"
+                or src in start_ids
+                or str(src).startswith("start")
+                or id_to_type.get(src) in ("sheet-inputs", "sheet_inputs")
+            ):
                 u = START
             else:
                 u = sid(src)
@@ -499,6 +515,63 @@ def flowgram2langgraph(flow: dict, bundle_json: dict | None = None, bp_mgr: Brea
                 workflow.add_edge(u, v)
             except Exception as _e:
                 logger.debug(f"edge add skipped {src}->{tgt}: {_e}")
+
+        # Ensure there is an entrypoint. Some diagrams may omit an explicit START edge.
+        try:
+            # If no edge from START exists, pick a best-effort entry node (no incoming edges)
+            # Build sets of added node ids and incoming targets
+            added_nodes = set()
+            for nid, n in id_to_node.items():
+                ntype = id_to_type.get(nid, "code")
+                if ntype in ("start", "end", "sheet-inputs", "sheet_inputs"):
+                    continue
+                added_nodes.add(sid(nid))
+
+            incoming = set()
+            # From condition edges (port_map already wired)
+            for cid in condition_ids:
+                for e in edges:
+                    if str(e.get("sourceNodeID")) == cid:
+                        tgt = str(e.get("targetNodeID"))
+                        if id_to_type.get(tgt) == "end" or tgt == "end" or tgt in end_ids or str(tgt).startswith("end"):
+                            continue
+                        incoming.add(sid(tgt))
+            # From normal edges
+            for e in edges:
+                src = str(e.get("sourceNodeID"))
+                tgt = str(e.get("targetNodeID"))
+                if src in condition_ids:
+                    continue
+                if id_to_type.get(tgt) == "end" or tgt == "end" or tgt in end_ids or str(tgt).startswith("end"):
+                    continue
+                incoming.add(sid(tgt))
+
+            # Detect if there was any START edge
+            has_start_edge = any(
+                (str(e.get("sourceNodeID")) == "start")
+                or (id_to_type.get(str(e.get("sourceNodeID"))) == "start")
+                or (id_to_type.get(str(e.get("sourceNodeID"))) in ("sheet-inputs", "sheet_inputs"))
+                or (str(e.get("sourceNodeID")) in start_ids)
+                or str(e.get("sourceNodeID", "")).startswith("start")
+                for e in edges
+            )
+
+            if not has_start_edge and added_nodes:
+                # Prefer nodes with no incoming edges
+                candidates = [n for n in added_nodes if n not in incoming]
+                entry = candidates[0] if candidates else sorted(list(added_nodes))[0]
+                try:
+                    workflow.set_entry_point(entry)
+                    # Also add explicit START edge to be safe across LangGraph versions
+                    try:
+                        workflow.add_edge(START, entry)
+                    except Exception as _ee2:
+                        logger.debug(f"START edge add fallback failed: {_ee2}")
+                    logger.debug(f"[flowgram2langgraph] set_entry_point fallback -> {entry}")
+                except Exception as _ee:
+                    logger.debug(f"fallback set_entry_point failed: {_ee}")
+        except Exception as _e:
+            logger.debug(f"entrypoint fallback calc failed: {_e}")
 
         # Collect breakpoint-enabled node IDs
         breakpoints: list[str] = []

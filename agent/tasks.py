@@ -299,6 +299,25 @@ class ManagedTask(Task):
                 "this_node": {"name": ""},
             }
         
+        # Ensure state carries identifiers hooks can read without touching runtime context
+        try:
+            # Align config thread_id with our context id for consistency
+            effective_config.setdefault("configurable", {})
+            effective_config["configurable"].setdefault("thread_id", context.get("id"))
+
+            # Mirror identifiers into the task's state attributes for hooks
+            st = self.metadata.get("state") or {}
+            attrs = st.get("attributes") or {}
+            if "thread_id" not in attrs:
+                attrs["thread_id"] = context.get("id")
+            # Also expose the ManagedTask.run_id for traceability
+            if "run_id" not in attrs:
+                attrs["run_id"] = self.run_id
+            st["attributes"] = attrs
+            self.metadata["state"] = st
+        except Exception:
+            pass
+
         # Merge step/breakpoint control flags into config's configurable dict
         # These are read by node_builder for step control
         step_control = {}
@@ -309,12 +328,6 @@ class ManagedTask(Task):
         if step_control:
             effective_config.setdefault("configurable", {})
             effective_config["configurable"].update(step_control)
-        
-        # Add comprehensive skill validation logging
-        if self.skill is None:
-            logger.error(f"[SKILL_MISSING] Task {self.id} has skill=None! Task name: {self.name}")
-            raise AttributeError(f"Task {self.id} ({self.name}) has no skill assigned")
-        
         if not hasattr(self.skill, 'runnable') or self.skill.runnable is None:
             logger.error(f"[SKILL_MISSING] Task {self.id} skill '{self.skill.name if hasattr(self.skill, 'name') else 'UNKNOWN'}' has runnable=None!")
             logger.error(f"[SKILL_MISSING] Skill type: {type(self.skill)}, Skill attributes: {dir(self.skill)}")
@@ -523,6 +536,59 @@ class ManagedTask(Task):
                 }
             }
             self.metadata["config"] = effective_config
+
+        # Ensure state carries identifiers hooks can read without touching runtime context
+        try:
+            cfg_thread_id = (
+                (effective_config or {}).get("configurable", {}).get("thread_id")
+                if isinstance(effective_config, dict)
+                else None
+            ) or str(uuid.uuid4())
+            # Keep config and state in sync
+            effective_config.setdefault("configurable", {})
+            effective_config["configurable"]["thread_id"] = cfg_thread_id
+
+            st = self.metadata.get("state") or {}
+            attrs = st.get("attributes") or {}
+            if "thread_id" not in attrs:
+                attrs["thread_id"] = cfg_thread_id
+            if "run_id" not in attrs:
+                attrs["run_id"] = self.run_id
+            st["attributes"] = attrs
+            self.metadata["state"] = st
+        except Exception:
+            pass
+
+        # Normalize resume form data into state.metadata for downstream nodes expecting it
+        try:
+            st = self.metadata.get("state") or {}
+            attrs = st.get("attributes") or {}
+            meta = st.get("metadata") or {}
+            has_filled = "filled_parametric_filter" in meta
+            if not has_filled:
+                formData = (
+                    (((attrs.get("params") or {}).get("metadata") or {}).get("params") or {})
+                ).get("formData")
+                if formData:
+                    meta["filled_parametric_filter"] = formData
+                    st["metadata"] = meta
+                    self.metadata["state"] = st
+            # Fallback: some skills stash parametric filters under metadata.components[0].parametric_filters
+            if "filled_parametric_filter" not in (st.get("metadata") or {}):
+                try:
+                    comps = (st.get("metadata") or {}).get("components") or []
+                    if isinstance(comps, list) and comps:
+                        pfs = comps[0].get("parametric_filters")
+                        if pfs:
+                            meta = st.get("metadata") or {}
+                            # Wrap as {"fields": [...]} to satisfy helpers expecting dict["fields"]
+                            meta["filled_parametric_filter"] = {"fields": pfs} if isinstance(pfs, list) else pfs
+                            st["metadata"] = meta
+                            self.metadata["state"] = st
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         # Support Command inputs (e.g., Command(resume=...)) and normal state runs
         if isinstance(in_msg, Command):
@@ -1353,9 +1419,9 @@ class TaskRunner(Generic[Context]):
             asyncio.Task: The scheduled task (can be cancelled)
         
         Example:
-            >>> scheduled = await runner.schedule_task("my_task", 60)
-            >>> # To cancel:
-            >>> scheduled.cancel()
+             scheduled = await runner.schedule_task("my_task", 60)
+             # To cancel:
+             scheduled.cancel()
         """
         async def _delayed_run():
             try:
