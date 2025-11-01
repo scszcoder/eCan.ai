@@ -33,7 +33,7 @@ from utils.logger_helper import logger_helper as logger
 
 from utils.logger_helper import get_traceback
 from langgraph.errors import NodeInterrupt
-from agent.tasks_resume import build_general_resume_payload, build_node_transfer_patch, normalize_event
+from agent.tasks_resume import build_general_resume_payload, build_node_transfer_patch, normalize_event, _safe_get
 from enum import Enum
 
 # self.REPEAT_TYPES = ["none", "by seconds", "by minutes", "by hours", "by days", "by weeks", "by months", "by years"]
@@ -1759,6 +1759,32 @@ class TaskRunner(Generic[Context]):
                             merged = _deep_merge(cur_state, state_patch)
                             logger.debug("state after deep merge===>", merged)
                             state_patch["messages"] = merged["messages"]
+                            
+                            # CRITICAL FIX: Sync chatId from attributes.params to messages[1]
+                            # When a chat is deleted and recreated, the chatId in attributes.params gets updated,
+                            # but messages[1] still holds the old chatId. This causes "chat not found" errors.
+                            try:
+                                # Try to get chatId from multiple locations
+                                new_chat_id = _safe_get(merged, "attributes.params.chatId")
+                                
+                                # If not found, try attributes.params.metadata.params.chatId (for TaskSendParams)
+                                if not new_chat_id:
+                                    params = merged.get("attributes", {}).get("params")
+                                    if hasattr(params, 'metadata') and isinstance(params.metadata, dict):
+                                        metadata_params = params.metadata.get("params", {})
+                                        if isinstance(metadata_params, dict):
+                                            new_chat_id = metadata_params.get("chatId")
+                                
+                                if new_chat_id and isinstance(merged.get("messages"), list) and len(merged["messages"]) > 1:
+                                    old_chat_id = merged["messages"][1]
+                                    if old_chat_id != new_chat_id:
+                                        logger.info(f"[_build_resume_payload] Syncing chatId in messages[1]: {old_chat_id} -> {new_chat_id}")
+                                        merged["messages"][1] = new_chat_id
+                                        state_patch["messages"] = merged["messages"]
+                                        logger.info(f"[_build_resume_payload] Updated messages[1] to {new_chat_id}, will update checkpoint")
+                            except Exception as e:
+                                logger.error(f"[_build_resume_payload] Failed to sync chatId: {e}", exc_info=True)
+                            
                             # this is really useless as langgraph resume will not be taking this state.....
                             task.metadata["state"] = merged
                             # Safely update checkpoint values without relying on specific LangGraph versions

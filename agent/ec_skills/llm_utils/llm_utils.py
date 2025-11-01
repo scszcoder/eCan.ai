@@ -428,6 +428,11 @@ def find_opposite_agent(self_agent, chat_id):
     this_chat = mainwin.db_chat_service.get_chat_by_id(chat_id, True)
     print("found chat:", this_chat)
 
+    # Check if chat exists and has data
+    if not this_chat.get("success") or this_chat.get("data") is None:
+        logger.error(f"Chat not found or has no data: {chat_id}, error: {this_chat.get('error')}")
+        return None
+
     members = this_chat["data"].get("members", [])
     print("chat members:", members)
     print("me id:", self_agent.card.id)
@@ -449,8 +454,55 @@ def send_response_back(state: NodeState) -> NodeState:
         mainwin = self_agent.mainwin
 
         print("standard_post_llm_hook send_response_back:", state)
-        chat_id = state["messages"][1]
+        
+        # CRITICAL FIX: Use chatId from attributes.params if available, otherwise fallback to messages[1]
+        # When a chat is deleted and recreated, attributes.params.chatId has the new chatId,
+        # but messages[1] still has the old deleted chatId
+        chat_id = None
+        chat_id_source = None
+        try:
+            # Try multiple locations to get the most up-to-date chatId
+            params = state.get("attributes", {}).get("params", {})
+            
+            # Check if params is a TaskSendParams object with metadata
+            if hasattr(params, 'metadata') and isinstance(params.metadata, dict):
+                metadata_params = params.metadata.get("params", {})
+                if isinstance(metadata_params, dict):
+                    chat_id = metadata_params.get("chatId")
+                    if chat_id:
+                        chat_id_source = "params.metadata.params"
+            
+            # If not found, try direct params dict access
+            if not chat_id and isinstance(params, dict):
+                chat_id = params.get("chatId")
+                if chat_id:
+                    chat_id_source = "params"
+            
+            # If still not found, fallback to messages[1]
+            if not chat_id and isinstance(state.get("messages"), list) and len(state["messages"]) > 1:
+                chat_id = state["messages"][1]
+                chat_id_source = "messages[1]"
+                
+            if chat_id:
+                logger.info(f"[send_response_back] Using chatId: {chat_id} (from {chat_id_source})")
+            else:
+                logger.error("[send_response_back] No chatId found in any location")
+        except Exception as e:
+            logger.error(f"[send_response_back] Error extracting chatId: {e}, falling back to messages[1]")
+            chat_id = state.get("messages", [None])[1] if len(state.get("messages", [])) > 1 else None
+            chat_id_source = "messages[1] (fallback)"
+        
+        if not chat_id:
+            logger.error("[send_response_back] No chatId found in state")
+            return state
+            
         opposite_agent = find_opposite_agent(self_agent, chat_id)
+        
+        # If chat not found, log error and skip response
+        if opposite_agent is None:
+            logger.error(f"Cannot send response: chat {chat_id} not found or has no opposite agent")
+            return state
+            
         msg_type = "text"
         qa_form = state["metadata"].get("qa_form", {})
         notification = state["metadata"].get("notification", {})

@@ -8,6 +8,7 @@ class MessageManager {
   private messages: Map<string, Message[]> = new Map(); // chatId -> messages[]
   private unreadCounts: Map<string, number> = new Map(); // chatId -> unread count
   private chatAccessOrder: string[] = []; // LRU 追踪聊天访问顺序
+  private activeChatId: string | null = null; // Track currently active chat
   
   // 内存LimitConfiguration
   private readonly maxMessagesPerChat = 500; // 每个聊天最多Save 500 条Message
@@ -62,8 +63,22 @@ class MessageManager {
   }
 
   private updateUnreadCount(chatId: string) {
+    // CRITICAL FIX: Don't increment unread if this is the active chat
+    // User is viewing this chat, so they've "read" the message
+    if (chatId === this.activeChatId) {
+      return;
+    }
+    
     const currentCount = this.unreadCounts.get(chatId) || 0;
     this.unreadCounts.set(chatId, currentCount + 1);
+  }
+  
+  /**
+   * Set the currently active chat
+   * When a chat is active, new messages won't increase unread count
+   */
+  setActiveChat(chatId: string | null): void {
+    this.activeChatId = chatId;
   }
 
   private notifyListeners() {
@@ -98,7 +113,6 @@ class MessageManager {
       if (oldestChatId) {
         this.messages.delete(oldestChatId);
         this.unreadCounts.delete(oldestChatId);
-        logger.debug(`[MessageManager] Evicted old chat ${oldestChatId} from memory (LRU)`);
       }
     }
   }
@@ -163,9 +177,7 @@ class MessageManager {
     this.notifyListeners();
     
     // 记录内存使用情况
-    if (messages.length > this.maxMessagesPerChat) {
-      logger.debug(`[MessageManager] Trimmed chat ${chatId} from ${messages.length} to ${this.maxMessagesPerChat} messages`);
-    }
+    // Trim messages if exceeding max limit (handled silently)
   }
 
   // AddMessage到聊天（Used forSend新Message时）
