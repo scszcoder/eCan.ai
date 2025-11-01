@@ -334,7 +334,8 @@ def _convert_db_skill_to_object(db_skill):
                 logger.debug(f"[build_agent_skills] Rebuilding workflow for skill: {skill_obj.name}")
                 # Store diagram for reference
                 skill_obj.diagram = diagram
-                
+                logger.debug(f"[build_agent_skills] Rebuilding workflow diagram: {diagram}")
+
                 # Convert flowgram diagram to LangGraph workflow with breakpoint support
                 from agent.ec_skills.dev_defs import BreakpointManager
                 bp_mgr = BreakpointManager()
