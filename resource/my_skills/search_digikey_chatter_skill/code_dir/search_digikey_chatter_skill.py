@@ -22,7 +22,7 @@ from helpers import (
     pend_for_human_fill_FOM_node as h_pend_for_human_fill_FOM_node,
     pend_for_human_fill_specs_node as h_pend_for_human_fill_specs_node,
     examine_filled_specs_node as h_examine_filled_specs_node,
-    confirm_FOM_node as h_confirm_FOM_node,
+    confirm_FOM_node as h_confirm_FOM_node, extract_first_non_none_content_meta_dict,
     local_sort_search_results_node as h_local_sort_search_results_node,
 )
 
@@ -113,161 +113,7 @@ DESCRIPTION = (
     "Collects specs, builds parametric filters, and ranks results using an FOM (price, lead time, performance)."
 )
 
-def chat_or_work(state: NodeState, *, runtime: Runtime) -> str:
-    logger.debug("[search_digikey_chatter_skill] chat_or_work input:", state)
-    if isinstance(state.get('attributes'), dict) and state['attributes'].get("work_related", False):
-        return "more_analysis_app"
-    return "pend_for_next_human_msg"
 
-def is_preliminary_component_info_ready(state: NodeState, *, runtime: Runtime) -> str:
-    logger.debug("[search_digikey_chatter_skill] is_preliminary_component_info_ready input:", state)
-    return "query_component_specs" if state.get('condition') else "pend_for_next_human_msg0"
-
-def are_component_specs_filled(state: NodeState) -> str:
-    logger.debug("[search_digikey_chatter_skill] are_component_specs_filled input:", state)
-    return "prep_run_search" if state.get('condition') else "pend_for_next_human_msg1"
-
-def is_FOM_filled(state: NodeState) -> str:
-    logger.debug("[search_digikey_chatter_skill] is_FOM_filled input:", state)
-    return "local_sort_search_results" if state.get('condition') else "pend_for_human_input_fill_FOM"
-
-def has_parametric_filters(data: dict) -> bool:
-    try:
-        return "parametric_filters" in data["tool_result"]["components"][0]
-    except (KeyError, IndexError, TypeError):
-        return False
-
-def is_form_filled(form: Any) -> bool:
-    filled = True
-    for item in form:
-        if not item.get("selectedValue", ""):
-            filled = False
-            break
-    return filled
-
-def has_fom(data: dict) -> bool:
-    try:
-        return "fom_form" in data["tool_result"]["components"][0]["metadata"]
-    except (KeyError, IndexError, TypeError):
-        return False
-
-def pend_for_human_input_node(state: NodeState, *, runtime: Runtime, store: BaseStore):
-    agent_id = state["messages"][0]
-    _ = get_agent_by_id(agent_id)
-    logger.debug("[search_digikey_chatter_skill] runtime:", runtime)
-    current_node_name = runtime.context["this_node"].get("name")
-
-    logger.debug(f"[search_digikey_chatter_skill] pend_for_human_input_node: {current_node_name}", state)
-    if state.get("metadata"):
-        qa_form = state.get("metadata").get("qa_form", {})
-        notification = state.get("metadata").get("notification", {})
-    else:
-        qa_form = {}
-        notification = {}
-
-    interrupted = interrupt({
-        "i_tag": current_node_name,
-        "prompt_to_human": state["result"].get("llm_result", {}).get("message", ""),
-        "qa_form_to_human": qa_form,
-        "notification_to_human": notification,
-    })
-
-    logger.debug("[search_digikey_chatter_skill] node resumed, state:", state)
-    logger.debug("[search_digikey_chatter_skill] interrupted:", interrupted)
-
-    data = try_parse_json(interrupted.get("human_text"))
-    if isinstance(data, dict):
-        if data.get("type", "") == "normal":
-            logger.debug("[search_digikey_chatter_skill] saving filled parametric filter form......")
-            state["metadata"]["filled_parametric_filter"] = data
-        elif data.get("type", "") == "score":
-            logger.debug("[search_digikey_chatter_skill] saving filled fom form......")
-            state["metadata"]["filled_fom_form"] = data
-
-    return state
-
-def pend_for_human_fill_FOM_node(state: NodeState, *, runtime: Runtime, store: BaseStore):
-    agent_id = state["messages"][0]
-    _ = get_agent_by_id(agent_id)
-    logger.debug("[search_digikey_chatter_skill] run time:", runtime)
-    current_node_name = runtime.context["this_node"].get("name")
-
-    logger.debug("[search_digikey_chatter_skill] pend_for_human_fill_FOM_node:", current_node_name, state)
-    if state.get("tool_result"):
-        qa_form = state.get("tool_result").get("qa_form", None)
-        notification = state.get("tool_result").get("notification", None)
-    else:
-        qa_form = None
-        notification = None
-
-    interrupted = interrupt({
-        "i_tag": current_node_name,
-        "prompt_to_human": state.get("result"),
-        "qa_form_to_human": qa_form,
-        "notification_to_human": notification,
-    })
-    logger.debug("[search_digikey_chatter_skill] interrupted:", interrupted)
-    return {"pended": interrupted}
-
-def pend_for_human_fill_specs_node(state: NodeState, *, runtime: Runtime, store: BaseStore):
-    agent_id = state["messages"][0]
-    _ = get_agent_by_id(agent_id)
-    logger.debug("[search_digikey_chatter_skill] run time:", runtime)
-    current_node_name = runtime.context["this_node"].get("name")
-
-    logger.debug("[search_digikey_chatter_skill] pend_for_human_fill_specs_node:", current_node_name, state)
-    if state.get("tool_result"):
-        pf_exists = has_parametric_filters(state)
-        if pf_exists:
-            parametric_filters = state["tool_result"]["components"][0]["metadata"].get("parametric_filters", {})
-        else:
-            parametric_filters = {}
-        qa_form = parametric_filters
-        notification = state.get("tool_result").get("notification", None)
-    else:
-        qa_form = {}
-        notification = {}
-
-    interrupted = interrupt({
-        "i_tag": current_node_name,
-        "prompt_to_human": state.get("result"),
-        "qa_form_to_human": qa_form,
-        "notification_to_human": notification,
-    })
-    logger.debug("[search_digikey_chatter_skill] interrupted:", interrupted)
-    return {"pended": interrupted}
-
-def examine_filled_specs_node(state: NodeState, *, runtime: Runtime, store: BaseStore):
-    logger.debug("[search_digikey_chatter_skill] examine filled specs node.......", state)
-    pf_exists = has_parametric_filters(state)
-    if pf_exists:
-        parametric_filters = state["tool_result"]["components"][0].get("parametric_filters", [])
-        state["metadata"]["parametric_filters"] = parametric_filters
-    else:
-        parametric_filters = []
-
-    logger.debug("[search_digikey_chatter_skill] parametric_filters", parametric_filters)
-    if is_form_filled(parametric_filters):
-        state["condition"] = True
-    else:
-        state["condition"] = False
-        # NOTE: original had a forced True for testing; omitted here for correctness
-    return state
-
-def confirm_FOM_node(state: NodeState):
-    logger.debug("[search_digikey_chatter_skill] confirm FOM node.......", state)
-    fom_exists = has_fom(state)
-    if fom_exists:
-        fom = state["tool_result"]["components"][0]["metadata"].get("parametric_filters", [])
-        state["metadata"]["fom"] = fom
-    else:
-        fom = []
-
-    if is_form_filled(fom):
-        state["condition"] = True
-    else:
-        state["condition"] = False
-    return state
 
 def send_data_back2human(msg_type, dtype, data, state) -> NodeState:
     import uuid
@@ -518,10 +364,32 @@ def query_fom_basics_node(state: NodeState, *, runtime: Runtime, store: BaseStor
 def local_sort_search_results_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
     logger.debug("[search_digikey_chatter_skill] about to sort search results:", type(state), state)
     try:
-        table_headers = state["tool_result"]["fom"]["component_level_metrics"]
-        header_text = table_headers[0]["metric_name"]
-        ascending = True if table_headers[0].get("sort_order") == "asc" else False
-        sites = list(state["attributes"].get("search_results", {}).keys())
+        # Safely obtain headers/metrics for sorting
+        tool_result = state.get("tool_result") or {}
+        fom = (tool_result.get("fom") or {}) if isinstance(tool_result, dict) else {}
+        table_headers = (fom.get("component_level_metrics") or []) if isinstance(fom, dict) else []
+
+        header_text = None
+        ascending = True
+        if isinstance(table_headers, list) and table_headers:
+            first_hdr = table_headers[0] or {}
+            header_text = first_hdr.get("metric_name") or first_hdr.get("name") or "Price"
+            so = first_hdr.get("sort_order")
+            if isinstance(so, str) and so in ("asc", "desc"):
+                ascending = (so == "asc")
+            else:
+                # Sensible defaults by metric name
+                lname = str(header_text).lower()
+                ascending = lname in ("price", "voltage dropout", "voltage dropout (max)")
+        else:
+            # Fallback when metrics are missing: default to Price ascending
+            header_text = "Price"
+            ascending = True
+
+        sites = list((state.get("attributes") or {}).get("search_results", {}).keys())
+        if not sites:
+            logger.debug("[local_sort_search_results_node] no sites to sort; skipping")
+            return state
         i = 0
         state["tool_input"] = {
             "sites": [
@@ -820,6 +688,8 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
 
         # Chat lane
         wf.add_node("chat", node_builder(h_llm_node_with_raw_files, "chat", THIS_SKILL_NAME, OWNER, bp_manager))
+        wf.set_entry_point("chat")
+
         wf.add_node("pend_for_next_human_msg", node_builder(h_pend_for_human_input_node, "pend_for_next_human_msg", THIS_SKILL_NAME, OWNER, bp_manager))
         wf.add_node("more_analysis_app", node_builder(h_llm_node_with_raw_files, "more_analysis_app", THIS_SKILL_NAME, OWNER, bp_manager))
         wf.add_conditional_edges("chat", h_chat_or_work, ["pend_for_next_human_msg", "more_analysis_app"])
@@ -834,6 +704,7 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
             attrs = state.get("result", {}).get("llm_result", {})
             comps = adapt_preliminary_info(attrs.get("preliminary_info", []), attrs.get("extra_info", {}))
             state["tool_input"] = {"input": {"components": comps}}
+            state["metadata"]["components"] = comps
             return state
 
         wf.add_node("prep_query_components", node_builder(prep_query_components, "prep_query_components", THIS_SKILL_NAME, OWNER, bp_manager))
@@ -941,49 +812,61 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
             try:
                 logger.debug("post_run_search state:", state)
 
-                results = state.get("results", [])
-                tr = results[-1] if results else None
+                tr = state.get("tool_result", None)
                 if hasattr(tr, 'content') and tr.content:
                     meta = getattr(tr.content[0], 'meta', None) or getattr(tr.content[0], '_meta', None)
                     if isinstance(meta, dict):
+                        print("post_run_search meta:", meta)
                         rows = meta.get("results")
                         state["tool_result"] = rows
                         url_short = "digikey"
                         attrs = state.setdefault("attributes", {})
                         if isinstance(attrs.get("search_results"), dict):
+                            logger.debug("post_run_search attrs, add search results")
                             attrs["search_results"][url_short] = rows
                         else:
+                            logger.debug("post_run_search attrs, set search results")
                             attrs["search_results"] = {url_short: rows}
+
+                        logger.debug("post_run_search attrs:", state["attributes"].get("search_results"))
             except Exception as e:
                 state['error'] = get_traceback(e, "ErrorPostRunSearch")
             return state
 
         wf.add_node("post_run_search", node_builder(post_run_search, "post_run_search", THIS_SKILL_NAME, OWNER, bp_manager))
-        # wf.add_conditional_edges("examine_filled_specs", h_are_component_specs_filled, ["prep_run_search", "pend_for_next_human_msg1"])
-        wf.add_conditional_edges("examine_filled_specs", h_are_component_specs_filled, ["prep_query_fom", "pend_for_next_human_msg1"])
+        wf.add_conditional_edges("examine_filled_specs", h_are_component_specs_filled, ["prep_run_search", "pend_for_next_human_msg1"])
+        # wf.add_conditional_edges("examine_filled_specs", h_are_component_specs_filled, ["prep_query_fom", "pend_for_next_human_msg1"])
 
-        # wf.add_edge("prep_run_search", "mcp_run_search")
-        # wf.add_edge("mcp_run_search", "post_run_search")
-        # wf.add_edge("pend_for_next_human_msg1", "examine_filled_specs")
-        #
-        # # FOM: prep -> MCP -> post
-        # wf.add_edge("post_run_search", "prep_query_fom")
+        wf.add_edge("prep_run_search", "mcp_run_search")
+        wf.add_edge("mcp_run_search", "post_run_search")
+        wf.add_edge("pend_for_next_human_msg1", "examine_filled_specs")
+
+        # FOM: prep -> MCP -> post
+        wf.add_edge("post_run_search", "prep_query_fom")
 
         def prep_query_fom(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
             try:
                 print("prep_query_fom..........................>", state)
-                tool_result = state.get("tool_result")
-                if "table_headers" in tool_result:
-                    print("table headers:", tool_result.get("table_headers"))
-                    params = convert_table_headers_to_params(tool_result.get("table_headers"))
+                # tool_result = state.get("tool_result")
+                # tool_result_data = tool_result.content[0].meta["results"]
+                tool_result_data = state.get("tool_result", [{}])
+                table_headers = list(tool_result_data[0].keys())
+                if table_headers:
+                    print("table headers:", table_headers)
+                    params = convert_table_headers_to_params(table_headers)
+                    print("params:", table_headers)
                 else:
+                    print("WARNING: table headers not found!")
                     params = []
 
-                components= state.get("tool_input", {}).get("input", {}).get("components", [])
+                # components= state.get("tool_input", {}).get("input", {}).get("components", [])
+                # if not components:
+                components = state.get("metadata", {}).get("components", [])
+                logger.debug("prep_query_fom components:", components)
 
                 if components:
-                    component_name = components[0]["name"]
-                    component_app = components[0]["application"]
+                    component_name = components[0]["title"]
+                    component_app = components[0].get("application", "")
                     print("components:", components)
                     state["tool_input"] = {"input": {
                         "component_results_info": {
@@ -1088,8 +971,9 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
             return state
 
         wf.add_node("post_query_fom", node_builder(post_query_fom, "post_query_fom", THIS_SKILL_NAME, OWNER, bp_manager))
-        wf.add_edge("mcp_query_fom", "post_query_fom")
+
         wf.add_edge("prep_query_fom", "mcp_query_fom")
+        wf.add_edge("mcp_query_fom", "post_query_fom")
         wf.add_edge("post_query_fom", "pend_for_human_input_fill_FOM")
         wf.add_node("pend_for_human_input_fill_FOM", node_builder(h_pend_for_human_fill_FOM_node, "pend_for_human_input_fill_FOM", THIS_SKILL_NAME, OWNER, bp_manager))
         wf.add_node("confirm_FOM", node_builder(h_confirm_FOM_node, "confirm_FOM", THIS_SKILL_NAME, OWNER, bp_manager))
@@ -1099,13 +983,42 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
         def prep_local_sort(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
             try:
                 print("prep local sort..........", state)
-                table_headers = (state.get("tool_result") or {}).get("fom", {}).get("component_level_metrics", [])
-                header_text = (table_headers[0] or {}).get("metric_name") if table_headers else "score"
-                ascending = True if (table_headers[0] or {}).get("sort_order") == "asc" else False
-                sites = list((state.get("attributes", {}).get("search_results", {}) or {}).keys())
+                # Pull potential headers/metrics from tool_result
+                tool_result = state.get("tool_result", {}).get("fom_template", {})
+                logger.debug("[prep_local_sort] tool_result: ", tool_result)
+                fom = (tool_result.get("fom") or {}) if isinstance(tool_result, dict) else {}
+                logger.debug("[prep_local_sort] fom: ", fom)
+                table_headers = (fom.get("component_level_metrics") or []) if isinstance(fom, dict) else []
+                logger.debug("[prep_local_sort] table_headers: ", table_headers)
+
+                # Choose header and sort direction with safe defaults
+                header_text = "Price"
+                ascending = True
+                if isinstance(table_headers, list) and table_headers:
+                    first_hdr = table_headers[0] or {}
+                    header_text = first_hdr.get("metric_name") or first_hdr.get("name") or "Price"
+                    so = first_hdr.get("sort_order")
+                    logger.debug("[prep_local_sort] header_text: %s, sort_order: %s", header_text, so)
+                    if isinstance(so, str) and so in ("asc", "desc"):
+                        ascending = (so == "asc")
+                    else:
+                        lname = str(header_text).lower()
+                        ascending = lname in ("price", "voltage dropout", "voltage dropout (max)")
+
+                # Collect sites from prior local search results
+                sites = list((state.get("attributes") or {}).get("search_results", {}).keys())
+                if not sites:
+                    logger.debug("[prep_local_sort] no sites available; skipping sort prep")
+                    return state
+
                 i = 0
-                body = {"sites": [{"url": sites[i] if sites else "", "ascending": ascending, "header_text": header_text, "max_n": 8}]}
+                body = {
+                    "sites": [
+                        {"url": sites[i], "ascending": ascending, "header_text": header_text, "max_n": 8}
+                    ]
+                }
                 state["tool_input"] = {"input": body}
+                print("prep local sort......tool input:", state["tool_input"])
             except Exception as e:
                 state['error'] = get_traceback(e, "ErrorPrepLocalSort")
             return state
@@ -1132,19 +1045,17 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
         # Re-rank remains custom due to interrupt + cloud handoff
         wf.add_node("re_rank_search_results", node_builder(re_rank_search_results_node, "re_rank_search_results", THIS_SKILL_NAME, OWNER, bp_manager))
         # Start at chat to collect requirements; breakpoint wrappers enable graphical debugging
-        wf.set_entry_point("chat")
-
-        wf.add_edge("prep_run_search", "mcp_run_search")
-        wf.add_edge("mcp_run_search", "post_run_search")
-        wf.add_conditional_edges("confirm_FOM", h_is_FOM_filled, ["prep_run_search", "pend_for_human_input_fill_FOM"])
-        wf.add_edge("post_run_search", END)
-        # wf.add_conditional_edges("confirm_FOM", h_is_FOM_filled, ["prep_local_sort", "pend_for_human_input_fill_FOM"])
 
 
-        # wf.add_edge("prep_local_sort", "mcp_local_sort")
-        # wf.add_edge("mcp_local_sort", "post_local_sort")
-        # wf.add_edge("post_local_sort", "re_rank_search_results")
-        # wf.add_edge("re_rank_search_results", END)
+        # wf.add_conditional_edges("confirm_FOM", h_is_FOM_filled, ["prep_run_search", "pend_for_human_input_fill_FOM"])
+        # wf.add_edge("post_run_search", END)
+        wf.add_conditional_edges("confirm_FOM", h_is_FOM_filled, ["prep_local_sort", "pend_for_human_input_fill_FOM"])
+
+
+        wf.add_edge("prep_local_sort", "mcp_local_sort")
+        wf.add_edge("mcp_local_sort", "post_local_sort")
+        wf.add_edge("post_local_sort", "re_rank_search_results")
+        wf.add_edge("re_rank_search_results", END)
 
         skill.set_work_flow(wf)
 
