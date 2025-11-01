@@ -1172,7 +1172,18 @@ class MainWindow:
                 self.config_manager.llm_manager.get_all_providers(),
                 self.config_manager
             )
-            logger.info(f"[MainWindow] LLM initialized: {type(self.llm).__name__}")
+            if self.llm:
+                logger.info(f"[MainWindow] ✅ LLM initialized successfully - Type: {type(self.llm).__name__}")
+                # Try to get provider info from config
+                default_llm = self.config_manager.general_settings.default_llm
+                if default_llm:
+                    provider = self.config_manager.llm_manager.get_provider(default_llm)
+                    if provider:
+                        model_name = provider.get('default_model', 'unknown')
+                        provider_display = provider.get('display_name', default_llm)
+                        logger.info(f"[MainWindow] 📋 Current LLM: Provider={provider_display}, Name={default_llm}, Model={model_name}, Class={type(self.llm).__name__}")
+            else:
+                logger.warning(f"[MainWindow] ⚠️ LLM initialization failed - LLM is None")
         except Exception as e:
             logger.error(f"[MainWindow] Failed to initialize LLM: {e}")
             self.llm = None

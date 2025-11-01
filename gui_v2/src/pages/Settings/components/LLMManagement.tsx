@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Table, Button, Input, Radio, Space, Tooltip, App, Modal, theme } from 'antd';
-import { EditOutlined, DeleteOutlined, EyeOutlined, EyeInvisibleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { Card, Table, Button, Input, Radio, Space, Tooltip, App } from 'antd';
+import { EditOutlined, DeleteOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '../../../services/ipc_api';
-import { useTheme } from '../../../contexts/ThemeContext';
 import type { LLMProvider } from '../types';
 
 interface LLMManagementProps {
@@ -15,9 +14,7 @@ interface LLMManagementProps {
 
 const LLMManagement: React.FC<LLMManagementProps> = ({ username, defaultLLM: propDefaultLLM, settingsLoaded, onDefaultLLMChange }) => {
   const { t } = useTranslation();
-  const { theme: currentTheme } = useTheme();
-  const { token } = theme.useToken();
-  const { modal, message } = App.useApp();
+  const { message } = App.useApp();
 
   // State management
   const [providers, setProviders] = useState<LLMProvider[]>([]);
@@ -31,101 +28,6 @@ const LLMManagement: React.FC<LLMManagementProps> = ({ username, defaultLLM: pro
   const [editingAwsAccessKeyId, setEditingAwsAccessKeyId] = useState<string>('');
   const [editingAwsSecretAccessKey, setEditingAwsSecretAccessKey] = useState<string>('');
   const [editingLoading, setEditingLoading] = useState<boolean>(false);
-
-  // Show restart notification after successful operations
-  const showRestartNotification = (operationType: string) => {
-    const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    
-    modal.info({
-      title: (
-        <span style={{ 
-          color: token.colorText,
-          fontSize: '16px',
-          fontWeight: 600
-        }}>
-          {t('pages.settings.restart_required_title')}
-        </span>
-      ),
-      icon: (
-        <ExclamationCircleOutlined 
-          style={{ 
-            color: token.colorWarning,
-            fontSize: '22px'
-          }} 
-        />
-      ),
-      content: (
-        <div style={{ 
-          padding: '8px 0',
-          color: token.colorText
-        }}>
-          <p style={{ 
-            margin: '0 0 16px 0',
-            fontSize: '14px',
-            lineHeight: '1.5',
-            color: token.colorText
-          }}>
-            {t('pages.settings.restart_required_message', { operation: operationType })}
-          </p>
-          <p style={{ 
-            margin: 0,
-            fontSize: '13px',
-            lineHeight: '1.4',
-            color: token.colorTextSecondary,
-            padding: '12px 16px',
-            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)',
-            borderRadius: '6px',
-            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'}`
-          }}>
-            💡 {t('pages.settings.restart_required_options')}
-          </p>
-        </div>
-      ),
-      okText: t('common.ok'),
-      width: 520,
-      centered: true,
-      maskClosable: true,
-      okButtonProps: {
-        style: {
-          backgroundColor: token.colorPrimary,
-          borderColor: token.colorPrimary,
-          color: '#fff',
-          fontWeight: 500,
-          height: '36px',
-          borderRadius: '6px'
-        }
-      },
-      styles: {
-        mask: {
-          backgroundColor: isDark ? 'rgba(0, 0, 0, 0.6)' : 'rgba(0, 0, 0, 0.45)'
-        },
-        content: {
-          backgroundColor: token.colorBgElevated,
-          borderRadius: '12px',
-          border: `1px solid ${token.colorBorderSecondary}`,
-          boxShadow: isDark 
-            ? '0 16px 32px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.2)'
-            : '0 16px 32px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.08)'
-        },
-        header: {
-          backgroundColor: 'transparent',
-          borderBottom: `1px solid ${token.colorBorderSecondary}`,
-          paddingBottom: '16px',
-          marginBottom: '0'
-        },
-        body: {
-          padding: '20px 24px 16px'
-        },
-        footer: {
-          backgroundColor: 'transparent',
-          borderTop: `1px solid ${token.colorBorderSecondary}`,
-          paddingTop: '16px',
-          marginTop: '16px',
-          textAlign: 'right' as const
-        }
-      }
-    });
-  };
 
   // Load LLM providers
   const loadProviders = async () => {
@@ -171,12 +73,9 @@ const LLMManagement: React.FC<LLMManagementProps> = ({ username, defaultLLM: pro
         setDefaultLLM(providerName);
         // Notify parent component to update settings
         onDefaultLLMChange?.(providerName);
-        message.success(`${t('pages.settings.default_llm_set')}: ${providerName}`);
+        message.success(`${t('pages.settings.default_llm_set')}: ${providerName} - ${t('pages.settings.hot_updated')}`);
         
-        // Show restart notification after successful default LLM change
-        setTimeout(() => {
-          showRestartNotification(t('pages.settings.default_llm_change'));
-        }, 500);
+        // No restart required - hot-update is supported
       } else {
         // If backend says provider is not configured, reload providers to sync
         if (response.error?.message?.includes('not configured')) {
@@ -199,14 +98,11 @@ const LLMManagement: React.FC<LLMManagementProps> = ({ username, defaultLLM: pro
       const response = await get_ipc_api().updateLLMProvider<{ message: string }>(name, apiKey, azureEndpoint, awsAccessKeyId, awsSecretAccessKey);
 
       if (response.success) {
-        message.success(`${name} ${t('pages.settings.llm_updated_successfully')}`);
+        message.success(`${name} ${t('pages.settings.llm_updated_successfully')} - ${t('pages.settings.hot_updated')}`);
         await loadProviders(); // Reload data
         console.log('✅ Provider updated:', name);
         
-        // Show restart notification after successful update
-        setTimeout(() => {
-          showRestartNotification(t('pages.settings.api_key_update'));
-        }, 500);
+        // No restart required - hot-update is supported
       } else {
         message.error(`${t('pages.settings.failed_to_update_provider')} ${name}: ${response.error?.message}`);
       }
@@ -222,12 +118,9 @@ const LLMManagement: React.FC<LLMManagementProps> = ({ username, defaultLLM: pro
       const response = await get_ipc_api().deleteLLMProviderConfig<{ message: string }>(name, username || '');
 
       if (response.success) {
-        message.success(`${name} ${t('pages.settings.llm_config_deleted')}`);
+        message.success(`${name} ${t('pages.settings.llm_config_deleted')} - ${t('pages.settings.hot_updated')}`);
 
-        // Show restart notification after successful deletion
-        setTimeout(() => {
-          showRestartNotification(t('pages.settings.api_key_deletion'));
-        }, 500);
+        // No restart required - changes take effect immediately
 
         // Update local state immediately for better UX
         setProviders(prevProviders =>
