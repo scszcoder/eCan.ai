@@ -699,11 +699,14 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                 // Check if user is at bottom before new messages arrive
                 const wasAtBottom = isAtBottomRef.current;
                 
-                // If new incoming messages arrive, reset unread cleared flag
+                // If new incoming messages arrive, check if we should clear unread
                 if (newMsgs.length > 0) {
                     const hasIncoming = newMsgs.some(msg => msg.senderId && msg.senderId !== currentUserId);
                     if (hasIncoming) {
                         unreadClearedRef.current = false;
+                        // Since user is viewing this chat (it's the active chat), 
+                        // we should clear unread regardless of scroll position
+                        shouldClearUnread = true;
                     }
                 }
 
@@ -725,10 +728,6 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                             }, delay);
                         });
                     });
-
-                    if (!unreadClearedRef.current) {
-                        shouldClearUnread = true;
-                    }
                 } else if (scrollPositionRestoredRef.current && newMsgs.length > 0) {
                     // If we just restored scroll position, reset the flag after processing new messages
                     // This allows future new messages to trigger auto-scroll if user scrolls to bottom

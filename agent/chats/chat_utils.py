@@ -102,22 +102,24 @@ def gui_a2a_send_chat(mainwin, req):
     # Get chat with members and messages
     this_chat = db_chat_service.get_chat_by_id(chat_id, deep=True)
 
+    recipient_ids = []
     if this_chat["success"]:
         chat_data = this_chat["data"]
         member_user_ids = [member["userId"] for member in chat_data.get("members", [])]
-
-        # Use chat data
+        
+        # Filter out twin_agent from member_user_ids to get recipients
+        if member_user_ids:
+            recipient_ids = [uid for uid in member_user_ids if uid != twin_agent.card.id]
     else:
-        logger.error(f"[chat_utils] Error: {this_chat['error']}")
-        member_user_ids = []
-
-    if member_user_ids:
-        if twin_agent.card.id in member_user_ids:
-            recipient_ids = member_user_ids.remove(twin_agent.card.id)
+        logger.warning(f"[chat_utils] Chat not found: {this_chat['error']}")
+        # Try to get receiverId from request params as fallback
+        receiver_id = req.get("params", {}).get("receiverId")
+        if receiver_id:
+            logger.info(f"[chat_utils] Using receiverId from request params: {receiver_id}")
+            recipient_ids = [receiver_id]
         else:
-            recipient_ids = member_user_ids
-    else:
-        recipient_ids = []
+            logger.warning("[chat_utils] No receiverId found in request params, continuing without recipients")
+            recipient_ids = []
 
     req["params"]["recipient_ids"] = recipient_ids
     logger.debug("[chat_utils] twin:", twin_agent.card.name, "recipients:", recipient_ids)

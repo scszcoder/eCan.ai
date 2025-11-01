@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Header } from 'antd/es/layout/layout';
 import { Button, Badge, Dropdown, Space, Avatar, MenuProps } from 'antd';
 import { MenuFoldOutlined, MenuUnfoldOutlined, BellOutlined, UserOutlined, SettingOutlined, GlobalOutlined, SkinOutlined, LogoutOutlined } from '@ant-design/icons';
@@ -10,6 +10,7 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import { App } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { get_ipc_api } from '../../services/ipc_api';
+import { messageManager } from '../../pages/Chat/managers/MessageManager';
 
 const StyledHeader = styled(Header)`
     padding: 0 24px;
@@ -148,6 +149,34 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
 
     // 控制下拉Menu的DisplayStatus
     const [dropdownVisible, setDropdownVisible] = useState(false);
+    
+    // CRITICAL: Track total unread count from all chats
+    const [totalUnreadCount, setTotalUnreadCount] = useState(0);
+    
+    // Subscribe to MessageManager updates to get real-time unread counts
+    useEffect(() => {
+        // Calculate total unread count from all chats
+        const calculateTotalUnread = () => {
+            const allUnreadCounts = messageManager.getAllUnreadCounts();
+            let total = 0;
+            allUnreadCounts.forEach((count) => {
+                total += count;
+            });
+            return total;
+        };
+        
+        // Initial calculation
+        setTotalUnreadCount(calculateTotalUnread());
+        
+        // Subscribe to MessageManager updates
+        // MessageManager notifies listeners when messages/unreadCounts change
+        const unsubscribe = messageManager.subscribe(() => {
+            const newTotal = calculateTotalUnread();
+            setTotalUnreadCount(newTotal);
+        });
+        
+        return unsubscribe;
+    }, []);
 
     // Process主题Toggle
     const handleThemeChange = useCallback((value: 'light' | 'dark' | 'system') => {
@@ -279,11 +308,12 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
                 style={{ fontSize: '18px', width: 64, height: 64 }}
             />
             <HeaderRight>
-                <StyledBadge count={5}>
+                <StyledBadge count={totalUnreadCount > 0 ? totalUnreadCount : 0} overflowCount={99}>
                     <StyledButton
                         type="text"
                         icon={<BellOutlined />}
                         style={{ fontSize: '18px' }}
+                        onClick={() => navigate('/chat')}
                     />
                 </StyledBadge>
                 <Dropdown

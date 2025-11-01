@@ -15,9 +15,11 @@ import { useAgentStore } from '@/stores/agentStore';
 import { useChatNotifications, NOTIF_PAGE_SIZE } from './hooks/useChatNotifications';
 import { useMessages } from './hooks/useMessages';
 import { notificationManager } from './managers/NotificationManager';
+import { messageManager } from './managers/MessageManager';
 import { getDisplayMsg } from './utils/displayMsg';
 import { iTagManager } from './managers/ITagManager';
 import { chatStateManager } from './managers/ChatStateManager';
+import { eventBus } from '@/utils/eventBus';
 
 // ToolFunction：尝试将字符串Parse为对象
 function parseMaybeJson(str: any): any {
@@ -144,6 +146,27 @@ const ChatPage: React.FC = () => {
         };
     }, [username]);
     
+    // CRITICAL FIX: Listen to agentIdFromUrl changes to handle KeepAlive scenario
+    // When user navigates from agents page back to chat, component doesn't remount (KeepAlive),
+    // but URL params change, so we need to detect this and trigger fetch
+    const prevAgentIdFromUrlRef = useRef<string | null>(null);
+    useEffect(() => {
+        const currentAgentIdFromUrl = searchParams.get('agentId');
+        const prevAgentIdFromUrl = prevAgentIdFromUrlRef.current;
+        
+        // If agentId from URL changed from null/undefined to a value, and lastFetchedAgentId was reset
+        if (currentAgentIdFromUrl !== prevAgentIdFromUrl && currentAgentIdFromUrl && !prevAgentIdFromUrl) {
+            // If lastFetchedAgentId was reset (undefined), force agentId change detection
+            if (lastFetchedAgentId.current === undefined && myTwinAgentId && !isFetchingRef.current) {
+                // Reset fetchOnceRef to allow the main useEffect to trigger fetch
+                fetchOnceRef.current = false;
+                // The main useEffect will detect agentId !== lastFetchedAgentId and trigger fetch
+            }
+        }
+        
+        prevAgentIdFromUrlRef.current = currentAgentIdFromUrl;
+    }, [searchParams, myTwinAgentId]);
+
     // 统一的DataGet effect - 合并 myTwinAgentId、initialized 和 agentId 的Listen
     useEffect(() => {
         // Check是否NeedGetData
@@ -153,7 +176,7 @@ const ChatPage: React.FC = () => {
             (
                 !fetchOnceRef.current || // 首次Get
                 (initialized && !hasFetched) || // initialized 变化
-                agentId !== lastFetchedAgentId.current // agentId 变化
+                agentId !== lastFetchedAgentId.current // agentId 变化（包括从有值变为undefined，或从undefined变为有值）
             )
         );
         
@@ -176,6 +199,41 @@ const ChatPage: React.FC = () => {
         // Update prevInitialized
         prevInitialized.current = initialized;
     }, [myTwinAgentId, initialized, hasFetched, agentId]);
+
+    // CRITICAL FIX: Update MessageManager with active chat
+    // This prevents MessageManager from incrementing unread count for active chat
+    useEffect(() => {
+        messageManager.setActiveChat(activeChatId);
+    }, [activeChatId]);
+
+    // CRITICAL FIX: Listen to new messages and clear unread for active chat (fallback)
+    // Even though MessageManager won't increment for active chat, we still clear it as a safety measure
+    useEffect(() => {
+        const handleNewMessage = (params: any) => {
+            const { chatId, message } = params;
+            const realChatId = chatId || message?.chatId;
+            
+            if (!realChatId || !activeChatId) {
+                return;
+            }
+            
+               // Only process if this message is for the currently active chat
+               if (realChatId === activeChatId) {
+                   // Check if this is an incoming message (not from current user/myTwinAgent)
+                   const senderId = message?.senderId;
+                   if (senderId && senderId !== myTwinAgentId) {
+                       // Clear unread count for this chat (safety measure, MessageManager should already skip increment)
+                       markMessageAsRead(activeChatId);
+                   }
+               }
+        };
+        
+        eventBus.on('chat:newMessage', handleNewMessage);
+        
+        return () => {
+            eventBus.off('chat:newMessage', handleNewMessage);
+        };
+    }, [activeChatId, myTwinAgentId, markMessageAsRead]);
 
     // SyncMessage管理器中的Message到聊天List
     // Update chats when messages or unread counts change
@@ -440,7 +498,7 @@ const ChatPage: React.FC = () => {
                             if (firstValidChat) {
                                 setActiveChatIdAndFetchMessages(firstValidChat.id);
                             } else {
-                                logger.warn(`[getChatsAndSetState] No valid chat found after filtering`);
+                                logger.warn(`[fetchChats] No valid chat found after filtering`);
                             }
                         }
                     } else {
@@ -686,7 +744,20 @@ const ChatPage: React.FC = () => {
 
     const handleChatDelete = async (chatId: string) => {
         try {
-            // 先LocalUpdate UI（乐观Update）
+            // Find the chat to be deleted
+            const deletedChat = chats.find(c => c.id === chatId);
+            logger.info(`[handleChatDelete] Deleting chat ${chatId}, deletedChat found: ${!!deletedChat}`);
+            
+            // 调用 API Delete聊天（先删除，避免竞态条件）
+            const response = await get_ipc_api().chatApi.deleteChat(chatId);
+            
+            if (!response.success) {
+                logger.error('Failed to delete chat:', response.error);
+                setError(`Failed to delete chat: ${response.error?.message || 'Unknown error'}`);
+                return;
+            }
+            
+            // 删除成功后再Update UI
             const updatedChats = chats.filter(c => c.id !== chatId);
             setChats(updatedChats);
 
@@ -700,21 +771,29 @@ const ChatPage: React.FC = () => {
                     // 没有剩余的 chat，清除 activeChatId 和 URL Parameter
                     setActiveChatId(null);
                     setSearchParams({});
+                    
+                    // CRITICAL FIX: Reset lastFetchedAgentId and clear ChatStateManager
+                    // This ensures agentId will be read from URL next time user navigates back
+                    if (deletedChat && agentId) {
+                        const isChatWithCurrentAgent = deletedChat.members?.some(
+                            member => member.userId === agentId
+                        );
+                        if (isChatWithCurrentAgent) {
+                            // Clear ChatStateManager to force agentId to be read from URL next time
+                            if (username) {
+                                chatStateManager.saveAgentId(username, null);
+                            }
+                            // Use setTimeout to allow navigation to complete
+                            setTimeout(() => {
+                                lastFetchedAgentId.current = undefined;
+                                // Also reset fetchOnceRef to allow fetch when returning
+                                fetchOnceRef.current = false;
+                            }, 500); // 500ms should be enough for navigation
+                        }
+                    }
                 }
             }
-            
-            // 调用 API Delete聊天
-            const response = await get_ipc_api().chatApi.deleteChat(chatId);
-            
-            if (!response.success) {
-                // DeleteFailed，回滚 UI
-                setChats(chats);
-                logger.error('Failed to delete chat:', response.error);
-                setError(`Failed to delete chat: ${response.error?.message || 'Unknown error'}`);
-            }
         } catch (err) {
-            // DeleteFailed，回滚 UI
-            setChats(chats);
             const errorMessage = err instanceof Error ? err.message : 'Unknown error';
             logger.error('Error deleting chat:', errorMessage);
             setError(`Error deleting chat: ${errorMessage}`);
@@ -743,8 +822,13 @@ const ChatPage: React.FC = () => {
             return;
         }
 
-        const chat = chats.find(c => c.id === activeChatId);
-        if (!chat) return;
+        // Check if chat exists in current chats list
+        let chat = chats.find(c => c.id === activeChatId);
+        
+        // If chat not found (e.g., was deleted), we need to create a new one
+        if (!chat) {
+            logger.warn(`Chat ${activeChatId} not found in chats list, backend will create new chat`);
+        }
 
         if (!myTwinAgentId) return;
         const my_twin_agent = useAgentStore.getState().getAgentById(myTwinAgentId);
@@ -795,6 +879,24 @@ const ChatPage: React.FC = () => {
         console.log('[handleMessageSend] after addMessageToChat, allMessages:', allMessages);
 
         try {
+            // Get receiver info from current chat members
+            let receiverId: string | undefined;
+            let receiverName: string | undefined;
+            
+            if (chat && chat.members) {
+                // Normal case: Get receiver from chat members
+                const receiver = chat.members.find(m => m.userId !== senderId);
+                if (receiver) {
+                    receiverId = receiver.userId;
+                    receiverName = receiver.name || receiver.agentName;
+                }
+            } else if (!chat && agentId) {
+                // Chat was deleted: Use agentId from URL as receiver
+                receiverId = agentId;
+                const receiverAgent = useAgentStore.getState().getAgentById(agentId);
+                receiverName = receiverAgent?.card?.name || 'Agent';
+            }
+            
             // 使用新的 API SendMessage
             const messageData = {
                 chatId: activeChatId,
@@ -805,7 +907,9 @@ const ChatPage: React.FC = () => {
                 senderName,
                 status: 'complete',
                 i_tag: iTagManager.getLatest(activeChatId) || undefined,
-                attachments: safeAttachments as any
+                attachments: safeAttachments as any,
+                receiverId,
+                receiverName
             };
             
             const response = await get_ipc_api().chatApi.sendChat(messageData);
@@ -816,11 +920,72 @@ const ChatPage: React.FC = () => {
                 return;
             }
             
+            // Check if backend returned a new chatId (when chat was auto-created)
+            const responseData = response.data as any;
+            if (responseData && responseData.realChatId && responseData.originalChatId) {
+                const newChatId = responseData.realChatId;
+                const oldChatId = responseData.originalChatId;
+                
+                
+                // Update activeChatId
+                setActiveChatId(newChatId);
+                
+                // Update chat in chat list or create new chat entry
+                setChats(prevChats => {
+                    const existingChatIndex = prevChats.findIndex(c => c.id === oldChatId);
+                    
+                    if (existingChatIndex >= 0) {
+                        // Update existing chat
+                        return prevChats.map(chat => {
+                            if (chat.id === oldChatId) {
+                                return { ...chat, id: newChatId };
+                            }
+                            return chat;
+                        });
+                    } else {
+                        // Create new chat entry (chat was deleted and recreated)
+                        const newChat: Chat = {
+                            id: newChatId,
+                            name: receiverName || 'Chat',
+                            avatar: undefined,
+                            lastMsg: content as string,
+                            lastMsgTime: Date.now(),
+                            unread: 0,
+                            pinned: false,
+                            muted: false,
+                            type: 'user-agent',
+                            messages: [],
+                            members: receiverId ? [
+                                {
+                                    userId: senderId,
+                                    name: senderName,
+                                    role: 'user',
+                                    agentName: senderName
+                                },
+                                {
+                                    userId: receiverId,
+                                    name: receiverName!,
+                                    role: 'agent',
+                                    agentName: receiverName!
+                                }
+                            ] : []
+                        };
+                        return [newChat, ...prevChats];
+                    }
+                });
+                
+                // Update messages chatId through message hook
+                // The message will be updated with the new chatId automatically
+                // since we're updating the message with the server response
+            }
+            
             // UpdateMessageStatus为已Send，并使用Service器返回的Message ID
             if (response.data && (response.data as any).id) {
                 // 替换乐观Update的Message，使用Service器返回的 ID
+                const finalChatId = responseData?.realChatId || activeChatId;
                 updateMessage(activeChatId, userMessage.id, { 
-                    id: (response.data as any).id, 
+                    id: (response.data as any).id,
+                    chatId: finalChatId, // Use the real chatId
                     status: 'complete' as const,
                     // 保留Service器返回的其他Field
                     ...(response.data as any)
@@ -847,12 +1012,10 @@ const ChatPage: React.FC = () => {
     const headerAgentId = useMemo(() => {
         // Priority：URL agentId（Filter器Select）> myTwinAgentId（Default）> fallback
         if (agentId) {
-            logger.debug(`[headerAgentId] Using URL agentId (filter): ${agentId}`);
             return agentId;
         }
         
         if (myTwinAgentId) {
-            logger.debug(`[headerAgentId] Using myTwinAgentId (default): ${myTwinAgentId}`);
             return myTwinAgentId;
         }
         
@@ -862,14 +1025,12 @@ const ChatPage: React.FC = () => {
             if (systemAgents.length > 0) {
                 const randomIndex = Math.floor(Math.random() * systemAgents.length);
                 const fallbackId = systemAgents[randomIndex].card?.id;
-                logger.debug(`[headerAgentId] Using random system agent: ${fallbackId}`);
                 return fallbackId;
             }
         }
         
         // 最终 fallback
         const fallbackId = agents && agents.length > 0 ? agents[0].card?.id : undefined;
-        logger.debug(`[headerAgentId] Using final fallback: ${fallbackId}`);
         return fallbackId;
     }, [agentId, myTwinAgentId, agents, chats.length]);
     
@@ -914,7 +1075,6 @@ const ChatPage: React.FC = () => {
     
     // ProcessFilter器Select
     const handleFilterSelect = useCallback((selectedAgentId: string | null) => {
-        logger.info(`[Chat] Filter agent selected: ${selectedAgentId}`);
         setShowFilterModal(false);
         
         // Update URL Parameter

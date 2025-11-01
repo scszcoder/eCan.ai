@@ -85,17 +85,102 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         db_chat_service = main_window.db_chat_service
         # 1. Extract and validate parameters
         chat_args = extract_and_validate_chat_args(params)
-        # 2. Dispatch by type and save to database
+        
+        # 2. Check if chat exists, if not create it
         chatId = chat_args['chatId']
+        original_chatId = chatId  # Save original chatId for comparison
+        
+        # Check if chat exists
+        existing_chat = db_chat_service.get_chat_by_id(chatId, deep=False)
+        
+        if not existing_chat.get("success"):
+            # Chat doesn't exist, create it
+            logger.info(f"Chat {chatId} not found, creating new chat")
+            
+            # Extract sender and receiver info from params
+            senderId = chat_args.get('senderId')
+            senderName = chat_args.get('senderName', 'User')
+            receiverId = chat_args.get('receiverId')
+            receiverName = chat_args.get('receiverName', 'Agent')
+            
+            # Build members list
+            members = [
+                {
+                    "userId": senderId,
+                    "name": senderName,
+                    "role": "user",
+                    "avatar": None,
+                    "status": "online",
+                    "ext": {},
+                    "agentName": senderName
+                }
+            ]
+            
+            # Add receiver if provided
+            if receiverId:
+                members.append({
+                    "userId": receiverId,
+                    "name": receiverName,
+                    "role": "agent",
+                    "avatar": None,
+                    "status": "online",
+                    "ext": {},
+                    "agentName": receiverName
+                })
+            
+            # Create chat
+            create_result = db_chat_service.create_chat(
+                members=members,
+                name=receiverName if receiverId else senderName,
+                type="user-agent",
+                avatar=None,
+                lastMsg=None,
+                lastMsgTime=chat_args.get('createAt'),
+                unread=0,
+                pinned=False,
+                muted=False,
+                ext={},
+                id=None,  # Let system generate new chatId
+                agent_id=receiverId
+            )
+            
+            if create_result.get("success"):
+                # Update chatId with the real one from database
+                chatId = create_result["id"]
+                chat_args['chatId'] = chatId
+                logger.info(f"Chat created successfully with new chatId: {chatId}")
+            else:
+                # If chat already exists (duplicate), use existing one
+                if "already exists" in create_result.get("error", ""):
+                    chatId = create_result["id"]
+                    chat_args['chatId'] = chatId
+                    logger.info(f"Chat already exists, using chatId: {chatId}")
+                else:
+                    logger.error(f"Failed to create chat: {create_result.get('error')}")
+                    return create_error_response(request, 'CREATE_CHAT_ERROR', create_result.get('error'))
+        
+        # 3. Dispatch by type and save to database
         result = db_chat_service.dispatch_add_message(chatId, chat_args)
         logger.info(f"add_message result: {result}")
-        # 3. Echo/push
+        
+        # 4. If chatId changed, include it in response so frontend can update
+        if original_chatId != chatId:
+            result['realChatId'] = chatId
+            result['originalChatId'] = original_chatId
+            logger.info(f"ChatId changed from {original_chatId} to {chatId}")
+        
+        # 5. Echo/push
         if ECHO_REPLY_ENABLED:
             echo_and_push_message_async(chatId, chat_args)
         else:
             # Lazy import for heavy dependencies
             from agent.chats.chat_utils import gui_a2a_send_chat
             request['params']['human'] = True
+            request['params']['chatId'] = chatId  # Use real chatId
+            # Preserve receiverId for gui_a2a_send_chat fallback (when chat doesn't exist yet)
+            request['params']['receiverId'] = chat_args.get('receiverId')
+            logger.info(f"[handle_send_chat] Calling gui_a2a_send_chat with chatId: {chatId}, original: {original_chatId}")
+            logger.debug(f"[handle_send_chat] request['params']['chatId']: {request['params']['chatId']}")
             gui_a2a_send_chat(main_window, request)
         return create_success_response(request, result)
     except Exception as e:
