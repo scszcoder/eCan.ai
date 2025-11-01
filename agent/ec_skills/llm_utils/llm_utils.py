@@ -117,10 +117,21 @@ def prep_multi_modal_content(state, runtime):
 import requests
 from langgraph.graph import StateGraph
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from langchain_community.chat_models import ChatAnthropic, ChatOllama
 from langchain_deepseek import ChatDeepSeek
 from langchain_qwq import ChatQwQ
+
+# Import optional providers that may not be available
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+except ImportError:
+    ChatGoogleGenerativeAI = None
+
+try:
+    from langchain_aws import ChatBedrock
+except ImportError:
+    ChatBedrock = None
 
 
 def get_country_by_ip() -> str | None:
@@ -169,7 +180,17 @@ def pick_llm(default_llm, llm_providers, config_manager=None):
                 logger.info(f"Default LLM provider {default_llm} is configured and has API key")
                 llm_instance = _create_llm_instance(default_provider)
                 if llm_instance:
-                    logger.info(f"Successfully created LLM instance using default provider: {default_llm}")
+                    provider_display = default_provider.get('display_name', default_llm)
+                    model_name = default_provider.get('default_model', 'default')
+                    llm_type = type(llm_instance).__name__
+                    
+                    # Verify the LLM instance is correct
+                    logger.info(f"✅ Successfully created LLM instance - Provider: {provider_display} ({default_llm}), Model: {model_name}, Type: {llm_type}")
+                    
+                    # Test that the instance has required attributes
+                    if hasattr(llm_instance, 'model'):
+                        logger.debug(f"   LLM instance verified: model={getattr(llm_instance, 'model', 'N/A')}")
+                    
                     return llm_instance
                 else:
                     logger.warning(f"Failed to create LLM instance for {default_llm}, trying alternatives")
@@ -191,7 +212,9 @@ def pick_llm(default_llm, llm_providers, config_manager=None):
         if llm_instance:
             # Update default_llm setting through LLM manager
             _update_default_llm_via_config_manager(selected_provider['name'], config_manager)
-            logger.info(f"Successfully created LLM instance and updated default to: {selected_provider['name']}")
+            provider_display = selected_provider.get('display_name', selected_provider['name'])
+            model_name = selected_provider.get('default_model', 'default')
+            logger.info(f"✅ Successfully created LLM instance and updated default - Provider: {provider_display} ({selected_provider['name']}), Model: {model_name}, Type: {type(llm_instance).__name__}")
             return llm_instance
         else:
             logger.error(f"Failed to create LLM instance for selected provider: {selected_provider['name']}")
@@ -261,11 +284,14 @@ def _select_regional_provider(country, llm_providers):
 
 def _create_llm_instance(provider):
     """Create LLM instance based on provider configuration"""
+    import os
+    
     try:
         provider_name = provider.get('name', '').lower()
         supported_models = provider.get('supported_models', [])
         preferred_model = provider.get('preferred_model')
         default_model_name = provider.get('default_model')
+        api_key_env_vars = provider.get('api_key_env_vars', [])
         
         # Determine which model to use
         model_name = None
@@ -278,30 +304,145 @@ def _create_llm_instance(provider):
             first_model = supported_models[0]
             model_name = first_model.get('model_id', first_model.get('name'))
         
-        logger.info(f"Creating LLM instance for {provider_name} with model: {model_name}")
+        provider_display = provider.get('display_name', provider.get('name', provider_name))
+        provider_name_actual = provider.get('name', provider_name)
+        logger.info(f"🔄 Creating LLM instance - Provider: {provider_display} ({provider_name_actual}), Model: {model_name}")
         
-        if 'deepseek' in provider_name:
+        # Match provider by class_name or name to support all configured providers
+        class_name = provider.get('class_name', '').lower()
+        provider_type = provider.get('provider', '').lower()
+        
+        # Helper function to get API key from environment
+        def get_api_key(env_var):
+            return os.environ.get(env_var)
+        
+        # Check for Azure OpenAI (specific class_name match - must be before OpenAI check)
+        if class_name == 'azureopenai' or ('azure' in provider_name.lower() and 'openai' in provider_name.lower()):
+            model_name = model_name or 'gpt-4'
+            # Azure OpenAI requires AZURE_ENDPOINT and AZURE_OPENAI_API_KEY from environment
+            azure_endpoint = get_api_key('AZURE_ENDPOINT')
+            api_key = get_api_key('AZURE_OPENAI_API_KEY')
+            if azure_endpoint and api_key:
+                # Extract deployment name from model_name if needed
+                deployment_name = model_name
+                return AzureChatOpenAI(
+                    azure_endpoint=azure_endpoint,
+                    api_key=api_key,
+                    azure_deployment=deployment_name,
+                    api_version="2024-02-15-preview",
+                    temperature=0
+                )
+            else:
+                logger.error(f"Azure OpenAI requires AZURE_ENDPOINT and AZURE_OPENAI_API_KEY environment variables")
+                return None
+        
+        # Check for AWS Bedrock (specific class_name match)
+        elif 'chatbedrockconverse' == class_name or 'bedrock' in provider_name.lower():
+            if ChatBedrock is None:
+                logger.error("ChatBedrock is not available. Install with: pip install langchain-aws")
+                return None
+            model_name = model_name or 'anthropic.claude-3-sonnet-20240229-v1:0'
+            # AWS Bedrock requires AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+            aws_access_key_id = get_api_key('AWS_ACCESS_KEY_ID')
+            aws_secret_access_key = get_api_key('AWS_SECRET_ACCESS_KEY')
+            if not aws_access_key_id or not aws_secret_access_key:
+                logger.error("AWS Bedrock requires AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables")
+                return None
+            try:
+                # ChatBedrock uses boto3 credentials from environment automatically
+                # Credentials should be set via AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY env vars
+                return ChatBedrock(
+                    model_id=model_name,
+                    model_kwargs={'temperature': 0}
+                )
+            except Exception as e:
+                logger.error(f"Failed to create ChatBedrock instance: {e}")
+                return None
+        
+        # Check for Google Gemini (specific class_name match)
+        elif 'chatgooglegenerativeai' == class_name or 'google' in provider_name.lower() or 'gemini' in provider_name.lower():
+            if ChatGoogleGenerativeAI is None:
+                logger.error("ChatGoogleGenerativeAI is not available. Install with: pip install langchain-google-genai")
+                return None
+            model_name = model_name or 'gemini-pro'
+            # Google Gemini requires GEMINI_API_KEY
+            gemini_api_key = get_api_key('GEMINI_API_KEY')
+            if not gemini_api_key:
+                logger.error("Google Gemini requires GEMINI_API_KEY environment variable")
+                return None
+            try:
+                return ChatGoogleGenerativeAI(
+                    model=model_name,
+                    google_api_key=gemini_api_key,
+                    temperature=0
+                )
+            except Exception as e:
+                logger.error(f"Failed to create ChatGoogleGenerativeAI instance: {e}")
+                return None
+        
+        # Check for DeepSeek
+        elif 'deepseek' in provider_name.lower() or 'chatdeepseek' == class_name:
             model_name = model_name or 'deepseek-chat'
-            return ChatDeepSeek(model=model_name, temperature=0)
-            
-        elif 'qwen' in provider_name or 'qwq' in provider_name:
+            # DeepSeek requires DEEPSEEK_API_KEY
+            deepseek_api_key = get_api_key('DEEPSEEK_API_KEY')
+            if not deepseek_api_key:
+                logger.error("DeepSeek requires DEEPSEEK_API_KEY environment variable")
+                return None
+            return ChatDeepSeek(
+                model=model_name,
+                api_key=deepseek_api_key,
+                temperature=0
+            )
+        
+        # Check for Qwen/QwQ
+        elif 'qwen' in provider_name.lower() or 'qwq' in provider_name.lower() or 'chatqwq' == class_name:
             model_name = model_name or 'qwq-plus'
-            return ChatQwQ(model=model_name, temperature=0)
-            
-        elif 'openai' in provider_name:
+            # QwQ/DashScope requires DASHSCOPE_API_KEY
+            dashscope_api_key = get_api_key('DASHSCOPE_API_KEY')
+            if not dashscope_api_key:
+                logger.error("QwQ requires DASHSCOPE_API_KEY environment variable")
+                return None
+            return ChatQwQ(
+                model=model_name,
+                api_key=dashscope_api_key,
+                temperature=0
+            )
+        
+        # Check for OpenAI (must be after Azure check)
+        elif 'chatanthropic' != class_name and ('openai' in provider_name.lower() or 'chatopenai' == class_name):
             model_name = model_name or 'gpt-4o'
-            return ChatOpenAI(model=model_name, temperature=0)
-            
-        elif 'claude' in provider_name or 'anthropic' in provider_name:
+            # OpenAI requires OPENAI_API_KEY
+            openai_api_key = get_api_key('OPENAI_API_KEY')
+            if not openai_api_key:
+                logger.error("OpenAI requires OPENAI_API_KEY environment variable")
+                return None
+            return ChatOpenAI(
+                model=model_name,
+                api_key=openai_api_key,
+                temperature=0
+            )
+        
+        # Check for Anthropic Claude
+        elif 'claude' in provider_name.lower() or 'anthropic' in provider_name.lower() or 'chatanthropic' == class_name:
             model_name = model_name or 'claude-3-5-sonnet-20241022'
-            return ChatAnthropic(model=model_name, temperature=0)
-            
-        elif 'ollama' in provider_name:
+            # Anthropic requires ANTHROPIC_API_KEY
+            anthropic_api_key = get_api_key('ANTHROPIC_API_KEY')
+            if not anthropic_api_key:
+                logger.error("Anthropic requires ANTHROPIC_API_KEY environment variable")
+                return None
+            return ChatAnthropic(
+                model=model_name,
+                api_key=anthropic_api_key,
+                temperature=0
+            )
+        
+        # Check for Ollama
+        elif 'ollama' in provider_name.lower() or 'chatollama' == class_name:
             model_name = model_name or 'llama3.2'
             return ChatOllama(model=model_name, temperature=0)
-            
+        
         else:
-            logger.warning(f"Unknown provider type: {provider_name}")
+            logger.warning(f"Unknown provider type: {provider_name} (class_name: {class_name}, provider: {provider_type})")
             return None
             
     except Exception as e:
@@ -334,20 +475,26 @@ def _update_default_llm_via_config_manager(provider_name, config_manager=None):
 
 def _fallback_llm_selection(country):
     """Fallback LLM selection when no configured providers are available"""
-    logger.warning("Using fallback LLM selection - API keys may not be configured")
+    logger.warning("⚠️ Using fallback LLM selection - API keys may not be configured")
     
     try:
         if country == "CN":
-            logger.info("Fallback: Using DeepSeek for China")
-            return ChatDeepSeek(model="deepseek-chat", temperature=0)
+            logger.info("🔄 Fallback: Using DeepSeek for China")
+            llm = ChatDeepSeek(model="deepseek-chat", temperature=0)
+            logger.info(f"✅ Fallback LLM created - Provider: DeepSeek, Model: deepseek-chat, Type: {type(llm).__name__}")
+            return llm
         elif country == "US":
-            logger.info("Fallback: Using OpenAI for US")
-            return ChatOpenAI(model="gpt-4o", temperature=0)
+            logger.info("🔄 Fallback: Using OpenAI for US")
+            llm = ChatOpenAI(model="gpt-4o", temperature=0)
+            logger.info(f"✅ Fallback LLM created - Provider: OpenAI, Model: gpt-4o, Type: {type(llm).__name__}")
+            return llm
         else:
-            logger.info("Fallback: Using OpenAI as default")
-            return ChatOpenAI(model="gpt-4o", temperature=0)
+            logger.info("🔄 Fallback: Using OpenAI as default")
+            llm = ChatOpenAI(model="gpt-4o", temperature=0)
+            logger.info(f"✅ Fallback LLM created - Provider: OpenAI, Model: gpt-4o, Type: {type(llm).__name__}")
+            return llm
     except Exception as e:
-        logger.error(f"Fallback LLM creation failed: {e}")
+        logger.error(f"❌ Fallback LLM creation failed: {e}")
         return None
 
 def msg_role(msg: BaseMessage) -> str:

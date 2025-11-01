@@ -34,6 +34,62 @@ def parrot(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = AppContext.get_main_window()
+    
+    # Log current LLM being used by the agent
+    # IMPORTANT: For skill execution, agent.skill_llm is the LLM actually used
+    if agent:
+        # Determine which LLM is actually used for skill execution
+        actual_llm = None
+        actual_llm_type = None
+        actual_llm_source = None
+        
+        # Skill execution uses skill_llm (primary for skills)
+        if hasattr(agent, 'skill_llm') and agent.skill_llm:
+            actual_llm = agent.skill_llm
+            actual_llm_type = type(agent.skill_llm).__name__
+            actual_llm_source = "skill_llm"
+        # Fallback to agent.llm if skill_llm is not available
+        elif hasattr(agent, 'llm') and agent.llm:
+            actual_llm = agent.llm
+            actual_llm_type = type(agent.llm).__name__
+            actual_llm_source = "agent.llm (fallback)"
+        
+        # Also check main_window.llm via run_context (used by some skills)
+        run_context_llm = None
+        if mainwin and hasattr(mainwin, 'llm') and mainwin.llm:
+            run_context_llm = mainwin.llm
+            run_context_llm_type = type(mainwin.llm).__name__
+        
+        # Build comprehensive LLM info
+        llm_info_parts = []
+        
+        if actual_llm:
+            # Get provider info for the actual LLM
+            provider_info = ""
+            if mainwin and hasattr(mainwin, 'config_manager'):
+                default_llm = mainwin.config_manager.general_settings.default_llm
+                if default_llm:
+                    provider = mainwin.config_manager.llm_manager.get_provider(default_llm)
+                    if provider:
+                        provider_display = provider.get('display_name', default_llm)
+                        model_name = provider.get('default_model', 'unknown')
+                        provider_info = f" | Provider: {provider_display} ({default_llm}), Model: {model_name}"
+            
+            llm_info_parts.append(f"✅ ACTUAL LLM (used by skill): {actual_llm_type} (source: {actual_llm_source}){provider_info}")
+        
+        # Show agent.llm info if different from actual
+        if hasattr(agent, 'llm') and agent.llm and agent.llm is not actual_llm:
+            agent_llm_type = type(agent.llm).__name__
+            llm_info_parts.append(f"   Agent.llm: {agent_llm_type} (not used by skill)")
+        
+        # Show main_window.llm info if different
+        if run_context_llm and run_context_llm is not actual_llm:
+            llm_info_parts.append(f"   MainWindow.llm (run_context): {run_context_llm_type} (available via run_context)")
+        
+        if llm_info_parts:
+            logger.info(f"[my_twin_chatter_skill] 📋 LLM Usage Info:\n" + "\n".join(llm_info_parts))
+        else:
+            logger.warning(f"[my_twin_chatter_skill] ⚠️ No LLM information available for agent")
     try:
         if human_message(state):
             # this is a human to agent chat message
