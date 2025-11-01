@@ -219,7 +219,7 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
         # save this back-and-forth message pair to memory
         for msg in state["prompts"]:
             msg_id = state["attributes"]["msg_id"]
-            skill_run_id = state["attributes"]["run_thread_id"]
+            skill_run_id = state["attributes"]["thread_id"]
             ns = (agent.card.id, askid, skill_run_id, state["attributes"]["chat_id"], topic)
             mem_item = to_memory_item(msg, ns, msg_id)
             agent.mem_manager.put(mem_item)

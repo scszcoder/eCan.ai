@@ -690,14 +690,38 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
     Orchestrate general-purpose resume payload creation.
     Returns: (resume_payload, checkpoint, state_patch)
     """
-    i_tag = msg.params.metadata["params"]["i_tag"]
-    event_type = msg.method
+    # Be robust to different shapes of msg/metadata. Avoid KeyError on missing i_tag.
+    try:
+        print(" build_general_resume_payload msg::", msg)
+    except Exception:
+        pass
+
+    # Safely locate i_tag from common locations
+    i_tag = (
+        _safe_get(msg, "params.metadata.params.i_tag")
+        or _safe_get(msg, "params.metadata.i_tag")
+        or _safe_get(msg, "params.i_tag")
+        or _safe_get(msg, "metadata.params.i_tag")
+        or _safe_get(msg, "metadata.i_tag")
+        or _safe_get(msg, "params.metadata.tag")
+        or _safe_get(msg, "metadata.tag")
+    )
+
+    # Fallback: use any previously stored cloud_task_id from state
+    if not i_tag:
+        try:
+            prev_state = get_current_state(task)
+            i_tag = _safe_get(prev_state, "attributes.cloud_task_id")
+        except Exception:
+            i_tag = None
+
+    # Event type best-effort
+    event_type = getattr(msg, "method", None) or _safe_get(msg, "method") or ""
+
     print("found i_tag from raw msg::", i_tag)
-    event = normalize_event(event_type, msg, tag=i_tag)
-    if "i_tag" in event:
-        e_tag = event["i_tag"]
-    else:
-        e_tag = event["tag"]
+    event = normalize_event(event_type, msg, tag=i_tag or "")
+    # Unified tag to use for checkpoint lookup
+    e_tag = event.get("i_tag") if isinstance(event, dict) and "i_tag" in event else event.get("tag")
     logger.debug("build resume load, normalized event>>>>", event)
     cp = select_checkpoint(task, e_tag)
 
