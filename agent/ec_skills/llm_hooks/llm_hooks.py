@@ -44,6 +44,96 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state):
         except Exception:
             pass
 
+        # Helper to extract latest human input reliably
+        def _get_human_input(_state):
+            try:
+                # 1) direct input field if provided
+                if isinstance(_state.get("input"), str) and _state.get("input"):
+                    return _state.get("input")
+
+                # 2) Extract from attributes.params (TaskSendParams or dict)
+                attrs = _state.get("attributes", {}) or {}
+                # Support both dict and object for attributes
+                if isinstance(attrs, dict):
+                    tparams = attrs.get("params")
+                else:
+                    tparams = getattr(attrs, "params", None)
+
+                # 2a) If dict-like
+                if isinstance(tparams, dict):
+                    # message.parts[0].text
+                    try:
+                        parts = (((tparams.get("message") or {}).get("parts")) or [])
+                        if parts and isinstance(parts, list):
+                            part0 = parts[0]
+                            text_val = part0.get("text") if isinstance(part0, dict) else None
+                            if isinstance(text_val, str) and text_val:
+                                return text_val
+                    except Exception:
+                        pass
+
+                    # metadata.params.content
+                    try:
+                        meta2 = (tparams.get("metadata") or {})
+                        inner_params = (meta2.get("params") or {})
+                        content = inner_params.get("content")
+                        if isinstance(content, str) and content:
+                            return content
+                    except Exception:
+                        pass
+
+                # 2b) If object-like (TaskSendParams)
+                if tparams is not None and not isinstance(tparams, dict):
+                    # message.parts[0].text
+                    try:
+                        message = getattr(tparams, "message", None)
+                        parts = getattr(message, "parts", None)
+                        if isinstance(parts, (list, tuple)) and parts:
+                            p0 = parts[0]
+                            text_val = getattr(p0, "text", None)
+                            if isinstance(text_val, str) and text_val:
+                                return text_val
+                    except Exception:
+                        pass
+
+                    # metadata["params"]["content"]
+                    try:
+                        meta_obj = getattr(tparams, "metadata", None)
+                        if isinstance(meta_obj, dict):
+                            inner_params = meta_obj.get("params") or {}
+                            content = inner_params.get("content")
+                            if isinstance(content, str) and content:
+                                return content
+                    except Exception:
+                        pass
+
+                # 2c) attributes-level metadata.params.content if present
+                try:
+                    if isinstance(attrs, dict):
+                        meta_top = attrs.get("metadata") or {}
+                        inner_params_top = meta_top.get("params") or {}
+                        content_top = inner_params_top.get("content")
+                        if isinstance(content_top, str) and content_top:
+                            return content_top
+                    else:
+                        meta_top = getattr(attrs, "metadata", None)
+                        if isinstance(meta_top, dict):
+                            inner_params_top = meta_top.get("params") or {}
+                            content_top = inner_params_top.get("content")
+                            if isinstance(content_top, str) and content_top:
+                                return content_top
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+            # 3) fallback: last non-LLM message in state["messages"]
+            msgs = _state.get("messages") or []
+            for m in reversed(msgs):
+                if isinstance(m, str) and not m.startswith("llm:") and m:
+                    return m
+            return ""
+
         var_values = {}
         for var in required_vars:
             if var in refs:
@@ -51,7 +141,9 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state):
             elif var in llm_res:
                 var_values[var] = llm_res[var]
             elif var == "human_input":
-                var_values[var] = state["messages"][-1] if isinstance(state.get("messages"), list) and state["messages"] else ""
+                hi_val = _get_human_input(state)
+                logger.debug(f"[standard_pre_llm_hook] extracted human_input: {hi_val!r}")
+                var_values[var] = hi_val
             elif var == "boss_name":
                 var_values[var] = "Guest User"
             else:

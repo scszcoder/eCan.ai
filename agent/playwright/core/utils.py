@@ -32,6 +32,9 @@ class PlaywrightCoreUtils:
 
     # Environment variable names
     ENV_BROWSERS_PATH = "PLAYWRIGHT_BROWSERS_PATH"
+    # Back-compat alias used by helper/installer code to indicate the base dir
+    # for Playwright browser downloads. This should map to PLAYWRIGHT_BROWSERS_PATH.
+    ENV_BASE_DIR = ENV_BROWSERS_PATH
     ENV_CACHE_DIR = "PLAYWRIGHT_CACHE_DIR"
     ENV_BROWSERS_PATH_OVERRIDE = "PLAYWRIGHT_BROWSERS_PATH_OVERRIDE"
 

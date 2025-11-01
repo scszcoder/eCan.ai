@@ -545,9 +545,13 @@ class EBMISSION:
         # self.destroyed.connect(lambda: print(f"{self} is being destroyed"))
         self.retry_records=[]
         self.failure_context = {}
+        self.text = ""
 
     def __del__(self):
         print(f"EBMISSION {self.getMid()} is being deleted")
+
+    def setText(self, txt):
+        self.text = txt
 
     def setFingerPrintProfile(self, axpf):
         self.privateAttributes.fingerprint_profile = axpf
