@@ -11,7 +11,6 @@ from PIL import Image
 
 from bot.envi import getECBotDataHome
 from utils.logger_helper import logger_helper as logger
-import websockets
 import traceback
 from config.constants import API_DEV_MODE
 

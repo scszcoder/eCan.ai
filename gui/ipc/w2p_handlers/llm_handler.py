@@ -139,6 +139,35 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
         return create_error_response(request, 'LLM_ERROR', f"Failed to update LLM provider: {str(e)}")
 
 
+@IPCHandlerRegistry.handler('set_llm_provider_model')
+def handle_set_llm_provider_model(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Set the default model for an LLM provider"""
+    try:
+        is_valid, data, error = validate_params(params, ['name', 'model'])
+        if not is_valid:
+            return create_error_response(request, 'INVALID_PARAMS', error)
+
+        provider_name = data['name']
+        model_name = data['model']
+
+        llm_manager = get_llm_manager()
+        success, error_msg = llm_manager.set_provider_default_model(provider_name, model_name)
+
+        if not success:
+            return create_error_response(request, 'LLM_ERROR', error_msg or 'Failed to update model')
+
+        updated_provider = llm_manager.get_provider(provider_name)
+
+        return create_success_response(request, {
+            'message': f'Default model for {provider_name} updated successfully',
+            'provider': updated_provider
+        })
+
+    except Exception as e:
+        logger.error(f"Error setting default model for provider {params}: {e}")
+        return create_error_response(request, 'LLM_ERROR', f"Failed to set default model: {str(e)}")
+
+
 @IPCHandlerRegistry.handler('delete_llm_provider_config')
 def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Delete LLM provider configuration"""
@@ -194,6 +223,7 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
             return create_error_response(request, 'INVALID_PARAMS', error)
 
         name = data['name']
+        model = data.get('model')  # Optional model parameter from frontend
 
         llm_manager = get_llm_manager()
         main_window = AppContext.get_main_window()
@@ -206,8 +236,19 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
         if not provider['api_key_configured']:
             return create_error_response(request, 'LLM_ERROR', f"Provider {name} is not configured")
 
-        # Update default_llm field in general_settings
+        # Update default_llm and default_llm_model in general_settings
         main_window.config_manager.general_settings.default_llm = name
+        
+        # Use model from frontend if provided, otherwise fallback to provider's preferred/default model
+        if model:
+            provider_model = model
+            logger.info(f"[LLM] Using model from frontend: {model}")
+        else:
+            provider_model = provider.get('preferred_model') or provider.get('default_model') or ''
+            logger.info(f"[LLM] Using provider's model: {provider_model}")
+        
+        main_window.config_manager.general_settings.default_llm_model = provider_model
+        
         save_result = main_window.config_manager.general_settings.save()
 
         if not save_result:
@@ -297,12 +338,13 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
         
         verification_status = "✅ VERIFIED" if final_default_llm == name else "❌ MISMATCH"
         logger.info(f"📊 Provider Switch Verification:")
-        logger.info(f"   Setting: default_llm={name}")
+        logger.info(f"   Setting: default_llm={name}, model={provider_model}")
         logger.info(f"   Actual: default_llm={final_default_llm}, LLM Type={final_llm_type}")
         logger.info(f"   Status: {verification_status}")
         
         return create_success_response(request, {
             'default_llm': name,
+            'model_name': provider_model,
             'actual_default_llm': final_default_llm,
             'llm_type': final_llm_type,
             'verified': final_default_llm == name,

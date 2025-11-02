@@ -1,0 +1,67 @@
+/**
+ * Onboarding Modal Styles
+ * 引导页对话框样式
+ */
+
+.onboarding-modal .ant-modal-content {
+  border-radius: 16px !important;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15) !important;
+}
+
+.onboarding-modal .ant-modal-body {
+  padding: 40px 24px !important;
+}
+
+/* Hover effect for primary button */
+.onboarding-modal .ant-btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.5) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Hover effect for text button */
+.onboarding-modal .ant-btn-text:hover {
+  color: rgba(0, 0, 0, 0.75) !important;
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-radius: 8px;
+}
+
+/* Animation for modal entrance */
+.onboarding-modal.ant-modal {
+  animation: onboardingFadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes onboardingFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Dark theme support */
+.dark .onboarding-modal .ant-modal-content {
+  background: #1f1f1f !important;
+}
+
+.dark .onboarding-modal h2 {
+  color: rgba(255, 255, 255, 0.95) !important;
+}
+
+.dark .onboarding-modal p {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+.dark .onboarding-modal .ant-btn-text {
+  color: rgba(255, 255, 255, 0.45) !important;
+}
+
+.dark .onboarding-modal .ant-btn-text:hover {
+  color: rgba(255, 255, 255, 0.75) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+

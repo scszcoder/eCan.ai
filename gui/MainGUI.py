@@ -30,7 +30,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from csv import reader
 from os.path import exists
-from typing import List
+from typing import List, Optional
 
 
 # ============================================================================
@@ -463,6 +463,14 @@ class MainWindow:
             logger.debug(f"[MainWindow] No event loop for delayed my_skills copy: {e}")
 
         logger.info("[MainWindow] ✅ Async initialization finalized")
+
+        # Check LLM provider configuration and show onboarding guide if needed
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self.config_manager.llm_manager.check_and_show_onboarding())
+            logger.debug("[MainWindow] 📋 Scheduled LLM provider onboarding check (non-blocking)")
+        except RuntimeError as e:
+            logger.debug(f"[MainWindow] No event loop for LLM provider onboarding check: {e}")
 
     def _save_vehicles_to_database(self):
         """Save vehicles to database (synchronous helper method for executor)"""

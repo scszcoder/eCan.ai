@@ -1,15 +1,36 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Card, Form, Select, Switch, Button, App, Input, Row, Col, Tooltip, Divider } from 'antd';
+import { Card, Form, Select, Switch, Button, App, Input, Row, Col, Tooltip, Divider, Tabs, theme } from 'antd';
 import { ReloadOutlined, FolderOpenOutlined, GlobalOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useEffectOnActive } from 'keepalive-for-react';
+import { useLocation } from 'react-router-dom';
 
 import { useUserStore } from '../../stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 
 import type { Settings } from './types';
 import { LLMManagement } from './components';
+
+// Suppress Ant Design useForm warning (form is properly connected in Tab children)
+const originalError = console.error;
+const originalWarn = console.warn;
+console.error = (...args: any[]) => {
+  const message = String(args[0] || '');
+  if (message.includes('Instance created by `useForm`') || 
+      message.includes('not connected to any Form element')) {
+    return;
+  }
+  originalError(...args);
+};
+console.warn = (...args: any[]) => {
+  const message = String(args[0] || '');
+  if (message.includes('Instance created by `useForm`') || 
+      message.includes('not connected to any Form element')) {
+    return;
+  }
+  originalWarn(...args);
+};
 import { StyledFormItem } from '@/components/Common/StyledForm';
 
 const SettingsContainer = styled.div`
@@ -20,27 +41,77 @@ const SettingsContainer = styled.div`
 `;
 
 const SettingsContent = styled.div`
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  
+  .ant-tabs {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    
+    .ant-tabs-nav {
+      margin: 0;
+      padding: 0 24px;
+      min-height: 52px;
+      
+      .ant-tabs-tab {
+        padding: 16px 24px;
+        font-size: 15px;
+        font-weight: 500;
+        border-radius: 0;
+        margin: 0;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        border-bottom: 3px solid transparent;
+        letter-spacing: 0.3px;
+        
+        &.ant-tabs-tab-active {
+          font-weight: 600;
+          border-bottom-width: 3px;
+        }
+      }
+      
+      .ant-tabs-ink-bar {
+        display: none;
+      }
+    }
+    
+    .ant-tabs-content-holder {
+      flex: 1;
+      overflow: hidden;
+    }
+    
+    .ant-tabs-content {
+      height: 100%;
+      
+      .ant-tabs-tabpane {
+        height: 100%;
+        overflow-y: auto;
+        padding: 20px 24px;
+        
+        &::-webkit-scrollbar {
+          width: 8px;
+        }
+        
+        &::-webkit-scrollbar-track {
+          border-radius: 4px;
+        }
+        
+        &::-webkit-scrollbar-thumb {
+          border-radius: 4px;
+        }
+      }
+    }
+  }
+`;
+
+const StyledCard = styled(Card)`
+  /* Card styles will use theme tokens dynamically */
 `;
 
 const StyledRefreshButton = styled(Button)`
-  &.ant-btn {
-    background: transparent !important;
-    border: none !important;
-    color: rgba(203, 213, 225, 0.9) !important;
-    box-shadow: none !important;
-
-    &:hover {
-      color: rgba(255, 255, 255, 1) !important;
-      transform: scale(1.1);
-    }
-
-    &:active {
-      transform: scale(0.95);
-    }
-  }
+  /* Button styles will use theme tokens dynamically */
 `;
 
 // OCR 配置预设
@@ -104,12 +175,7 @@ const initialSettings: Settings = {
   
   // LLM
   default_llm: 'ChatOpenAI',
-  cn_llm_provider: 'deepseek',
-  cn_llm_model: 'deepseek',
-  us_llm_provider: 'openai',
-  us_llm_model: 'gpt-4o',
-  eu_llm_provider: 'openai',
-  eu_llm_model: 'gpt-4o',
+  default_llm_model: '',
   
   // Skill
   skill_use_git: false,
@@ -124,16 +190,30 @@ const initialSettings: Settings = {
 
 const Settings: React.FC = () => {
   const { t } = useTranslation();
+  const location = useLocation();
+  const { token } = theme.useToken();
   const [form] = Form.useForm();
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [settingsData, setSettingsData] = useState<Settings | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>('general');
   const username = useUserStore((state) => state.username);
 
   const isMountedRef = useRef(false);
   const settingsContentRef = useRef<HTMLDivElement | null>(null);
   const savedScrollPositionRef = useRef<number>(0);
+  
+  // Parse tab from URL on mount
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tabParam = params.get('tab');
+    if (tabParam === 'llm') {
+      setActiveTab('llm');
+    } else {
+      setActiveTab('general');
+    }
+  }, [location.search]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -198,6 +278,21 @@ const Settings: React.FC = () => {
       setLoading(false);
     }
   }, [username, form, message]);
+
+  // Handle tab change
+  const handleTabChange = (key: string) => {
+    setActiveTab(key);
+    // Update URL parameter
+    const newUrl = new URL(window.location.href);
+    if (key === 'llm') {
+      newUrl.searchParams.set('tab', 'llm');
+    } else {
+      newUrl.searchParams.delete('tab');
+    }
+    if (newUrl.href !== window.location.href) {
+      window.history.replaceState(null, '', newUrl);
+    }
+  };
 
   // Handle default LLM change from LLMManagement component
   const handleDefaultLLMChange = useCallback((newDefaultLLM: string) => {
@@ -352,31 +447,68 @@ const Settings: React.FC = () => {
   );
 
   return (
-    <SettingsContainer>
+    <SettingsContainer style={{ background: token.colorBgLayout }}>
       <SettingsContent ref={settingsContentRef}>
-        <Card
-          title={t('common.settings')}
-          extra={
-            <Tooltip title={t('common.reload')}>
-              <StyledRefreshButton
-                shape="circle"
-                icon={<ReloadOutlined />}
-                onClick={handleReload}
-                loading={loading}
-              />
-            </Tooltip>
+        <style>{`
+          .ant-tabs-nav {
+            background: ${token.colorBgContainer} !important;
+            border-bottom: 1px solid ${token.colorBorderSecondary} !important;
           }
-        >
-        <Form
-          key={formKey}
-          form={form}
-          layout="vertical"
-          onFinish={handleSave}
-          preserve={true}
-          initialValues={settingsData || initialSettings}
-        >
+          .ant-tabs-tab {
+            color: ${token.colorTextSecondary} !important;
+          }
+          .ant-tabs-tab:hover {
+            color: ${token.colorPrimary} !important;
+            background: ${token.colorPrimaryBg} !important;
+          }
+          .ant-tabs-tab-active {
+            color: ${token.colorPrimary} !important;
+            border-bottom-color: ${token.colorPrimary} !important;
+          }
+          .ant-tabs-content-holder {
+            background: ${token.colorBgLayout} !important;
+          }
+          .ant-tabs-tabpane::-webkit-scrollbar-track {
+            background: ${token.colorBgContainer};
+          }
+          .ant-tabs-tabpane::-webkit-scrollbar-thumb {
+            background: ${token.colorBorder};
+          }
+          .ant-tabs-tabpane::-webkit-scrollbar-thumb:hover {
+            background: ${token.colorBorderSecondary};
+          }
+        `}</style>
+        <Tabs
+          activeKey={activeTab}
+          onChange={handleTabChange}
+          items={[
+            {
+              key: 'general',
+              label: t('pages.settings.general_tab_title') || 'General',
+              children: (
+                <StyledCard
+                  title={t('common.settings')}
+                  extra={
+                    <Tooltip title={t('common.reload')}>
+                      <StyledRefreshButton
+                        shape="circle"
+                        icon={<ReloadOutlined />}
+                        onClick={handleReload}
+                        loading={loading}
+                      />
+                    </Tooltip>
+                  }
+                >
+                <Form
+                  key={formKey}
+                  form={form}
+                  layout="vertical"
+                  onFinish={handleSave}
+                  preserve={true}
+                  initialValues={settingsData || initialSettings}
+                >
           {/* Base模式Settings */}
-          <Card
+          <StyledCard
             title={t('pages.settings.basic_mode_settings')}
             size="small"
             style={{ marginBottom: '8px' }}
@@ -407,10 +539,10 @@ const Settings: React.FC = () => {
                 </StyledFormItem>
               </Col>
             </Row>
-          </Card>
+                </StyledCard>
 
           {/* 硬件Settings */}
-          <Card
+          <StyledCard
             title={t('pages.settings.hardware_settings')}
             size="small"
             style={{ marginBottom: '8px' }}
@@ -449,10 +581,10 @@ const Settings: React.FC = () => {
                 </StyledFormItem>
               </Col>
             </Row>
-          </Card>
+                </StyledCard>
 
           {/* 引擎和端口Settings */}
-          <Card
+          <StyledCard
             title={t('pages.settings.engine_port_settings')}
             size="small"
             style={{ marginBottom: '8px' }}
@@ -497,10 +629,10 @@ const Settings: React.FC = () => {
                 </StyledFormItem>
               </Col>
             </Row>
-          </Card>
+                </StyledCard>
 
           {/* API Configuration Settings - Group related endpoint+key pairs */}
-          <Card
+          <StyledCard
             title={t('pages.settings.api_configuration')}
             size="small"
             style={{ marginBottom: '8px' }}
@@ -727,10 +859,10 @@ const Settings: React.FC = () => {
                 </StyledFormItem>
               </Col>
             </Row>
-          </Card>
+                </StyledCard>
 
           {/* PathSettings */}
-          <Card
+          <StyledCard
             title={t('pages.settings.path_settings')}
             size="small"
             style={{ marginBottom: '8px' }}
@@ -918,10 +1050,10 @@ const Settings: React.FC = () => {
                 </StyledFormItem>
               </Col>
             </Row>
-          </Card>
+                </StyledCard>
 
           {/* Database Settings - Group host+port pairs */}
-          <Card
+          <StyledCard
             title={t('pages.settings.database_settings')}
             size="small"
             style={{ marginBottom: '8px' }}
@@ -977,10 +1109,10 @@ const Settings: React.FC = () => {
               </Col>
             </Row>
 
-          </Card>
+                </StyledCard>
 
           {/* 文件跟踪和其他Settings */}
-          <Card
+          <StyledCard
             title={t('pages.settings.file_tracking_other_settings')}
             size="small"
             style={{ marginBottom: '8px' }}
@@ -1045,7 +1177,7 @@ const Settings: React.FC = () => {
                 </StyledFormItem>
               </Col>
             </Row>
-          </Card>
+                </StyledCard>
 
           {/* Advanced Settings Section */}
           <Row gutter={16}>
@@ -1126,15 +1258,23 @@ const Settings: React.FC = () => {
               {t('common.save')}
             </Button>
           </StyledFormItem>
-        </Form>
-      </Card>
-
-        {/* 🎯 New independent LLM management component */}
-        <LLMManagement
-          username={username}
-          defaultLLM={settingsData?.default_llm || ''}
-          settingsLoaded={settingsLoaded}
-          onDefaultLLMChange={handleDefaultLLMChange}
+                </Form>
+                </StyledCard>
+              ),
+            },
+            {
+              key: 'llm',
+              label: t('pages.settings.llm_tab_title') || 'LLM',
+              children: (
+                <LLMManagement
+                  username={username}
+                  defaultLLM={settingsData?.default_llm || ''}
+                  settingsLoaded={settingsLoaded}
+                  onDefaultLLMChange={handleDefaultLLMChange}
+                />
+              ),
+            },
+          ]}
         />
       </SettingsContent>
     </SettingsContainer>

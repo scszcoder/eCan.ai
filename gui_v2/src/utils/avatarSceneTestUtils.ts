@@ -343,9 +343,6 @@ export const ExampleUsage = {
       }
     }
     api.update_screens(scenes_data)
-    
-    # Trigger an event
-    api.trigger_scene_event("agent-123", "thought-change", {"context": "New question"})
   `
 };
 

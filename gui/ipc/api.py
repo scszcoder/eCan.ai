@@ -505,31 +505,50 @@ class IPCAPI:
         """
         self._send_request('update_screens', screens_data, callback=callback)
 
-    def trigger_scene_event(
+    def push_onboarding_message(
         self,
-        agent_id: str,
-        event_type: str,
-        event_data: Optional[Dict[str, Any]] = None,
-        callback: Optional[Callable[[APIResponse[bool]], None]] = None
+        onboarding_type: str,
+        context: Optional[Dict[str, Any]] = None
     ) -> None:
         """
-        Trigger a scene event for a specific agent in the event-driven avatar system
+        Push an onboarding/guide instruction to the frontend
+        Uses standard request format (method: 'onboarding_message')
+        Frontend decides how to display based on onboarding_type
+        
+        Interface Definition (Standard IPC Request):
+        {
+            'type': 'request',
+            'method': 'onboarding_message',
+            'params': {
+                'onboardingType': str,  // e.g., 'llm_provider_config'
+                'context': dict         // Optional context data
+            },
+            'id': str  // Unique request ID
+        }
         
         Args:
-            agent_id: ID of the agent to trigger the event for
-            event_type: Type of event to trigger (timer, action, thought-change, error, 
-                       interaction, status-change, emotion, custom)
-            event_data: Optional additional data for the event
-                Expected format: {
-                    "priority": "high|medium|low",
-                    "context": "additional context",
-                    "metadata": {...}
-                }
-            callback: Callback function receiving APIResponse[bool]
+            onboarding_type: Type of onboarding instruction (e.g., 'llm_provider_config')
+            context: Optional context data for frontend (e.g., suggested action paths)
+                Frontend will determine UI, text, and behavior based on onboarding_type
         """
-        params = {
-            'agentId': agent_id,
-            'eventType': event_type,
-            'eventData': event_data or {}
-        }
-        self._send_request('trigger_scene_event', params, callback=callback)
+        try:
+            import json
+            import uuid
+            
+            # Create standard IPC request for onboarding
+            request = {
+                'type': 'request',
+                'method': 'onboarding_message',
+                'params': {
+                    'onboardingType': onboarding_type,
+                    'context': context or {}
+                },
+                'id': str(uuid.uuid4())
+            }
+            
+            # Send via standard IPC channel (no response expected for this fire-and-forget request)
+            self._ipc_wc_service.python_to_web.emit(json.dumps(request))
+            logger.info(f"[IPCAPI] Sent onboarding request: {onboarding_type}")
+            
+        except Exception as e:
+            logger.error(f"[IPCAPI] Error sending onboarding request: {e}")

@@ -257,13 +257,31 @@ class LLMManager:
 
     # Provider Management
     def get_all_providers(self) -> List[Dict[str, Any]]:
-        """Get all LLM providers with user preferences"""
+        """Get all LLM providers with user preferences
+        
+        Merges data from:
+        - llm_providers.json (provider definitions, supported models) - read-only
+        - settings.json (default_llm, default_llm_model) - writable even in PyInstaller
+        
+        Only the current default_llm provider gets preferred_model from settings.json.
+        """
         providers = []
         
+        # Get current default provider and its model from settings.json
+        from app_context import AppContext
+        main_window = AppContext.get_main_window()
+        current_default_llm = ""
+        current_default_model = ""
+        if main_window:
+            general_settings = main_window.config_manager.general_settings
+            current_default_llm = general_settings.default_llm
+            current_default_model = general_settings.default_llm_model
+        
         for provider_name, provider_config in llm_config.get_all_providers().items():
-            # No user preferences (simplified)
-            is_preferred = False
-            preferred_model = None
+            # Only set preferred_model if this is the current default provider
+            is_default_provider = (provider_name == current_default_llm)
+            preferred_model = current_default_model if (is_default_provider and current_default_model) else provider_config.default_model
+            is_preferred = is_default_provider
             custom_params = {}
 
             # Check if API keys are configured using environment variables
@@ -285,7 +303,7 @@ class LLMManager:
                 "api_key_env_vars": provider_config.api_key_env_vars,
                 "supported_models": self._serialize_models(provider_config.supported_models),
 
-                # User preferences
+                # User preferences (only for current default provider)
                 "is_preferred": is_preferred,
                 "preferred_model": preferred_model,
                 "custom_parameters": custom_params,
@@ -337,7 +355,7 @@ class LLMManager:
             return []
         
         models = []
-        preferred_model = None  # No preferences stored
+        preferred_model = provider_config.default_model
         
         for model in provider_config.supported_models:
             model_data = asdict(model)
@@ -348,6 +366,48 @@ class LLMManager:
             models.append(model_data)
         
         return models
+
+    def set_provider_default_model(self, provider_name: str, model_name: str) -> Tuple[bool, Optional[str]]:
+        """Update the default model for the default LLM provider
+        
+        Note: Only saves if this is the current default provider.
+        Saves to user's settings.json (writable in PyInstaller), 
+        NOT to llm_providers.json (read-only in PyInstaller).
+        """
+        provider_config = llm_config.get_provider(provider_name)
+        if not provider_config:
+            return False, f"Provider {provider_name} not found"
+
+        available_models = llm_config.get_models_for_provider(provider_name)
+        valid_model_names = {model.name for model in available_models}
+
+        if available_models and model_name not in valid_model_names:
+            return False, f"Model {model_name} is not supported by provider {provider_name}"
+
+        # Save to user's settings.json (writable even in PyInstaller)
+        from app_context import AppContext
+        main_window = AppContext.get_main_window()
+        if not main_window:
+            return False, "Main window not available"
+        
+        general_settings = main_window.config_manager.general_settings
+        
+        # Check if this is the current default provider
+        current_default_llm = general_settings.default_llm
+        if current_default_llm == provider_name:
+            # Update default_llm_model for the current default provider
+            general_settings.default_llm_model = model_name
+            
+            if not general_settings.save():
+                return False, "Failed to save model selection to settings"
+            
+            logger.info(f"Updated default_llm_model to {model_name} for current default provider {provider_name}")
+        else:
+            # Not the default provider, just return success without saving
+            # The frontend may want to change models for non-default providers for preview
+            logger.info(f"Model {model_name} selected for {provider_name} (not saved since it's not the default provider)")
+
+        return True, None
     
     def get_model(self, provider_name: str, model_name: str) -> Optional[Dict[str, Any]]:
         """Get a specific model configuration"""
@@ -757,5 +817,113 @@ For {system}, please refer to system documentation for setting environment varia
                 continue
         
         return total_removed > 0
+
+    # Onboarding and Configuration Check
+    
+    def check_provider_configured(self) -> Tuple[bool, Optional[str]]:
+        """
+        Check if LLM provider is configured and a default is selected
+        
+        Returns:
+            tuple: (is_configured: bool, configured_provider_name: Optional[str])
+            - is_configured: True if default LLM provider is configured, False otherwise
+            - configured_provider_name: Name of configured default provider, or None
+        """
+        try:
+            # Get default LLM from settings
+            default_llm = self.config_manager.general_settings.default_llm
+            
+            if default_llm:
+                # Check if default LLM provider is configured
+                provider = self.get_provider(default_llm)
+                if provider and provider.get('api_key_configured', False):
+                    # Default LLM is configured
+                    return True, default_llm
+                else:
+                    # Default LLM is set but not configured (missing API key)
+                    logger.debug(f"[LLMManager] Default LLM '{default_llm}' is set but not configured")
+                    return False, None
+            
+            # If no default is set, check if any provider is configured
+            # This helps us determine if we should prompt user to set a default
+            all_providers = self.get_all_providers()
+            has_configured_provider = False
+            for provider in all_providers:
+                if provider.get('api_key_configured', False):
+                    has_configured_provider = True
+                    break
+            
+            if has_configured_provider:
+                # Found configured provider but no default is set
+                logger.debug("[LLMManager] Found configured provider but no default is set")
+                return False, None
+            
+            # No provider is configured at all
+            logger.debug("[LLMManager] No LLM provider is configured")
+            return False, None
+            
+        except Exception as e:
+            logger.error(f"[LLMManager] Error checking LLM provider configuration: {e}")
+            return False, None
+
+    async def check_and_show_onboarding(self, delay_seconds: float = 2.0):
+        """
+        Check LLM provider configuration and show onboarding guide if needed
+        This runs asynchronously and should be called after initialization is complete
+        
+        Args:
+            delay_seconds: Delay before checking to ensure web GUI is ready
+        """
+        try:
+            import asyncio
+            # Wait a bit to ensure web GUI is ready
+            await asyncio.sleep(delay_seconds)
+            
+            is_configured, configured_provider = self.check_provider_configured()
+            
+            if not is_configured:
+                logger.info("[LLMManager] 📋 LLM provider not configured, showing onboarding guide")
+                await self.show_onboarding_guide()
+            else:
+                logger.debug(f"[LLMManager] ✅ LLM provider configured: {configured_provider}")
+                
+        except Exception as e:
+            logger.error(f"[LLMManager] Error in LLM provider onboarding check: {e}")
+
+    async def show_onboarding_guide(self):
+        """
+        Show onboarding guide for LLM provider configuration
+        Sends instruction to frontend to display onboarding guide.
+        Frontend determines UI, text, and behavior based on instruction type.
+        """
+        try:
+            from app_context import AppContext
+            web_gui = AppContext.get_web_gui()
+            if not web_gui:
+                logger.warning("[LLMManager] Web GUI not available for onboarding guide")
+                return
+            
+            ipc_api = web_gui.get_ipc_api()
+            if not ipc_api:
+                logger.warning("[LLMManager] IPC API not available for onboarding guide")
+                return
+            
+            # Push onboarding instruction to frontend (one-way push, no response expected)
+            # Frontend will determine how to display based on onboarding_type
+            ipc_api.push_onboarding_message(
+                onboarding_type='llm_provider_config',
+                context={
+                    'suggestedAction': {
+                        'type': 'navigate',
+                        'path': '/settings',
+                        'params': {'tab': 'llm'}
+                    }
+                }
+            )
+            
+            logger.info("[LLMManager] Onboarding instruction pushed to frontend")
+            
+        except Exception as e:
+            logger.error(f"[LLMManager] Error showing LLM provider onboarding guide: {e}")
 
 

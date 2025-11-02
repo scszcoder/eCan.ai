@@ -1,21 +1,22 @@
 import { logger } from '../../utils/logger';
 import { userStorageManager } from '../storage/UserStorageManager';
 import { logoutManager } from '../LogoutManager';
+import { handleOnboardingRequest } from '../onboarding/onboardingService';
 
-// PageRefresh后的OperationType
+// Operation type to execute after page refresh
 export type PageRefreshAction = () => void | Promise<void>;
 
-// PageRefresh管理器
+// Page refresh manager
 export class PageRefreshManager {
     private static instance: PageRefreshManager;
     private isInitialized = false;
     private actions: Map<string, PageRefreshAction> = new Map();
     private cleanupFunctions: (() => void)[] = [];
-    private isEnabled = false; // DefaultDisabled，只有在LoginSuccess后才Enabled
+    private isEnabled = false; // Disabled by default, only enabled after login success
 
     private constructor() {}
 
-    // 单例模式
+    // Singleton pattern
     public static getInstance(): PageRefreshManager {
         if (!PageRefreshManager.instance) {
             PageRefreshManager.instance = new PageRefreshManager();
@@ -25,10 +26,10 @@ export class PageRefreshManager {
 
 
 
-    // Initialize管理器
+    // Initialize the manager
     public initialize(): void {
         if (this.isInitialized) {
-            logger.warn('PageRefreshManager 已经Initialize过了');
+            logger.warn('PageRefreshManager has already been initialized');
             return;
         }
 
@@ -38,61 +39,61 @@ export class PageRefreshManager {
         this.registerLogoutCleanup();
         this.isInitialized = true;
         
-        // 不管localStorage中是否有Data，都要尝试从BackendGetUserStatus
+        // Always attempt to restore user status from backend, regardless of localStorage data
         this.isEnabled = true;
-        logger.info('PageRefreshManager InitializeCompleted（总是Enabled，尝试RestoreUserStatus）');
+        logger.info('PageRefreshManager initialization completed (always enabled, attempting to restore user status)');
 
-        // 立即Execute一次RestoreOperation
-        logger.info('🔄 立即尝试RestoreUserStatus');
+        // Immediately execute restore operation once
+        logger.info('🔄 Attempting to restore user status immediately');
         this.executeAllActions().catch(error => {
-            logger.error('❌ Initialize时ExecuteRestoreOperationFailed:', error);
+            logger.error('❌ Failed to execute restore operation during initialization:', error);
         });
     }
 
-    // EnabledPageRefreshOperation（LoginSuccess后调用）
+    // Enable page refresh operations (called after login success)
     public enable(): void {
         this.isEnabled = true;
-        logger.info('PageRefreshOperation已Enabled（User已Login）');
+        logger.info('Page refresh operations enabled (user logged in)');
     }
 
-    // DisabledPageRefreshOperation（logout时调用）
+    // Disable page refresh operations (called on logout)
     public disable(): void {
         this.isEnabled = false;
-        logger.info('PageRefreshOperation已Disabled（User已Logout）');
+        logger.info('Page refresh operations disabled (user logged out)');
     }
 
-    // Check是否Enabled
+    // Check if enabled
     public isPageRefreshEnabled(): boolean {
         return this.isEnabled;
     }
 
-    // RegisterDefaultOperation
+    // Register default operations
     private registerDefaultActions(): void {
-        // RegisterGetLoginInformation的Operation
+        // Register operation to get login information
         this.registerAction('getLastLoginInfo', async () => {
             try {
-                logger.info('PageRefresh后尝试RestoreUserStatus');
+                logger.info('Attempting to restore user status after page refresh');
 
-                // 使用统一Storage管理器Check和RestoreUserStatus
+                // Use unified storage manager to check and restore user status
                 const restored = userStorageManager.restoreUserState();
                 if (!restored) {
-                    logger.info('没有找到有效的User会话，跳过自动LoginRestore');
+                    logger.info('No valid user session found, skipping auto login restoration');
                     return;
                 }
 
                 const userInfo = userStorageManager.getUserInfo();
                 if (!userInfo) {
-                    logger.error('UserInformationRestoreFailed');
+                    logger.error('User information restoration failed');
                     return;
                 }
 
-                logger.info('✅ UserStatus已Restore:', userInfo.username);
+                logger.info('✅ User status restored:', userInfo.username);
 
-                // // Validate会话有效性，尝试GetSystemData
+                // // Validate session validity by attempting to get system data
                 // const appData = await get_ipc_api().getAll(userInfo.username);
                 // console.log('appData', appData);
 
-                // // 将API返回的DataSave到store中
+                // // Save API response data to store
                 // if (appData?.data) {
                 //     logger.info('PageRefreshManager: Get all system data successful');
                 //     // Update store
@@ -100,42 +101,42 @@ export class PageRefreshManager {
                 //     logger.info('PageRefreshManager: System data restored in store.');
                 // } else {
                 //     logger.error('PageRefreshManager: Get all system data failed');
-                //     // IfGetSystemDataFailed，可能是会话过期，CleanupUserData
+                //     // If getting system data failed, session may be expired, cleanup user data
                 //     if (appData?.error?.code === 'TOKEN_REQUIRED' || appData?.error?.code === 'UNAUTHORIZED') {
-                //         logger.warn('会话可能已过期，CleanupUserData');
+                //         logger.warn('Session may have expired, cleaning up user data');
                 //         userStorageManager.clearAllUserData();
                 //     }
                 // }
                 
-                logger.info('PageRefresh后ExecuteActionCompleted');
+                logger.info('Action execution completed after page refresh');
             } catch (error) {
-                logger.error('GetLoginInformationFailed:', error);
+                logger.error('Failed to get login information:', error);
             }
         });
 
-        logger.info('DefaultOperationRegisterCompleted');
+        logger.info('Default operations registration completed');
     }
 
-    // SettingsEventListen器
+    // Setup event listeners
     private setupEventListeners(): void {
-        // ListenPage重新LoadCompletedEvent
+        // Listen for page reload completed event
         const handleLoad = () => {
-            logger.info('🔄 Page重新LoadCompleted，ExecuteRestoreOperation');
+            logger.info('🔄 Page reload completed, executing restore operation');
             this.executeAllActions();
         };
 
-        // AddEventListen器
+        // Add event listener
         window.addEventListener('load', handleLoad);
 
-        // SaveCleanupFunctionReference
+        // Save cleanup function reference
         this.cleanupFunctions = [
             () => window.removeEventListener('load', handleLoad)
         ];
 
-        logger.info('PageRefreshEventListen器SettingsCompleted');
+        logger.info('Page refresh event listener setup completed');
     }
 
-    // CleanupEventListen器
+    // Cleanup event listeners
     public cleanup(): void {
         if (!this.isInitialized) {
             return;
@@ -145,87 +146,98 @@ export class PageRefreshManager {
         this.cleanupFunctions.forEach(cleanup => cleanup());
         this.cleanupFunctions = [];
         this.isInitialized = false;
-        this.isEnabled = false; // Cleanup时Disabled
-        logger.info('PageRefreshManager CleanupCompleted');
+        this.isEnabled = false; // Disable during cleanup
+        logger.info('PageRefreshManager cleanup completed');
     }
 
-    // RegisterPageRefresh后的Operation
+    // Register operation to execute after page refresh
     public registerAction(name: string, action: PageRefreshAction): void {
         this.actions.set(name, action);
-        logger.info(`RegisterPageRefreshOperation: ${name}`);
+        logger.info(`Register page refresh operation: ${name}`);
     }
 
-    // CancelRegisterOperation
+    // Unregister operation
     public unregisterAction(name: string): boolean {
         const removed = this.actions.delete(name);
         if (removed) {
-            logger.info(`CancelRegisterPageRefreshOperation: ${name}`);
+            logger.info(`Unregister page refresh operation: ${name}`);
         }
         return removed;
     }
 
-    // ExecuteAllRegister的Operation
+    // Execute all registered operations
     public async executeAllActions(): Promise<void> {
-        logger.info(`🔄 Execute ${this.actions.size} 个PageRefreshOperation`);
+        logger.info(`🔄 Executing ${this.actions.size} page refresh operations`);
         
         const promises: Promise<void>[] = [];
         
         for (const [name, action] of this.actions) {
             try {
-                logger.info(`ExecuteOperation: ${name}`);
+                logger.info(`Execute operation: ${name}`);
                 const result = action();
                 if (result instanceof Promise) {
                     promises.push(result);
                 }
             } catch (error) {
-                logger.error(`ExecuteOperation ${name} Failed:`, error);
+                logger.error(`Execute operation ${name} failed:`, error);
             }
         }
 
-        // 等待AllAsyncOperationCompleted
+        // Wait for all async operations to complete
         if (promises.length > 0) {
             try {
                 await Promise.all(promises);
-                logger.info('AllPageRefreshOperationExecuteCompleted');
+                logger.info('All page refresh operations executed successfully');
+                
+                // TEST: Trigger onboarding message for testing with 3s delay
+                // setTimeout(() => {
+                //     handleOnboardingRequest('llm_provider_config', {
+                //         suggestedAction: {
+                //             type: 'navigate',
+                //             path: '/settings',
+                //             params: { tab: 'llm' }
+                //         }
+                //     });
+                // }, 3000);
             } catch (error) {
-                logger.error('部分PageRefreshOperationExecuteFailed:', error);
+                logger.error('Some page refresh operations failed:', error);
             }
         }
     }
 
-    // Execute指定的Operation
+    // Execute specific operation
     public async executeAction(name: string): Promise<void> {
-        // Check是否Enabled
+        // Check if enabled
         if (!this.isEnabled) {
-            logger.info('PageRefreshOperation已Disabled（User未Login），跳过Execute');
+            logger.info('Page refresh operations disabled (user not logged in), skipping execution');
             return;
         }
 
         const action = this.actions.get(name);
         if (!action) {
-            logger.warn(`Operation ${name} 不存在`);
+            logger.warn(`Operation ${name} does not exist`);
             return;
         }
 
         try {
-            logger.info(`ExecuteOperation: ${name}`);
+            logger.info(`Execute operation: ${name}`);
             const result = action();
             if (result instanceof Promise) {
                 await result;
             }
-            logger.info(`Operation ${name} ExecuteCompleted`);
+            logger.info(`Operation ${name} execution completed`);
         } catch (error) {
-            logger.error(`ExecuteOperation ${name} Failed:`, error);
+            logger.error(`Execute operation ${name} failed:`, error);
             throw error;
         }
     }
 
-    // GetRegister的OperationList
+    // Get registered operations list
     public getRegisteredActions(): string[] {
         return Array.from(this.actions.keys());
     }
 
-    // Get管理器Status
+    // Get manager status
     public getStatus(): { isInitialized: boolean; actionCount: number; isEnabled: boolean } {
         return {
             isInitialized: this.isInitialized,
@@ -235,22 +247,22 @@ export class PageRefreshManager {
     }
 
     /**
-     * RegisterlogoutCleanupFunction
+     * Register logout cleanup function
      */
     private registerLogoutCleanup(): void {
         logoutManager.registerCleanup({
             name: 'PageRefreshManager',
             cleanup: () => {
                 logger.info('[PageRefreshManager] Cleaning up for logout...');
-                this.disable(); // DisabledPageRefreshOperation
-                this.cleanup(); // CleanupEventListen器
-                this.actions.clear(); // CleanupAllRegister的Operation
+                this.disable(); // Disable page refresh operations
+                this.cleanup(); // Cleanup event listeners
+                this.actions.clear(); // Clear all registered operations
                 logger.info('[PageRefreshManager] Cleanup completed');
             },
-            priority: 20 // 中等Priority
+            priority: 20 // Medium priority
         });
     }
 }
 
-// Export单例实例
+// Export singleton instance
 export const pageRefreshManager = PageRefreshManager.getInstance(); 

@@ -76,12 +76,7 @@ export interface Settings {
   
   // LLM
   default_llm: string;
-  cn_llm_provider: string;
-  cn_llm_model: string;
-  us_llm_provider: string;
-  us_llm_model: string;
-  eu_llm_provider: string;
-  eu_llm_model: string;
+  default_llm_model: string;
   
   // Skill
   skill_use_git: boolean;
