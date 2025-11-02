@@ -6,13 +6,11 @@ import { IPCRequest } from './types';
 import { useNodeStatusStore } from '@/modules/skill-editor/stores/node-status-store';
 import { useSheetsStore } from '@/modules/skill-editor/stores/sheets-store';
 import { useSkillInfoStore } from '@/modules/skill-editor/stores/skill-info-store';
-import { useAppDataStore } from '../../stores/appDataStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import {
   useTaskStore,
   useSkillStore,
-  useVehicleStore,
   useKnowledgeStore,
   useChatStore
 } from '../../stores';
@@ -20,9 +18,9 @@ import { eventBus } from '@/utils/eventBus';
 import { useRunningNodeStore } from '@/modules/skill-editor/stores/running-node-store';
 import { useAvatarSceneStore } from '../../stores/avatarSceneStore';
 import { useRuntimeStateStore } from '@/modules/skill-editor/stores/runtime-state-store';
-
-import { AvatarEventType } from '../avatarEventType';
 import { logger } from '@/utils/logger';
+import { handleOnboardingRequest, type OnboardingContext } from '../onboarding/onboardingService';
+
 // Process器TypeDefinition
 type Handler = (request: IPCRequest) => Promise<unknown>;
 type HandlerMap = Record<string, Handler>;
@@ -67,7 +65,7 @@ export class IPCHandlers {
         this.registerHandler('push_chat_notification', this.pushChatNotification);
         this.registerHandler('update_all', this.updateAll);
         this.registerHandler('update_screens', this.updateScreens);
-        this.registerHandler('trigger_scene_event', this.triggerSceneEvent);
+        this.registerHandler('onboarding_message', this.onboardingMessage);
     }
 
     private registerHandler(method: string, handler: Handler): void {
@@ -76,6 +74,39 @@ export class IPCHandlers {
 
     getHandlers(): HandlerMap {
         return this.handlers;
+    }
+
+    /**
+     * Handle onboarding message from backend
+     * Standard request handler - delegates to onboarding service
+     */
+    async onboardingMessage(request: IPCRequest): Promise<unknown> {
+        try {
+            // Extract onboarding data from request params
+            const params = request.params as {
+                onboardingType: string;
+                context?: OnboardingContext;
+            };
+            
+            const { onboardingType, context } = params;
+            
+            logger.info(`[Handlers] Received onboarding request: ${onboardingType}`, { 
+                requestId: request.id
+            });
+            
+            // Delegate to onboarding service for business logic
+            await handleOnboardingRequest(onboardingType, context);
+            
+            // Return success response
+            return {
+                success: true,
+                onboardingType,
+                timestamp: Date.now()
+            };
+        } catch (error) {
+            logger.error('[Handlers] Error handling onboarding request:', error);
+            throw error;
+        }
     }
 
     async updateOrgAgents(request: IPCRequest): Promise<unknown> {
@@ -250,7 +281,7 @@ export class IPCHandlers {
         g.__runningNodeLastTs = incomingTs;
 
         const runningNodeStore = useRunningNodeStore.getState();
-        const previousRunningNode = runningNodeStore.runningNodeId;
+        // const previousRunningNode = runningNodeStore.runningNodeId;
 
         // Queue scheme to enforce a minimum visible duration per node
         const GN: any = (window as any);
@@ -265,8 +296,8 @@ export class IPCHandlers {
             try { useNodeStatusStore.getState().clear(); } catch {}
         }
         // Re-read q after potential reset
-        const qRef = (window as any).__runningNodeQueue as { runId: string | null; queue: string[]; showing: string | null; shownAt: number; t: any; completed: boolean; clearT: any; endStatus: null | 'completed' | 'failed' };
-        const now = Date.now();
+        // const qRef = (window as any).__runningNodeQueue as { runId: string | null; queue: string[]; showing: string | null; shownAt: number; t: any; completed: boolean; clearT: any; endStatus: null | 'completed' | 'failed' };
+        // const now = Date.now();
         const MIN_VISIBLE_MS = 1000; // hysteresis: each node should be visible at least this long
         const MAX_STUCK_EXTRA_MS = 2000; // fail-safe: if timers get throttled, advance after this extra time
 
@@ -457,6 +488,7 @@ export class IPCHandlers {
     async updateTasksStat(request: IPCRequest): Promise<{ success: boolean }> {
         // logger.info('Received updateTasksStat request:', request.params);
         eventBus.emit('chat:newMessage', request.params);
+        return { success: true };
     }
 
     async updateScreens(request: IPCRequest): Promise<{ success: boolean }> {
@@ -486,30 +518,8 @@ export class IPCHandlers {
         }
     }
 
-    async triggerSceneEvent(request: IPCRequest): Promise<{ success: boolean }> {
-        logger.info('Received trigger_scene_event request:', request.params);
-        
-        try {
-            validateParams(request, ['agentId', 'eventType']);
-            const { agentId, eventType, eventData } = request.params as {
-                agentId: string;
-                eventType: string;
-                eventData?: any;
-            };
-            
-            // Get the avatar event manager instance and trigger the event
-            const eventManager = AvatarEventManager.getInstance();
-            eventManager.emitEvent(agentId, eventType, eventData || {});
-            
-            logger.info(`Triggered scene event '${eventType}' for agent '${agentId}'`);
-            return { success: true };
-        } catch (error) {
-            logger.error('Error triggering scene event:', error);
-            throw new Error(`Failed to trigger scene event: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
-    }
-
 }
+
 
 export const getHandlers = () => {
     const ipcHandlers = new IPCHandlers();

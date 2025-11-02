@@ -270,8 +270,12 @@ export class IPCAPI {
         return this.executeRequest<T>('get_llm_providers', {});
     }
 
-    public async setDefaultLLM<T>(name: string, username: string): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('set_default_llm', { name, username });
+    public async setDefaultLLM<T>(name: string, username: string, model?: string): Promise<APIResponse<T>> {
+        const params: any = { name, username };
+        if (model) {
+            params.model = model;
+        }
+        return this.executeRequest<T>('set_default_llm', params);
     }
 
     public async updateLLMProvider<T>(name: string, apiKey: string, azureEndpoint?: string, awsAccessKeyId?: string, awsSecretAccessKey?: string): Promise<APIResponse<T>> {
@@ -286,6 +290,10 @@ export class IPCAPI {
             params.aws_secret_access_key = awsSecretAccessKey;
         }
         return this.executeRequest<T>('update_llm_provider', params);
+    }
+
+    public async setLLMProviderModel<T>(name: string, model: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('set_llm_provider_model', { name, model });
     }
 
     public async deleteLLMProviderConfig<T>(name: string, username: string): Promise<APIResponse<T>> {

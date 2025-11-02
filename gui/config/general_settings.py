@@ -476,58 +476,13 @@ class GeneralSettings:
         self._data["default_llm"] = value
 
     @property
-    def cn_llm_provider(self) -> str:
-        """China LLM provider"""
-        return self._data.get("cn_llm_provider", "")
+    def default_llm_model(self) -> str:
+        """Default LLM model for the current default provider"""
+        return self._data.get("default_llm_model", "")
 
-    @cn_llm_provider.setter
-    def cn_llm_provider(self, value: str):
-        self._data["cn_llm_provider"] = value
-
-    @property
-    def cn_llm_model(self) -> str:
-        """China LLM model"""
-        return self._data.get("cn_llm_model", "")
-
-    @cn_llm_model.setter
-    def cn_llm_model(self, value: str):
-        self._data["cn_llm_model"] = value
-
-    @property
-    def us_llm_provider(self) -> str:
-        """US LLM provider"""
-        return self._data.get("us_llm_provider", "")
-
-    @us_llm_provider.setter
-    def us_llm_provider(self, value: str):
-        self._data["us_llm_provider"] = value
-
-    @property
-    def us_llm_model(self) -> str:
-        """US LLM model"""
-        return self._data.get("us_llm_model", "")
-
-    @us_llm_model.setter
-    def us_llm_model(self, value: str):
-        self._data["us_llm_model"] = value
-
-    @property
-    def eu_llm_provider(self) -> str:
-        """Europe LLM provider"""
-        return self._data.get("eu_llm_provider", "")
-
-    @eu_llm_provider.setter
-    def eu_llm_provider(self, value: str):
-        self._data["eu_llm_provider"] = value
-
-    @property
-    def eu_llm_model(self) -> str:
-        """Europe LLM model"""
-        return self._data.get("eu_llm_model", "")
-
-    @eu_llm_model.setter
-    def eu_llm_model(self, value: str):
-        self._data["eu_llm_model"] = value
+    @default_llm_model.setter
+    def default_llm_model(self, value: str):
+        self._data["default_llm_model"] = value
 
     @property
     def skill_use_git(self) -> bool:

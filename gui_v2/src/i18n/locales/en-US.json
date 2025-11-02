@@ -128,6 +128,14 @@
     "en-US": "English",
     "zh-CN": "简体中文"
   },
+  "onboarding": {
+    "llmProviderConfig": {
+      "title": "Welcome to eCan.ai",
+      "message": "To use AI features, you need to configure at least one LLM Provider. This only takes a few minutes.",
+      "primaryButton": "Configure Now",
+      "skipButton": "Maybe Later"
+    }
+  },
   "pages": {
     "agents": {
       "add": "Add",
@@ -497,6 +505,8 @@
     },
     "settings": {
       "title": "Settings",
+      "general_tab_title": "General",
+      "llm_tab_title": "LLM Management",
       "profile": "Profile",
       "system": "System Settings",
       "notifications": "Notification Settings",
@@ -604,6 +614,13 @@
       "gui_flowgram_schema": "Gui_flowgram_schema",
       "hardware_settings": "Hardware_settings",
       "hide": "Hide",
+      "llm_model": "LLM Model",
+      "select_model": "Select model",
+      "model_update_success": "Model updated successfully",
+      "model_update_failed": "Failed to update model",
+      "open_docs": "Open official site",
+      "documentation_unavailable": "Documentation link not available",
+      "no_models_available": "No models available",
       "lan_api_endpoint": "Lan_api_endpoint",
       "language": "Language",
       "languageChangeError": "Language Change Error",
@@ -616,6 +633,8 @@
       "llm_management": "Llm_management",
       "llm_provider": "Llm_provider",
       "llm_updated_successfully": "Llm_updated_successfully",
+      "general_tab_title": "General",
+      "llm_tab_title": "LLM Manager",
       "local_agent_db_host": "Local_agent_db_host",
       "local_agent_db_port": "Local_agent_db_port",
       "local_agent_ports": "Local_agent_ports",

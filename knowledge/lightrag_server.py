@@ -640,6 +640,27 @@ class LightragServer:
             logger.warning(f"[LightragServer] Error trying alternative ports: {e}")
             return False
 
+    def _wait_for_port_release(self, port: int, timeout: float = 10.0) -> bool:
+        """Wait until the specified port becomes available.
+
+        Returns True if the port is free before timeout, False otherwise.
+        """
+        try:
+            import socket
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.settimeout(1)
+                    result = sock.connect_ex(('localhost', port))
+                if result != 0:
+                    return True
+                time.sleep(0.2)
+        except Exception as e:
+            logger.debug(f"[LightragServer] Port release wait error for {port}: {e}")
+            return False
+
+        return False
+
     def _monitor_parent(self):
         import platform
         is_windows = platform.system().lower().startswith('win')
@@ -1072,10 +1093,21 @@ class LightragServer:
                             """Perform restart in a separate thread to avoid blocking."""
                             try:
                                 logger.info("[LightragServer] 🔄 Stopping subprocess...")
+                                try:
+                                    current_port = int(self.extra_env.get("PORT", "9621"))
+                                except (ValueError, TypeError):
+                                    current_port = 9621
                                 self.stop()
-                                time.sleep(0.5)  # Brief delay before restart
+                                # Ensure the previous process has fully released the port before restarting
+                                if not self._wait_for_port_release(current_port, timeout=10.0):
+                                    logger.warning(
+                                        f"[LightragServer] Port {current_port} still in use after stop; restart will continue but may select alternative port"
+                                    )
+                                else:
+                                    logger.debug(f"[LightragServer] Port {current_port} released, proceeding with restart")
+                                time.sleep(0.2)  # Brief delay before restart
                                 logger.info("[LightragServer] 🔄 Restarting subprocess with new proxy settings...")
-                                self.start(wait_gating=False)  # Non-blocking restart
+                                self.start(wait_ready=False)  # Non-blocking restart
                                 logger.info("[LightragServer] ✅ Subprocess restarted with new proxy settings")
                             except Exception as e:
                                 logger.error(f"[LightragServer] Error during proxy-triggered restart: {e}")

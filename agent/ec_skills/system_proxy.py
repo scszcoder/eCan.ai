@@ -338,6 +338,10 @@ class ProxyManager:
         Update environment variables based on proxy availability.
         Thread-safe operation.
         """
+        # Track if we need to notify callbacks (outside the lock)
+        should_notify = False
+        notify_proxies = None
+        
         with self._lock:
             # Check if state changed (compare dict contents, not object reference)
             if proxies is None and self._current_proxies is None:
@@ -359,8 +363,9 @@ class ProxyManager:
                     self._current_proxies = None
                     logger.info("🌐 Proxy environment cleared - using direct connection")
                     
-                    # Notify callbacks about proxy state change (cleared)
-                    self._notify_callbacks(None)
+                    # Schedule callback notification (after releasing lock)
+                    should_notify = True
+                    notify_proxies = None
                 return
             
             # Set proxy environment variables
@@ -401,8 +406,13 @@ class ProxyManager:
             proxy_info = f"HTTP: {http_proxy or 'N/A'}, HTTPS: {https_proxy or 'N/A'}"
             logger.info(f"🌐 Proxy environment updated: {proxy_info}")
             
-            # Notify callbacks about proxy state change
-            self._notify_callbacks(proxies)
+            # Schedule callback notification (after releasing lock)
+            should_notify = True
+            notify_proxies = proxies.copy()
+        
+        # Notify callbacks OUTSIDE the lock to avoid deadlock
+        if should_notify:
+            self._notify_callbacks(notify_proxies)
     
     def _monitor_loop(self):
         """
@@ -421,21 +431,30 @@ class ProxyManager:
             logger.warning(f"Error in initial proxy check: {e}", exc_info=True)
         
         check_count = 0
-        while not self._stop_event.is_set():
-            # Wait for next check or stop signal
-            waited = self._stop_event.wait(self.check_interval)
-            if waited:  # stop_event was set, exit loop
-                break
-            
-            check_count += 1
-            # Perform periodic proxy check
-            try:
-                logger.debug(f"🔍 Periodic proxy check #{check_count} (every {self.check_interval}s)...")
-                self._do_proxy_check()
-            except Exception as e:
-                logger.warning(f"Error in proxy monitor loop (check #{check_count}): {e}", exc_info=True)
-        
-        logger.info(f"🛑 Proxy monitor stopped (performed {check_count} checks)")
+        try:
+            while not self._stop_event.is_set():
+                # Wait for next check or stop signal
+                waited = self._stop_event.wait(self.check_interval)
+                if waited:  # stop_event was set, exit loop
+                    break
+                
+                check_count += 1
+                # Perform periodic proxy check
+                try:
+                    logger.debug(f"🔍 Periodic proxy check #{check_count} (every {self.check_interval}s)...")
+                    self._do_proxy_check()
+                except Exception as e:
+                    logger.warning(f"Error in proxy monitor loop (check #{check_count}): {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"Fatal error in proxy monitor loop: {e}", exc_info=True)
+        finally:
+            # Ensure thread reference is cleared on exit (even on unexpected exit)
+            # Use lock to safely clear reference if this thread is still the active one
+            with self._lock:
+                # Only clear if this is the current active thread (prevent race condition)
+                if self._monitor_thread == threading.current_thread():
+                    self._monitor_thread = None
+            logger.info(f"🛑 Proxy monitor stopped (performed {check_count} checks)")
     
     def start(self):
         """
@@ -444,9 +463,15 @@ class ProxyManager:
         This method returns immediately. The initial proxy check happens
         asynchronously in the background thread to avoid blocking startup.
         """
-        if self._monitor_thread is not None and self._monitor_thread.is_alive():
-            logger.warning("Proxy monitor already running")
-            return
+        # Clean up dead thread reference if exists
+        if self._monitor_thread is not None:
+            if self._monitor_thread.is_alive():
+                logger.warning("Proxy monitor already running")
+                return
+            else:
+                # Thread is dead but reference exists, clean it up
+                logger.debug("Cleaning up dead thread reference")
+                self._monitor_thread = None
         
         self._stop_event.clear()
         self._monitor_thread = threading.Thread(
@@ -462,9 +487,16 @@ class ProxyManager:
         if self._monitor_thread is None:
             return
         
+        # Set stop event to signal thread to exit
         self._stop_event.set()
+        
+        # Wait for thread to finish (with timeout to avoid blocking)
         if self._monitor_thread.is_alive():
             self._monitor_thread.join(timeout=5.0)
+            if self._monitor_thread.is_alive():
+                logger.warning("Proxy monitor thread did not stop within timeout, may still be running")
+        
+        # Clear thread reference (important for preventing leaks)
         self._monitor_thread = None
         logger.info("🛑 Proxy manager stopped")
     
@@ -676,6 +708,12 @@ def initialize_proxy_environment(
     
     # Create and configure proxy manager
     if enable_background_monitoring:
+        # Stop existing proxy manager if any (prevent thread leakage)
+        if _proxy_manager is not None:
+            logger.debug("Stopping existing proxy manager before creating new one")
+            _proxy_manager.stop()
+            _proxy_manager = None
+        
         _proxy_manager = ProxyManager(check_interval=check_interval)
         # Start background monitoring (non-blocking)
         # Initial check will happen in background thread, not blocking startup

@@ -10,7 +10,7 @@
     "api_keys": ["wan_api_key", "ocr_api_key"],
     "engines": ["network_api_engine", "schedule_engine"],
     "ocr": ["ocr_api_endpoint"],
-    "llm": ["default_llm", "cn_llm_provider", "cn_llm_model", "us_llm_provider", "us_llm_model", "eu_llm_provider", "eu_llm_model"],
+    "llm": ["default_llm", "default_llm_model"],
     "skill": ["skill_use_git"],
     "internal": ["last_bots_file", "last_bots_file_time", "last_order_file", "last_order_file_time", "mids_forced_to_run"]
   },
@@ -54,12 +54,7 @@
   "ocr_api_endpoint": "http://47.120.48.82:8848/graphql/reqScreenTxtRead",
   
   "default_llm": "ChatOpenAI",
-  "cn_llm_provider": "deepseek",
-  "cn_llm_model": "deepseek",
-  "us_llm_provider": "openai",
-  "us_llm_model": "gpt-4o",
-  "eu_llm_provider": "openai",
-  "eu_llm_model": "gpt-4o",
+  "default_llm_model": "gpt-4.1",
   
   "skill_use_git": false,
   
