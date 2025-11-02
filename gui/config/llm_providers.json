@@ -1,7 +1,7 @@
 {
   "providers": {
-    "ChatOpenAI": {
-      "name": "ChatOpenAI",
+    "OpenAI": {
+      "name": "OpenAI",
       "display_name": "OpenAI",
       "provider": "openai",
       "class_name": "ChatOpenAI",
@@ -9,34 +9,46 @@
         "OPENAI_API_KEY"
       ],
       "base_url": "https://api.openai.com/v1",
-      "default_model": "gpt-4.1",
+      "default_model": "gpt-4o",
       "description": "OpenAI GPT-4 family models",
       "documentation_url": "https://platform.openai.com/docs",
       "is_local": false,
       "supported_models": [
         {
-          "name": "gpt-4.1",
-          "display_name": "GPT-4.1",
-          "model_id": "gpt-4.1",
-          "default_temperature": 0.7,
-          "max_tokens": 128000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
+          "name": "o1",
+          "display_name": "O1",
+          "model_id": "o1",
+          "default_temperature": 1.0,
+          "max_tokens": 100000,
+          "supports_streaming": false,
+          "supports_function_calling": false,
           "supports_vision": true,
-          "cost_per_1k_tokens": 0.03,
-          "description": "Flagship GPT-4.1 model with unified reasoning, text and vision"
+          "cost_per_1k_tokens": 0.015,
+          "description": "OpenAI's reasoning model for complex problem-solving"
         },
         {
-          "name": "gpt-4.1-mini",
-          "display_name": "GPT-4.1 Mini",
-          "model_id": "gpt-4.1-mini",
-          "default_temperature": 0.7,
-          "max_tokens": 128000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
+          "name": "o1-mini",
+          "display_name": "O1 Mini",
+          "model_id": "o1-mini",
+          "default_temperature": 1.0,
+          "max_tokens": 65536,
+          "supports_streaming": false,
+          "supports_function_calling": false,
           "supports_vision": true,
-          "cost_per_1k_tokens": 0.01,
-          "description": "Cost-effective GPT-4.1 Mini model"
+          "cost_per_1k_tokens": 0.003,
+          "description": "Faster and cheaper reasoning model"
+        },
+        {
+          "name": "o1-preview",
+          "display_name": "O1 Preview",
+          "model_id": "o1-preview",
+          "default_temperature": 1.0,
+          "max_tokens": 128000,
+          "supports_streaming": false,
+          "supports_function_calling": false,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.015,
+          "description": "Preview version of O1 reasoning model"
         },
         {
           "name": "gpt-4o",
@@ -64,8 +76,8 @@
         }
       ]
     },
-    "AzureOpenAI": {
-      "name": "AzureOpenAI",
+    "Azure OpenAI": {
+      "name": "Azure OpenAI",
       "display_name": "Azure OpenAI",
       "provider": "azure_openai",
       "class_name": "AzureOpenAI",
@@ -74,34 +86,34 @@
         "AZURE_OPENAI_API_KEY"
       ],
       "base_url": null,
-      "default_model": "gpt-4.1",
+      "default_model": "gpt-4o",
       "description": "Azure OpenAI Service",
       "documentation_url": "https://docs.microsoft.com/en-us/azure/cognitive-services/openai/",
       "is_local": false,
       "supported_models": [
         {
-          "name": "gpt-4.1",
-          "display_name": "GPT-4.1 (Azure)",
-          "model_id": "gpt-4.1",
-          "default_temperature": 0.7,
-          "max_tokens": 128000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
+          "name": "o1",
+          "display_name": "O1 (Azure)",
+          "model_id": "o1",
+          "default_temperature": 1.0,
+          "max_tokens": 100000,
+          "supports_streaming": false,
+          "supports_function_calling": false,
           "supports_vision": true,
-          "cost_per_1k_tokens": 0.03,
-          "description": "GPT-4.1 model deployed via Azure OpenAI"
+          "cost_per_1k_tokens": 0.015,
+          "description": "O1 reasoning model deployed via Azure OpenAI"
         },
         {
-          "name": "gpt-4.1-mini",
-          "display_name": "GPT-4.1 Mini (Azure)",
-          "model_id": "gpt-4.1-mini",
-          "default_temperature": 0.7,
-          "max_tokens": 128000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
+          "name": "o1-mini",
+          "display_name": "O1 Mini (Azure)",
+          "model_id": "o1-mini",
+          "default_temperature": 1.0,
+          "max_tokens": 65536,
+          "supports_streaming": false,
+          "supports_function_calling": false,
           "supports_vision": true,
-          "cost_per_1k_tokens": 0.01,
-          "description": "Cost-effective GPT-4.1 Mini model on Azure"
+          "cost_per_1k_tokens": 0.003,
+          "description": "O1 Mini reasoning model on Azure"
         },
         {
           "name": "gpt-4o",
@@ -129,8 +141,8 @@
         }
       ]
     },
-    "ChatAnthropic": {
-      "name": "ChatAnthropic",
+    "Anthropic Claude": {
+      "name": "Anthropic Claude",
       "display_name": "Anthropic Claude",
       "provider": "anthropic",
       "class_name": "ChatAnthropic",
@@ -178,23 +190,11 @@
           "supports_vision": true,
           "cost_per_1k_tokens": 0.075,
           "description": "Claude 3 Opus for complex reasoning tasks"
-        },
-        {
-          "name": "claude-3.5-sonnet-thinking",
-          "display_name": "Claude 3.5 Sonnet Thinking",
-          "model_id": "claude-3.5-sonnet-thinking",
-          "default_temperature": 0.7,
-          "max_tokens": 4096,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.02,
-          "description": "Claude Sonnet reasoning-focused variant"
         }
       ]
     },
-    "ChatBedrockConverse": {
-      "name": "ChatBedrockConverse",
+    "AWS Bedrock": {
+      "name": "AWS Bedrock",
       "display_name": "AWS Bedrock",
       "provider": "bedrock",
       "class_name": "ChatBedrockConverse",
@@ -246,8 +246,8 @@
         }
       ]
     },
-    "ChatGoogleGenerativeAI": {
-      "name": "ChatGoogleGenerativeAI",
+    "Google Gemini": {
+      "name": "Google Gemini",
       "display_name": "Google Gemini",
       "provider": "google",
       "class_name": "ChatGoogleGenerativeAI",
@@ -322,8 +322,8 @@
         }
       ]
     },
-    "ChatDeepSeek": {
-      "name": "ChatDeepSeek",
+    "DeepSeek": {
+      "name": "DeepSeek",
       "display_name": "DeepSeek",
       "provider": "deepseek",
       "class_name": "ChatDeepSeek",
@@ -349,9 +349,9 @@
           "description": "DeepSeek's flagship multimodal model"
         },
         {
-          "name": "deepseek-r1",
-          "display_name": "DeepSeek R1",
-          "model_id": "deepseek-r1",
+          "name": "deepseek-reasoner",
+          "display_name": "DeepSeek Reasoner",
+          "model_id": "deepseek-reasoner",
           "default_temperature": 0.1,
           "max_tokens": 4096,
           "supports_streaming": true,
@@ -386,8 +386,8 @@
         }
       ]
     },
-    "ChatQwQ": {
-      "name": "ChatQwQ",
+    "Qwen (DashScope)": {
+      "name": "Qwen (DashScope)",
       "display_name": "Qwen (DashScope)",
       "provider": "dashscope",
       "class_name": "ChatQwQ",
@@ -474,8 +474,84 @@
         }
       ]
     },
-    "ChatOllama": {
-      "name": "ChatOllama",
+    "Bytedance": {
+      "name": "Bytedance",
+      "display_name": "Bytedance",
+      "provider": "bytedance",
+      "class_name": "ChatDoubao",
+      "api_key_env_vars": [
+        "ARK_API_KEY"
+      ],
+      "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+      "default_model": "doubao-pro-256k",
+      "description": "Bytedance Doubao models",
+      "documentation_url": "https://www.volcengine.com/docs/82379",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "doubao-pro-256k",
+          "display_name": "Doubao Pro 256K",
+          "model_id": "doubao-pro-256k",
+          "default_temperature": 0.7,
+          "max_tokens": 256000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.008,
+          "description": "Doubao Pro with 256K context"
+        },
+        {
+          "name": "doubao-pro-128k",
+          "display_name": "Doubao Pro 128K",
+          "model_id": "doubao-pro-128k",
+          "default_temperature": 0.7,
+          "max_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.005,
+          "description": "Doubao Pro with 128K context"
+        },
+        {
+          "name": "doubao-pro-32k",
+          "display_name": "Doubao Pro 32K",
+          "model_id": "doubao-pro-32k",
+          "default_temperature": 0.7,
+          "max_tokens": 32000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.0008,
+          "description": "Doubao Pro with 32K context"
+        },
+        {
+          "name": "doubao-lite-128k",
+          "display_name": "Doubao Lite 128K",
+          "model_id": "doubao-lite-128k",
+          "default_temperature": 0.7,
+          "max_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.0003,
+          "description": "Lightweight Doubao with 128K context"
+        },
+        {
+          "name": "doubao-lite-32k",
+          "display_name": "Doubao Lite 32K",
+          "model_id": "doubao-lite-32k",
+          "default_temperature": 0.7,
+          "max_tokens": 32000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.0003,
+          "description": "Lightweight Doubao with 32K context"
+        }
+      ]
+    },
+    "Ollama (Local)": {
+      "name": "Ollama (Local)",
       "display_name": "Ollama (Local)",
       "provider": "ollama",
       "class_name": "ChatOllama",
@@ -550,9 +626,9 @@
     }
   },
   "metadata": {
-    "version": "1.0.1",
-    "last_updated": "2025-01-16",
-    "description": "LLM provider configurations for eCan.ai",
+    "version": "1.0.2",
+    "last_updated": "2025-11-02",
+    "description": "LLM provider configurations for eCan.ai - Updated to use standard product names",
     "schema_version": "1.0"
   }
 }
