@@ -1,5 +1,6 @@
 /**
- * LLM node custom form: adds Model Provider dropdown above Model Name, using model-store
+ * LLM node custom form: adds Model Provider dropdown above Model Name
+ * All LLM configuration is dynamically loaded from backend llm_providers.json
  */
 import { useRef, useState, useEffect } from 'react';
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
@@ -8,12 +9,143 @@ import { IconPaperclip } from '@douyinfe/semi-icons';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormContent, FormHeader, FormItem, FormInputs } from '../../form-components';
 import { DisplayOutputs, createInferInputsPlugin } from '@flowgram.ai/form-materials';
-import { getModelMap, getProviderConfig } from '../../stores/model-store';
+import { get_ipc_api } from '../../../../services/ipc_api';
+
+// Temporary in-memory storage for user-configured values (per provider)
+// This preserves user settings when switching between providers during the current session
+interface ProviderSettings {
+  apiKey?: string;
+  apiHost?: string;
+  temperature?: number;
+  modelName?: string;
+}
+
+// Global storage for current editing session (cleared on page refresh/logout)
+const tempProviderStorage: Map<string, ProviderSettings> = new Map();
+
+// Provider configuration from backend
+interface LLMProvider {
+  name: string;
+  display_name: string;
+  class_name: string;
+  provider: string;
+  api_key_env_vars: string[];
+  base_url: string | null;
+  default_model: string;
+  description: string;
+  documentation_url: string;
+  is_local: boolean;
+  api_key_configured: boolean;
+  supported_models: Array<{
+    name: string;
+    display_name: string;
+    model_id: string;
+    default_temperature: number;
+    max_tokens: number;
+    supports_streaming: boolean;
+    supports_function_calling: boolean;
+    supports_vision: boolean;
+    cost_per_1k_tokens: number;
+    description: string;
+  }>;
+  // Credentials (if configured)
+  api_key?: string;
+  credentials?: {
+    api_key?: string;
+    azure_endpoint?: string;
+    aws_access_key_id?: string;
+    aws_secret_access_key?: string;
+  };
+}
+
+// Cache for providers data
+let providersCache: LLMProvider[] = [];
+let providersCacheTime: number = 0;
+const CACHE_TTL = 10000; // 10 seconds cache
+
+// Fetch all providers with credentials from backend
+async function fetchProvidersWithCredentials(): Promise<LLMProvider[]> {
+  const now = Date.now();
+  if (providersCache.length > 0 && now - providersCacheTime < CACHE_TTL) {
+    return providersCache;
+  }
+
+  try {
+    const response = await get_ipc_api().getLLMProvidersWithCredentials<{ providers: LLMProvider[] }>();
+    if (response.success && response.data?.providers) {
+      providersCache = response.data.providers;
+      providersCacheTime = now;
+      console.log('[LLM Node] Loaded providers from backend:', providersCache.map(p => p.name));
+      return providersCache;
+    }
+  } catch (error) {
+    console.error('[LLM Node] Failed to fetch providers:', error);
+  }
+  return [];
+}
 
 export const FormRender = (_props: FormRenderProps<any>) => {
-  const modelMap = getModelMap();
-  const providerConfig = getProviderConfig();
-  const providers = Object.keys(modelMap);
+  const [providers, setProviders] = useState<LLMProvider[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Load providers on mount
+  useEffect(() => {
+    fetchProvidersWithCredentials().then((data) => {
+      setProviders(data);
+      setLoading(false);
+    });
+  }, []);
+
+  // Build provider options
+  const providerOptions = providers.map(p => ({ label: p.display_name, value: p.name }));
+  
+  // Build model map (provider name -> models)
+  const modelMap: Record<string, string[]> = {};
+  providers.forEach(p => {
+    modelMap[p.name] = p.supported_models.map(m => m.model_id || m.name);
+  });
+
+  // Get provider config by name
+  const getProviderConfig = (providerName: string) => {
+    return providers.find(p => p.name === providerName);
+  };
+
+  // Get default API key template for provider
+  const getApiKeyTemplate = (providerName: string): string => {
+    // Generate appropriate placeholder based on provider
+    if (providerName.includes('OpenAI')) {
+      return 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+    } else if (providerName.includes('Anthropic') || providerName.includes('Claude')) {
+      return 'sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+    } else if (providerName.includes('Google') || providerName.includes('Gemini')) {
+      return 'AIzaxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+    } else if (providerName.includes('AWS') || providerName.includes('Bedrock')) {
+      return 'AKIAXXXXXXXXXXXXXXXX';
+    } else if (providerName.includes('DeepSeek')) {
+      return 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+    } else if (providerName.includes('Qwen') || providerName.includes('DashScope')) {
+      return 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+    } else if (providerName.includes('Bytedance') || providerName.includes('Doubao')) {
+      return 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+    } else if (providerName.includes('Ollama')) {
+      return 'ollama';
+    } else {
+      return 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+    }
+  };
+
+  if (loading) {
+    return (
+      <>
+        <FormHeader />
+        <FormContent>
+          <div style={{ padding: '20px', textAlign: 'center' }}>
+            Loading LLM providers...
+          </div>
+        </FormContent>
+      </>
+    );
+  }
 
   return (
     <>
@@ -24,44 +156,115 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         <FormItem name="modelProvider" type="string" vertical>
           <Field<string> name="inputsValues.modelProvider.content">
             {({ field: providerField }) => {
-              const currentProvider = (providerField.value as string) || providers[0] || 'OpenAI';
-              const providerOptions = providers.map(p => ({ label: p, value: p }));
+              const currentProvider = (providerField.value as string) || (providers[0]?.name) || 'OpenAI';
               
               return (
                 <Field<string> name="inputsValues.apiHost.content">
                   {({ field: apiHostField }) => (
                     <Field<string> name="inputsValues.apiKey.content">
-                      {({ field: apiKeyField }) => {
-                        // Auto-fill apiHost and apiKey when provider changes
-                        useEffect(() => {
-                          const config = providerConfig[currentProvider];
-                          if (config) {
-                            // Always set apiHost to provider default on provider change
-                            setTimeout(() => apiHostField.onChange(config.apiHost), 0);
+                      {({ field: apiKeyField }) => (
+                        <Field<number> name="inputsValues.temperature.content">
+                          {({ field: temperatureField }) => (
+                            <Field<string> name="inputsValues.modelName.content">
+                              {({ field: modelNameField }) => {
+                                // Auto-fill logic when provider changes
+                                useEffect(() => {
+                                  const providerConfig = getProviderConfig(currentProvider);
+                                  if (!providerConfig) return;
 
-                            // Only auto-fill apiKey if empty or default placeholder
-                            const currentApiKey = apiKeyField.value as string || '';
-                            
-                            // Auto-fill apiKey if empty or is a placeholder pattern
-                            if (!currentApiKey || /^[sx]k-x+$/i.test(currentApiKey) || currentApiKey === 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx') {
-                              setTimeout(() => apiKeyField.onChange(config.apiKeyTemplate), 0);
-                            }
-                          }
-                        }, [currentProvider]);
+                                  // Save current values to temp storage (for future use)
 
-                        return (
-                          <div style={{ width: '100%', maxWidth: '100%' }}>
-                            <Select
-                              value={currentProvider}
-                              onChange={(val) => providerField.onChange(val as string)}
-                              optionList={providerOptions}
-                              style={{ width: '100%' }}
-                              dropdownMatchSelectWidth
-                              size="small"
-                            />
-                          </div>
-                        );
-                      }}
+                                  // Get or create temporary settings for current provider
+                                  let tempSettings = tempProviderStorage.get(currentProvider);
+                                  if (!tempSettings) {
+                                    tempSettings = {};
+                                    tempProviderStorage.set(currentProvider, tempSettings);
+                                  }
+
+                                  console.log(`[LLM Node] Provider: ${currentProvider}, Configured: ${!!providerConfig.api_key_configured}, Temp: ${!!tempSettings.apiKey}`);
+
+                                  // === API KEY LOGIC ===
+                                  // Priority: 1. Temp storage -> 2. Backend credentials -> 3. Default template
+                                  if (tempSettings.apiKey) {
+                                    // Use temporarily saved value
+                                    setTimeout(() => apiKeyField.onChange(tempSettings.apiKey!), 0);
+                                    console.log(`[LLM Node] Restored API key from temp storage for ${currentProvider}`);
+                                  } else if (providerConfig.api_key_configured) {
+                                    // Use API key from backend
+                                    let apiKey = '';
+                                    if (providerConfig.credentials) {
+                                      // Handle special providers with multiple credentials
+                                      if (currentProvider === 'Azure OpenAI' && providerConfig.credentials.api_key) {
+                                        apiKey = providerConfig.credentials.api_key;
+                                      } else if (currentProvider === 'AWS Bedrock' && providerConfig.credentials.aws_access_key_id) {
+                                        apiKey = providerConfig.credentials.aws_access_key_id;
+                                      }
+                                    } else if (providerConfig.api_key) {
+                                      apiKey = providerConfig.api_key;
+                                    }
+
+                                    if (apiKey) {
+                                      setTimeout(() => apiKeyField.onChange(apiKey), 0);
+                                      console.log(`[LLM Node] Auto-filled API key from backend for ${currentProvider}`);
+                                    } else {
+                                      setTimeout(() => apiKeyField.onChange(getApiKeyTemplate(currentProvider)), 0);
+                                    }
+                                  } else {
+                                    // Use default template
+                                    console.log(`[LLM Node] No config found, using template for ${currentProvider}`);
+                                    setTimeout(() => apiKeyField.onChange(getApiKeyTemplate(currentProvider)), 0);
+                                  }
+
+                                  // === API HOST LOGIC ===
+                                  // Priority: 1. Temp storage -> 2. Backend base_url -> 3. Default
+                                  if (tempSettings.apiHost) {
+                                    setTimeout(() => apiHostField.onChange(tempSettings.apiHost!), 0);
+                                  } else if (providerConfig.credentials?.azure_endpoint) {
+                                    // Special case for Azure
+                                    setTimeout(() => apiHostField.onChange(providerConfig.credentials!.azure_endpoint!), 0);
+                                  } else {
+                                    // Use base_url or empty string
+                                    setTimeout(() => apiHostField.onChange(providerConfig.base_url || ''), 0);
+                                  }
+
+                                  // === TEMPERATURE LOGIC ===
+                                  // Priority: 1. Temp storage -> 2. Keep existing (or default 0.5)
+                                  if (tempSettings.temperature !== undefined) {
+                                    setTimeout(() => temperatureField.onChange(tempSettings.temperature!), 0);
+                                  }
+                                  // Otherwise, keep existing value
+
+                                  // === MODEL NAME LOGIC ===
+                                  // Priority: 1. Temp storage -> 2. Configured model -> 3. First in list
+                                  const models = modelMap[currentProvider] || [];
+                                  if (tempSettings.modelName && models.includes(tempSettings.modelName)) {
+                                    setTimeout(() => modelNameField.onChange(tempSettings.modelName!), 0);
+                                  } else if (providerConfig.default_model && models.includes(providerConfig.default_model)) {
+                                    setTimeout(() => modelNameField.onChange(providerConfig.default_model), 0);
+                                  } else if (models.length > 0) {
+                                    setTimeout(() => modelNameField.onChange(models[0]), 0);
+                                  }
+
+                                }, [currentProvider, providers]);
+
+                                return (
+                                  <div style={{ width: '100%', maxWidth: '100%' }}>
+                                    <Select
+                                      value={currentProvider}
+                                      onChange={(val) => providerField.onChange(val as string)}
+                                      optionList={providerOptions}
+                                      style={{ width: '100%' }}
+                                      dropdownMatchSelectWidth
+                                      size="small"
+                                      placeholder="Select LLM Provider"
+                                    />
+                                  </div>
+                                );
+                              }}
+                            </Field>
+                          )}
+                        </Field>
+                      )}
                     </Field>
                   )}
                 </Field>
@@ -76,14 +279,18 @@ export const FormRender = (_props: FormRenderProps<any>) => {
             {({ field: modelField }) => (
               <Field<string> name="inputsValues.modelProvider.content">
                 {({ field: providerField }) => {
-                  const provider = (providerField.value as string) || providers[0] || 'OpenAI';
+                  const provider = (providerField.value as string) || (providers[0]?.name) || 'OpenAI';
                   const models = modelMap[provider] || [];
                   const modelOptions = models.map(m => ({ label: m, value: m }));
                   const value = modelField.value || models[0] || '';
+                  
                   // Auto-correct model name if it's not in provider list
-                  if (value && models.length && !models.includes(value)) {
-                    setTimeout(() => modelField.onChange(models[0]), 0);
-                  }
+                  useEffect(() => {
+                    if (value && models.length && !models.includes(value)) {
+                      setTimeout(() => modelField.onChange(models[0]), 0);
+                    }
+                  }, [provider, value, models]);
+
                   return (
                     <div style={{ width: '100%', maxWidth: '100%' }}>
                       <Select
@@ -93,6 +300,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                         style={{ width: '100%' }}
                         dropdownMatchSelectWidth
                         size="small"
+                        placeholder="Select Model"
                       />
                     </div>
                   );

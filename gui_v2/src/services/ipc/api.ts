@@ -304,6 +304,14 @@ export class IPCAPI {
         return this.executeRequest<T>('get_llm_provider_api_key', { name, show_full: showFull });
     }
 
+    public async getConfiguredLLMProviders<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_configured_llm_providers', {});
+    }
+
+    public async getLLMProvidersWithCredentials<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_llm_providers_with_credentials', {});
+    }
+
     public async runTest<T>(tests: TestConfig[]): Promise<APIResponse<T>> {
         return this.executeRequest<T>('run_tests', { tests });
     }

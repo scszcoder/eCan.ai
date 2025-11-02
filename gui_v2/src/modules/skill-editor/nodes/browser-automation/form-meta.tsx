@@ -1,13 +1,13 @@
 /**
  * Browser Automation node custom form
  */
-import React from 'react';
+import { useEffect, useState } from 'react';
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
 import { Divider, Select } from '@douyinfe/semi-ui';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormContent, FormHeader, FormItem, FormInputs } from '../../form-components';
 import { DisplayOutputs } from '@flowgram.ai/form-materials';
-import { getModelMap } from '../../stores/model-store';
+import { get_ipc_api } from '../../../../services/ipc_api';
 
 const TOOL_OPTIONS = [
   { label: 'browser-use', value: 'browser-use' },
@@ -15,9 +15,46 @@ const TOOL_OPTIONS = [
   { label: 'browsebase', value: 'browsebase' },
 ];
 
-export const FormRender = ({ form }: FormRenderProps<any>) => {
-  const modelMap = getModelMap();
-  const providers = Object.keys(modelMap);
+// Cache for LLM providers from backend
+let cachedProviders: Map<string, any> = new Map();
+let cacheTime: number = 0;
+const CACHE_TTL = 5000; // 5 seconds
+
+async function fetchLLMProviders(): Promise<Map<string, any>> {
+  const now = Date.now();
+  if (cachedProviders.size > 0 && now - cacheTime < CACHE_TTL) {
+    return cachedProviders;
+  }
+
+  try {
+    const response = await get_ipc_api().getLLMProvidersWithCredentials<{ providers: any[] }>();
+    if (response.success && response.data?.providers) {
+      const map = new Map();
+      response.data.providers.forEach((provider: any) => {
+        map.set(provider.name, provider);
+      });
+      cachedProviders = map;
+      cacheTime = now;
+      return map;
+    }
+  } catch (error) {
+    console.error('[Browser Automation] Failed to fetch LLM providers:', error);
+  }
+  return new Map();
+}
+
+export const FormRender = (_props: FormRenderProps<any>) => {
+  const [llmProviders, setLlmProviders] = useState<Map<string, any>>(new Map());
+
+  useEffect(() => {
+    fetchLLMProviders().then(setLlmProviders);
+  }, []);
+
+  const providers = Array.from(llmProviders.keys());
+  const modelMap: Record<string, string[]> = {};
+  llmProviders.forEach((provider, name) => {
+    modelMap[name] = provider.supported_models?.map((m: any) => m.name) || [];
+  });
 
   return (
     <>

@@ -394,6 +394,70 @@ def handle_get_configured_llm_providers(request: IPCRequest, params: Optional[Di
         return create_error_response(request, 'LLM_ERROR', f"Failed to get configured LLM providers: {str(e)}")
 
 
+@IPCHandlerRegistry.handler('get_llm_providers_with_credentials')
+def handle_get_llm_providers_with_credentials(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
+    """
+    Get all LLM providers with their complete configuration including API keys for configured providers.
+    This endpoint is designed for Skill Editor LLM Node to get all necessary information in one call.
+    
+    Returns:
+        - All providers with their models, base_url, and other configurations
+        - API keys for configured providers (full keys, not masked)
+        - Status indicating which providers are configured
+    """
+    try:
+        llm_manager = get_llm_manager()
+        all_providers = llm_manager.get_all_providers()
+        
+        # Enhance providers with API key information
+        enhanced_providers = []
+        for provider in all_providers:
+            provider_data = dict(provider)  # Copy provider data
+            
+            # If provider is configured, include API key
+            if provider.get('api_key_configured', False):
+                provider_name = provider.get('name')
+                env_vars = provider.get('api_key_env_vars', [])
+                
+                # Handle different provider types
+                if provider_name == 'Azure OpenAI':
+                    # Azure has multiple credentials
+                    credentials = {}
+                    if 'AZURE_ENDPOINT' in env_vars:
+                        credentials['azure_endpoint'] = llm_manager.retrieve_api_key('AZURE_ENDPOINT')
+                    if 'AZURE_OPENAI_API_KEY' in env_vars:
+                        credentials['api_key'] = llm_manager.retrieve_api_key('AZURE_OPENAI_API_KEY')
+                    provider_data['credentials'] = credentials
+                    
+                elif provider_name == 'AWS Bedrock':
+                    # AWS Bedrock has multiple credentials
+                    credentials = {}
+                    if 'AWS_ACCESS_KEY_ID' in env_vars:
+                        credentials['aws_access_key_id'] = llm_manager.retrieve_api_key('AWS_ACCESS_KEY_ID')
+                    if 'AWS_SECRET_ACCESS_KEY' in env_vars:
+                        credentials['aws_secret_access_key'] = llm_manager.retrieve_api_key('AWS_SECRET_ACCESS_KEY')
+                    provider_data['credentials'] = credentials
+                    
+                else:
+                    # Standard single API key
+                    if env_vars:
+                        api_key = llm_manager.retrieve_api_key(env_vars[0])
+                        provider_data['api_key'] = api_key
+            
+            enhanced_providers.append(provider_data)
+        
+        logger.info(f"Retrieved {len(enhanced_providers)} LLM providers with credentials for Skill Editor")
+        
+        return create_success_response(request, {
+            'providers': enhanced_providers,
+            'message': 'LLM providers with credentials retrieved successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting LLM providers with credentials: {e}")
+        return create_error_response(request, 'LLM_ERROR', f"Failed to get LLM providers with credentials: {str(e)}")
+
+
 @IPCHandlerRegistry.handler('get_llm_provider_api_key')
 def handle_get_llm_provider_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Get LLM provider's API key (masked or full)"""
