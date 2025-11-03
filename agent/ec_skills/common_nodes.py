@@ -64,7 +64,7 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         # formatted_prompt = langchain_prompt.format_messages(component_info=state["input"], categories=state["attributes"]["categories"])
 
         if state["history"]:
-            formatted_prompt = state["history"]  # Pass entire message list, not just last message
+            formatted_prompt = state["history"][-1]
         else:
             formatted_prompt = get_standard_prompt(state)            #STARDARD_PROMPT
 
