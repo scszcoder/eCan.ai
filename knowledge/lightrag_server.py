@@ -75,12 +75,12 @@ class LightragServer:
         self._initialized_time = time.time()  # Track initialization time
         # Register callback in background thread to avoid blocking initialization
         def _register_in_background():
-            """Register proxy callback in background to avoid blocking startup."""
+            """Register proxy change callback in background to avoid blocking startup."""
             try:
                 time.sleep(0.5)  # Brief delay to ensure ProxyManager is initialized and avoid race conditions
-                self._register_proxy_callback()
+                self._register_proxy_change_callback()
             except Exception as e:
-                logger.debug(f"[LightragServer] Failed to register proxy callback in background: {e}")
+                logger.debug(f"[LightragServer] Failed to register proxy change callback in background: {e}")
         
         registration_thread = threading.Thread(
             target=_register_in_background,
@@ -1060,14 +1060,14 @@ class LightragServer:
 
         return self.proc
 
-    def _register_proxy_callback(self):
+    def _register_proxy_change_callback(self):
         """Register callback for proxy state changes."""
         try:
             from agent.ec_skills.system_proxy import get_proxy_manager
             
             proxy_manager = get_proxy_manager()
             if proxy_manager is None:
-                logger.debug("[LightragServer] Proxy manager not available, skipping proxy callback registration")
+                logger.debug("[LightragServer] Proxy manager not available, skipping proxy change callback registration")
                 return
             
             def on_proxy_state_change(proxies):
@@ -1134,19 +1134,19 @@ class LightragServer:
         except ImportError:
             logger.debug("[LightragServer] Proxy manager module not available")
         except Exception as e:
-            logger.warning(f"[LightragServer] Failed to register proxy callback: {e}")
+            logger.warning(f"[LightragServer] Failed to register proxy change callback: {e}")
     
     def stop(self):
         """Stop the server"""
         logger.info("[LightragServer] Stopping server...")
         
-        # Unregister proxy callback on stop
+        # Unregister proxy change callback on stop
         if self._proxy_callback_unregister is not None:
             try:
                 self._proxy_callback_unregister()
                 self._proxy_callback_unregister = None
             except Exception as e:
-                logger.debug(f"[LightragServer] Error unregistering proxy callback: {e}")
+                logger.debug(f"[LightragServer] Error unregistering proxy change callback: {e}")
 
         # Stop monitoring threads
         self._monitor_running = False

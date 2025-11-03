@@ -279,7 +279,7 @@ async def create_search_1688_skill(mainwin):
         # web_search_tool_names = ['reconnect_wifi', 'mouse_click', 'screen_capture', 'screen_analyze']
         # web_search_tools = [t for t in all_tools if t.name in web_search_tool_names]
         # print("searcher # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
         web_search_tools = []
         searcher_agent = create_react_agent(llm, web_search_tools)
         # Prompt Template

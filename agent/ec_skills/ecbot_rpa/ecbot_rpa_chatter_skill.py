@@ -17,7 +17,7 @@ async def create_rpa_helper_chatter_skill(mainwin):
         # help_tool_names = ['reconnect_wifi', 'mouse_click', 'screen_capture', 'screen_analyze']
         # helper_tools = [t for t in all_tools if t.name in help_tool_names]
         # print("helper # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
         helper_tools = []
         helper_agent = create_react_agent(llm, helper_tools)
         # Prompt Template

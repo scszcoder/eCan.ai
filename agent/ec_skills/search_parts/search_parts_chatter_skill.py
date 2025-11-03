@@ -1348,7 +1348,7 @@ async def create_search_parts_chatter_skill(mainwin):
         searcher_chatter_skill = EC_Skill(name="chatter for ecan.ai search parts and components web site",
                              description="chat with human or other agents to help search a part/component or a product on 1688 website.")
 
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14", temperature=0.5)
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
         logger.debug("[search_parts_chatter_skill] llm loaded:", llm)
 
 

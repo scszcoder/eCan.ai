@@ -26,7 +26,7 @@ from utils.logger_helper import logger_helper as logger
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 
 from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
-
+from agent.playwright import create_browser_use_llm
 
 
 
@@ -381,10 +381,7 @@ def gen_agent_from_cloud_data(mainwin, ajs):
         logger.info("agent card created:", agent_card.name, agent_card.url)
 
         # Safely initialize browser_use_llm in packaged environment
-        try:
-            browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
-        except Exception as e:
-            logger.warning(f"Warning: Failed to initialize BrowserUseChatOpenAI in packaged environment: {e}")
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
 
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
@@ -437,12 +434,7 @@ def gen_new_agent(mainwin, ajs):
         logger.info("agent card created:", agent_card.name, agent_card.url)
 
         # Safely initialize browser_use_llm in packaged environment
-        try:
-            browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
-        except Exception as e:
-            logger.warning(f"Warning: Failed to initialize BrowserUseChatOpenAI in packaged environment: {e}")
-            # Use main LLM as fallback
-            browser_use_llm = llm
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
 
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
@@ -656,12 +648,8 @@ def gen_agent_skill_from_cloud_data(mainwin, askjs):
         logger.info("agent card created:", agent_card.name, agent_card.url)
 
         # Safely initialize browser_use_llm in packaged environment
-        try:
-            browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
-        except Exception as e:
-            logger.warning(f"Warning: Failed to initialize BrowserUseChatOpenAI in packaged environment: {e}")
-            # Use main LLM as fallback
-            browser_use_llm = llm
+        # Use mainwin's configuration for browser_use LLM
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
 
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
@@ -889,7 +877,8 @@ def gen_agent_tools_from_cloud_data(mainwin, taskjs):
             skills=agent_skills,
         )
         logger.info("agent card created:", agent_card.name, agent_card.url)
-        browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+        # Use mainwin's configuration for browser_use LLM
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:
@@ -1130,7 +1119,8 @@ def gen_agent_tasks_from_cloud_data(mainwin, taskjs):
             skills=agent_skills,
         )
         logger.info("agent card created:", agent_card.name, agent_card.url)
-        browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+        # Use mainwin's configuration for browser_use LLM
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:
@@ -1349,7 +1339,8 @@ def gen_knowledge_from_cloud_data(mainwin, kjs):
             skills=agent_skills,
         )
         logger.info("agent card created:", agent_card.name, agent_card.url)
-        browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+        # Use mainwin's configuration for browser_use LLM
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:

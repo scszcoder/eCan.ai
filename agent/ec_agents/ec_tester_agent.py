@@ -12,6 +12,7 @@ from agent.ec_agents.create_agent_tasks import create_ec_self_tester_chat_task, 
 from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
 from utils.logger_helper import logger_helper as logger
 from agent.ec_agents.create_dev_task import create_skill_dev_task
+from agent.playwright import create_browser_use_llm
 
 from agent.tasks import Repeat_Types
 import traceback
@@ -68,7 +69,8 @@ def set_up_ec_tester_agent(mainwin):
         worker_task = create_ec_self_tester_work_task(mainwin)
         dev_run_task = create_skill_dev_task(mainwin)
 
-        browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+        # Use mainwin's configuration for browser_use LLM
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
         produrement_agent = EC_Agent(
             mainwin=mainwin,
             skill_llm=llm,

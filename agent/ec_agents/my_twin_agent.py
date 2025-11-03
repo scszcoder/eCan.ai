@@ -16,6 +16,7 @@ import uuid
 import typing
 from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
 from utils.logger_helper import logger_helper as logger
+from agent.playwright import create_browser_use_llm
 if typing.TYPE_CHECKING:
     from gui.MainGUI import MainWindow
 
@@ -48,10 +49,8 @@ def set_up_my_twin_agent(mainwin: 'MainWindow'):
         chat_task = create_my_twin_chat_task(mainwin)
 
         # 在打包环境中安全初始化browser_use_llm
-        try:
-            browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
-        except Exception as e:
-            logger.warning(f"Failed to initialize BrowserUseChatOpenAI in packaged environment: {e}")
+        # Use mainwin's configuration for browser_use LLM
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
 
         helper = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=[chatter_skill], tasks=[chat_task])
 

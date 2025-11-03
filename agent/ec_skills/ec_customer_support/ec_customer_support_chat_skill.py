@@ -23,6 +23,7 @@ from scipy.stats import chatterjeexi
 import base64
 from bot.Logger import *
 from agent.ec_skill import *
+from agent.agent_service import get_agent_by_id
 
 
 def human_approval(state: NodeState) -> Command[Literal["some_node", "another_node"]]:
@@ -144,6 +145,14 @@ def llm_node_with_files(state: dict) -> dict:
     if not attachments:
         raise ValueError("No files attached!")
 
+    # Get mainwin's llm object from agent
+    agent_id = state.get("messages", [None])[0]
+    agent = get_agent_by_id(agent_id) if agent_id else None
+    mainwin = agent.mainwin if agent else None
+    llm = mainwin.llm if mainwin and mainwin.llm else None
+    if not llm:
+        raise ValueError("LLM not available in mainwin")
+
     file_list = "\n".join(f"- {att['filename']}" for att in attachments)
     contents_list = []
     for att in attachments:
@@ -162,8 +171,6 @@ def llm_node_with_files(state: dict) -> dict:
         "file_list": file_list,
         "file_contents": file_contents
     }
-
-    llm = ChatOpenAI(model="gpt-4", temperature=0.2)
     prompt_str = prompt.format(**prompt_vars)
     result = llm.invoke(prompt_str)
     return {"llm_response": result.content}
@@ -204,7 +211,7 @@ async def create_ec_customer_support_chat_skill(mainwin):
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14", temperature=0.5)
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
         print("llm loaded:", llm)
         prompt0 = ChatPromptTemplate.from_messages([
             ("system", """
