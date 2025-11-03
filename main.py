@@ -5,6 +5,23 @@ import sys
 import os
 import traceback
 
+# Configure UTF-8 encoding for Windows console to prevent UnicodeEncodeError
+# This must be done before any print statements that might contain Unicode characters
+if sys.platform == 'win32':
+    try:
+        # Try to set stdout and stderr to UTF-8 encoding
+        if sys.stdout.encoding != 'utf-8':
+            # Reconfigure stdout/stderr to use UTF-8
+            import io
+            if hasattr(sys.stdout, 'reconfigure'):
+                sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+            if hasattr(sys.stderr, 'reconfigure'):
+                sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        # If reconfiguration fails, continue anyway
+        # The emoji characters have been replaced with ASCII-safe alternatives
+        pass
+
 # ============================================================================
 # CRITICAL: Worker Script Execution - MUST be at the very top!
 # This allows child processes (like LightRAG server) to run their scripts
