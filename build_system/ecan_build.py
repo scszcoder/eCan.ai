@@ -576,7 +576,7 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
         import shutil
         try:
             shutil.copy2(src_dll, dst_winsparkle / "winsparkle.dll")
-            print(f"[OTA] ✅ Copied winSparkle to {dst_winsparkle / 'winsparkle.dll'}")
+            print(f"[OTA] [OK] Copied winSparkle to {dst_winsparkle / 'winsparkle.dll'}")
         except Exception as e:
             print(f"[OTA] [ERROR] Failed to copy winSparkle: {e}")
 
@@ -783,7 +783,7 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
                     subprocess.run(cmd, check=True, capture_output=True, timeout=300)
                     copy_success = True
                     duration = time.perf_counter() - start_time
-                    print(f"[PKG] ✓ Copied using ditto ({duration:.2f}s)")
+                    print(f"[PKG] [OK] Copied using ditto ({duration:.2f}s)")
                 except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                     print(f"[PKG] ditto failed, falling back to copytree")
 
@@ -798,7 +798,7 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
                     copy_function=shutil.copy2  # Faster than default copy function
                 )
                 duration = time.perf_counter() - start_time
-                print(f"[PKG] ✓ Copied using copytree ({duration:.2f}s)")
+                print(f"[PKG] [OK] Copied using copytree ({duration:.2f}s)")
             
             # Fix permissions for the app in payload
             if fix_permissions:
@@ -1693,9 +1693,9 @@ exit 0
             result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=30)
             
             if result.returncode == 0:
-                print("[PKG] ✓ Package signature check passed")
+                print("[PKG] [OK] Package signature check passed")
             else:
-                print(f"[PKG] ⚠ Package signature check failed (expected for unsigned packages): {result.stderr.strip()}")
+                print(f"[PKG] [WARNING] Package signature check failed (expected for unsigned packages): {result.stderr.strip()}")
             
             # List package contents to verify structure
             list_cmd = ["pkgutil", "--files", str(pkg_file)]
@@ -1706,7 +1706,7 @@ exit 0
                 app_files = [f for f in files if f.startswith(f'Applications/{app_name}.app')]
                 
                 if app_files:
-                    print(f"[PKG] ✓ Package contains {len(app_files)} app bundle files")
+                    print(f"[PKG] [OK] Package contains {len(app_files)} app bundle files")
                     
                     # Check for essential files
                     essential_files = [
@@ -1716,14 +1716,14 @@ exit 0
                     
                     for essential in essential_files:
                         if essential in files:
-                            print(f"[PKG] ✓ Essential file found: {essential}")
+                            print(f"[PKG] [OK] Essential file found: {essential}")
                         else:
-                            print(f"[PKG] ⚠ Essential file missing: {essential}")
+                            print(f"[PKG] [WARNING] Essential file missing: {essential}")
                 else:
-                    print(f"[PKG] ⚠ No app bundle files found in package")
+                    print(f"[PKG] [WARNING] No app bundle files found in package")
                     return False
             else:
-                print(f"[PKG] ⚠ Could not list package contents: {result.stderr.strip()}")
+                print(f"[PKG] [WARNING] Could not list package contents: {result.stderr.strip()}")
                 return False
             
             # Get package info
@@ -1731,19 +1731,19 @@ exit 0
             result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=30)
             
             if result.returncode == 0:
-                print("[PKG] ✓ Package info accessible")
+                print("[PKG] [OK] Package info accessible")
                 # Could parse plist here for more detailed verification
             else:
-                print(f"[PKG] ⚠ Could not get package info: {result.stderr.strip()}")
+                print(f"[PKG] [WARNING] Could not get package info: {result.stderr.strip()}")
             
             print("[PKG] Package integrity verification completed")
             return True
             
         except subprocess.TimeoutExpired:
-            print("[PKG] ⚠ Package verification timed out")
+            print("[PKG] [WARNING] Package verification timed out")
             return False
         except Exception as e:
-            print(f"[PKG] ⚠ Package verification failed: {e}")
+            print(f"[PKG] [WARNING] Package verification failed: {e}")
             return False
 
     def _verify_sparkle_environment(self) -> bool:

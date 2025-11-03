@@ -44,16 +44,16 @@ Export-PfxCertificate -Cert $cert -FilePath "{cert_file}" -Password $password
         )
         
         if result.returncode == 0 and cert_file.exists():
-            print(f"[CERT] ✅ 测试证书创建成功: {cert_file}")
+            print(f"[CERT] [OK] 测试证书创建成功: {cert_file}")
             print("[CERT] 💡 证书密码: test123")
             print("[CERT] 💡 设置环境变量: $env:CERT_PASSWORD = 'test123'")
             return True
         else:
-            print(f"[CERT] ❌ 证书创建失败: {result.stderr}")
+            print(f"[CERT] [ERROR] 证书创建失败: {result.stderr}")
             return False
             
     except Exception as e:
-        print(f"[CERT] ❌ 证书创建异常: {e}")
+        print(f"[CERT] [ERROR] 证书创建异常: {e}")
         return False
 
 def main():

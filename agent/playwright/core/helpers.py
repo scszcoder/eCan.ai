@@ -117,9 +117,9 @@ def quick_diagnostics() -> None:
 
     # output results
     if not issues:
-        print("✅ System status normal")
+        print("[OK] System status normal")
     else:
-        print("❌ Issues found:")
+        print("[ERROR] Issues found:")
         for issue in issues:
             print(f"  • {issue}")
         print("\n💡 suggestions: Run auto_install_playwright()")

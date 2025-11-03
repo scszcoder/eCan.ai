@@ -1417,7 +1417,7 @@ def selenium_accept_cookies(driver):
         btn = driver.find_elements(By.CSS_SELECTOR, "#onetrust-accept-btn-handler")
         if btn:
             btn[0].click()
-            print("✅ Accepted cookies (OneTrust)")
+            print("[OK] Accepted cookies (OneTrust)")
             time.sleep(0.2)
             return
     except Exception:
@@ -1427,7 +1427,7 @@ def selenium_accept_cookies(driver):
         btns = driver.find_elements(By.XPATH, "//button[normalize-space()='Accept']")
         if btns:
             btns[0].click()
-            print("✅ Accepted cookies (generic)")
+            print("[OK] Accepted cookies (generic)")
             time.sleep(0.2)
     except Exception:
         pass
@@ -1881,7 +1881,7 @@ def parse_rows_on_page(driver) -> Tuple[List[Dict[str, str]], List[str]]:
         )
     except Exception as e:
         err_msg = get_traceback(e, "ErrorParseRowsOnPage")
-        print("⚠️ Rows not found; timed out", err_msg)
+        print("[WARNING] Rows not found; timed out", err_msg)
         return rows_out, dynamic_keys_in_order
     print("rows found...")
     # prefer specific class; fallback to generic
