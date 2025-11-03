@@ -10,6 +10,8 @@ from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.ec_agents.create_agent_tasks import create_ec_procurement_chat_task, create_ec_procurement_work_task
 from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
+from agent.playwright import create_browser_use_llm
+
 from utils.logger_helper import logger_helper as logger
 from utils.str_utils import all_substrings
 from agent.tasks import Repeat_Types
@@ -64,7 +66,8 @@ def set_up_ec_procurement_agent(mainwin):
         org_id = "org_rnd_001"
         chatter_task = create_ec_procurement_chat_task(mainwin)
         worker_task = create_ec_procurement_work_task(mainwin)
-        browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+        # Use mainwin's configuration for browser_use LLM
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
         produrement_agent = EC_Agent(mainwin=mainwin, skill_llm=llm,
                                      llm=browser_use_llm,
                                      task="",

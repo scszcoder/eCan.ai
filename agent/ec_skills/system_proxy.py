@@ -190,9 +190,6 @@ def get_system_proxy() -> Optional[Dict[str, str]]:
         logger.debug(f"Proxy auto-detection not supported on {sys.platform}")
         return None
     
-    if proxies:
-        logger.debug(f"📡 Detected system proxy: {proxies}")
-    
     return proxies
 
 
@@ -250,10 +247,8 @@ def test_proxy_connectivity(proxy_url: str, timeout: float = 2.0) -> bool:
                 sock.close()
                 
                 if result == 0:
-                    logger.debug(f"✅ Proxy connectivity test passed: {proxy_url}")
                     return True
-            except Exception as e:
-                logger.debug(f"Connection attempt failed for {sockaddr}: {e}")
+            except Exception:
                 continue
         
         # All connection attempts failed
@@ -366,49 +361,51 @@ class ProxyManager:
                     # Schedule callback notification (after releasing lock)
                     should_notify = True
                     notify_proxies = None
-                return
-            
-            # Set proxy environment variables
-            http_proxy = proxies.get('http://')
-            https_proxy = proxies.get('https://')
-            
-            if https_proxy:
-                os.environ['HTTPS_PROXY'] = https_proxy
-                os.environ['https_proxy'] = https_proxy
-                logger.debug(f"✅ Set HTTPS_PROXY: {https_proxy}")
-            
-            if http_proxy:
-                os.environ['HTTP_PROXY'] = http_proxy
-                os.environ['http_proxy'] = http_proxy
-                logger.debug(f"✅ Set HTTP_PROXY: {http_proxy}")
-            
-            # Always set NO_PROXY for local/LAN network
-            no_proxy_list = [
-                'localhost',
-                '127.0.0.1',
-                '::1',
-                '.local',
-                '.lan',
-                '.home',
-                '.internal',
-                '10.0.0.0/8',
-                '172.16.0.0/12',
-                '192.168.0.0/16',
-                '47.120.48.82',  # Cloud API server
-            ]
-            no_proxy = ','.join(no_proxy_list)
-            os.environ['NO_PROXY'] = no_proxy
-            os.environ['no_proxy'] = no_proxy
-            
-            self._env_proxies_set = True
-            self._current_proxies = proxies.copy()
-            
-            proxy_info = f"HTTP: {http_proxy or 'N/A'}, HTTPS: {https_proxy or 'N/A'}"
-            logger.info(f"🌐 Proxy environment updated: {proxy_info}")
-            
-            # Schedule callback notification (after releasing lock)
-            should_notify = True
-            notify_proxies = proxies.copy()
+                else:
+                    # No change - proxy was already cleared
+                    return
+            else:
+                # Set proxy environment variables
+                http_proxy = proxies.get('http://')
+                https_proxy = proxies.get('https://')
+                
+                if https_proxy:
+                    os.environ['HTTPS_PROXY'] = https_proxy
+                    os.environ['https_proxy'] = https_proxy
+                    logger.debug(f"✅ Set HTTPS_PROXY: {https_proxy}")
+                
+                if http_proxy:
+                    os.environ['HTTP_PROXY'] = http_proxy
+                    os.environ['http_proxy'] = http_proxy
+                    logger.debug(f"✅ Set HTTP_PROXY: {http_proxy}")
+                
+                # Always set NO_PROXY for local/LAN network
+                no_proxy_list = [
+                    'localhost',
+                    '127.0.0.1',
+                    '::1',
+                    '.local',
+                    '.lan',
+                    '.home',
+                    '.internal',
+                    '10.0.0.0/8',
+                    '172.16.0.0/12',
+                    '192.168.0.0/16',
+                    '47.120.48.82',  # Cloud API server
+                ]
+                no_proxy = ','.join(no_proxy_list)
+                os.environ['NO_PROXY'] = no_proxy
+                os.environ['no_proxy'] = no_proxy
+                
+                self._env_proxies_set = True
+                self._current_proxies = proxies.copy()
+                
+                proxy_info = f"HTTP: {http_proxy or 'N/A'}, HTTPS: {https_proxy or 'N/A'}"
+                logger.info(f"🌐 Proxy environment updated: {proxy_info}")
+                
+                # Schedule callback notification (after releasing lock)
+                should_notify = True
+                notify_proxies = proxies.copy()
         
         # Notify callbacks OUTSIDE the lock to avoid deadlock
         if should_notify:
@@ -441,7 +438,6 @@ class ProxyManager:
                 check_count += 1
                 # Perform periodic proxy check
                 try:
-                    logger.debug(f"🔍 Periodic proxy check #{check_count} (every {self.check_interval}s)...")
                     self._do_proxy_check()
                 except Exception as e:
                     logger.warning(f"Error in proxy monitor loop (check #{check_count}): {e}", exc_info=True)
@@ -516,18 +512,14 @@ class ProxyManager:
                 return
         
         # Get system proxy settings (may involve system calls, but in background thread)
-        logger.debug("🔍 Checking system proxy settings...")
         system_proxies = get_system_proxy()
         
         if system_proxies:
-            logger.debug(f"🔍 Found system proxy config: {system_proxies}")
             # Test connectivity for all proxies (network operations in background thread)
             available_proxies = {}
             for protocol, proxy_url in system_proxies.items():
-                logger.debug(f"🔍 Testing connectivity for {protocol}: {proxy_url}...")
                 if test_proxy_connectivity(proxy_url, timeout=self.connectivity_timeout):
                     available_proxies[protocol] = proxy_url
-                    logger.debug(f"✅ Proxy {protocol} is reachable")
                 else:
                     logger.debug(f"❌ Proxy {protocol} is not reachable")
             
@@ -536,7 +528,6 @@ class ProxyManager:
                 available_proxies if available_proxies else None
             )
         else:
-            logger.debug("🔍 No system proxy configured")
             # No system proxy configured, clear env vars if we set them
             self._update_proxy_environment(None)
     

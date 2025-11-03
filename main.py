@@ -354,10 +354,23 @@ try:
             try:
                 logger.info("🌐 Initializing proxy environment (after splash)...")
                 from agent.ec_skills.system_proxy import initialize_proxy_environment
+                
+                # Check if proxy management is explicitly disabled
+                import os
+                if os.getenv('ECAN_PROXY_ENABLED', 'true').lower() in ['false', '0', 'no']:
+                    logger.info("⏭️  Proxy management disabled via ECAN_PROXY_ENABLED env var")
+                    return
+                
                 initialize_proxy_environment()
                 logger.info("✅ Proxy environment initialized")
             except Exception as e:
                 logger.warning(f"⚠️  Proxy initialization failed: {e}")
+                # Clear any potentially broken proxy settings
+                import os
+                for proxy_var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
+                    if proxy_var in os.environ:
+                        logger.warning(f"   Clearing broken proxy: {proxy_var}={os.environ[proxy_var]}")
+                        del os.environ[proxy_var]
         
         # Schedule proxy initialization in background thread
         import threading

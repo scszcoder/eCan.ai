@@ -77,7 +77,10 @@ def check_captcha_node(state: NodeState) -> NodeState:
         #     state.result["selected_tool"], arguments={"input": state.tool_input}
         # )
 
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
+        llm = mainwin.llm if mainwin and mainwin.llm else None
+        if not llm:
+            raise ValueError("LLM not available in mainwin")
         user_content = """ 
                         Given the json formated partial dom tree elements, and I want to extract available top categories that all products
                         on digi-key are grouped into. please help figure out:
@@ -172,7 +175,10 @@ def solve_captcha_node(state: NodeState) -> NodeState:
         #     state.result["selected_tool"], arguments={"input": state.tool_input}
         # )
 
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
+        llm = mainwin.llm if mainwin and mainwin.llm else None
+        if not llm:
+            raise ValueError("LLM not available in mainwin")
         user_content = """ 
                         Given the json formated partial dom tree elements, and I want to extract available top categories that all products
                         on digi-key are grouped into. please help figure out:
@@ -263,7 +269,10 @@ def check_top_categories_node(state: NodeState) -> NodeState:
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
+        llm = mainwin.llm if mainwin and mainwin.llm else None
+        if not llm:
+            raise ValueError("LLM not available in mainwin")
         user_content = """ 
                                 Given the json formated partial dom tree elements, and I want to extract available top categories that all products
                                 on digi-key are grouped into. please help figure out:
@@ -319,7 +328,10 @@ def check_sub_categories_node(state: NodeState) -> NodeState:
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
+        llm = mainwin.llm if mainwin and mainwin.llm else None
+        if not llm:
+            raise ValueError("LLM not available in mainwin")
         user_content = """ 
                                 Given the json formated partial dom tree elements, and I want to extract available top categories that all products
                                 on digi-key are grouped into. please help figure out:
@@ -376,7 +388,10 @@ def check_is_parametric_filter_node(state: NodeState) -> NodeState:
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
+        llm = mainwin.llm if mainwin and mainwin.llm else None
+        if not llm:
+            raise ValueError("LLM not available in mainwin")
         user_content = """ 
                                         Given the json formated partial dom tree elements, and I want to extract available top categories that all products
                                         on digi-key are grouped into. please help figure out:
@@ -617,7 +632,7 @@ async def create_search_digi_key_skill(mainwin):
         # web_search_tool_names = ['reconnect_wifi', 'mouse_click', 'screen_capture', 'screen_analyze']
         # web_search_tools = [t for t in all_tools if t.name in web_search_tool_names]
         # print("searcher # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
         web_search_tools = []
         searcher_agent = create_react_agent(llm, web_search_tools)
         # Prompt Template

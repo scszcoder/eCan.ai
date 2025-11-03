@@ -453,7 +453,10 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         else:
             formatted_prompt = get_standard_prompt(state)            #STARDARD_PROMPT
 
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
+        llm = mainwin.llm if mainwin and mainwin.llm else None
+        if not llm:
+            raise ValueError("LLM not available in mainwin")
 
 
         print("chat node: llm prompt ready:", formatted_prompt)

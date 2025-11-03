@@ -279,6 +279,142 @@ class MainWindow:
             import traceback
             logger.debug(f"[MainWindow] Vehicle metrics error traceback: {traceback.format_exc()}")
 
+    def update_all_llms(self, reason="unknown"):
+        """
+        Update mainwin.llm and all agents' LLMs (skill_llm and browser_use LLM).
+        
+        This method should be called when:
+        - LLM provider is changed
+        - Proxy settings change
+        - LLM configuration is updated
+        
+        Args:
+            reason: Description of why the LLM is being updated (for logging)
+        """
+        try:
+            logger.info(f"[MainWindow] 🔄 Updating all LLMs - Reason: {reason}")
+            from agent.ec_skills.llm_utils.llm_utils import pick_llm
+            
+            # Recreate mainwin.llm
+            # Important: Use allow_fallback=False to prevent overriding user's provider selection
+            new_llm = pick_llm(
+                self.config_manager.general_settings.default_llm,
+                self.config_manager.llm_manager.get_all_providers(),
+                self.config_manager,
+                allow_fallback=False  # Don't auto-fallback when hot-updating
+            )
+            
+            if not new_llm:
+                logger.warning("[MainWindow] ⚠️ Failed to recreate LLM")
+                return False
+            
+            old_llm_type = type(self.llm).__name__ if self.llm else "None"
+            new_llm_type = type(new_llm).__name__
+            self.llm = new_llm
+            logger.info(f"[MainWindow] ✅ LLM recreated successfully - {old_llm_type} → {new_llm_type}")
+            
+            # Recreate browser_use LLM with new configuration
+            new_browser_use_llm = None
+            try:
+                from agent.playwright import create_browser_use_llm
+                new_browser_use_llm = create_browser_use_llm(mainwin=self, fallback_llm=new_llm)
+                if new_browser_use_llm:
+                    # Get detailed info for browser_use LLM
+                    browser_llm_type = type(new_browser_use_llm).__name__
+                    browser_llm_details = []
+                    
+                    # Extract model name
+                    if hasattr(new_browser_use_llm, 'model_name'):
+                        browser_llm_details.append(f"model={new_browser_use_llm.model_name}")
+                    elif hasattr(new_browser_use_llm, 'model'):
+                        browser_llm_details.append(f"model={new_browser_use_llm.model}")
+                    
+                    # Extract endpoint
+                    if hasattr(new_browser_use_llm, 'openai_api_base') and new_browser_use_llm.openai_api_base:
+                        browser_llm_details.append(f"endpoint={new_browser_use_llm.openai_api_base}")
+                    elif hasattr(new_browser_use_llm, 'base_url') and new_browser_use_llm.base_url:
+                        browser_llm_details.append(f"endpoint={new_browser_use_llm.base_url}")
+                    
+                    # Add provider info
+                    default_llm = self.config_manager.general_settings.default_llm
+                    if default_llm:
+                        provider = self.config_manager.llm_manager.get_provider(default_llm)
+                        if provider:
+                            provider_display = provider.get('display_name', default_llm)
+                            browser_llm_details.append(f"provider={provider_display}")
+                    
+                    detail_str = f" ({', '.join(browser_llm_details)})" if browser_llm_details else ""
+                    logger.info(f"[MainWindow] ✅ Browser-use LLM recreated: {browser_llm_type}{detail_str}")
+                else:
+                    logger.warning("[MainWindow] ⚠️ Failed to recreate browser-use LLM")
+            except Exception as e:
+                logger.warning(f"[MainWindow] ⚠️ Error recreating browser-use LLM: {e}")
+            
+            # Update all agents' skill_llm and llm (browser_use)
+            updated_agents = 0
+            for agent in self.agents:
+                # Update skill_llm
+                if hasattr(agent, 'set_skill_llm'):
+                    agent.set_skill_llm(self.llm)
+                    updated_agents += 1
+                    logger.debug(f"[MainWindow] Updated skill_llm for agent: {agent.card.name}")
+                
+                # Update agent.llm (browser_use LLM)
+                if new_browser_use_llm and hasattr(agent, 'llm'):
+                    agent.llm = new_browser_use_llm
+                    logger.debug(f"[MainWindow] Updated browser-use LLM for agent: {agent.card.name}")
+            
+            logger.info(f"[MainWindow] ✅ Updated LLMs for {updated_agents} agents")
+            return True
+            
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Error updating LLMs: {e}")
+            import traceback
+            logger.debug(f"[MainWindow] Error traceback: {traceback.format_exc()}")
+            return False
+    
+    def _register_proxy_change_callback(self):
+        """
+        Register callback with ProxyManager to recreate LLM instances when proxy state changes.
+        
+        This ensures that when proxy is enabled/disabled, all LLM instances will be recreated
+        with the correct proxy configuration.
+        """
+        try:
+            from agent.ec_skills.system_proxy import get_proxy_manager
+            
+            proxy_manager = get_proxy_manager()
+            if not proxy_manager:
+                logger.debug("[MainWindow] ProxyManager not available, skipping callback registration")
+                return
+            
+            def on_proxy_change(proxies):
+                """
+                Callback fired when proxy state changes.
+                Args:
+                    proxies: None if proxy disabled, Dict if proxy enabled
+                """
+                if proxies:
+                    proxy_info = f"HTTP: {proxies.get('http://', 'N/A')}, HTTPS: {proxies.get('https://', 'N/A')}"
+                    logger.info(f"[MainWindow] 🌐 Proxy enabled - {proxy_info}")
+                    reason = f"Proxy enabled - {proxy_info}"
+                else:
+                    logger.info("[MainWindow] 🌐 Proxy disabled - using direct connection")
+                    reason = "Proxy disabled"
+                
+                # Use unified method to update all LLMs
+                self.update_all_llms(reason=reason)
+            
+            # Register the callback
+            unregister = proxy_manager.register_callback(on_proxy_change)
+            logger.info("[MainWindow] ✅ Registered proxy change callback for LLM recreation")
+            
+            # Store unregister function for cleanup (if needed)
+            self._proxy_callback_unregister = unregister
+            
+        except Exception as e:
+            logger.warning(f"[MainWindow] Failed to register proxy change callback: {e}")
+
     def _schedule_delayed_metrics_update(self, vehicle):
         """Schedule delayed performance monitoring update, waiting for event loop availability"""
         try:
@@ -471,6 +607,9 @@ class MainWindow:
             logger.debug("[MainWindow] 📋 Scheduled LLM provider onboarding check (non-blocking)")
         except RuntimeError as e:
             logger.debug(f"[MainWindow] No event loop for LLM provider onboarding check: {e}")
+
+        # Register proxy state change callback to recreate LLM when proxy changes
+        self._register_proxy_change_callback()
 
     def _save_vehicles_to_database(self):
         """Save vehicles to database (synchronous helper method for executor)"""
@@ -5383,6 +5522,15 @@ class MainWindow:
         
         # Set shutdown flag to prevent WAN Chat reconnections
         self._shutting_down = True
+        
+        # Unregister proxy change callback
+        try:
+            if hasattr(self, '_proxy_callback_unregister') and self._proxy_callback_unregister:
+                self._proxy_callback_unregister()
+                self._proxy_callback_unregister = None
+                logger.info("[MainWindow] ✅ Proxy change callback unregistered")
+        except Exception as e:
+            logger.warning(f"[MainWindow] ❌ Error unregistering proxy callback: {e}")
         
         # Stop sync manager auto retry timer
         try:

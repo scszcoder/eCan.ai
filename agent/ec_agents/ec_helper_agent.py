@@ -12,6 +12,7 @@ from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.ec_agents.create_agent_tasks import create_ec_helper_chat_task, create_ec_helper_work_task
 from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
 from utils.logger_helper import logger_helper as logger
+from agent.playwright import create_browser_use_llm
 
 import traceback
 import socket
@@ -57,7 +58,8 @@ def set_up_ec_helper_agent(mainwin):
         logger.info("agent card created:", agent_card.name, agent_card.url)
         chatter_task = create_ec_helper_chat_task(mainwin)
         worker_task = create_ec_helper_work_task(mainwin)
-        browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+        # Use mainwin's configuration for browser_use LLM
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
 
         # 尝试创建 EC_Agent，如果失败则使用备用方案
         try:

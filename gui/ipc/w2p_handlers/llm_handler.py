@@ -141,7 +141,7 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
 
 @IPCHandlerRegistry.handler('set_llm_provider_model')
 def handle_set_llm_provider_model(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Set the default model for an LLM provider"""
+    """Set the default model for an LLM provider and hot-update all LLM instances"""
     try:
         is_valid, data, error = validate_params(params, ['name', 'model'])
         if not is_valid:
@@ -151,12 +151,34 @@ def handle_set_llm_provider_model(request: IPCRequest, params: Optional[Dict[str
         model_name = data['model']
 
         llm_manager = get_llm_manager()
+        main_window = AppContext.get_main_window()
+        
+        # Update provider's default model
         success, error_msg = llm_manager.set_provider_default_model(provider_name, model_name)
 
         if not success:
             return create_error_response(request, 'LLM_ERROR', error_msg or 'Failed to update model')
 
         updated_provider = llm_manager.get_provider(provider_name)
+        
+        # If this is the current default LLM, also update default_llm_model in general_settings
+        if main_window.config_manager.general_settings.default_llm == provider_name:
+            main_window.config_manager.general_settings.default_llm_model = model_name
+            main_window.config_manager.general_settings.save()
+            logger.info(f"[LLM] Updated default_llm_model to {model_name} for current provider {provider_name}")
+            
+            # Hot-update: Use unified method to update all LLMs (including browser_use)
+            try:
+                provider_info = f"{updated_provider.get('display_name', provider_name)}, Model: {model_name}"
+                update_success = main_window.update_all_llms(reason=f"Model changed to {provider_info}")
+                
+                if not update_success:
+                    logger.warning(f"Failed to update LLM instances after model change, but settings were saved")
+                    # Still return success since the model setting was saved
+                    
+            except Exception as update_error:
+                logger.error(f"Error during hot-update of LLM instances: {update_error}")
+                logger.warning(f"Model settings updated but hot-update failed. Restart may be required for full effect.")
 
         return create_success_response(request, {
             'message': f'Default model for {provider_name} updated successfully',
@@ -236,6 +258,10 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
         if not provider['api_key_configured']:
             return create_error_response(request, 'LLM_ERROR', f"Provider {name} is not configured")
 
+        # Save current settings for potential rollback
+        old_default_llm = main_window.config_manager.general_settings.default_llm
+        old_default_model = main_window.config_manager.general_settings.default_llm_model
+
         # Update default_llm and default_llm_model in general_settings
         main_window.config_manager.general_settings.default_llm = name
         
@@ -247,6 +273,15 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
             provider_model = provider.get('preferred_model') or provider.get('default_model') or ''
             logger.info(f"[LLM] Using provider's model: {provider_model}")
         
+        # Validate model belongs to this provider (safety check)
+        supported_models = provider.get('supported_models', [])
+        if supported_models:
+            model_ids = [m.get('model_id', m.get('name', '')) for m in supported_models]
+            if provider_model and provider_model not in model_ids:
+                logger.warning(f"⚠️ Model '{provider_model}' not found in provider '{name}' supported models: {model_ids}")
+                logger.warning(f"Using provider's default model instead")
+                provider_model = provider.get('default_model', '')
+        
         main_window.config_manager.general_settings.default_llm_model = provider_model
         
         save_result = main_window.config_manager.general_settings.save()
@@ -254,83 +289,63 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
         if not save_result:
             return create_error_response(request, 'LLM_ERROR', f"Failed to save default LLM setting")
 
-        # Hot-update: Create new LLM instance and update all references
+        # Hot-update: Use unified method to update all LLMs (including browser_use)
         try:
-            from agent.ec_skills.llm_utils.llm_utils import pick_llm
+            provider_info = f"{provider.get('display_name', name)}, Model: {provider_model}"
+            success = main_window.update_all_llms(reason=f"Provider switched to {provider_info}")
             
-            # Get fresh provider list
-            providers = llm_manager.get_all_providers()
-            
-            # Create new LLM instance with the selected provider
-            new_llm = pick_llm(
-                name,
-                providers,
-                main_window.config_manager
-            )
-            
-            if new_llm is None:
-                logger.warning(f"Failed to create LLM instance for {name}, but settings updated")
-                return create_error_response(request, 'LLM_ERROR', f"Failed to create LLM instance for {name}")
-            
-            # Update main_window.llm
-            old_llm_type = type(main_window.llm).__name__ if main_window.llm else "None"
-            main_window.llm = new_llm
-            new_llm_type = type(new_llm).__name__
-            
-            # Verify the update was successful
-            actual_llm_type = type(main_window.llm).__name__ if main_window.llm else "None"
-            if actual_llm_type == new_llm_type:
-                logger.info(f"✅ Hot-updated main_window.llm from {old_llm_type} to {new_llm_type} (VERIFIED)")
-            else:
-                logger.error(f"❌ LLM update verification failed! Expected {new_llm_type}, but got {actual_llm_type}")
-            
-            # Get provider details for logging
-            provider_info = f"Provider: {provider.get('display_name', name)}, Model: {provider.get('default_model', 'default')}"
-            logger.info(f"📋 Current MainWindow LLM: {actual_llm_type} | {provider_info}")
-            
-            # Update all agent LLM instances
-            updated_agents = 0
-            failed_agents = 0
-            if hasattr(main_window, 'agents') and main_window.agents:
-                for agent in main_window.agents:
-                    try:
-                        agent_name = getattr(getattr(agent, 'card', None), 'name', 'Unknown')
-                        
-                        # Update skill_llm (primary for skill execution)
-                        if hasattr(agent, 'set_skill_llm'):
-                            agent.set_skill_llm(new_llm)
-                            # Verify
-                            if hasattr(agent, 'skill_llm') and agent.skill_llm:
-                                actual_skill_llm = type(agent.skill_llm).__name__
-                                if actual_skill_llm == new_llm_type:
-                                    logger.info(f"✅ Verified: Agent '{agent_name}' skill_llm updated to {new_llm_type}")
-                                else:
-                                    logger.warning(f"⚠️ Verification failed: Agent '{agent_name}' skill_llm is {actual_skill_llm}, expected {new_llm_type}")
-                            updated_agents += 1
-                        elif hasattr(agent, 'skill_llm'):
-                            agent.skill_llm = new_llm
-                            updated_agents += 1
-                        
-                        # Also update agent.llm for consistency
-                        if hasattr(agent, 'set_llm'):
-                            agent.set_llm(new_llm)
-                        elif hasattr(agent, 'llm'):
-                            agent.llm = new_llm
-                        
-                    except Exception as agent_error:
-                        failed_agents += 1
-                        logger.warning(f"❌ Failed to update LLM for agent '{agent_name}': {agent_error}")
-                        continue
-            
-            if updated_agents > 0:
-                logger.info(f"✅ Hot-updated LLM for {updated_agents} agents (skill_llm). Default LLM set to {name}")
-            if failed_agents > 0:
-                logger.warning(f"⚠️ Failed to update {failed_agents} agents")
+            if not success:
+                # Revert the setting change if LLM creation failed
+                logger.warning(f"Failed to create LLM instance for {name}, reverting settings")
+                logger.info(f"Reverting: default_llm from '{name}' to '{old_default_llm}'")
+                logger.info(f"Reverting: default_llm_model from '{provider_model}' to '{old_default_model}'")
+                
+                main_window.config_manager.general_settings.default_llm = old_default_llm
+                main_window.config_manager.general_settings.default_llm_model = old_default_model
+                rollback_saved = main_window.config_manager.general_settings.save()
+                
+                # Verify rollback
+                current_llm = main_window.config_manager.general_settings.default_llm
+                current_model = main_window.config_manager.general_settings.default_llm_model
+                logger.info(f"After rollback: default_llm='{current_llm}', default_llm_model='{current_model}'")
+                
+                if current_llm != old_default_llm or current_model != old_default_model:
+                    logger.error(f"❌ Rollback verification failed! Expected ({old_default_llm}, {old_default_model}), got ({current_llm}, {current_model})")
+                else:
+                    logger.info(f"✅ Rollback verified successfully")
+                
+                return create_error_response(
+                    request, 
+                    'LLM_ERROR', 
+                    f"Failed to create LLM instance for {name}. Please check API key configuration and try again. Settings reverted to {old_default_llm} with model {old_default_model}."
+                )
             
         except Exception as update_error:
             logger.error(f"Error during hot-update of LLM instances: {update_error}")
-            # Still return success since settings were saved, but log the error
-            logger.warning(f"Settings updated but hot-update failed. Restart may be required for full effect.")
+            # Revert settings on exception
+            logger.warning(f"Reverting settings due to exception")
+            logger.info(f"Reverting: default_llm from '{name}' to '{old_default_llm}'")
+            logger.info(f"Reverting: default_llm_model from '{provider_model}' to '{old_default_model}'")
+            
+            main_window.config_manager.general_settings.default_llm = old_default_llm
+            main_window.config_manager.general_settings.default_llm_model = old_default_model
+            rollback_saved = main_window.config_manager.general_settings.save()
+            
+            # Verify rollback
+            current_llm = main_window.config_manager.general_settings.default_llm
+            current_model = main_window.config_manager.general_settings.default_llm_model
+            logger.info(f"After rollback: default_llm='{current_llm}', default_llm_model='{current_model}'")
+            
+            if current_llm != old_default_llm or current_model != old_default_model:
+                logger.error(f"❌ Rollback verification failed! Expected ({old_default_llm}, {old_default_model}), got ({current_llm}, {current_model})")
+            else:
+                logger.info(f"✅ Rollback verified successfully")
+            
+            return create_error_response(
+                request,
+                'LLM_ERROR',
+                f"Error updating LLM instances: {str(update_error)}. Settings reverted to {old_default_llm} with model {old_default_model}."
+            )
 
         # Verify the final state
         final_default_llm = main_window.config_manager.general_settings.default_llm

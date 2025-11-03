@@ -80,7 +80,43 @@ def parrot(state: NodeState) -> NodeState:
         # Show agent.llm info if different from actual
         if hasattr(agent, 'llm') and agent.llm and agent.llm is not actual_llm:
             agent_llm_type = type(agent.llm).__name__
-            llm_info_parts.append(f"   Agent.llm: {agent_llm_type} (not used by skill)")
+            
+            # Get detailed info for agent.llm (browser_use LLM)
+            agent_llm_info = f"{agent_llm_type} (browser_use LLM, not used by skill)"
+            
+            # Try to extract model and provider info from agent.llm
+            try:
+                model_info = []
+                
+                # Extract model name
+                if hasattr(agent.llm, 'model_name'):
+                    model_info.append(f"model={agent.llm.model_name}")
+                elif hasattr(agent.llm, 'model'):
+                    model_info.append(f"model={agent.llm.model}")
+                
+                # Extract base_url or endpoint
+                if hasattr(agent.llm, 'openai_api_base') and agent.llm.openai_api_base:
+                    base_url = agent.llm.openai_api_base
+                    model_info.append(f"endpoint={base_url}")
+                elif hasattr(agent.llm, 'base_url') and agent.llm.base_url:
+                    base_url = agent.llm.base_url
+                    model_info.append(f"endpoint={base_url}")
+                
+                # Try to match provider from mainwin config
+                if mainwin and hasattr(mainwin, 'config_manager') and model_info:
+                    default_llm = mainwin.config_manager.general_settings.default_llm
+                    if default_llm:
+                        provider = mainwin.config_manager.llm_manager.get_provider(default_llm)
+                        if provider:
+                            provider_display = provider.get('display_name', default_llm)
+                            model_info.append(f"provider={provider_display}")
+                
+                if model_info:
+                    agent_llm_info = f"{agent_llm_type} ({', '.join(model_info)})"
+            except Exception as e:
+                logger.debug(f"[my_twin_chatter_skill] Error extracting agent.llm info: {e}")
+            
+            llm_info_parts.append(f"   Agent.llm (browser_use): {agent_llm_info}")
         
         # Show main_window.llm info if different
         if run_context_llm and run_context_llm is not actual_llm:

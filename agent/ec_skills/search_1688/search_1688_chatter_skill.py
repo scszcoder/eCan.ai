@@ -25,6 +25,7 @@ import base64
 from agent.ec_skills.file_utils.file_utils import extract_file_text
 from bot.Logger import *
 from agent.ec_skill import *
+from agent.agent_service import get_agent_by_id
 
 
 def human_approval(state: NodeState) -> Command[Literal["some_node", "another_node"]]:
@@ -135,6 +136,14 @@ def llm_node_with_extracted_files(state: NodeState) -> NodeState:
     if not attachments:
         raise ValueError("No files attached!")
 
+    # Get mainwin's llm object from agent
+    agent_id = state.get("messages", [None])[0]
+    agent = get_agent_by_id(agent_id) if agent_id else None
+    mainwin = agent.mainwin if agent else None
+    llm = mainwin.llm if mainwin and mainwin.llm else None
+    if not llm:
+        raise ValueError("LLM not available in mainwin")
+
     file_list = "\n".join(f"- {att['filename']}" for att in attachments)
     contents_list = []
     for att in attachments:
@@ -153,8 +162,6 @@ def llm_node_with_extracted_files(state: NodeState) -> NodeState:
         "file_list": file_list,
         "file_contents": file_contents
     }
-
-    llm = ChatOpenAI(model="gpt-4.1", temperature=0.5)
     prompt_messages = [
         {
             "role": "system",
@@ -172,6 +179,15 @@ def llm_node_with_extracted_files(state: NodeState) -> NodeState:
 # for now, the raw files can only be pdf, PNG(.png) JPEG (.jpeg and .jpg) WEBP (.webp) Non-animated GIF (.gif),
 # .wav (.mp3) and .mp4
 def llm_node_with_raw_files(state: NodeState) -> NodeState:
+    # Get mainwin's llm object from agent
+    from agent.agent_service import get_agent_by_id
+    agent_id = state.get("messages", [None])[0]
+    agent = get_agent_by_id(agent_id) if agent_id else None
+    mainwin = agent.mainwin if agent else None
+    llm = mainwin.llm if mainwin and hasattr(mainwin, 'llm') and mainwin.llm else None
+    if not llm:
+        raise ValueError("LLM not available in mainwin")
+
     user_input = state.get("input", "")
     attachments = state.get("attachments", [])
     user_content = []
@@ -234,7 +250,7 @@ def llm_node_with_raw_files(state: NodeState) -> NodeState:
 
 
 
-    llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+    # llm already retrieved from mainwin at the start of the function
 
     prompt_messages = [
         {
@@ -322,7 +338,7 @@ async def create_search_1688_chatter_skill(mainwin):
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14", temperature=0.5)
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
         print("llm loaded:", llm)
         prompt0 = ChatPromptTemplate.from_messages([
             ("system", """

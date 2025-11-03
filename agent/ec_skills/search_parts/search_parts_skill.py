@@ -83,7 +83,10 @@ def check_captcha_node(state: NodeState) -> NodeState:
         #     state.result["selected_tool"], arguments={"input": state.tool_input}
         # )
 
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
+        llm = mainwin.llm if mainwin and mainwin.llm else None
+        if not llm:
+            raise ValueError("LLM not available in mainwin")
         user_content = """ 
                         Given the json formated partial dom tree elements, and I want to extract available top categories that all products
                         on digi-key are grouped into. please help figure out:
@@ -182,7 +185,10 @@ def solve_captcha_node(state: NodeState) -> NodeState:
         #     state.result["selected_tool"], arguments={"input": state.tool_input}
         # )
 
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
+        llm = mainwin.llm if mainwin and mainwin.llm else None
+        if not llm:
+            raise ValueError("LLM not available in mainwin")
         user_content = """ 
                         Given the json formated partial dom tree elements, and I want to extract available top categories that all products
                         on digi-key are grouped into. please help figure out:
@@ -444,7 +450,7 @@ async def create_search_parts_skill(mainwin):
         searcher_skill = EC_Skill(name="ecan.ai search parts and components web site",
                              description="help search part/components.")
 
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
         web_search_tools = []
         searcher_agent = create_react_agent(llm, web_search_tools)
         # Prompt Template
