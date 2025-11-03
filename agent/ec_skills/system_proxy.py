@@ -252,17 +252,18 @@ def test_proxy_connectivity(proxy_url: str, timeout: float = 2.0) -> bool:
                 continue
         
         # All connection attempts failed
-        logger.warning(f"❌ Proxy connectivity test failed: {proxy_url} (connection refused)")
+        # Use debug level since proxy unavailability is normal (user may not have proxy service running)
+        logger.debug(f"❌ Proxy connectivity test failed: {proxy_url} (connection refused)")
         return False
             
     except socket.gaierror as e:
-        logger.warning(f"❌ Proxy connectivity test failed: {proxy_url} (DNS resolution failed: {e})")
+        logger.debug(f"❌ Proxy connectivity test failed: {proxy_url} (DNS resolution failed: {e})")
         return False
     except socket.timeout:
-        logger.warning(f"❌ Proxy connectivity test failed: {proxy_url} (connection timeout)")
+        logger.debug(f"❌ Proxy connectivity test failed: {proxy_url} (connection timeout)")
         return False
     except Exception as e:
-        logger.warning(f"❌ Proxy connectivity test failed: {proxy_url} (error: {e})")
+        logger.debug(f"❌ Proxy connectivity test failed: {proxy_url} (error: {e})")
         return False
 
 

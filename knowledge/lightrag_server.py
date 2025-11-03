@@ -616,7 +616,11 @@ class LightragServer:
             return None
 
     def _try_alternative_port(self, original_port):
-        """Try to use alternative port"""
+        """Try to use alternative port
+        
+        For standard port 9621, will wait briefly before trying alternatives
+        to give the previous process time to release the port.
+        """
         try:
             import socket
 
@@ -629,9 +633,28 @@ class LightragServer:
 
                 if result != 0:
                     # Found available port
-                    logger.info(f"[LightragServer] Found alternative port {port}")
+                    if port == original_port:
+                        logger.info(f"[LightragServer] Standard port {port} is available")
+                    else:
+                        logger.info(f"[LightragServer] Found alternative port {port}")
                     self.extra_env["PORT"] = str(port)
                     return True
+                elif port == original_port and original_port == 9621:
+                    # Standard port 9621 is in use, wait briefly before trying alternatives
+                    # This gives the previous process more time to release the port
+                    logger.info(f"[LightragServer] Standard port {original_port} is in use, waiting 2s before trying alternatives...")
+                    time.sleep(2.0)
+                    # Retry standard port once more
+                    sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock2.settimeout(1)
+                    result2 = sock2.connect_ex(('localhost', original_port))
+                    sock2.close()
+                    if result2 != 0:
+                        logger.info(f"[LightragServer] Standard port {original_port} is now available after wait")
+                        self.extra_env["PORT"] = str(original_port)
+                        return True
+                    else:
+                        logger.warning(f"[LightragServer] Standard port {original_port} still in use, trying alternatives...")
 
             logger.error(f"[LightragServer] No available ports found in range {original_port}-{original_port + 9}")
             return False
@@ -1097,15 +1120,23 @@ class LightragServer:
                                     current_port = int(self.extra_env.get("PORT", "9621"))
                                 except (ValueError, TypeError):
                                     current_port = 9621
+                                
+                                # Reset PORT to standard port 9621 before stopping
+                                # This ensures restart will use the standard port instead of alternative port
+                                standard_port = 9621
+                                if current_port != standard_port:
+                                    logger.info(f"[LightragServer] Resetting PORT from {current_port} to standard port {standard_port}")
+                                    self.extra_env["PORT"] = str(standard_port)
+                                    current_port = standard_port
+                                
                                 self.stop()
-                                # Ensure the previous process has fully released the port before restarting
-                                if not self._wait_for_port_release(current_port, timeout=10.0):
-                                    logger.warning(
-                                        f"[LightragServer] Port {current_port} still in use after stop; restart will continue but may select alternative port"
-                                    )
+                                # Brief wait for port release (non-blocking approach)
+                                # The _try_alternative_port() will handle additional waiting if needed
+                                if not self._wait_for_port_release(current_port, timeout=3.0):
+                                    logger.debug(f"[LightragServer] Port {current_port} not immediately released, will retry in _try_alternative_port()")
                                 else:
-                                    logger.debug(f"[LightragServer] Port {current_port} released, proceeding with restart")
-                                time.sleep(0.2)  # Brief delay before restart
+                                    logger.debug(f"[LightragServer] Port {current_port} released quickly")
+                                time.sleep(0.3)  # Brief delay before restart
                                 logger.info("[LightragServer] 🔄 Restarting subprocess with new proxy settings...")
                                 self.start(wait_ready=False)  # Non-blocking restart
                                 logger.info("[LightragServer] ✅ Subprocess restarted with new proxy settings")

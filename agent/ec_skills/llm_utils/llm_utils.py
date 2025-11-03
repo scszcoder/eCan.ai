@@ -12,6 +12,7 @@ import base64
 import asyncio
 import sys
 from threading import Thread
+from contextlib import contextmanager
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, BaseMessage
 from agent.ec_skills.dev_defs import BreakpointManager
 from agent.memory.models import MemoryItem
@@ -321,6 +322,92 @@ def _select_regional_provider(country, llm_providers):
     return None
 
 
+def _has_proxy_configured():
+    """
+    Check if proxy environment variables are configured.
+    
+    Returns:
+        bool: True if any proxy environment variable is set, False otherwise
+    """
+    import os
+    proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']
+    return any(os.environ.get(var) for var in proxy_vars)
+
+
+def _create_no_proxy_http_client():
+    """
+    Create httpx Client (sync) and AsyncClient that bypass proxy for domestic APIs.
+    
+    This is thread-safe and doesn't modify global environment variables.
+    
+    Optimization: Only creates clients if proxy is actually configured.
+    If no proxy, returns (None, None) to use default clients (more efficient).
+    
+    Why this is needed:
+    - Some domestic APIs (DashScope, DeepSeek) may have issues with proxy IPs
+    - Alibaba Cloud DashScope: Security policies block proxy IP TLS handshakes
+    - DeepSeek: May have similar restrictions for domestic traffic
+    
+    Why both sync and async?
+    - ChatOpenAI uses SYNC http_client for synchronous calls (llm.invoke())
+    - Uses ASYNC http_async_client for async calls (llm.ainvoke())
+    - Most skill nodes use synchronous calls, so sync client is critical!
+    
+    Returns:
+        Tuple[httpx.Client, httpx.AsyncClient] configured to not use proxy, or (None, None) if:
+        - No proxy is configured (optimization: use default clients)
+        - httpx is not available
+    """
+    import os
+    
+    # Optimization: Only create no-proxy clients if proxy is actually configured
+    if not _has_proxy_configured():
+        logger.debug(f"[ProxyBypass] No proxy configured, skipping no-proxy client creation")
+        return None, None
+    
+    try:
+        import httpx
+        
+        # Create SYNC client (for llm.invoke() - most common in skills)
+        # Use mounts to explicitly bypass proxy by using direct HTTPTransport
+        # This is thread-safe and doesn't affect other concurrent LLM creations
+        # mounts overrides any proxy settings from environment variables
+        sync_client = httpx.Client(
+            mounts={
+                "http://": httpx.HTTPTransport(),
+                "https://": httpx.HTTPTransport(),
+            },
+            timeout=httpx.Timeout(120.0, connect=30.0),  # 120s total, 30s connect
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20)
+        )
+        
+        # Create ASYNC client (for llm.ainvoke() - less common but needed)
+        # Use mounts to explicitly bypass proxy by using direct AsyncHTTPTransport
+        async_client = httpx.AsyncClient(
+            mounts={
+                "http://": httpx.AsyncHTTPTransport(),
+                "https://": httpx.AsyncHTTPTransport(),
+            },
+            timeout=httpx.Timeout(120.0, connect=30.0),  # 120s total, 30s connect
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20)
+        )
+        
+        proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']
+        active_proxies = {var: os.environ.get(var) for var in proxy_vars if os.environ.get(var)}
+        logger.info(
+            f"[ProxyBypass] ✅ Created no-proxy httpx clients (sync + async) "
+            f"(bypassing: {', '.join(active_proxies.keys())})"
+        )
+        return sync_client, async_client
+        
+    except ImportError:
+        logger.warning(f"[ProxyBypass] httpx not available, cannot create no-proxy clients")
+        return None, None
+    except Exception as e:
+        logger.error(f"[ProxyBypass] Error creating no-proxy httpx clients: {e}")
+        return None, None
+
+
 def extract_provider_config(provider, config_manager=None):
     """
     Extract common configuration from provider (dict or LLMProvider object).
@@ -526,30 +613,70 @@ def _create_llm_instance(provider, config_manager=None):
                 logger.error("DeepSeek requires DEEPSEEK_API_KEY environment variable")
                 return None
             
-            # Log proxy settings if configured (for debugging)
-            proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']
-            active_proxies = {var: os.environ.get(var) for var in proxy_vars if os.environ.get(var)}
-            if active_proxies:
-                logger.info(f"[DeepSeek] 🌐 Proxy settings detected: {active_proxies}")
-            else:
-                logger.debug("[DeepSeek] No proxy environment variables detected")
-            
-            # DeepSeek API endpoint
+            # DeepSeek API endpoint (China-based service)
             base_url = base_url or 'https://api.deepseek.com'
             
-            # ChatDeepSeek uses OpenAI-compatible API and should automatically respect
-            # HTTP_PROXY/HTTPS_PROXY environment variables (set by system_proxy.py)
-            # timeout: Total timeout in seconds (120s = 2 minutes)
-            # Note: langchain_deepseek uses httpx/requests under the hood, which automatically
-            # reads HTTP_PROXY/HTTPS_PROXY from environment variables
-            logger.debug(f"[DeepSeek] 🔧 Creating ChatDeepSeek with base_url={base_url}, timeout=120.0s")
-            return ChatDeepSeek(
-                model=model_name,
-                api_key=deepseek_api_key,
-                base_url=base_url,
-                temperature=0,
-                timeout=120.0  # 120 seconds total timeout to handle slow networks/proxies
-            )
+            # DeepSeek is a China-based service that may have proxy restrictions
+            # Use the same thread-safe no-proxy approach as DashScope
+            # Optimization: Only creates no-proxy clients if proxy is configured
+            logger.info(f"[DeepSeek] 🔧 Creating ChatDeepSeek with base_url={base_url}")
+            
+            sync_client, async_client = _create_no_proxy_http_client()
+            
+            if sync_client or async_client:
+                logger.info(f"[DeepSeek] 🌐 Using no-proxy httpx clients (domestic API, thread-safe)")
+                
+                # Verify clients are configured correctly (debug info)
+                if sync_client:
+                    # Extract meaningful mounts info (HTTP/HTTPS transports that bypass proxy)
+                    mounts_summary = []
+                    for pattern, transport in sync_client._mounts.items():
+                        if transport is not None:
+                            pattern_str = str(pattern).split("'")[1] if "'" in str(pattern) else str(pattern)
+                            mounts_summary.append(f"{pattern_str}:{type(transport).__name__}")
+                    mounts_str = ", ".join(mounts_summary) if mounts_summary else "no custom mounts"
+                    logger.debug(f"[DeepSeek] ✅ Sync client configured with mounts: [{mounts_str}] (bypasses proxy)")
+                if async_client:
+                    # Extract meaningful mounts info
+                    mounts_summary = []
+                    for pattern, transport in async_client._mounts.items():
+                        if transport is not None:
+                            pattern_str = str(pattern).split("'")[1] if "'" in str(pattern) else str(pattern)
+                            mounts_summary.append(f"{pattern_str}:{type(transport).__name__}")
+                    mounts_str = ", ".join(mounts_summary) if mounts_summary else "no custom mounts"
+                    logger.debug(f"[DeepSeek] ✅ Async client configured with mounts: [{mounts_str}] (bypasses proxy)")
+                
+                llm_instance = ChatDeepSeek(
+                    model=model_name,
+                    api_key=deepseek_api_key,
+                    base_url=base_url,
+                    temperature=0,
+                    timeout=120.0,
+                    http_client=sync_client,  # Use custom SYNC client that bypasses proxy
+                    http_async_client=async_client  # Use custom ASYNC client that bypasses proxy
+                )
+                
+                # Verify the LLM instance is using our client (debug check)
+                if hasattr(llm_instance, '_client') and llm_instance._client is not None:
+                    actual_client = llm_instance._client
+                    if actual_client is sync_client:
+                        logger.debug(f"[DeepSeek] ✅ Verified: ChatDeepSeek is using our no-proxy sync client")
+                    else:
+                        logger.warning(f"[DeepSeek] ⚠️ ChatDeepSeek may be using a different client! Expected: {sync_client}, Got: {actual_client}")
+                else:
+                    logger.debug(f"[DeepSeek] Note: ChatDeepSeek._client not accessible for verification (may be lazy-loaded)")
+                
+                return llm_instance
+            else:
+                # No proxy configured - use default clients (more efficient)
+                logger.debug(f"[DeepSeek] Using default httpx clients (no proxy configured)")
+                return ChatDeepSeek(
+                    model=model_name,
+                    api_key=deepseek_api_key,
+                    base_url=base_url,
+                    temperature=0,
+                    timeout=120.0
+                )
         
         # Check for Qwen/QwQ
         elif 'qwen' in provider_name.lower() or 'qwq' in provider_name.lower() or 'chatqwq' == class_name:
@@ -559,14 +686,74 @@ def _create_llm_instance(provider, config_manager=None):
             if not dashscope_api_key:
                 logger.error("QwQ requires DASHSCOPE_API_KEY environment variable")
                 return None
-            # DashScope OpenAI-compatible endpoint
+            
+            # DashScope OpenAI-compatible endpoint (Alibaba Cloud - China-based)
             base_url = base_url or 'https://dashscope.aliyuncs.com/compatible-mode/v1'
-            return ChatQwQ(
-                model=model_name,
-                api_key=dashscope_api_key,
-                base_url=base_url,
-                temperature=0
-            )
+            
+            # IMPORTANT: Alibaba Cloud DashScope doesn't respond to TLS handshakes from proxy IPs
+            # due to security policies (DDoS protection, proxy IP blacklist, or SNI detection).
+            # 
+            # Solution: Create custom httpx clients (sync + async) that don't use proxy.
+            # This is THREAD-SAFE and doesn't affect other concurrent LLM creations (unlike modifying env vars).
+            logger.info(f"[DashScope] 🔧 Creating ChatQwQ with base_url={base_url}")
+            
+            # Create no-proxy httpx clients (thread-safe, doesn't modify global env vars)
+            # Optimization: Only creates if proxy is configured
+            sync_client, async_client = _create_no_proxy_http_client()
+            
+            if sync_client or async_client:
+                logger.info(f"[DashScope] 🌐 Using no-proxy httpx clients (sync + async, Alibaba Cloud security policy, thread-safe)")
+                
+                # Verify clients are configured correctly (debug info)
+                if sync_client:
+                    # Extract meaningful mounts info (HTTP/HTTPS transports that bypass proxy)
+                    mounts_summary = []
+                    for pattern, transport in sync_client._mounts.items():
+                        if transport is not None:
+                            pattern_str = str(pattern).split("'")[1] if "'" in str(pattern) else str(pattern)
+                            mounts_summary.append(f"{pattern_str}:{type(transport).__name__}")
+                    mounts_str = ", ".join(mounts_summary) if mounts_summary else "no custom mounts"
+                    logger.debug(f"[DashScope] ✅ Sync client configured with mounts: [{mounts_str}] (bypasses proxy)")
+                if async_client:
+                    # Extract meaningful mounts info
+                    mounts_summary = []
+                    for pattern, transport in async_client._mounts.items():
+                        if transport is not None:
+                            pattern_str = str(pattern).split("'")[1] if "'" in str(pattern) else str(pattern)
+                            mounts_summary.append(f"{pattern_str}:{type(transport).__name__}")
+                    mounts_str = ", ".join(mounts_summary) if mounts_summary else "no custom mounts"
+                    logger.debug(f"[DashScope] ✅ Async client configured with mounts: [{mounts_str}] (bypasses proxy)")
+                
+                # ChatQwQ inherits from ChatOpenAI, which supports both http_client and http_async_client
+                llm_instance = ChatQwQ(
+                    model=model_name,
+                    api_key=dashscope_api_key,
+                    base_url=base_url,
+                    temperature=0,
+                    http_client=sync_client,  # Use custom SYNC client that bypasses proxy (for llm.invoke())
+                    http_async_client=async_client  # Use custom ASYNC client that bypasses proxy (for llm.ainvoke())
+                )
+                
+                # Verify the LLM instance is using our client (debug check)
+                if hasattr(llm_instance, '_client') and llm_instance._client is not None:
+                    actual_client = llm_instance._client
+                    if actual_client is sync_client:
+                        logger.debug(f"[DashScope] ✅ Verified: ChatQwQ is using our no-proxy sync client")
+                    else:
+                        logger.warning(f"[DashScope] ⚠️ ChatQwQ may be using a different client! Expected: {sync_client}, Got: {actual_client}")
+                else:
+                    logger.debug(f"[DashScope] Note: ChatQwQ._client not accessible for verification (may be lazy-loaded)")
+                
+                return llm_instance
+            else:
+                # No proxy configured - use default clients (more efficient)
+                logger.debug(f"[DashScope] Using default httpx clients (no proxy configured)")
+                return ChatQwQ(
+                    model=model_name,
+                    api_key=dashscope_api_key,
+                    base_url=base_url,
+                    temperature=0
+                )
         
         # Check for OpenAI (must be after Azure check)
         elif 'chatanthropic' != class_name and ('openai' in provider_name.lower() or 'chatopenai' == class_name):
@@ -786,7 +973,38 @@ def create_browser_use_llm_by_provider_type(
             f"API Key: {'***' + (api_key[-4:] if api_key and len(api_key) > 4 else 'dummy-key')}, "
             f"Base URL: {base_url if base_url else 'None'}"
         )
-        return BrowserUseChatOpenAI(**bu_config)
+        
+        # Check if this is a domestic API that needs proxy bypass
+        # Domestic APIs (DashScope, DeepSeek) may have proxy restrictions
+        # Optimization: Only creates no-proxy clients if proxy is actually configured
+        domestic_apis_need_direct = ['dashscope', 'qwen', 'qwq', 'deepseek']
+        
+        if provider_type in domestic_apis_need_direct:
+            # Create no-proxy httpx clients (sync + async, thread-safe, doesn't modify global env vars)
+            # Optimization: Only creates if proxy is configured
+            # Note: BrowserUseChatOpenAI only supports http_client (sync), not http_async_client
+            # For async calls, it will use default async client or create new one, which should be fine
+            sync_client, async_client = _create_no_proxy_http_client()
+            
+            if sync_client:
+                # Proxy is configured - use no-proxy sync client (bypass proxy for domestic APIs)
+                logger.info(
+                    f"[create_browser_use_llm_by_provider_type] 🌐 Using no-proxy clients for: {provider_type} "
+                    f"(proxy detected, bypassing for domestic API, thread-safe)"
+                )
+                # BrowserUseChatOpenAI only supports http_client parameter (not http_async_client)
+                bu_config['http_client'] = sync_client
+                return BrowserUseChatOpenAI(**bu_config)
+            else:
+                # No proxy configured - use default clients (more efficient, direct connection)
+                logger.debug(
+                    f"[create_browser_use_llm_by_provider_type] No proxy configured for {provider_type}, "
+                    f"using default clients (direct connection)"
+                )
+                return BrowserUseChatOpenAI(**bu_config)
+        else:
+            # Ollama, etc. - use default clients (respects system proxy if configured)
+            return BrowserUseChatOpenAI(**bu_config)
     
     # Non-OpenAI-compatible providers (Anthropic, Google, Bedrock)
     # Try to create BrowserUseChatOpenAI with provider's data, fallback if fails
