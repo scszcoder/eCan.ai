@@ -175,13 +175,26 @@ class ManagedTask(Task):
     def _make_serializable(self, obj):
         """
         Recursively convert objects to JSON-serializable format.
-        Filters out non-serializable objects like Interrupt instances.
+        Filters out non-serializable objects like Interrupt instances and langchain Message objects.
         """
         import json
         from langgraph.types import Interrupt
 
         if obj is None:
             return None
+
+        # Handle langchain Message objects (SystemMessage, HumanMessage, AIMessage, etc.)
+        # These inherit from BaseMessage and have content, type, and optional metadata
+        if hasattr(obj, '__class__') and obj.__class__.__module__.startswith('langchain_core.messages'):
+            try:
+                return {
+                    "type": obj.__class__.__name__,
+                    "content": str(getattr(obj, 'content', '')),
+                    "role": getattr(obj, 'type', 'unknown')
+                }
+            except Exception as e:
+                logger.warning(f"Failed to serialize langchain message: {e}")
+                return f"<langchain-message: {obj.__class__.__name__}>"
 
         # Handle Interrupt objects - convert to a safe representation
         if isinstance(obj, Interrupt):
