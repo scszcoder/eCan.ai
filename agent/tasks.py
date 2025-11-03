@@ -1047,7 +1047,7 @@ class TaskRunner(Generic[Context]):
         return
 
 
-    def _resolve_event_routing(self, event_type: str, request: Any) -> Optional["ManagedTask"]:
+    def _resolve_event_routing(self, event_type: str, request: Any, source: str = "") -> Optional["ManagedTask"]:
         """Use skill mapping DSL (event_routing) to choose a target task.
 
         Strategy:
@@ -1057,7 +1057,7 @@ class TaskRunner(Generic[Context]):
         - Return the first matching ManagedTask. No global queues.
         """
         try:
-            event = normalize_event(event_type, request)
+            event = normalize_event(event_type, request, src=source)
             etype = event.get("type") or event_type
         except Exception:
             etype = event_type
@@ -1098,12 +1098,19 @@ class TaskRunner(Generic[Context]):
                 print("rule selector:", selector)
                 try:
                     if selector.startswith("id:"):
-                        sel_ok = t.id == selector.split(":", 1)[1]
+                        print("t.id:", t.id)
+                        sel_ok = (t.id or "").strip() == selector.split(":", 1)[1].strip()
                     elif selector.startswith("name:"):
-                        sel_ok = (t.name or "") == selector.split(":", 1)[1]
+                        rhs = selector.split(":", 1)[1].strip().lower()
+                        lhs_task = (t.name or "").strip().lower()
+                        lhs_skill = (getattr(getattr(t, "skill", None), "name", "") or "").strip().lower()
+                        print("name equality compare:", repr(lhs_task), "or", repr(lhs_skill), "vs", repr(rhs))
+                        sel_ok = (lhs_task == rhs) or (lhs_skill == rhs)
                     elif selector.startswith("name_contains:"):
-                        print("selector:", selector, event_type, t.name)
-                        sel_ok = selector.split(":", 1)[1].lower() in (t.name or "").lower()
+                        name_norm = (t.name or "").lower()
+                        needle = selector.split(":", 1)[1].strip().lower()
+                        print("selector:", selector, event_type, repr(t.name))
+                        sel_ok = needle in name_norm
                     else:
                         # No selector or unknown format -> treat as match for this task
                         sel_ok = True
@@ -1899,11 +1906,11 @@ class TaskRunner(Generic[Context]):
         except Exception:
             return {"human_text": ""}, None
 
-    def sync_task_wait_in_line(self, event_type, request):
+    def sync_task_wait_in_line(self, event_type, request, source: str = ""):
         try:
             logger.debug("sync task waiting in line.....", event_type, self.agent.card.name, request)
             # Prefer mapping-DSL-based event routing to a specific task's queue
-            target_task = self._resolve_event_routing(event_type, request)
+            target_task = self._resolve_event_routing(event_type, request, source)
             if target_task and getattr(target_task, "queue", None):
                 try:
                     target_task.queue.put_nowait(request)

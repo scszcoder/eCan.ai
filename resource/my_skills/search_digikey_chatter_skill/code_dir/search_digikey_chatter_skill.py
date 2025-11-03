@@ -577,15 +577,38 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
         raise e
 
     existing_cloud_task_id = state["attributes"].get("cloud_task_id")
+    # Short-term guard: ignore node-tag-like placeholders (e.g., pend_for_*)
+    def _is_node_tag_like(v: object) -> bool:
+        try:
+            s = (v or "") if isinstance(v, str) else str(v or "")
+        except Exception:
+            return False
+        s = s.strip().lower()
+        if not s:
+            return False
+        if s.startswith("pend_for_"):
+            return True
+        if s in {"chat", "more_analysis_app", "prep_query_components", "query_component_specs",
+                 "pend_for_next_human_msg", "pend_for_next_human_msg0", "pend_for_next_human_msg1",
+                 "pend_for_next_human_msg2", "pend_for_human_input_fill_specs",
+                 "pend_for_human_input_fill_fom", "local_sort_search_results", "prep_local_sort"}:
+            return True
+        return False
+
+    if _is_node_tag_like(existing_cloud_task_id):
+        logger.debug(f"[search_digikey_chatter_skill] Ignoring node-tag-like existing cloud_task_id: {existing_cloud_task_id}")
+        existing_cloud_task_id = None
     try:
         if not existing_cloud_task_id and this_task and hasattr(this_task, 'metadata') and 'state' in this_task.metadata:
             task_state = this_task.metadata['state']
             if isinstance(task_state, dict) and 'attributes' in task_state:
                 task_cloud_task_id = task_state['attributes'].get('cloud_task_id')
-                if task_cloud_task_id:
+                if task_cloud_task_id and not _is_node_tag_like(task_cloud_task_id):
                     state["attributes"]["cloud_task_id"] = task_cloud_task_id
                     existing_cloud_task_id = task_cloud_task_id
-        if existing_cloud_task_id:
+                elif task_cloud_task_id:
+                    logger.debug(f"[search_digikey_chatter_skill] Discarding node-tag-like task_cloud_task_id from metadata: {task_cloud_task_id}")
+        if existing_cloud_task_id and not _is_node_tag_like(existing_cloud_task_id):
             cloud_task_id = existing_cloud_task_id
         else:
             i = 0
