@@ -307,15 +307,15 @@ class UnifiedBuildSystem:
                 ota_sign_success = ota_signing_manager.sign_for_ota(version)
                 
                 if ota_sign_success:
-                    print("[SIGN] ✅ OTA签名完成")
+                    print("[SIGN] [OK] OTA签名完成")
                 else:
-                    print("[SIGN] ⚠️ OTA签名失败，但继续构建")
+                    print("[SIGN] [WARNING] OTA签名失败，但继续构建")
             
             print("[SIGN] 签名流程完成")
             return True
             
         except Exception as e:
-            print(f"[SIGN] ⚠️ 签名过程出错: {e}")
+            print(f"[SIGN] [WARNING] 签名过程出错: {e}")
             # 签名失败不应该阻止构建
             return True
     

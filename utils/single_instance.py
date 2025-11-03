@@ -109,7 +109,7 @@ def install_single_instance():
                 success = _install_single_instance_unix(lock_file_path, attempt)
 
             if success:
-                print(f"[SINGLE_INSTANCE] ✅ Successfully acquired lock on attempt {attempt + 1}")
+                print(f"[SINGLE_INSTANCE] [OK] Successfully acquired lock on attempt {attempt + 1}")
                 return
 
             if attempt < max_retries - 1:
@@ -141,7 +141,7 @@ def install_single_instance():
     except Exception:
         pass
     
-    print("[SINGLE_INSTANCE] ❌ ECBot main process already running, exiting...")
+    print("[SINGLE_INSTANCE] [ERROR] ECBot main process already running, exiting...")
     print(f"[SINGLE_INSTANCE] If you believe this is an error, please delete: {lock_file_path}")
     sys.exit(0)
 

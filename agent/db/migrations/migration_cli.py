@@ -183,7 +183,7 @@ def main():
                 args.to_version, 
                 args.description
             )
-            print(f"✅ Created migration template: {file_path}")
+            print(f"[OK] Created migration template: {file_path}")
             print(f"📝 Please edit the file to implement your migration logic")
             
         elif args.command == 'status':
@@ -194,7 +194,7 @@ def main():
             print(f"📊 Migration Status")
             print(f"Current Version: {status['current_version']}")
             print(f"Latest Version:  {status['latest_version']}")
-            print(f"Up to Date:      {'✅ Yes' if status['is_up_to_date'] else '❌ No'}")
+            print(f"Up to Date:      {'[OK] Yes' if status['is_up_to_date'] else '[ERROR] No'}")
             print(f"Total Migrations: {status['total_migrations']}")
             
         elif args.command == 'migrate':
@@ -209,9 +209,9 @@ def main():
                 action = "migrate to latest version"
             
             if success:
-                print(f"✅ Successfully completed: {action}")
+                print(f"[OK] Successfully completed: {action}")
             else:
-                print(f"❌ Failed to {action}")
+                print(f"[ERROR] Failed to {action}")
                 sys.exit(1)
                 
         elif args.command == 'list':
@@ -230,7 +230,7 @@ def main():
                 print("-" * 40)
                 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"[ERROR] Error: {e}")
         sys.exit(1)
 
 

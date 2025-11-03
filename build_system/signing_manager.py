@@ -153,14 +153,14 @@ class SigningManager:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             
             if result.returncode == 0:
-                print(f"[SIGN] ✅ Signed: {file_path.name}")
+                print(f"[SIGN] [OK] Signed: {file_path.name}")
                 return True
             else:
-                print(f"[SIGN] ❌ Signing failed: {file_path.name} - {result.stderr.strip()}")
+                print(f"[SIGN] [ERROR] Signing failed: {file_path.name} - {result.stderr.strip()}")
                 return False
                 
         except Exception as e:
-            print(f"[SIGN] ❌ Signing exception: {file_path.name} - {e}")
+            print(f"[SIGN] [ERROR] Signing exception: {file_path.name} - {e}")
             return False
     
     def _sign_macos_artifacts(self) -> bool:
@@ -198,14 +198,14 @@ class SigningManager:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             
             if result.returncode == 0:
-                print(f"[SIGN] ✅ Signed: {file_path.name}")
+                print(f"[SIGN] [OK] Signed: {file_path.name}")
                 return True
             else:
-                print(f"[SIGN] ❌ Signing failed: {file_path.name} - {result.stderr.strip()}")
+                print(f"[SIGN] [ERROR] Signing failed: {file_path.name} - {result.stderr.strip()}")
                 return False
                 
         except Exception as e:
-            print(f"[SIGN] ❌ Signing exception: {file_path.name} - {e}")
+            print(f"[SIGN] [ERROR] Signing exception: {file_path.name} - {e}")
             return False
     
     def _check_tool_available(self, tool: str) -> bool:
@@ -262,12 +262,12 @@ class SigningManager:
                 )
                 
                 if result.returncode == 0:
-                    print(f"[VERIFY] ✅ Signature valid: {file_path.name}")
+                    print(f"[VERIFY] [OK] Signature valid: {file_path.name}")
                     verified_count += 1
                 else:
-                    print(f"[VERIFY] ❌ Signature invalid: {file_path.name}")
+                    print(f"[VERIFY] [ERROR] Signature invalid: {file_path.name}")
             except Exception as e:
-                print(f"[VERIFY] ❌ Verification failed: {file_path.name} - {e}")
+                print(f"[VERIFY] [ERROR] Verification failed: {file_path.name} - {e}")
         
         print(f"[VERIFY] Windows signature verification: {verified_count}/{len(signed_files)} files")
         return verified_count > 0
@@ -293,12 +293,12 @@ class SigningManager:
                 )
                 
                 if result.returncode == 0:
-                    print(f"[VERIFY] ✅ Signature valid: {file_path.name}")
+                    print(f"[VERIFY] [OK] Signature valid: {file_path.name}")
                     verified_count += 1
                 else:
-                    print(f"[VERIFY] ❌ Signature invalid: {file_path.name}")
+                    print(f"[VERIFY] [ERROR] Signature invalid: {file_path.name}")
             except Exception as e:
-                print(f"[VERIFY] ❌ Verification failed: {file_path.name} - {e}")
+                print(f"[VERIFY] [ERROR] Verification failed: {file_path.name} - {e}")
         
         print(f"[VERIFY] macOS signature verification: {verified_count}/{len(signed_files)} files")
         return verified_count > 0
@@ -322,21 +322,21 @@ class OTASigningManager:
             
             # Load private key
             if not self.private_key_path.exists():
-                print(f"[OTA-SIGN] ❌ Ed25519 private key file does not exist: {self.private_key_path}")
+                print(f"[OTA-SIGN] [ERROR] Ed25519 private key file does not exist: {self.private_key_path}")
                 return False
             
             with open(self.private_key_path, 'rb') as f:
                 private_key = serialization.load_pem_private_key(f.read(), password=None)
             
             if not isinstance(private_key, ed25519.Ed25519PrivateKey):
-                print("[OTA-SIGN] ❌ Private key format is incorrect")
+                print("[OTA-SIGN] [ERROR] Private key format is incorrect")
                 return False
             
             # Find distribution files to sign
             artifacts = list(self.dist_dir.glob("*.exe")) + list(self.dist_dir.glob("*.dmg")) + list(self.dist_dir.glob("*.pkg"))
             
             if not artifacts:
-                print("[OTA-SIGN] ❌ No distribution files found to sign")
+                print("[OTA-SIGN] [ERROR] No distribution files found to sign")
                 return False
             
             signatures = {}
@@ -360,24 +360,24 @@ class OTASigningManager:
                         "file_size": len(file_data)
                     }
                     
-                    print(f"[OTA-SIGN] ✅ Signed: {artifact.name}")
+                    print(f"[OTA-SIGN] [OK] Signed: {artifact.name}")
                 except Exception as e:
-                    print(f"[OTA-SIGN] ❌ Signing failed: {artifact.name} - {e}")
+                    print(f"[OTA-SIGN] [ERROR] Signing failed: {artifact.name} - {e}")
             
             if signatures:
                 # Save signature information
                 self._save_signatures(version, signatures)
-                print(f"[OTA-SIGN] ✅ OTA signing completed: {len(signatures)} files")
+                print(f"[OTA-SIGN] [OK] OTA signing completed: {len(signatures)} files")
                 return True
             else:
-                print("[OTA-SIGN] ❌ All files signing failed")
+                print("[OTA-SIGN] [ERROR] All files signing failed")
                 return False
             
         except ImportError:
-            print("[OTA-SIGN] ❌ Missing cryptography library")
+            print("[OTA-SIGN] [ERROR] Missing cryptography library")
             return False
         except Exception as e:
-            print(f"[OTA-SIGN] ❌ OTA signing failed: {e}")
+            print(f"[OTA-SIGN] [ERROR] OTA signing failed: {e}")
             return False
     
     def _save_signatures(self, version: str, signatures: Dict[str, Any]):
@@ -391,10 +391,10 @@ class OTASigningManager:
             with open(signatures_file, 'w', encoding='utf-8') as f:
                 json.dump(signatures, f, indent=2, ensure_ascii=False)
             
-            print(f"[OTA-SIGN] ✅ Signature information saved: {signatures_file}")
+            print(f"[OTA-SIGN] [OK] Signature information saved: {signatures_file}")
             
         except Exception as e:
-            print(f"[OTA-SIGN] ⚠️ Failed to save signature information: {e}")
+            print(f"[OTA-SIGN] [WARNING] Failed to save signature information: {e}")
 
 def create_signing_manager(project_root: Path = None, config: Dict[str, Any] = None) -> SigningManager:
     """Create signing manager instance"""

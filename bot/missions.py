@@ -825,7 +825,7 @@ class EBMISSION:
                     # First, attempt to load it as JSON directly
                     cfgJson = json.loads(cfg)
                 except json.JSONDecodeError as e:
-                    print(f"⚠️ JSON decoding failed: {e}. Trying alternative parsing...")
+                    print(f"[WARNING] JSON decoding failed: {e}. Trying alternative parsing...")
 
                     try:
                         # If JSON decoding fails, try evaluating it safely
@@ -843,10 +843,10 @@ class EBMISSION:
             self.pubAttributes.repeat_until = cfgJson.get("repeat_until", self.pubAttributes.repeat_until)
             self.pubAttributes.repeat_last = cfgJson.get("repeat_last", self.pubAttributes.repeat_last)
 
-            print(f"✅ Config loaded successfully: {len(cfgJson.get('searches', []))} searches.")
+            print(f"[OK] Config loaded successfully: {len(cfgJson.get('searches', []))} searches.")
 
         except (json.JSONDecodeError, ValueError, SyntaxError, TypeError) as e:
-            raise ValueError(f"❌ Invalid config format: {cfg}. Error: {e}")
+            raise ValueError(f"[ERROR] Invalid config format: {cfg}. Error: {e}")
 
     # def setConfig(self, cfg):
     #     try:

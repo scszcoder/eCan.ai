@@ -578,7 +578,7 @@ async def in_browser_scrape_content(state: NodeState) -> NodeState:
         if traceback_info:
             ex_stat = "ErrorFetchSchedule:" + traceback.format_exc() + " " + str(e)
             # logger.error(f'❌  Failed to step: {ex_stat}')
-            print(f'❌  Failed to step: {ex_stat}')
+            print(f'[ERROR] Failed to step: {ex_stat}')
 
         result = await agent._handle_step_error(e)
         agent.state.last_result = result
