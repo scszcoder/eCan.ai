@@ -1722,7 +1722,9 @@ def apply_search_results_sort_safe(driver, header_text: str, asc: bool) -> bool:
         # Try to detect prior sort state via aria-sort if present
         try:
             before_sort = (header.get_attribute("aria-sort") or "").lower()
-        except Exception:
+        except Exception as e:
+            err_msg = get_traceback(e, "ErrorBeforeSort")
+            logger.error(f"{err_msg}")
             before_sort = ""
 
         logger.debug(f"Header found!!!!!")
@@ -1739,7 +1741,9 @@ def apply_search_results_sort_safe(driver, header_text: str, asc: bool) -> bool:
             btn_xpath = ".//button[contains(@class,'asc')]" if asc else ".//button[contains(@class,'desc')]"
             try:
                 sort_btn = header.find_element(By.XPATH, btn_xpath)
-            except Exception:
+            except Exception as e:
+                err_msg = get_traceback(e, "ErrorSortBtn")
+                logger.error(f"{err_msg}")
                 # Last resort: any button inside header
                 cand = header.find_elements(By.XPATH, ".//button")
                 if not cand:
@@ -2086,6 +2090,7 @@ def digi_key_selenium_sort_and_extract_results(driver,  header, ascending, max_n
 
     except Exception as e:
         err_msg = get_traceback(e, "ErrorDigikeySeleniumSortAndExtractResults")
+        logger.error(err_msg)
         results = {"status": "failed", "error": err_msg, "components": []}
 
     return results

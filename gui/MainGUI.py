@@ -850,13 +850,42 @@ class MainWindow:
         self.screen_size = getScreenSize()
 
         # Machine identification information - using system information manager
-        self.machine_name = system_info.get('machine_name', 'Unknown-Computer')
+        # self.machine_name = system_info.get('machine_name', 'Unknown-Computer')
+        # Machine identification information - prefer OS hostname (avoid friendly names)
+        try:
+            candidates = []
+            import socket, platform, os as _os
+            if self.system == "Windows":
+                candidates.extend([
+                    _os.environ.get("COMPUTERNAME"),
+                    socket.gethostname(),
+                    platform.node(),
+                ])
+            else:
+                candidates.extend([
+                    _os.environ.get("HOSTNAME"),
+                    socket.gethostname(),
+                    platform.node(),
+                ])
+            candidates.append(system_info.get('machine_name'))
+            print("candidates:", candidates)
+            _mn = next((x for x in candidates if isinstance(x, str) and x.strip()), None)
+            if isinstance(_mn, str):
+                _mn = _mn.strip().strip('"').strip("'").replace("’", "'")
+                _mn = " ".join(_mn.split())
+                if "." in _mn:
+                    _mn = _mn.split(".", 1)[0]
+            self.machine_name = _mn or "Unknown-Computer"
+        except Exception:
+            self.machine_name = system_info.get('machine_name', 'Unknown-Computer')
+
         self.device_type = system_info.get('device_type', 'Computer')
         self.system_arch = system_info.get('system_arch', 'unknown')
         self.commander_name = ""
 
         logger.info(f"[MainWindow] ✅ System info initialized - OS: {self.os_info}, CPU: {self.processor}, Memory: {self.total_memory:.1f}GB")
         logger.info(f"[MainWindow] ✅ Device info - Name: {self.machine_name}, Type: {self.device_type}, Arch: {self.system_arch}")
+        logger.info(f"[MainWindow] ✅ System info", system_info)
 
 
     def _init_file_system(self):

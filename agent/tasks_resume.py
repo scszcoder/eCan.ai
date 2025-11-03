@@ -191,6 +191,8 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
         "data": msg,
         "context": ctx,
     }
+    logger.debug("normalized event:", event)
+
     return event
     # try:
     #     # Accept dict or pydantic-like object with .params

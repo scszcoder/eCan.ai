@@ -1579,12 +1579,12 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
     """
 
     def on_message(ws, message):
-        logger.debug("[CloudAPI] Received WebSocket message")
+        logger.debug("[CloudLLMTask] Received WebSocket message")
         try:
             data = json.loads(message)
         except Exception:
             data = {"raw": message}
-        logger.debug("[CloudAPI] Subscription update: %s", json.dumps(data, indent=2))
+        logger.debug("[CloudLLMTask] Subscription update: %s", json.dumps(data, indent=2))
         # Determine message type for protocol handling
         msg_type = data.get("type")
 
@@ -1626,10 +1626,10 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
                         },
                     },
                 }
-                logger.info("[CloudAPI] connection_ack received, sending start subscription")
+                logger.info("[CloudLLMTask] connection_ack received, sending start subscription", start_payload)
                 ws.send(json.dumps(start_payload))
             except Exception as e:
-                logger.error(f"[CloudAPI] Failed to send start payload: {e}")
+                logger.error(f"[CloudLLMTask] Failed to send start payload: {e}")
 
         elif msg_type in ("ka", "keepalive"):
             # Keep-alive from server; no action required
@@ -1640,7 +1640,7 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
             result_obj = None
             if isinstance(payload_data, dict):
                 result_obj = payload_data.get("onLongLLMTaskComplete")
-                logger.debug(f"Received subscription result:{json.dumps(result_obj, indent=2, ensure_ascii=False)}")
+                logger.debug(f"Received long LLM Task subscription result:{json.dumps(result_obj, indent=2, ensure_ascii=False)}")
                 # now we can send result_obj to resume the pending workflow.
                 # which msg queue should this be put into? (agent should maintain some kind of cloud_task_id to agent_task_queue LUT)
                 agent_id = result_obj["agentID"]
@@ -1648,25 +1648,26 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
                 handler_agent = get_agent_by_id(agent_id)
                 # Convert cloud result to TaskSendParams format for _build_resume_payload()
                 converted_result = convert_cloud_result_to_task_send_params(result_obj, work_type)
-                event_response = handler_agent.runner.sync_task_wait_in_line(work_type, converted_result)
+                # event_response = handler_agent.runner.sync_task_wait_in_line(work_type, converted_result)
+                event_response = handler_agent.runner.sync_task_wait_in_line(work_type, converted_result, source="cloud_websocket")
 
     def on_error(ws, error):
-        logger.error(f"[CloudAPI] WebSocket error: {error}")
+        logger.error(f"[CloudLLMTask] WebSocket error: {error}")
 
     def on_close(ws, status_code, msg):
-        logger.warning(f"[CloudAPI] WebSocket closed: code={status_code}, msg={msg}")
+        logger.warning(f"[CloudLLMTask] WebSocket closed: code={status_code}, msg={msg}")
 
     def on_open(ws):
-        logger_helper.debug("web socket opened.......")
+        logger_helper.debug("CloudLLMTask web socket opened.......")
         init_payload = {
             "type": "connection_init",
             "payload": {}
         }
         try:
-            logger_helper.debug("sending connection_init ...")
+            logger_helper.debug("CloudLLMTask sending connection_init ...")
             ws.send(json.dumps(init_payload))
         except Exception as e:
-            logger.error(f"[CloudAPI] Failed to send connection_init: {e}")
+            logger.error(f"[CloudLLMTask] Failed to send connection_init: {e}")
 
     # Resolve WS URL and ensure it's the AppSync realtime endpoint
     if not ws_url:
@@ -1725,7 +1726,7 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
         subprotocols=["graphql-ws"],
     )
 
-    logger.info("[CloudAPI] Launching web socket thread")
+    logger.info("[CloudLLMTask] Launching web socket thread")
     # Configure SSL options to handle certificate verification issues
     import ssl
     ssl_context = ssl.create_default_context()
@@ -1735,5 +1736,5 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
 
     t = threading.Thread(target=lambda: ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE}), daemon=True)
     t.start()
-    logger.info("[CloudAPI] Web socket thread launched")
+    logger.info("[CloudLLMTask] Web socket thread launched")
     return ws, t
