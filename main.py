@@ -256,6 +256,17 @@ try:
     except Exception as e:
         print(f"Warning: Failed to load shell environment variables: {e}")
 
+    # Enforce baseline: start in direct-connection mode unless ProxyManager later verifies a reachable system proxy
+    try:
+        from agent.ec_skills.system_proxy import apply_direct_connection_baseline
+        cleared = apply_direct_connection_baseline()
+        if cleared:
+            print("Cleared proxy env vars; set NO_PROXY='*' (direct connection baseline)")
+        else:
+            print("Set NO_PROXY='*' (direct connection baseline)")
+    except Exception as e:
+        print(f"Warning: Failed to enforce direct-connection baseline: {e}")
+
     # Import other necessary modules
     progress_manager.update_progress(30, "Loading Login components...")
     from gui.LoginoutGUI import Login

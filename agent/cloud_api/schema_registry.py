@@ -265,10 +265,8 @@ class SchemaRegistry:
 # Global registry instance
 _schema_registry = SchemaRegistry()
 
-# Eagerly register default schemas on module import
-# This ensures schemas are available before any adapter is created
-_schema_registry._register_default_schemas()
-_schema_registry._default_schemas_registered = True
+# NOTE: Schemas are now registered lazily on first use (in get_schema method)
+# This improves startup performance by ~16 seconds
 
 
 def get_schema_registry() -> SchemaRegistry:
