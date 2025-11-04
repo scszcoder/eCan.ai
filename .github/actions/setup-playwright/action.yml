@@ -81,20 +81,15 @@ runs:
         $browsers = "${{ inputs.browsers }}" -split ','
         
         # Ensure playwright package is installed in the chosen interpreter
-        try {
-          $pyCode = @'
-import importlib, sys, subprocess
-try:
-    importlib.import_module("playwright")
-    print("[OK] playwright already installed")
-except ImportError:
-    print("[INFO] Installing playwright into current environment...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-U", "playwright"])
-'@
-          $pyCode | & $PYTHON_EXE -
-        } catch {
-          Write-Host "Failed to verify/install playwright" -ForegroundColor Red
-          throw
+        Write-Host "Verifying playwright installation..."
+        & $PYTHON_EXE -c "import importlib; importlib.import_module('playwright'); print('[OK] playwright installed')" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "[INFO] Installing playwright into current environment..."
+          & $PYTHON_EXE -m pip install -U playwright
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Failed to install playwright" -ForegroundColor Red
+            throw "playwright installation failed"
+          }
         }
 
         # Install each browser
@@ -151,15 +146,17 @@ except ImportError:
         fi
         
         # Ensure playwright package is installed in the chosen interpreter
-        "$PYTHON_EXE" - <<'PY'
-import importlib, sys, subprocess
-try:
-    importlib.import_module('playwright')
-    print('[OK] playwright already installed')
-except ImportError:
-    print('[INFO] Installing playwright into current environment...')
-    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-U', 'playwright'])
-PY
+        echo "Verifying playwright installation..."
+        if ! "$PYTHON_EXE" -c "import playwright" 2>/dev/null; then
+          echo "[INFO] Installing playwright into current environment..."
+          "$PYTHON_EXE" -m pip install -U playwright
+          if [ $? -ne 0 ]; then
+            echo "Failed to install playwright"
+            exit 1
+          fi
+        else
+          echo "[OK] playwright already installed"
+        fi
 
         # Install each browser
         for browser in "${BROWSERS[@]}"; do
