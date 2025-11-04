@@ -151,6 +151,12 @@ jobs:
         requirements-file: requirements-windows.txt
         extra-packages: pywin32-ctypes
 
+    - name: Setup Playwright Browsers
+      uses: ./.github/actions/setup-playwright
+      with:
+        platform: windows
+        browsers: chromium
+
     - name: Cache Node.js dependencies
       uses: actions/cache@v4
       with:
@@ -532,6 +538,14 @@ jobs:
         platform: macos
         requirements-file: requirements-macos.txt
         python-version: ${{ matrix.arch == 'aarch64' && '3.11' || '3.11' }}
+
+    - name: Setup Playwright Browsers
+      if: steps.should_build.outputs.should_build == 'true'
+      uses: ./.github/actions/setup-playwright
+      with:
+        platform: macos
+        arch: ${{ matrix.arch }}
+        browsers: chromium
 
     - name: Cache Node.js dependencies
       if: steps.should_build.outputs.should_build == 'true'
@@ -1008,47 +1022,193 @@ jobs:
           ACL_ARGS+=(--acl public-read)
         fi
 
-        # Upload to S3
-        echo "=== Uploading to S3 ==="
+        # Upload to S3 (version-specific path only)
+        echo "=== Uploading to S3 (version ${VERSION}) ==="
         aws s3 sync upload/ s3://${S3_BUCKET}/${S3_VERSION_PATH}/ \
           "${ACL_ARGS[@]}" \
           --cache-control "max-age=31536000" \
           --metadata "version=${VERSION}"
         
-        # Upload to latest directory (for easy access to latest version)
-        echo "=== Updating latest version ==="
-        aws s3 sync upload/ s3://${S3_BUCKET}/${S3_BASE_PATH}/latest/ \
-          "${ACL_ARGS[@]}" \
+        # Create 'latest' pointer using lightweight metadata file (not full copy)
+        echo "=== Creating 'latest' version pointer ==="
+        cat > latest.json <<EOF
+        {
+          "version": "${VERSION}",
+          "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+          "download_base": "https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_VERSION_PATH}",
+          "redirect_to": "${S3_VERSION_PATH}",
+          "files": {
+            "windows": {
+              "installer": "${S3_VERSION_PATH}/windows/eCan-${VERSION}-windows-amd64-Setup.exe",
+              "portable": "${S3_VERSION_PATH}/windows/eCan-${VERSION}-windows-amd64.exe"
+            },
+            "macos": {
+              "amd64": "${S3_VERSION_PATH}/macos/eCan-${VERSION}-macos-amd64.pkg",
+              "aarch64": "${S3_VERSION_PATH}/macos/eCan-${VERSION}-macos-aarch64.pkg"
+            },
+            "checksums": "${S3_VERSION_PATH}/checksums/SHA256SUMS"
+          }
+        }
+        EOF
+        
+        # Upload lightweight pointer file to 'latest' (only ~1KB vs 500MB+ of artifacts)
+        aws s3 cp latest.json s3://${S3_BUCKET}/${S3_BASE_PATH}/latest.json \
+          --content-type "application/json" \
           --cache-control "max-age=300" \
-          --metadata "version=${VERSION}"
+          --metadata "version=${VERSION}" \
+          "${ACL_ARGS[@]}"
+        
+        echo "Latest version pointer created (${S3_BASE_PATH}/latest.json)"
+        echo "  No duplicate upload - latest.json points to: ${S3_VERSION_PATH}"
         
         # Set output for S3 base URL
         S3_BASE_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_VERSION_PATH}"
+        S3_ACCELERATE_URL="https://${S3_BUCKET}.s3-accelerate.amazonaws.com/${S3_VERSION_PATH}"
         echo "s3_base_url=${S3_BASE_URL}" >> $GITHUB_OUTPUT
         
-        echo "=== Upload completed ==="
         echo ""
-        echo "S3 Upload Successful!"
-        echo ""
-        echo "Download URLs:"
+        echo "================================================================"
+        echo "                S3 Upload Completed Successfully!"
         echo "================================================================"
         echo ""
-        echo "Base URL:"
-        echo "   ${S3_BASE_URL}"
+        echo "Version: ${VERSION}"
+        echo "S3 Path: s3://${S3_BUCKET}/${S3_VERSION_PATH}"
         echo ""
-        echo "Windows Installers:"
-        echo "   ${S3_BASE_URL}/windows/eCan-${VERSION}-windows-amd64-Setup.exe"
-        echo "   ${S3_BASE_URL}/windows/eCan-${VERSION}-windows-amd64.exe"
+        
+        # List all uploaded files with their details
+        echo "Uploaded Files:"
+        echo "----------------------------------------------------------------"
+        
+        # Find and display all uploaded files with sizes
+        if [ -d "upload/windows" ]; then
+          echo ""
+          echo "Windows Artifacts:"
+          for file in upload/windows/*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              size=$(du -h "$file" | cut -f1)
+              echo "   $filename ($size)"
+            fi
+          done
+        fi
+        
+        if [ -d "upload/macos" ]; then
+          echo ""
+          echo "macOS Artifacts:"
+          for file in upload/macos/*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              size=$(du -h "$file" | cut -f1)
+              echo "   $filename ($size)"
+            fi
+          done
+        fi
+        
+        if [ -d "upload/checksums" ]; then
+          echo ""
+          echo "Checksums:"
+          for file in upload/checksums/*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              echo "   $filename"
+            fi
+          done
+        fi
+        
         echo ""
-        echo "macOS Installers:"
-        echo "   ${S3_BASE_URL}/macos/eCan-${VERSION}-macos-amd64.pkg"
-        echo "   ${S3_BASE_URL}/macos/eCan-${VERSION}-macos-aarch64.pkg"
+        echo "================================================================"
+        echo "                    Download URLs"
+        echo "================================================================"
         echo ""
+        echo "Standard S3 URLs (Global):"
+        echo "----------------------------------------------------------------"
+        echo ""
+        
+        # Windows URLs
+        if [ -d "upload/windows" ]; then
+          echo "Windows:"
+          for file in upload/windows/*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              echo "   ${S3_BASE_URL}/windows/${filename}"
+            fi
+          done
+          echo ""
+        fi
+        
+        # macOS URLs
+        if [ -d "upload/macos" ]; then
+          echo "macOS:"
+          for file in upload/macos/*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              echo "   ${S3_BASE_URL}/macos/${filename}"
+            fi
+          done
+          echo ""
+        fi
+        
+        # Checksums
         echo "Checksums:"
         echo "   ${S3_BASE_URL}/checksums/SHA256SUMS"
         echo ""
-        echo "Version Metadata:"
-        echo "   ${S3_BASE_URL}/version-metadata.json"
+        
+        echo "================================================================"
+        echo "S3 Transfer Acceleration URLs (Faster)"
+        echo "================================================================"
+        echo ""
+        echo "Use these URLs for faster downloads from distant regions"
+        echo "   (Requires S3 Transfer Acceleration enabled on bucket)"
+        echo ""
+        
+        # Windows Accelerated URLs
+        if [ -d "upload/windows" ]; then
+          echo "Windows:"
+          for file in upload/windows/*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              echo "   ${S3_ACCELERATE_URL}/windows/${filename}"
+            fi
+          done
+          echo ""
+        fi
+        
+        # macOS Accelerated URLs
+        if [ -d "upload/macos" ]; then
+          echo "macOS:"
+          for file in upload/macos/*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              echo "   ${S3_ACCELERATE_URL}/macos/${filename}"
+            fi
+          done
+          echo ""
+        fi
+        
+        # Checksums Accelerated
+        echo "Checksums:"
+        echo "   ${S3_ACCELERATE_URL}/checksums/SHA256SUMS"
+        echo ""
+        
+        echo "================================================================"
+        echo "                  Latest Version Pointer"
+        echo "================================================================"
+        echo ""
+        echo "Latest Version Info:"
+        echo "   https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/latest.json"
+        echo ""
+        echo "   (This file points to v${VERSION} and is updated with each release)"
+        echo ""
+        
+        echo "================================================================"
+        echo "Upload Summary"
+        echo "================================================================"
+        echo ""
+        echo "All artifacts uploaded successfully"
+        echo "Version: ${VERSION}"
+        echo "Total files: $(find upload -type f | wc -l)"
+        echo "Total size: $(du -sh upload | cut -f1)"
+        echo "S3 Path: s3://${S3_BUCKET}/${S3_VERSION_PATH}"
         echo ""
         echo "================================================================"
 
