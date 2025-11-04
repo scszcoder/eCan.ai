@@ -17,7 +17,7 @@ runs:
   using: 'composite'
   steps:
     - name: Cache Playwright browsers (Windows)
-      if: inputs.platform == 'windows'
+      if: ${{ inputs.platform == 'windows' }}
       uses: actions/cache@v4
       with:
         path: |
@@ -28,7 +28,7 @@ runs:
           ${{ runner.os }}-playwright-
 
     - name: Cache Playwright browsers (macOS)
-      if: inputs.platform == 'macos'
+      if: ${{ inputs.platform == 'macos' }}
       uses: actions/cache@v4
       with:
         path: |
@@ -39,7 +39,7 @@ runs:
           ${{ runner.os }}-${{ inputs.arch }}-playwright-
 
     - name: Cache Playwright browsers (Linux)
-      if: inputs.platform == 'linux'
+      if: ${{ inputs.platform == 'linux' }}
       uses: actions/cache@v4
       with:
         path: |
@@ -50,7 +50,7 @@ runs:
           ${{ runner.os }}-${{ inputs.arch }}-playwright-
 
     - name: Install Playwright browsers (Windows)
-      if: inputs.platform == 'windows'
+      if: ${{ inputs.platform == 'windows' }}
       shell: pwsh
       run: |
         Write-Host "=== Installing Playwright browsers ===" -ForegroundColor Cyan
@@ -82,16 +82,16 @@ runs:
         
         # Ensure playwright package is installed in the chosen interpreter
         try {
-          & $PYTHON_EXE - <<'PY'
-import importlib, sys
+          $pyCode = @'
+import importlib, sys, subprocess
 try:
-    importlib.import_module('playwright')
-    print('[OK] playwright already installed')
+    importlib.import_module("playwright")
+    print("[OK] playwright already installed")
 except ImportError:
-    print('[INFO] Installing playwright into current environment...')
-    import subprocess
-    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-U', 'playwright'])
-PY
+    print("[INFO] Installing playwright into current environment...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-U", "playwright"])
+'@
+          $pyCode | & $PYTHON_EXE -
         } catch {
           Write-Host "Failed to verify/install playwright" -ForegroundColor Red
           throw
@@ -102,14 +102,14 @@ PY
           $browser = $browser.Trim()
           if ($browser) {
             Write-Host "Installing $browser browser..."
-            & $PYTHON_EXE -m playwright install $browser --with-deps
+            & $PYTHON_EXE -m playwright install $browser
           }
         }
         
         Write-Host "Playwright browsers installed successfully" -ForegroundColor Green
 
     - name: Install Playwright browsers (Unix)
-      if: inputs.platform == 'macos' || inputs.platform == 'linux'
+      if: ${{ inputs.platform == 'macos' || inputs.platform == 'linux' }}
       shell: bash
       run: |
         echo "=== Installing Playwright browsers ==="
@@ -144,6 +144,11 @@ PY
         
         # Parse browsers input
         IFS=',' read -ra BROWSERS <<< "${{ inputs.browsers }}"
+        # Linux requires system deps; macOS does not
+        INSTALL_ARGS=""
+        if [ "${{ inputs.platform }}" = "linux" ]; then
+          INSTALL_ARGS="--with-deps"
+        fi
         
         # Ensure playwright package is installed in the chosen interpreter
         "$PYTHON_EXE" - <<'PY'
@@ -161,7 +166,7 @@ PY
           browser=$(echo "$browser" | xargs)  # Trim whitespace
           if [ -n "$browser" ]; then
             echo "Installing $browser browser..."
-            "$PYTHON_EXE" -m playwright install "$browser" --with-deps
+            "$PYTHON_EXE" -m playwright install "$browser" $INSTALL_ARGS
           fi
         done
         
