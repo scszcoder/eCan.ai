@@ -1,6 +1,7 @@
 import React from 'react';
 import { HashRouter, Routes, Route } from 'react-router-dom';
 import { ConfigProvider, theme, App as AntdApp } from 'antd';
+import { registerOnboardingModalApi } from './services/onboarding/onboardingService';
 import { routes, RouteConfig } from './routes';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { LanguageProvider } from './contexts/LanguageContext';
@@ -97,6 +98,18 @@ const renderRoutes = (routes: RouteConfig[]) => {
 };
 
 const AppContent = () => {
+    const ModalRegistrar: React.FC = () => {
+        const api = AntdApp.useApp();
+        React.useEffect(() => {
+            try {
+                if (api && (api as any).modal) {
+                    registerOnboardingModalApi((api as any).modal);
+                }
+            } catch {}
+            return () => registerOnboardingModalApi(null);
+        }, [api]);
+        return null;
+    };
     // Initialize platform at app mount so IPC gating flags are correct
     React.useEffect(() => {
         try {
@@ -185,6 +198,7 @@ const AppContent = () => {
             theme={getThemeConfig(isDark)}
         >
             <AntdApp>
+                <ModalRegistrar />
                 <HashRouter>
                     <Routes>
                         {renderRoutes(routes)}
