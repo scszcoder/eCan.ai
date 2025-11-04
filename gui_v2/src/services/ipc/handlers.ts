@@ -247,6 +247,8 @@ export class IPCHandlers {
     }
 
     async pushChatNotification(request: IPCRequest): Promise<{ success: boolean }> {
+          try { console.log('[IPC][pushChatNotification] raw request', request); } catch {}
+
         let { chatId, content, isRead, timestamp, uid } = request.params as { chatId: string, content: any, isRead: boolean, timestamp: string, uid: string };
         if (!chatId || !content) {
             throw new Error('pushChatNotification: chatId and notification are required');
@@ -259,6 +261,7 @@ export class IPCHandlers {
                 throw new Error('pushChatNotification: content is string but not valid JSON');
             }
         }
+        console.log("emitting chat:newNotification")
         eventBus.emit('chat:newNotification', { chatId, content, isRead, timestamp, uid });
         return { success: true };
     }
