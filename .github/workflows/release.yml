@@ -468,12 +468,12 @@ jobs:
             target_arch: x86_64
             build_name: "amd64"
             pyinstaller_arch: "x86_64"
-            runner: "macos-13"  # Intel x86_64 runner
+            runner: "macos-15-intel"  # Intel x86_64 runner (macOS 15 Intel)
           - arch: aarch64
             target_arch: arm64
             build_name: "aarch64"
             pyinstaller_arch: "arm64"
-            runner: "macos-14"  # Apple Silicon ARM64 runner
+            runner: "macos-latest"  # Apple Silicon ARM64 runner (macOS 15 arm64)
       fail-fast: false
     env:
       # Expose macOS signing/notarization secrets to env for conditional checks without referencing `secrets` in `if:`
