@@ -38,6 +38,7 @@ class LLMManager:
             config_manager: Configuration manager instance
         """
         self.config_manager = config_manager
+        self._onboarding_shown = False  # Track if onboarding has been shown this session
     
 
     # API Key Management Methods - Using Environment Variables
@@ -897,6 +898,11 @@ For {system}, please refer to system documentation for setting environment varia
         Frontend determines UI, text, and behavior based on instruction type.
         """
         try:
+            # Check if already shown this session
+            if self._onboarding_shown:
+                logger.debug("[LLMManager] Onboarding guide already shown this session, skipping")
+                return
+            
             from app_context import AppContext
             web_gui = AppContext.get_web_gui()
             if not web_gui:
@@ -921,6 +927,8 @@ For {system}, please refer to system documentation for setting environment varia
                 }
             )
             
+            # Mark as shown
+            self._onboarding_shown = True
             logger.info("[LLMManager] Onboarding instruction pushed to frontend")
             
         except Exception as e:
