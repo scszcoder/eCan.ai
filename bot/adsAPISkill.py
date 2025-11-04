@@ -12,6 +12,9 @@ import time
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from selenium.common.exceptions import InvalidArgumentException, WebDriverException
+import sys
+import subprocess
+from utils.subprocess_helper import get_windows_creation_flags
 
 
 API_CONN = "http://local/adspower.net:50360"
@@ -291,7 +294,12 @@ def startADSWebDriver(local_api_key, port_string, profile_id, in_driver_path, op
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
 
         # Create a Service object using the path to chromedriver
-        service = Service(executable_path=driver_path)
+        service = Service(executable_path=driver_path, log_output=subprocess.DEVNULL)
+        if sys.platform == "win32":
+            try:
+                service.creationflags = get_windows_creation_flags()
+            except Exception:
+                pass
         # service = Service(ChromeDriverManager().install())
         print("service", service, "options:", chrome_options, "driver_path:", driver_path, "selenium_address:", selenium_address)
         # Initialize WebDriver, with fallback if some options are rejected
