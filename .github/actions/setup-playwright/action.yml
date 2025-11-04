@@ -55,6 +55,15 @@ runs:
       run: |
         Write-Host "=== Installing Playwright browsers ===" -ForegroundColor Cyan
         
+        # Resolve Python executable (prefer virtualenv if available)
+        $PYTHON_EXE = "python"
+        if ($env:VIRTUAL_ENV -and (Test-Path "$env:VIRTUAL_ENV\Scripts\python.exe")) {
+          $PYTHON_EXE = "$env:VIRTUAL_ENV\Scripts\python.exe"
+          Write-Host "Using venv Python: $PYTHON_EXE"
+        } else {
+          Write-Host "VIRTUAL_ENV not set or python.exe not found in venv; falling back to runner python"
+        }
+        
         # Check if already cached
         $playwrightCache = "$env:USERPROFILE\AppData\Local\ms-playwright"
         if (Test-Path $playwrightCache) {
@@ -71,12 +80,29 @@ runs:
         # Parse browsers input
         $browsers = "${{ inputs.browsers }}" -split ','
         
+        # Ensure playwright package is installed in the chosen interpreter
+        try {
+          & $PYTHON_EXE - <<'PY'
+import importlib, sys
+try:
+    importlib.import_module('playwright')
+    print('[OK] playwright already installed')
+except ImportError:
+    print('[INFO] Installing playwright into current environment...')
+    import subprocess
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-U', 'playwright'])
+PY
+        } catch {
+          Write-Host "Failed to verify/install playwright" -ForegroundColor Red
+          throw
+        }
+
         # Install each browser
         foreach ($browser in $browsers) {
           $browser = $browser.Trim()
           if ($browser) {
             Write-Host "Installing $browser browser..."
-            python -m playwright install $browser --with-deps
+            & $PYTHON_EXE -m playwright install $browser --with-deps
           }
         }
         
@@ -87,6 +113,15 @@ runs:
       shell: bash
       run: |
         echo "=== Installing Playwright browsers ==="
+        
+        # Resolve Python executable (prefer virtualenv if available)
+        PYTHON_EXE="python"
+        if [ -n "${VIRTUAL_ENV:-}" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
+          PYTHON_EXE="$VIRTUAL_ENV/bin/python"
+          echo "Using venv Python: $PYTHON_EXE"
+        else
+          echo "VIRTUAL_ENV not set or python not found in venv; falling back to runner python"
+        fi
         
         # Determine cache location
         if [ "${{ inputs.platform }}" = "macos" ]; then
@@ -110,12 +145,23 @@ runs:
         # Parse browsers input
         IFS=',' read -ra BROWSERS <<< "${{ inputs.browsers }}"
         
+        # Ensure playwright package is installed in the chosen interpreter
+        "$PYTHON_EXE" - <<'PY'
+import importlib, sys, subprocess
+try:
+    importlib.import_module('playwright')
+    print('[OK] playwright already installed')
+except ImportError:
+    print('[INFO] Installing playwright into current environment...')
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-U', 'playwright'])
+PY
+
         # Install each browser
         for browser in "${BROWSERS[@]}"; do
           browser=$(echo "$browser" | xargs)  # Trim whitespace
           if [ -n "$browser" ]; then
             echo "Installing $browser browser..."
-            python -m playwright install "$browser" --with-deps
+            "$PYTHON_EXE" -m playwright install "$browser" --with-deps
           fi
         done
         
