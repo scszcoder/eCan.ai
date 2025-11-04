@@ -802,7 +802,7 @@ a.datas = new_datas
 print("[SPEC] Dropped %d test/example/cache data files" % dropped)
 
 # On macOS, deduplicate datas by destination path and skip framework 'Versions/Current' symlinks
-if _sys_spec.platform == 'darwin':
+if sys.platform == 'darwin':
     print("[SPEC] Deduplicating macOS datas by destination path...")
     _seen_data_dest = set()
     _deduped_datas = []
@@ -844,8 +844,7 @@ a.binaries = filtered_binaries
 if playwright_binary_count > 0:
     print(f"[SPEC] Filtered {{playwright_binary_count}} Playwright binaries (included as data files)")
     
-import sys as _sys_spec
-if _sys_spec.platform == 'darwin':
+if sys.platform == 'darwin':
     print("[SPEC] Deduplicating macOS binaries by framework root...")
     _seen_framework_roots = set()
     _seen_dest_paths = set()
