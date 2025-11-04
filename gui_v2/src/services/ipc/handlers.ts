@@ -246,26 +246,77 @@ export class IPCHandlers {
         return { success: true };
     }
 
+    // async pushChatNotification(request: IPCRequest): Promise<{ success: boolean }> {
+    //       try { console.log('[IPC][pushChatNotification] raw request', request); } catch {}
+    //
+    //     let { chatId, content, isRead, timestamp, uid } = request.params as { chatId: string, content: any, isRead: boolean, timestamp: string, uid: string };
+    //     if (!chatId || !content) {
+    //         throw new Error('pushChatNotification: chatId and notification are required');
+    //     }
+    //     // 自动Parse字符串 JSON
+    //     if (typeof content === 'string') {
+    //         try {
+    //             content = JSON.parse(content);
+    //         } catch (e) {
+    //             throw new Error('pushChatNotification: content is string but not valid JSON');
+    //         }
+    //     }
+    //     console.log("emitting chat:newNotification")
+    //     eventBus.emit('chat:newNotification', { chatId, content, isRead, timestamp, uid });
+    //     return { success: true };
+    // }
+
     async pushChatNotification(request: IPCRequest): Promise<{ success: boolean }> {
-          try { console.log('[IPC][pushChatNotification] raw request', request); } catch {}
+      // Debug raw request
+      try { console.log('[IPC][pushChatNotification] raw request', request); } catch {}
 
-        let { chatId, content, isRead, timestamp, uid } = request.params as { chatId: string, content: any, isRead: boolean, timestamp: string, uid: string };
-        if (!chatId || !content) {
-            throw new Error('pushChatNotification: chatId and notification are required');
+      let { chatId, content, isRead, timestamp, uid } = request.params as {
+        chatId: string, content: any, isRead: boolean, timestamp: string, uid: string
+      };
+      if (!chatId || !content) {
+        throw new Error('pushChatNotification: chatId and notification are required');
+      }
+
+      // Parse if top-level content is a string
+      if (typeof content === 'string') {
+        try { content = JSON.parse(content); }
+        catch { throw new Error('pushChatNotification: content is string but not valid JSON'); }
+      }
+
+      // Normalize nested structure so renderer can always read content.notification.Items
+      let body: any = content;
+      try {
+        if (body && typeof body === 'object') {
+          // Some payloads are { content: { content: { ... } } }
+          if (body?.content?.content?.notification) {
+            body = body.content.content;
+          } else if (body?.content?.notification) {
+            body = body.content;
+          }
         }
-        // 自动Parse字符串 JSON
-        if (typeof content === 'string') {
-            try {
-                content = JSON.parse(content);
-            } catch (e) {
-                throw new Error('pushChatNotification: content is string but not valid JSON');
-            }
+      } catch {}
+
+      // Parse common stringified subfields (card/code/form/notification)
+      const maybeParse = (v: any) => {
+        if (typeof v !== 'string') return v;
+        try { return JSON.parse(v); } catch {}
+        // Fallback: attempt to convert single quotes JSON-like to valid JSON
+        try { return JSON.parse(v.replace(/'/g, '"')); } catch {}
+        return v;
+      };
+      try {
+        if (body && typeof body === 'object') {
+          body.card = maybeParse(body.card);
+          body.code = maybeParse(body.code);
+          body.form = maybeParse(body.form);
+          body.notification = maybeParse(body.notification);
         }
-        console.log("emitting chat:newNotification")
-        eventBus.emit('chat:newNotification', { chatId, content, isRead, timestamp, uid });
-        return { success: true };
+      } catch {}
+
+      try { console.log('emitting chat:newNotification'); } catch {}
+      eventBus.emit('chat:newNotification', { chatId, content: body, isRead, timestamp, uid });
+      return { success: true };
     }
-
 
     async updateSkillRunStat(request: IPCRequest): Promise<{ success: boolean }> {
         const { agentTaskId, current_node, status, nodeState, timestamp } = request.params as { agentTaskId?: string, current_node?: string, status?: string, nodeState?: any, timestamp?: number };
