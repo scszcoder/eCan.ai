@@ -44,6 +44,7 @@ from agent.ec_skills.llm_utils.llm_utils import (
     get_browser_use_supported_providers
 )
 
+
 # Auto-execute PyInstaller environment setup on module import
 auto_setup_pyinstaller_environment()
 

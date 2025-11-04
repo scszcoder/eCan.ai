@@ -380,8 +380,8 @@ def gen_agent_from_cloud_data(mainwin, ajs):
         )
         logger.info("agent card created:", agent_card.name, agent_card.url)
 
-        # Safely initialize browser_use_llm in packaged environment
-        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
+        # Use mainwin's configuration for browser_use LLM
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin)
 
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
@@ -433,8 +433,8 @@ def gen_new_agent(mainwin, ajs):
         )
         logger.info("agent card created:", agent_card.name, agent_card.url)
 
-        # Safely initialize browser_use_llm in packaged environment
-        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
+        # Use mainwin's configuration for browser_use LLM
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin)
 
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
@@ -647,9 +647,8 @@ def gen_agent_skill_from_cloud_data(mainwin, askjs):
         )
         logger.info("agent card created:", agent_card.name, agent_card.url)
 
-        # Safely initialize browser_use_llm in packaged environment
         # Use mainwin's configuration for browser_use LLM
-        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin)
 
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
@@ -878,7 +877,7 @@ def gen_agent_tools_from_cloud_data(mainwin, taskjs):
         )
         logger.info("agent card created:", agent_card.name, agent_card.url)
         # Use mainwin's configuration for browser_use LLM
-        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin)
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:
@@ -1120,7 +1119,7 @@ def gen_agent_tasks_from_cloud_data(mainwin, taskjs):
         )
         logger.info("agent card created:", agent_card.name, agent_card.url)
         # Use mainwin's configuration for browser_use LLM
-        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin)
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:
@@ -1340,7 +1339,7 @@ def gen_knowledge_from_cloud_data(mainwin, kjs):
         )
         logger.info("agent card created:", agent_card.name, agent_card.url)
         # Use mainwin's configuration for browser_use LLM
-        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin)
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:

@@ -44,7 +44,7 @@ def set_up_ec_marketing_agent(mainwin):
         chatter_task = create_ec_marketing_chat_task(mainwin)
         worker_task = create_ec_marketing_work_task(mainwin)
         # Use mainwin's configuration for browser_use LLM
-        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin)
         marketer = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
 
     except Exception as e:

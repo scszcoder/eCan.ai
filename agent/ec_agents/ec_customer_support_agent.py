@@ -42,7 +42,7 @@ def set_up_ec_customer_support_agent(mainwin):
         chatter_task = create_ec_customer_support_chat_task(mainwin)
         worker_task = create_ec_customer_support_work_task(mainwin)
         # Use mainwin's configuration for browser_use LLM
-        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin)
         customer_support = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", task="", card=agent_card, skills=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
 
     except Exception as e:

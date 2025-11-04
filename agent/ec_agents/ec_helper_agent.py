@@ -59,7 +59,7 @@ def set_up_ec_helper_agent(mainwin):
         chatter_task = create_ec_helper_chat_task(mainwin)
         worker_task = create_ec_helper_work_task(mainwin)
         # Use mainwin's configuration for browser_use LLM
-        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin)
 
         # 尝试创建 EC_Agent，如果失败则使用备用方案
         try:
