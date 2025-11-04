@@ -125,25 +125,25 @@ class AgentTaskManager(InMemoryTaskManager):
         return None
 
     def resolve_waiter(self, task_id: str, result: Any):
+        """Resolve the waiter future for the given task_id."""
+        logger.debug(f"[A2A] resolve_waiter called for task_id={task_id}, active futures={list(self._futures.keys())}")
         future = self._futures.pop(task_id, None)
         if future and not future.done():
-            print("FUTURE COMPLETED....", result)
+            logger.info(f"[A2A] Waiter resolved successfully for task_id={task_id}")
             future.set_result(result)
+        elif future:
+            logger.warning(f"[A2A] Future for task_id={task_id} already done, skipping")
+        else:
+            logger.warning(f"[A2A] No future found for task_id={task_id}, cannot resolve waiter")
 
     async def on_send_task(self, request: SendTaskRequest) -> SendTaskResponse:
         """Handles the 'send task' request."""
-        print("RECEIVING INCOMING A2A REQUEST:", request, "to:", self._agent.card.name)
-        # INCOMING
-        # REQUEST: jsonrpc = '2.0'
-        # id = 'f4c7470def10498d9963b2b85bd16c62'
-        # method = 'tasks/send'
-        # params = TaskSendParams(id='task-001X', sessionId='sess-abc', message=Message(role='user', parts=[
-        #     TextPart(type='text', text='Summarize this report', metadata=None)], metadata=None),
-        #                         acceptedOutputModes=['json'], pushNotification=None, historyLength=None, metadata=None)
-        print("task id:", request.params.id, request.params.sessionId, request.params.metadata)
+        logger.info(f"[A2A] Receiving incoming request to agent: {self._agent.card.name}")
+        logger.debug(f"[A2A] Request details - task_id: {request.params.id}, session_id: {request.params.sessionId}, metadata: {request.params.metadata}")
+        
         validation_error = self._validate_request(request)
         if validation_error:
-            print("VALIDATION ERROR:", validation_error)
+            logger.warning(f"[A2A] Validation error: {validation_error}")
             return SendTaskResponse(id=request.id, error=validation_error.error)
         
         if request.params.pushNotification:
@@ -162,9 +162,9 @@ class AgentTaskManager(InMemoryTaskManager):
             task_id = request.params.id
 
             waiter = self.create_waiter(task_id)
-            print("created waiter....", request)
+            logger.debug(f"[A2A] Created waiter for task_id: {task_id}")
             msg_js = request.params.message  # need , encoding='utf-8'?
-            print("meta type:", msg_js.metadata["mtype"])
+            logger.debug(f"[A2A] Message type: {msg_js.metadata.get('mtype', 'unknown')}")
             if msg_js.metadata["mtype"] == "send_task":
                 logger.info("task wait in line")
                 # agent_wait_response = await self._agent.runner.task_wait_in_line(request)
@@ -176,15 +176,15 @@ class AgentTaskManager(InMemoryTaskManager):
             else:
                 agent_wait_response = {}
 
-            print("waiting for runner response......", agent_wait_response)
+            logger.debug("[A2A] Waiting for runner response...", agent_wait_response)
             try:
-                # 2. Wait with timeout
-                result = await asyncio.wait_for(waiter, timeout=3)
-                print("waiter run result......", result, type(result))
+                # 2. Wait with timeout (60s for slow LLM calls, consider using push notification for longer tasks)
+                result = await asyncio.wait_for(waiter, timeout=60)
+                logger.debug(f"[A2A] Waiter completed successfully: {type(result)}")
                 task_stat = TaskStatus(
                     state=TaskState.COMPLETED,
                 )
-                print("task_stat", task_stat, type(task_stat))
+                logger.debug(f"[A2A] Task status: {task_stat.state}")
                 task_result = Task(
                     id=str(),
                     sessionId="",
@@ -194,10 +194,11 @@ class AgentTaskManager(InMemoryTaskManager):
                     metadata=None
                 )
                 server_response = SendTaskResponse(id=request.params.id, result=task_result)
-                print("about to return server response", type(server_response), server_response)
+                logger.info(f"[A2A] Returning response for task_id: {request.params.id}, status: {task_stat.state}")
                 return server_response
 
             except asyncio.TimeoutError:
+                logger.warning("Timeout waiting for task result")
                 return SendTaskResponse(
                     id=request.params.id,
                     error=InternalError(message="Timeout waiting for task result")
@@ -260,8 +261,7 @@ class AgentTaskManager(InMemoryTaskManager):
             #     request.id, task_send_params.id, sse_event_queue
             # )
         except Exception as e:
-            logger.error(f"Error in SSE stream: {e}")
-            print(traceback.format_exc())
+            logger.error(f"[A2A] Error in SSE stream: {e}\n{traceback.format_exc()}")
             return JSONRPCResponse(
                 id=request.id,
                 error=InternalError(
@@ -348,11 +348,21 @@ class AgentTaskManager(InMemoryTaskManager):
         return fut
 
     def set_result(self, task_id: str, result):
+        """Set result for scheduled tasks."""
+        logger.debug(f"[A2A] set_result called for task_id={task_id}")
         fut = self._futures.pop(task_id, None)
         if fut and not fut.done():
+            logger.info(f"[A2A] Result set successfully for task_id={task_id}")
             fut.set_result(result)
+        elif not fut:
+            logger.warning(f"[A2A] No future found for task_id={task_id} in set_result")
 
     def set_exception(self, task_id: str, exc: Exception):
+        """Set exception for scheduled tasks."""
+        logger.debug(f"[A2A] set_exception called for task_id={task_id}, exception={exc}")
         fut = self._futures.pop(task_id, None)
         if fut and not fut.done():
+            logger.error(f"[A2A] Exception set for task_id={task_id}: {exc}")
             fut.set_exception(exc)
+        elif not fut:
+            logger.warning(f"[A2A] No future found for task_id={task_id} in set_exception")

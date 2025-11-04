@@ -1,6 +1,7 @@
 """
 LLM management related IPC handlers - Using original LLM manager architecture
 """
+import os
 from typing import Optional, Dict, Any
 from ..types import IPCRequest, IPCResponse, create_success_response, create_error_response
 from ..registry import IPCHandlerRegistry
@@ -199,25 +200,112 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
             return create_error_response(request, 'INVALID_PARAMS', error)
 
         llm_manager = get_llm_manager()
+        main_window = AppContext.get_main_window()
         provider_name = data['name']
+        username = data.get('username', '')
 
         # Get provider information
         provider = llm_manager.get_provider(provider_name)
         if not provider:
             return create_error_response(request, 'LLM_ERROR', f"Provider {provider_name} not found")
 
+        # Check if this is the current default LLM
+        current_default_llm = main_window.config_manager.general_settings.default_llm
+        is_default_llm = (current_default_llm == provider_name)
+
         # Delete API key and other credentials from environment variables
         env_vars = provider.get('api_key_env_vars', [])
         deleted_vars = []
+        failed_vars = []
+        
         for env_var in env_vars:
-            if llm_manager.delete_api_key(env_var):
-                deleted_vars.append(env_var)
+            logger.debug(f"Deleting environment variable {env_var} for provider {provider_name}")
 
-        logger.info(f"Deleted LLM provider config: {provider_name}, removed env vars: {deleted_vars}")
-        return create_success_response(request, {
+            if env_var in os.environ:
+                del os.environ[env_var]
+                logger.debug(f"Removed {env_var} from current session")
+
+            try:
+                success = llm_manager.delete_api_key(env_var)
+
+                if os.environ.get(env_var):
+                    logger.warning(f"Environment variable {env_var} still present in process environment after deletion attempt")
+
+                if success:
+                    deleted_vars.append(env_var)
+                else:
+                    failed_vars.append(env_var)
+                    logger.warning(f"Failed to delete environment variable {env_var} from persistent configuration")
+            except Exception as e:
+                failed_vars.append(env_var)
+                logger.error(f"Error deleting environment variable {env_var}: {e}", exc_info=True)
+        
+        if deleted_vars:
+            logger.info(f"Deleted LLM provider config {provider_name}, removed environment variables: {deleted_vars}")
+        if failed_vars:
+            logger.warning(f"Failed to delete some environment variables for {provider_name}: {failed_vars}")
+
+        # If this was the default LLM, we need to select a new default
+        new_default_llm = None
+        new_default_model = None
+        new_provider = None
+        
+        if is_default_llm:
+            logger.info(f"Provider {provider_name} was the default LLM, selecting a new default")
+            
+            # Get all providers and find one that is configured
+            all_providers = llm_manager.get_all_providers()
+            configured_providers = [p for p in all_providers if p.get('api_key_configured', False)]
+            
+            if configured_providers:
+                # Select the first available configured provider
+                new_provider = configured_providers[0]
+                new_default_llm = new_provider.get('name')
+                new_default_model = new_provider.get('preferred_model') or new_provider.get('default_model') or ''
+                logger.info(f"Selected new default LLM {new_default_llm} with model {new_default_model}")
+            else:
+                # No providers are configured, default to OpenAI (without API key)
+                new_default_llm = 'ChatOpenAI'
+                new_default_model = ''
+                logger.info("No configured providers found; defaulting to ChatOpenAI without API key")
+            
+            # Update default_llm setting
+            main_window.config_manager.general_settings.default_llm = new_default_llm
+            main_window.config_manager.general_settings.default_llm_model = new_default_model
+            save_result = main_window.config_manager.general_settings.save()
+            
+            if not save_result:
+                logger.error(f"Failed to save new default LLM setting")
+                return create_error_response(request, 'LLM_ERROR', f"Failed to save new default LLM setting")
+            
+            # If we have a configured provider, try to hot-update LLMs
+            if configured_providers and new_provider:
+                try:
+                    provider_info = f"{new_provider.get('display_name', new_default_llm)}, Model: {new_default_model}"
+                    update_success = main_window.update_all_llms(reason=f"Default LLM changed to {provider_info}")
+                    if not update_success:
+                        logger.warning("Failed to hot-update LLMs after default change")
+                except Exception as update_error:
+                    logger.error(f"Error during hot-update of LLM instances: {update_error}")
+            else:
+                # Clear LLM instance if no provider is configured
+                try:
+                    main_window.llm = None
+                    logger.info("Cleared LLM instance because no providers are configured")
+                except Exception as clear_error:
+                    logger.error(f"Error clearing LLM instance: {clear_error}")
+
+        response_data = {
             'message': f'LLM provider {provider_name} configuration deleted successfully',
-            'deleted_env_vars': deleted_vars
-        })
+            'deleted_env_vars': deleted_vars,
+            'was_default_llm': is_default_llm
+        }
+        
+        if is_default_llm:
+            response_data['new_default_llm'] = new_default_llm
+            response_data['new_default_model'] = new_default_model
+        
+        return create_success_response(request, response_data)
 
     except Exception as e:
         logger.error(f"Error deleting LLM provider config: {e}")
@@ -278,8 +366,8 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
         if supported_models:
             model_ids = [m.get('model_id', m.get('name', '')) for m in supported_models]
             if provider_model and provider_model not in model_ids:
-                logger.warning(f"⚠️ Model '{provider_model}' not found in provider '{name}' supported models: {model_ids}")
-                logger.warning(f"Using provider's default model instead")
+                logger.warning(f"Model '{provider_model}' not found in provider '{name}' supported models: {model_ids}")
+                logger.warning("Using provider's default model instead")
                 provider_model = provider.get('default_model', '')
         
         main_window.config_manager.general_settings.default_llm_model = provider_model
@@ -310,9 +398,9 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
                 logger.info(f"After rollback: default_llm='{current_llm}', default_llm_model='{current_model}'")
                 
                 if current_llm != old_default_llm or current_model != old_default_model:
-                    logger.error(f"❌ Rollback verification failed! Expected ({old_default_llm}, {old_default_model}), got ({current_llm}, {current_model})")
+                    logger.error(f"Rollback verification failed. Expected ({old_default_llm}, {old_default_model}), got ({current_llm}, {current_model})")
                 else:
-                    logger.info(f"✅ Rollback verified successfully")
+                    logger.info("Rollback verified successfully")
                 
                 return create_error_response(
                     request, 
@@ -337,9 +425,9 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
             logger.info(f"After rollback: default_llm='{current_llm}', default_llm_model='{current_model}'")
             
             if current_llm != old_default_llm or current_model != old_default_model:
-                logger.error(f"❌ Rollback verification failed! Expected ({old_default_llm}, {old_default_model}), got ({current_llm}, {current_model})")
+                logger.error(f"Rollback verification failed. Expected ({old_default_llm}, {old_default_model}), got ({current_llm}, {current_model})")
             else:
-                logger.info(f"✅ Rollback verified successfully")
+                logger.info("Rollback verified successfully")
             
             return create_error_response(
                 request,
@@ -351,8 +439,8 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
         final_default_llm = main_window.config_manager.general_settings.default_llm
         final_llm_type = type(main_window.llm).__name__ if main_window.llm else "None"
         
-        verification_status = "✅ VERIFIED" if final_default_llm == name else "❌ MISMATCH"
-        logger.info(f"📊 Provider Switch Verification:")
+        verification_status = "VERIFIED" if final_default_llm == name else "MISMATCH"
+        logger.info("Provider switch verification:")
         logger.info(f"   Setting: default_llm={name}, model={provider_model}")
         logger.info(f"   Actual: default_llm={final_default_llm}, LLM Type={final_llm_type}")
         logger.info(f"   Status: {verification_status}")

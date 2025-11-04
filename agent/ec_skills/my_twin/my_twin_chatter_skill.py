@@ -145,6 +145,11 @@ def parrot(state: NodeState) -> NodeState:
                 payload_params = params.metadata.get("params", {}) if params.metadata else {}
                 content_meta = payload_params.get("content", {}) if isinstance(payload_params, dict) else {}
 
+                print("content_meta::", type(content_meta), content_meta)
+                if isinstance(content_meta, str):
+                    print("converft content meta to json")
+                    content_meta = json.loads(content_meta)
+
                 dtype = content_meta.get("dtype", "text")
                 card = content_meta.get("card", "")
                 code = content_meta.get("code", "")
@@ -217,6 +222,7 @@ def parrot(state: NodeState) -> NodeState:
             if not notification:
                 mainwin.db_chat_service.push_message_to_chat(state["messages"][1], frontend_message)
             else:
+                print("pushing notification...", frontend_message)
                 mainwin.db_chat_service.push_notification_to_chat(state["messages"][1], frontend_message)
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
     except Exception as e:
