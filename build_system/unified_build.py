@@ -107,6 +107,31 @@ class UnifiedBuildSystem:
         except Exception as e:
             print(f"[CLEAN] Warning: Cleanup failed: {e}")
     
+    def prepare_third_party_assets(self) -> None:
+        """Prepare third-party assets (Playwright browsers, Sparkle, etc.)"""
+        print("[THIRD-PARTY] Preparing third-party assets...")
+        
+        # Check if Playwright browsers already exist (from CI cache or previous install)
+        playwright_dir = self.project_root / "third_party" / "ms-playwright"
+        if playwright_dir.exists():
+            browser_dirs = [d for d in playwright_dir.iterdir() 
+                           if d.is_dir() and any(b in d.name.lower() 
+                           for b in ['chromium', 'firefox', 'webkit'])]
+            if browser_dirs:
+                print(f"[THIRD-PARTY] Playwright browsers already present: {playwright_dir}")
+                print(f"[THIRD-PARTY]   Found: {[d.name for d in browser_dirs]}")
+                print("[THIRD-PARTY] Skipping download (using existing browsers)")
+                return
+        
+        try:
+            from build_system.build_utils import prepare_third_party_assets
+            prepare_third_party_assets()
+            print("[THIRD-PARTY] Third-party assets prepared successfully")
+        except Exception as e:
+            print(f"[THIRD-PARTY] Warning: Failed to prepare third-party assets: {e}")
+            print("[THIRD-PARTY]   This may cause issues with browser automation features")
+            # Don't fail the build, just warn
+    
     def verify_sparkle_framework(self) -> None:
         """Verify Sparkle framework installation for macOS OTA updates"""
         print("[SPARKLE] Verifying Sparkle framework installation...")
@@ -150,7 +175,7 @@ class UnifiedBuildSystem:
         
         # Quick cache check
         if self._can_skip_frontend_build():
-            print("[FRONTEND] ✓ Using cached build (no changes detected)")
+            print("[FRONTEND] Using cached build (no changes detected)")
             return True
             
         print("[FRONTEND] Building frontend...")
@@ -273,7 +298,7 @@ class UnifiedBuildSystem:
                 # Check if all tests passed
                 failed_count = sum(1 for r in results.values() if r["status"] in ["FAIL", "ERROR"])
                 if failed_count == 0:
-                    print("[TEST] ✓ All installer tests passed")
+                    print("[TEST] All installer tests passed")
                     return True
                 else:
                     print(f"[TEST] ✗ {failed_count} installer test(s) failed")
@@ -347,7 +372,7 @@ class UnifiedBuildSystem:
     def _show_build_timing(self, build_times: Dict[str, float], total_time: float):
         """Show detailed build timing breakdown"""
         print("\n" + "=" * 50)
-        print("📊 BUILD TIMING BREAKDOWN")
+        print("BUILD TIMING BREAKDOWN")
         print("=" * 50)
         
         # Sort stages by time (longest first)
@@ -402,6 +427,11 @@ class UnifiedBuildSystem:
                 if not self.build_frontend(kwargs.get('skip_frontend', False)):
                     raise BuildError("Frontend build failed", 1)
                 build_times['frontend'] = time.perf_counter() - stage_start
+                
+                # Prepare third-party assets (Playwright browsers) before core build
+                stage_start = time.perf_counter()
+                self.prepare_third_party_assets()
+                build_times['third_party_assets'] = time.perf_counter() - stage_start
                 
                 # Build core application
                 stage_start = time.perf_counter()

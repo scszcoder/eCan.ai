@@ -489,6 +489,9 @@ class MigrationManager:
                     except Exception as create_e:
                         session.rollback()
                         logger.error(f"Failed to initialize fresh database: {create_e}")
+                        # Add detailed traceback for debugging
+                        import traceback
+                        logger.error(f"Full traceback:\n{traceback.format_exc()}")
                         raise create_e
                     finally:
                         session.close()
@@ -501,6 +504,9 @@ class MigrationManager:
                     
             except Exception as inspect_e:
                 logger.error(f"Failed to inspect database: {inspect_e}")
+                # Add detailed traceback for debugging
+                import traceback
+                logger.error(f"Full traceback:\n{traceback.format_exc()}")
                 logger.warning("Skipping migration due to database access issues.")
                 return True
     
