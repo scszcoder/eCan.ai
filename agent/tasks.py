@@ -2114,15 +2114,30 @@ class TaskRunner(Generic[Context]):
                     # Queue-based tasks resolve waiters
                     task_id = None
                     try:
-                        if msg and hasattr(msg, 'params'):
+                        # For A2A SendTaskRequest objects
+                        if msg and hasattr(msg, 'params') and hasattr(msg.params, 'id'):
                             task_id = msg.params.id
+                        # For dict messages (state snapshots)
                         elif msg and isinstance(msg, dict):
-                            task_id = msg.get('params', {}).get('id') or msg.get('id')
-                    except Exception:
-                        logger.error("Failed to extract task_id from message")
+                            # Priority 1: Check attributes.params.id (A2A task ID in state)
+                            attrs = msg.get('attributes')
+                            if isinstance(attrs, dict) and attrs.get('params'):
+                                params = attrs['params']
+                                # params is usually TaskSendParams object
+                                task_id = params.id if hasattr(params, 'id') else params.get('id')
+                            
+                            # Priority 2: Fallback to original logic
+                            if not task_id:
+                                task_id = msg.get('params', {}).get('id') or msg.get('id')
+                    except Exception as e:
+                        logger.error(f"Failed to extract task_id from message: {e}, msg type={type(msg)}")
                     
                     if task_id:
+                        logger.debug(f"[A2A] Resolving waiter for task_id={task_id}, trigger_type={trigger_type}")
                         self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
+                        logger.debug(f"[A2A] Waiter resolved for task_id={task_id}")
+                    else:
+                        logger.warning(f"[A2A] No task_id found in message for trigger_type={trigger_type}, msg type={type(msg)}")
                 
                 # Reset error counter on successful execution
                 consecutive_errors = 0
