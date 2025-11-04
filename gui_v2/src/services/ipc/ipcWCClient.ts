@@ -423,8 +423,10 @@ export class IPCWCClient {
     private handleMessage(message: string): void {
         try {
             // OptimizeLogPrint：超过500字符时只Display前500个字符
-            const truncatedMessage = message.length > 500 ? message.substring(0, 500) + '...' : message;
-            console.log('[IPCWCClient] python_to_web message', truncatedMessage);
+            // const truncatedMessage = message.length > 500 ? message.substring(0, 500) + '...' : message;
+            // console.log('[IPCWCClient] python_to_web message', truncatedMessage);
+            console.log('[IPCWCClient] python_to_web message (FULL)', message);
+
             const message_obj = JSON.parse(message);
 
             // Check这是否是一个对后台任务的最终Response
