@@ -289,6 +289,22 @@ def filter_available_proxies(proxies: Dict[str, str]) -> Optional[Dict[str, str]
     
     return available_proxies if available_proxies else None
 
+def apply_direct_connection_baseline() -> bool:
+    cleared = False
+    try:
+        for key in list(os.environ.keys()):
+            if key.upper() in {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"}:
+                try:
+                    del os.environ[key]
+                    cleared = True
+                except Exception:
+                    pass
+        os.environ['NO_PROXY'] = '*'
+        os.environ['no_proxy'] = '*'
+        os.environ['CURL_NO_PROXY'] = '*'
+    except Exception:
+        pass
+    return cleared
 
 class ProxyManager:
     """
@@ -355,9 +371,12 @@ class ProxyManager:
                         if key in os.environ:
                             del os.environ[key]
                             logger.debug(f"🗑️  Cleared {key} (proxy unavailable)")
+                    # Force disable proxies explicitly for all libraries
+                    os.environ['NO_PROXY'] = '*'
+                    os.environ['no_proxy'] = '*'
                     self._env_proxies_set = False
                     self._current_proxies = None
-                    logger.info("🌐 Proxy environment cleared - using direct connection")
+                    logger.info("🌐 Proxy environment cleared (NO_PROXY=*) - using direct connection")
                     
                     # Schedule callback notification (after releasing lock)
                     should_notify = True
@@ -504,14 +523,42 @@ class ProxyManager:
         """
         # Check if env vars were manually set by user (outside our management)
         with self._lock:
-            manual_proxy_set = bool(
-                os.environ.get('HTTPS_PROXY') or os.environ.get('HTTP_PROXY')
-            )
-            if manual_proxy_set and not self._env_proxies_set:
-                # Proxy was manually set by user, skip auto-management
-                logger.debug("⏭️  Proxy env vars manually set by user, skipping auto-detection")
-                return
-        
+            env_https = os.environ.get('HTTPS_PROXY') or os.environ.get('https_proxy')
+            env_http = os.environ.get('HTTP_PROXY') or os.environ.get('http_proxy')
+            manual_proxy_set = bool(env_https or env_http)
+            was_set_by_manager = self._env_proxies_set
+
+        if manual_proxy_set and not was_set_by_manager:
+            # Validate manually set proxies; if unreachable, clear them so we fall back to direct/system detection
+            try:
+                proxies_to_test = {}
+                if env_http:
+                    proxies_to_test['http://'] = env_http
+                if env_https:
+                    proxies_to_test['https://'] = env_https
+
+                reachable = False
+                for _, purl in proxies_to_test.items():
+                    if test_proxy_connectivity(purl, timeout=self.connectivity_timeout):
+                        reachable = True
+                        break
+
+                if reachable:
+                    logger.debug("⏭️  Proxy env vars manually set and reachable, skipping auto-detection")
+                    return
+                else:
+                    # Clear stale/unreachable manual proxies
+                    for key in ['HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy']:
+                        if key in os.environ:
+                            del os.environ[key]
+                    # Force disable proxies for all libs until a valid proxy is detected
+                    os.environ['NO_PROXY'] = '*'
+                    os.environ['no_proxy'] = '*'
+                    logger.info("🌐 Cleared unreachable manual proxy env vars (NO_PROXY=*) - using direct/system detection")
+            except Exception:
+                # In case of any error, do not block; proceed to system detection
+                pass
+
         # Get system proxy settings (may involve system calls, but in background thread)
         system_proxies = get_system_proxy()
         

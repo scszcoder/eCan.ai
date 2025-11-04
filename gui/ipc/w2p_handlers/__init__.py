@@ -1,15 +1,22 @@
-import pkgutil
-import importlib
+# NOTE: Handlers are now imported lazily on-demand to improve startup performance
+# Previously, all handlers were imported at module load time, causing ~10 second delay
+# Now handlers are imported only when first accessed
 
-# Dynamically import all modules in current package to ensure all handlers are registered
-for loader, name, is_pkg in pkgutil.walk_packages(__path__):
-    importlib.import_module('.' + name, __name__)
-
-# Ensure key handlers are explicitly imported (walk_packages may miss new files in some packaging/runtime environments)
+# Import only essential handlers that are needed immediately
 try:
-    from . import node_state_schema_handler  # noqa: F401
-    from . import agent_handler  # noqa: F401 - Ensure agent_handler is imported
-    from . import skill_handler  # noqa: F401 - Ensure skill_handler is imported (new_skill/save_skill)
-    from . import file_handlers  # noqa: F401 - Ensure file_handlers is imported (read/write/dialog)
+    from . import user_handler  # noqa: F401 - Login/auth handlers
+    from . import settings_handler  # noqa: F401 - Settings handlers
 except Exception:
     pass
+
+# Lazy import function for other handlers
+def _ensure_handlers_loaded():
+    """Lazy load all handlers when first needed"""
+    import pkgutil
+    import importlib
+    
+    for loader, name, is_pkg in pkgutil.walk_packages(__path__):
+        try:
+            importlib.import_module('.' + name, __name__)
+        except Exception:
+            pass

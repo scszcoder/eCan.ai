@@ -25,6 +25,7 @@ class IPCHandlerRegistry:
 
     _handlers: ClassVar[Dict[str, SyncHandlerFunc]] = {}
     _background_handlers: ClassVar[Dict[str, BackgroundHandlerFunc]] = {}
+    _handlers_loaded: ClassVar[bool] = False  # Track if all handlers have been loaded
 
     # Performance optimization: cache system ready status
     _system_ready_cache: ClassVar[Optional[bool]] = None
@@ -363,6 +364,22 @@ class IPCHandlerRegistry:
         if method in cls._background_handlers:
             logger.debug(f"[registry] Found background handler for method: {method}")
             return cls._background_handlers[method], 'background'
+
+        # Lazy load handlers if not found
+        if not cls._handlers_loaded:
+            logger.info("[registry] Lazy loading remaining handlers...")
+            try:
+                from gui.ipc.w2p_handlers import _ensure_handlers_loaded
+                _ensure_handlers_loaded()
+                cls._handlers_loaded = True
+                
+                # Try again after loading
+                if method in cls._handlers:
+                    return cls._handlers[method], 'sync'
+                if method in cls._background_handlers:
+                    return cls._background_handlers[method], 'background'
+            except Exception as e:
+                logger.error(f"[registry] Failed to lazy load handlers: {e}")
 
         logger.warning(f"No handler found for method {method}")
         return None
