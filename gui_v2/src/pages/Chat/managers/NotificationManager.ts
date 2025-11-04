@@ -33,6 +33,33 @@ class NotificationManager {
         logger.warn('NotificationManager: chatId is required for newNotification');
         return;
       }
+
+      // DEBUG: Inspect payload paths and types before storing
+      try { console.log('[NotificationManager] newNotification params', { chatId, isRead, timestamp, uid }); } catch {}
+      const body: any = (content && typeof content === 'object') ? content : {};
+      try { console.log('[NotificationManager] content (top-level) keys', Object.keys(body || {})); } catch {}
+      try {
+        const nested = body?.content;
+        console.log('[NotificationManager] path checks', {
+          has_content: !!nested,
+          typeof_content: typeof nested,
+          has_notification_top: !!body?.notification,
+          typeof_notification_top: typeof body?.notification,
+          has_notification_nested: !!nested?.notification,
+          typeof_notification_nested: typeof nested?.notification,
+          items_len: Array.isArray(nested?.notification?.Items) ? nested.notification.Items.length : 'n/a'
+        });
+      } catch {}
+      try {
+        const nested = body?.content;
+        console.log('[NotificationManager] subfield types', {
+          card: typeof nested?.card,
+          code: typeof nested?.code,
+          form: Array.isArray(nested?.form) ? 'array' : typeof nested?.form,
+          notification: typeof nested?.notification,
+        });
+      } catch {}
+
       const chatNotificationItem: ChatNotificationItem = {
         isRead: isRead,
         timestamp: timestamp,

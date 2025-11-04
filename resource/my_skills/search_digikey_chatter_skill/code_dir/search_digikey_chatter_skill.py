@@ -24,6 +24,7 @@ from helpers import (
     examine_filled_specs_node as h_examine_filled_specs_node,
     confirm_FOM_node as h_confirm_FOM_node, extract_first_non_none_content_meta_dict,
     local_sort_search_results_node as h_local_sort_search_results_node,
+    re_rank_search_results_node as h_re_rank_search_results_node
 )
 
 # Globals to be injected from run_context at runtime
@@ -466,214 +467,6 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
         state["attributes"]["search_results"] = {url_short: tool_result.content[0].meta["results"]}
     return state
 
-def convert_rank_results_to_search_results(state) -> dict:
-    try:
-        attrs = state.get("attributes", {})
-        rank_results = attrs.get("rank_results", {}) or {}
-        ranked_list = rank_results.get("ranked_results", []) or []
-        full_rows = attrs.get("sorted_search_results")
-        if not isinstance(full_rows, list) or not full_rows:
-            try:
-                full_rows = get_default_rerank_req().get("rows", [])
-            except Exception:
-                full_rows = []
-        prelim = (attrs.get("preliminary_info") or [{}])
-        prelim0 = prelim[0] if prelim and isinstance(prelim, list) else {}
-        component_name = prelim0.get("part name", "Component")
-        items = []
-        for pos, entry in enumerate(ranked_list, start=1):
-            row_index = entry.get("row_index")
-            total_score = entry.get("total_score", 0)
-            row_data_short = entry.get("row_data", {}) or {}
-            full_row = {}
-            if isinstance(row_index, int) and 0 <= row_index < len(full_rows):
-                full_row = full_rows[row_index] or {}
-            highlights = []
-            hl_list = entry.get("highligths")
-            if isinstance(hl_list, list) and hl_list:
-                for h in hl_list:
-                    try:
-                        if isinstance(h, dict):
-                            highlights.append({
-                                "label": str(h.get("label", "")),
-                                "value": str(h.get("value", "")),
-                                "unit": str(h.get("unit", "")),
-                            })
-                    except Exception:
-                        continue
-            else:
-                for k, v in (row_data_short.items() if isinstance(row_data_short, dict) else []):
-                    try:
-                        highlights.append({"label": str(k), "value": str(v), "unit": ""})
-                    except Exception:
-                        continue
-            product_name = full_row.get("product_name") or full_row.get("name") or full_row.get("Model") or f"item{pos}"
-            brand = full_row.get("brand") or full_row.get("Brand") or ""
-            model = full_row.get("model") or full_row.get("Model") or ""
-            main_image = full_row.get("main_image") or full_row.get("image") or full_row.get("Image") or ""
-            url = full_row.get("url") or full_row.get("URL") or full_row.get("link") or ""
-            items.append({
-                "product_id": component_name.lower().replace(" ", "_") if isinstance(component_name, str) else "component",
-                "product_name": product_name,
-                "brand": brand,
-                "model": model,
-                "main_image": main_image,
-                "url": url,
-                "rank": pos,
-                "score": total_score,
-                "highlights": highlights,
-                "app_specific": [],
-            })
-        notification = {
-            "id": "search_results_form",
-            "title": f"{component_name} Search Results",
-            "Items": items,
-            "summary": {},
-            "comments": [],
-            "statistics": {
-                "sites_visited": 1,
-                "searches": 1,
-                "pages_visited": 1,
-                "input_tokens": 1,
-                "output_tokens": 1,
-                "products_compared": len(items),
-            },
-            "behind_the_scene": "",
-            "show_feedback_options": True,
-        }
-        return notification
-    except Exception as e:
-        err_trace = get_traceback(e, "ErrorConvertRankResultsToSearchResults")
-        logger.error(err_trace)
-        return {
-            "id": "search_results_form",
-            "title": "Search Results",
-            "Items": [],
-            "summary": {},
-            "comments": [],
-            "statistics": {
-                "sites_visited": 0,
-                "searches": 0,
-                "pages_visited": 0,
-                "input_tokens": 0,
-                "output_tokens": 0,
-                "products_compared": 0,
-            },
-            "behind_the_scene": "",
-            "show_feedback_options": True,
-        }
-
-def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
-    logger.debug("[search_digikey_chatter_skill] about to re-rank search results:", state.get('attributes', {}).get('search_results'))
-    try:
-        agent_id = state["messages"][0]
-        task_id = state["messages"][3]
-        agent = get_agent_by_id(agent_id)
-        this_task = next((task for task in agent.tasks if task.id == task_id), None)
-        mainwin = agent.mainwin
-    except Exception as e:
-        logger.error(f"[search_digikey_chatter_skill] CRITICAL ERROR in node setup: {e}")
-        logger.error(f"[search_digikey_chatter_skill] State structure: {state}")
-        raise e
-
-    existing_cloud_task_id = state["attributes"].get("cloud_task_id")
-    # Short-term guard: ignore node-tag-like placeholders (e.g., pend_for_*)
-    def _is_node_tag_like(v: object) -> bool:
-        try:
-            s = (v or "") if isinstance(v, str) else str(v or "")
-        except Exception:
-            return False
-        s = s.strip().lower()
-        if not s:
-            return False
-        if s.startswith("pend_for_"):
-            return True
-        if s in {"chat", "more_analysis_app", "prep_query_components", "query_component_specs",
-                 "pend_for_next_human_msg", "pend_for_next_human_msg0", "pend_for_next_human_msg1",
-                 "pend_for_next_human_msg2", "pend_for_human_input_fill_specs",
-                 "pend_for_human_input_fill_fom", "local_sort_search_results", "prep_local_sort"}:
-            return True
-        return False
-
-    if _is_node_tag_like(existing_cloud_task_id):
-        logger.debug(f"[search_digikey_chatter_skill] Ignoring node-tag-like existing cloud_task_id: {existing_cloud_task_id}")
-        existing_cloud_task_id = None
-    try:
-        if not existing_cloud_task_id and this_task and hasattr(this_task, 'metadata') and 'state' in this_task.metadata:
-            task_state = this_task.metadata['state']
-            if isinstance(task_state, dict) and 'attributes' in task_state:
-                task_cloud_task_id = task_state['attributes'].get('cloud_task_id')
-                if task_cloud_task_id and not _is_node_tag_like(task_cloud_task_id):
-                    state["attributes"]["cloud_task_id"] = task_cloud_task_id
-                    existing_cloud_task_id = task_cloud_task_id
-                elif task_cloud_task_id:
-                    logger.debug(f"[search_digikey_chatter_skill] Discarding node-tag-like task_cloud_task_id from metadata: {task_cloud_task_id}")
-        if existing_cloud_task_id and not _is_node_tag_like(existing_cloud_task_id):
-            cloud_task_id = existing_cloud_task_id
-        else:
-            i = 0
-            setup = get_default_rerank_req()
-            rerank_req = {"agent_id": agent_id, "work_type": "rerank_search_results", "setup": setup}
-            state["tool_input"] = rerank_req
-            agent.runner.update_event_handler("rerank_search_results", this_task.queue)
-
-            async def run_tool_call():
-                return await mcp_call_tool("api_ecan_ai_rerank_results", {"input": state["tool_input"]})
-
-            tool_result = run_async_in_sync(run_tool_call())
-            if hasattr(tool_result, 'content') and tool_result.content and "completed" in tool_result.content[0].text:
-                content0 = tool_result.content[0]
-                meta = getattr(content0, 'meta', None) or getattr(content0, '_meta', None)
-                if meta:
-                    cloud_task_id = meta["cloud_task_id"]
-                    state["tool_result"] = meta["cloud_task_id"]
-                    state["attributes"]["cloud_task_id"] = cloud_task_id
-                else:
-                    cloud_task_id = "unknown"
-                    state["tool_result"] = {}
-            elif hasattr(tool_result, 'isError') and tool_result.isError:
-                state["error"] = tool_result.content[0].text if tool_result.content else "Unknown error occurred"
-                return state
-            else:
-                state["error"] = "Unexpected tool result format"
-                return state
-    except Exception as e:
-        logger.error(f"[search_digikey_chatter_skill] Exception in cloud_task_id detection: {e}")
-        existing_cloud_task_id = None
-
-    try:
-        interrupted = interrupt({
-            "i_tag": cloud_task_id,
-            "rank_results": {},
-        })
-
-        cloud_results_raw = interrupted.get("notification_to_agent", {})
-        if cloud_results_raw:
-            logger.debug("[search_digikey_chatter_skill] received cloud ranking results (raw):", cloud_results_raw)
-            try:
-                if isinstance(cloud_results_raw, str):
-                    import ast
-                    cloud_results = ast.literal_eval(cloud_results_raw)
-                else:
-                    cloud_results = cloud_results_raw
-                logger.debug("[search_digikey_chatter_skill] parsed cloud ranking results:", cloud_results)
-                state["attributes"]["rank_results"] = cloud_results
-            except (ValueError, SyntaxError) as e:
-                logger.error(f"[search_digikey_chatter_skill] Failed to parse cloud results: {e}")
-                state["attributes"]["rank_results"] = {}
-
-        if state["attributes"].get("rank_results", []):
-            notification = convert_rank_results_to_search_results(state)
-            state["result"] = {
-                "llm_result": "Here are the ranked search results based on your Figure of Merit.",
-            }
-            send_data_back2human("send_chat", "notification", notification, state)
-    except GraphInterrupt:
-        raise
-    except Exception as e:
-        state['error'] = get_traceback(e, "ErrorQueryComponentSpecsNode")
-        logger.error(state['error'])
-    return state
 
 
 DEFAULT_CHATTER_MAPPING_RULES = [
@@ -1051,14 +844,19 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
 
         def post_local_sort(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
             try:
+                logger.debug("post_local_sort................", state)
                 results = state.get("results", [])
                 tr = results[-1] if results else None
                 if hasattr(tr, 'content') and tr.content:
+                    print("checking content.....")
                     meta = getattr(tr.content[0], 'meta', None) or getattr(tr.content[0], '_meta', None)
                     if isinstance(meta, dict):
+                        print("checking meta results.....")
                         rows = meta.get("results")
                         state["tool_result"] = rows
                         state.setdefault("attributes", {}).setdefault("sorted_search_results", rows)
+
+                logger.debug("post_local_sort................done!")
             except Exception as e:
                 state['error'] = get_traceback(e, "ErrorPostLocalSort")
             return state
@@ -1066,7 +864,7 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
         wf.add_node("post_local_sort", node_builder(post_local_sort, "post_local_sort", THIS_SKILL_NAME, OWNER, bp_manager))
 
         # Re-rank remains custom due to interrupt + cloud handoff
-        wf.add_node("re_rank_search_results", node_builder(re_rank_search_results_node, "re_rank_search_results", THIS_SKILL_NAME, OWNER, bp_manager))
+        wf.add_node("re_rank_search_results", node_builder(h_re_rank_search_results_node, "re_rank_search_results", THIS_SKILL_NAME, OWNER, bp_manager))
         # Start at chat to collect requirements; breakpoint wrappers enable graphical debugging
 
 

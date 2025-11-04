@@ -37,7 +37,7 @@ const LLMManagement: React.FC<LLMManagementProps> = ({
   onDefaultLLMChange,
 }) => {
   const { t } = useTranslation();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
 
   // State management
   const [providers, setProviders] = useState<LLMProvider[]>([]);
@@ -307,66 +307,112 @@ const LLMManagement: React.FC<LLMManagementProps> = ({
   };
 
   // Delete provider configuration
-  const deleteProviderConfig = async (name: string) => {
-    try {
-      const response = await get_ipc_api().deleteLLMProviderConfig<{
-        message: string;
-      }>(name, username || "");
+  const deleteProviderConfig = (name: string) => {
+    // Check if this is the default LLM
+    const isDefault = defaultLLM === name;
+    
+    // Show confirmation dialog using modal from App.useApp() for proper theme support
+    modal.confirm({
+      title: t("pages.settings.confirm_delete_provider"),
+      content: (
+        <div>
+          <p>
+            {t("pages.settings.confirm_delete_provider_message")}
+          </p>
+          {isDefault && (
+            <p style={{ color: "#ff4d4f", marginTop: "8px", fontWeight: 500 }}>
+              ⚠️ {t("pages.settings.warning_default_llm_deletion")}
+            </p>
+          )}
+          <p style={{ marginTop: "8px", opacity: 0.65, fontSize: "13px" }}>
+            {t("pages.settings.delete_warning_env_vars")}
+          </p>
+        </div>
+      ),
+      okText: t("common.delete"),
+      okType: "danger",
+      cancelText: t("common.cancel"),
+      onOk: async () => {
+        try {
+          const response = await get_ipc_api().deleteLLMProviderConfig<{
+            message: string;
+            was_default_llm?: boolean;
+            new_default_llm?: string;
+            new_default_model?: string;
+            deleted_env_vars?: string[];
+          }>(name, username || "");
 
-      if (response.success) {
-        message.success(
-          `${name} ${t("pages.settings.llm_config_deleted")} - ${t(
-            "pages.settings.hot_updated"
-          )}`
-        );
+          if (response.success && response.data) {
+            const responseData = response.data;
+            const wasDefaultLLM = responseData.was_default_llm || false;
+            const newDefaultLLM = responseData.new_default_llm;
 
-        // No restart required - changes take effect immediately
+            // Show success message
+            if (wasDefaultLLM && newDefaultLLM) {
+              message.success(
+                `${name} ${t("pages.settings.llm_config_deleted")} - ${t(
+                  "pages.settings.hot_updated"
+                )}. Default LLM changed to: ${newDefaultLLM}`
+              );
+            } else {
+              message.success(
+                `${name} ${t("pages.settings.llm_config_deleted")} - ${t(
+                  "pages.settings.hot_updated"
+                )}`
+              );
+            }
 
-        // Update local state immediately for better UX
-        setProviders((prevProviders) =>
-          prevProviders.map((provider) =>
-            provider.name === name
-              ? { ...provider, api_key_configured: false }
-              : provider
-          )
-        );
+            // Update local state immediately for better UX
+            setProviders((prevProviders) =>
+              prevProviders.map((provider) =>
+                provider.name === name
+                  ? { ...provider, api_key_configured: false }
+                  : provider
+              )
+            );
 
-        // Clear any cached API key values for this provider
-        setApiKeyValues((prevValues) => {
-          const newValues = new Map(prevValues);
-          newValues.delete(name);
-          return newValues;
-        });
+            // Clear any cached API key values for this provider
+            setApiKeyValues((prevValues) => {
+              const newValues = new Map(prevValues);
+              newValues.delete(name);
+              return newValues;
+            });
 
-        // Remove from visible API keys
-        setVisibleApiKeys((prevVisible) => {
-          const newVisible = new Set(prevVisible);
-          newVisible.delete(name);
-          return newVisible;
-        });
+            // Remove from visible API keys
+            setVisibleApiKeys((prevVisible) => {
+              const newVisible = new Set(prevVisible);
+              newVisible.delete(name);
+              return newVisible;
+            });
 
-        // If this was the default LLM, clear it
-        if (defaultLLM === name) {
-          setDefaultLLM("");
-          // Notify parent component to clear default_llm in settings
-          onDefaultLLMChange?.("");
+            // If this was the default LLM, update to new default
+            if (wasDefaultLLM && newDefaultLLM) {
+              setDefaultLLM(newDefaultLLM);
+              // Notify parent component to update default_llm in settings
+              onDefaultLLMChange?.(newDefaultLLM);
+            } else if (defaultLLM === name) {
+              // Fallback: if backend didn't return new_default_llm but this was default
+              setDefaultLLM("");
+              onDefaultLLMChange?.("");
+            }
+
+            // Reload providers from backend to verify the deletion and get updated state
+            setTimeout(() => {
+              loadProviders();
+            }, 500);
+          } else {
+            message.error(
+              `${t("pages.settings.failed_to_delete_config")} ${name}: ${
+                response.error?.message
+              }`
+            );
+          }
+        } catch (error) {
+          console.error("Error deleting provider config:", error);
+          message.error(`${t("pages.settings.failed_to_delete_config")} ${name}`);
         }
-
-        // Reload providers from backend to verify the deletion
-        setTimeout(() => {
-          loadProviders();
-        }, 500);
-      } else {
-        message.error(
-          `${t("pages.settings.failed_to_delete_config")} ${name}: ${
-            response.error?.message
-          }`
-        );
-      }
-    } catch (error) {
-      console.error("Error deleting provider config:", error);
-      message.error(`${t("pages.settings.failed_to_delete_config")} ${name}`);
-    }
+      },
+    });
   };
 
   // API key editing related functions

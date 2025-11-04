@@ -57,9 +57,8 @@ def set_up_ec_rpa_operator_agent(mainwin):
         chatter_task = create_ec_rpa_operator_chat_task(mainwin)
         worker_task = create_ec_rpa_operator_work_task(mainwin)
 
-        # 在打包环境中安全初始化browser_use_llm
         # Use mainwin's configuration for browser_use LLM
-        browser_use_llm = create_browser_use_llm(mainwin=mainwin, fallback_llm=llm)
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin)
 
         # 过滤掉 None 值的任务列表
         valid_tasks = [task for task in [worker_task, chatter_task] if task is not None]
