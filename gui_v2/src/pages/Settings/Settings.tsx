@@ -279,6 +279,25 @@ const Settings: React.FC = () => {
     }
   }, [username, form, message]);
 
+  // Sync form values when settingsData changes (e.g., from LLM management updates)
+  useEffect(() => {
+    if (settingsData && form) {
+      // Only update specific fields that changed
+      const currentValues = form.getFieldsValue();
+      if (currentValues.default_llm !== settingsData.default_llm || 
+          currentValues.default_llm_model !== settingsData.default_llm_model) {
+        console.log('🔄 Syncing form with updated settingsData:', {
+          default_llm: settingsData.default_llm,
+          default_llm_model: settingsData.default_llm_model
+        });
+        form.setFieldsValue({
+          default_llm: settingsData.default_llm,
+          default_llm_model: settingsData.default_llm_model
+        });
+      }
+    }
+  }, [settingsData?.default_llm, settingsData?.default_llm_model, form]);
+
   // Handle tab change
   const handleTabChange = (key: string) => {
     setActiveTab(key);
@@ -295,15 +314,48 @@ const Settings: React.FC = () => {
   };
 
   // Handle default LLM change from LLMManagement component
-  const handleDefaultLLMChange = useCallback((newDefaultLLM: string) => {
+  const handleDefaultLLMChange = useCallback(async (newDefaultLLM: string, newDefaultModel?: string) => {
+    console.log('🔔 [Settings] handleDefaultLLMChange called:', { newDefaultLLM, newDefaultModel });
+    
+    if (!username) {
+      console.warn('⚠️ No username, skipping settings save');
+      return;
+    }
+
     // Update local settings data
     setSettingsData(prevSettings => {
+      console.log('🔄 [Settings] Previous settings:', { default_llm: prevSettings?.default_llm, default_llm_model: prevSettings?.default_llm_model });
+      
       if (prevSettings) {
-        return { ...prevSettings, default_llm: newDefaultLLM };
+        const updates: any = { default_llm: newDefaultLLM };
+        // Also update default_llm_model if provided
+        if (newDefaultModel !== undefined) {
+          updates.default_llm_model = newDefaultModel;
+        }
+        console.log('🔄 Updating settings in parent:', updates);
+        
+        // Save updated settings to backend
+        const updatedSettings = { ...prevSettings, ...updates };
+        console.log('✅ [Settings] New settings created:', { default_llm: updatedSettings.default_llm, default_llm_model: updatedSettings.default_llm_model });
+        
+        // Async save to backend (don't await to avoid blocking UI)
+        get_ipc_api().saveSettings({ username, ...updatedSettings })
+          .then(response => {
+            if (response && response.success) {
+              console.log('✅ Default LLM settings saved to backend:', { default_llm: newDefaultLLM, default_llm_model: newDefaultModel });
+            } else {
+              console.error('❌ Failed to save default LLM settings:', response);
+            }
+          })
+          .catch(error => {
+            console.error('❌ Error saving default LLM settings:', error);
+          });
+        
+        return updatedSettings;
       }
       return prevSettings;
     });
-  }, []);
+  }, [username]);
 
   // Handle network_api_engine change - also update OCR settings
   const handleNetworkApiEngineChange = useCallback((value: 'lan' | 'wan') => {

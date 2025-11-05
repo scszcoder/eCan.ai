@@ -30,6 +30,7 @@ class LLMProvider(Enum):
     GOOGLE = "google"
     DEEPSEEK = "deepseek"
     DASHSCOPE = "dashscope"
+    BYTEDANCE = "bytedance"
     OLLAMA = "ollama"
 
 
