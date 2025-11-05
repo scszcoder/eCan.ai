@@ -289,6 +289,10 @@ const AgentDetails: React.FC = () => {
   const [selectedOrgId, setSelectedOrgId] = useState<string | undefined>(defaultOrgId || undefined);
   // Avatar Status
   const [avatarData, setAvatarData] = useState<AvatarData | undefined>();
+
+  // Ensure we have a stable agentId for AvatarDisplay even before form finishes loading
+  const watchedFormId = Form.useWatch('id', form);
+  const resolvedAgentId = (id as string) || (watchedFormId as string) || '';
   
   // 确定Page模式：view（查看）、edit（Edit）、create（新增）
   const pageMode = useMemo(() => {
@@ -1306,7 +1310,30 @@ const AgentDetails: React.FC = () => {
                   value={avatarData}
                   onChange={setAvatarData}
                   showVideo={true}
+                  agentId={resolvedAgentId}
                 />
+                {/* Agent ID box for quick reference */}
+                <div
+                  style={{
+                    marginTop: 8,
+                    width: '100%',
+                    padding: '8px 10px',
+                    background: 'rgba(255,255,255,0.06)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: 6,
+                    color: 'rgba(255,255,255,0.85)',
+                    fontSize: 12
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>Agent ID</div>
+                  <div style={{
+                    fontFamily: 'monospace',
+                    wordBreak: 'break-all',
+                    userSelect: 'text'
+                  }}>
+                    {(form.getFieldValue('id') as string) || id || ''}
+                  </div>
+                </div>
               </div>
             </div>
             

@@ -136,13 +136,20 @@ export const useAvatarSceneStore = create<AvatarSceneStoreState>()(
           const agentState = newAgentScenes.get(agentId);
           
           if (agentState) {
+            const prev = agentState.currentScene;
             agentState.currentScene = scene;
             newAgentScenes.set(agentId, agentState);
             
-            logger.debug(`[AvatarSceneStore] Set current scene for agent ${agentId}`, {
-              sceneLabel: scene?.clip.label,
-              state: scene?.state
-            });
+            if (!scene && prev) {
+              logger.info(`[AvatarSceneStore] Cleared current scene for agent ${agentId}`, {
+                prevLabel: prev.clip.label
+              });
+            } else {
+              logger.debug(`[AvatarSceneStore] Set current scene for agent ${agentId}`, {
+                sceneLabel: scene?.clip.label,
+                state: scene?.state
+              });
+            }
           }
           
           return { agentScenes: newAgentScenes };

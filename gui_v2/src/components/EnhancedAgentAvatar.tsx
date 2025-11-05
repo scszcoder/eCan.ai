@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import AgentCardComponent from '../pages/Agents/components/AgentCard';
 import { DynamicAgentAnimation } from './DynamicAgentAnimation';
+import { AgentMedia } from '@/components/Avatar/AvatarDisplay';
 import { useAvatarSceneStore } from '@/stores/avatarSceneStore';
 import { Agent, type AgentCard } from '../pages/Agents/types';
 
@@ -81,6 +82,12 @@ const EnhancedAgentCard: React.FC<EnhancedAgentCardProps> = ({
               // Could add additional fallback logic here if needed
             }}
           />
+          {/* Dynamic scene overlay */}
+          {agentId && (
+            <div style={{ position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none' }}>
+              <AgentMedia agentId={agentId} />
+            </div>
+          )}
         </div>
         
         {/* Agent info and controls - simplified version */}

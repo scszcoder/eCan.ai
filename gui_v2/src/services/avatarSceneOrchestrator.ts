@@ -256,8 +256,13 @@ export class AvatarSceneOrchestrator {
       const store = useAvatarSceneStore.getState();
       
       // Check if agent is active
-      const agentState = store.getAgentState(agentId);
-      if (!agentState?.isActive) {
+      let agentState = store.getAgentState(agentId);
+      if (!agentState) {
+        // Initialize agent state on first use
+        try { store.initializeAgent(agentId); } catch {}
+        agentState = store.getAgentState(agentId);
+      }
+      if (agentState && agentState.isActive === false) {
         logger.debug(`[AvatarSceneOrchestrator] Agent ${agentId} is not active, skipping scene`);
         return;
       }
@@ -286,8 +291,10 @@ export class AvatarSceneOrchestrator {
         repeats: scene.n_repeat
       });
 
-      // Handle scene completion
-      await this.handleScenePlayback(agentId, currentScene);
+      // Previous implementation used a timer-based playback loop (duration per repeat).
+      // We now rely on the media element's natural end. The rendering component should
+      // call onMediaEnded(agentId) when the media finishes one cycle.
+      // Nothing else to do here.
 
     } catch (error) {
       logger.error(`[AvatarSceneOrchestrator] Error playing scene for agent ${agentId}`, error);
@@ -298,40 +305,49 @@ export class AvatarSceneOrchestrator {
   /**
    * Handle scene playback and repeats
    */
+  // Deprecated timer-based playback. We keep the method for backward compatibility but do nothing.
   private async handleScenePlayback(agentId: string, currentScene: CurrentScene): Promise<void> {
-    const { clip } = currentScene;
+    // No-op: playback progression is now driven by onMediaEnded()
+    // Keep a minimal analytics record for visibility
     const store = useAvatarSceneStore.getState();
+    try { store.recordScenePlay(agentId, currentScene.clip.label, currentScene.clip.duration || 0); } catch {}
+  }
 
-    // Calculate scene duration (default to 3 seconds if not specified)
-    const duration = clip.duration || 3000;
+  /**
+   * Media element should call this when a scene's media finishes naturally
+   */
+  public async onMediaEnded(agentId: string): Promise<void> {
+    const store = useAvatarSceneStore.getState();
+    const currentScene = store.getCurrentScene(agentId);
+    if (!currentScene) return;
 
-    // Set up timer for scene completion
-    const timerId = window.setTimeout(async () => {
-      try {
-        currentScene.currentRepeat++;
+    try {
+      logger.info(`[AvatarSceneOrchestrator] onMediaEnded for agent ${agentId}`, {
+        sceneLabel: currentScene.clip.label,
+        currentRepeat: currentScene.currentRepeat,
+        repeats: currentScene.clip.n_repeat,
+        state: currentScene.state
+      });
+      // Increment repeat count
+      currentScene.currentRepeat++;
+      const { clip } = currentScene;
 
-        if (currentScene.currentRepeat < clip.n_repeat) {
-          // Continue repeating
-          logger.debug(`[AvatarSceneOrchestrator] Repeating scene ${clip.label} (${currentScene.currentRepeat}/${clip.n_repeat})`);
-          await this.handleScenePlayback(agentId, currentScene);
-        } else {
-          // Scene completed
-          await this.completeScene(agentId, currentScene);
-        }
-      } catch (error) {
-        logger.error(`[AvatarSceneOrchestrator] Error in scene playback timer`, error);
-        this.handleSceneError(agentId, error as Error, clip);
+      if (currentScene.currentRepeat < clip.n_repeat) {
+        // Continue repeating: refresh startTime to hint UI to replay
+        logger.debug(`[AvatarSceneOrchestrator] Natural end, repeating ${clip.label} (${currentScene.currentRepeat}/${clip.n_repeat})`);
+        currentScene.startTime = Date.now();
+        currentScene.state = SceneState.PLAYING;
+        store.setCurrentScene(agentId, currentScene);
+        // Optional: notify state change as PLAYING→PLAYING for observers
+        this.notifyStateChange(agentId, SceneState.PLAYING, SceneState.PLAYING, currentScene);
+      } else {
+        // Completed all repeats
+        await this.completeScene(agentId, currentScene);
       }
-    }, duration);
-
-    currentScene.timerId = timerId;
-    this.activeTimers.set(agentId, timerId);
-
-    // Update store with timer ID
-    store.setCurrentScene(agentId, currentScene);
-
-    // Record analytics
-    store.recordScenePlay(agentId, clip.label, duration);
+    } catch (error) {
+      logger.error(`[AvatarSceneOrchestrator] Error handling media end for agent ${agentId}`, error);
+      this.handleSceneError(agentId, error as Error, currentScene.clip);
+    }
   }
 
   /**
@@ -350,14 +366,12 @@ export class AvatarSceneOrchestrator {
     // Notify state change
     this.notifyStateChange(agentId, SceneState.PLAYING, SceneState.COMPLETED, currentScene);
 
-    logger.debug(`[AvatarSceneOrchestrator] Scene completed for agent ${agentId}`, {
+    logger.info(`[AvatarSceneOrchestrator] Scene completed for agent ${agentId}`, {
       sceneLabel: currentScene.clip.label
     });
 
-    // Return to default scene after a brief delay
-    setTimeout(() => {
-      this.returnToDefault(agentId);
-    }, store.config.sceneTransitionDelay);
+    // Return to default scene immediately to ensure UI reverts
+    this.returnToDefault(agentId);
   }
 
   /**
@@ -375,7 +389,7 @@ export class AvatarSceneOrchestrator {
     // Notify state change
     this.notifyStateChange(agentId, SceneState.COMPLETED, SceneState.IDLE);
 
-    logger.debug(`[AvatarSceneOrchestrator] Agent ${agentId} returned to default`);
+    logger.info(`[AvatarSceneOrchestrator] Agent ${agentId} returned to default`);
   }
 
   /**
