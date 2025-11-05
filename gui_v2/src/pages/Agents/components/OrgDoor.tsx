@@ -172,7 +172,7 @@ const OrgDoor: React.FC<OrgDoorProps> = ({ name, isActive = false, agentCount = 
   return (
     <div
       className={`org-door custom-door${hovered ? ' opening' : ''}${clicked ? ' clicked' : ''}${isActive ? ' active' : ''}`}
-      style={{ position: 'static', zIndex: 2 }}
+      style={{ position: 'relative', zIndex: 6, cursor: 'pointer' }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onClick={handleClick}

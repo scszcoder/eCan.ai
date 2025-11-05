@@ -20,6 +20,8 @@ import { useAvatarSceneStore } from '../../stores/avatarSceneStore';
 import { useRuntimeStateStore } from '@/modules/skill-editor/stores/runtime-state-store';
 import { logger } from '@/utils/logger';
 import { handleOnboardingRequest, type OnboardingContext } from '../onboarding/onboardingService';
+import { avatarSceneOrchestrator } from '../avatarSceneOrchestrator';
+import type { SceneClip } from '@/types/avatarScene';
 
 // Process器TypeDefinition
 type Handler = (request: IPCRequest) => Promise<unknown>;
@@ -558,7 +560,32 @@ export class IPCHandlers {
                 // Process each agent's scenes
                 Object.entries(screensData.agents).forEach(([agentId, agentData]: [string, any]) => {
                     if (agentData && agentData.scenes) {
-                        sceneStore.setAgentScenes(agentId, agentData.scenes);
+                      const scenes = agentData.scenes as SceneClip[];
+                      sceneStore.setAgentScenes(agentId, scenes);
+
+                      // Prefer an explicitly requested scene, else highest priority
+                      let target: SceneClip | undefined;
+                      const desiredLabel: string | undefined =
+                        agentData.current?.label || agentData.play?.label || agentData.desired_label;
+                      const desiredClip: string | undefined =
+                        agentData.current?.clip || agentData.play?.clip;
+
+                      if (desiredLabel) target = scenes.find(s => s.label === desiredLabel);
+                      if (!target && desiredClip) target = scenes.find(s => s.clip === desiredClip);
+                      if (!target && scenes.length > 0) {
+                        target = [...scenes].sort((a, b) => (b.priority || 0) - (a.priority || 0))[0];
+                      }
+
+                      if (target) {
+                        try {
+                          avatarSceneOrchestrator.playScene(agentId, target);
+                          logger.debug(`[IPC][update_screens] Started playback for agent ${agentId}`, {
+                            label: target.label, repeats: target.n_repeat
+                          });
+                        } catch (e) {
+                          logger.error(`[IPC][update_screens] Failed to start playback for agent ${agentId}`, e as any);
+                        }
+                      }
                     }
                 });
                 

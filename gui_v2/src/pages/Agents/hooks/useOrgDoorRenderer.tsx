@@ -56,7 +56,11 @@ export function useOrgDoorRenderer(levelDoors: DisplayNode[], actualOrgId?: stri
       }
 
       return (
-        <div key={`${door.id}`} onClick={() => handleDoorClick(door)}>
+        <div
+          key={`${door.id}`}
+          onClick={() => handleDoorClick(door)}
+          style={{ position: 'relative', zIndex: 5, pointerEvents: 'auto' }}
+        >
           <OrgDoor name={displayName} />
         </div>
       );

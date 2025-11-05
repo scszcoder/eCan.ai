@@ -10,13 +10,15 @@ interface AvatarManagerProps {
   value?: AvatarData;
   onChange?: (avatarData: AvatarData) => void;
   showVideo?: boolean;
+  agentId?: string; // Optional: enable dynamic scene rendering via AvatarDisplay
 }
 
 export const AvatarManager: React.FC<AvatarManagerProps> = ({
   username,
   value,
   onChange,
-  showVideo = true
+  showVideo = true,
+  agentId
 }) => {
   const { t } = useTranslation();
   const [modalVisible, setModalVisible] = useState(false);
@@ -72,6 +74,7 @@ export const AvatarManager: React.FC<AvatarManagerProps> = ({
             size="large"
             showVideo={showVideo}
             onClick={() => setModalVisible(true)}
+            agentId={agentId}
           />
           <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
             {t('avatar.click_to_change') || 'Click to change avatar'}

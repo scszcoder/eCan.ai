@@ -548,6 +548,7 @@ class MainWindow:
             loop.create_task(self._async_start_lightrag())
             self.wan_sub_task = loop.create_task(self._async_start_wan_chat())
             self.llm_sub_task = loop.create_task(self._async_start_llm_subscription())
+            self.cloud_show_sub_task = loop.create_task(self._async_start_cloud_show_subscription())
             logger.info("[MainWindow] ✅ All final background service tasks created successfully")
         except RuntimeError as e:
             logger.error(f"[MainWindow] ⚠️ No running event loop for final background services: {e}")
@@ -1757,6 +1758,50 @@ class MainWindow:
         except Exception as e:
             logger.error(f"❌ Cloud LLM Subscription initialization failed: {e}")
             logger.error(f"Cloud LLM Subscription error details: {traceback.format_exc()}")
+            # Don't crash the app if Cloud LLM Subscription fails
+            # The app should continue to work without Cloud LLM Subscription
+
+    async def _async_start_cloud_show_subscription(self):
+        """
+        Asynchronously start eCan's own cloud side LLM service subscription
+        """
+        from agent.story.story_gen import subscribe_cloud_show
+        try:
+            # Check if shutting down before starting
+            if hasattr(self, '_shutting_down') and self._shutting_down:
+                logger.info("System is shutting down, skipping Cloud Show subscription")
+                return
+
+            # Wait a bit to ensure other services are ready
+            await asyncio.sleep(0.5)
+
+            logger.info("🧠 Starting Cloud LLM Subscription...")
+
+            # Initialize LightRAG server in main thread to allow signal handlers
+            # but run the actual server start in executor for non-blocking behavior
+            ws_host = self.getWSApiHost()
+            ws_endpoint = self.getWSApiEndpoint()
+            token = self.get_auth_token()
+            masked_token = token[:15] + "..." + token[-4:] if len(token) > 20 else "***"
+            logger.info("ws_host", ws_host, "token:", masked_token if token else "", "ws_endpoint:", ws_endpoint)
+            acctSiteID = self.getAcctSiteID()
+            print("acct site id:", acctSiteID)
+
+            # Start the server process in executor and save references for cleanup
+            ws, thread = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subscribe_cloud_show(acctSiteID, token, ws_endpoint)
+            )
+
+            # Save references for cleanup
+            self.cloud_show_ws = ws
+            self.cloud_show_thread = thread
+
+            logger.info("✅ Cloud Show Subscription initialization completed!")
+
+        except Exception as e:
+            err_msg = get_traceback(e, "ErrorCloudShowSubscription")
+            logger.error(f"❌ {err_msg}")
             # Don't crash the app if Cloud LLM Subscription fails
             # The app should continue to work without Cloud LLM Subscription
 
@@ -5718,7 +5763,7 @@ class MainWindow:
         to_cancel = []
         for name in (
             'lan_task', 'peer_task', 'monitor_task', 'chat_task', 'wan_sub_task',
-            'rpa_task', 'manager_task', 'wan_chat_task', 'llm_sub_task'
+            'rpa_task', 'manager_task', 'wan_chat_task', 'llm_sub_task', 'cloud_show_sub_task'
         ):
             try:
                 t = getattr(self, name, None)
