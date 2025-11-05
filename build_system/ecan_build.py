@@ -65,11 +65,21 @@ class BuildConfig:
         return self.config.get("app", {})
 
     def update_version(self, version: str):
-        """Update version information"""
+        """Update version information in config and VERSION file"""
+        # Update in-memory config
         if "app" in self.config:
             self.config["app"]["version"] = version
         if "installer" in self.config:
             self.config["installer"]["app_version"] = version
+        
+        # Update VERSION file so it gets bundled with the correct version
+        version_file = Path(__file__).parent.parent / "VERSION"
+        try:
+            version_file.write_text(version + "\n", encoding="utf-8")
+            print(f"[INFO] Updated VERSION file to: {version}")
+        except Exception as e:
+            print(f"[WARN] Failed to update VERSION file: {e}")
+        
         print(f"[INFO] Updated version to: {version}")
 
     def get_build_config(self) -> Dict[str, Any]:
