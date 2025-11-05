@@ -501,6 +501,14 @@ class LLMManager:
         """
         Check if LLM provider is configured and a default is selected
         
+        This method ensures onboarding is shown when:
+        1. No default_llm is set (empty or None) - will auto-set to OpenAI
+        2. default_llm is set but provider not found - will keep the setting
+        3. default_llm is set but API key is missing (for non-local providers)
+        4. default_llm is set but base_url is missing/invalid (for local providers)
+        
+        Note: default_llm is NEVER cleared, ensuring there's always a default provider.
+        
         Returns:
             tuple: (is_configured: bool, configured_provider_name: Optional[str])
             - is_configured: True if default LLM provider is configured, False otherwise
@@ -510,54 +518,74 @@ class LLMManager:
             # Get default LLM from settings
             default_llm = self.config_manager.general_settings.default_llm
             
-            # If default_llm is set but empty or just whitespace, treat it as not configured
+            # Case 1: If default_llm is empty, set it to OpenAI as default
             if not default_llm or not default_llm.strip():
-                logger.debug("[LLMManager] No default LLM is set")
-                return False, None
-            
-            # Check if default LLM provider is configured
-            provider = self.get_provider(default_llm)
-            if not provider:
-                # Provider not found (might be invalid or removed)
-                logger.debug(f"[LLMManager] Default LLM '{default_llm}' provider not found")
-                # Clear invalid default_llm setting
-                self.config_manager.general_settings.default_llm = ""
+                logger.info("[LLMManager] No default LLM is set - setting to OpenAI with default model")
+                self.config_manager.general_settings.default_llm = "OpenAI"
+                # Also set the default model if not already set
+                if not self.config_manager.general_settings.default_llm_model:
+                    provider = llm_config.get_provider("OpenAI")
+                    if provider:
+                        self.config_manager.general_settings.default_llm_model = provider.default_model
+                        logger.info(f"[LLMManager] Set default model to {provider.default_model}")
                 self.config_manager.general_settings.save()
+                default_llm = "OpenAI"
+                # Still show onboarding since API key is likely not configured
                 return False, None
             
-            # For local providers like Ollama, check if base_url is configured
+            # Get provider configuration
+            provider = self.get_provider(default_llm)
+            
+            # Case 2: Provider not found, show onboarding but keep the default_llm setting
+            if not provider:
+                logger.warning(f"[LLMManager] Default LLM '{default_llm}' provider not found - onboarding required")
+                # Keep default_llm setting, don't clear it
+                return False, None
+            
+            # For local providers (e.g., Ollama), check base_url configuration
             if provider.get('is_local', False):
                 base_url = provider.get('base_url', '')
                 if not base_url or not base_url.strip():
-                    logger.debug(f"[LLMManager] Local provider '{default_llm}' has no base_url configured")
-                    # Clear invalid default_llm setting for unconfigured local provider
-                    self.config_manager.general_settings.default_llm = ""
-                    self.config_manager.general_settings.save()
+                    logger.info(f"[LLMManager] Local provider '{default_llm}' has no base_url - onboarding required")
                     return False, None
-                # Check if base_url is valid (starts with http:// or https://)
+                
+                # Validate base_url format
                 base_url = base_url.strip()
                 if not (base_url.startswith('http://') or base_url.startswith('https://')):
-                    logger.debug(f"[LLMManager] Local provider '{default_llm}' has invalid base_url: {base_url}")
-                    # Clear invalid default_llm setting for local provider with invalid base_url
-                    self.config_manager.general_settings.default_llm = ""
-                    self.config_manager.general_settings.save()
+                    logger.warning(f"[LLMManager] Local provider '{default_llm}' has invalid base_url: {base_url} - onboarding required")
                     return False, None
-                # Local provider with valid base_url is considered configured
-                logger.debug(f"[LLMManager] Default local LLM '{default_llm}' is configured with base_url: {base_url}")
+                
+                # Local provider properly configured
+                logger.debug(f"[LLMManager] Local provider '{default_llm}' is properly configured with base_url: {base_url}")
                 return True, default_llm
             
-            # Check if API keys are configured (for non-local providers)
-            if provider.get('api_key_configured', False):
-                # Default LLM is configured
-                logger.debug(f"[LLMManager] Default LLM '{default_llm}' is configured")
+            # For non-local providers (e.g., OpenAI, Anthropic), check API key configuration
+            # Case 3: Check if required API keys are configured
+            api_key_env_vars = provider.get('api_key_env_vars', [])
+            
+            if not api_key_env_vars:
+                # Provider doesn't require API keys (unusual but possible)
+                logger.debug(f"[LLMManager] Provider '{default_llm}' doesn't require API keys")
                 return True, default_llm
-            else:
-                # Default LLM is set but not configured (missing API key)
-                logger.debug(f"[LLMManager] Default LLM '{default_llm}' is set but not configured (missing API key)")
+            
+            # Check each required API key
+            missing_keys = []
+            for env_var in api_key_env_vars:
+                if not self.has_api_key(env_var):
+                    missing_keys.append(env_var)
+            
+            if missing_keys:
+                # API keys are missing, show onboarding
+                logger.info(f"[LLMManager] Provider '{default_llm}' is missing API keys: {missing_keys} - onboarding required")
                 return False, None
+            
+            # All API keys are configured
+            logger.debug(f"[LLMManager] Provider '{default_llm}' is fully configured with all required API keys")
+            return True, default_llm
             
         except Exception as e:
             logger.error(f"[LLMManager] Error checking LLM provider configuration: {e}")
+            # On error, show onboarding to be safe
             return False, None
 
     async def check_and_show_onboarding(self, delay_seconds: float = 2.0):
