@@ -269,21 +269,24 @@ class LightragServer:
             env.setdefault('WORKING_DIR', os.path.join(app_data_path, 'rag_storage'))
             env.setdefault('LOG_DIR', os.path.join(app_data_path, 'runlogs'))
 
-        # Override API keys from OPENAI_API_KEY environment variable
-        openai_api_key = env.get('OPENAI_API_KEY')
-        if openai_api_key and openai_api_key.strip():
-            # Create masked version for logging
+        # Prefer secure_store for API keys; fallback to env and finally .env
+        openai_api_key = None
+        try:
+            from utils.env.secure_store import secure_store
+            openai_api_key = secure_store.get('OPENAI_API_KEY')
+        except Exception:
+            openai_api_key = None
+
+        if not openai_api_key:
+            openai_api_key = env.get('OPENAI_API_KEY')
+
+        if openai_api_key and str(openai_api_key).strip():
             masked_key = openai_api_key[:8] + "..." + openai_api_key[-4:] if len(openai_api_key) > 12 else "***"
-            
-            # Override LLM API key
-            env['LLM_BINDING_API_KEY'] = openai_api_key
-            logger.info(f"[LightragServer] ✅ LLM_BINDING_API_KEY overridden from OPENAI_API_KEY environment variable ({masked_key})")
-            
-            # Override Embedding API key
-            env['EMBEDDING_BINDING_API_KEY'] = openai_api_key
-            logger.info(f"[LightragServer] ✅ EMBEDDING_BINDING_API_KEY overridden from OPENAI_API_KEY environment variable ({masked_key})")
+            env['LLM_BINDING_API_KEY'] = str(openai_api_key)
+            env['EMBEDDING_BINDING_API_KEY'] = str(openai_api_key)
+            logger.info(f"[LightragServer] ✅ LLM/EMBEDDING keys set (source: {'secure_store' if 'secure_store' in globals() else 'env'}) {masked_key}")
         else:
-            logger.error("[LightragServer] ❌ OPENAI_API_KEY environment variable not found or empty. LLM and Embedding API keys will use .env file values.")
+            logger.warning("[LightragServer] ⚠️ No OPENAI_API_KEY found in secure_store or env; will rely on .env file values if present.")
         
         # Log critical timeout settings for debugging
         critical_vars = ['EMBEDDING_TIMEOUT', 'LLM_TIMEOUT', 'EMBEDDING_FUNC_MAX_ASYNC', 

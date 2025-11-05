@@ -1,7 +1,5 @@
 import re
 import time
-import random
-from selenium.webdriver.support.expected_conditions import element_selection_state_to_be
 
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
@@ -12,10 +10,10 @@ import base64
 import asyncio
 import sys
 from threading import Thread
-from contextlib import contextmanager
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, BaseMessage
 from agent.ec_skills.dev_defs import BreakpointManager
 from agent.memory.models import MemoryItem
+from utils.env.secure_store import secure_store
 
 
 def rough_token_count(text: str) -> int:
@@ -590,9 +588,12 @@ def _create_llm_instance(provider, config_manager=None):
         
         logger.info(f"Creating LLM instance - Provider: {provider_display} ({provider_name_actual}), Model: {model_name}")
         
-        # Helper function to get API key from environment
+        # Helper to get API key from secure store (no env fallback)
         def get_api_key(env_var):
-            return os.environ.get(env_var)
+            try:
+                return secure_store.get(env_var)
+            except Exception:
+                return None
         
         # Check for Azure OpenAI (specific class_name match - must be before OpenAI check)
         if class_name == 'azureopenai' or ('azure' in provider_name.lower() and 'openai' in provider_name.lower()):
