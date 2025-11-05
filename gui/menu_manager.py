@@ -12,7 +12,10 @@ from PySide6.QtWidgets import (QMessageBox, QDialog, QLabel, QCheckBox,
 from PySide6.QtGui import QAction
 from PySide6.QtCore import Qt
 from utils.logger_helper import logger_helper as logger
-
+from urllib.parse import quote
+import traceback
+from utils.logger_helper import logger_helper as logger
+from utils.logger_helper import get_traceback
 
 class MenuManager:
     """Menu Manager Class"""
@@ -295,10 +298,6 @@ class MenuManager:
     
 
     
-
-    
-
-    
     def _setup_help_menu(self, help_menu):
         """Set up Help menu"""
         try:
@@ -332,6 +331,12 @@ class MenuManager:
             log_viewer_action.triggered.connect(self.show_log_viewer)
             help_menu.addAction(log_viewer_action)
             logger.debug("Added 'View Logs' menu item")
+
+            # Test (for eCan.ai app) - simple harness entry below 'View Logs'
+            test_action = QAction('Test', self.main_window)
+            test_action.triggered.connect(self.quick_test)
+            help_menu.addAction(test_action)
+            logger.debug("Added 'Test' menu item under Help")
             
             logger.info("Help menu setup completed successfully")
         except Exception as e:
@@ -772,7 +777,60 @@ class MenuManager:
         except Exception as e:
             logger.error(f"Failed to show quick start guide: {e}")
             QMessageBox.warning(self.main_window, "Error", "Failed to open quick start guide")
-    
+
+    def show_test_item(self):
+        """Handler for Help > Test: simple test dialog"""
+        try:
+            logger.info("[Menu] Help > Test clicked")
+            QMessageBox.information(
+                self.main_window,
+                "Test",
+                "This is a test action from Help > Test."
+            )
+        except Exception as e:
+            logger.error(f"Failed to execute Help > Test: {e}")
+            QMessageBox.warning(self.main_window, "Error", f"Failed to run test action: {e}")
+
+    def quick_test(self):
+        """Handler for Help > Test: simple test dialog"""
+        try:
+            # Lazy imports to avoid heavy deps
+            from PySide6.QtWidgets import QInputDialog
+            from agent.ec_skills.story.scene_utils import update_scene
+
+            # Ask for agent id (prefilled)
+            # agent_id, ok = QInputDialog.getText(self.main_window, "Update Scene Test", "Agent ID:", text="a1")
+            # if not ok or not agent_id.strip():
+            #     return
+            # agent_id = agent_id.strip()
+            agent_id = "6d5ea546c995bbdf679ca88dbe83371c"
+
+            # Demo scenes (use natural media length; no duration field)
+            # Use public asset path served by gui_v2
+            abs_path = r"C:\Users\songc\PycharmProjects\eCan.ai\resource\avatars\system\agent3_celebrate0.webm"
+            clip_url = f"http://localhost:4668/api/avatar?path={quote(abs_path)}"
+
+            demo_scenes = [
+                {
+                    "label": "celebrate",
+                    "clip": clip_url,
+                    "n_repeat": 1,
+                    "priority": 5,
+                    "captions": ["Local celebrate clip"]
+                }
+            ]
+
+            sent = update_scene(agent_id=agent_id, scenes=demo_scenes, play_label="celebrate")
+            if sent:
+                print(f"update_scene sent for agent '{agent_id}'.")
+            else:
+                print(f"Failed to send update_scene for agent '{agent_id}'. See logs.")
+
+        except Exception as e:
+            logger.error(f"ErrorQuickTest: {e}")
+            logger.error(traceback.format_exc())
+
+
     def show_shortcuts(self):
         """Show keyboard shortcuts"""
         try:

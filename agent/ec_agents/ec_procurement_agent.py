@@ -61,7 +61,7 @@ def set_up_ec_procurement_agent(mainwin):
             capabilities=capabilities,
             skills=valid_skills,
         )
-        logger.info("ec_procurement agent card created:", agent_card.name, agent_card.url)
+        logger.info("ec_procurement agent card created:", agent_card.id, agent_card.name, agent_card.url)
 
         org_id = "org_rnd_001"
         chatter_task = create_ec_procurement_chat_task(mainwin)

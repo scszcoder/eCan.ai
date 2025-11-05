@@ -2,6 +2,7 @@ import React, { useMemo, useEffect, useState, useCallback, useRef } from 'react'
 import styled from '@emotion/styled';
 import { DynamicAgentAnimation } from '../../../components/DynamicAgentAnimation';
 import { useAvatarSceneStore } from '@/stores/avatarSceneStore';
+import { avatarSceneOrchestrator } from '@/services/avatarSceneOrchestrator';
 
 const AnimationContainer = styled.div`
   width: 100%;
@@ -90,11 +91,93 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
 
   const [staticFallbackLevel, setStaticFallbackLevel] = useState(0);
   const loadedRef = useRef(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const originalSrcRef = useRef<string>('');
+
+  // Watch for dynamic scenes and replace src directly
+  const currentScene = useAvatarSceneStore(s => agentId ? s.getCurrentScene(agentId) : undefined);
+  const isPlayingScene = Boolean(currentScene && (currentScene as any).state === 'playing');
 
   // Reset loaded flag whenever URL changes
   useEffect(() => {
     loadedRef.current = false;
   }, [mediaUrl, staticFallbackLevel]);
+
+  // Handle scene playback by replacing video src
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !agentId) return;
+
+    if (isPlayingScene && currentScene) {
+      // Save original src if not already saved
+      if (!originalSrcRef.current) {
+        // Try to get src from video.src or from currentSrc (which includes <source> tags)
+        const currentSrc = video.currentSrc || video.src || currentStaticUrl;
+        if (currentSrc) {
+          originalSrcRef.current = currentSrc;
+          console.log('[AgentAnimation] Saved original src:', originalSrcRef.current);
+        }
+      }
+
+      // Replace with scene clip
+      const sceneUrl = currentScene.clip.clip;
+      console.log('[AgentAnimation] Playing scene:', sceneUrl);
+      video.src = sceneUrl;
+      video.loop = false;
+      video.currentTime = 0;
+      video.play().catch(e => console.warn('[AgentAnimation] play rejected:', e));
+
+      let ended = false;
+      const restoreOriginal = () => {
+        if (ended) return;
+        ended = true;
+        console.log('[AgentAnimation] Scene ended, restoring original');
+        avatarSceneOrchestrator.onMediaEnded(agentId);
+        // Restore original src
+        if (originalSrcRef.current) {
+          video.src = originalSrcRef.current;
+          video.loop = true;
+          video.currentTime = 0;
+          video.play().catch(() => {});
+        }
+      };
+
+      // Listen for end
+      const onEnded = () => {
+        console.log('[AgentAnimation] ended event fired');
+        restoreOriginal();
+      };
+      
+      const onLoadedMetadata = () => {
+        const duration = video.duration;
+        console.log('[AgentAnimation] Scene duration:', duration);
+        if (isFinite(duration) && duration > 0) {
+          // Set timeout as backup in case 'ended' doesn't fire
+          setTimeout(() => {
+            console.log('[AgentAnimation] Timeout fallback triggered');
+            restoreOriginal();
+          }, (duration + 0.5) * 1000);
+        }
+      };
+
+      video.addEventListener('ended', onEnded);
+      video.addEventListener('loadedmetadata', onLoadedMetadata);
+      
+      return () => {
+        video.removeEventListener('ended', onEnded);
+        video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      };
+    } else {
+      // Not playing scene, ensure we're on original src
+      if (video && originalSrcRef.current && video.src !== originalSrcRef.current) {
+        console.log('[AgentAnimation] Restoring to original (no scene)');
+        video.src = originalSrcRef.current;
+        video.loop = true;
+        video.currentTime = 0;
+        video.play().catch(() => {});
+      }
+    }
+  }, [isPlayingScene, currentScene, agentId]);
 
   // Use video if mediaUrl exists and ends with .webm or .mp4
   const isVideo = Boolean(mediaUrl && typeof mediaUrl === 'string' && 
@@ -106,7 +189,7 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
     try {
       return (
         <AnimationContainer className={className}>
-          <AnimationWrapper>
+          <AnimationWrapper style={{ position: 'relative' }}>
             <DynamicAgentAnimation
               agentId={agentId}
               fallbackUrl={fallbackMediaUrl}
@@ -126,6 +209,11 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
                 setHasDynamicScenes(false);
               }}
             />
+            {agentId && (
+              <div style={{ position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none' }}>
+                <AgentMedia agentId={agentId} />
+              </div>
+            )}
           </AnimationWrapper>
         </AnimationContainer>
       );
@@ -180,9 +268,10 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
 
   return (
     <AnimationContainer className={className}>
-      <AnimationWrapper>
+      <AnimationWrapper style={{ position: 'relative' }}>
         {currentIsVideo ? (
           <video
+            ref={videoRef}
             autoPlay
             loop
             muted
