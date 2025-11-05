@@ -83,8 +83,9 @@ export class IPCWCClient {
     private static instance: IPCWCClient;
     private ipcWebChannel: IPCWebChannel | null = null;
     private requestHandlers: Record<string, IPCRequestHandler>;
-    private errorHandler: IPCErrorHandler | null = null;
+    private errorHandler: IPCErrorHandler | null = null;  // Reserved for future error handling
     private initPromise: Promise<void> | null = null;
+    private messageHandlerConnected: boolean = false;  // Track if message handler is already connected
     
     // Used forStorage等待后台Response的Request
     private pendingRequests: Map<string, { resolve: (value: any) => void; reject: (reason?: any) => void; }> = new Map();
@@ -541,36 +542,43 @@ private sendErrorResponse(requestId: string, error: { code: string; message: str
 private setupMessageHandler(): void {
     if (!this.ipcWebChannel) return;
     
+    // Prevent duplicate connection
+    if (this.messageHandlerConnected) {
+        console.log('[IPCWCClient] Message handler already connected, skipping duplicate connection');
+        return;
+    }
+    
     // 关键: Listen python_to_web 信号
     if (this.ipcWebChannel.python_to_web && typeof this.ipcWebChannel.python_to_web.connect === 'function') {
         this.ipcWebChannel.python_to_web.connect(this.handleMessage.bind(this));
+        this.messageHandlerConnected = true;
         console.log('[IPCWCClient] Connected to python_to_web signal');
     } else {
         console.error('[IPCWCClient] Could not connect to python_to_web signal');
     }
 }
 
-    /**
-     * ProcessRequest队列
-     */
-    private async processQueue(): Promise<void> {
-        if (this.processingQueue || this.activeRequests.size >= this.maxConcurrentRequests) {
-            return;
-        }
-
-        this.processingQueue = true;
-
-        try {
-            while (this.activeRequests.size < this.maxConcurrentRequests) {
-                const request = this.dequeueRequest();
-                if (!request) break;
-
-                this.executeQueuedRequest(request);
-            }
-        } finally {
-            this.processingQueue = false;
-        }
+/**
+ * ProcessRequest队列
+ */
+private async processQueue(): Promise<void> {
+    if (this.processingQueue || this.activeRequests.size >= this.maxConcurrentRequests) {
+        return;
     }
+
+    this.processingQueue = true;
+
+    try {
+        while (this.activeRequests.size < this.maxConcurrentRequests) {
+            const request = this.dequeueRequest();
+            if (!request) break;
+
+            this.executeQueuedRequest(request);
+        }
+    } finally {
+        this.processingQueue = false;
+    }
+}
 
     /**
      * 从队列中取出Request

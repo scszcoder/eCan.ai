@@ -15,9 +15,9 @@
 
 /* Hover effect for primary button */
 .onboarding-modal .ant-btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.5) !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: none !important;
+  box-shadow: none !important;
+  transition: none !important;
 }
 
 /* Hover effect for text button */
@@ -25,22 +25,95 @@
   color: rgba(0, 0, 0, 0.75) !important;
   background: rgba(0, 0, 0, 0.04) !important;
   border-radius: 8px;
+  transition: none !important;
 }
 
 /* Animation for modal entrance */
 .onboarding-modal.ant-modal {
-  animation: onboardingFadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: none !important;
 }
 
-@keyframes onboardingFadeIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95) translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
+/* Disable mask animation/transitions to prevent flicker */
+.onboarding-modal-root .ant-modal-mask {
+  animation: none !important;
+  transition: none !important;
+  z-index: 10000 !important;
+}
+
+/* Removed entrance keyframes to reduce motion */
+
+/* Force wrapper visibility in case global CSS toggles it */
+.onboarding-modal-root .ant-modal-wrap {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  z-index: 10001 !important;
+  pointer-events: auto !important;
+  animation: none !important;
+  transition: none !important;
+}
+
+/* Ensure the modal itself is visible */
+.onboarding-modal-root .ant-modal {
+  display: block !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  margin: 0 auto !important;
+  z-index: 10001 !important;
+  animation: none !important;
+  transition: none !important;
+}
+
+/* Ensure modal content is visible */
+.onboarding-modal .ant-modal-content {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  animation: none !important;
+  transition: none !important;
+}
+
+/* Readable typography for AntD Modal.confirm */
+.onboarding-modal .ant-modal-confirm-body .ant-modal-confirm-title {
+  color: rgba(0, 0, 0, 0.85) !important;
+}
+.onboarding-modal .ant-modal-confirm-body .ant-modal-confirm-content {
+  color: rgba(0, 0, 0, 0.65) !important;
+}
+
+/* Dark theme readability */
+.dark .onboarding-modal .ant-modal-content {
+  background: #1f1f1f !important;
+}
+.dark .onboarding-modal .ant-modal-confirm-body .ant-modal-confirm-title {
+  color: rgba(255, 255, 255, 0.95) !important;
+}
+.dark .onboarding-modal .ant-modal-confirm-body .ant-modal-confirm-content {
+  color: rgba(255, 255, 255, 0.75) !important;
+}
+
+/* Kill AntD motion classes (zoom/fade) for appear/enter/leave to avoid flicker */
+.onboarding-modal-root .ant-fade-appear,
+.onboarding-modal-root .ant-fade-enter,
+.onboarding-modal-root .ant-fade-leave,
+.onboarding-modal-root .ant-fade-appear-active,
+.onboarding-modal-root .ant-fade-enter-active,
+.onboarding-modal-root .ant-fade-leave-active,
+.onboarding-modal-root .ant-zoom-appear,
+.onboarding-modal-root .ant-zoom-enter,
+.onboarding-modal-root .ant-zoom-leave,
+.onboarding-modal-root .ant-zoom-appear-active,
+.onboarding-modal-root .ant-zoom-enter-active,
+.onboarding-modal-root .ant-zoom-leave-active {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* Ensure mask is beneath modal */
+.onboarding-modal-root .ant-modal-mask {
+  z-index: 10000 !important;
 }
 
 /* Dark theme support */

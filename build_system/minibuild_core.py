@@ -136,6 +136,11 @@ class MiniSpecBuilder:
 
     # ---- Public API ----
     def build(self, mode: str = "prod", profile: Dict[str, Any] = None) -> bool:
+        # NOTE: Playwright browsers should be prepared BEFORE running this build
+        # - In CI: release.yml handles Playwright download
+        # - Locally: run `python build_system/prepare_playwright.py` first
+        # The build process will only package existing browsers in third_party/ms-playwright/
+        
         # Generate essential pre-safe hooks for known problematic modules
         self._ensure_pre_safe_hooks()
         self._ensure_global_sitecustomize()
@@ -195,6 +200,9 @@ class MiniSpecBuilder:
 
         # Post-build processing: Fix framework paths for all platforms
         self._fix_framework_paths()
+
+        # Verify Playwright browsers were packaged correctly
+        self._verify_packaged_playwright()
 
         print(f"[MINIBUILD] {mode.upper()} build completed successfully with profile settings")
         return True
@@ -702,10 +710,15 @@ hiddenimports = {repr(hiddenimports)}
 
 {collect_packages_code}
 
-# Add third-party assets
+# Add third-party assets (Playwright browsers)
+# Use simple tuple to recursively add all Playwright files as DATA
+# This prevents PyInstaller from trying to process them as binaries
 playwright_third_party = project_root / "third_party" / "ms-playwright"
 if playwright_third_party.exists():
+    print(f'[SPEC] Adding Playwright browsers from: {{playwright_third_party}}')
+    # Add as simple tuple - PyInstaller will recursively include all files
     data_files.append((str(playwright_third_party), "third_party/ms-playwright"))
+    print('[SPEC] Playwright browsers added as data files (will not be processed as binaries)')
 
 # Icon detection with enhanced Windows support
 icon_path = None
@@ -787,6 +800,89 @@ for item in a.datas:
 
 a.datas = new_datas
 print("[SPEC] Dropped %d test/example/cache data files" % dropped)
+
+# On macOS, deduplicate datas by destination path and skip framework 'Versions/Current' symlinks
+if sys.platform == 'darwin':
+    print("[SPEC] Deduplicating macOS datas by destination path...")
+    _seen_data_dest = set()
+    _deduped_datas = []
+    for _item in a.datas:
+        try:
+            _src_path, _dest_path = _item[0], _item[1]
+        except Exception:
+            _deduped_datas.append(_item)
+            continue
+        _dest_str = str(_dest_path)
+        _lower = _dest_str.lower()
+        # Skip explicit framework symlink targets to avoid collisions
+        if _lower.endswith('/versions/current'):
+            print("[SPEC] Skipping framework symlink in datas: " + _dest_str)
+            continue
+        if _dest_str in _seen_data_dest:
+            print("[SPEC] Skipping duplicate data destination: " + _dest_str)
+            continue
+        _seen_data_dest.add(_dest_str)
+        _deduped_datas.append(_item)
+    a.datas = _deduped_datas
+
+# Filter out Playwright browser binaries to prevent processing errors
+# PyInstaller cannot process macOS Chromium.app binaries due to code signing
+print("[SPEC] Filtering Playwright binaries...")
+filtered_binaries = []
+playwright_binary_count = 0
+
+for item in a.binaries:
+    binary_path = str(item[0]).lower()
+    # Check if this is a Playwright browser binary
+    if 'ms-playwright' in binary_path and ('chromium' in binary_path or 'firefox' in binary_path or 'webkit' in binary_path):
+        playwright_binary_count += 1
+        print(f"[SPEC] Skipping Playwright binary (will be included as data): {{item[0][:80]}}...")
+        continue
+    filtered_binaries.append(item)
+
+a.binaries = filtered_binaries
+if playwright_binary_count > 0:
+    print(f"[SPEC] Filtered {{playwright_binary_count}} Playwright binaries (included as data files)")
+    
+if sys.platform == 'darwin':
+    print("[SPEC] Deduplicating macOS binaries by framework root...")
+    _seen_framework_roots = set()
+    _seen_dest_paths = set()
+    _deduped_binaries = []
+    for _entry in a.binaries:
+        # Preserve entry as-is (tuple length may vary)
+        _dest_path = None
+        try:
+            if isinstance(_entry, (list, tuple)) and len(_entry) >= 2:
+                _dest_path = str(_entry[1])
+        except Exception:
+            _dest_path = None
+
+        _framework_root = None
+        if _dest_path:
+            _lower = _dest_path.lower()
+            idx = _lower.find('.framework')
+            if idx != -1:
+                _framework_root = _dest_path[: idx + len('.framework')]
+
+        # Prefer framework-root level deduplication to avoid internal symlink collisions
+        if _framework_root:
+            if _framework_root in _seen_framework_roots:
+                print("[SPEC] Skipping duplicate framework root: " + _framework_root)
+                continue
+            _seen_framework_roots.add(_framework_root)
+        else:
+            # Fallback to full destination path deduplication
+            if _dest_path and _dest_path in _seen_dest_paths:
+                print("[SPEC] Skipping duplicate destination: " + _dest_path)
+                continue
+            if _dest_path:
+                _seen_dest_paths.add(_dest_path)
+
+        _deduped_binaries.append(_entry)
+
+    a.binaries = _deduped_binaries
+
 print(f"[SPEC] Final counts - Data: {{len(a.datas)}}, Binaries: {{len(a.binaries)}}")
 
 {platform_config}
@@ -1055,6 +1151,127 @@ if sys.platform == 'darwin':
 
         return True
 
+    def _verify_packaged_playwright(self) -> None:
+        """Verify that Playwright browsers were packaged correctly"""
+        try:
+            print("[MINIBUILD] Verifying packaged Playwright browsers...")
+            
+            # Find dist directory
+            dist_dir = self.project_root / "dist"
+            if not dist_dir.exists():
+                print("[MINIBUILD] Warning: dist directory not found")
+                return
+            
+            # Find app bundle (macOS) or app directory (Windows/Linux)
+            app_bundles = []
+            if platform_handler.is_macos:
+                app_bundles = list(dist_dir.glob("*.app"))
+                if app_bundles:
+                    # Check inside Contents/Resources or Contents/MacOS/_internal
+                    app_bundle = app_bundles[0]
+                    possible_paths = [
+                        app_bundle / "Contents" / "Resources" / "third_party" / "ms-playwright",
+                        app_bundle / "Contents" / "MacOS" / "_internal" / "third_party" / "ms-playwright"
+                    ]
+            else:
+                # Windows/Linux: check _internal directory
+                app_dirs = [d for d in dist_dir.iterdir() if d.is_dir() and not d.name.startswith('.')]
+                if app_dirs:
+                    app_dir = app_dirs[0]
+                    possible_paths = [
+                        app_dir / "_internal" / "third_party" / "ms-playwright",
+                        app_dir / "third_party" / "ms-playwright"
+                    ]
+                else:
+                    print("[MINIBUILD] Warning: No application directory found in dist/")
+                    return
+            
+            # Check if any of the possible paths exist
+            found = False
+            for path in possible_paths:
+                if path.exists():
+                    # Check for browser directories
+                    browser_dirs = [d for d in path.iterdir() 
+                                   if d.is_dir() and any(browser in d.name.lower() 
+                                   for browser in ['chromium', 'firefox', 'webkit'])]
+                    if browser_dirs:
+                        print(f"[MINIBUILD] Playwright browsers found: {path}")
+                        print(f"[MINIBUILD]   Browser directories: {[d.name for d in browser_dirs]}")
+                        found = True
+                        break
+                    else:
+                        print(f"[MINIBUILD] Path exists but no browsers found: {path}")
+            
+            if not found:
+                print("[MINIBUILD] WARNING: Playwright browsers were NOT packaged!")
+                print("[MINIBUILD]   Checked paths:")
+                for path in possible_paths:
+                    print(f"[MINIBUILD]     - {path}: {'exists' if path.exists() else 'NOT FOUND'}")
+            
+        except Exception as e:
+            print(f"[MINIBUILD] Warning: Playwright verification failed: {e}")
+    
+    def _verify_packaged_assets_old(self) -> None:
+        """Verify that third-party assets were packaged correctly"""
+        try:
+            print("[MINIBUILD] Verifying packaged third-party assets...")
+            
+            # Find dist directory
+            dist_dir = self.project_root / "dist"
+            if not dist_dir.exists():
+                print("[MINIBUILD] Warning: dist directory not found")
+                return
+            
+            # Find app bundle (macOS) or app directory (Windows/Linux)
+            app_bundles = []
+            if platform_handler.is_macos:
+                app_bundles = list(dist_dir.glob("*.app"))
+                if app_bundles:
+                    # Check inside Contents/Resources or Contents/MacOS/_internal
+                    app_bundle = app_bundles[0]
+                    possible_paths = [
+                        app_bundle / "Contents" / "Resources" / "third_party" / "ms-playwright",
+                        app_bundle / "Contents" / "MacOS" / "_internal" / "third_party" / "ms-playwright"
+                    ]
+            else:
+                # Windows/Linux: check _internal directory
+                app_dirs = [d for d in dist_dir.iterdir() if d.is_dir() and not d.name.startswith('.')]
+                if app_dirs:
+                    app_dir = app_dirs[0]
+                    possible_paths = [
+                        app_dir / "_internal" / "third_party" / "ms-playwright",
+                        app_dir / "third_party" / "ms-playwright"
+                    ]
+                else:
+                    print("[MINIBUILD] Warning: No application directory found in dist/")
+                    return
+            
+            # Check if any of the possible paths exist
+            found = False
+            for path in possible_paths:
+                if path.exists():
+                    # Check for browser directories
+                    browser_dirs = [d for d in path.iterdir() 
+                                   if d.is_dir() and any(browser in d.name.lower() 
+                                   for browser in ['chromium', 'firefox', 'webkit'])]
+                    if browser_dirs:
+                        print(f"[MINIBUILD] Playwright browsers found: {path}")
+                        print(f"[MINIBUILD]   Browser directories: {[d.name for d in browser_dirs]}")
+                        found = True
+                        break
+                    else:
+                        print(f"[MINIBUILD] Path exists but no browsers found: {path}")
+            
+            if not found:
+                print("[MINIBUILD] WARNING: Playwright browsers were NOT packaged!")
+                print("[MINIBUILD]   This will cause runtime download on first startup (slow)")
+                print("[MINIBUILD]   Checked paths:")
+                for path in possible_paths:
+                    print(f"[MINIBUILD]     - {path}: {'exists' if path.exists() else 'NOT FOUND'}")
+            
+        except Exception as e:
+            print(f"[MINIBUILD] Warning: Asset verification failed: {e}")
+    
     def _fix_framework_paths(self) -> None:
         """Fix Qt framework paths after PyInstaller build"""
         try:

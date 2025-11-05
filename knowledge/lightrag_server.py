@@ -2,6 +2,8 @@ import subprocess
 import os
 import sys
 import signal
+import json
+import atexit
 from pathlib import Path
 import threading
 import time
@@ -18,6 +20,9 @@ class LightragServer:
         self.proc = None
         self._stdout_log_handle = None
         self._stderr_log_handle = None
+        self._pid_file_path = None
+        self._atexit_registered = False
+        self._register_atexit_handler()
 
         # Detect if running in PyInstaller packaged environment
         self.is_frozen = getattr(sys, 'frozen', False)
@@ -113,6 +118,23 @@ class LightragServer:
                 logger.debug("[LightragServer] Skipping signal handler setup - not in main thread")
         except Exception as e:
             logger.warning(f"[LightragServer] Failed to setup signal handlers: {e}")
+
+    def _register_atexit_handler(self):
+        if self._atexit_registered:
+            return
+        try:
+            atexit.register(self._ensure_process_cleanup)
+            self._atexit_registered = True
+        except Exception as e:
+            logger.debug(f"[LightragServer] Failed to register atexit handler: {e}")
+
+    def _ensure_process_cleanup(self):
+        try:
+            if self.is_running():
+                logger.info("[LightragServer] Atexit cleanup triggered")
+            self.stop()
+        except Exception as e:
+            logger.debug(f"[LightragServer] Atexit cleanup error: {e}")
 
     def _get_env_file_paths(self):
         """Get possible .env file paths for both development and PyInstaller environments"""
@@ -690,6 +712,135 @@ class LightragServer:
 
         return False
 
+    def _get_pid_file_path(self, env=None):
+        env = env or {}
+        log_dir = env.get('LOG_DIR') or self.extra_env.get('LOG_DIR')
+        if not log_dir:
+            app_data_path = env.get('APP_DATA_PATH') or self.extra_env.get('APP_DATA_PATH')
+            if app_data_path:
+                log_dir = os.path.join(app_data_path, 'runlogs')
+            else:
+                log_dir = os.path.join(str(Path.cwd()), 'lightrag_data', 'runlogs')
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+        except Exception as e:
+            logger.debug(f"[LightragServer] Failed to ensure pid directory {log_dir}: {e}")
+            log_dir = str(Path.cwd())
+        pid_path = os.path.join(log_dir, 'lightrag_server.pid')
+        self._pid_file_path = pid_path
+        return pid_path
+
+    def _read_pid_file(self, env=None):
+        try:
+            pid_file = self._get_pid_file_path(env)
+            if not os.path.exists(pid_file):
+                return None
+            with open(pid_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.debug(f"[LightragServer] Failed to read pid file: {e}")
+            return None
+
+    def _write_pid_file(self, pid, env):
+        try:
+            pid_file = self._get_pid_file_path(env)
+            start_time = self._get_process_start_time(pid)
+            with open(pid_file, 'w', encoding='utf-8') as f:
+                json.dump({'pid': pid, 'start_time': start_time}, f)
+        except Exception as e:
+            logger.debug(f"[LightragServer] Failed to write pid file: {e}")
+
+    def _remove_pid_file(self):
+        try:
+            pid_file = self._pid_file_path
+            if pid_file and os.path.exists(pid_file):
+                os.remove(pid_file)
+        except Exception as e:
+            logger.debug(f"[LightragServer] Failed to remove pid file: {e}")
+
+    @staticmethod
+    def _get_process_start_time(pid):
+        try:
+            result = subprocess.check_output(['ps', '-p', str(pid), '-o', 'lstart='], text=True)
+            return result.strip()
+        except Exception:
+            return ''
+
+    @staticmethod
+    def _is_process_alive(pid):
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except Exception:
+            return False
+
+    def _terminate_pid(self, pid, force=False):
+        signal_to_send = signal.SIGKILL if force else signal.SIGTERM
+        try:
+            if hasattr(os, 'killpg'):
+                try:
+                    os.killpg(os.getpgid(pid), signal_to_send)
+                    return
+                except ProcessLookupError:
+                    return
+                except Exception:
+                    pass
+            os.kill(pid, signal_to_send)
+        except ProcessLookupError:
+            return
+        except Exception as e:
+            logger.debug(f"[LightragServer] Failed to send signal {signal_to_send} to pid {pid}: {e}")
+
+    def _wait_for_process_termination(self, pid, timeout=10.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if not self._is_process_alive(pid):
+                return True
+            time.sleep(0.2)
+        return not self._is_process_alive(pid)
+
+    def _cleanup_stale_process(self, env, port):
+        pid_info = self._read_pid_file(env)
+        if not pid_info:
+            return
+
+        pid = pid_info.get('pid')
+        if not pid:
+            self._remove_pid_file()
+            return
+
+        if not isinstance(pid, int):
+            try:
+                pid = int(pid)
+            except (TypeError, ValueError):
+                self._remove_pid_file()
+                return
+
+        if not self._is_process_alive(pid):
+            self._remove_pid_file()
+            return
+
+        recorded_start = pid_info.get('start_time', '')
+        current_start = self._get_process_start_time(pid)
+        if recorded_start and current_start and recorded_start.strip() != current_start.strip():
+            logger.info(f"[LightragServer] PID file references different process (pid={pid}), skipping termination")
+            self._remove_pid_file()
+            return
+
+        logger.warning(f"[LightragServer] Detected stale LightRAG subprocess (pid={pid}), attempting to terminate")
+        self._terminate_pid(pid, force=False)
+        if not self._wait_for_process_termination(pid, timeout=10.0):
+            logger.warning(f"[LightragServer] Stale subprocess {pid} still running, force killing")
+            self._terminate_pid(pid, force=True)
+            self._wait_for_process_termination(pid, timeout=5.0)
+
+        self._wait_for_port_release(port, timeout=5.0)
+        self._remove_pid_file()
+
     def _monitor_parent(self):
         import platform
         is_windows = platform.system().lower().startswith('win')
@@ -848,6 +999,8 @@ class LightragServer:
             except (ValueError, TypeError):
                 desired_port = 9621
                 logger.warning("[LightragServer] Invalid PORT in env, falling back to 9621")
+
+            self._cleanup_stale_process(env, desired_port)
 
             if not self._try_alternative_port(desired_port):
                 logger.error("[LightragServer] No available port found, cannot start server")
@@ -1023,6 +1176,7 @@ class LightragServer:
                             if r.status_code < 500:
                                 logger.info(f"[LightragServer] Server started at http://{final_host}:{final_port}")
                                 logger.info(f"[LightragServer] WebUI: http://{final_host}:{final_port}/webui")
+                                self._write_pid_file(self.proc.pid, env)
                                 log_handles_active = False
                                 return True
                         except Exception as e:
@@ -1045,6 +1199,7 @@ class LightragServer:
                 # Non-blocking mode: return immediately; health check should be handled by the monitor thread or via logs
                 logger.info(f"[LightragServer] Started (non-blocking) at http://{final_host}:{final_port}, skipping health-gating")
                 log_handles_active = False
+                self._write_pid_file(self.proc.pid, env)
                 return True
 
         except Exception as e:
@@ -1193,8 +1348,9 @@ class LightragServer:
         # Stop server process
         if self.proc is not None:
             try:
-                # Try graceful shutdown
-                self.proc.terminate()
+                # Try graceful shutdown (process group aware)
+                pid = self.proc.pid
+                self._terminate_pid(pid, force=False)
 
                 # Wait for process to exit
                 try:
@@ -1202,7 +1358,7 @@ class LightragServer:
                 except subprocess.TimeoutExpired:
                     # Force kill the process
                     logger.warning("[LightragServer] Force killing server process")
-                    self.proc.kill()
+                    self._terminate_pid(pid, force=True)
                     self.proc.wait()
 
                 logger.info("[LightragServer] Server stopped")
@@ -1214,6 +1370,7 @@ class LightragServer:
         else:
             logger.info("[LightragServer] Server is not running")
 
+        self._remove_pid_file()
         self._close_log_files()
 
         # Clean up temporary startup script

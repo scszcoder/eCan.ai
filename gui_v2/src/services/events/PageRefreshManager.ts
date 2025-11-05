@@ -1,7 +1,6 @@
 import { logger } from '../../utils/logger';
 import { userStorageManager } from '../storage/UserStorageManager';
 import { logoutManager } from '../LogoutManager';
-import { handleOnboardingRequest } from '../onboarding/onboardingService';
 
 // Operation type to execute after page refresh
 export type PageRefreshAction = () => void | Promise<void>;
@@ -42,12 +41,6 @@ export class PageRefreshManager {
         // Always attempt to restore user status from backend, regardless of localStorage data
         this.isEnabled = true;
         logger.info('PageRefreshManager initialization completed (always enabled, attempting to restore user status)');
-
-        // Immediately execute restore operation once
-        logger.info('🔄 Attempting to restore user status immediately');
-        this.executeAllActions().catch(error => {
-            logger.error('❌ Failed to execute restore operation during initialization:', error);
-        });
     }
 
     // Enable page refresh operations (called after login success)
@@ -120,17 +113,31 @@ export class PageRefreshManager {
     // Setup event listeners
     private setupEventListeners(): void {
         // Listen for page reload completed event
-        const handleLoad = () => {
-            logger.info('🔄 Page reload completed, executing restore operation');
-            this.executeAllActions();
+        const handleLoad = async () => {
+            logger.info('🔄 Page reload completed, executing page refresh operations');
+            try {
+                await this.executeAllActions();
+                logger.info('✅ Page refresh operations finished');
+            } catch (e) {
+                logger.warn('Some page refresh operations failed (continuing to onboarding):', e);
+            }
         };
 
-        // Add event listener
+        // Add event listeners
         window.addEventListener('load', handleLoad);
+        window.addEventListener('DOMContentLoaded', handleLoad);
+
+        // If the document is already loaded (SPA scenario), trigger immediately once
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            // schedule to next tick to ensure services are ready
+            logger.info('[PageRefreshManager] Document already loaded, invoking handleLoad immediately');
+            setTimeout(() => { void handleLoad(); }, 0);
+        }
 
         // Save cleanup function reference
         this.cleanupFunctions = [
-            () => window.removeEventListener('load', handleLoad)
+            () => window.removeEventListener('load', handleLoad),
+            () => window.removeEventListener('DOMContentLoaded', handleLoad)
         ];
 
         logger.info('Page refresh event listener setup completed');
@@ -188,17 +195,6 @@ export class PageRefreshManager {
             try {
                 await Promise.all(promises);
                 logger.info('All page refresh operations executed successfully');
-                
-                // TEST: Trigger onboarding message for testing with 3s delay
-                // setTimeout(() => {
-                //     handleOnboardingRequest('llm_provider_config', {
-                //         suggestedAction: {
-                //             type: 'navigate',
-                //             path: '/settings',
-                //             params: { tab: 'llm' }
-                //         }
-                //     });
-                // }, 3000);
             } catch (error) {
                 logger.error('Some page refresh operations failed:', error);
             }

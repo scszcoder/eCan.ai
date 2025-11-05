@@ -38,6 +38,7 @@ class LLMManager:
             config_manager: Configuration manager instance
         """
         self.config_manager = config_manager
+        self._onboarding_shown = False  # Track if onboarding has been shown this session
     
 
     # API Key Management Methods - Using Environment Variables
@@ -117,16 +118,15 @@ class LLMManager:
             True if deleted successfully, False otherwise
         """
         try:
-            logger.info(f"🗑️  Starting deletion process for {env_var}")
-            
-            # Check if variable exists before deletion
+            logger.debug(f"Starting deletion process for {env_var}")
+
             current_value = os.environ.get(env_var)
             if current_value:
                 masked_value = self._get_masked_api_key_value(env_var, current_value)
-                logger.info(f"🔍 Found {env_var} in current session: {masked_value}")
+                logger.debug(f"Current session value for {env_var}: {masked_value}")
             else:
-                logger.info(f"❌ {env_var} not found in current session")
-            
+                logger.debug(f"Environment variable {env_var} not present in current session")
+
             # Delete from current session
             session_deleted = self._delete_from_current_session(env_var)
             
@@ -136,36 +136,52 @@ class LLMManager:
             # Verify deletion and cleanup
             self._verify_and_cleanup_deletion(env_var, session_deleted, system_deleted)
             
-            return True  # Always return True to avoid blocking UI
+            # Return True if either session or system deletion was successful
+            # If variable exists in session but not in config files, still consider it deleted
+            # (it might have been set by other means, and we've at least removed it from session)
+            if session_deleted or system_deleted:
+                logger.info(f"Deletion completed for {env_var}: session={session_deleted}, system={system_deleted}")
+                return True
+            else:
+                # If variable doesn't exist in session or config files, consider it already deleted
+                logger.debug(f"Environment variable {env_var} not found in session or persistent configuration")
+                return True  # Still return True as it's effectively "deleted"
 
         except Exception as e:
-            logger.error(f"❌ Failed to delete API key for {env_var}: {e}")
-            logger.debug(f"Deletion error details", exc_info=True)
+            logger.error(f"Failed to delete API key for {env_var}: {e}")
+            logger.debug("Deletion error details", exc_info=True)
             return False
     
     def _delete_from_current_session(self, env_var: str) -> bool:
         """Delete API key from current session"""
         if env_var in os.environ:
             del os.environ[env_var]
-            logger.info(f"🗑️  API key deleted from current session: {env_var}")
+            logger.debug(f"Removed {env_var} from current session")
             return True
         return False
     
     def _verify_and_cleanup_deletion(self, env_var: str, session_deleted: bool, system_deleted: bool) -> None:
         """Verify deletion and perform cleanup"""
+        # Force remove from current session if it still exists
+        if env_var in os.environ:
+            del os.environ[env_var]
+            logger.debug(f"Force removed {env_var} from current session during cleanup")
+            session_deleted = True
+        
         # Verify deletion
         after_value = os.environ.get(env_var)
         if after_value:
             masked_value = self._get_masked_api_key_value(env_var, after_value)
-            logger.warning(f"⚠️  {env_var} still exists in environment after deletion: {masked_value}")
+            logger.warning(f"Environment variable {env_var} still present after deletion: {masked_value}")
         else:
-            logger.info(f"✅ {env_var} successfully removed from environment")
+            logger.debug(f"{env_var} removed from environment")
         
         # Log completion status
         if session_deleted or system_deleted:
-            logger.info(f"🎯 API key deletion completed for {env_var} (session: {session_deleted}, system: {system_deleted})")
+            logger.info(f"Completed deletion for {env_var} (session: {session_deleted}, system: {system_deleted})")
         else:
-            logger.warning(f"⚠️  No deletion performed for {env_var} (not found in session or system)")
+            # Even if not found in config files, we've removed it from session
+            logger.debug(f"Environment variable {env_var} removed from session; not present in configuration files")
     
     def _get_masked_api_key_value(self, env_var: str, value: str) -> str:
         """Get masked value for logging using centralized validator"""
@@ -235,9 +251,19 @@ class LLMManager:
         return result
 
     def _check_provider_api_keys_configured(self, provider_config: LLMProviderConfig) -> bool:
-        """Check if all required API keys for a provider are configured"""
+        """
+        Check if all required API keys for a provider are configured.
+        For local providers like Ollama, do NOT automatically consider them configured
+        just because they have a default base_url in llm_providers.json.
+        Local providers should only be considered configured if explicitly set as default_llm
+        and have a valid base_url.
+        """
         if provider_config.is_local:
-            return True  # Local providers don't need API keys
+            # For local providers, do not automatically consider them configured
+            # They should only be considered configured when explicitly selected as default_llm
+            # and validated in check_provider_configured()
+            # This prevents auto-selection of unconfigured local providers
+            return False
 
         for env_var in provider_config.api_key_env_vars:
             if not self.has_api_key(env_var):
@@ -503,54 +529,155 @@ class LLMManager:
     def _persist_macos_env(self, env_var: str, api_key: str):
         """Persist environment variable on macOS"""
         import os
+        import re
         import subprocess
         
         # Try to determine the user's shell
         shell = os.environ.get('SHELL', '/bin/zsh')
         
+        # Choose primary config file based on shell
         if 'zsh' in shell:
-            config_file = os.path.expanduser('~/.zshrc')
+            primary_config_file = os.path.expanduser('~/.zshrc')
         else:
-            config_file = os.path.expanduser('~/.bash_profile')
+            primary_config_file = os.path.expanduser('~/.bash_profile')
+        
+        logger.info(f"Persisting {env_var} to {primary_config_file}")
         
         # Read existing content
         existing_content = ""
-        if os.path.exists(config_file):
-            with open(config_file, 'r', encoding='utf-8') as f:
+        if os.path.exists(primary_config_file):
+            with open(primary_config_file, 'r', encoding='utf-8') as f:
                 existing_content = f.read()
+        else:
+            logger.warning(f"Config file {primary_config_file} does not exist, creating new one")
         
-        # Check if the environment variable already exists
-        export_line = f'export {env_var}='
-        lines = existing_content.split('\n')
-        updated = False
+        # Check if the environment variable already exists using regex
+        # Match: export KEY=value (with or without quotes, with optional spaces)
+        pattern = re.compile(rf'^\s*export\s+{re.escape(env_var)}\s*=', re.MULTILINE | re.IGNORECASE)
         
-        # Update existing line or add new one
-        for i, line in enumerate(lines):
-            if line.strip().startswith(export_line):
-                lines[i] = f'export {env_var}="{api_key}"'
-                updated = True
-                break
+        new_line = f'export {env_var}="{api_key}"'
         
-        if not updated:
-            lines.append(f'export {env_var}="{api_key}"')
+        if pattern.search(existing_content):
+            # Update existing line
+            lines = existing_content.split('\n')
+            updated_lines = []
+            updated = False
+            
+            for line in lines:
+                if pattern.match(line):
+                    updated_lines.append(new_line)
+                    updated = True
+                    logger.info(f"Updating existing line in {primary_config_file}: {env_var}")
+                else:
+                    updated_lines.append(line)
+            
+            if updated:
+                # Write back to file
+                try:
+                    with open(primary_config_file, 'w', encoding='utf-8') as f:
+                        f.write('\n'.join(updated_lines))
+                    logger.info(f"Updated {env_var} in {primary_config_file}")
+                except Exception as write_error:
+                    logger.error(f"Failed to write to {primary_config_file}: {write_error}")
+                    raise
+        else:
+            # Add new line
+            # Ensure file ends with newline if it doesn't
+            if existing_content and not existing_content.endswith('\n'):
+                existing_content += '\n'
+            
+            # Append new export line
+            existing_content += f'{new_line}\n'
+            
+            # Write back to file
+            try:
+                with open(primary_config_file, 'w', encoding='utf-8') as f:
+                    f.write(existing_content)
+                logger.info(f"Added {env_var} to {primary_config_file}")
+            except Exception as write_error:
+                logger.error(f"Failed to write to {primary_config_file}: {write_error}")
+                raise
         
-        # Write back to file
-        with open(config_file, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(lines))
+        # Verify the write was successful by reading back
+        try:
+            with open(primary_config_file, 'r', encoding='utf-8') as f:
+                verify_content = f.read()
+            
+            if new_line in verify_content:
+                logger.info(f"Verified {env_var} exists in {primary_config_file}")
+                
+                # Also verify it can be loaded by shell
+                shell_cmd = 'zsh' if 'zsh' in shell else 'bash'
+                result = subprocess.run(
+                    [shell_cmd, '-c', f'source {primary_config_file} 2>/dev/null && echo ${env_var}'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    logger.info(f"Verified {env_var} can be loaded by {shell_cmd}")
+                else:
+                    logger.warning(f"Environment variable {env_var} written to file but shell did not load it; verify syntax")
+            else:
+                logger.error(f"Verification failed: {env_var} not found in {primary_config_file} after write")
+                raise IOError(f"Failed to verify {env_var} was written to {primary_config_file}")
+                
+        except Exception as verify_error:
+            logger.error(f"Failed to verify write: {verify_error}")
+            # Don't raise here, write might still be successful
         
-        logger.info(f"Environment variable added to {config_file}")
+        # Also set in current session for immediate effect
+        os.environ[env_var] = api_key
+        logger.debug(f"Set {env_var} in current session")
 
     def _persist_windows_env(self, env_var: str, api_key: str):
         """Persist environment variable on Windows"""
         from utils.subprocess_helper import run_no_window
+        import subprocess
         
         try:
             # Use setx command to set user environment variable
-            run_no_window(['setx', env_var, api_key], check=True, capture_output=True)
-            logger.info(f"Environment variable set using setx command")
+            # Note: setx has limitations - values with special characters may need quotes
+            # But setx doesn't support quotes in the value argument directly
+            # We'll use the value as-is, which should work for most API keys
+            
+            # Try setx first (most common method)
+            result = run_no_window(
+                ['setx', env_var, api_key], 
+                check=True, 
+                capture_output=True, 
+                text=True
+            )
+
+            import os
+            os.environ[env_var] = api_key
+
+            logger.info(f"Environment variable set using setx command: {env_var}")
+            
+            # Also try using reg command as a more reliable alternative
+            try:
+                import winreg
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_SET_VALUE) as key:
+                    winreg.SetValueEx(key, env_var, 0, winreg.REG_EXPAND_SZ, api_key)
+                logger.debug(f"Environment variable {env_var} also persisted via registry")
+            except Exception as reg_error:
+                logger.debug(f"Registry set failed (setx worked): {reg_error}")
+                
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to set environment variable using setx: {e}")
-            raise
+            # Fallback: try direct registry manipulation
+            try:
+                import winreg
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_SET_VALUE) as key:
+                    winreg.SetValueEx(key, env_var, 0, winreg.REG_EXPAND_SZ, api_key)
+                # Also set in current session
+                import os
+                os.environ[env_var] = api_key
+                logger.info(f"Environment variable set via registry fallback: {env_var}")
+            except Exception as reg_error:
+                logger.error(f"Registry fallback also failed: {reg_error}")
+                raise
 
     def _persist_linux_env(self, env_var: str, api_key: str):
         """Persist environment variable on Linux"""
@@ -706,46 +833,116 @@ For {system}, please refer to system documentation for setting environment varia
         """Delete environment variable from macOS shell configuration
         
         Returns:
-            bool: True if variable was found and removed, False otherwise
+            bool: True if variable was found and removed from any file, False otherwise
         """
         import os
+        import re
         
-        # Try to determine the user's shell
-        shell = os.environ.get('SHELL', '/bin/zsh')
+        # Check all possible shell configuration files
+        config_files = [
+            '~/.zshrc',
+            '~/.zprofile',
+            '~/.zshenv',
+            '~/.bash_profile',
+            '~/.bashrc',
+            '~/.profile',
+        ]
         
-        if 'zsh' in shell:
-            config_file = os.path.expanduser('~/.zshrc')
-        else:
-            config_file = os.path.expanduser('~/.bash_profile')
+        total_removed = 0
         
-        if not os.path.exists(config_file):
-            logger.debug(f"Config file {config_file} does not exist")
-            return False
+        for config_file_path in config_files:
+            config_file = os.path.expanduser(config_file_path)
+            
+            if not os.path.exists(config_file):
+                logger.debug(f"Config file {config_file} does not exist, skipping")
+                continue
+            
+            try:
+                # Read existing content
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    lines = content.splitlines(keepends=True)  # Keep line endings
+                
+                # Log file content summary for debugging
+                logger.debug(f"Reading {config_file}, {len(lines)} lines, looking for {env_var}")
+                
+                # More flexible pattern matching:
+                # - export KEY=value
+                # - export KEY="value"
+                # - export KEY='value'
+                # - KEY=value (without export)
+                # Handles spaces and quotes
+                patterns = [
+                    re.compile(rf'^\s*export\s+{re.escape(env_var)}\s*=', re.IGNORECASE),
+                    re.compile(rf'^\s*{re.escape(env_var)}\s*=', re.IGNORECASE),
+                ]
+                
+                filtered_lines = []
+                removed_count = 0
+                
+                for line_num, line in enumerate(lines, 1):
+                    should_remove = False
+                    # Try multiple matching strategies
+                    line_stripped = line.strip()
+                    
+                    # Skip empty lines and comments
+                    if not line_stripped or line_stripped.startswith('#'):
+                        filtered_lines.append(line)
+                        continue
+                    
+                    # Strategy 1: Regex pattern matching (exact match)
+                    for pattern in patterns:
+                        if pattern.match(line):
+                            should_remove = True
+                            logger.debug(f"Matched pattern {pattern.pattern} at line {line_num}: {line_stripped[:80]}")
+                            break
+                    
+                    # Strategy 2: Simple string matching (more lenient)
+                    if not should_remove:
+                        # Check if line contains the env_var followed by = (handles various formats)
+                        if env_var in line_stripped and '=' in line_stripped:
+                            # Check if env_var appears before the = sign
+                            parts = line_stripped.split('=', 1)
+                            if len(parts) >= 2:
+                                var_part = parts[0].strip()
+                                # Remove 'export' keyword if present (case insensitive)
+                                var_part = re.sub(r'^\s*export\s+', '', var_part, flags=re.IGNORECASE).strip()
+                                # Check if it matches our env_var (case insensitive)
+                                if var_part.upper() == env_var.upper():
+                                    should_remove = True
+                                    logger.debug(f"Matched by string matching at line {line_num}: {line_stripped[:80]}")
+                    
+                    # Strategy 3: Check if line starts with env_var (handles edge cases)
+                    if not should_remove:
+                        # Check for patterns like: env_var=value or export env_var=value
+                        if line_stripped.startswith(env_var + '=') or f'export {env_var}=' in line_stripped or f'export\t{env_var}=' in line_stripped:
+                            should_remove = True
+                            logger.debug(f"Matched by prefix check at line {line_num}: {line_stripped[:80]}")
+                    
+                    if should_remove:
+                        removed_count += 1
+                        logger.debug(f"Removing line {line_num} from {config_file}: {line_stripped[:80]}")
+                    else:
+                        filtered_lines.append(line)
+                
+                if removed_count > 0:
+                    # Write back to file
+                    with open(config_file, 'w', encoding='utf-8') as f:
+                        f.writelines(filtered_lines)
+                    logger.info(f"Removed {removed_count} line(s) for {env_var} from {config_file}")
+                    total_removed += removed_count
+                else:
+                    logger.debug(f"No matching lines found for {env_var} in {config_file}")
+                    
+            except Exception as e:
+                logger.error(f"Failed to process {config_file} for {env_var}: {e}")
+                continue
         
-        # Read existing content
-        with open(config_file, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        # Filter out lines containing the environment variable
-        export_pattern = f'export {env_var}='
-        filtered_lines = []
-        removed_count = 0
-        
-        for line in lines:
-            if line.strip().startswith(export_pattern):
-                removed_count += 1
-                logger.debug(f"Removing line from {config_file}: {line.strip()}")
-            else:
-                filtered_lines.append(line)
-        
-        if removed_count > 0:
-            # Write back to file
-            with open(config_file, 'w', encoding='utf-8') as f:
-                f.writelines(filtered_lines)
-            logger.info(f"Removed {removed_count} lines for {env_var} from {config_file}")
+        if total_removed > 0:
+            logger.info(f"Removed {total_removed} line(s) for {env_var} from macOS config files")
             return True
         else:
-            logger.debug(f"No lines found for {env_var} in {config_file}")
+            logger.warning(f"No lines found for {env_var} in any macOS config files")
             return False
 
     def _delete_windows_env(self, env_var: str) -> bool:
@@ -755,16 +952,50 @@ For {system}, please refer to system documentation for setting environment varia
             bool: True if variable was found and removed, False otherwise
         """
         from utils.subprocess_helper import run_no_window
+        import subprocess
         
+        deleted = False
+        
+        # Method 1: Try using reg command
         try:
-            # Use reg command to delete user environment variable
-            result = run_no_window(['reg', 'delete', 'HKEY_CURRENT_USER\\Environment', '/v', env_var, '/f'], 
-                         check=True, capture_output=True, text=True)
-            logger.info(f"Environment variable deleted from Windows registry: {env_var}")
-            return True
+            result = run_no_window(
+                ['reg', 'delete', 'HKEY_CURRENT_USER\\Environment', '/v', env_var, '/f'], 
+                check=True, 
+                capture_output=True, 
+                text=True
+            )
+            logger.info(f"Deleted environment variable {env_var} from Windows registry using reg")
+            deleted = True
         except subprocess.CalledProcessError as e:
-            logger.debug(f"Failed to delete from Windows registry (may not exist): {env_var}")
-            return False
+            # Check if the error is because the key doesn't exist
+            if e.returncode == 1:  # reg returns 1 when key doesn't exist
+                logger.debug(f"Variable {env_var} not found in registry (may not exist)")
+            else:
+                logger.warning(f"reg command failed for {env_var}: {e}")
+        
+        # Method 2: Also try using winreg for more reliable deletion
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_SET_VALUE) as key:
+                try:
+                    winreg.DeleteValue(key, env_var)
+                    logger.info(f"Deleted environment variable {env_var} from Windows registry using winreg")
+                    deleted = True
+                except FileNotFoundError:
+                    # Value doesn't exist, that's okay
+                    logger.debug(f"Variable {env_var} not found in registry (winreg)")
+                except Exception as reg_error:
+                    logger.debug(f"winreg delete failed: {reg_error}")
+        except Exception as e:
+            logger.debug(f"Failed to open registry key for deletion: {e}")
+        
+        # Also remove from current session if it exists
+        import os
+        if env_var in os.environ:
+            del os.environ[env_var]
+            logger.debug(f"Removed {env_var} from current session during Windows cleanup")
+        
+        return deleted
 
     def _delete_linux_env(self, env_var: str) -> bool:
         """Delete environment variable from Linux shell configuration
@@ -833,34 +1064,51 @@ For {system}, please refer to system documentation for setting environment varia
             # Get default LLM from settings
             default_llm = self.config_manager.general_settings.default_llm
             
-            if default_llm:
-                # Check if default LLM provider is configured
-                provider = self.get_provider(default_llm)
-                if provider and provider.get('api_key_configured', False):
-                    # Default LLM is configured
-                    return True, default_llm
-                else:
-                    # Default LLM is set but not configured (missing API key)
-                    logger.debug(f"[LLMManager] Default LLM '{default_llm}' is set but not configured")
-                    return False, None
-            
-            # If no default is set, check if any provider is configured
-            # This helps us determine if we should prompt user to set a default
-            all_providers = self.get_all_providers()
-            has_configured_provider = False
-            for provider in all_providers:
-                if provider.get('api_key_configured', False):
-                    has_configured_provider = True
-                    break
-            
-            if has_configured_provider:
-                # Found configured provider but no default is set
-                logger.debug("[LLMManager] Found configured provider but no default is set")
+            # If default_llm is set but empty or just whitespace, treat it as not configured
+            if not default_llm or not default_llm.strip():
+                logger.debug("[LLMManager] No default LLM is set")
                 return False, None
             
-            # No provider is configured at all
-            logger.debug("[LLMManager] No LLM provider is configured")
-            return False, None
+            # Check if default LLM provider is configured
+            provider = self.get_provider(default_llm)
+            if not provider:
+                # Provider not found (might be invalid or removed)
+                logger.debug(f"[LLMManager] Default LLM '{default_llm}' provider not found")
+                # Clear invalid default_llm setting
+                self.config_manager.general_settings.default_llm = ""
+                self.config_manager.general_settings.save()
+                return False, None
+            
+            # For local providers like Ollama, check if base_url is configured
+            if provider.get('is_local', False):
+                base_url = provider.get('base_url', '')
+                if not base_url or not base_url.strip():
+                    logger.debug(f"[LLMManager] Local provider '{default_llm}' has no base_url configured")
+                    # Clear invalid default_llm setting for unconfigured local provider
+                    self.config_manager.general_settings.default_llm = ""
+                    self.config_manager.general_settings.save()
+                    return False, None
+                # Check if base_url is valid (starts with http:// or https://)
+                base_url = base_url.strip()
+                if not (base_url.startswith('http://') or base_url.startswith('https://')):
+                    logger.debug(f"[LLMManager] Local provider '{default_llm}' has invalid base_url: {base_url}")
+                    # Clear invalid default_llm setting for local provider with invalid base_url
+                    self.config_manager.general_settings.default_llm = ""
+                    self.config_manager.general_settings.save()
+                    return False, None
+                # Local provider with valid base_url is considered configured
+                logger.debug(f"[LLMManager] Default local LLM '{default_llm}' is configured with base_url: {base_url}")
+                return True, default_llm
+            
+            # Check if API keys are configured (for non-local providers)
+            if provider.get('api_key_configured', False):
+                # Default LLM is configured
+                logger.debug(f"[LLMManager] Default LLM '{default_llm}' is configured")
+                return True, default_llm
+            else:
+                # Default LLM is set but not configured (missing API key)
+                logger.debug(f"[LLMManager] Default LLM '{default_llm}' is set but not configured (missing API key)")
+                return False, None
             
         except Exception as e:
             logger.error(f"[LLMManager] Error checking LLM provider configuration: {e}")
@@ -885,7 +1133,7 @@ For {system}, please refer to system documentation for setting environment varia
                 logger.info("[LLMManager] 📋 LLM provider not configured, showing onboarding guide")
                 await self.show_onboarding_guide()
             else:
-                logger.debug(f"[LLMManager] ✅ LLM provider configured: {configured_provider}")
+                logger.debug(f"[LLMManager] LLM provider configured: {configured_provider}")
                 
         except Exception as e:
             logger.error(f"[LLMManager] Error in LLM provider onboarding check: {e}")
@@ -897,6 +1145,11 @@ For {system}, please refer to system documentation for setting environment varia
         Frontend determines UI, text, and behavior based on instruction type.
         """
         try:
+            # Check if already shown this session
+            if self._onboarding_shown:
+                logger.debug("[LLMManager] Onboarding guide already shown this session, skipping")
+                return
+            
             from app_context import AppContext
             web_gui = AppContext.get_web_gui()
             if not web_gui:
@@ -921,6 +1174,8 @@ For {system}, please refer to system documentation for setting environment varia
                 }
             )
             
+            # Mark as shown
+            self._onboarding_shown = True
             logger.info("[LLMManager] Onboarding instruction pushed to frontend")
             
         except Exception as e:

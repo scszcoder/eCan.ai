@@ -178,8 +178,21 @@ def pick_llm(default_llm, llm_providers, config_manager=None, allow_fallback=Tru
         
         if default_provider:
             logger.info(f"Found default provider: {default_provider.get('name')}")
-            if default_provider.get('api_key_configured', False):
+            
+            # For local providers like Ollama, check if base_url is configured
+            is_configured = False
+            if default_provider.get('is_local', False):
+                base_url = default_provider.get('base_url', '')
+                if base_url and base_url.strip() and (base_url.strip().startswith('http://') or base_url.strip().startswith('https://')):
+                    is_configured = True
+                    logger.info(f"Default local LLM provider {default_llm} has valid base_url: {base_url}")
+                else:
+                    logger.warning(f"Default local LLM provider {default_llm} has no valid base_url configured")
+            elif default_provider.get('api_key_configured', False):
+                is_configured = True
                 logger.info(f"Default LLM provider {default_llm} is configured and has API key")
+            
+            if is_configured:
                 llm_instance = _create_llm_instance(default_provider, config_manager=config_manager)
                 if llm_instance:
                     provider_display = default_provider.get('display_name', default_llm)
@@ -187,7 +200,7 @@ def pick_llm(default_llm, llm_providers, config_manager=None, allow_fallback=Tru
                     llm_type = type(llm_instance).__name__
                     
                     # Verify the LLM instance is correct
-                    logger.info(f"✅ Successfully created LLM instance - Provider: {provider_display} ({default_llm}), Model: {model_name}, Type: {llm_type}")
+                    logger.info(f"Successfully created LLM instance - Provider: {provider_display} ({default_llm}), Model: {model_name}, Type: {llm_type}")
                     
                     # Test that the instance has required attributes
                     if hasattr(llm_instance, 'model'):
@@ -231,7 +244,7 @@ def pick_llm(default_llm, llm_providers, config_manager=None, allow_fallback=Tru
             _update_default_llm_via_config_manager(selected_provider['name'], config_manager)
             provider_display = selected_provider.get('display_name', selected_provider['name'])
             model_name = selected_provider.get('default_model', 'default')
-            logger.info(f"✅ Successfully created LLM instance and updated default - Provider: {provider_display} ({selected_provider['name']}), Model: {model_name}, Type: {type(llm_instance).__name__}")
+            logger.info(f"Successfully created LLM instance and updated default - Provider: {provider_display} ({selected_provider['name']}), Model: {model_name}, Type: {type(llm_instance).__name__}")
             return llm_instance
         else:
             logger.error(f"Failed to create LLM instance for selected provider: {selected_provider['name']}")
@@ -307,14 +320,37 @@ def _select_regional_provider(country, llm_providers):
             api_key_configured = provider.get('api_key_configured', False)
             logger.debug(f"Checking provider: {provider.get('name')}, API key configured: {api_key_configured}")
             
-            if (preferred_name.lower() in provider_name and api_key_configured):
-                logger.info(f"Found matching provider: {provider.get('name')} for preference: {preferred_name}")
-                return provider
+            if preferred_name.lower() in provider_name:
+                # For local providers like Ollama, check if base_url is configured
+                if provider.get('is_local', False):
+                    base_url = provider.get('base_url', '')
+                    if not base_url or not base_url.strip():
+                        logger.debug(f"Local provider {provider.get('name')} found but base_url not configured, skipping")
+                        continue
+                    # Check if base_url is valid
+                    base_url = base_url.strip()
+                    if not (base_url.startswith('http://') or base_url.startswith('https://')):
+                        logger.debug(f"Local provider {provider.get('name')} has invalid base_url: {base_url}, skipping")
+                        continue
+                    # Local provider with valid base_url
+                    logger.info(f"Found matching local provider: {provider.get('name')} for preference: {preferred_name}")
+                    return provider
+                elif api_key_configured:
+                    # Non-local provider with API key configured
+                    logger.info(f"Found matching provider: {provider.get('name')} for preference: {preferred_name}")
+                    return provider
     
-    # If no preferred providers found, try any available provider with API key
-    logger.debug("No preferred providers found, trying any available provider with API key")
+    # If no preferred providers found, try any available provider with API key or valid base_url
+    logger.debug("No preferred providers found, trying any available provider with API key or valid base_url")
     for provider in llm_providers:
-        if provider.get('api_key_configured', False):
+        # For local providers, check base_url
+        if provider.get('is_local', False):
+            base_url = provider.get('base_url', '')
+            if base_url and base_url.strip() and (base_url.strip().startswith('http://') or base_url.strip().startswith('https://')):
+                logger.info(f"Found available local provider with valid base_url: {provider.get('name')}")
+                return provider
+        elif provider.get('api_key_configured', False):
+            # Non-local provider with API key
             logger.info(f"Found available provider with API key: {provider.get('name')}")
             return provider
     
@@ -395,7 +431,7 @@ def _create_no_proxy_http_client():
         proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']
         active_proxies = {var: os.environ.get(var) for var in proxy_vars if os.environ.get(var)}
         logger.info(
-            f"[ProxyBypass] ✅ Created no-proxy httpx clients (sync + async) "
+            f"[ProxyBypass] Created no-proxy httpx clients (sync + async) "
             f"(bypassing: {', '.join(active_proxies.keys())})"
         )
         return sync_client, async_client
@@ -497,6 +533,24 @@ def extract_provider_config(provider, config_manager=None):
     provider_type = provider.get('provider', '').lower()
     class_name = provider.get('class_name', '').lower()
     
+    # Fallback: if provider_type is empty, try to infer from provider_name or class_name
+    if not provider_type:
+        if 'deepseek' in provider_name or 'chatdeepseek' == class_name:
+            provider_type = 'deepseek'
+        elif 'qwen' in provider_name or 'qwq' in provider_name or 'chatqwq' == class_name:
+            provider_type = 'dashscope'  # QwQ uses DashScope
+        elif 'openai' in provider_name or 'chatopenai' == class_name:
+            provider_type = 'openai'
+        elif 'ollama' in provider_name or 'chatollama' == class_name:
+            provider_type = 'ollama'
+        elif 'anthropic' in provider_name or 'claude' in provider_name or 'chatanthropic' == class_name:
+            provider_type = 'anthropic'
+        elif 'azure' in provider_name or 'azureopenai' == class_name:
+            provider_type = 'azure_openai'
+        else:
+            # Default to provider_name if still empty
+            provider_type = provider_name
+    
     return {
         'model_name': model_name,
         'api_key': api_key,
@@ -534,7 +588,7 @@ def _create_llm_instance(provider, config_manager=None):
         provider_display = config['provider_display']
         provider_name_actual = config['provider_name_actual']
         
-        logger.info(f"🔄 Creating LLM instance - Provider: {provider_display} ({provider_name_actual}), Model: {model_name}")
+        logger.info(f"Creating LLM instance - Provider: {provider_display} ({provider_name_actual}), Model: {model_name}")
         
         # Helper function to get API key from environment
         def get_api_key(env_var):
@@ -619,32 +673,12 @@ def _create_llm_instance(provider, config_manager=None):
             # DeepSeek is a China-based service that may have proxy restrictions
             # Use the same thread-safe no-proxy approach as DashScope
             # Optimization: Only creates no-proxy clients if proxy is configured
-            logger.info(f"[DeepSeek] 🔧 Creating ChatDeepSeek with base_url={base_url}")
+            logger.debug(f"[DeepSeek] Creating ChatDeepSeek with base_url={base_url}")
             
             sync_client, async_client = _create_no_proxy_http_client()
             
             if sync_client or async_client:
-                logger.info(f"[DeepSeek] 🌐 Using no-proxy httpx clients (domestic API, thread-safe)")
-                
-                # Verify clients are configured correctly (debug info)
-                if sync_client:
-                    # Extract meaningful mounts info (HTTP/HTTPS transports that bypass proxy)
-                    mounts_summary = []
-                    for pattern, transport in sync_client._mounts.items():
-                        if transport is not None:
-                            pattern_str = str(pattern).split("'")[1] if "'" in str(pattern) else str(pattern)
-                            mounts_summary.append(f"{pattern_str}:{type(transport).__name__}")
-                    mounts_str = ", ".join(mounts_summary) if mounts_summary else "no custom mounts"
-                    logger.debug(f"[DeepSeek] ✅ Sync client configured with mounts: [{mounts_str}] (bypasses proxy)")
-                if async_client:
-                    # Extract meaningful mounts info
-                    mounts_summary = []
-                    for pattern, transport in async_client._mounts.items():
-                        if transport is not None:
-                            pattern_str = str(pattern).split("'")[1] if "'" in str(pattern) else str(pattern)
-                            mounts_summary.append(f"{pattern_str}:{type(transport).__name__}")
-                    mounts_str = ", ".join(mounts_summary) if mounts_summary else "no custom mounts"
-                    logger.debug(f"[DeepSeek] ✅ Async client configured with mounts: [{mounts_str}] (bypasses proxy)")
+                logger.debug(f"[DeepSeek] Using no-proxy httpx clients (domestic API)")
                 
                 llm_instance = ChatDeepSeek(
                     model=model_name,
@@ -655,16 +689,6 @@ def _create_llm_instance(provider, config_manager=None):
                     http_client=sync_client,  # Use custom SYNC client that bypasses proxy
                     http_async_client=async_client  # Use custom ASYNC client that bypasses proxy
                 )
-                
-                # Verify the LLM instance is using our client (debug check)
-                if hasattr(llm_instance, '_client') and llm_instance._client is not None:
-                    actual_client = llm_instance._client
-                    if actual_client is sync_client:
-                        logger.debug(f"[DeepSeek] ✅ Verified: ChatDeepSeek is using our no-proxy sync client")
-                    else:
-                        logger.warning(f"[DeepSeek] ⚠️ ChatDeepSeek may be using a different client! Expected: {sync_client}, Got: {actual_client}")
-                else:
-                    logger.debug(f"[DeepSeek] Note: ChatDeepSeek._client not accessible for verification (may be lazy-loaded)")
                 
                 return llm_instance
             else:
@@ -695,34 +719,14 @@ def _create_llm_instance(provider, config_manager=None):
             # 
             # Solution: Create custom httpx clients (sync + async) that don't use proxy.
             # This is THREAD-SAFE and doesn't affect other concurrent LLM creations (unlike modifying env vars).
-            logger.info(f"[DashScope] 🔧 Creating ChatQwQ with base_url={base_url}")
+            logger.debug(f"[DashScope] Creating ChatQwQ with base_url={base_url}")
             
             # Create no-proxy httpx clients (thread-safe, doesn't modify global env vars)
             # Optimization: Only creates if proxy is configured
             sync_client, async_client = _create_no_proxy_http_client()
             
             if sync_client or async_client:
-                logger.info(f"[DashScope] 🌐 Using no-proxy httpx clients (sync + async, Alibaba Cloud security policy, thread-safe)")
-                
-                # Verify clients are configured correctly (debug info)
-                if sync_client:
-                    # Extract meaningful mounts info (HTTP/HTTPS transports that bypass proxy)
-                    mounts_summary = []
-                    for pattern, transport in sync_client._mounts.items():
-                        if transport is not None:
-                            pattern_str = str(pattern).split("'")[1] if "'" in str(pattern) else str(pattern)
-                            mounts_summary.append(f"{pattern_str}:{type(transport).__name__}")
-                    mounts_str = ", ".join(mounts_summary) if mounts_summary else "no custom mounts"
-                    logger.debug(f"[DashScope] ✅ Sync client configured with mounts: [{mounts_str}] (bypasses proxy)")
-                if async_client:
-                    # Extract meaningful mounts info
-                    mounts_summary = []
-                    for pattern, transport in async_client._mounts.items():
-                        if transport is not None:
-                            pattern_str = str(pattern).split("'")[1] if "'" in str(pattern) else str(pattern)
-                            mounts_summary.append(f"{pattern_str}:{type(transport).__name__}")
-                    mounts_str = ", ".join(mounts_summary) if mounts_summary else "no custom mounts"
-                    logger.debug(f"[DashScope] ✅ Async client configured with mounts: [{mounts_str}] (bypasses proxy)")
+                logger.debug(f"[DashScope] Using no-proxy httpx clients (Alibaba Cloud security policy)")
                 
                 # ChatQwQ inherits from ChatOpenAI, which supports both http_client and http_async_client
                 llm_instance = ChatQwQ(
@@ -733,16 +737,6 @@ def _create_llm_instance(provider, config_manager=None):
                     http_client=sync_client,  # Use custom SYNC client that bypasses proxy (for llm.invoke())
                     http_async_client=async_client  # Use custom ASYNC client that bypasses proxy (for llm.ainvoke())
                 )
-                
-                # Verify the LLM instance is using our client (debug check)
-                if hasattr(llm_instance, '_client') and llm_instance._client is not None:
-                    actual_client = llm_instance._client
-                    if actual_client is sync_client:
-                        logger.debug(f"[DashScope] ✅ Verified: ChatQwQ is using our no-proxy sync client")
-                    else:
-                        logger.warning(f"[DashScope] ⚠️ ChatQwQ may be using a different client! Expected: {sync_client}, Got: {actual_client}")
-                else:
-                    logger.debug(f"[DashScope] Note: ChatQwQ._client not accessible for verification (may be lazy-loaded)")
                 
                 return llm_instance
             else:
@@ -854,6 +848,42 @@ def get_browser_use_supported_providers() -> list:
     ]
 
 
+def _create_and_validate_browser_use_llm(bu_config: dict):
+    """
+    Create and validate a BrowserUseChatOpenAI instance.
+    
+    This helper function ensures that only BrowserUseChatOpenAI instances are returned,
+    preventing incompatible LLM types from being passed to browser_use.
+    
+    Args:
+        bu_config: Configuration dict for BrowserUseChatOpenAI (model, api_key, base_url, etc.)
+        
+    Returns:
+        BrowserUseChatOpenAI instance or None if creation/validation fails
+    """
+    try:
+        from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
+        
+        # Create the instance
+        llm_instance = BrowserUseChatOpenAI(**bu_config)
+        
+        # Validate it's actually BrowserUseChatOpenAI (should always be true if creation succeeded)
+        if isinstance(llm_instance, BrowserUseChatOpenAI):
+            return llm_instance
+        else:
+            logger.warning(
+                f"[_create_and_validate_browser_use_llm] Created LLM is not BrowserUseChatOpenAI "
+                f"(got {type(llm_instance).__name__}), returning None"
+            )
+            return None
+    except ImportError:
+        logger.error("[_create_and_validate_browser_use_llm] Failed to import browser_use.llm.ChatOpenAI")
+        return None
+    except Exception as e:
+        logger.error(f"[_create_and_validate_browser_use_llm] Failed to create BrowserUseChatOpenAI: {e}")
+        return None
+
+
 def create_browser_use_llm_by_provider_type(
     provider_type: str,
     model_name: str = None,
@@ -899,19 +929,12 @@ def create_browser_use_llm_by_provider_type(
     """
     import os
     
-    # Log function entry with parameters
-    logger.info(
-        f"[create_browser_use_llm_by_provider_type] 🔄 Starting LLM creation - "
-        f"Provider: {provider_type}, Model: {model_name}, Class: {class_name}, "
-        f"Base URL: {base_url if base_url else 'None'}"
-    )
-    
+    # Try to import BrowserUseChatOpenAI
     try:
         from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
     except ImportError:
-        logger.error("[create_browser_use_llm_by_provider_type] ❌ Failed to import browser_use.llm.ChatOpenAI, using fallback LLM")
-        # Note: Don't use mainwin.llm as it may not be browser_use compatible
-        return fallback_llm if fallback_llm else None
+        logger.error(f"[create_browser_use_llm_by_provider_type] Failed to import browser_use.llm.ChatOpenAI")
+        return None
     
     # Set default config if not provided
     if default_config is None:
@@ -923,9 +946,9 @@ def create_browser_use_llm_by_provider_type(
     
     # Check compatibility
     is_compatible = is_provider_browser_use_compatible(provider_type)
-    logger.info(
-        f"[create_browser_use_llm_by_provider_type] 🔍 Provider compatibility check - "
-        f"Provider: {provider_type}, Native browser_use support: {is_compatible}"
+    logger.debug(
+        f"[create_browser_use_llm_by_provider_type] Provider: {provider_type}, "
+        f"Model: {model_name}, Compatible: {is_compatible}"
     )
     
     # OpenAI or Azure OpenAI
@@ -938,18 +961,10 @@ def create_browser_use_llm_by_provider_type(
             bu_config['base_url'] = base_url
         
         logger.info(
-            f"[create_browser_use_llm_by_provider_type] ✅ NATIVE SUPPORT - "
-            f"Creating BrowserUseChatOpenAI for {provider_type} | "
-            f"Model: {bu_config['model']} | "
-            f"Native Support: YES | Compatibility: 100%"
+            f"[create_browser_use_llm_by_provider_type] Creating BrowserUseChatOpenAI "
+            f"for {provider_type}, model: {bu_config['model']}"
         )
-        logger.debug(
-            f"[create_browser_use_llm_by_provider_type] 📋 Config - "
-            f"Provider: {provider_type}, Model: {bu_config['model']}, "
-            f"API Key: {'***' + (api_key[-4:] if api_key and len(api_key) > 4 else 'None')}, "
-            f"Base URL: {base_url if base_url else 'None'}"
-        )
-        return BrowserUseChatOpenAI(**bu_config)
+        return _create_and_validate_browser_use_llm(bu_config)
     
     # OpenAI-compatible providers (DeepSeek, DashScope, Ollama, Qwen, etc.)
     elif provider_type in ['deepseek', 'dashscope', 'ollama', 'qwen', 'qwq']:
@@ -961,17 +976,8 @@ def create_browser_use_llm_by_provider_type(
             bu_config['base_url'] = base_url
         
         logger.info(
-            f"[create_browser_use_llm_by_provider_type] ✅ OPENAI-COMPATIBLE - "
-            f"Creating BrowserUseChatOpenAI for {provider_type} | "
-            f"Model: {bu_config['model']} | "
-            f"Base URL: {base_url if base_url else 'None'} | "
-            f"Native Support: YES (OpenAI-compatible) | Compatibility: High"
-        )
-        logger.debug(
-            f"[create_browser_use_llm_by_provider_type] 📋 Config - "
-            f"Provider: {provider_type} (OpenAI-compatible), Model: {bu_config['model']}, "
-            f"API Key: {'***' + (api_key[-4:] if api_key and len(api_key) > 4 else 'dummy-key')}, "
-            f"Base URL: {base_url if base_url else 'None'}"
+            f"[create_browser_use_llm_by_provider_type] Creating BrowserUseChatOpenAI "
+            f"for {provider_type} (OpenAI-compatible), model: {bu_config['model']}"
         )
         
         # Check if this is a domestic API that needs proxy bypass
@@ -988,34 +994,30 @@ def create_browser_use_llm_by_provider_type(
             
             if sync_client:
                 # Proxy is configured - use no-proxy sync client (bypass proxy for domestic APIs)
-                logger.info(
-                    f"[create_browser_use_llm_by_provider_type] 🌐 Using no-proxy clients for: {provider_type} "
-                    f"(proxy detected, bypassing for domestic API, thread-safe)"
+                logger.debug(
+                    f"[create_browser_use_llm_by_provider_type] Using no-proxy clients for {provider_type} "
+                    f"(proxy detected, bypassing for domestic API)"
                 )
                 # BrowserUseChatOpenAI only supports http_client parameter (not http_async_client)
                 bu_config['http_client'] = sync_client
-                return BrowserUseChatOpenAI(**bu_config)
+                return _create_and_validate_browser_use_llm(bu_config)
             else:
                 # No proxy configured - use default clients (more efficient, direct connection)
                 logger.debug(
                     f"[create_browser_use_llm_by_provider_type] No proxy configured for {provider_type}, "
                     f"using default clients (direct connection)"
                 )
-                return BrowserUseChatOpenAI(**bu_config)
+                return _create_and_validate_browser_use_llm(bu_config)
         else:
             # Ollama, etc. - use default clients (respects system proxy if configured)
-            return BrowserUseChatOpenAI(**bu_config)
+            return _create_and_validate_browser_use_llm(bu_config)
     
     # Non-OpenAI-compatible providers (Anthropic, Google, Bedrock)
     # Try to create BrowserUseChatOpenAI with provider's data, fallback if fails
     elif provider_type in ['anthropic', 'google', 'bedrock']:
         logger.warning(
-            f"[create_browser_use_llm_by_provider_type] ⚠️ NON-COMPATIBLE PROVIDER - "
-            f"Provider '{provider_type}' is NOT natively supported by browser_use"
-        )
-        logger.info(
-            f"[create_browser_use_llm_by_provider_type] 🔧 Attempting workaround - "
-            f"Creating BrowserUseChatOpenAI using {provider_type}'s configuration data"
+            f"[create_browser_use_llm_by_provider_type] Provider '{provider_type}' is not natively "
+            f"supported by browser_use, attempting workaround"
         )
         
         bu_config = {
@@ -1025,42 +1027,25 @@ def create_browser_use_llm_by_provider_type(
         if base_url:
             bu_config['base_url'] = base_url
         
-        # Log detailed configuration
-        logger.debug(
-            f"[create_browser_use_llm_by_provider_type] 📋 Configuration details - "
-            f"Provider: {provider_type}, Model: {bu_config['model']}, "
-            f"API Key: {'***' + (api_key[-4:] if api_key and len(api_key) > 4 else 'None')}, "
-            f"Base URL: {base_url if base_url else 'None'}, "
-            f"Compatibility: Native=False, Workaround=True"
-        )
-        
-        try:
-            llm_instance = BrowserUseChatOpenAI(**bu_config)
+        llm_instance = _create_and_validate_browser_use_llm(bu_config)
+        if llm_instance is not None:
             logger.info(
-                f"[create_browser_use_llm_by_provider_type] ✅ SUCCESS (Workaround) - "
-                f"Created BrowserUseChatOpenAI using {provider_type}'s data | "
-                f"Model: {bu_config['model']} | "
-                f"Native Support: NO | Workaround: YES"
+                f"[create_browser_use_llm_by_provider_type] Successfully created BrowserUseChatOpenAI "
+                f"for {provider_type} using workaround, model: {bu_config['model']}"
             )
             return llm_instance
-        except Exception as e:
+        else:
             logger.error(
-                f"[create_browser_use_llm_by_provider_type] ❌ FAILED - "
-                f"Could not create BrowserUseChatOpenAI with {provider_type}'s data | "
-                f"Error: {e} | Using fallback LLM"
+                f"[create_browser_use_llm_by_provider_type] Failed to create BrowserUseChatOpenAI "
+                f"for {provider_type}"
             )
-            # Note: Don't use mainwin.llm as it may not be browser_use compatible
-            return fallback_llm if fallback_llm else None
+            return None
     
     # Unknown provider - try OpenAI-compatible mode
     else:
         logger.warning(
-            f"[create_browser_use_llm_by_provider_type] ⚠️ UNKNOWN PROVIDER - "
-            f"Provider '{provider_type}' is not recognized"
-        )
-        logger.info(
-            f"[create_browser_use_llm_by_provider_type] 🔧 Attempting OpenAI-compatible mode - "
-            f"Creating BrowserUseChatOpenAI using {provider_type}'s configuration"
+            f"[create_browser_use_llm_by_provider_type] Unknown provider '{provider_type}', "
+            f"attempting OpenAI-compatible mode"
         )
         
         bu_config = {
@@ -1070,32 +1055,19 @@ def create_browser_use_llm_by_provider_type(
         if base_url:
             bu_config['base_url'] = base_url
         
-        # Log detailed configuration
-        logger.debug(
-            f"[create_browser_use_llm_by_provider_type] 📋 Configuration details - "
-            f"Provider: {provider_type} (UNKNOWN), Model: {bu_config['model']}, "
-            f"API Key: {'***' + (api_key[-4:] if api_key and len(api_key) > 4 else 'None')}, "
-            f"Base URL: {base_url if base_url else 'None'}, "
-            f"Attempting: OpenAI-compatible mode"
-        )
-        
-        try:
-            llm_instance = BrowserUseChatOpenAI(**bu_config)
+        llm_instance = _create_and_validate_browser_use_llm(bu_config)
+        if llm_instance is not None:
             logger.info(
-                f"[create_browser_use_llm_by_provider_type] ✅ SUCCESS (OpenAI-compatible) - "
-                f"Created BrowserUseChatOpenAI using {provider_type}'s data | "
-                f"Model: {bu_config['model']} | "
-                f"Mode: OpenAI-compatible"
+                f"[create_browser_use_llm_by_provider_type] Successfully created BrowserUseChatOpenAI "
+                f"for {provider_type} (OpenAI-compatible mode), model: {bu_config['model']}"
             )
             return llm_instance
-        except Exception as e:
+        else:
             logger.error(
-                f"[create_browser_use_llm_by_provider_type] ❌ FAILED - "
-                f"Could not create BrowserUseChatOpenAI with {provider_type}'s data | "
-                f"Error: {e} | Using fallback LLM"
+                f"[create_browser_use_llm_by_provider_type] Failed to create BrowserUseChatOpenAI "
+                f"for {provider_type}"
             )
-            # Note: Don't use mainwin.llm as it may not be browser_use compatible
-            return fallback_llm if fallback_llm else None
+            return None
 
 
 def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_check=False):
@@ -1107,23 +1079,27 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
     
     Args:
         mainwin: MainWindow instance to get LLM configuration from
-        fallback_llm: Fallback LLM to use when browser_use LLM creation fails
+        fallback_llm: Fallback LLM to use when browser_use LLM creation fails (DEPRECATED: not used)
         skip_playwright_check: Skip Playwright initialization check (default: False)
         
     Returns:
-        BrowserUse-compatible LLM object or fallback LLM
+        BrowserUseChatOpenAI instance or None (never returns incompatible LLM types)
         
     Examples:
         >>> # Create with mainwin configuration
         >>> llm = create_browser_use_llm(mainwin=main_window)
         
-        >>> # Create with fallback
-        >>> llm = create_browser_use_llm(mainwin=main_window, fallback_llm=backup_llm)
-        
         >>> # Skip playwright check for standalone use
         >>> llm = create_browser_use_llm(mainwin=main_window, skip_playwright_check=True)
     """
     import os
+    
+    # Validate return type at the end to ensure we never return incompatible types
+    try:
+        from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
+    except ImportError:
+        logger.error("[create_browser_use_llm] Failed to import browser_use.llm.ChatOpenAI")
+        return None
     
     try:
         # Optional: Check Playwright initialization if not skipped
@@ -1131,11 +1107,10 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
             try:
                 from agent.playwright.utils import check_and_init_playwright
                 if not check_and_init_playwright():
-                    logger.warning("Playwright initialization failed, using fallback LLM")
-                    # Note: Don't use mainwin.llm as it may not be browser_use compatible
-                    return fallback_llm if fallback_llm else None
+                    logger.warning("[create_browser_use_llm] Playwright initialization failed, returning None")
+                    return None
             except ImportError:
-                logger.debug("Playwright not available, skipping initialization check")
+                logger.debug("[create_browser_use_llm] Playwright not available, skipping initialization check")
         
         # Default configuration
         default_config = {
@@ -1146,15 +1121,9 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
         
         # Try to get configuration from mainwin
         if mainwin and hasattr(mainwin, 'config_manager'):
-            logger.debug("[create_browser_use_llm] 🔍 Found mainwin with config_manager, attempting to get LLM config")
             try:
                 config_manager = mainwin.config_manager
                 default_llm_name = config_manager.general_settings.default_llm
-                
-                logger.debug(
-                    f"[create_browser_use_llm] 📋 MainWindow config - "
-                    f"Default LLM: {default_llm_name}"
-                )
                 
                 # Use get_provider() to get the specific provider dict
                 if default_llm_name:
@@ -1172,70 +1141,77 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                         class_name = config['class_name']
                         
                         logger.info(
-                            f"[create_browser_use_llm] ✅ Using MainWindow config - "
-                            f"Provider: {config['provider_display']}, "
-                            f"Type: {provider_type}, "
-                            f"Model: {model_name}, "
-                            f"API Key: {'***' + (api_key[-4:] if api_key and len(api_key) > 4 else 'None')}"
+                            f"[create_browser_use_llm] Using MainWindow config: "
+                            f"provider={config['provider_display']}, model={model_name}"
                         )
                         
-                        # Use centralized function
-                        return create_browser_use_llm_by_provider_type(
+                        # Use centralized function (already validates BrowserUseChatOpenAI type)
+                        llm_instance = create_browser_use_llm_by_provider_type(
                             provider_type=provider_type,
                             model_name=model_name,
                             api_key=api_key,
                             base_url=base_url,
                             class_name=class_name,
                             default_config=default_config,
-                            fallback_llm=fallback_llm,
+                            fallback_llm=None,  # Don't pass fallback_llm as it may be incompatible
                             mainwin=mainwin
                         )
+                        # Final type check before returning
+                        if llm_instance is not None and not isinstance(llm_instance, BrowserUseChatOpenAI):
+                            logger.error(
+                                f"[create_browser_use_llm] Type check failed: expected BrowserUseChatOpenAI, "
+                                f"got {type(llm_instance).__name__}, returning None"
+                            )
+                            return None
+                        return llm_instance
                     else:
                         logger.warning(
-                            f"[create_browser_use_llm] ⚠️ Default LLM '{default_llm_name}' not found in providers"
+                            f"[create_browser_use_llm] Default LLM '{default_llm_name}' not found in providers"
                         )
                 else:
-                    logger.warning("[create_browser_use_llm] ⚠️ No default LLM configured in mainwin")
+                    logger.debug("[create_browser_use_llm] No default LLM configured in mainwin")
                         
             except Exception as e:
                 logger.warning(
-                    f"[create_browser_use_llm] ❌ Exception getting LLM config from mainwin: {e}, "
+                    f"[create_browser_use_llm] Exception getting LLM config from mainwin: {e}, "
                     f"falling back to default OpenAI config"
                 )
                 import traceback
                 logger.debug(f"[create_browser_use_llm] Exception details: {traceback.format_exc()}")
         else:
             if not mainwin:
-                logger.debug("[create_browser_use_llm] ℹ️ No mainwin provided")
+                logger.debug("[create_browser_use_llm] No mainwin provided")
             else:
-                logger.debug("[create_browser_use_llm] ℹ️ mainwin has no config_manager")
+                logger.debug("[create_browser_use_llm] mainwin has no config_manager")
         
         # Fallback to default OpenAI configuration
         logger.info(
-            f"[create_browser_use_llm] ⚠️ Using DEFAULT fallback config - "
-            f"Provider: OpenAI, Model: {default_config['model']}, "
-            f"API Key: {'***' + (default_config['api_key'][-4:] if default_config['api_key'] and len(default_config['api_key']) > 4 else 'None (from env)')} "
-            f"(Source: Environment variables)"
+            f"[create_browser_use_llm] Using default OpenAI config, model: {default_config['model']}"
         )
-        return create_browser_use_llm_by_provider_type(
+        # Use centralized function (already validates BrowserUseChatOpenAI type)
+        llm_instance = create_browser_use_llm_by_provider_type(
             provider_type='openai',
             model_name=default_config['model'],
             api_key=default_config['api_key'],
             base_url=default_config['base_url'],
             default_config=default_config,
-            fallback_llm=fallback_llm,
+            fallback_llm=None,  # Don't pass fallback_llm as it may be incompatible
             mainwin=mainwin
         )
+        # Final type check before returning
+        if llm_instance is not None and not isinstance(llm_instance, BrowserUseChatOpenAI):
+            logger.error(
+                f"[create_browser_use_llm] Type check failed: expected BrowserUseChatOpenAI, "
+                f"got {type(llm_instance).__name__}, returning None"
+            )
+            return None
+        return llm_instance
         
     except Exception as e:
-        logger.error(
-            f"[create_browser_use_llm] Failed to create BrowserUseChatOpenAI: {e}, "
-            f"using fallback LLM"
-        )
+        logger.error(f"[create_browser_use_llm] Failed to create BrowserUseChatOpenAI: {e}")
         import traceback
         logger.debug(f"[create_browser_use_llm] Exception details: {traceback.format_exc()}")
-        # Note: Don't use mainwin.llm as it may not be browser_use compatible
-        return fallback_llm if fallback_llm else None
+        return None
 
 
 def _update_default_llm_via_config_manager(provider_name, config_manager=None):
@@ -1263,26 +1239,26 @@ def _update_default_llm_via_config_manager(provider_name, config_manager=None):
 
 def _fallback_llm_selection(country):
     """Fallback LLM selection when no configured providers are available"""
-    logger.warning("⚠️ Using fallback LLM selection - API keys may not be configured")
+    logger.warning("[_fallback_llm_selection] Using fallback LLM selection - API keys may not be configured")
     
     try:
         if country == "CN":
-            logger.info("🔄 Fallback: Using DeepSeek for China")
+            logger.info("[_fallback_llm_selection] Using DeepSeek for China")
             llm = ChatDeepSeek(model="deepseek-chat", temperature=0)
-            logger.info(f"✅ Fallback LLM created - Provider: DeepSeek, Model: deepseek-chat, Type: {type(llm).__name__}")
+            logger.info(f"[_fallback_llm_selection] Created DeepSeek LLM, model: deepseek-chat")
             return llm
         elif country == "US":
-            logger.info("🔄 Fallback: Using OpenAI for US")
+            logger.info("[_fallback_llm_selection] Using OpenAI for US")
             llm = ChatOpenAI(model="gpt-4o", temperature=0)
-            logger.info(f"✅ Fallback LLM created - Provider: OpenAI, Model: gpt-4o, Type: {type(llm).__name__}")
+            logger.info(f"[_fallback_llm_selection] Created OpenAI LLM, model: gpt-4o")
             return llm
         else:
-            logger.info("🔄 Fallback: Using OpenAI as default")
+            logger.info("[_fallback_llm_selection] Using OpenAI as default")
             llm = ChatOpenAI(model="gpt-4o", temperature=0)
-            logger.info(f"✅ Fallback LLM created - Provider: OpenAI, Model: gpt-4o, Type: {type(llm).__name__}")
+            logger.info(f"[_fallback_llm_selection] Created OpenAI LLM, model: gpt-4o")
             return llm
     except Exception as e:
-        logger.error(f"❌ Fallback LLM creation failed: {e}")
+        logger.error(f"[_fallback_llm_selection] Fallback LLM creation failed: {e}")
         return None
 
 def msg_role(msg: BaseMessage) -> str:

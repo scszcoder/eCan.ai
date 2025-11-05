@@ -128,12 +128,17 @@ class EnvironmentLoader:
             
             if loaded_count > 0:
                 logger.info(f"Loaded {loaded_count} environment variables from system config")
-                # Log the launch context for debugging (simplified)
                 context = "PyInstaller bundle" if getattr(sys, 'frozen', False) else "development"
                 logger.info(f"Running in {context} on {system} - shell environment loaded")
             else:
                 logger.debug("No additional environment variables found in system config")
-            
+
+            # Remove API key variables that were inherited from parent processes but are no longer
+            # backed by configuration files. This protects against IDE-injected values.
+            inherited_removed = self.cleanup_deleted_api_keys()
+            if inherited_removed:
+                logger.info(f"Removed {inherited_removed} inherited API key variables not present in configuration")
+
             # Print environment variables summary (non-blocking)
             self._print_env_summary()
             
@@ -168,11 +173,24 @@ class EnvironmentLoader:
                         if '=' in line and not line.startswith('_'):
                             try:
                                 key, value = line.split('=', 1)
-                                # Load all environment variables that don't exist yet
-                                if value.strip() and not os.environ.get(key):
+                                if not value.strip():
+                                    continue
+                                
+                                # For API key variables, always reload from config file (override inherited values)
+                                # This ensures config file is the single source of truth
+                                is_api_key = any(pattern in key for pattern in ['_API_KEY', '_KEY', '_TOKEN', '_SECRET'])
+                                existing_value = os.environ.get(key)
+                                
+                                if is_api_key and existing_value:
+                                    # Override inherited API key with config file value
                                     os.environ[key] = value.strip()
                                     loaded_count += 1
-                                    # Log with masked value for security
+                                    masked_value = self._mask_sensitive_value(key, value.strip())
+                                    logger.info(f"Reloaded from {config_file} (overriding inherited): {key}={masked_value}")
+                                elif not existing_value:
+                                    # Load if not exists
+                                    os.environ[key] = value.strip()
+                                    loaded_count += 1
                                     masked_value = self._mask_sensitive_value(key, value.strip())
                                     logger.info(f"Loaded from {config_file}: {key}={masked_value}")
                             except ValueError:
@@ -205,17 +223,30 @@ class EnvironmentLoader:
                             break
                         index += 1
 
-                        if not name or os.environ.get(name):
+                        if not name:
                             continue
 
                         expanded_value = self._expand_windows_registry_value(value, value_type, winreg)
                         if not expanded_value:
                             continue
 
-                        os.environ[name] = expanded_value
-                        loaded_count += 1
-                        masked_value = self._mask_sensitive_value(name, expanded_value)
-                        logger.info(f"Loaded from Windows registry ({subkey}): {name}={masked_value}")
+                        # For API key variables, always reload from registry (override inherited values)
+                        # This ensures registry is the single source of truth
+                        is_api_key = any(pattern in name for pattern in ['_API_KEY', '_KEY', '_TOKEN', '_SECRET'])
+                        existing_value = os.environ.get(name)
+                        
+                        if is_api_key and existing_value:
+                            # Override inherited API key with registry value
+                            os.environ[name] = expanded_value
+                            loaded_count += 1
+                            masked_value = self._mask_sensitive_value(name, expanded_value)
+                            logger.info(f"Reloaded from Windows registry (overriding inherited) ({subkey}): {name}={masked_value}")
+                        elif not existing_value:
+                            # Load if not exists
+                            os.environ[name] = expanded_value
+                            loaded_count += 1
+                            masked_value = self._mask_sensitive_value(name, expanded_value)
+                            logger.info(f"Loaded from Windows registry ({subkey}): {name}={masked_value}")
             except FileNotFoundError:
                 logger.debug(f"Registry path not found: {subkey}")
             except OSError as e:
@@ -504,9 +535,9 @@ class EnvironmentLoader:
             logger.info(f"Keeping {specific_key} as it exists in configuration files")
             return 0
         
-        # Remove the key
+        # Remove the key (it exists in session but not in config files - likely inherited)
         del os.environ[specific_key]
-        logger.info(f"Force removed {specific_key} from current session (not in any config file)")
+        logger.info(f"Force removed {specific_key} from current session (not present in any configuration file)")
         return 1
     
     def _cleanup_orphaned_api_keys(self, current_env_keys: List[str], shell_vars: Dict[str, str], validator) -> List[str]:

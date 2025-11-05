@@ -4,11 +4,22 @@
  */
 
 import React from "react";
-import { createRoot } from "react-dom/client";
 import { Modal, Button } from "antd";
 import { RocketOutlined, SettingOutlined } from "@ant-design/icons";
 import { logger } from "@/utils/logger";
 import i18n from "@/i18n";
+// Guard to ensure only one onboarding modal is displayed at a time
+let __onboardingShowing = false;
+
+// Optional context-aware modal API from App.useApp()
+type ModalAPI = {
+  confirm: (config: any) => any;
+};
+let __modalAPI: ModalAPI | null = null;
+
+export const registerOnboardingModalApi = (modalApi: ModalAPI | null) => {
+  __modalAPI = modalApi;
+};
 
 /**
  * Onboarding context from backend
@@ -126,6 +137,17 @@ export const handleOnboardingRequest = async (
     await import("./onboardingStyles.css");
 
     const navigate = createNavigateFunction();
+
+    // Reset stale state if flag is set but container is missing
+    if (__onboardingShowing && !document.querySelector('.onboarding-modal-container')) {
+      __onboardingShowing = false;
+    }
+
+    // Prevent multiple modals from being shown simultaneously
+    if (__onboardingShowing) {
+      logger.warn("[OnboardingService] Onboarding modal already visible, skip duplicate show.");
+      return;
+    }
 
     showOnboardingGuide(onboardingType, context, navigate);
     logger.info(
@@ -342,6 +364,9 @@ const OnboardingModal: React.FC<OnboardingModalProps> = ({
       maskClosable: false,
       onCancel: handleSkip,
       className: "onboarding-modal",
+      rootClassName: "onboarding-modal-root",
+      getContainer: () => document.body,
+      zIndex: 2147483000,
       styles: {
         body: {
           padding: "40px 24px",
@@ -365,31 +390,186 @@ const renderOnboardingModal = (
   onNavigate: (path: string) => void,
 ): void => {
   try {
-    const container = document.createElement("div");
-    container.className = "onboarding-modal-container";
-    document.body.appendChild(container);
+    // Use AntD standard confirm modal for reliability
+    __onboardingShowing = true;
 
-    const root = createRoot(container);
-
-    const cleanup = () => {
+    const onOk = async () => {
       try {
-        root.unmount();
-      } finally {
-        if (container.parentNode) {
-          container.parentNode.removeChild(container);
-        }
+        const navigationPath = config.getNavigationPath(context);
+        onNavigate(navigationPath);
+      } catch (e) {
+        logger.error('[Onboarding] Navigation failed:', e);
       }
     };
 
-    root.render(
-      React.createElement(OnboardingModal, {
-        config,
-        context,
-        onNavigate,
-        onClose: cleanup,
-        localized,
-      }),
-    );
+    const onCancel = () => {
+      /* no-op, just close */
+    };
+
+    const confirmFn = __modalAPI ? __modalAPI.confirm : Modal.confirm;
+    const instance = confirmFn({
+      title: localized.title,
+      content: localized.message,
+      okText: localized.primaryButtonText,
+      cancelText: config.showSkipButton ? (localized.skipButtonText || undefined) : undefined,
+      icon: React.createElement(config.icon, { style: { color: '#667eea' } }),
+      onOk,
+      onCancel,
+      closable: false,
+      keyboard: false,
+      maskClosable: false,
+      transitionName: '',
+      maskTransitionName: '',
+      centered: true,
+      className: 'onboarding-modal',
+      rootClassName: 'onboarding-modal-root',
+      zIndex: 2147483000,
+      getContainer: () => document.body,
+    });
+
+    // Ensure flag reset when closed
+    const finalize = () => { __onboardingShowing = false; };
+    // AntD confirm doesn't expose onClose, so we poll for DOM removal as a simple finalize
+    const finalizeCheck = () => {
+      const exists = document.querySelector('.onboarding-modal');
+      if (!exists) {
+        finalize();
+      } else {
+        setTimeout(finalizeCheck, 100);
+      }
+    };
+    setTimeout(finalizeCheck, 100);
+
+    const applyInlineFixes = () => {
+      try {
+        const wrap = document.querySelector('.onboarding-modal-root .ant-modal-wrap') as HTMLElement | null;
+        const modal = document.querySelector('.onboarding-modal-root .ant-modal') as HTMLElement | null;
+        const mask = document.querySelector('.onboarding-modal-root .ant-modal-mask') as HTMLElement | null;
+        if (wrap) {
+          wrap.style.position = 'fixed';
+          (wrap.style as any).inset = '0';
+          wrap.style.display = 'flex';
+          wrap.style.alignItems = 'center';
+          wrap.style.justifyContent = 'center';
+          wrap.style.zIndex = '2147483001';
+          wrap.style.pointerEvents = 'auto';
+          wrap.style.opacity = '1';
+          wrap.style.visibility = 'visible';
+        }
+        if (modal) {
+          modal.style.margin = '0 auto';
+          modal.style.opacity = '1';
+          modal.style.visibility = 'visible';
+          modal.style.transform = 'none';
+          modal.style.zIndex = '2147483002';
+        }
+        if (mask) {
+          mask.style.zIndex = '2147483000';
+          mask.style.opacity = '1';
+          mask.style.visibility = 'visible';
+        }
+      } catch {}
+    };
+
+    const ensureVisible = () => {
+      try {
+        const modalContent = document.querySelector('.onboarding-modal .ant-modal-content') as HTMLElement | null;
+        if (modalContent) {
+          const rect = modalContent.getBoundingClientRect();
+          const styles = getComputedStyle(modalContent);
+          const inViewport = rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
+          const visible = styles.visibility !== 'hidden' && styles.opacity !== '0';
+          if (inViewport && visible) return true;
+        }
+        return false;
+      } catch {
+        return false;
+      }
+    };
+
+    window.setTimeout(() => {
+      if (ensureVisible()) {
+        return;
+      }
+      // attempt inline fixes first
+      applyInlineFixes();
+      if (ensureVisible()) {
+        return;
+      }
+      const fallback = document.createElement('div');
+      fallback.setAttribute('data-onboarding-fallback', 'true');
+      fallback.style.position = 'fixed';
+      fallback.style.inset = '0';
+      fallback.style.zIndex = '2147483003';
+      fallback.style.background = 'rgba(0,0,0,0.45)';
+      fallback.style.display = 'flex';
+      fallback.style.alignItems = 'center';
+      fallback.style.justifyContent = 'center';
+
+      const card = document.createElement('div');
+      card.style.width = '480px';
+      card.style.maxWidth = '90vw';
+      card.style.background = '#fff';
+      card.style.borderRadius = '16px';
+      card.style.boxShadow = '0 20px 60px rgba(0,0,0,0.15)';
+      card.style.padding = '32px 24px';
+      card.style.textAlign = 'center';
+
+      const titleEl = document.createElement('h2');
+      titleEl.textContent = localized.title;
+      titleEl.style.margin = '0 0 12px';
+      titleEl.style.fontSize = '22px';
+      titleEl.style.color = 'rgba(0,0,0,0.85)';
+
+      const msgEl = document.createElement('p');
+      msgEl.textContent = localized.message;
+      msgEl.style.margin = '0 0 24px';
+      msgEl.style.color = 'rgba(0,0,0,0.65)';
+
+      const btnRow = document.createElement('div');
+      btnRow.style.display = 'flex';
+      btnRow.style.gap = '12px';
+      btnRow.style.justifyContent = 'center';
+
+      const primaryBtn = document.createElement('button');
+      primaryBtn.textContent = localized.primaryButtonText;
+      primaryBtn.style.padding = '10px 16px';
+      primaryBtn.style.border = 'none';
+      primaryBtn.style.borderRadius = '8px';
+      primaryBtn.style.background = '#3b82f6';
+      primaryBtn.style.color = '#fff';
+      primaryBtn.style.cursor = 'pointer';
+      primaryBtn.onclick = () => {
+        try {
+          const path = config.getNavigationPath(context);
+          if (fallback.parentNode) fallback.parentNode.removeChild(fallback);
+          __onboardingShowing = false;
+          onNavigate(path);
+        } catch {}
+      };
+
+      const skipBtn = document.createElement('button');
+      skipBtn.textContent = localized.skipButtonText || 'Close';
+      skipBtn.style.padding = '10px 16px';
+      skipBtn.style.border = '1px solid #d9d9d9';
+      skipBtn.style.borderRadius = '8px';
+      skipBtn.style.background = '#fff';
+      skipBtn.style.color = 'rgba(0,0,0,0.65)';
+      skipBtn.style.cursor = 'pointer';
+      skipBtn.onclick = () => {
+        if (fallback.parentNode) fallback.parentNode.removeChild(fallback);
+        __onboardingShowing = false;
+      };
+
+      btnRow.appendChild(primaryBtn);
+      if (config.showSkipButton) btnRow.appendChild(skipBtn);
+
+      card.appendChild(titleEl);
+      card.appendChild(msgEl);
+      card.appendChild(btnRow);
+      fallback.appendChild(card);
+      document.body.appendChild(fallback);
+    }, 160);
   } catch (error) {
     logger.error("[Onboarding] Failed to render onboarding modal:", error);
   }
@@ -404,6 +584,10 @@ export const showOnboardingGuide = (
   context?: OnboardingContext,
   onNavigate?: (path: string) => void,
 ): void => {
+  if (__onboardingShowing) {
+    logger.warn("[Onboarding] Modal already showing, skip.");
+    return;
+  }
   const config = ONBOARDING_CONFIGS[onboardingType];
 
   if (!config) {
