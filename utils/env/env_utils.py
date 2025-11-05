@@ -9,17 +9,10 @@ import os
 import platform
 import subprocess
 import sys
-from typing import Dict, List, Optional
+from typing import Optional
 from utils.logger_helper import logger_helper as logger
 from .constants import (
-    EnvLoadingConstants,
-    ShellConfigConstants, 
-    EnvDetectionConstants,
-    APIKeyConstants,
-    PlatformConstants,
-    LoggingConstants,
-    FileConstants,
-    DefaultValues
+    EnvLoadingConstants
 )
 
 # Import logger using the correct method
@@ -133,11 +126,6 @@ class EnvironmentLoader:
             else:
                 logger.debug("No additional environment variables found in system config")
 
-            # Remove API key variables that were inherited from parent processes but are no longer
-            # backed by configuration files. This protects against IDE-injected values.
-            inherited_removed = self.cleanup_deleted_api_keys()
-            if inherited_removed:
-                logger.info(f"Removed {inherited_removed} inherited API key variables not present in configuration")
 
             # Print environment variables summary (non-blocking)
             self._print_env_summary()
@@ -176,18 +164,14 @@ class EnvironmentLoader:
                                 if not value.strip():
                                     continue
                                 
-                                # For API key variables, always reload from config file (override inherited values)
-                                # This ensures config file is the single source of truth
-                                is_api_key = any(pattern in key for pattern in ['_API_KEY', '_KEY', '_TOKEN', '_SECRET'])
                                 existing_value = os.environ.get(key)
-                                
-                                if is_api_key and existing_value:
-                                    # Override inherited API key with config file value
+                                if existing_value:
+                                    # Override with shell value
                                     os.environ[key] = value.strip()
                                     loaded_count += 1
                                     masked_value = self._mask_sensitive_value(key, value.strip())
                                     logger.info(f"Reloaded from {config_file} (overriding inherited): {key}={masked_value}")
-                                elif not existing_value:
+                                else:
                                     # Load if not exists
                                     os.environ[key] = value.strip()
                                     loaded_count += 1
@@ -428,275 +412,6 @@ class EnvironmentLoader:
             # For non-sensitive values, show full value but limit length
             return value[:50] + '...' if len(value) > 50 else value
     
-    def cleanup_deleted_api_keys(self, specific_key: str = None) -> int:
-        """
-        Clean up API key environment variables that have been deleted from configuration files.
-        This method should be called after deleting API keys to ensure complete cleanup.
-        
-        Returns:
-            int: Number of environment variables cleaned up
-        """
-        try:
-            system = platform.system()
-            logger.info(f"Cleaning up deleted API keys on {system}")
-            
-            if system == "Darwin":  # macOS
-                return self._cleanup_macos_deleted_api_keys(specific_key)
-            elif system == "Windows":  # Windows
-                return self._cleanup_windows_deleted_api_keys(specific_key)
-            elif system == "Linux":  # Linux
-                return self._cleanup_linux_deleted_api_keys(specific_key)
-            else:
-                logger.debug(f"Unsupported system for API key cleanup: {system}")
-                return 0
-                
-        except Exception as e:
-            logger.error(f"Failed to cleanup deleted API keys: {e}")
-            return 0
-    
-    def _cleanup_macos_deleted_api_keys(self, specific_key: str = None) -> int:
-        """Clean up deleted API keys on macOS using simplified logic"""
-        from gui.utils.api_key_validator import get_api_key_validator
-        validator = get_api_key_validator()
-        
-        # Get shell configuration and current environment
-        shell_vars = self._get_shell_environment_vars()
-        current_env_keys = list(os.environ.keys())
-        removed_vars = []
-        
-        if specific_key:
-            # Targeted cleanup for specific key
-            removed_count = self._cleanup_specific_key(specific_key, shell_vars, validator)
-            if removed_count > 0:
-                removed_vars.append(specific_key)
-        else:
-            # General cleanup for all orphaned API keys
-            removed_vars = self._cleanup_orphaned_api_keys(current_env_keys, shell_vars, validator)
-        
-        # Clean up known orphaned variables
-        orphaned_count = self._cleanup_known_orphaned_vars(current_env_keys, shell_vars, validator)
-        
-        total_removed = len(removed_vars) + orphaned_count
-        if total_removed > 0:
-            logger.info(f"Cleaned up {total_removed} deleted API key variables: {removed_vars}")
-        else:
-            logger.info("No deleted API key variables needed cleanup")
-        
-        return total_removed
-    
-    def _get_shell_environment_vars(self) -> Dict[str, str]:
-        """Get environment variables from shell configuration files"""
-        shell = os.environ.get('SHELL', DefaultValues.DEFAULT_SHELL)
-        config_files = ShellConfigConstants.ZSH_CONFIG_FILES if 'zsh' in shell else ShellConfigConstants.BASH_CONFIG_FILES
-        shell_cmd = ShellConfigConstants.ZSH_COMMAND if 'zsh' in shell else ShellConfigConstants.BASH_COMMAND
-        
-        logger.info(f"Checking environment variables in {config_files}")
-        
-        shell_vars = {}
-        for config_file in config_files:
-            expanded_path = os.path.expanduser(config_file)
-            if not os.path.exists(expanded_path):
-                continue
-                
-            try:
-                cmd = f'source {config_file} 2>/dev/null && env'
-                result = subprocess.run([shell_cmd, '-c', cmd], 
-                                      capture_output=True, text=True, timeout=EnvLoadingConstants.SHELL_COMMAND_TIMEOUT)
-                
-                if result.returncode == 0:
-                    for line in result.stdout.split('\n'):
-                        if '=' in line and not line.startswith('_'):
-                            try:
-                                key, value = line.split('=', 1)
-                                if value.strip():
-                                    shell_vars[key] = value.strip()
-                            except ValueError:
-                                continue
-            except Exception as e:
-                logger.debug(f"Failed to read from {config_file}: {e}")
-                continue
-        
-        return shell_vars
-    
-    def _cleanup_specific_key(self, specific_key: str, shell_vars: Dict[str, str], validator) -> int:
-        """Clean up a specific API key if it should not exist"""
-        logger.info(f"Targeted cleanup for specific key: {specific_key}")
-        
-        if not validator.is_api_key_variable(specific_key):
-            logger.debug(f"{specific_key} is not an API key variable, skipping")
-            return 0
-        
-        if specific_key not in os.environ:
-            logger.info(f"{specific_key} not found in current environment")
-            return 0
-        
-        # Check if it should exist in configuration files
-        if self._should_key_exist_in_config(specific_key):
-            logger.info(f"Keeping {specific_key} as it exists in configuration files")
-            return 0
-        
-        # Remove the key (it exists in session but not in config files - likely inherited)
-        del os.environ[specific_key]
-        logger.info(f"Force removed {specific_key} from current session (not present in any configuration file)")
-        return 1
-    
-    def _cleanup_orphaned_api_keys(self, current_env_keys: List[str], shell_vars: Dict[str, str], validator) -> List[str]:
-        """Clean up all orphaned API keys"""
-        logger.info("General cleanup for all orphaned API keys")
-        removed_vars = []
-        
-        for key in current_env_keys:
-            if not validator.is_api_key_variable(key):
-                continue
-            
-            # If not in shell config or should not exist in config files
-            if key not in shell_vars or not self._should_key_exist_in_config(key):
-                if key in os.environ:
-                    del os.environ[key]
-                    removed_vars.append(key)
-                    logger.info(f"Removed {key} from current session (orphaned)")
-        
-        return removed_vars
-    
-    def _cleanup_known_orphaned_vars(self, current_env_keys: List[str], shell_vars: Dict[str, str], validator) -> int:
-        """Clean up known orphaned variables like VSCODE debug variables"""
-        orphaned_patterns = validator.get_orphaned_patterns()
-        removed_count = 0
-        
-        for key in current_env_keys:
-            if key in orphaned_patterns and key not in shell_vars:
-                if key in os.environ:
-                    del os.environ[key]
-                    removed_count += 1
-                    logger.info(f"Removed orphaned variable {key} from current session")
-        
-        return removed_count
-    
-    def _should_key_exist_in_config(self, key: str) -> bool:
-        """Check if a key should exist based on configuration files"""
-        config_files = ShellConfigConstants.ALL_CONFIG_FILES[:6]  # Use first 6 most common files
-        
-        for config_file in config_files:
-            expanded_path = os.path.expanduser(config_file)
-            if os.path.exists(expanded_path):
-                try:
-                    with open(expanded_path, 'r', encoding=FileConstants.DEFAULT_ENCODING) as f:
-                        content = f.read()
-                        if f'export {key}=' in content:
-                            return True
-                except:
-                    continue
-        
-        return False
-    
-    def _cleanup_windows_deleted_api_keys(self, specific_key: str = None) -> int:
-        """Clean up deleted API keys on Windows"""
-        # Windows environment variables are handled by registry
-        logger.info("Cleaning up Windows session API key variables")
-
-        try:
-            import winreg  # type: ignore
-        except ImportError as exc:
-            logger.warning(f"winreg unavailable, skipping Windows API key cleanup: {exc}")
-            return 0
-
-        api_key_patterns = ['_API_KEY', '_KEY', '_TOKEN', '_SECRET', '_PASSWORD', 'ENDPOINT']
-        removed_vars: List[str] = []
-
-        def _exists_in_registry(variable: str) -> bool:
-            registry_locations = [
-                (winreg.HKEY_CURRENT_USER, r"Environment"),
-                (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
-            ]
-            for root, subkey in registry_locations:
-                try:
-                    with winreg.OpenKey(root, subkey) as key:
-                        winreg.QueryValueEx(key, variable)
-                        return True
-                except FileNotFoundError:
-                    continue
-                except OSError:
-                    continue
-            return False
-
-        keys_to_check = [specific_key] if specific_key else list(os.environ.keys())
-
-        for key in keys_to_check:
-            if key is None:
-                continue
-
-            if any(pattern in key.upper() for pattern in api_key_patterns):
-                if not _exists_in_registry(key) and key in os.environ:
-                    del os.environ[key]
-                    removed_vars.append(key)
-                    logger.info(f"Removed {key} from Windows session (not found in registry)")
-
-        return len(removed_vars)
-    
-    def _cleanup_linux_deleted_api_keys(self, specific_key: str = None) -> int:
-        """Clean up deleted API keys on Linux"""
-        # Similar to macOS implementation
-        return self._cleanup_macos_deleted_api_keys(specific_key)
-    
-    def _cleanup_orphaned_config_entries(self):
-        """Clean up orphaned API key entries from all possible configuration files"""
-        # List of all possible configuration files
-        all_config_files = [
-            '~/.zshrc', '~/.zprofile', '~/.zshenv', '~/.zlogin',
-            '~/.bash_profile', '~/.bashrc', '~/.profile', '~/.bash_login',
-            '~/.env', '~/.environment'
-        ]
-        
-        api_key_patterns = ['_API_KEY', '_KEY', '_TOKEN', '_SECRET', '_PASSWORD', 'ENDPOINT']
-        
-        for config_file in all_config_files:
-            expanded_path = os.path.expanduser(config_file)
-            if not os.path.exists(expanded_path):
-                continue
-            
-            try:
-                # Find lines with API key patterns
-                result = subprocess.run(['grep', '-n'] + [f'{pattern}' for pattern in api_key_patterns] + [expanded_path], 
-                                      capture_output=True, text=True)
-                
-                if result.returncode == 0:
-                    logger.debug(f"Found potential API keys in {config_file}, checking for cleanup")
-                    
-                    # Read and filter the file
-                    with open(expanded_path, 'r', encoding='utf-8') as f:
-                        lines = f.readlines()
-                    
-                    filtered_lines = []
-                    removed_count = 0
-                    
-                    for line in lines:
-                        # Check if line contains any API key pattern and looks like an export
-                        if (line.strip().startswith('export ') and 
-                            any(pattern in line.upper() for pattern in api_key_patterns)):
-                            # Extract the variable name
-                            try:
-                                export_part = line.strip()[7:]  # Remove 'export '
-                                var_name = export_part.split('=')[0].strip()
-                                
-                                # Check if this variable is currently in the environment
-                                if var_name not in os.environ:
-                                    removed_count += 1
-                                    logger.info(f"Removing orphaned API key from {config_file}: {var_name}")
-                                    continue
-                            except:
-                                pass
-                        
-                        filtered_lines.append(line)
-                    
-                    if removed_count > 0:
-                        # Write back the cleaned file
-                        with open(expanded_path, 'w', encoding='utf-8') as f:
-                            f.writelines(filtered_lines)
-                        logger.info(f"Cleaned {removed_count} orphaned API keys from {config_file}")
-                        
-            except Exception as e:
-                logger.debug(f"Failed to cleanup {config_file}: {e}")
-                continue
 
 
 # Global instance for easy access
@@ -742,16 +457,3 @@ def is_shell_environment_loaded() -> bool:
         bool: True if shell environment has been loaded
     """
     return env_loader.is_shell_environment_loaded()
-
-
-def cleanup_deleted_api_keys(specific_key: str = None) -> int:
-    """
-    Convenience function to clean up deleted API key environment variables.
-    
-    Args:
-        specific_key: If provided, only clean up this specific key and known orphaned variables
-    
-    Returns:
-        int: Number of environment variables cleaned up
-    """
-    return env_loader.cleanup_deleted_api_keys(specific_key)

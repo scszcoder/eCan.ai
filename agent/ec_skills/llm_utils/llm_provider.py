@@ -9,6 +9,7 @@ import os
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field, asdict
 from enum import Enum
+from utils.env.secure_store import secure_store
 
 
 class ProviderType(Enum):
@@ -195,16 +196,16 @@ class LLMProvider:
     
     def get_api_key(self) -> Optional[str]:
         """
-        Get API key from environment variables.
-        
-        Returns:
-            API key or None
+        Get API key from secure store (no env fallback).
         """
-        for env_var in self.api_key_env_vars:
-            api_key = os.environ.get(env_var)
-            if api_key:
-                return api_key
-        return None
+        try:
+            for env_var in self.api_key_env_vars:
+                api_key = secure_store.get(env_var)
+                if api_key and api_key.strip():
+                    return api_key
+            return None
+        except Exception:
+            return None
     
     def is_openai_compatible(self) -> bool:
         """

@@ -69,7 +69,21 @@ class MemoryManager:
 		self.persist_dir = persist_dir
 		os.makedirs(self.persist_dir, exist_ok=True)
 		self.llm = llm
-		self._embeddings = OpenAIEmbeddings(model=embedding_model)
+		
+		# Get OpenAI API key from secure store (no env fallback)
+		try:
+			from utils.env.secure_store import secure_store
+			openai_api_key = secure_store.get("OPENAI_API_KEY")
+		except Exception:
+			openai_api_key = None
+		if not openai_api_key:
+			logger.warning(f"[MemoryManager] OPENAI_API_KEY not found in environment for agent {agent_id}")
+			logger.info(f"[MemoryManager] Creating embeddings without API key - will fail if not set via secure store")
+			self._embeddings = OpenAIEmbeddings(model=embedding_model)
+		else:
+			logger.debug(f"[MemoryManager] Creating OpenAI embeddings with API key for agent {agent_id}")
+			self._embeddings = OpenAIEmbeddings(model=embedding_model, openai_api_key=openai_api_key)
+		
 		self.max_context_size = 65536
 		self._collection_prefix = collection_prefix
 
