@@ -43,9 +43,6 @@ const EmptyContainer = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100%;
-  width: 100%;
-  position: relative;
   z-index: 1;
 `;
 
@@ -56,7 +53,28 @@ const NotificationTemplateRenderer: React.FC<{ content: any }> = ({ content }) =
   switch (template) {
     case defaultTemplate:
     default:
-      return <ProductSearchNotification content={content} />;
+      // Support multiple shapes:
+      // 1) content is already the notification body { title, Items, ... }
+      // 2) content.content or content.content.content is the body
+      // 3) body.notification may be an object or a JSON string
+      const body = (content && typeof content === 'object')
+        ? (content?.content?.content ?? content?.content ?? content)
+        : content;
+      let normalized: any = body?.notification ?? body;
+      if (normalized && typeof normalized === 'string') {
+        try { normalized = JSON.parse(normalized); }
+        catch {
+          try { normalized = JSON.parse(normalized.replace(/'/g, '"')); } catch {}
+        }
+      }
+      try {
+        // eslint-disable-next-line no-console
+        console.log('[ChatNotification] normalized keys', Object.keys(normalized || {}), {
+          hasItems: Array.isArray((normalized as any)?.Items),
+          itemsLen: Array.isArray((normalized as any)?.Items) ? (normalized as any).Items.length : 'n/a',
+        });
+      } catch {}
+      return <ProductSearchNotification content={normalized} />;
   }
 };
 
@@ -64,7 +82,6 @@ interface ChatNotificationProps {
   chatId: string;
   isInitialLoading?: boolean;
 }
-
 const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLoading }) => {
   const { t } = useTranslation();
   const { chatNotificationItems, hasMore, loadMore, loadingMore } = useChatNotifications(chatId, NOTIF_PAGE_SIZE, true);
