@@ -1369,6 +1369,9 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+import sys
+import subprocess
+from utils.subprocess_helper import get_windows_creation_flags
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -1527,7 +1530,13 @@ def setup_driver() -> webdriver.Chrome:
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/124.0.0.0 Safari/537.36"
     )
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_opts)
+    svc = Service(ChromeDriverManager().install(), log_output=subprocess.DEVNULL)
+    if sys.platform == "win32":
+        try:
+            svc.creationflags = get_windows_creation_flags()
+        except Exception:
+            pass
+    driver = webdriver.Chrome(service=svc, options=chrome_opts)
     driver.set_page_load_timeout(PAGELOAD_TIMEOUT)
     return driver
 

@@ -13,6 +13,8 @@ from selenium.webdriver.common.by import By
 import requests
 import time
 from datetime import datetime, timedelta
+import sys
+import subprocess
 import traceback
 import os
 import json
@@ -21,6 +23,7 @@ from bot.Logger import log3, log6
 from bot.basicSkill import STEP_GAP, DEFAULT_RUN_STATUS, symTab
 from config.app_info import app_info
 from bot.seleniumScrapeAmzShop import search_phrase
+from utils.subprocess_helper import get_windows_creation_flags
 
 
 def getChromeOpenTabs():
@@ -545,7 +548,12 @@ def webDriverStartExistingChrome(driver_path, port):
     # chrome_options.add_argument('--kiosk-printing')
 
     # Initialize the WebDriver
-    service = ChromeService(executable_path=driver_path)
+    service = ChromeService(executable_path=driver_path, log_output=subprocess.DEVNULL)
+    if sys.platform == "win32":
+        try:
+            service.creationflags = get_windows_creation_flags()
+        except Exception:
+            pass
     print("ready to drive.......", driver_path, chrome_options)
     driver = webdriver.Chrome(service=service, options=chrome_options)
     return driver
@@ -580,7 +588,12 @@ def processWebdriverStartNewChrome(step, i):
             raise ValueError(f"The path is not a valid file: {driver_path}")
 
 
-        service = ChromeService(executable_path=driver_path)
+        service = ChromeService(executable_path=driver_path, log_output=subprocess.DEVNULL)
+        if sys.platform == "win32":
+            try:
+                service.creationflags = get_windows_creation_flags()
+            except Exception:
+                pass
         symTab[step["result"]] = webdriver.Chrome(service=service, options=chrome_options)
 
     except Exception as e:

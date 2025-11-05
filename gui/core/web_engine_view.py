@@ -319,12 +319,15 @@ class WebEngineView(QWebEngineView):
             # Create and inject script
             self._webchannel_script = QWebEngineScript()
             self._webchannel_script.setName('init-webchannel')
-            self._webchannel_script.setInjectionPoint(QWebEngineScript.DocumentCreation)
+            # Use Deferred instead of DocumentCreation to prevent multiple executions
+            # Deferred runs after DOM is loaded, once per page load
+            # This prevents duplicate IPC connections when page refreshes or HMR occurs
+            self._webchannel_script.setInjectionPoint(QWebEngineScript.Deferred)
             self._webchannel_script.setWorldId(QWebEngineScript.MainWorld)
             self._webchannel_script.setSourceCode(init_js)
             self.page().scripts().insert(self._webchannel_script)
 
-            logger.info("WebChannel setup completed")
+            logger.info("WebChannel setup completed with Deferred injection point")
         except Exception as e:
             logger.error(f"Failed to setup WebChannel: {str(e)}")
             raise
