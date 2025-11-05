@@ -618,13 +618,14 @@ const ChatList: React.FC<ChatListProps> = ({
             {currentAgentId ? (
                 <div style={{ 
                     display: 'flex', 
-                    justifyContent: 'center', 
+                    flexDirection: 'column',
+                    alignItems: 'center',
                     padding: '4px 12px 0',
                     paddingBottom: '8px',
                     marginBottom: '8px',
                     flexShrink: 0,
                     height: 'auto',
-                    maxHeight: '150px',
+                    maxHeight: '180px',
                     borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
                 }}>
                     <AgentAnimation 
@@ -632,6 +633,13 @@ const ChatList: React.FC<ChatListProps> = ({
                         agentId={currentAgentId} 
                         agentAvatar={currentAgentAvatar}
                     />
+                    <div style={{
+                        marginTop: 4,
+                        fontSize: 11,
+                        color: 'rgba(255,255,255,0.65)'
+                    }}>
+                        ID: <span style={{ fontFamily: 'monospace' }}>{currentAgentId}</span>
+                    </div>
                 </div>
             ) : null}
             <div style={{ 

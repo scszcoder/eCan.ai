@@ -7,7 +7,7 @@
  * 3. 保持原有的Concise性
  */
 
-import { useMemo, memo } from 'react';
+import React, { useMemo, memo } from 'react';
 import { App, Button, Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
 import { MessageOutlined, MoreOutlined } from '@ant-design/icons';
@@ -20,6 +20,8 @@ import { useUserStore } from '@/stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
 import './AgentCard.css';
+import { useAvatarSceneStore } from '@/stores/avatarSceneStore';
+import { avatarSceneOrchestrator } from '@/services/avatarSceneOrchestrator';
 
 interface AgentCardProps {
   agent: Agent | AgentCardType;
@@ -70,6 +72,12 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
   const description = getAgentDescription(agent);
   const myTwinAgentId = myTwinAgent?.card?.id;
 
+  // Scene playback state
+  const videoRef = React.useRef<HTMLVideoElement>(null);
+  const originalSrcRef = React.useRef<string>('');
+  const currentScene = useAvatarSceneStore(s => id ? s.getCurrentScene(id) : undefined);
+  const isPlayingScene = Boolean(currentScene && (currentScene as any).state === 'playing');
+
   // GetWhen前组织ID（从URLPath中提取）
   const currentOrgId = useMemo(() => {
     const orgMatches = location.pathname.match(/organization\/([^/]+)/g);
@@ -104,6 +112,77 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
      mediaUrl.includes('.webm') ||
      mediaUrl.includes('.mp4'))
   );
+
+  // Handle scene playback by replacing video src
+  React.useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !id) return;
+
+    if (isPlayingScene && currentScene) {
+      // Save original src if not already saved
+      if (!originalSrcRef.current) {
+        const currentSrc = video.currentSrc || video.src || mediaUrl;
+        if (currentSrc) {
+          originalSrcRef.current = currentSrc;
+          console.log('[AgentCard] Saved original src:', originalSrcRef.current);
+        }
+      }
+
+      // Replace with scene clip
+      const sceneUrl = currentScene.clip.clip;
+      console.log('[AgentCard] Playing scene:', sceneUrl);
+      video.src = sceneUrl;
+      video.loop = false;
+      video.currentTime = 0;
+      video.play().catch(e => console.warn('[AgentCard] play rejected:', e));
+
+      let ended = false;
+      const restoreOriginal = () => {
+        if (ended) return;
+        ended = true;
+        console.log('[AgentCard] Scene ended, restoring original');
+        avatarSceneOrchestrator.onMediaEnded(id);
+        if (originalSrcRef.current) {
+          video.src = originalSrcRef.current;
+          video.loop = true;
+          video.currentTime = 0;
+          video.play().catch(() => {});
+        }
+      };
+
+      const onEnded = () => {
+        console.log('[AgentCard] ended event fired');
+        restoreOriginal();
+      };
+      
+      const onLoadedMetadata = () => {
+        const duration = video.duration;
+        console.log('[AgentCard] Scene duration:', duration);
+        if (isFinite(duration) && duration > 0) {
+          setTimeout(() => {
+            console.log('[AgentCard] Timeout fallback triggered');
+            restoreOriginal();
+          }, (duration + 0.5) * 1000);
+        }
+      };
+
+      video.addEventListener('ended', onEnded);
+      video.addEventListener('loadedmetadata', onLoadedMetadata);
+      
+      return () => {
+        video.removeEventListener('ended', onEnded);
+        video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      };
+    } else {
+      if (video && originalSrcRef.current && video.src !== originalSrcRef.current) {
+        console.log('[AgentCard] Restoring to original (no scene)');
+        video.src = originalSrcRef.current;
+        video.loop = true;
+        video.currentTime = 0;
+        video.play().catch(() => {});
+      }
+    }
+  }, [isPlayingScene, currentScene, id, mediaUrl]);
   
   // ProcessEdit
   const handleEdit = () => {
@@ -181,70 +260,73 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
   return (
     <div className="agent-card" style={{ position: 'relative' }}>
       {/* 媒体Content */}
-      {isVideo ? (
-        <div
-          className="agent-gif-video-wrapper"
-          style={{
-            width: 300,
-            height: 169,
-            marginBottom: 26,
-            borderRadius: 28,
-            background: '#222c',
-            border: '4px solid var(--primary-color, #3b82f6)',
-            boxShadow: '0 4px 18px 0 rgba(59,130,246,0.13)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            overflow: 'hidden'
-          }}
-        >
-          <video
-            src={mediaUrl}
-            className="agent-gif agent-gif-video"
-            autoPlay
-            loop
-            muted
-            playsInline
-            preload="metadata"
-            width={300}
-            height={169}
+      <div style={{ position: 'relative', width: 300, height: 169, marginBottom: 26 }}>
+        {isVideo ? (
+          <div
+            className="agent-gif-video-wrapper"
             style={{
+              position: 'absolute',
+              inset: 0,
+              borderRadius: 28,
+              background: '#222c',
+              border: '4px solid var(--primary-color, #3b82f6)',
+              boxShadow: '0 4px 18px 0 rgba(59,130,246,0.13)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'hidden'
+            }}
+          >
+            <video
+              ref={videoRef}
+              src={mediaUrl}
+              className="agent-gif agent-gif-video"
+              autoPlay
+              loop
+              muted
+              playsInline
+              preload="metadata"
+              width={300}
+              height={169}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                borderRadius: 28,
+                background: 'transparent'
+              }}
+            />
+          </div>
+        ) : (
+          <img
+            src={mediaUrl}
+            alt={t('common.agent_working') || 'agent working'}
+            className="agent-gif"
+            loading="lazy"
+            style={{
+              position: 'absolute',
+              inset: 0,
               width: '100%',
               height: '100%',
               objectFit: 'contain',
               borderRadius: 28,
-              background: 'transparent'
+              background: '#222c',
+              border: '4px solid var(--primary-color, #3b82f6)',
+              boxShadow: '0 4px 18px 0 rgba(59,130,246,0.13)'
+            }}
+            onError={() => {
+              if (process.env.NODE_ENV === 'development') {
+                console.error('[AgentCard] Image load error:', {
+                  agentId: id,
+                  agentName: name,
+                  mediaUrl,
+                  agentAvatar
+                });
+              }
             }}
           />
-        </div>
-      ) : (
-        <img
-          src={mediaUrl}
-          alt={t('common.agent_working') || 'agent working'}
-          className="agent-gif"
-          loading="lazy"
-          style={{
-            width: 300,
-            height: 169,
-            objectFit: 'contain',
-            borderRadius: 28,
-            marginBottom: 26,
-            background: '#222c',
-            border: '4px solid var(--primary-color, #3b82f6)',
-            boxShadow: '0 4px 18px 0 rgba(59,130,246,0.13)'
-          }}
-          onError={() => {
-            if (process.env.NODE_ENV === 'development') {
-              console.error('[AgentCard] Image load error:', {
-                agentId: id,
-                agentName: name,
-                mediaUrl,
-                agentAvatar
-              });
-            }
-          }}
-        />
-      )}
+        )}
+      </div>
       
       {/* Information行 */}
       <div
