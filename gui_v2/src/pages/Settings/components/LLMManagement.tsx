@@ -109,9 +109,7 @@ const LLMManagement = React.forwardRef<
 
   // Expose loadProviders method via ref
   useImperativeHandle(ref, () => ({
-    loadProviders: async () => {
-      await loadProviders();
-    },
+    loadProviders,
   }), [loadProviders]);
 
   // loadDefaultLLM function removed, defaultLLM now passed from Settings page via props
