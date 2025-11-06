@@ -1,10 +1,14 @@
-import React, { useRef, useEffect } from 'react';
-import { Empty, Divider } from 'antd';
+import React, { useRef, useEffect, useState } from 'react';
+import { Empty, Divider, Button, Collapse } from 'antd';
+import { ClearOutlined, DownOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { useChatNotifications, NOTIF_PAGE_SIZE } from '../hooks/useChatNotifications';
 import ProductSearchNotification from './ProductSearchNotification';
 import i18n from '../../../i18n';
+import { notificationManager } from '../managers/NotificationManager';
+
+const { Panel } = Collapse;
 
 // DateFormatFunction
 const formatDate = (timestamp: string | number) => {
@@ -32,11 +36,66 @@ const formatDate = (timestamp: string | number) => {
 
 const NotifyContainer = styled.div`
   padding: 32px 40px;
+  padding-top: 60px;
   overflow-y: auto;
   height: 100%;
   width: 100%;
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
   position: relative;
+`;
+
+const HeaderContainer = styled.div`
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  padding: 12px 40px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  background: rgba(26, 26, 46, 0.95);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 10;
+`;
+
+const TimestampText = styled.div`
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 8px;
+  text-align: right;
+`;
+
+const StyledCollapse = styled(Collapse)`
+  background: transparent;
+  border: none;
+  
+  .ant-collapse-item {
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    margin-bottom: 16px;
+    background: rgba(255, 255, 255, 0.05);
+    overflow: hidden;
+  }
+  
+  .ant-collapse-header {
+    color: rgba(255, 255, 255, 0.85) !important;
+    padding: 12px 16px !important;
+    background: rgba(255, 255, 255, 0.03);
+    
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+  }
+  
+  .ant-collapse-content {
+    background: transparent;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .ant-collapse-content-box {
+    padding: 16px;
+  }
 `;
 
 const EmptyContainer = styled.div`
@@ -85,6 +144,7 @@ interface ChatNotificationProps {
 const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLoading }) => {
   const { t } = useTranslation();
   const { chatNotificationItems, hasMore, loadMore, loadingMore } = useChatNotifications(chatId, NOTIF_PAGE_SIZE, true);
+  const [activeKeys, setActiveKeys] = useState<string[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const prevScrollHeightRef = useRef(0);
   const prevScrollTopRef = useRef(0);
@@ -202,6 +262,19 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
 
   const displayChatNotifications = chatNotificationItems.filter((n: any) => !!n);
 
+  const handleClearAll = () => {
+    if (chatId) {
+      notificationManager.clear(chatId);
+    }
+  };
+
+  // Auto-expand first notification on load
+  useEffect(() => {
+    if (displayChatNotifications.length > 0 && activeKeys.length === 0) {
+      setActiveKeys([`${displayChatNotifications[0].uid}_0`]);
+    }
+  }, [displayChatNotifications.length]);
+
   if (isInitialLoading) {
     return (
       <EmptyContainer>
@@ -219,22 +292,52 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
   }
 
   return (
-    <NotifyContainer ref={containerRef}>
-      {displayChatNotifications.map((n, i) => (
-        <React.Fragment key={`${n.uid}_${i}`}>
-          <div style={{ marginBottom: 16 }}>
-            <NotificationTemplateRenderer content={n.content} />
+    <>
+      <HeaderContainer>
+        <Button
+          type="text"
+          icon={<ClearOutlined />}
+          onClick={handleClearAll}
+          style={{ color: 'rgba(255, 255, 255, 0.65)' }}
+        >
+          Clear All
+        </Button>
+      </HeaderContainer>
+      <NotifyContainer ref={containerRef}>
+        <StyledCollapse
+          activeKey={activeKeys}
+          onChange={(keys) => setActiveKeys(keys as string[])}
+          expandIcon={({ isActive }) => <DownOutlined rotate={isActive ? 180 : 0} />}
+          ghost
+        >
+          {[...displayChatNotifications].reverse().map((n, i) => {
+            const key = `${n.uid}_${i}`;
+            const timestamp = n.timestamp ? formatDate(n.timestamp) : '';
+            return (
+              <Panel
+                header={
+                  <div>
+                    <div style={{ fontWeight: 500 }}>
+                      {t('pages.chat.chatNotification.notification')} #{i + 1}
+                    </div>
+                    <TimestampText>{timestamp}</TimestampText>
+                  </div>
+                }
+                key={key}
+              >
+                <NotificationTemplateRenderer content={n.content} />
+              </Panel>
+            );
+          })}
+        </StyledCollapse>
+        <div ref={bottomRef} style={{ height: 20 }} />
+        {!hasMore && displayChatNotifications.length > 0 && (
+          <div style={{ textAlign: 'center', color: 'rgba(255, 255, 255, 0.5)', marginTop: 16 }}>
+            {t('pages.chat.chatNotification.noMore')}
           </div>
-          {i < displayChatNotifications.length - 1 && (
-            <Divider orientation="center" style={{ color: '#aaa', fontSize: 12 }}>
-              {n.timestamp ? formatDate(n.timestamp) : ''}
-            </Divider>
-          )}
-        </React.Fragment>
-      ))}
-      <div ref={bottomRef} style={{ height: 20 }} />
-      {!hasMore && <div style={{textAlign: 'center'}}>{t('pages.chat.chatNotification.noMore')}</div>}
-    </NotifyContainer>
+        )}
+      </NotifyContainer>
+    </>
   );
 };
 

@@ -1,5 +1,6 @@
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
+from urllib.parse import quote
 
 
 def update_scene(
@@ -88,3 +89,44 @@ def update_scene(
         except Exception:
             pass
         return False
+
+
+
+
+def quick_celebrate():
+    """Handler for Help > Test: simple test dialog"""
+    try:
+        # Lazy imports to avoid heavy deps
+        from PySide6.QtWidgets import QInputDialog
+        from agent.ec_skills.story.scene_utils import update_scene
+
+        # Ask for agent id (prefilled)
+        # agent_id, ok = QInputDialog.getText(self.main_window, "Update Scene Test", "Agent ID:", text="a1")
+        # if not ok or not agent_id.strip():
+        #     return
+        # agent_id = agent_id.strip()
+        agent_id = "6d5ea546c995bbdf679ca88dbe83371c"
+
+        # Demo scenes (use natural media length; no duration field)
+        # Use public asset path served by gui_v2
+        abs_path = r"C:\Users\songc\PycharmProjects\eCan.ai\resource\avatars\system\agent3_celebrate0.webm"
+        clip_url = f"http://localhost:4668/api/avatar?path={quote(abs_path)}"
+
+        demo_scenes = [
+            {
+                "label": "celebrate",
+                "clip": clip_url,
+                "n_repeat": 1,
+                "priority": 5,
+                "captions": ["Local celebrate clip"]
+            }
+        ]
+        print("update_scene..............")
+        sent = update_scene(agent_id=agent_id, scenes=demo_scenes, play_label="celebrate")
+        if sent:
+            print(f"update_scene sent for agent '{agent_id}'.")
+        else:
+            print(f"Failed to send update_scene for agent '{agent_id}'. See logs.")
+
+    except Exception as e:
+        logger.error(f"ErrorQuickTest: {e}")
