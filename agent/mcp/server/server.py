@@ -1503,7 +1503,7 @@ async def api_ecan_ai_show_status(mainwin, args):
 
 
 async def ecan_local_search_components(mainwin, args):
-    logger.debug(f"ecan_local_search_components initial state: {args}")
+    logger.debug(f"ecan_local_search_components initial state: {args['input']}")
     try:
         vendors = list(args['input']["urls"].keys())
         print("vendors::", vendors)

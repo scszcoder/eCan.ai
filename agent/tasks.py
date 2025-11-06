@@ -1997,9 +1997,9 @@ class TaskRunner(Generic[Context]):
                 logger.info(f"[WORKER_THREAD] FIRST ITERATION: trigger_type={trigger_type}, agent={self.agent.card.name}")
             
             # Log every 10 iterations to show thread is alive
-            if loop_count % 10 == 0:
-                logger.debug(f"[WORKER_THREAD] Still alive: trigger_type={trigger_type}, agent={self.agent.card.name}, loop_count={loop_count}")
-            
+            # if loop_count % 10 == 0:
+            #     logger.debug(f"[WORKER_THREAD] Still alive: trigger_type={trigger_type}, agent={self.agent.card.name}, loop_count={loop_count}")
+
             try:
                 # Log entry into try block for My Twin Agent
                 if loop_count == 1 and "Twin" in self.agent.card.name:
