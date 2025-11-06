@@ -1088,22 +1088,17 @@ class TaskRunner(Generic[Context]):
         # First, try task-specific routing based on each task's skill mapping_rules
         try:
             tasks_list = getattr(self.agent, "tasks", []) or []
-            print(f"this agent has # tasks: {len(tasks_list)}")
             logger.info(f"[ROUTING] Agent {self.agent.card.name} has {len(tasks_list)} tasks: {[(t.name, t.id, id(t.queue) if hasattr(t, 'queue') else None) for t in tasks_list]}")
             for t in tasks_list:
-                print("task:", t.name, t.skill)
                 if not t or not getattr(t, "skill", None):
+                    logger.warning(f"[ROUTING] Skipping task '{t.name if t else 'None'}' - task or skill is None. This may indicate the task was not properly initialized with a skill.")
                     continue
                 skill = t.skill
-                print("task required skill:", skill.name)
                 rules = getattr(skill, "mapping_rules", None)
-                print("mapping rules:", rules)
                 if not isinstance(rules, dict):
                     continue
                 # event_routing can be at top-level; also tolerate run_mode nesting
                 event_routing = rules.get("event_routing")
-                print("event_routing:", etype, event_routing)
-
                 if not isinstance(event_routing, dict):
                     run_mode = getattr(skill, "run_mode", None)
                     if run_mode and isinstance(rules.get(run_mode), dict):
@@ -1112,35 +1107,30 @@ class TaskRunner(Generic[Context]):
                     continue
 
                 rule = event_routing.get(etype)
-                print("event_routing rule:", rule)
                 if not isinstance(rule, dict):
                     continue
 
                 selector = rule.get("task_selector") or ""
                 sel_ok = False
-                print("rule selector:", selector)
                 try:
                     if selector.startswith("id:"):
-                        print("t.id:", t.id)
-                        sel_ok = (t.id or "").strip() == selector.split(":", 1)[1].strip()
+                        task_id_to_match = selector.split(":", 1)[1].strip()
+                        sel_ok = (t.id or "").strip() == task_id_to_match
                     elif selector.startswith("name:"):
                         rhs = selector.split(":", 1)[1].strip().lower()
                         lhs_task = (t.name or "").strip().lower()
                         lhs_skill = (getattr(getattr(t, "skill", None), "name", "") or "").strip().lower()
-                        print("name equality compare:", repr(lhs_task), "or", repr(lhs_skill), "vs", repr(rhs))
                         sel_ok = (lhs_task == rhs) or (lhs_skill == rhs)
                     elif selector.startswith("name_contains:"):
                         name_norm = (t.name or "").lower()
                         needle = selector.split(":", 1)[1].strip().lower()
-                        print("selector:", selector, event_type, repr(t.name))
                         sel_ok = needle in name_norm
                     else:
                         # No selector or unknown format -> treat as match for this task
                         sel_ok = True
                 except Exception as e:
+                    logger.error(f"[ROUTING] Error evaluating selector '{selector}': {e}")
                     sel_ok = False
-
-                print("sel_ok:", sel_ok)
 
                 if not sel_ok:
                     continue
@@ -1936,7 +1926,10 @@ class TaskRunner(Generic[Context]):
             logger.debug("sync task waiting in line.....", event_type, self.agent.card.name, request)
             # Prefer mapping-DSL-based event routing to a specific task's queue
             target_task = self._resolve_event_routing(event_type, request, source)
-            if target_task and getattr(target_task, "queue", None):
+            if target_task:
+                if not hasattr(target_task, "queue") or target_task.queue is None:
+                    logger.error(f"[QUEUE] Target task found but has no queue: task={target_task.name} ({target_task.id})")
+                    return
                 try:
                     queue_size_before = target_task.queue.qsize()
                     target_task.queue.put_nowait(request)
