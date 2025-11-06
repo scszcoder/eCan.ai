@@ -52,11 +52,12 @@ class ThemedSplashScreen(QWidget):
         if sys.platform == 'win32':
             self.installEventFilter(self)
 
-        self.setFixedSize(640, 400)
+        # Track last stable center position to guard against unintended jumps
+        self._last_center_pos = None
 
         # Build UI first, then position
         self._build_ui()
-        self._center_on_screen()
+        # Defer centering until after show
 
     def _build_ui(self):
         app_name = 'eCan'
@@ -220,7 +221,11 @@ class ThemedSplashScreen(QWidget):
             return
 
         try:
-            screen = QApplication.primaryScreen()
+            # Prefer the screen where this window is (after show), fallback to cursor screen, then primary
+            from PySide6.QtGui import QGuiApplication, QCursor
+            screen = self.screen()
+            if screen is None:
+                screen = QGuiApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
             if not screen:
                 return
 
@@ -235,16 +240,41 @@ class ThemedSplashScreen(QWidget):
             x = max(sg.left(), min(x, sg.right() - self.width()))
             y = max(sg.top(), min(y, sg.bottom() - self.height()))
 
-            # Move the window
-            self.move(x, y)
+            # Prefer Windows API for frameless windows to avoid (0,0) jumps
+            if sys.platform == 'win32' and self.windowFlags() & Qt.FramelessWindowHint:
+                try:
+                    import ctypes
+                    hwnd = int(self.winId())
+                    if hwnd:
+                        user32 = ctypes.windll.user32
+                        SWP_NOSIZE = 0x0001
+                        SWP_NOZORDER = 0x0004
+                        SWP_SHOWWINDOW = 0x0040
+                        user32.SetWindowPos(hwnd, 0, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW)
+                    else:
+                        self.move(x, y)
+                except Exception:
+                    self.move(x, y)
+            else:
+                # Fallback to Qt positioning
+                self.move(x, y)
 
             # Force update and ensure window is properly positioned
             self.update()
             QApplication.processEvents()
-
-            # Windows-specific fix: ensure window stays centered
-            if sys.platform == 'win32':
-                self._windows_center_fix()
+            try:
+                # Minimal logging to help diagnose positioning issues
+                from utils.logger_helper import logger_helper as logger
+                final_pos = self.pos()
+                # Record last stable position
+                try:
+                    from PySide6.QtCore import QPoint
+                    self._last_center_pos = QPoint(final_pos.x(), final_pos.y())
+                except Exception:
+                    self._last_center_pos = final_pos
+                logger.info(f"[Splash] Final position: ({final_pos.x()}, {final_pos.y()})")
+            except Exception:
+                pass
         except RuntimeError as e:
             if "already deleted" in str(e):
                 self._is_deleted = True
@@ -255,30 +285,23 @@ class ThemedSplashScreen(QWidget):
         """Override showEvent to ensure the window is always centered when shown"""
         super().showEvent(event)
         # Re-center the window after it's shown to ensure it's always in the center
-        # Use multiple attempts to ensure proper centering on Windows
         if not self._is_deleted:
             timer1 = QTimer.singleShot(0, self._center_on_screen)
-            timer2 = QTimer.singleShot(50, self._center_on_screen)  # Additional centering attempt
-            timer3 = QTimer.singleShot(100, self._center_on_screen)  # Final centering attempt
-            self._center_timers.extend([timer1, timer2, timer3])
+            self._center_timers.extend([timer1])
 
-    def _windows_center_fix(self):
-        """Windows-specific fix to prevent splash screen from moving to top-left corner"""
-        if self._is_deleted:
-            return
-
+    def moveEvent(self, event):
+        """Guard against unintended jumps to (0,0) by restoring last center."""
         try:
-            # Force the window to stay in the center by re-applying window flags
-            current_flags = self.windowFlags()
-            self.setWindowFlags(current_flags)
-            self.show()
-
-            # Re-center after showing
-            if not self._is_deleted:
-                timer = QTimer.singleShot(10, self._center_on_screen)
-                self._center_timers.append(timer)
+            if not self._is_deleted and not self._is_hidden and self._last_center_pos is not None:
+                pos = self.pos()
+                # If the window suddenly moves near (0,0), restore last stable position
+                if pos.x() < 5 and pos.y() < 5:
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(0, lambda: self.move(self._last_center_pos))
         except Exception:
             pass
+        return super().moveEvent(event)
+
 
     def eventFilter(self, obj, event):
         """Event filter to handle Windows-specific window positioning issues"""
@@ -288,20 +311,8 @@ class ThemedSplashScreen(QWidget):
                 obj == self and
                 hasattr(self, '_is_deleted') and
                 not self._is_deleted):
-
-                from PySide6.QtCore import QEvent
-                if event.type() == QEvent.Move:
-                    # If window is moved to top-left corner, re-center it
-                    pos = self.pos()
-                    if pos.x() < 50 and pos.y() < 50:  # Near top-left corner
-                        timer = QTimer.singleShot(10, self._center_on_screen)
-                        if hasattr(self, '_center_timers'):
-                            self._center_timers.append(timer)
-                elif event.type() == QEvent.WindowStateChange:
-                    # Re-center when window state changes
-                    timer = QTimer.singleShot(10, self._center_on_screen)
-                    if hasattr(self, '_center_timers'):
-                        self._center_timers.append(timer)
+                # No-op: avoid aggressive recentering on move/state changes to prevent visible jumps
+                pass
         except Exception:
             # If any error occurs, just pass through to parent
             pass
@@ -419,6 +430,23 @@ class ThemedSplashScreen(QWidget):
                 self._target_main_window = main_window
             # Hide immediately once web is ready; keep initialization running
             self._hide_now()
+            # Show and bring main window to front reliably
+            if main_window is not None:
+                try:
+                    main_window.show()
+                    main_window.raise_()
+                    main_window.activateWindow()
+                    if sys.platform == 'win32':
+                        try:
+                            import ctypes
+                            hwnd = int(main_window.winId())
+                            if hwnd:
+                                user32 = ctypes.windll.user32
+                                user32.SetForegroundWindow(hwnd)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
             # Delete later when python init finishes
             self._maybe_delete()
         except Exception:
@@ -472,7 +500,33 @@ class ThemedSplashScreen(QWidget):
         try:
             if not self._is_hidden:
                 self._is_hidden = True
-                self.hide()
+                # Fade out first to avoid any visible reposition during hide
+                try:
+                    self.setUpdatesEnabled(False)
+                except Exception:
+                    pass
+                try:
+                    self.setWindowOpacity(0.0)
+                except Exception:
+                    pass
+                # On Windows, hide without moving using SetWindowPos
+                if sys.platform == 'win32':
+                    try:
+                        import ctypes
+                        hwnd = int(self.winId())
+                        if hwnd:
+                            user32 = ctypes.windll.user32
+                            SWP_NOSIZE = 0x0001
+                            SWP_NOMOVE = 0x0002
+                            SWP_NOZORDER = 0x0004
+                            SWP_HIDEWINDOW = 0x0080
+                            user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_HIDEWINDOW)
+                            return
+                    except Exception:
+                        pass
+                # Fallback: hide on next tick to avoid paint at (0,0)
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(0, self.hide)
         except Exception:
             pass
 
@@ -706,21 +760,19 @@ def init_startup_splash():
                         splash.setWindowIcon(_QIcon(icon_path))
                     except Exception:
                         pass
-                    # Target the splash window explicitly so the taskbar updates during splash
-                    set_windows_taskbar_icon(app, icon_path, None, splash)
+                    # Do NOT target the splash window for taskbar icon updates on Windows to avoid window recreation/reposition
+                    # Taskbar icon will be set for the main window after splash
         except Exception:
             pass
 
 
         # Ensure the splash is centered after showing and processing events
-        splash._center_on_screen()
         app.processEvents()
-
-        # Additional Windows-specific centering
-        if sys.platform == 'win32' and not splash._is_deleted:
-            timer1 = QTimer.singleShot(200, splash._center_on_screen)
-            timer2 = QTimer.singleShot(500, splash._center_on_screen)
-            splash._center_timers.extend([timer1, timer2])
+        try:
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(120, splash._center_on_screen)
+        except Exception:
+            splash._center_on_screen()
 
         return splash
     except Exception as e:

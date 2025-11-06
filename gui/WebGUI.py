@@ -31,6 +31,9 @@ class WebGUI(QMainWindow):
         self.parent = parent
         self._splash = splash
         self._progress_callback = progress_callback
+        self._centered_once = False
+        self._taskbar_icon_set = False  # prevent repeated taskbar icon setup
+        self._last_center_pos = None    # guard against unintended (0,0) jumps
 
         # Update progress if callback is available
         if self._progress_callback:
@@ -45,7 +48,7 @@ class WebGUI(QMainWindow):
         self._set_window_icon()
         # Set window size first, then center it
         self.resize(1200, 800)
-        self._center_on_screen()
+        # Defer centering until the window is actually shown to avoid (0,0) jumps
 
         if self._progress_callback:
             self._progress_callback(74, "Creating interface layout...")
@@ -143,6 +146,39 @@ class WebGUI(QMainWindow):
         from PySide6.QtCore import QTimer
         QTimer.singleShot(100, self._start_background_preload)
 
+    def showEvent(self, event):
+        """On first show: center+front (deferred); always: reset cursors."""
+        super().showEvent(event)
+        try:
+            if not self._centered_once:
+                if sys.platform == 'win32':
+                    try:
+                        self.setAttribute(Qt.WA_DontShowOnScreen, False)
+                    except Exception:
+                        pass
+                # Defer to ensure screen/geometry is stable
+                from PySide6.QtCore import QTimer
+                def _deferred_center():
+                    try:
+                        if not self.isMaximized():
+                            self._center_on_screen()
+                        self._bring_to_front()
+                        self._centered_once = True
+                    except Exception:
+                        pass
+                QTimer.singleShot(120, _deferred_center)
+        except Exception:
+            pass
+        # Always ensure cursors are sane
+        try:
+            self.setCursor(Qt.ArrowCursor)
+            if hasattr(self, 'centralWidget') and self.centralWidget():
+                self.centralWidget().setCursor(Qt.ArrowCursor)
+            if hasattr(self, 'web_engine_view'):
+                self.web_engine_view.setCursor(Qt.ArrowCursor)
+        except Exception:
+            pass
+
     def _start_background_preload(self):
         """
         Start async preload in background after event loop is ready.
@@ -154,7 +190,7 @@ class WebGUI(QMainWindow):
             import threading
             from gui.async_preloader import start_async_preload
             
-            logger.info("🚀 [WebGUI] Starting async preload in background...")
+            logger.info(" [WebGUI] Starting async preload in background...")
             
             # Run async preload in a separate thread with its own event loop
             # This is necessary because Qt has its own event loop and doesn't run asyncio
@@ -205,6 +241,69 @@ class WebGUI(QMainWindow):
             logger.warning(f"⚠️ [WebGUI] Failed to start preload: {e}")
             import traceback
             logger.warning(f"⚠️ [WebGUI] Traceback: {traceback.format_exc()}")
+
+    def moveEvent(self, event):
+        """Guard against unintended jumps to (0,0) by restoring last center."""
+        try:
+            if self._last_center_pos is not None:
+                pos = self.pos()
+                if pos.x() < 5 and pos.y() < 5:
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(0, lambda: self.move(self._last_center_pos))
+        except Exception:
+            pass
+        return super().moveEvent(event)
+    
+    def _center_on_screen(self):
+        """Center the window on the PRIMARY screen with proper handling for frameless windows"""
+        try:
+            screen = QApplication.primaryScreen()
+            if not screen:
+                logger.debug("No primary screen found for centering")
+                return
+            
+            sg = screen.availableGeometry()
+            window_width = self.width()
+            window_height = self.height()
+            
+            x = sg.center().x() - window_width // 2
+            y = sg.center().y() - window_height // 2
+            
+            # Keep within available area
+            x = max(sg.left(), min(x, sg.right() - window_width))
+            y = max(sg.top(), min(y, sg.bottom() - window_height))
+            
+            logger.debug(f"Centering (primary) window: size=({window_width}, {window_height}), target=({x}, {y})")
+            
+            if sys.platform == 'win32' and self.windowFlags() & Qt.FramelessWindowHint:
+                try:
+                    import ctypes
+                    hwnd = int(self.winId())
+                    if hwnd:
+                        user32 = ctypes.windll.user32
+                        SWP_NOSIZE = 0x0001
+                        SWP_NOZORDER = 0x0004
+                        SWP_SHOWWINDOW = 0x0040
+                        user32.SetWindowPos(hwnd, 0, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW)
+                    else:
+                        self.move(x, y)
+                except Exception as api_e:
+                    logger.debug(f"Windows API positioning failed, fallback to Qt move: {api_e}")
+                    self.move(x, y)
+            else:
+                self.move(x, y)
+            
+            # Record final position
+            QApplication.processEvents()
+            final_pos = self.pos()
+            try:
+                from PySide6.QtCore import QPoint
+                self._last_center_pos = QPoint(final_pos.x(), final_pos.y())
+            except Exception:
+                self._last_center_pos = final_pos
+            logger.debug(f"Final position: ({final_pos.x()}, {final_pos.y()})")
+        except Exception as e:
+            logger.debug(f"Failed to center window: {e}")
     
     # --- Splash handlers ---
     def _on_load_progress(self, progress: int):
@@ -226,6 +325,30 @@ class WebGUI(QMainWindow):
             self._set_window_icon()
             # Set Windows taskbar icon after window is shown
             self._setup_windows_taskbar_icon_delayed()
+            # Bring to front once more after splash is gone
+            self._bring_to_front()
+            # Final deferred centering guard: if still near (0,0), re-center once
+            try:
+                from PySide6.QtCore import QTimer
+                def _final_center_guard():
+                    try:
+                        if not self.isMaximized():
+                            pos = self.pos()
+                            if pos.x() < 5 and pos.y() < 5:
+                                self._center_on_screen()
+                    except Exception:
+                        pass
+                QTimer.singleShot(180, _final_center_guard)
+                # Unconditional one more centering after things stabilize (does nothing if already centered)
+                def _final_center_unconditional():
+                    try:
+                        if not self.isMaximized():
+                            self._center_on_screen()
+                    except Exception:
+                        pass
+                QTimer.singleShot(320, _final_center_unconditional)
+            except Exception:
+                pass
         except Exception:
             try:
                 self.show()
@@ -528,14 +651,36 @@ class WebGUI(QMainWindow):
             self.load_local_html()
     
     def showEvent(self, event):
-        """Window show event - force cursor reset"""
+        """On first show: center on primary + bring to front (deferred). Always reset cursors."""
         super().showEvent(event)
-        # Force cursor to arrow to prevent stuck resize cursor
-        self.setCursor(Qt.ArrowCursor)
-        if hasattr(self, 'centralWidget') and self.centralWidget():
-            self.centralWidget().setCursor(Qt.ArrowCursor)
-        if hasattr(self, 'web_engine_view'):
-            self.web_engine_view.setCursor(Qt.ArrowCursor)
+        try:
+            if not getattr(self, '_centered_once', False):
+                if sys.platform == 'win32':
+                    try:
+                        self.setAttribute(Qt.WA_DontShowOnScreen, False)
+                    except Exception:
+                        pass
+                from PySide6.QtCore import QTimer
+                def _deferred_center():
+                    try:
+                        if not self.isMaximized():
+                            self._center_on_screen()
+                        self._bring_to_front()
+                        self._centered_once = True
+                    except Exception:
+                        pass
+                QTimer.singleShot(150, _deferred_center)
+        except Exception:
+            pass
+        # Always reset cursors
+        try:
+            self.setCursor(Qt.ArrowCursor)
+            if hasattr(self, 'centralWidget') and self.centralWidget():
+                self.centralWidget().setCursor(Qt.ArrowCursor)
+            if hasattr(self, 'web_engine_view'):
+                self.web_engine_view.setCursor(Qt.ArrowCursor)
+        except Exception:
+            pass
     
     def closeEvent(self, event):
         """Window close event - debug version"""
@@ -671,13 +816,13 @@ class WebGUI(QMainWindow):
             self._set_titlebar_icon()
             self.app_icon.setStyleSheet("""
                 QLabel {
-                    padding: 2px 4px;  # Reduced padding to give more space for icon
+                    padding: 2px 4px;
                     background-color: transparent;
                 }
             """)
             titlebar_layout.addWidget(self.app_icon)
 
-            # Create menu bar and add to title bar
+            # Create menu bar and add to title bar (clean, single stylesheet)
             self.custom_menubar = QMenuBar()
             self.custom_menubar.setStyleSheet("""
                 QMenuBar {
@@ -698,7 +843,6 @@ class WebGUI(QMainWindow):
                     padding: 6px 12px;
                     margin: 0px 1px;
                     border-radius: 4px;
-                    transition: all 0.2s ease;
                 }
 
                 QMenuBar::item:selected {
@@ -722,7 +866,6 @@ class WebGUI(QMainWindow):
                     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                     font-size: 13px;
                     font-weight: 400;
-                    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
                     margin-top: 2px;
                 }
 
@@ -733,7 +876,6 @@ class WebGUI(QMainWindow):
                     margin: 1px 4px;
                     border-radius: 4px;
                     min-height: 16px;
-                    transition: all 0.15s ease;
                 }
 
                 QMenu::item:selected {
@@ -931,6 +1073,13 @@ class WebGUI(QMainWindow):
         if sys.platform != 'win32':
             return
 
+        # Deduplicate: if already set, skip
+        try:
+            if getattr(self, '_taskbar_icon_set', False):
+                return
+        except Exception:
+            pass
+
         from PySide6.QtCore import QTimer
 
         def setup_taskbar_icon():
@@ -959,8 +1108,13 @@ class WebGUI(QMainWindow):
                         verified = verify_taskbar_icon_setting(self, logger)
                         if verified:
                             logger.info("WebGUI delayed taskbar icon setup successful and verified")
+                            try:
+                                self._taskbar_icon_set = True
+                            except Exception:
+                                pass
                         else:
                             logger.warning("WebGUI taskbar icon setup completed but verification failed")
+
                     else:
                         logger.warning("WebGUI delayed taskbar icon setup failed")
                         # Try fallback: reset window icon
@@ -973,8 +1127,6 @@ class WebGUI(QMainWindow):
                             logger.warning(f"Fallback icon setting failed: {fallback_e}")
                 else:
                     logger.warning(f"Icon file not found: {icon_path}")
-
-                self._center_on_screen()
 
             except Exception as e:
                 logger.warning(f"WebGUI delayed taskbar icon setup failed: {e}")
@@ -1271,100 +1423,6 @@ class WebGUI(QMainWindow):
             self.showNormal()
         else:
             self.showFullScreen()
-
-
-
-
-
-    def _center_on_screen(self):
-        """Center the window on the screen with proper handling for frameless windows"""
-        try:
-            screen = QApplication.primaryScreen()
-            if not screen:
-                logger.warning("No primary screen found for centering")
-                return
-            
-            # Get screen geometry
-            sg = screen.availableGeometry()
-            logger.info(f"Screen geometry: {sg}")
-            
-            # Get current window size
-            window_width = self.width()
-            window_height = self.height()
-            
-            # Calculate center position
-            x = sg.center().x() - window_width // 2
-            y = sg.center().y() - window_height // 2
-            
-            # Ensure position is within screen bounds
-            x = max(sg.left(), min(x, sg.right() - window_width))
-            y = max(sg.top(), min(y, sg.bottom() - window_height))
-            
-            logger.info(f"Centering window: size=({window_width}, {window_height}), target=({x}, {y})")
-            
-            # For frameless windows on Windows, use Windows API for reliable positioning
-            if sys.platform == 'win32' and self.windowFlags() & Qt.FramelessWindowHint:
-                try:
-                    import ctypes
-                    hwnd = int(self.winId())
-                    if hwnd:
-                        user32 = ctypes.windll.user32
-                        # Use SetWindowPos for frameless windows
-                        SWP_NOSIZE = 0x0001
-                        SWP_NOZORDER = 0x0004
-                        SWP_SHOWWINDOW = 0x0040
-                        result = user32.SetWindowPos(hwnd, 0, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW)
-                        logger.info(f"Windows API SetWindowPos result: {result}")
-                        
-                        # Verify position
-                        QApplication.processEvents()
-                        final_pos = self.pos()
-                        logger.info(f"Final position: ({final_pos.x()}, {final_pos.y()})")
-                        return
-                except Exception as api_e:
-                    logger.warning(f"Windows API positioning failed: {api_e}")
-            
-            # Fallback to Qt positioning
-            self.move(x, y)
-            
-            # Process events and verify
-            QApplication.processEvents()
-            final_pos = self.pos()
-            logger.info(f"Qt move result - Final position: ({final_pos.x()}, {final_pos.y()})")
-            
-        except Exception as e:
-            logger.error(f"Failed to center window: {e}")
-    
-    def handle_oauth_success(self):
-        """Handle successful OAuth authentication"""
-        try:
-            logger.info("OAuth authentication successful - bringing window to foreground")
-            
-            # Bring window to foreground
-            self.activateWindow()
-            self.raise_()
-            self.show()
-            
-            # Set window on top temporarily
-            self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
-            self.show()
-            # Remove stay on top after a short delay
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(2000, lambda: self._remove_stay_on_top())
-            
-            # Show success notification
-            self._show_notification("Authentication successful!", "success")
-            
-            # Refresh authentication status in the web interface
-            if hasattr(self, 'web_engine_view') and self.web_engine_view:
-                self.web_engine_view.page().runJavaScript("""
-                    if (window.authManager) {
-                        window.authManager.refreshAuthStatus();
-                    }
-                """)
-            
-        except Exception as e:
-            logger.error(f"Error handling OAuth success: {e}")
     
     def handle_oauth_error(self, error: str):
         """Handle OAuth authentication error"""
