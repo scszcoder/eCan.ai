@@ -89,6 +89,9 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
         # Get environment variable names for this provider
         env_vars = provider.get('api_key_env_vars', [])
 
+        # Store API keys based on provider type
+        api_key_stored = False
+        
         # Handle special cases requiring multiple credentials
         if provider_name == 'AzureOpenAI':
             if azure_endpoint:
@@ -97,6 +100,7 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
                     success, error_msg = llm_manager.store_api_key('AZURE_ENDPOINT', azure_endpoint)
                     if not success:
                         return create_error_response(request, 'LLM_ERROR', f"Failed to store Azure endpoint: {error_msg}")
+                    api_key_stored = True
 
             if api_key:
                 # Store Azure OpenAI API key
@@ -104,6 +108,7 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
                     success, error_msg = llm_manager.store_api_key('AZURE_OPENAI_API_KEY', api_key)
                     if not success:
                         return create_error_response(request, 'LLM_ERROR', f"Failed to store API key: {error_msg}")
+                    api_key_stored = True
 
         elif provider_name == 'ChatBedrockConverse':
             # AWS Bedrock requires two credentials: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
@@ -115,12 +120,14 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
                     success, error_msg = llm_manager.store_api_key('AWS_ACCESS_KEY_ID', aws_access_key_id)
                     if not success:
                         return create_error_response(request, 'LLM_ERROR', f"Failed to store AWS Access Key ID: {error_msg}")
+                    api_key_stored = True
 
             if aws_secret_access_key:
                 if 'AWS_SECRET_ACCESS_KEY' in env_vars:
                     success, error_msg = llm_manager.store_api_key('AWS_SECRET_ACCESS_KEY', aws_secret_access_key)
                     if not success:
                         return create_error_response(request, 'LLM_ERROR', f"Failed to store AWS Secret Access Key: {error_msg}")
+                    api_key_stored = True
 
         else:
             # Handle other providers - use first environment variable to store API key
@@ -129,11 +136,70 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
                 success, error_msg = llm_manager.store_api_key(env_var, api_key)
                 if not success:
                     return create_error_response(request, 'LLM_ERROR', f"Failed to store API key: {error_msg}")
+                api_key_stored = True
+
+        # Auto-set as default_llm if this is the only configured provider
+        auto_set_as_default = False
+        if api_key_stored:
+            try:
+                configured_providers = []
+                for p in llm_manager.get_all_providers():
+                    if p.get('api_key_configured', False):
+                        configured_providers.append(p['name'])
+                
+                # If only one provider is configured, set it as default
+                if len(configured_providers) == 1 and configured_providers[0] == provider_name:
+                    from app_context import AppContext
+                    main_window = AppContext.get_main_window()
+                    if main_window:
+                        general_settings = main_window.config_manager.general_settings
+                        general_settings.default_llm = provider_name
+                        # Always update default model when auto-setting provider
+                        default_model = provider.get('default_model')
+                        if default_model:
+                            general_settings.default_llm_model = default_model
+                            logger.info(f"Auto-set default model to {default_model}")
+                        general_settings.save()
+                        auto_set_as_default = True
+                        logger.info(f"Auto-set {provider_name} as default_llm (only configured provider)")
+                        
+                        # Hot-update LLM instances to use the new provider
+                        try:
+                            provider_info = f"{provider.get('display_name', provider_name)}, Model: {default_model}"
+                            update_success = main_window.update_all_llms(reason=f"Default LLM changed to {provider_info}")
+                            if update_success:
+                                logger.info(f"Successfully hot-updated LLM instances to {provider_name}")
+                            else:
+                                logger.warning(f"Failed to hot-update LLM instances after setting default to {provider_name}")
+                        except Exception as update_error:
+                            logger.error(f"Error during hot-update of LLM instances: {update_error}")
+            except Exception as e:
+                logger.warning(f"Failed to auto-set default_llm: {e}")
 
         logger.info(f"Updated LLM provider: {provider_name}")
-        return create_success_response(request, {
-            'message': f'LLM provider {provider_name} updated successfully'
-        })
+        
+        # Get updated provider info for frontend
+        updated_provider = llm_manager.get_provider(provider_name)
+        
+        # Build response with auto-set information and updated provider
+        response_data = {
+            'message': f'LLM provider {provider_name} updated successfully',
+            'provider': updated_provider  # Include updated provider info for UI refresh
+        }
+        
+        if auto_set_as_default:
+            response_data['auto_set_as_default'] = True
+            response_data['default_llm'] = provider_name
+            response_data['default_llm_model'] = provider.get('default_model')
+            # Also include current settings for frontend
+            main_window = AppContext.get_main_window()
+            if main_window:
+                response_data['settings'] = {
+                    'default_llm': main_window.config_manager.general_settings.default_llm,
+                    'default_llm_model': main_window.config_manager.general_settings.default_llm_model
+                }
+        
+        return create_success_response(request, response_data)
 
     except Exception as e:
         logger.error(f"Error updating LLM provider: {e}")
@@ -245,17 +311,24 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
         if failed_vars:
             logger.warning(f"Failed to delete some environment variables for {provider_name}: {failed_vars}")
 
-        # If this was the default LLM, we need to select a new default
+        # Check if we need to update default LLM after deletion
         new_default_llm = None
         new_default_model = None
         new_provider = None
         
-        if is_default_llm:
-            logger.info(f"Provider {provider_name} was the default LLM, selecting a new default")
-            
-            # Get all providers and find one that is configured
-            all_providers = llm_manager.get_all_providers()
-            configured_providers = [p for p in all_providers if p.get('api_key_configured', False)]
+        # Get all providers and find configured ones after deletion
+        all_providers = llm_manager.get_all_providers()
+        configured_providers = [p for p in all_providers if p.get('api_key_configured', False)]
+        
+        # Case 1: Deleted the current default LLM
+        # Case 2: No providers are configured anymore (all API keys deleted)
+        should_update_default = is_default_llm or (len(configured_providers) == 0)
+        
+        if should_update_default:
+            if is_default_llm:
+                logger.info(f"Provider {provider_name} was the default LLM, selecting a new default")
+            else:
+                logger.info("All API keys deleted, resetting to default OpenAI provider")
             
             if configured_providers:
                 # Select the first available configured provider
@@ -264,10 +337,15 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
                 new_default_model = new_provider.get('preferred_model') or new_provider.get('default_model') or ''
                 logger.info(f"Selected new default LLM {new_default_llm} with model {new_default_model}")
             else:
-                # No providers are configured, default to OpenAI (without API key)
-                new_default_llm = 'ChatOpenAI'
-                new_default_model = ''
-                logger.info("No configured providers found; defaulting to ChatOpenAI without API key")
+                # No providers are configured, default to OpenAI with its default model
+                new_default_llm = 'OpenAI'
+                # Get OpenAI's default model from llm_manager
+                try:
+                    openai_provider = llm_manager.get_provider('OpenAI')
+                    new_default_model = openai_provider.get('default_model', 'gpt-5') if openai_provider else 'gpt-5'
+                except:
+                    new_default_model = 'gpt-5'
+                logger.info(f"No configured providers found; defaulting to {new_default_llm} with model {new_default_model} (no API key)")
             
             # Update default_llm setting
             main_window.config_manager.general_settings.default_llm = new_default_llm
@@ -295,15 +373,26 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
                 except Exception as clear_error:
                     logger.error(f"Error clearing LLM instance: {clear_error}")
 
+        # Get updated provider info for frontend
+        updated_provider = llm_manager.get_provider(provider_name)
+        
         response_data = {
             'message': f'LLM provider {provider_name} configuration deleted successfully',
             'deleted_env_vars': deleted_vars,
-            'was_default_llm': is_default_llm
+            'was_default_llm': is_default_llm,
+            'provider': updated_provider  # Include updated provider info for UI refresh
         }
         
-        if is_default_llm:
+        # Include new default settings if changed
+        if should_update_default and new_default_llm:
             response_data['new_default_llm'] = new_default_llm
             response_data['new_default_model'] = new_default_model
+            response_data['reset_to_default'] = (len(configured_providers) == 0)
+            # Also include current settings for frontend
+            response_data['settings'] = {
+                'default_llm': main_window.config_manager.general_settings.default_llm,
+                'default_llm_model': main_window.config_manager.general_settings.default_llm_model
+            }
         
         return create_success_response(request, response_data)
 

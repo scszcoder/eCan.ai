@@ -94,9 +94,10 @@ def create_all_tables(db_path_or_engine = ECAN_BASE_DB):
     """
     # Import the Base with all registered models
     from ..models import Base as ModelsBase
+    from sqlalchemy.engine import Engine
     
     # Support both engine instance and db_path string
-    if hasattr(db_path_or_engine, 'execute'):
+    if isinstance(db_path_or_engine, Engine):
         # It's an engine instance
         engine = db_path_or_engine
     else:

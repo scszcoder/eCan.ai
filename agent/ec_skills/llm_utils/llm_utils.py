@@ -1,7 +1,5 @@
 import re
 import time
-import random
-from selenium.webdriver.support.expected_conditions import element_selection_state_to_be
 
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
@@ -12,10 +10,10 @@ import base64
 import asyncio
 import sys
 from threading import Thread
-from contextlib import contextmanager
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, BaseMessage
 from agent.ec_skills.dev_defs import BreakpointManager
 from agent.memory.models import MemoryItem
+from utils.env.secure_store import secure_store
 
 
 def rough_token_count(text: str) -> int:
@@ -590,14 +588,17 @@ def _create_llm_instance(provider, config_manager=None):
         
         logger.info(f"Creating LLM instance - Provider: {provider_display} ({provider_name_actual}), Model: {model_name}")
         
-        # Helper function to get API key from environment
+        # Helper to get API key from secure store (no env fallback)
         def get_api_key(env_var):
-            return os.environ.get(env_var)
+            try:
+                return secure_store.get(env_var)
+            except Exception:
+                return None
         
         # Check for Azure OpenAI (specific class_name match - must be before OpenAI check)
         if class_name == 'azureopenai' or ('azure' in provider_name.lower() and 'openai' in provider_name.lower()):
             model_name = model_name or 'gpt-4'
-            # Azure OpenAI requires AZURE_ENDPOINT and AZURE_OPENAI_API_KEY from environment
+            # Azure OpenAI requires AZURE_ENDPOINT and AZURE_OPENAI_API_KEY from secure_store
             azure_endpoint = get_api_key('AZURE_ENDPOINT')
             api_key = get_api_key('AZURE_OPENAI_API_KEY')
             if azure_endpoint and api_key:
@@ -611,7 +612,7 @@ def _create_llm_instance(provider, config_manager=None):
                     temperature=0
                 )
             else:
-                logger.error(f"Azure OpenAI requires AZURE_ENDPOINT and AZURE_OPENAI_API_KEY environment variables")
+                logger.error(f"Azure OpenAI requires AZURE_ENDPOINT and AZURE_OPENAI_API_KEY in secure_store")
                 return None
         
         # Check for AWS Bedrock (specific class_name match)
@@ -620,15 +621,14 @@ def _create_llm_instance(provider, config_manager=None):
                 logger.error("ChatBedrock is not available. Install with: pip install langchain-aws")
                 return None
             model_name = model_name or 'anthropic.claude-3-sonnet-20240229-v1:0'
-            # AWS Bedrock requires AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+            # AWS Bedrock requires AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in secure_store
             aws_access_key_id = get_api_key('AWS_ACCESS_KEY_ID')
             aws_secret_access_key = get_api_key('AWS_SECRET_ACCESS_KEY')
             if not aws_access_key_id or not aws_secret_access_key:
-                logger.error("AWS Bedrock requires AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables")
+                logger.error("AWS Bedrock requires AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in secure_store")
                 return None
             try:
-                # ChatBedrock uses boto3 credentials from environment automatically
-                # Credentials should be set via AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY env vars
+                # ChatBedrock will use credentials available to boto3; ensure credentials are provided via secure_store
                 return ChatBedrock(
                     model_id=model_name,
                     model_kwargs={'temperature': 0}
@@ -643,10 +643,10 @@ def _create_llm_instance(provider, config_manager=None):
                 logger.error("ChatGoogleGenerativeAI is not available. Install with: pip install langchain-google-genai")
                 return None
             model_name = model_name or 'gemini-pro'
-            # Google Gemini requires GEMINI_API_KEY
+            # Google Gemini requires GEMINI_API_KEY in secure_store
             gemini_api_key = get_api_key('GEMINI_API_KEY')
             if not gemini_api_key:
-                logger.error("Google Gemini requires GEMINI_API_KEY environment variable")
+                logger.error("Google Gemini requires GEMINI_API_KEY in secure_store")
                 return None
             try:
                 return ChatGoogleGenerativeAI(
@@ -661,10 +661,10 @@ def _create_llm_instance(provider, config_manager=None):
         # Check for DeepSeek
         elif 'deepseek' in provider_name.lower() or 'chatdeepseek' == class_name:
             model_name = model_name or 'deepseek-chat'
-            # DeepSeek requires DEEPSEEK_API_KEY
+            # DeepSeek requires DEEPSEEK_API_KEY in secure_store
             deepseek_api_key = get_api_key('DEEPSEEK_API_KEY')
             if not deepseek_api_key:
-                logger.error("DeepSeek requires DEEPSEEK_API_KEY environment variable")
+                logger.error("DeepSeek requires DEEPSEEK_API_KEY in secure_store")
                 return None
             
             # DeepSeek API endpoint (China-based service)
@@ -705,10 +705,10 @@ def _create_llm_instance(provider, config_manager=None):
         # Check for Qwen/QwQ
         elif 'qwen' in provider_name.lower() or 'qwq' in provider_name.lower() or 'chatqwq' == class_name:
             model_name = model_name or 'qwq-plus'
-            # QwQ/DashScope requires DASHSCOPE_API_KEY
+            # QwQ/DashScope requires DASHSCOPE_API_KEY in secure_store
             dashscope_api_key = get_api_key('DASHSCOPE_API_KEY')
             if not dashscope_api_key:
-                logger.error("QwQ requires DASHSCOPE_API_KEY environment variable")
+                logger.error("QwQ requires DASHSCOPE_API_KEY in secure_store")
                 return None
             
             # DashScope OpenAI-compatible endpoint (Alibaba Cloud - China-based)
@@ -752,10 +752,10 @@ def _create_llm_instance(provider, config_manager=None):
         # Check for OpenAI (must be after Azure check)
         elif 'chatanthropic' != class_name and ('openai' in provider_name.lower() or 'chatopenai' == class_name):
             model_name = model_name or 'gpt-4o'
-            # OpenAI requires OPENAI_API_KEY
+            # OpenAI requires OPENAI_API_KEY in secure_store
             openai_api_key = get_api_key('OPENAI_API_KEY')
             if not openai_api_key:
-                logger.error("OpenAI requires OPENAI_API_KEY environment variable")
+                logger.error("OpenAI requires OPENAI_API_KEY in secure_store")
                 return None
             return ChatOpenAI(
                 model=model_name,
@@ -766,10 +766,10 @@ def _create_llm_instance(provider, config_manager=None):
         # Check for Anthropic Claude
         elif 'claude' in provider_name.lower() or 'anthropic' in provider_name.lower() or 'chatanthropic' == class_name:
             model_name = model_name or 'claude-3-5-sonnet-20241022'
-            # Anthropic requires ANTHROPIC_API_KEY
+            # Anthropic requires ANTHROPIC_API_KEY in secure_store
             anthropic_api_key = get_api_key('ANTHROPIC_API_KEY')
             if not anthropic_api_key:
-                logger.error("Anthropic requires ANTHROPIC_API_KEY environment variable")
+                logger.error("Anthropic requires ANTHROPIC_API_KEY in secure_store")
                 return None
             return ChatAnthropic(
                 model=model_name,

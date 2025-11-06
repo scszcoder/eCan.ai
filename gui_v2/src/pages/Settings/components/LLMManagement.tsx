@@ -25,7 +25,7 @@ interface LLMManagementProps {
   username: string | null;
   defaultLLM?: string; // Default LLM passed from settings
   settingsLoaded?: boolean; // Flag indicating whether settings have been loaded
-  onDefaultLLMChange?: (newDefaultLLM: string) => void; // Callback to notify parent of default LLM changes
+  onDefaultLLMChange?: (newDefaultLLM: string, newDefaultModel?: string) => void; // Callback to notify parent of default LLM changes
 }
 
 type ModelOption = { label: string; value: string; description?: string };
@@ -75,6 +75,18 @@ const LLMManagement: React.FC<LLMManagementProps> = ({
       if (response.success && response.data) {
         setProviders(response.data.providers);
         console.log("✅ LLM providers loaded:", response.data.providers);
+        // Debug: Check OpenAI provider name
+        const openaiProvider = response.data.providers.find(p => 
+          p.name === 'OpenAI' || p.name === 'ChatOpenAI' || p.display_name?.toLowerCase().includes('openai')
+        );
+        if (openaiProvider) {
+          console.log("🔍 [loadProviders] OpenAI provider found:", {
+            name: openaiProvider.name,
+            display_name: openaiProvider.display_name,
+            api_key_configured: openaiProvider.api_key_configured
+          });
+        }
+        console.log("🔍 [loadProviders] Current defaultLLM state:", defaultLLM);
       } else {
         message.error(
           `${t("pages.settings.failed_to_load_providers")}: ${
@@ -281,14 +293,40 @@ const LLMManagement: React.FC<LLMManagementProps> = ({
     try {
       const response = await get_ipc_api().updateLLMProvider<{
         message: string;
+        auto_set_as_default?: boolean;
+        default_llm?: string;
+        default_llm_model?: string;
+        settings?: {
+          default_llm: string;
+          default_llm_model: string;
+        };
       }>(name, apiKey, azureEndpoint, awsAccessKeyId, awsSecretAccessKey);
 
       if (response.success) {
-        message.success(
-          `${name} ${t("pages.settings.llm_updated_successfully")} - ${t(
-            "pages.settings.hot_updated"
-          )}`
-        );
+        const responseData = response.data;
+        const autoSetAsDefault = responseData?.auto_set_as_default || false;
+        
+        // Show success message
+        let successMessage = `${name} ${t("pages.settings.llm_updated_successfully")} - ${t(
+          "pages.settings.hot_updated"
+        )}`;
+        
+        if (autoSetAsDefault && responseData?.default_llm) {
+          successMessage += ` - ${t("pages.settings.auto_set_as_default")}: ${responseData.default_llm}`;
+        }
+        
+        message.success(successMessage);
+        
+        // If auto-set as default, update local state
+        if (autoSetAsDefault && responseData?.settings) {
+          console.log('🔄 Auto-set as default after update:', responseData.settings);
+          setDefaultLLM(responseData.settings.default_llm);
+          onDefaultLLMChange?.(
+            responseData.settings.default_llm, 
+            responseData.settings.default_llm_model
+          );
+        }
+        
         await loadProviders(); // Reload data
         console.log("✅ Provider updated:", name);
 
@@ -340,19 +378,28 @@ const LLMManagement: React.FC<LLMManagementProps> = ({
             new_default_llm?: string;
             new_default_model?: string;
             deleted_env_vars?: string[];
+            reset_to_default?: boolean;
+            settings?: {
+              default_llm: string;
+              default_llm_model: string;
+            };
           }>(name, username || "");
 
           if (response.success && response.data) {
             const responseData = response.data;
             const wasDefaultLLM = responseData.was_default_llm || false;
             const newDefaultLLM = responseData.new_default_llm;
+            const resetToDefault = responseData.reset_to_default || false;
 
             // Show success message
             if (wasDefaultLLM && newDefaultLLM) {
+              const resetMessage = resetToDefault 
+                ? ` ${t("pages.settings.reset_to_default_provider")}`
+                : ` Default LLM changed to: ${newDefaultLLM}`;
               message.success(
                 `${name} ${t("pages.settings.llm_config_deleted")} - ${t(
                   "pages.settings.hot_updated"
-                )}. Default LLM changed to: ${newDefaultLLM}`
+                )}.${resetMessage}`
               );
             } else {
               message.success(
@@ -389,11 +436,20 @@ const LLMManagement: React.FC<LLMManagementProps> = ({
             if (wasDefaultLLM && newDefaultLLM) {
               setDefaultLLM(newDefaultLLM);
               // Notify parent component to update default_llm in settings
-              onDefaultLLMChange?.(newDefaultLLM);
+              // Use settings from response if available for complete update
+              if (responseData.settings) {
+                console.log('🔄 Updating settings after deletion:', responseData.settings);
+                onDefaultLLMChange?.(
+                  responseData.settings.default_llm, 
+                  responseData.settings.default_llm_model
+                );
+              } else {
+                onDefaultLLMChange?.(newDefaultLLM, responseData.new_default_model);
+              }
             } else if (defaultLLM === name) {
               // Fallback: if backend didn't return new_default_llm but this was default
               setDefaultLLM("");
-              onDefaultLLMChange?.("");
+              onDefaultLLMChange?.("", "");
             }
 
             // Reload providers from backend to verify the deletion and get updated state
@@ -573,8 +629,10 @@ const LLMManagement: React.FC<LLMManagementProps> = ({
 
   // Update local state when passed defaultLLM changes
   useEffect(() => {
+    console.log('🔄 [LLMManagement] propDefaultLLM changed:', propDefaultLLM);
     if (propDefaultLLM !== undefined) {
       setDefaultLLM(propDefaultLLM);
+      console.log('✅ [LLMManagement] Local defaultLLM updated to:', propDefaultLLM);
     }
   }, [propDefaultLLM]);
 
@@ -827,19 +885,27 @@ const LLMManagement: React.FC<LLMManagementProps> = ({
       dataIndex: "name",
       key: "default",
       width: "15%",
-      render: (name: string, record: LLMProvider) => (
-        <Radio
-          checked={defaultLLM === name}
-          disabled={!record.api_key_configured}
-          onClick={() => {
-            if (record.api_key_configured && defaultLLM !== name) {
-              handleDefaultLLMChange(name);
-            }
-          }}
-        >
-          {defaultLLM === name ? t("pages.settings.default") : ""}
-        </Radio>
-      ),
+      render: (name: string, record: LLMProvider) => {
+        const isChecked = defaultLLM === name;
+        // Debug logging for OpenAI specifically
+        if (name === 'OpenAI' || name === 'ChatOpenAI') {
+          console.log(`🔍 [Radio] ${name}: checked=${isChecked}, defaultLLM=${defaultLLM}, api_key_configured=${record.api_key_configured}`);
+        }
+        return (
+          <Radio
+            key={`radio-${name}-${defaultLLM}`}
+            checked={isChecked}
+            disabled={!record.api_key_configured}
+            onClick={() => {
+              if (record.api_key_configured && defaultLLM !== name) {
+                handleDefaultLLMChange(name);
+              }
+            }}
+          >
+            {isChecked ? t("pages.settings.default") : ""}
+          </Radio>
+        );
+      },
     },
     {
       title: t("pages.settings.actions"),

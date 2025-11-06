@@ -1029,9 +1029,12 @@ jobs:
           --cache-control "max-age=31536000" \
           --metadata "version=${VERSION}"
         
-        # Create 'latest' pointer using lightweight metadata file (not full copy)
-        echo "=== Creating 'latest' version pointer ==="
-        cat > latest.json <<EOF
+        # Create and upload 'latest' pointer only for tag/release builds
+        IS_BRANCH="${{ needs.validate-tag.outputs.is-branch }}"
+        
+        if [ "$IS_BRANCH" = "false" ]; then
+          echo "=== Creating 'latest' version pointer (tag/release build) ==="
+          cat > latest.json <<EOF
         {
           "version": "${VERSION}",
           "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
@@ -1050,21 +1053,80 @@ jobs:
           }
         }
         EOF
-        
-        # Upload lightweight pointer file to 'latest' (only ~1KB vs 500MB+ of artifacts)
-        aws s3 cp latest.json s3://${S3_BUCKET}/${S3_BASE_PATH}/latest.json \
-          --content-type "application/json" \
-          --cache-control "max-age=300" \
-          --metadata "version=${VERSION}" \
-          "${ACL_ARGS[@]}"
-        
-        echo "Latest version pointer created (${S3_BASE_PATH}/latest.json)"
-        echo "  No duplicate upload - latest.json points to: ${S3_VERSION_PATH}"
+          
+          # Upload lightweight pointer file to 'latest' (only ~1KB vs 500MB+ of artifacts)
+          aws s3 cp latest.json s3://${S3_BUCKET}/${S3_BASE_PATH}/latest.json \
+            --content-type "application/json" \
+            --cache-control "max-age=300" \
+            --metadata "version=${VERSION}" \
+            "${ACL_ARGS[@]}"
+          
+          echo "✅ Latest version pointer updated (${S3_BASE_PATH}/latest.json)"
+          echo "   Points to: ${S3_VERSION_PATH}"
+          echo "   This is a tag/release build, so 'latest' has been updated"
+        else
+          echo "⏭️  Skipping 'latest' pointer update (branch build)"
+          echo "   This is a branch build (version: ${VERSION})"
+          echo "   Artifacts uploaded to: ${S3_VERSION_PATH}"
+          echo "   'latest' pointer remains unchanged (only updated for tag/release builds)"
+        fi
         
         # Set output for S3 base URL
         S3_BASE_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_VERSION_PATH}"
         S3_ACCELERATE_URL="https://${S3_BUCKET}.s3-accelerate.amazonaws.com/${S3_VERSION_PATH}"
         echo "s3_base_url=${S3_BASE_URL}" >> $GITHUB_OUTPUT
+        
+        # Display public download URLs in GitHub Actions Summary (visible to users)
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## 📦 公开下载地址 (Public Download URLs)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 版本 Version: \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Display build type and latest pointer status
+        if [ "$IS_BRANCH" = "false" ]; then
+          echo "> ✅ **正式发布构建** - \`latest\` 指针已更新为此版本" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "> ⚠️ **分支开发构建** - \`latest\` 指针保持不变（仅正式发布版本更新 \`latest\`）" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Windows 下载" >> $GITHUB_STEP_SUMMARY
+        if [ -d "upload/windows" ]; then
+          for file in upload/windows/*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              size=$(du -h "$file" | cut -f1)
+              echo "- [\`${filename}\`](${S3_BASE_URL}/windows/${filename}) (${size})" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### macOS 下载" >> $GITHUB_STEP_SUMMARY
+        if [ -d "upload/macos" ]; then
+          for file in upload/macos/*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              size=$(du -h "$file" | cut -f1)
+              echo "- [\`${filename}\`](${S3_BASE_URL}/macos/${filename}) (${size})" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 校验和 Checksums" >> $GITHUB_STEP_SUMMARY
+        echo "- [SHA256SUMS](${S3_BASE_URL}/checksums/SHA256SUMS)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "---" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🚀 加速下载 (S3 Transfer Acceleration)" >> $GITHUB_STEP_SUMMARY
+        echo "如果从远程地区下载较慢，可以使用加速 URL (需在 S3 Bucket 启用传输加速)：" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "${S3_ACCELERATE_URL}" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
         
         echo ""
         echo "================================================================"
@@ -1073,6 +1135,14 @@ jobs:
         echo ""
         echo "Version: ${VERSION}"
         echo "S3 Path: s3://${S3_BUCKET}/${S3_VERSION_PATH}"
+        echo ""
+        if [ "$IS_BRANCH" = "false" ]; then
+          echo "Build Type: ✅ Tag/Release Build"
+          echo "Latest Pointer: Updated to this version"
+        else
+          echo "Build Type: ⚠️  Branch Build"
+          echo "Latest Pointer: Not updated (remains at last release)"
+        fi
         echo ""
         
         # List all uploaded files with their details
@@ -1197,7 +1267,12 @@ jobs:
         echo "Latest Version Info:"
         echo "   https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/latest.json"
         echo ""
-        echo "   (This file points to v${VERSION} and is updated with each release)"
+        if [ "$IS_BRANCH" = "false" ]; then
+          echo "   ✅ This file has been updated to point to v${VERSION}"
+        else
+          echo "   ⏭️  This file was NOT updated (branch build)"
+          echo "   📌 Latest still points to the last official release"
+        fi
         echo ""
         
         echo "================================================================"
@@ -1266,6 +1341,44 @@ jobs:
           --content-type "application/json"
         
         echo "Version metadata uploaded to: ${{ steps.upload.outputs.s3_base_url }}/version-metadata.json"
+
+    - name: Clean up artifacts after successful S3 upload
+      run: |
+        echo "=== Cleaning up local artifacts after S3 upload ==="
+        
+        # Calculate total size before cleanup
+        TOTAL_SIZE=0
+        if [ -d "upload" ]; then
+          UPLOAD_SIZE=$(du -sh upload 2>/dev/null | cut -f1)
+          echo "Upload directory size: $UPLOAD_SIZE"
+        fi
+        if [ -d "windows-artifacts" ]; then
+          WIN_SIZE=$(du -sh windows-artifacts 2>/dev/null | cut -f1)
+          echo "Windows artifacts size: $WIN_SIZE"
+        fi
+        if [ -d "macos-artifacts" ]; then
+          MAC_SIZE=$(du -sh macos-artifacts 2>/dev/null | cut -f1)
+          echo "macOS artifacts size: $MAC_SIZE"
+        fi
+        
+        # Remove artifacts (they're now safely stored in S3)
+        echo ""
+        echo "Removing local artifacts..."
+        rm -rf upload/ windows-artifacts/ macos-artifacts/ version-metadata.json latest.json 2>/dev/null || true
+        
+        echo ""
+        echo "✅ Cleanup completed - all artifacts are now in S3"
+        echo "   Local storage freed for GitHub Actions"
+        
+        # Display cleanup summary in GitHub Actions Summary
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "---" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🧹 存储清理 (Storage Cleanup)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "所有构建产物已成功上传到 S3 并从 GitHub Actions 存储中清理。" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "✅ 本地临时文件已删除，节约 GitHub Actions 存储空间" >> $GITHUB_STEP_SUMMARY
 
   # Create Release (optional, for GitHub releases)
   create-release:
@@ -1385,9 +1498,11 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Generate and publish appcast using S3 URLs
+  # Generate and publish appcast using S3 URLs (only for tag/release builds)
   publish-appcast:
     needs: [validate-tag, upload-to-s3]
+    # Only generate appcast for tag/release builds (branch builds don't need OTA updates)
+    if: needs.validate-tag.outputs.is-branch == 'false'
     runs-on: ubuntu-latest
     env:
       ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY || 'NOT_SET' }}
@@ -1402,12 +1517,21 @@ jobs:
       - name: Check environment variables
         run: |
           echo "=== Checking Appcast Generation Environment ==="
+          echo ""
+          echo "📝 Note: Appcast generation only runs for tag/release builds"
+          echo "   - Tag/Release builds: Generate appcast for OTA updates"
+          echo "   - Branch builds: Skip (development versions don't need OTA)"
+          echo "   - This ensures appcast and latest.json stay in sync"
+          echo ""
           if [ "${ED25519_PRIVATE_KEY}" != "NOT_SET" ]; then
             echo "ED25519_PRIVATE_KEY: Available - Appcast generation enabled"
           else
             echo "ED25519_PRIVATE_KEY: Not available - Appcast generation disabled"
           fi
           echo "S3 Base URL: ${S3_BASE_URL}"
+          echo ""
+          echo "Version: ${{ needs.validate-tag.outputs.version }}"
+          echo "Is Branch: ${{ needs.validate-tag.outputs.is-branch }}"
 
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
@@ -1428,13 +1552,6 @@ jobs:
           name: eCan-macOS-aarch64-${{ needs.validate-tag.outputs.version }}
           path: macos-artifacts
         continue-on-error: true
-
-      - name: Download Linux artifacts (optional)
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: eCan-Linux-${{ needs.validate-tag.outputs.version }}
-          path: linux-artifacts
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -1645,6 +1762,36 @@ jobs:
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
           AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
         run: |
+          # Display in GitHub Actions Summary
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔄 Appcast 更新源地址 (OTA Update Feed URLs)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> 📝 **说明**: Appcast 只在正式发布时生成，与 \`latest.json\` 保持同步" >> $GITHUB_STEP_SUMMARY
+          echo "> - **Appcast XML**: Sparkle/WinSparkle OTA 自动更新使用" >> $GITHUB_STEP_SUMMARY
+          echo "> - **latest.json**: 版本元数据，包含下载链接和版本信息" >> $GITHUB_STEP_SUMMARY
+          echo "> - 两者在每次正式发布时同步更新，指向相同的版本" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### GitHub Pages (推荐)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **macOS (所有架构)**: [appcast-macos.xml](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos.xml)" >> $GITHUB_STEP_SUMMARY
+          echo "- **macOS (Intel x86_64)**: [appcast-macos-amd64.xml](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos-amd64.xml)" >> $GITHUB_STEP_SUMMARY
+          echo "- **macOS (Apple Silicon)**: [appcast-macos-aarch64.xml](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos-aarch64.xml)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Windows (x86_64)**: [appcast-windows-amd64.xml](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-windows-amd64.xml)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -n "$S3_BUCKET" ] && [ "$S3_BUCKET" != "NOT_SET" ]; then
+            echo "### AWS S3 (备用)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **macOS (所有架构)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos.xml" >> $GITHUB_STEP_SUMMARY
+            echo "- **macOS (Intel x86_64)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos-amd64.xml" >> $GITHUB_STEP_SUMMARY
+            echo "- **macOS (Apple Silicon)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos-aarch64.xml" >> $GITHUB_STEP_SUMMARY
+            echo "- **Windows (x86_64)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-windows-amd64.xml" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "> **注意**: Windows 仅支持 x86_64 (amd64) 架构" >> $GITHUB_STEP_SUMMARY
+          
+          # Also display in console log
           echo "=== Appcast URLs ==="
           echo ""
           echo "GitHub Pages (Primary):"
@@ -1688,3 +1835,31 @@ jobs:
           fi
           echo ""
           echo "================================================================"
+
+      - name: Clean up artifacts after appcast generation
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
+        run: |
+          echo "=== Cleaning up artifacts after appcast generation ==="
+          
+          # Calculate size before cleanup
+          if [ -d "windows-artifacts" ]; then
+            WIN_SIZE=$(du -sh windows-artifacts 2>/dev/null | cut -f1)
+            echo "Windows artifacts size: $WIN_SIZE"
+          fi
+          if [ -d "macos-artifacts" ]; then
+            MAC_SIZE=$(du -sh macos-artifacts 2>/dev/null | cut -f1)
+            echo "macOS artifacts size: $MAC_SIZE"
+          fi
+          if [ -d "dist/appcast" ]; then
+            APPCAST_SIZE=$(du -sh dist/appcast 2>/dev/null | cut -f1)
+            echo "Appcast files size: $APPCAST_SIZE"
+          fi
+          
+          # Clean up downloaded artifacts (appcasts are already uploaded to S3 and gh-pages)
+          echo ""
+          echo "Removing local artifacts..."
+          rm -rf windows-artifacts/ macos-artifacts/ 2>/dev/null || true
+          
+          echo ""
+          echo "✅ Cleanup completed - appcast files are published to GitHub Pages and S3"
+          echo "   Local storage freed for GitHub Actions"

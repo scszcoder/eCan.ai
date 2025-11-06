@@ -1444,17 +1444,18 @@ class MainWindow:
         """Start LightRAG server in deferred mode."""
         try:
             from knowledge.lightrag_server import LightragServer
+            from utils.env import secure_store
             
             # Prepare environment variables for LightRAG server
             lightrag_env = {"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"}
             
-            # Ensure OPENAI_API_KEY is passed to LightRAG server
-            openai_api_key = os.environ.get('OPENAI_API_KEY')
+            # Ensure OPENAI_API_KEY is passed to LightRAG server from secure store
+            openai_api_key = secure_store.get('OPENAI_API_KEY')
             if openai_api_key and openai_api_key.strip():
                 lightrag_env['OPENAI_API_KEY'] = openai_api_key
-                logger.info("[MainWindow] 🔑 OPENAI_API_KEY found and will be passed to LightRAG server (deferred)")
+                logger.info("[MainWindow] 🔑 OPENAI_API_KEY found in secure store and will be passed to LightRAG server (deferred)")
             else:
-                logger.warning("[MainWindow] ⚠️ OPENAI_API_KEY not found in environment variables (deferred)")
+                logger.warning("[MainWindow] ⚠️ OPENAI_API_KEY not found in secure store (deferred)")
 
             self.lightrag_server = LightragServer(extra_env=lightrag_env)
             # Start server process but don't wait for it to be ready
@@ -1641,17 +1642,18 @@ class MainWindow:
             # Initialize LightRAG server in main thread to allow signal handlers
             # but run the actual server start in executor for non-blocking behavior
             from knowledge.lightrag_server import LightragServer
+            from utils.env import secure_store
             
             # Prepare environment variables for LightRAG server
             lightrag_env = {"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"}
             
-            # Ensure OPENAI_API_KEY is passed to LightRAG server
-            openai_api_key = os.environ.get('OPENAI_API_KEY')
+            # Ensure OPENAI_API_KEY is passed to LightRAG server from secure store
+            openai_api_key = secure_store.get('OPENAI_API_KEY')
             if openai_api_key and openai_api_key.strip():
                 lightrag_env['OPENAI_API_KEY'] = openai_api_key
-                logger.info("[MainWindow] 🔑 OPENAI_API_KEY found and will be passed to LightRAG server")
+                logger.info("[MainWindow] 🔑 OPENAI_API_KEY found in secure store and will be passed to LightRAG server")
             else:
-                logger.warning("[MainWindow] ⚠️ OPENAI_API_KEY not found in environment variables")
+                logger.warning("[MainWindow] ⚠️ OPENAI_API_KEY not found in secure store")
             
             self.lightrag_server = LightragServer(extra_env=lightrag_env)
 
