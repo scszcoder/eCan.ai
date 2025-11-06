@@ -279,6 +279,28 @@ class MainWindow:
             import traceback
             logger.debug(f"[MainWindow] Vehicle metrics error traceback: {traceback.format_exc()}")
 
+    def _validate_and_fix_default_llm_model(self):
+        """
+        Validate that default_llm_model belongs to the current default_llm provider.
+        If not, clear it and use the provider's default model.
+        This prevents issues when switching providers.
+        """
+        try:
+            default_llm = self.config_manager.general_settings.default_llm
+            default_llm_model = self.config_manager.general_settings.default_llm_model
+            
+            # Use llm_manager to validate and fix
+            corrected_model, was_fixed = self.config_manager.llm_manager.validate_and_fix_default_llm_model(
+                default_llm, default_llm_model
+            )
+            
+            if was_fixed:
+                # Update and save the corrected model
+                self.config_manager.general_settings.default_llm_model = corrected_model
+                self.config_manager.general_settings.save()
+        except Exception as e:
+            logger.warning(f"[MainWindow] Error validating default_llm_model: {e}")
+
     def update_all_llms(self, reason="unknown"):
         """
         Update mainwin.llm and all agents' LLMs (skill_llm and browser_use LLM).
@@ -1341,6 +1363,9 @@ class MainWindow:
         from agent.ec_skills.build_node import get_default_node_schemas
 
 
+        # Validate and fix default_llm_model before initializing LLM
+        self._validate_and_fix_default_llm_model()
+        
         # Initialize LLM with proper error handling
         try:
             from agent.ec_skills.llm_utils.llm_utils import pick_llm
