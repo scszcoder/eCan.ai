@@ -57,6 +57,27 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
         if result.get('success'):
             from gui.ipc.token_manager import token_manager
             token = token_manager.generate_token(username, machine_role)
+            
+            # Trigger onboarding check after successful login
+            try:
+                config_manager = AppContext.get_config_manager()
+                if config_manager and hasattr(config_manager, 'llm_manager'):
+                    # Reset onboarding flag so it can be shown again for this user
+                    config_manager.llm_manager.reset_onboarding_flag()
+                    # Schedule onboarding check (will run after a delay)
+                    import asyncio
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(config_manager.llm_manager.check_and_show_onboarding(
+                            delay_seconds=3.0,
+                            force_check=False
+                        ))
+                        logger.debug("[user_handler] Scheduled onboarding check after login")
+                    except RuntimeError:
+                        logger.debug("[user_handler] No event loop available for onboarding check")
+            except Exception as e:
+                logger.debug(f"[user_handler] Could not schedule onboarding check: {e}")
+            
             # Return consistent response format with user_info (like Google login)
             return create_success_response(request, {
                 'token': token,
@@ -266,6 +287,26 @@ def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             session_token = token_manager.generate_token(user_email, machine_role)
             
             logger.info(f"[GoogleLogin] Completed for {user_email}")
+            
+            # Trigger onboarding check after successful Google login
+            try:
+                config_manager = AppContext.get_config_manager()
+                if config_manager and hasattr(config_manager, 'llm_manager'):
+                    # Reset onboarding flag so it can be shown again for this user
+                    config_manager.llm_manager.reset_onboarding_flag()
+                    # Schedule onboarding check (will run after a delay)
+                    import asyncio
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(config_manager.llm_manager.check_and_show_onboarding(
+                            delay_seconds=3.0,
+                            force_check=False
+                        ))
+                        logger.debug("[user_handler] Scheduled onboarding check after Google login")
+                    except RuntimeError:
+                        logger.debug("[user_handler] No event loop available for onboarding check")
+            except Exception as e:
+                logger.debug(f"[user_handler] Could not schedule onboarding check: {e}")
             
             return create_success_response(request, {
                 'token': session_token,

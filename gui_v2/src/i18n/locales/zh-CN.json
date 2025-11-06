@@ -637,6 +637,8 @@
       "llm_management": "LLM管理",
       "llm_provider": "LLM提供商",
       "llm_updated_successfully": "LLM更新成功",
+      "auto_set_as_default": "自动设置为默认",
+      "reset_to_default_provider": "已重置为默认提供商(OpenAI)",
       "general_tab_title": "通用设置",
       "llm_tab_title": "LLM 管理",
       "local_agent_db_host": "本地代理数据库主机",

@@ -56,13 +56,18 @@ class WebDriverDownloader:
 
             best_match_url = None
             latest_compatible_version = None
+            nearest_match_url = None
+            nearest_version = None
+            min_version_diff = float('inf')
 
             # Find the latest version <= user's version
             for version_info in reversed(data.get("versions", [])):
                 available_version_str = version_info.get("version")
                 if not available_version_str: continue
 
-                if available_version_str.split('.')[0] == target_major_version:
+                available_major = available_version_str.split('.')[0]
+                
+                if available_major == target_major_version:
                     available_version = parse_version(available_version_str)
                     if available_version <= target_version:
                         downloads = version_info.get("downloads", {}).get("chromedriver", [])
@@ -74,10 +79,27 @@ class WebDriverDownloader:
                                 break # Found the best one, no need to check older versions
                 if best_match_url:
                     break
+                
+                # Track nearest version as fallback
+                try:
+                    version_diff = abs(int(available_major) - int(target_major_version))
+                    if version_diff < min_version_diff:
+                        downloads = version_info.get("downloads", {}).get("chromedriver", [])
+                        for download in downloads:
+                            if download.get("platform") == platform_key:
+                                min_version_diff = version_diff
+                                nearest_match_url = download.get("url")
+                                nearest_version = available_version_str
+                                break
+                except (ValueError, TypeError):
+                    continue
 
             if best_match_url:
                 logger.info(f"Selected best match URL: {best_match_url}")
                 return best_match_url
+            elif nearest_match_url:
+                logger.warning(f"Exact version {target_major_version} not found, using nearest available version {nearest_version}")
+                return nearest_match_url
             else:
                 logger.warning(f"Could not find a matching ChromeDriver for version {target_major_version} on platform {platform_key}")
                 return None
@@ -114,20 +136,37 @@ class WebDriverDownloader:
             target_version = parse_version(chrome_version)
 
             best_match_version = None
+            nearest_match_version = None
+            min_version_diff = float('inf')
 
             for item in reversed(data):
                 version_str = item.get("name", "").strip('/')
                 if not version_str: continue
 
-                if version_str.split('.')[0] == target_major_version:
-                    available_version = parse_version(version_str)
-                    if available_version <= target_version:
-                        best_match_version = version_str
-                        break
+                try:
+                    version_major = version_str.split('.')[0]
+                    
+                    if version_major == target_major_version:
+                        available_version = parse_version(version_str)
+                        if available_version <= target_version:
+                            best_match_version = version_str
+                            break
+                    
+                    # Track nearest version as fallback
+                    version_diff = abs(int(version_major) - int(target_major_version))
+                    if version_diff < min_version_diff:
+                        min_version_diff = version_diff
+                        nearest_match_version = version_str
+                except (ValueError, TypeError, IndexError):
+                    continue
 
             if best_match_version:
                 url = f"{KNOWN_GOOD_VERSIONS_URL_FALLBACK}{best_match_version}/{platform_key}/chromedriver-{platform_key}.zip"
                 logger.info(f"Found best match URL from NPM mirror: {url}")
+                return url
+            elif nearest_match_version:
+                url = f"{KNOWN_GOOD_VERSIONS_URL_FALLBACK}{nearest_match_version}/{platform_key}/chromedriver-{platform_key}.zip"
+                logger.warning(f"Exact version {target_major_version} not found on NPM mirror, using nearest available version {nearest_match_version}")
                 return url
             else:
                 logger.warning(f"Could not find a matching ChromeDriver for version {target_major_version} on NPM mirror")

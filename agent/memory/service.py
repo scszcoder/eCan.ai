@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import threading
 import time
 import os
@@ -8,23 +7,14 @@ from queue import Queue, Empty
 from typing import List, Optional, Dict, Any, Tuple
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import (
-	BaseMessage,
-	HumanMessage,
-)
-from langchain_core.messages.utils import convert_to_openai_messages
-from mem0 import Memory as Mem0Memory
 from pydantic import BaseModel
 
-import base64
 from utils.logger_helper import logger_helper as logger
-from utils.logger_helper import get_traceback
-from agent.run_utils import time_execution_sync
 from langchain_core.language_models.chat_models import BaseChatModel
 from agent.memory.models import MemoryItem, RetrievalQuery, RetrievedMemory
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
-from rich.markdown import Markdown
+from langchain_core.embeddings import FakeEmbeddings
 
 class MemorySettings(BaseModel):
 	"""Settings for procedural memory."""
@@ -69,7 +59,21 @@ class MemoryManager:
 		self.persist_dir = persist_dir
 		os.makedirs(self.persist_dir, exist_ok=True)
 		self.llm = llm
-		self._embeddings = OpenAIEmbeddings(model=embedding_model)
+		
+		# Get OpenAI API key from secure store (no env fallback)
+		try:
+			from utils.env.secure_store import secure_store
+			openai_api_key = secure_store.get("OPENAI_API_KEY")
+		except Exception:
+			openai_api_key = None
+		if openai_api_key:
+			logger.debug(f"[MemoryManager] Creating OpenAI embeddings with API key for agent {agent_id}")
+			self._embeddings = OpenAIEmbeddings(model=embedding_model, openai_api_key=openai_api_key)
+		else:
+			# No key → use deterministic local embeddings to ensure startup
+			self._embeddings = FakeEmbeddings(size=1536)
+			logger.info(f"[MemoryManager] OPENAI_API_KEY not set in secure_store; using FakeEmbeddings(size=1536) for agent {agent_id}")
+		
 		self.max_context_size = 65536
 		self._collection_prefix = collection_prefix
 
