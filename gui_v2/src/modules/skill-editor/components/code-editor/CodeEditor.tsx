@@ -6,100 +6,22 @@ import { editorStyles } from './styles';
 import { DEFAULT_EDITOR_HEIGHT, DEFAULT_EDITOR_OPTIONS, getPreviewModeOptions } from './config';
 import ReactDOM from 'react-dom';
 
-// ConfigurationMonaco Editor使用LocalPath
+// Configure Monaco to use local files
+/*
 loader.config({
   paths: {
-    // Use absolute path so Vite serves from public/monaco-editor correctly
     vs: '/monaco-editor/vs'
   }
 });
-
-// ConfigurationMonaco Editor的worker
+*/
+// Configure Monaco worker
 if (typeof window !== 'undefined') {
   (window as any).MonacoEnvironment = {
     getWorkerUrl: function (_moduleId: string, _label: string) {
-      // Use absolute worker path so it resolves under Vite dev server
       return '/monaco-editor/vs/base/worker/workerMain.js';
     }
   };
 }
-
-// Preload Monaco Editor
-loader.init().then(monaco => {
-  // Register languages
-  const languages = ['javascript', 'typescript', 'json', 'html', 'css', 'python'];
-  languages.forEach(lang => {
-    monaco.languages.register({ id: lang });
-  });
-
-  // Configure Python language features
-  monaco.languages.registerCompletionItemProvider('python', {
-    provideCompletionItems: (model, position) => {
-      const word = model.getWordUntilPosition(position);
-      const range = {
-        startLineNumber: position.lineNumber,
-        endLineNumber: position.lineNumber,
-        startColumn: word.startColumn,
-        endColumn: word.endColumn
-      };
-
-      return {
-        suggestions: [
-          {
-            label: 'def',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'def ${1:function_name}(${2:parameters}):\n\t${0:pass}',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: 'Function definition',
-            range: range
-          },
-          {
-            label: 'class',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'class ${1:ClassName}:\n\tdef __init__(self):\n\t\t${0:pass}',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: 'Class definition',
-            range: range
-          },
-          {
-            label: 'if',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'if ${1:condition}:\n\t${0:pass}',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: 'If statement',
-            range: range
-          },
-          {
-            label: 'for',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'for ${1:item} in ${2:items}:\n\t${0:pass}',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: 'For loop',
-            range: range
-          },
-          {
-            label: 'while',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'while ${1:condition}:\n\t${0:pass}',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: 'While loop',
-            range: range
-          },
-          {
-            label: 'try',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'try:\n\t${1:pass}\nexcept ${2:Exception} as ${3:e}:\n\t${0:pass}',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: 'Try-except block',
-            range: range
-          }
-        ]
-      };
-    }
-  });
-}).catch(error => {
-  console.error('Failed to initialize Monaco Editor:', error);
-});
 
 // Add语言ToggleFunction
 export const setMonacoLanguage = (language: 'en' | 'zh-cn') => {
@@ -114,7 +36,7 @@ export const setMonacoLanguage = (language: 'en' | 'zh-cn') => {
 
 /**
  * CodeEditor component for displaying and editing code
- * 
+ *
  * Features:
  * - Monaco Editor integration
  * - Preview/Edit modes
@@ -231,9 +153,9 @@ export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
           <div className="custom-editor-title" style={editorStyles.title}>
             Code Editor
           </div>
-          <div 
-            className="custom-editor-close" 
-            onClick={handleCurrentCancel} 
+          <div
+            className="custom-editor-close"
+            onClick={handleCurrentCancel}
             style={editorStyles.closeButton}
           >
             ×
@@ -243,13 +165,13 @@ export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
           {editorContent}
         </div>
         <div className="custom-editor-footer" style={editorStyles.footer}>
-          <button 
+          <button
             onClick={handleCurrentCancel}
             style={{ ...editorStyles.button, ...editorStyles.cancelButton }}
           >
             Cancel
           </button>
-          <button 
+          <button
             onClick={handleCurrentOk}
             style={{ ...editorStyles.button, ...editorStyles.okButton }}
           >
@@ -260,4 +182,4 @@ export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
     </div>,
     document.body
   );
-}; 
+};
