@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QCheckBox, QFileDialog, QMessageBox,
                                QProgressBar, QStatusBar, QLineEdit)
 from PySide6.QtCore import QThread, Signal, Qt, QEvent
-from PySide6.QtGui import QFont, QTextCursor, QAction
+from PySide6.QtGui import QFont, QTextCursor, QAction, QSyntaxHighlighter, QTextCharFormat, QColor
 from utils.logger_helper import logger_helper as logger
 from config.constants import APP_NAME
 
@@ -49,6 +49,76 @@ class LogFileWatcher(QThread):
         """Stop the watcher thread"""
         self.running = False
         self.wait()
+
+
+class FileReaderThread(QThread):
+    """Background file reader to avoid blocking UI when loading large logs"""
+    loaded = Signal(str)
+    error = Signal(str)
+
+    def __init__(self, file_path: str):
+        super().__init__()
+        self.file_path = file_path
+
+    def run(self):
+        try:
+            with open(self.file_path, 'r', encoding='utf-8', errors='replace') as f:
+                content = f.read()
+            self.loaded.emit(content)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class LogHighlighter(QSyntaxHighlighter):
+    """Simple syntax highlighter for log levels and timestamps"""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.fmt_debug = QTextCharFormat()
+        self.fmt_debug.setForeground(QColor('#7aa2f7'))
+
+        self.fmt_info = QTextCharFormat()
+        self.fmt_info.setForeground(QColor('#9ece6a'))
+
+        self.fmt_warning = QTextCharFormat()
+        self.fmt_warning.setForeground(QColor('#e0af68'))
+
+        self.fmt_error = QTextCharFormat()
+        self.fmt_error.setForeground(QColor('#f7768e'))
+
+        self.fmt_critical = QTextCharFormat()
+        self.fmt_critical.setForeground(QColor('#ff5370'))
+        self.fmt_critical.setFontWeight(600)
+
+        self.fmt_timestamp = QTextCharFormat()
+        self.fmt_timestamp.setForeground(QColor('#6b7280'))
+
+    def highlightBlock(self, text: str):
+        # Timestamp like 2025-11-06 12:00:00,123 or [2025-11-06 12:00:00]
+        # Light, non-intrusive coloring
+        ts_positions = []
+        # Find patterns without regex overhead in Qt loop
+        if len(text) >= 19 and text[4] == '-' and text[7] == '-' and (' ' in text[:20]):
+            ts_positions.append((0, min(len(text), 23)))
+        for start, length in ts_positions:
+            self.setFormat(start, length, self.fmt_timestamp)
+
+        upper = text.upper()
+        # Color per-level tokens but do not alter content
+        for token, fmt in (
+            (' - DEBUG - ', self.fmt_debug),
+            (' DEBUG ', self.fmt_debug),
+            (' - INFO - ', self.fmt_info),
+            (' INFO ', self.fmt_info),
+            (' - WARNING - ', self.fmt_warning),
+            (' WARNING ', self.fmt_warning),
+            (' - ERROR - ', self.fmt_error),
+            (' ERROR ', self.fmt_error),
+            (' - CRITICAL - ', self.fmt_critical),
+            (' CRITICAL ', self.fmt_critical),
+        ):
+            idx = upper.find(token)
+            if idx != -1:
+                self.setFormat(idx, len(token), fmt)
 
 
 class LogViewer(QMainWindow):
@@ -118,6 +188,11 @@ class LogViewer(QMainWindow):
         self.log_display = QTextEdit()
         self.log_display.setReadOnly(True)
         self.log_display.setFont(QFont("Consolas", 10))
+        # Preserve original log layout: no line wrapping
+        self.log_display.setLineWrapMode(QTextEdit.NoWrap)
+
+        # Highlighter for colored levels
+        self.highlighter = LogHighlighter(self.log_display.document())
 
         # Install event filter to catch wheel events and key presses
         self.log_display.installEventFilter(self)
@@ -257,75 +332,77 @@ class LogViewer(QMainWindow):
         """Apply dark theme to the log viewer"""
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #2d2d2d;
-                color: #e0e0e0;
+                background-color: #23272e;
+                color: #e5e7eb;
             }
             QTextEdit {
-                background-color: #1a1a1a;
-                color: #e0e0e0;
-                border: 1px solid #404040;
+                background-color: #111317;
+                color: #e5e7eb;
+                border: 1px solid #374151;
                 font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+                selection-background-color: #374151;
+                selection-color: #e5e7eb;
             }
             QPushButton {
-                background-color: #404040;
-                color: #e0e0e0;
-                border: 1px solid #606060;
+                background-color: #334155;
+                color: #e5e7eb;
+                border: 1px solid #475569;
                 border-radius: 4px;
                 padding: 6px 12px;
                 font-weight: 500;
             }
             QPushButton:hover {
-                background-color: #505050;
-                border-color: #707070;
+                background-color: #3b4a61;
+                border-color: #5b6b83;
             }
             QPushButton:pressed {
-                background-color: #353535;
+                background-color: #283548;
             }
             QCheckBox {
-                color: #e0e0e0;
+                color: #e5e7eb;
             }
             QComboBox {
-                background-color: #404040;
-                color: #e0e0e0;
-                border: 1px solid #606060;
+                background-color: #1f2937;
+                color: #e5e7eb;
+                border: 1px solid #374151;
                 border-radius: 4px;
                 padding: 4px 8px;
             }
             QLineEdit {
-                background-color: #404040;
-                color: #e0e0e0;
-                border: 1px solid #606060;
+                background-color: #1f2937;
+                color: #e5e7eb;
+                border: 1px solid #374151;
                 border-radius: 4px;
                 padding: 4px 8px;
                 font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
             }
             QLineEdit:focus {
-                border-color: #808080;
-                background-color: #4a4a4a;
+                border-color: #60a5fa;
+                background-color: #111827;
             }
             QLabel {
-                color: #e0e0e0;
+                color: #e5e7eb;
             }
             QMenuBar {
-                background-color: #2d2d2d;
-                color: #e0e0e0;
-                border-bottom: 1px solid #404040;
+                background-color: #23272e;
+                color: #e5e7eb;
+                border-bottom: 1px solid #374151;
             }
             QMenuBar::item:selected {
-                background-color: #404040;
+                background-color: #334155;
             }
             QMenu {
-                background-color: #2d2d2d;
-                color: #e0e0e0;
-                border: 1px solid #404040;
+                background-color: #23272e;
+                color: #e5e7eb;
+                border: 1px solid #374151;
             }
             QMenu::item:selected {
-                background-color: #404040;
+                background-color: #334155;
             }
             QStatusBar {
-                background-color: #2d2d2d;
-                color: #e0e0e0;
-                border-top: 1px solid #404040;
+                background-color: #23272e;
+                color: #e5e7eb;
+                border-top: 1px solid #374151;
             }
         """)
 
@@ -350,29 +427,41 @@ class LogViewer(QMainWindow):
             self._set_status_message("Error loading log file")
 
     def _load_log_file(self, file_path):
-        """Load and display log file content"""
+        """Load and display log file content asynchronously"""
         try:
             self.progress_bar.setVisible(True)
-            self.progress_bar.setRange(0, 0)  # Indeterminate progress
+            self.progress_bar.setRange(0, 0)
 
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                content = f.read()
-                self.log_display.setPlainText(content)
+            # Stop previous loader if any
+            if hasattr(self, '_file_loader') and self._file_loader and self._file_loader.isRunning():
+                self._file_loader.requestInterruption()
+                self._file_loader.wait(100)
 
-            # Start real-time monitoring if enabled
-            if self.realtime_checkbox.isChecked():
-                self._start_realtime_monitoring(file_path)
-
-            # Auto-scroll to bottom
-            if self.auto_scroll:
-                self._scroll_to_bottom()
-
-            self.progress_bar.setVisible(False)
+            self._file_loader = FileReaderThread(file_path)
+            self._file_loader.loaded.connect(self._on_file_loaded)
+            self._file_loader.error.connect(self._on_file_load_error)
+            self._file_loader.start()
 
         except Exception as e:
             logger.error(f"Error loading log file {file_path}: {e}")
             QMessageBox.warning(self, "Error", f"Failed to load log file:\n{str(e)}")
             self.progress_bar.setVisible(False)
+
+    def _on_file_loaded(self, content: str):
+        self.log_display.setPlainText(content)
+
+        # Start real-time monitoring if enabled
+        if self.realtime_checkbox.isChecked() and self.current_log_file:
+            self._start_realtime_monitoring(self.current_log_file)
+
+        if self.auto_scroll:
+            self._scroll_to_bottom()
+
+        self.progress_bar.setVisible(False)
+
+    def _on_file_load_error(self, err: str):
+        QMessageBox.warning(self, "Error", f"Failed to load log file:\n{err}")
+        self.progress_bar.setVisible(False)
 
     def _start_realtime_monitoring(self, file_path):
         """Start real-time monitoring of log file"""
@@ -494,30 +583,37 @@ class LogViewer(QMainWindow):
             if not self.current_log_file:
                 return
 
-            # Read the original log file
-            with open(self.current_log_file, 'r', encoding='utf-8', errors='replace') as f:
-                content = f.read()
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setRange(0, 0)
 
-            if level == "All":
-                # Show all content
-                self.log_display.setPlainText(content)
-                self._set_status_message("Showing all log levels")
-            else:
-                # Filter by log level
+            def do_filter(content: str, level_text: str):
+                if level_text == "All":
+                    return content, "Showing all log levels"
                 lines = content.split('\n')
-                filtered_lines = []
+                filtered = [line for line in lines if (f" - {level_text} - " in line) or (level_text.upper() in line)]
+                return '\n'.join(filtered), f"Showing {len(filtered)} lines with {level_text} level"
 
-                for line in lines:
-                    if f" - {level} - " in line or level.upper() in line:
-                        filtered_lines.append(line)
+            # Reuse file loader thread to avoid blocking
+            loader = FileReaderThread(self.current_log_file)
 
-                filtered_content = '\n'.join(filtered_lines)
+            def on_loaded(content: str):
+                filtered_content, msg = do_filter(content, level)
                 self.log_display.setPlainText(filtered_content)
-                self._set_status_message(f"Showing {len(filtered_lines)} lines with {level} level")
+                self._set_status_message(msg)
+                if self.auto_scroll:
+                    self._scroll_to_bottom()
+                self.progress_bar.setVisible(False)
 
-            # Auto-scroll to bottom after filtering
-            if self.auto_scroll:
-                self._scroll_to_bottom()
+            def on_error(err: str):
+                logger.error(f"Error filtering logs: {err}")
+                self._set_status_message("Error filtering logs")
+                self.progress_bar.setVisible(False)
+
+            loader.loaded.connect(on_loaded)
+            loader.error.connect(on_error)
+            loader.start()
+
+            self._filter_loader = loader
 
         except Exception as e:
             logger.error(f"Error filtering logs: {e}")

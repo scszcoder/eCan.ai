@@ -1067,6 +1067,7 @@ class MenuManager:
         try:
             # Import here to avoid circular imports
             from gui.log_viewer import LogViewer
+            from PySide6.QtCore import Qt
 
             # Check if log viewer is already open
             if hasattr(self, 'log_viewer_window') and self.log_viewer_window and not self.log_viewer_window.isHidden():
@@ -1075,8 +1076,12 @@ class MenuManager:
                 self.log_viewer_window.activateWindow()
                 logger.info("Brought existing log viewer window to front")
             else:
-                # Create new log viewer window
-                self.log_viewer_window = LogViewer(self.main_window)
+                # Create new log viewer window WITHOUT parent to avoid staying on top of main window
+                self.log_viewer_window = LogViewer(None)
+                # Ensure it's a normal top-level, non-modal window
+                self.log_viewer_window.setWindowModality(Qt.NonModal)
+                self.log_viewer_window.setWindowFlag(Qt.Window, True)
+                self.log_viewer_window.setWindowFlag(Qt.WindowStaysOnTopHint, False)
                 self.log_viewer_window.show()
                 logger.info("Opened new log viewer window")
 
