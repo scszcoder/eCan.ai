@@ -654,3 +654,64 @@ class LLMManager:
             
         except Exception as e:
             logger.error(f"[LLMManager] Error showing LLM provider onboarding guide: {e}")
+    
+    def validate_and_fix_default_llm_model(self, default_llm: str, default_llm_model: str) -> Tuple[str, bool]:
+        """
+        Validate that default_llm_model belongs to the default_llm provider.
+        If not, return the provider's default model.
+        
+        Args:
+            default_llm: The provider name
+            default_llm_model: The model name to validate
+            
+        Returns:
+            Tuple of (corrected_model_name, was_fixed)
+            - corrected_model_name: The model name to use (either original or provider default)
+            - was_fixed: True if the model was corrected, False if it was already valid
+        """
+        try:
+            if not default_llm or not default_llm_model:
+                # If no provider or model, return empty and indicate no fix needed
+                return (default_llm_model or '', False)
+            
+            # Get the provider configuration
+            provider = self.get_provider(default_llm)
+            if not provider:
+                # Provider not found, return original model
+                return (default_llm_model, False)
+            
+            # Check if default_llm_model belongs to this provider
+            supported_models = provider.get('supported_models', [])
+            if supported_models:
+                model_ids = [m.get('model_id', m.get('name', '')) for m in supported_models]
+                model_names = [m.get('name', '') for m in supported_models]
+                model_display_names = [m.get('display_name', '') for m in supported_models]
+                
+                # Check if model belongs to provider
+                if (default_llm_model in model_ids or 
+                    default_llm_model in model_names or 
+                    default_llm_model in model_display_names):
+                    # Model is valid, return as-is
+                    return (default_llm_model, False)
+                else:
+                    # Model doesn't belong to provider, return provider's default
+                    provider_default_model = provider.get('default_model', '')
+                    logger.info(
+                        f"[LLMManager] 🔧 Model '{default_llm_model}' does not belong to provider '{default_llm}'. "
+                        f"Using provider default '{provider_default_model}' instead."
+                    )
+                    return (provider_default_model, True)
+            else:
+                # No supported models list, return provider's default
+                provider_default_model = provider.get('default_model', '')
+                if provider_default_model != default_llm_model:
+                    logger.info(
+                        f"[LLMManager] 🔧 No supported models list for '{default_llm}'. "
+                        f"Using provider default '{provider_default_model}' instead of '{default_llm_model}'."
+                    )
+                    return (provider_default_model, True)
+                return (default_llm_model, False)
+                
+        except Exception as e:
+            logger.warning(f"[LLMManager] Error validating default_llm_model: {e}")
+            return (default_llm_model, False)

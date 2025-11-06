@@ -533,26 +533,52 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
         old_default_llm = main_window.config_manager.general_settings.default_llm
         old_default_model = main_window.config_manager.general_settings.default_llm_model
 
-        # Update default_llm and default_llm_model in general_settings
+        # Update default_llm first
         main_window.config_manager.general_settings.default_llm = name
         
-        # Use model from frontend if provided, otherwise fallback to provider's preferred/default model
+        # Determine which model to use
         if model:
+            # Frontend explicitly provided a model
             provider_model = model
             logger.info(f"[LLM] Using model from frontend: {model}")
         else:
-            provider_model = provider.get('preferred_model') or provider.get('default_model') or ''
-            logger.info(f"[LLM] Using provider's model: {provider_model}")
+            # No model from frontend, need to determine from current settings
+            current_default_model = main_window.config_manager.general_settings.default_llm_model
+            
+            # Check if we're switching providers
+            is_switching_provider = (old_default_llm != name)
+            
+            if is_switching_provider and current_default_model:
+                # When switching providers, validate that current_default_model belongs to the new provider
+                # Use llm_manager to validate and fix
+                provider_model, was_fixed = llm_manager.validate_and_fix_default_llm_model(
+                    name, current_default_model
+                )
+                if was_fixed:
+                    logger.info(f"[LLM] Switching provider: existing model '{current_default_model}' doesn't belong to '{name}', using provider default '{provider_model}'")
+                else:
+                    logger.info(f"[LLM] Using existing model '{provider_model}' (valid for new provider)")
+            else:
+                # Not switching provider, or no current_default_model
+                # Use preferred_model (which may come from current_default_model) or default_model
+                provider_model = provider.get('preferred_model') or provider.get('default_model') or ''
+                logger.info(f"[LLM] Using provider's model: {provider_model}")
         
-        # Validate model belongs to this provider (safety check)
+        # Final validation: ensure model belongs to this provider (safety check)
         supported_models = provider.get('supported_models', [])
         if supported_models:
             model_ids = [m.get('model_id', m.get('name', '')) for m in supported_models]
-            if provider_model and provider_model not in model_ids:
-                logger.warning(f"Model '{provider_model}' not found in provider '{name}' supported models: {model_ids}")
+            model_names = [m.get('name', '') for m in supported_models]
+            model_display_names = [m.get('display_name', '') for m in supported_models]
+            
+            if provider_model and (provider_model not in model_ids and 
+                                   provider_model not in model_names and 
+                                   provider_model not in model_display_names):
+                logger.warning(f"Model '{provider_model}' not found in provider '{name}' supported models")
                 logger.warning("Using provider's default model instead")
                 provider_model = provider.get('default_model', '')
         
+        # Update default_llm_model
         main_window.config_manager.general_settings.default_llm_model = provider_model
         
         save_result = main_window.config_manager.general_settings.save()

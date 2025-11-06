@@ -470,14 +470,43 @@ def extract_provider_config(provider, config_manager=None):
     # Check if provider is an LLMProvider instance
     if isinstance(provider, LLMProvider):
         # Use the class methods for cleaner code
+        # Store the original provider default model for fallback (directly from default_model, not preferred_model)
+        # This ensures we get the true provider default, not a user-selected model from another provider
+        if provider.default_model:
+            original_provider_model = provider.default_model
+        elif provider.supported_models:
+            original_provider_model = provider.supported_models[0].model_id
+        else:
+            original_provider_model = None
+        
+        # Get current model name (may include preferred_model from user settings)
         model_name = provider.get_model_name()
         
-        # Override with user-selected model if available
+        # Override with user-selected model if available and valid for this provider
         if config_manager and hasattr(config_manager, 'general_settings'):
             user_selected_model = config_manager.general_settings.default_llm_model
             if user_selected_model:
-                logger.debug(f"[extract_provider_config] Using user-selected model: {user_selected_model} (instead of {model_name})")
-                model_name = user_selected_model
+                # Validate that user-selected model belongs to this provider
+                is_valid_model = False
+                if provider.supported_models:
+                    # Check if model_id or name matches
+                    for model in provider.supported_models:
+                        if (user_selected_model == model.model_id or 
+                            user_selected_model == model.name or
+                            user_selected_model == model.display_name):
+                            is_valid_model = True
+                            break
+                
+                if is_valid_model:
+                    logger.debug(f"[extract_provider_config] Using user-selected model: {user_selected_model} (instead of {model_name})")
+                    model_name = user_selected_model
+                else:
+                    # Use the original provider default model, not preferred_model (which may be from wrong provider)
+                    model_name = original_provider_model
+                    logger.warning(
+                        f"[extract_provider_config] User-selected model '{user_selected_model}' "
+                        f"does not belong to provider '{provider.name}'. Using provider's default model '{model_name}' instead."
+                    )
         
         return {
             'model_name': model_name,
@@ -501,7 +530,14 @@ def extract_provider_config(provider, config_manager=None):
     default_model_name = provider.get('default_model')
     api_key_env_vars = provider.get('api_key_env_vars', [])
     
-    # Determine which model to use
+    # Store the original provider default model for fallback
+    original_provider_model = default_model_name
+    if not original_provider_model and supported_models:
+        # Use the first supported model's model_id as fallback
+        first_model = supported_models[0]
+        original_provider_model = first_model.get('model_id', first_model.get('name'))
+    
+    # Determine which model to use (preferred_model may come from user settings)
     model_name = None
     if preferred_model:
         model_name = preferred_model
@@ -512,12 +548,34 @@ def extract_provider_config(provider, config_manager=None):
         first_model = supported_models[0]
         model_name = first_model.get('model_id', first_model.get('name'))
     
-    # Override with user-selected model if available (for dict-based providers)
+    # Override with user-selected model if available and valid for this provider (for dict-based providers)
     if config_manager and hasattr(config_manager, 'general_settings'):
         user_selected_model = config_manager.general_settings.default_llm_model
         if user_selected_model:
-            logger.debug(f"[extract_provider_config] Using user-selected model: {user_selected_model} (instead of {model_name})")
-            model_name = user_selected_model
+            # Validate that user-selected model belongs to this provider
+            is_valid_model = False
+            if supported_models:
+                # Check if model_id or name matches
+                for model in supported_models:
+                    model_id = model.get('model_id', '')
+                    model_name_key = model.get('name', '')
+                    display_name = model.get('display_name', '')
+                    if (user_selected_model == model_id or 
+                        user_selected_model == model_name_key or
+                        user_selected_model == display_name):
+                        is_valid_model = True
+                        break
+            
+            if is_valid_model:
+                logger.debug(f"[extract_provider_config] Using user-selected model: {user_selected_model} (instead of {model_name})")
+                model_name = user_selected_model
+            else:
+                # Use the original provider default model, not preferred_model (which may be from wrong provider)
+                model_name = original_provider_model
+                logger.warning(
+                    f"[extract_provider_config] User-selected model '{user_selected_model}' "
+                    f"does not belong to provider '{provider_name}'. Using provider's default model '{model_name}' instead."
+                )
     
     # Get API key from environment variables
     api_key = None
