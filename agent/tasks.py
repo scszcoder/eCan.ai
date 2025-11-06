@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 import time
 from queue import Queue, Empty
 import threading
+import concurrent.futures
 from langgraph.types import Command
 from langgraph.errors import GraphInterrupt
 
@@ -1006,6 +1007,13 @@ class TaskRunner(Generic[Context]):
     def __init__(self, agent):  # includes persistence methods
         self.agent = agent
         self.tasks: Dict[str, ManagedTask] = {}
+        # Skill execution thread pool for non-blocking execution
+        self._skill_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=20, 
+            thread_name_prefix="SkillExec"
+        )
+        # Track per-task state for concurrent execution
+        self._task_states = {}  # {task_id: {'justStarted': bool}}
         self.bp_manager = BreakpointManager()
         self.running_tasks = []
         self.save_dir = os.path.join(agent.mainwin.my_ecb_data_homepath, "task_saves")
@@ -1079,8 +1087,10 @@ class TaskRunner(Generic[Context]):
 
         # First, try task-specific routing based on each task's skill mapping_rules
         try:
-            print(f"this agent has # tasks: {len(getattr(self.agent, 'tasks', []))}")
-            for t in getattr(self.agent, "tasks", []) or []:
+            tasks_list = getattr(self.agent, "tasks", []) or []
+            print(f"this agent has # tasks: {len(tasks_list)}")
+            logger.info(f"[ROUTING] Agent {self.agent.card.name} has {len(tasks_list)} tasks: {[(t.name, t.id, id(t.queue) if hasattr(t, 'queue') else None) for t in tasks_list]}")
+            for t in tasks_list:
                 print("task:", t.name, t.skill)
                 if not t or not getattr(t, "skill", None):
                     continue
@@ -1136,6 +1146,7 @@ class TaskRunner(Generic[Context]):
                     continue
 
                 # Return the matching task; caller will use its queue
+                logger.info(f"[ROUTING] Matched task: name={t.name}, id={t.id}, queue={id(t.queue) if hasattr(t, 'queue') else 'None'}")
                 return t
         except Exception as e:
             err_msg = get_traceback(e, "ErrorResolveEventRouting")
@@ -1690,6 +1701,7 @@ class TaskRunner(Generic[Context]):
         # for now, for the simplicity just find the task that's not scheduled.
         found = [task for task in self.agent.tasks if 'chatter' in task.name.lower()]
         if found:
+            logger.debug(f"[find_chatter_tasks] Found task: id={found[0].id}, queue={id(found[0].queue) if hasattr(found[0], 'queue') else 'None'}")
             return found[0]
         else:
             logger.error("NO chatter tasks found!")
@@ -1926,13 +1938,19 @@ class TaskRunner(Generic[Context]):
             target_task = self._resolve_event_routing(event_type, request, source)
             if target_task and getattr(target_task, "queue", None):
                 try:
+                    queue_size_before = target_task.queue.qsize()
                     target_task.queue.put_nowait(request)
-                    logger.debug(f"task now in line for task={target_task.name} ({target_task.id})")
+                    queue_size_after = target_task.queue.qsize()
+                    logger.info(
+                        f"[QUEUE] Message queued for task={target_task.name} ({target_task.id}), "
+                        f"task_obj_id={id(target_task)}, queue_id={id(target_task.queue)}, "
+                        f"queue_size: {queue_size_before} -> {queue_size_after}"
+                    )
                     return
-                except Exception:
-                    logger.debug("failed to enqueue on task queue")
+                except Exception as e:
+                    logger.error(f"[QUEUE] Failed to enqueue on task queue: {e}")
             # No routing match
-            logger.error("No target task found for event type: " + str(event_type), target_task)
+            logger.error(f"[QUEUE] No target task found for event type: {event_type}, target_task={target_task}")
         except Exception as e:
             ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
             logger.error(f"{ex_stat}")
@@ -1951,16 +1969,42 @@ class TaskRunner(Generic[Context]):
         3. Add error recovery with backoff
         4. Proper state management in finally block
         """
+        # CRITICAL: Log IMMEDIATELY at function entry
+        logger.info(f"[WORKER_THREAD] *** FUNCTION ENTRY *** agent={self.agent.card.name}, trigger_type={trigger_type}")
+        
         justStarted = True
         consecutive_errors = 0
         max_consecutive_errors = 10
         current_task = task2run  # Use local variable instead of modifying parameter
-        logger.debug(f"launch_unified_run started: trigger_type={trigger_type}, agent={self.agent.card.name}")
+        logger.info(f"[WORKER_THREAD] launch_unified_run started: trigger_type={trigger_type}, agent={self.agent.card.name}, task={current_task.name if current_task else 'None'}, task_id={current_task.id if current_task else 'None'}, task_obj_id={id(current_task) if current_task else 'None'}, queue={id(current_task.queue) if current_task and hasattr(current_task, 'queue') else 'None'}")
         
+        loop_count = 0
         while not self._stop_event.is_set():
+            loop_count += 1
             msg = None  # Reset message for each iteration
+            # High-frequency tick for My Twin Agent only to verify loop progress and queue binding
+            try:
+                if "Twin" in self.agent.card.name:
+                    logger.debug(
+                        f"[WORKER_THREAD][Twin] Loop tick: trigger={trigger_type}, loop={loop_count}, "
+                        f"task_id={getattr(current_task, 'id', None)}, task_obj_id={id(current_task)}, qid={id(current_task.queue) if current_task and hasattr(current_task,'queue') else None}"
+                    )
+            except Exception:
+                pass
+            
+            # Log FIRST iteration for My Twin Agent to confirm loop is running
+            if loop_count == 1 and "Twin" in self.agent.card.name:
+                logger.info(f"[WORKER_THREAD] FIRST ITERATION: trigger_type={trigger_type}, agent={self.agent.card.name}")
+            
+            # Log every 10 iterations to show thread is alive
+            if loop_count % 10 == 0:
+                logger.debug(f"[WORKER_THREAD] Still alive: trigger_type={trigger_type}, agent={self.agent.card.name}, loop_count={loop_count}")
             
             try:
+                # Log entry into try block for My Twin Agent
+                if loop_count == 1 and "Twin" in self.agent.card.name:
+                    logger.info(f"[WORKER_THREAD] Entered try block, trigger_type={trigger_type}")
+                
                 # 1. Get task and message based on trigger type
                 if trigger_type == "schedule":
                     # Scheduled tasks: check if it's time to run
@@ -1976,24 +2020,41 @@ class TaskRunner(Generic[Context]):
                 elif trigger_type in ("a2a_queue", "chat_queue", "message"):
                     # Queue-based tasks: wait for messages
                     if not current_task:
+                        logger.warning(f"[WORKER_THREAD] No current_task for trigger_type={trigger_type}")
                         if self._stop_event.wait(timeout=1.0):
                             break
                         continue
                     
-                    if current_task.queue.empty():
-                        if self._stop_event.wait(timeout=1.0):
-                            break
-                        continue
-                    
+                    # Prefer blocking get with short timeout to minimize latency and avoid empty() races
+                    if loop_count % 30 == 0:
+                        logger.debug(f"[WORKER_THREAD] Checking queue for task_id={current_task.id}, queue={id(current_task.queue)}")
+
+                    # Twin-specific: log right before blocking queue.get
+                    if "Twin" in self.agent.card.name:
+                        try:
+                            qsz = current_task.queue.qsize()
+                            logger.debug(
+                                f"[WORKER_THREAD][Twin] About to queue.get(timeout=0.5) for task_id={getattr(current_task,'id', None)}, qid={id(current_task.queue)}, qsize_before={qsz}"
+                            )
+                        except Exception:
+                            pass
+
                     try:
-                        msg = current_task.queue.get_nowait()
-                        logger.trace(f"{trigger_type} message received: {type(msg)}")
-                        
+                        msg = current_task.queue.get(timeout=0.5)
+                        logger.info(f"[WORKER_THREAD] Queue NOT empty! Processing message for task={current_task.name}")
+                        logger.info(f"[WORKER_THREAD] {trigger_type} message received: {type(msg)}")
+
                         # For chat queue, find the appropriate chatter task
                         if trigger_type == "chat_queue":
-                            current_task = self.find_chatter_tasks()  # Use local variable
+                            logger.debug(f"[WORKER_THREAD] Finding chatter task for agent={self.agent.card.name}")
+                            chatter_task = self.find_chatter_tasks()  # Use local variable
+                            if not chatter_task:
+                                logger.error(f"[WORKER_THREAD] No chatter task found for agent={self.agent.card.name}")
+                            else:
+                                logger.info(f"[WORKER_THREAD] Found chatter task: {chatter_task.name}")
+                                current_task = chatter_task
                             if not current_task:
-                                logger.error("No chatter task found")
+                                logger.error("[WORKER_THREAD] No chatter task found (final check)")
                                 # Mark queue task as done even if no task found
                                 if task2run and task2run.queue:
                                     try:
@@ -2002,6 +2063,15 @@ class TaskRunner(Generic[Context]):
                                         pass
                                 continue
                     except Empty:
+                        # No message this cycle; allow cooperative stop and continue quickly
+                        if "Twin" in self.agent.card.name:
+                            try:
+                                qsz_now = current_task.queue.qsize()
+                                logger.debug(f"[WORKER_THREAD][Twin] queue.get timeout (no message), loop={loop_count}, qid={id(current_task.queue)}, qsize_now={qsz_now}")
+                            except Exception:
+                                pass
+                        if self._stop_event.wait(timeout=0.5):
+                            break
                         continue
                 else:
                     logger.error(f"Unknown trigger_type: {trigger_type}")
@@ -2030,116 +2100,127 @@ class TaskRunner(Generic[Context]):
                     logger.error(f"[SKILL_MISSING] Skill type: {type(current_task.skill)}")
                     continue
                 
-                # 2. Execute task (initial run or resume)
-                if justStarted:
-                    # Initial run
-                    logger.debug(f"Initial run: {current_task.skill.name}")
-                    current_task.metadata["state"] = prep_skills_run(
-                        current_task.skill,
-                        self.agent, 
-                        current_task.id, 
-                        msg, 
-                        None
-                    )
-                    response = current_task.stream_run()
-                    logger.debug(f"Initial run response: {response}")
-                    
-                else:
-                    # Resume run
-                    logger.debug(f"Resume run: {current_task.skill.name}", msg)
-                    # On resume, keep existing state; DSL mapping will provide a state_patch via resume payload
-                    
-                    # Build resume payload using mapping DSL
-                    resume_payload, cp = self._build_resume_payload(current_task, msg)
-                    logger.debug(f"Resume payload: {resume_payload}")
-                    print(f"current cp: ", cp)
-
-                    # note langgraph could have multiple interrupted nodes, checkpoint is
-                    # critical for picking up exactly where it's left off.
-                    if cp:
-                        response = current_task.stream_run(
-                            Command(resume=resume_payload), 
-                            checkpoint=cp, 
-                            stream_mode="updates"
-                        )
-                    else:
-                        response = current_task.stream_run(
-                            Command(resume=resume_payload), 
-                            stream_mode="updates"
-                        )
-                    logger.debug(f"Resume run response: {response}")
+                # 2. Execute task NON-BLOCKING (submit to executor)
+                # Extract task_id for waiter resolution
+                waiter_task_id = None
+                try:
+                    if msg and hasattr(msg, 'params') and hasattr(msg.params, 'id'):
+                        waiter_task_id = msg.params.id
+                    elif msg and isinstance(msg, dict):
+                        attrs = msg.get('attributes')
+                        if isinstance(attrs, dict) and attrs.get('params'):
+                            params = attrs['params']
+                            waiter_task_id = params.id if hasattr(params, 'id') else params.get('id')
+                        if not waiter_task_id:
+                            waiter_task_id = msg.get('params', {}).get('id') or msg.get('id')
+                except Exception as e:
+                    logger.error(f"Failed to extract waiter_task_id: {e}")
                 
-                # 3. Handle response and interrupts
-                # by the time we get here, we should have either
-                # A) the langgraph workflow is finished.
-                #  or
-                # B) we hit an interrupt.
-                step = response.get('step') or {}
-                logger.debug(f"Current Step: {step}")
-                current_state = response.get('cp')
+                logger.info(f"[NON_BLOCKING] Submitting skill execution to executor for task_id={waiter_task_id}")
                 
-                if isinstance(step, dict) and '__interrupt__' in step:
-                    # Task interrupted - send prompt to GUI
-                    interrupt_obj = step["__interrupt__"][0]
-
-                    # if interrupted due to human in loop or other agent in loop
-                    if "prompt_to_human" in interrupt_obj.value or "prompt_to_agent" in interrupt_obj.value:
-                        # Extract chatId from message metadata
-                        print("prompt_to_human:", interrupt_obj.value["prompt_to_human"], "<<<")
-                        print("current state:", current_state)
-                        try:
-                            chatId = current_state.values.get("messages")[1]
-                        except Exception:
-                            chatId = ""
-                            pass
-                        print("chatId:", chatId, "<<<")
-                        if chatId:
-                            # re-org data to be sent chatId, interrupt_obj.value["qa_form_to_human"])
-                            # the assumption is message to be sent is already placed properly in the state.
-                            send_response_back(current_state.values)
-                    justStarted = False
-                else:
-                    # Task completed, we flag it as justStarted for the next run.
-                    justStarted = True
+                # Initialize task state if not present
+                if current_task.id not in self._task_states:
+                    self._task_states[current_task.id] = {'justStarted': True}
                 
-                # 4. Resolve task result
-                if trigger_type == "schedule":
-                    # Scheduled tasks report to task manager
-                    if response:
-                        self.agent.a2a_server.task_manager.set_result(current_task.id, response)
-                    else:
-                        self.agent.a2a_server.task_manager.set_exception(current_task.id, RuntimeError("Task failed"))
-                        
-                elif trigger_type in ("a2a_queue", "chat_queue"):
-                    # Queue-based tasks resolve waiters
-                    task_id = None
+                # Capture state for this specific message execution
+                is_initial_run = self._task_states[current_task.id]['justStarted']
+                
+                # Submit skill execution to background thread
+                def _execute_skill():
                     try:
-                        # For A2A SendTaskRequest objects
-                        if msg and hasattr(msg, 'params') and hasattr(msg.params, 'id'):
-                            task_id = msg.params.id
-                        # For dict messages (state snapshots)
-                        elif msg and isinstance(msg, dict):
-                            # Priority 1: Check attributes.params.id (A2A task ID in state)
-                            attrs = msg.get('attributes')
-                            if isinstance(attrs, dict) and attrs.get('params'):
-                                params = attrs['params']
-                                # params is usually TaskSendParams object
-                                task_id = params.id if hasattr(params, 'id') else params.get('id')
+                        if is_initial_run:
+                            # Initial run
+                            logger.debug(f"[EXECUTOR] Initial run: {current_task.skill.name}")
+                            current_task.metadata["state"] = prep_skills_run(
+                                current_task.skill,
+                                self.agent, 
+                                current_task.id, 
+                                msg, 
+                                None
+                            )
+                            response = current_task.stream_run()
+                            logger.debug(f"[EXECUTOR] Initial run response: {response}")
+                            return response, True  # (response, task_completed)
+                        else:
+                            # Resume run
+                            logger.debug(f"[EXECUTOR] Resume run: {current_task.skill.name}")
+                            resume_payload, cp = self._build_resume_payload(current_task, msg)
+                            logger.debug(f"[EXECUTOR] Resume payload: {resume_payload}")
                             
-                            # Priority 2: Fallback to original logic
-                            if not task_id:
-                                task_id = msg.get('params', {}).get('id') or msg.get('id')
+                            if cp:
+                                response = current_task.stream_run(
+                                    Command(resume=resume_payload), 
+                                    checkpoint=cp, 
+                                    stream_mode="updates"
+                                )
+                            else:
+                                response = current_task.stream_run(
+                                    Command(resume=resume_payload), 
+                                    stream_mode="updates"
+                                )
+                            logger.debug(f"[EXECUTOR] Resume run response: {response}")
+                            return response, False  # (response, task_interrupted)
                     except Exception as e:
-                        logger.error(f"Failed to extract task_id from message: {e}, msg type={type(msg)}")
-                    
-                    if task_id:
-                        logger.debug(f"[A2A] Resolving waiter for task_id={task_id}, trigger_type={trigger_type}")
-                        self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
-                        logger.debug(f"[A2A] Waiter resolved for task_id={task_id}")
-                    else:
-                        logger.warning(f"[A2A] No task_id found in message for trigger_type={trigger_type}, msg type={type(msg)}")
+                        logger.error(f"[EXECUTOR] Skill execution failed: {e}")
+                        logger.error(traceback.format_exc())
+                        return None, True
                 
-                # Reset error counter on successful execution
+                # Callback when skill execution completes
+                def _on_skill_complete(future):
+                    try:
+                        response, task_completed = future.result()
+                        logger.info(f"[NON_BLOCKING] Skill execution completed for waiter_task_id={waiter_task_id}")
+                        
+                        # Handle response and interrupts
+                        task_interrupted = False
+                        if response:
+                            step = response.get('step') or {}
+                            logger.debug(f"[EXECUTOR] Current Step: {step}")
+                            current_state = response.get('cp')
+                            
+                            if isinstance(step, dict) and '__interrupt__' in step:
+                                task_interrupted = True
+                                interrupt_obj = step["__interrupt__"][0]
+                                if "prompt_to_human" in interrupt_obj.value or "prompt_to_agent" in interrupt_obj.value:
+                                    try:
+                                        chatId = current_state.values.get("messages")[1]
+                                    except Exception:
+                                        chatId = ""
+                                    if chatId:
+                                        send_response_back(current_state.values)
+                        
+                        # Update task state for next message
+                        if task_interrupted:
+                            self._task_states[current_task.id]['justStarted'] = False
+                        else:
+                            self._task_states[current_task.id]['justStarted'] = True
+                        
+                        # Resolve waiter
+                        if trigger_type == "schedule":
+                            if response:
+                                self.agent.a2a_server.task_manager.set_result(current_task.id, response)
+                            else:
+                                self.agent.a2a_server.task_manager.set_exception(current_task.id, RuntimeError("Task failed"))
+                        elif trigger_type in ("a2a_queue", "chat_queue"):
+                            if waiter_task_id:
+                                logger.debug(f"[A2A] Resolving waiter for task_id={waiter_task_id}, trigger_type={trigger_type}")
+                                self.agent.a2a_server.task_manager.resolve_waiter(waiter_task_id, response)
+                                logger.debug(f"[A2A] Waiter resolved for task_id={waiter_task_id}")
+                            else:
+                                logger.warning(f"[A2A] No waiter_task_id found for trigger_type={trigger_type}")
+                    except Exception as e:
+                        logger.error(f"[NON_BLOCKING] Callback error: {e}")
+                        logger.error(traceback.format_exc())
+                
+                # Submit to executor with callback
+                future = self._skill_executor.submit(_execute_skill)
+                future.add_done_callback(_on_skill_complete)
+                logger.info(f"[NON_BLOCKING] Skill execution submitted, continuing to poll queue")
+                
+                # Reset justStarted for next iteration (will be set correctly per message)
+                # Note: justStarted is now effectively stateless per-message
+                
+                # Reset error counter on successful submission
                 consecutive_errors = 0
                 
             except Exception as e:
@@ -2166,11 +2247,17 @@ class TaskRunner(Generic[Context]):
                     if current_task and current_task.queue:
                         try:
                             current_task.queue.task_done()
+                            if "Twin" in self.agent.card.name:
+                                try:
+                                    logger.debug(f"[WORKER_THREAD][Twin] task_done marked for task_id={getattr(current_task,'id', None)}, qid={id(current_task.queue)}")
+                                except Exception:
+                                    pass
                         except:
                             pass
             
             # Loop delay - use interruptible wait
             if self._stop_event.wait(timeout=1.0):
+                logger.info(f"[WORKER_THREAD] Stop event set; exiting loop: trigger_type={trigger_type}, agent={self.agent.card.name}")
                 break
         
         logger.info(f"launch_unified_run exiting: trigger_type={trigger_type}, agent={self.agent.card.name}")
