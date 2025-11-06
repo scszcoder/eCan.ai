@@ -38,6 +38,7 @@ def create_my_twin_chat_task(mainwin: 'MainWindow'):
         chatter_task = None
 
     if not chatter_task:
+        # Create new task
         task_schedule = TaskSchedule(
             repeat_type=Repeat_Types.NONE,
             repeat_number=1,
@@ -65,7 +66,28 @@ def create_my_twin_chat_task(mainwin: 'MainWindow'):
             trigger="interaction",
             schedule=task_schedule
         )
-        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
+        logger.info(f"[create_my_twin_chat_task] Created new task: {chatter_task.name}, skill: {chatter_skill.name if chatter_skill else None}")
+    else:
+        # Found existing task - update skill if needed
+        needs_update = False
+        
+        if chatter_task.skill is None and chatter_skill is not None:
+            chatter_task.skill = chatter_skill
+            needs_update = True
+            logger.info(f"[create_my_twin_chat_task] ✅ Updated existing task '{chatter_task.name}' with skill '{chatter_skill.name}'")
+        
+        # Also ensure metadata and state are set
+        if not hasattr(chatter_task, 'metadata') or chatter_task.metadata is None:
+            state = {"top": "ready"}
+            chatter_task.metadata = {"state": state}
+            chatter_task.state = state
+            needs_update = True
+            logger.info(f"[create_my_twin_chat_task] ✅ Updated existing task '{chatter_task.name}' with metadata")
+        
+        if needs_update:
+            logger.info(f"[create_my_twin_chat_task] Task '{chatter_task.name}' updated successfully")
+        else:
+            logger.debug(f"[create_my_twin_chat_task] Task '{chatter_task.name}' already has skill: {chatter_task.skill.name if chatter_task.skill else None}")
 
     return chatter_task
 
