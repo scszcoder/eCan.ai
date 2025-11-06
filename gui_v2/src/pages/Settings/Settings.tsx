@@ -10,7 +10,7 @@ import { useUserStore } from '../../stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 
 import type { Settings } from './types';
-import { LLMManagement } from './components';
+import { LLMManagement, EmbeddingManagement } from './components';
 
 // Suppress Ant Design useForm warning (form is properly connected in Tab children)
 const originalError = console.error;
@@ -177,6 +177,10 @@ const initialSettings: Settings = {
   default_llm: 'ChatOpenAI',
   default_llm_model: '',
   
+  // Embedding
+  default_embedding: 'OpenAI',
+  default_embedding_model: 'text-embedding-3-small',
+  
   // Skill
   skill_use_git: false,
   
@@ -210,6 +214,8 @@ const Settings: React.FC = () => {
     const tabParam = params.get('tab');
     if (tabParam === 'llm') {
       setActiveTab('llm');
+    } else if (tabParam === 'embedding') {
+      setActiveTab('embedding');
     } else {
       setActiveTab('general');
     }
@@ -279,24 +285,32 @@ const Settings: React.FC = () => {
     }
   }, [username, form, message]);
 
-  // Sync form values when settingsData changes (e.g., from LLM management updates)
+  // Sync form values when settingsData changes (e.g., from LLM/Embedding management updates)
   useEffect(() => {
     if (settingsData && form) {
       // Only update specific fields that changed
       const currentValues = form.getFieldsValue();
+      const updates: any = {};
+      
       if (currentValues.default_llm !== settingsData.default_llm || 
           currentValues.default_llm_model !== settingsData.default_llm_model) {
-        console.log('🔄 Syncing form with updated settingsData:', {
-          default_llm: settingsData.default_llm,
-          default_llm_model: settingsData.default_llm_model
-        });
-        form.setFieldsValue({
-          default_llm: settingsData.default_llm,
-          default_llm_model: settingsData.default_llm_model
-        });
+        updates.default_llm = settingsData.default_llm;
+        updates.default_llm_model = settingsData.default_llm_model;
+      }
+      
+      if (currentValues.default_embedding !== settingsData.default_embedding || 
+          currentValues.default_embedding_model !== settingsData.default_embedding_model) {
+        updates.default_embedding = settingsData.default_embedding;
+        updates.default_embedding_model = settingsData.default_embedding_model;
+      }
+      
+      if (Object.keys(updates).length > 0) {
+        console.log('🔄 Syncing form with updated settingsData:', updates);
+        form.setFieldsValue(updates);
       }
     }
-  }, [settingsData?.default_llm, settingsData?.default_llm_model, form]);
+  }, [settingsData?.default_llm, settingsData?.default_llm_model, 
+      settingsData?.default_embedding, settingsData?.default_embedding_model, form]);
 
   // Handle tab change
   const handleTabChange = (key: string) => {
@@ -305,6 +319,8 @@ const Settings: React.FC = () => {
     const newUrl = new URL(window.location.href);
     if (key === 'llm') {
       newUrl.searchParams.set('tab', 'llm');
+    } else if (key === 'embedding') {
+      newUrl.searchParams.set('tab', 'embedding');
     } else {
       newUrl.searchParams.delete('tab');
     }
@@ -349,6 +365,70 @@ const Settings: React.FC = () => {
           })
           .catch(error => {
             console.error('❌ Error saving default LLM settings:', error);
+          });
+        
+        return updatedSettings;
+      }
+      return prevSettings;
+    });
+  }, [username]);
+
+  // Refs to manage cross-component refresh for shared providers
+  const llmManagementRef = React.useRef<{ loadProviders: () => Promise<void> } | null>(null);
+  const embeddingManagementRef = React.useRef<{ loadProviders: () => Promise<void> } | null>(null);
+
+  // Callback to refresh the other component when shared providers are updated
+  const handleSharedProviderUpdate = useCallback((sharedProviders: Array<{ name: string; type: string }>) => {
+    console.log('🔄 [Settings] Shared providers updated:', sharedProviders);
+    
+    // Refresh the other component based on shared provider type
+    sharedProviders.forEach((provider) => {
+      if (provider.type === 'embedding' && embeddingManagementRef.current) {
+        console.log('🔄 [Settings] Refreshing EmbeddingManagement due to shared provider:', provider.name);
+        embeddingManagementRef.current.loadProviders();
+      } else if (provider.type === 'llm' && llmManagementRef.current) {
+        console.log('🔄 [Settings] Refreshing LLMManagement due to shared provider:', provider.name);
+        llmManagementRef.current.loadProviders();
+      }
+    });
+  }, []);
+
+  // Handle default Embedding change from EmbeddingManagement component
+  const handleDefaultEmbeddingChange = useCallback(async (newDefaultEmbedding: string, newDefaultModel?: string) => {
+    console.log('🔔 [Settings] handleDefaultEmbeddingChange called:', { newDefaultEmbedding, newDefaultModel });
+    
+    if (!username) {
+      console.warn('⚠️ No username, skipping settings save');
+      return;
+    }
+
+    // Update local settings data
+    setSettingsData(prevSettings => {
+      console.log('🔄 [Settings] Previous settings:', { default_embedding: prevSettings?.default_embedding, default_embedding_model: prevSettings?.default_embedding_model });
+      
+      if (prevSettings) {
+        const updates: any = { default_embedding: newDefaultEmbedding };
+        // Also update default_embedding_model if provided
+        if (newDefaultModel !== undefined) {
+          updates.default_embedding_model = newDefaultModel;
+        }
+        console.log('🔄 Updating settings in parent:', updates);
+        
+        // Save updated settings to backend
+        const updatedSettings = { ...prevSettings, ...updates };
+        console.log('✅ [Settings] New settings created:', { default_embedding: updatedSettings.default_embedding, default_embedding_model: updatedSettings.default_embedding_model });
+        
+        // Async save to backend (don't await to avoid blocking UI)
+        get_ipc_api().saveSettings({ username, ...updatedSettings })
+          .then(response => {
+            if (response && response.success) {
+              console.log('✅ Default Embedding settings saved to backend:', { default_embedding: newDefaultEmbedding, default_embedding_model: newDefaultModel });
+            } else {
+              console.error('❌ Failed to save default Embedding settings:', response);
+            }
+          })
+          .catch(error => {
+            console.error('❌ Error saving default Embedding settings:', error);
           });
         
         return updatedSettings;
@@ -1319,10 +1399,26 @@ const Settings: React.FC = () => {
               label: t('pages.settings.llm_tab_title') || 'LLM',
               children: (
                 <LLMManagement
+                  ref={llmManagementRef}
                   username={username}
                   defaultLLM={settingsData?.default_llm || ''}
                   settingsLoaded={settingsLoaded}
                   onDefaultLLMChange={handleDefaultLLMChange}
+                  onSharedProviderUpdate={handleSharedProviderUpdate}
+                />
+              ),
+            },
+            {
+              key: 'embedding',
+              label: t('pages.settings.embedding_tab_title') || 'Embedding',
+              children: (
+                <EmbeddingManagement
+                  ref={embeddingManagementRef}
+                  username={username}
+                  defaultEmbedding={settingsData?.default_embedding || ''}
+                  settingsLoaded={settingsLoaded}
+                  onDefaultEmbeddingChange={handleDefaultEmbeddingChange}
+                  onSharedProviderUpdate={handleSharedProviderUpdate}
                 />
               ),
             },

@@ -312,6 +312,43 @@ export class IPCAPI {
         return this.executeRequest<T>('get_llm_providers_with_credentials', {});
     }
 
+    // Embedding Management APIs
+    public async getEmbeddingProviders<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_embedding_providers', {});
+    }
+
+    public async setDefaultEmbedding<T>(name: string, username: string, model?: string): Promise<APIResponse<T>> {
+        const params: any = { name, username };
+        if (model) {
+            params.model = model;
+        }
+        return this.executeRequest<T>('set_default_embedding', params);
+    }
+
+    public async updateEmbeddingProvider<T>(name: string, apiKey: string, azureEndpoint?: string): Promise<APIResponse<T>> {
+        const params: any = { name, api_key: apiKey };
+        if (azureEndpoint) {
+            params.azure_endpoint = azureEndpoint;
+        }
+        return this.executeRequest<T>('update_embedding_provider', params);
+    }
+
+    public async setEmbeddingProviderModel<T>(name: string, model: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('set_embedding_provider_model', { name, model });
+    }
+
+    public async deleteEmbeddingProviderConfig<T>(name: string, username: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('delete_embedding_provider_config', { name, username });
+    }
+
+    public async getEmbeddingProviderApiKey<T>(name: string, showFull: boolean = false): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_embedding_provider_api_key', { name, show_full: showFull });
+    }
+
+    public async getDefaultEmbedding<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_default_embedding', {});
+    }
+
     public async runTest<T>(tests: TestConfig[]): Promise<APIResponse<T>> {
         return this.executeRequest<T>('run_tests', { tests });
     }

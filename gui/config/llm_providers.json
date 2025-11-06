@@ -778,6 +778,95 @@
         }
       ]
     },
+    "百度千帆": {
+      "name": "百度千帆",
+      "display_name": "百度千帆",
+      "provider": "baidu_qianfan",
+      "class_name": "ChatBaiduQianfan",
+      "api_key_env_vars": [
+        "BAIDU_API_KEY",
+        "BAIDU_SECRET_KEY"
+      ],
+      "base_url": "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat",
+      "default_model": "ernie-4.0-8k",
+      "description": "百度千帆大模型平台，支持文心系列模型",
+      "documentation_url": "https://cloud.baidu.com/doc/WENXINWORKSHOP/s/llmk7mviz",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "ernie-4.0-8k",
+          "display_name": "ERNIE 4.0 8K",
+          "model_id": "ernie-4.0-8k",
+          "default_temperature": 0.7,
+          "max_tokens": 8192,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": null,
+          "description": "百度文心4.0模型，8K上下文"
+        },
+        {
+          "name": "ernie-4.0-128k",
+          "display_name": "ERNIE 4.0 128K",
+          "model_id": "ernie-4.0-128k",
+          "default_temperature": 0.7,
+          "max_tokens": 131072,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": null,
+          "description": "百度文心4.0模型，128K长上下文"
+        },
+        {
+          "name": "ernie-3.5-8k",
+          "display_name": "ERNIE 3.5 8K",
+          "model_id": "ernie-3.5-8k",
+          "default_temperature": 0.7,
+          "max_tokens": 8192,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": null,
+          "description": "百度文心3.5模型，8K上下文"
+        },
+        {
+          "name": "ernie-3.5-128k",
+          "display_name": "ERNIE 3.5 128K",
+          "model_id": "ernie-3.5-128k",
+          "default_temperature": 0.7,
+          "max_tokens": 131072,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": null,
+          "description": "百度文心3.5模型，128K长上下文"
+        },
+        {
+          "name": "ernie-turbo-8k",
+          "display_name": "ERNIE Turbo 8K",
+          "model_id": "ernie-turbo-8k",
+          "default_temperature": 0.7,
+          "max_tokens": 8192,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": null,
+          "description": "百度文心Turbo模型，快速响应"
+        },
+        {
+          "name": "ernie-speed-128k",
+          "display_name": "ERNIE Speed 128K",
+          "model_id": "ernie-speed-128k",
+          "default_temperature": 0.7,
+          "max_tokens": 131072,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": null,
+          "description": "百度文心Speed模型，128K上下文，高性价比"
+        }
+      ]
+    },
     "Ollama (Local)": {
       "name": "Ollama (Local)",
       "display_name": "Ollama (Local)",

@@ -11,6 +11,7 @@
     "engines": ["network_api_engine", "schedule_engine"],
     "ocr": ["ocr_api_endpoint"],
     "llm": ["default_llm", "default_llm_model"],
+    "embedding": ["default_embedding", "default_embedding_model"],
     "skill": ["skill_use_git"],
     "internal": ["last_bots_file", "last_bots_file_time", "last_order_file", "last_order_file_time", "mids_forced_to_run"]
   },
@@ -55,6 +56,9 @@
   
   "default_llm": "OpenAI",
   "default_llm_model": "gpt-5",
+  
+  "default_embedding": "OpenAI",
+  "default_embedding_model": "text-embedding-3-small",
   
   "skill_use_git": false,
   

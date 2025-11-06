@@ -1,0 +1,321 @@
+{
+  "providers": {
+    "OpenAI": {
+      "name": "OpenAI",
+      "display_name": "OpenAI Embeddings",
+      "provider": "openai",
+      "class_name": "OpenAIEmbeddings",
+      "api_key_env_vars": [
+        "OPENAI_API_KEY"
+      ],
+      "base_url": "https://api.openai.com/v1",
+      "default_model": "text-embedding-3-small",
+      "description": "OpenAI embedding models",
+      "documentation_url": "https://platform.openai.com/docs/guides/embeddings",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "text-embedding-3-small",
+          "display_name": "text-embedding-3-small",
+          "model_id": "text-embedding-3-small",
+          "dimensions": 1536,
+          "description": "Smaller, faster embedding model with 1536 dimensions"
+        },
+        {
+          "name": "text-embedding-3-large",
+          "display_name": "text-embedding-3-large",
+          "model_id": "text-embedding-3-large",
+          "dimensions": 3072,
+          "description": "Larger, more accurate embedding model with 3072 dimensions"
+        },
+        {
+          "name": "text-embedding-ada-002",
+          "display_name": "text-embedding-ada-002",
+          "model_id": "text-embedding-ada-002",
+          "dimensions": 1536,
+          "description": "Previous generation embedding model"
+        }
+      ]
+    },
+    "Azure OpenAI": {
+      "name": "Azure OpenAI",
+      "display_name": "Azure OpenAI Embeddings",
+      "provider": "azure_openai",
+      "class_name": "AzureOpenAIEmbeddings",
+      "api_key_env_vars": [
+        "AZURE_ENDPOINT",
+        "AZURE_OPENAI_API_KEY"
+      ],
+      "base_url": null,
+      "default_model": "text-embedding-3-small",
+      "description": "Azure OpenAI embedding models",
+      "documentation_url": "https://docs.microsoft.com/en-us/azure/cognitive-services/openai/concepts/embeddings",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "text-embedding-3-small",
+          "display_name": "text-embedding-3-small (Azure)",
+          "model_id": "text-embedding-3-small",
+          "dimensions": 1536,
+          "description": "Smaller, faster embedding model via Azure"
+        },
+        {
+          "name": "text-embedding-3-large",
+          "display_name": "text-embedding-3-large (Azure)",
+          "model_id": "text-embedding-3-large",
+          "dimensions": 3072,
+          "description": "Larger, more accurate embedding model via Azure"
+        },
+        {
+          "name": "text-embedding-ada-002",
+          "display_name": "text-embedding-ada-002 (Azure)",
+          "model_id": "text-embedding-ada-002",
+          "dimensions": 1536,
+          "description": "Previous generation embedding model via Azure"
+        }
+      ]
+    },
+    "HuggingFace": {
+      "name": "HuggingFace",
+      "display_name": "HuggingFace Embeddings",
+      "provider": "huggingface",
+      "class_name": "HuggingFaceEmbeddings",
+      "api_key_env_vars": [
+        "HUGGINGFACE_API_KEY"
+      ],
+      "base_url": "https://api-inference.huggingface.co",
+      "default_model": "sentence-transformers/all-MiniLM-L6-v2",
+      "description": "HuggingFace embedding models",
+      "documentation_url": "https://huggingface.co/docs/api-inference/index",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "sentence-transformers/all-MiniLM-L6-v2",
+          "display_name": "all-MiniLM-L6-v2",
+          "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+          "dimensions": 384,
+          "description": "Lightweight, fast embedding model"
+        },
+        {
+          "name": "sentence-transformers/all-mpnet-base-v2",
+          "display_name": "all-mpnet-base-v2",
+          "model_id": "sentence-transformers/all-mpnet-base-v2",
+          "dimensions": 768,
+          "description": "High quality embedding model"
+        },
+        {
+          "name": "sentence-transformers/all-MiniLM-L12-v2",
+          "display_name": "all-MiniLM-L12-v2",
+          "model_id": "sentence-transformers/all-MiniLM-L12-v2",
+          "dimensions": 384,
+          "description": "Better quality than L6-v2 with similar speed"
+        }
+      ]
+    },
+    "Cohere": {
+      "name": "Cohere",
+      "display_name": "Cohere Embeddings",
+      "provider": "cohere",
+      "class_name": "CohereEmbeddings",
+      "api_key_env_vars": [
+        "COHERE_API_KEY"
+      ],
+      "base_url": "https://api.cohere.ai/v1",
+      "default_model": "embed-english-v3.0",
+      "description": "Cohere embedding models optimized for semantic search and retrieval",
+      "documentation_url": "https://docs.cohere.com/docs/embeddings",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "embed-english-v3.0",
+          "display_name": "embed-english-v3.0",
+          "model_id": "embed-english-v3.0",
+          "dimensions": 1024,
+          "description": "Latest English embedding model with 1024 dimensions"
+        },
+        {
+          "name": "embed-multilingual-v3.0",
+          "display_name": "embed-multilingual-v3.0",
+          "model_id": "embed-multilingual-v3.0",
+          "dimensions": 1024,
+          "description": "Multilingual embedding model supporting 100+ languages"
+        },
+        {
+          "name": "embed-english-light-v3.0",
+          "display_name": "embed-english-light-v3.0",
+          "model_id": "embed-english-light-v3.0",
+          "dimensions": 384,
+          "description": "Lightweight English embedding model"
+        }
+      ]
+    },
+    "Voyage AI": {
+      "name": "Voyage AI",
+      "display_name": "Voyage AI Embeddings",
+      "provider": "voyageai",
+      "class_name": "VoyageEmbeddings",
+      "api_key_env_vars": [
+        "VOYAGE_API_KEY"
+      ],
+      "base_url": "https://api.voyageai.com/v1",
+      "default_model": "voyage-2",
+      "description": "Voyage AI embedding models optimized for RAG and semantic search",
+      "documentation_url": "https://docs.voyageai.com/",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "voyage-2",
+          "display_name": "voyage-2",
+          "model_id": "voyage-2",
+          "dimensions": 1024,
+          "description": "Latest general-purpose embedding model"
+        },
+        {
+          "name": "voyage-large-2",
+          "display_name": "voyage-large-2",
+          "model_id": "voyage-large-2",
+          "dimensions": 1536,
+          "description": "Large model with higher accuracy"
+        },
+        {
+          "name": "voyage-code-2",
+          "display_name": "voyage-code-2",
+          "model_id": "voyage-code-2",
+          "dimensions": 1024,
+          "description": "Specialized for code embeddings"
+        }
+      ]
+    },
+    "Google": {
+      "name": "Google",
+      "display_name": "Google Vertex AI Embeddings",
+      "provider": "google",
+      "class_name": "VertexAIEmbeddings",
+      "api_key_env_vars": [
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "GOOGLE_API_KEY"
+      ],
+      "base_url": null,
+      "default_model": "textembedding-gecko@003",
+      "description": "Google Vertex AI embedding models",
+      "documentation_url": "https://cloud.google.com/vertex-ai/docs/generative-ai/embeddings/get-text-embeddings",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "textembedding-gecko@003",
+          "display_name": "textembedding-gecko@003",
+          "model_id": "textembedding-gecko@003",
+          "dimensions": 768,
+          "description": "Latest Google embedding model"
+        },
+        {
+          "name": "textembedding-gecko@002",
+          "display_name": "textembedding-gecko@002",
+          "model_id": "textembedding-gecko@002",
+          "dimensions": 768,
+          "description": "Previous generation Google embedding model"
+        }
+      ]
+    },
+    "百度千帆": {
+      "name": "百度千帆",
+      "display_name": "百度千帆 Embeddings",
+      "provider": "baidu_qianfan",
+      "class_name": "BaiduQianfanEmbeddings",
+      "api_key_env_vars": [
+        "BAIDU_API_KEY",
+        "BAIDU_SECRET_KEY"
+      ],
+      "base_url": "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/embeddings",
+      "default_model": "bge-large-zh",
+      "description": "百度千帆嵌入模型，支持中文和英文文本嵌入",
+      "documentation_url": "https://cloud.baidu.com/doc/WENXINWORKSHOP/s/clntwmv7t",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "bge-large-zh",
+          "display_name": "bge-large-zh",
+          "model_id": "bge-large-zh",
+          "dimensions": 1024,
+          "description": "智源研究院研发的中文嵌入模型，适合中文语义理解"
+        },
+        {
+          "name": "bge-large-en",
+          "display_name": "bge-large-en",
+          "model_id": "bge-large-en",
+          "dimensions": 1024,
+          "description": "智源研究院研发的英文嵌入模型"
+        },
+        {
+          "name": "Embedding-V1",
+          "display_name": "Embedding-V1",
+          "model_id": "Embedding-V1",
+          "dimensions": 1024,
+          "description": "基于百度文心大模型技术的嵌入模型"
+        }
+      ]
+    },
+    "阿里云通义千问": {
+      "name": "阿里云通义千问",
+      "display_name": "阿里云通义千问 Embeddings",
+      "provider": "alibaba_qwen",
+      "class_name": "QwenEmbeddings",
+      "api_key_env_vars": [
+        "DASHSCOPE_API_KEY"
+      ],
+      "base_url": "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding",
+      "default_model": "text-embedding-v4",
+      "description": "阿里云通义千问嵌入模型，支持中英文多语言嵌入",
+      "documentation_url": "https://help.aliyun.com/zh/model-studio/developer-reference/text-embedding-api",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "text-embedding-v4",
+          "display_name": "text-embedding-v4",
+          "model_id": "text-embedding-v4",
+          "dimensions": 1536,
+          "description": "通义千问最新一代文本嵌入模型，性能更优，支持中英文多语言"
+        },
+        {
+          "name": "text-embedding-v3",
+          "display_name": "text-embedding-v3",
+          "model_id": "text-embedding-v3",
+          "dimensions": 1536,
+          "description": "通义千问文本嵌入模型，支持中英文"
+        }
+      ]
+    },
+    "豆包": {
+      "name": "豆包",
+      "display_name": "豆包 Embeddings",
+      "provider": "doubao",
+      "class_name": "DoubaoEmbeddings",
+      "api_key_env_vars": [
+        "DOUBAO_API_KEY"
+      ],
+      "base_url": "https://ark.cn-beijing.volces.com/api/v3/embeddings",
+      "default_model": "doubao-embedding",
+      "description": "字节跳动豆包嵌入模型，支持中英文嵌入",
+      "documentation_url": "https://www.volcengine.com/docs/82379/1099475",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "doubao-embedding",
+          "display_name": "doubao-embedding",
+          "model_id": "doubao-embedding",
+          "dimensions": 1024,
+          "description": "豆包嵌入模型，适用于语义搜索和文本相似度计算"
+        },
+        {
+          "name": "seed1.5-embedding",
+          "display_name": "seed1.5-embedding",
+          "model_id": "seed1.5-embedding",
+          "dimensions": 1024,
+          "description": "字节跳动 Seed1.5 嵌入模型"
+        }
+      ]
+    }
+  }
+}
+
+

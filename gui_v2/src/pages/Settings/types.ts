@@ -78,6 +78,10 @@ export interface Settings {
   default_llm: string;
   default_llm_model: string;
   
+  // Embedding
+  default_embedding: string;
+  default_embedding_model: string;
+  
   // Skill
   skill_use_git: boolean;
   

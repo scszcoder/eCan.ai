@@ -484,6 +484,26 @@ class GeneralSettings:
     def default_llm_model(self, value: str):
         self._data["default_llm_model"] = value
 
+    # ==================== Embedding Settings ====================
+    
+    @property
+    def default_embedding(self) -> str:
+        """Default Embedding provider to use"""
+        return self._data.get("default_embedding", "")
+
+    @default_embedding.setter
+    def default_embedding(self, value: str):
+        self._data["default_embedding"] = value
+
+    @property
+    def default_embedding_model(self) -> str:
+        """Default Embedding model for the current default provider"""
+        return self._data.get("default_embedding_model", "")
+
+    @default_embedding_model.setter
+    def default_embedding_model(self, value: str):
+        self._data["default_embedding_model"] = value
+
     @property
     def skill_use_git(self) -> bool:
         """Whether skills use git"""

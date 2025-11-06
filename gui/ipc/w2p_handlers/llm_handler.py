@@ -27,6 +27,61 @@ def get_llm_manager():
     return main_window.config_manager.llm_manager
 
 
+def get_embedding_manager():
+    """Get Embedding manager instance"""
+    main_window = AppContext.get_main_window()
+    return main_window.config_manager.embedding_manager
+
+
+def find_shared_providers(env_vars: list, provider_type: str) -> list:
+    """
+    Find providers in the other system (LLM/Embedding) that share the same API key env vars.
+    
+    Args:
+        env_vars: List of environment variable names used by the current provider
+        provider_type: 'llm' or 'embedding' to indicate which system we're updating
+    
+    Returns:
+        List of provider names that share the same env_vars
+    """
+    shared_providers = []
+    try:
+        main_window = AppContext.get_main_window()
+        if not main_window:
+            return shared_providers
+        
+        if provider_type == 'llm':
+            # Find Embedding providers that share the same env_vars
+            embedding_manager = get_embedding_manager()
+            all_embedding_providers = embedding_manager.get_all_providers()
+            for provider in all_embedding_providers:
+                provider_env_vars = provider.get('api_key_env_vars', [])
+                # Check if there's any overlap in env_vars
+                if any(env_var in provider_env_vars for env_var in env_vars):
+                    shared_providers.append({
+                        'name': provider['name'],
+                        'type': 'embedding',
+                        'shared_env_vars': [ev for ev in env_vars if ev in provider_env_vars]
+                    })
+        elif provider_type == 'embedding':
+            # Find LLM providers that share the same env_vars
+            llm_manager = get_llm_manager()
+            all_llm_providers = llm_manager.get_all_providers()
+            for provider in all_llm_providers:
+                provider_env_vars = provider.get('api_key_env_vars', [])
+                # Check if there's any overlap in env_vars
+                if any(env_var in provider_env_vars for env_var in env_vars):
+                    shared_providers.append({
+                        'name': provider['name'],
+                        'type': 'llm',
+                        'shared_env_vars': [ev for ev in env_vars if ev in provider_env_vars]
+                    })
+    except Exception as e:
+        logger.debug(f"Error finding shared providers: {e}")
+    
+    return shared_providers
+
+
 @IPCHandlerRegistry.handler('get_llm_providers')
 def handle_get_llm_providers(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
     """Get all LLM providers"""
@@ -178,6 +233,9 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
 
         logger.info(f"Updated LLM provider: {provider_name}")
         
+        # Find shared Embedding providers that use the same API keys
+        shared_providers = find_shared_providers(env_vars, 'llm')
+        
         # Get updated provider info for frontend
         updated_provider = llm_manager.get_provider(provider_name)
         
@@ -186,6 +244,11 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
             'message': f'LLM provider {provider_name} updated successfully',
             'provider': updated_provider  # Include updated provider info for UI refresh
         }
+        
+        # Include shared providers info so frontend can refresh both LLM and Embedding UI
+        if shared_providers:
+            response_data['shared_providers'] = shared_providers
+            logger.info(f"[LLM] Found {len(shared_providers)} shared Embedding providers: {[p['name'] for p in shared_providers]}")
         
         if auto_set_as_default:
             response_data['auto_set_as_default'] = True
@@ -373,6 +436,9 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
                 except Exception as clear_error:
                     logger.error(f"Error clearing LLM instance: {clear_error}")
 
+        # Find shared Embedding providers that use the same API keys
+        shared_providers = find_shared_providers(env_vars, 'llm')
+        
         # Get updated provider info for frontend
         updated_provider = llm_manager.get_provider(provider_name)
         
@@ -382,6 +448,11 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
             'was_default_llm': is_default_llm,
             'provider': updated_provider  # Include updated provider info for UI refresh
         }
+        
+        # Include shared providers info so frontend can refresh both LLM and Embedding UI
+        if shared_providers:
+            response_data['shared_providers'] = shared_providers
+            logger.info(f"[LLM] Found {len(shared_providers)} shared Embedding providers affected by deletion: {[p['name'] for p in shared_providers]}")
         
         # Include new default settings if changed
         if should_update_default and new_default_llm:
