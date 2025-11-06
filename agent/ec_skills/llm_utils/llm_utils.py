@@ -1337,7 +1337,7 @@ def _deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
 def find_opposite_agent(self_agent, chat_id):
     mainwin = self_agent.mainwin
     this_chat = mainwin.db_chat_service.get_chat_by_id(chat_id, True)
-    print("found chat:", this_chat)
+    print("found chat:", this_chat["data"]["id"])
 
     # Check if chat exists and has data
     if not this_chat.get("success") or this_chat.get("data") is None:
