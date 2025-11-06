@@ -32,7 +32,8 @@ def create_my_twin_chat_task(mainwin: 'MainWindow'):
 
     if agent_tasks:
         logger.trace("agent_tasks: ", agent_tasks)
-        chatter_task = next((task for task in agent_tasks if task.name == "chat:Human Chatter Task"), None)
+        # IMPORTANT: match the exact name we create below to ensure reuse instead of duplicating
+        chatter_task = next((task for task in agent_tasks if task.name == "chat:Human Chatter Relay Task"), None)
     else:
         chatter_task = None
 

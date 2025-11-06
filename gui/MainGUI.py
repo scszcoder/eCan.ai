@@ -548,7 +548,7 @@ class MainWindow:
             loop.create_task(self._async_start_lightrag())
             self.wan_sub_task = loop.create_task(self._async_start_wan_chat())
             self.llm_sub_task = loop.create_task(self._async_start_llm_subscription())
-            self.cloud_show_sub_task = loop.create_task(self._async_start_cloud_show_subscription())
+            # self.cloud_show_sub_task = loop.create_task(self._async_start_cloud_show_subscription())
             logger.info("[MainWindow] ✅ All final background service tasks created successfully")
         except RuntimeError as e:
             logger.error(f"[MainWindow] ⚠️ No running event loop for final background services: {e}")
