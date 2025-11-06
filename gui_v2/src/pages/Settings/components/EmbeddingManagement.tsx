@@ -93,9 +93,7 @@ const EmbeddingManagement = React.forwardRef<
 
   // Expose loadProviders method via ref
   useImperativeHandle(ref, () => ({
-    loadProviders: async () => {
-      await loadProviders();
-    },
+    loadProviders,
   }), [loadProviders]);
 
   const modelOptionsCache = useMemo(() => {

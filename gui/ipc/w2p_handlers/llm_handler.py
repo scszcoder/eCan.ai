@@ -48,36 +48,53 @@ def find_shared_providers(env_vars: list, provider_type: str) -> list:
     try:
         main_window = AppContext.get_main_window()
         if not main_window:
+            logger.debug("find_shared_providers: main_window is None")
+            return shared_providers
+        
+        if not hasattr(main_window, 'config_manager') or not main_window.config_manager:
+            logger.debug("find_shared_providers: config_manager is not available")
             return shared_providers
         
         if provider_type == 'llm':
             # Find Embedding providers that share the same env_vars
-            embedding_manager = get_embedding_manager()
-            all_embedding_providers = embedding_manager.get_all_providers()
-            for provider in all_embedding_providers:
-                provider_env_vars = provider.get('api_key_env_vars', [])
-                # Check if there's any overlap in env_vars
-                if any(env_var in provider_env_vars for env_var in env_vars):
-                    shared_providers.append({
-                        'name': provider['name'],
-                        'type': 'embedding',
-                        'shared_env_vars': [ev for ev in env_vars if ev in provider_env_vars]
-                    })
+            try:
+                embedding_manager = get_embedding_manager()
+                if not embedding_manager:
+                    logger.debug("find_shared_providers: embedding_manager is None")
+                    return shared_providers
+                all_embedding_providers = embedding_manager.get_all_providers()
+                for provider in all_embedding_providers:
+                    provider_env_vars = provider.get('api_key_env_vars', [])
+                    # Check if there's any overlap in env_vars
+                    if any(env_var in provider_env_vars for env_var in env_vars):
+                        shared_providers.append({
+                            'name': provider['name'],
+                            'type': 'embedding',
+                            'shared_env_vars': [ev for ev in env_vars if ev in provider_env_vars]
+                        })
+            except Exception as e:
+                logger.debug(f"Error getting embedding providers: {e}")
         elif provider_type == 'embedding':
             # Find LLM providers that share the same env_vars
-            llm_manager = get_llm_manager()
-            all_llm_providers = llm_manager.get_all_providers()
-            for provider in all_llm_providers:
-                provider_env_vars = provider.get('api_key_env_vars', [])
-                # Check if there's any overlap in env_vars
-                if any(env_var in provider_env_vars for env_var in env_vars):
-                    shared_providers.append({
-                        'name': provider['name'],
-                        'type': 'llm',
-                        'shared_env_vars': [ev for ev in env_vars if ev in provider_env_vars]
-                    })
+            try:
+                llm_manager = get_llm_manager()
+                if not llm_manager:
+                    logger.debug("find_shared_providers: llm_manager is None")
+                    return shared_providers
+                all_llm_providers = llm_manager.get_all_providers()
+                for provider in all_llm_providers:
+                    provider_env_vars = provider.get('api_key_env_vars', [])
+                    # Check if there's any overlap in env_vars
+                    if any(env_var in provider_env_vars for env_var in env_vars):
+                        shared_providers.append({
+                            'name': provider['name'],
+                            'type': 'llm',
+                            'shared_env_vars': [ev for ev in env_vars if ev in provider_env_vars]
+                        })
+            except Exception as e:
+                logger.debug(f"Error getting llm providers: {e}")
     except Exception as e:
-        logger.debug(f"Error finding shared providers: {e}")
+        logger.warning(f"Error finding shared providers: {e}", exc_info=True)
     
     return shared_providers
 
@@ -246,9 +263,12 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
         }
         
         # Include shared providers info so frontend can refresh both LLM and Embedding UI
+        # Always include shared_providers in response (even if empty) for consistency
+        response_data['shared_providers'] = shared_providers
         if shared_providers:
-            response_data['shared_providers'] = shared_providers
             logger.info(f"[LLM] Found {len(shared_providers)} shared Embedding providers: {[p['name'] for p in shared_providers]}")
+        else:
+            logger.debug(f"[LLM] No shared Embedding providers found for {provider_name}")
         
         if auto_set_as_default:
             response_data['auto_set_as_default'] = True
@@ -450,9 +470,12 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
         }
         
         # Include shared providers info so frontend can refresh both LLM and Embedding UI
+        # Always include shared_providers in response (even if empty) for consistency
+        response_data['shared_providers'] = shared_providers
         if shared_providers:
-            response_data['shared_providers'] = shared_providers
             logger.info(f"[LLM] Found {len(shared_providers)} shared Embedding providers affected by deletion: {[p['name'] for p in shared_providers]}")
+        else:
+            logger.debug(f"[LLM] No shared Embedding providers affected by deletion of {provider_name}")
         
         # Include new default settings if changed
         if should_update_default and new_default_llm:

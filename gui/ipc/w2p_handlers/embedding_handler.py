@@ -164,9 +164,12 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
         }
         
         # Include shared providers info so frontend can refresh both LLM and Embedding UI
+        # Always include shared_providers in response (even if empty) for consistency
+        response_data['shared_providers'] = shared_providers
         if shared_providers:
-            response_data['shared_providers'] = shared_providers
             logger.info(f"[Embedding] Found {len(shared_providers)} shared LLM providers: {[p['name'] for p in shared_providers]}")
+        else:
+            logger.debug(f"[Embedding] No shared LLM providers found for {provider_name}")
         
         # Always include current settings for frontend UI update
         if main_window:
@@ -396,9 +399,12 @@ def handle_delete_embedding_provider_config(request: IPCRequest, params: Optiona
         }
         
         # Include shared providers info so frontend can refresh both LLM and Embedding UI
+        # Always include shared_providers in response (even if empty) for consistency
+        response_data['shared_providers'] = shared_providers
         if shared_providers:
-            response_data['shared_providers'] = shared_providers
             logger.info(f"[Embedding] Found {len(shared_providers)} shared LLM providers affected by deletion: {[p['name'] for p in shared_providers]}")
+        else:
+            logger.debug(f"[Embedding] No shared LLM providers affected by deletion of {provider_name}")
         
         # Always include current settings for frontend UI update
         response_data['settings'] = {
