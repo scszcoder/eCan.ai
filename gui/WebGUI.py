@@ -245,6 +245,10 @@ class WebGUI(QMainWindow):
     def moveEvent(self, event):
         """Guard against unintended jumps to (0,0) by restoring last center."""
         try:
+            # Skip guard while maximized or fullscreen so window can align to (0,0)
+            if self.isMaximized() or self.isFullScreen():
+                return super().moveEvent(event)
+
             if self._last_center_pos is not None:
                 pos = self.pos()
                 if pos.x() < 5 and pos.y() < 5:
