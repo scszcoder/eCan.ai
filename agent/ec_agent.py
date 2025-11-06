@@ -1,61 +1,21 @@
 from __future__ import annotations
 import traceback
 import asyncio
-import gc
-import inspect
-import json
-import logging
-import os
-import socket
-import re
-import time
-from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, TypeVar, Union
+from typing import Dict, List, Optional
 from dotenv import load_dotenv
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import (
-	BaseMessage,
-	HumanMessage,
-	SystemMessage,
-)
 from queue import Queue
-from langchain.embeddings import init_embeddings
-from langgraph.store.memory import InMemoryStore
 
-# from lmnr.sdk.decorators import observe
-from pydantic import BaseModel, ValidationError
 from agent.models import *
 from agent.a2a.common.client import A2AClient
-# from agent.gif import create_history_gif
-from browser_use.agent.prompts import AgentMessagePrompt
-from browser_use.agent.views import (
-	ActionResult,
-	AgentError,
-	AgentHistory,
-	AgentHistoryList,
-	AgentOutput,
-	AgentSettings,
-	AgentState,
-	AgentStepInfo,
-	AgentStructuredOutput,
-	BrowserStateHistory,
-	StepMetadata,
-)
 from agent.a2a.common.server import A2AServer
-from agent.a2a.common.types import AgentCard, AgentCapabilities
+from agent.a2a.common.types import AgentCard
 from agent.a2a.common.utils.push_notification_auth import PushNotificationSenderAuth
 from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
-from agent.a2a.common.types import Message, TextPart, FilePart, DataPart, FileContent, TaskSendParams
+from agent.a2a.common.types import Message, TextPart, FilePart, FileContent, TaskSendParams
 
-from browser_use.browser.types import Browser, BrowserContext, Page
-from browser_use.browser.views import BrowserStateSummary
-from browser_use.config import CONFIG
-from browser_use.controller.registry.views import ActionModel
-from browser_use.controller.service import Controller
 from browser_use.agent.service import Agent
-from agent.exceptions import LLMException
 from agent.ec_skill import EC_Skill
-from agent.run_utils import check_env_variables, time_execution_async, time_execution_sync
+from agent.run_utils import time_execution_sync
 from agent.tasks import TaskRunner, ManagedTask
 from agent.human_chatter import *
 import threading
@@ -140,17 +100,6 @@ class EC_Agent(Agent):
 		# 	mask_openai_api_key = "Not set"
 		# logger.info("OPENAI API KEY IS::::::::", mask_openai_api_key)
 
-		capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-		def get_lan_ip():
-			try:
-				# Connect to an external address, but don't actually send anything
-				s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-				s.connect(("8.8.8.8", 80))  # Google's DNS IP
-				ip = s.getsockname()[0]
-				s.close()
-				return ip
-			except Exception:
-				return "127.0.0.1"  # fallback
 
 		# Extract port from Card URL (already allocated during card creation)
 		# This avoids duplicate port allocation
