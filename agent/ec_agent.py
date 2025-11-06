@@ -343,22 +343,25 @@ class EC_Agent(Agent):
 		# loop = asyncio.get_running_loop()
 		# kick off TaskExecutor
 		thread_pool_executor = self.mainwin.threadPoolExecutor
+		logger.info(f"[AGENT_START] Agent {self.card.name} has {len(self.tasks)} tasks to start")
 		for task in self.tasks:
 			# new_thread = self.new_thread(task.id)
-			logger.info(f"{self.card.name} Starting task {task.name} with trigger {task.trigger}")
+			qid = id(task.queue) if hasattr(task, 'queue') and task.queue is not None else None
+			logger.info(f"[AGENT_START] {self.card.name} Starting task {task.name} with trigger {task.trigger}, has_queue={hasattr(task, 'queue') and task.queue is not None}")
+			logger.info(f"[AGENT_START] Task details: task_id={getattr(task,'id',None)}, run_id={getattr(task,'run_id',None)}, queue_id={qid}")
 
 			target_func = None
 			if task.trigger == "schedule":
-				logger.info(f" scheduled task name: {task.name}")
+				logger.info(f"[AGENT_START] scheduled task name: {task.name}")
 				target_func = self.runner.launch_scheduled_run
 			elif task.trigger == "message":
-				logger.info(f" message task name: {task.name}")
+				logger.info(f"[AGENT_START] message task name: {task.name}")
 				target_func = self.runner.launch_reacted_run
 			elif task.trigger == "interaction":
-				logger.info(f" interaction task name: {task.name}")
+				logger.info(f"[AGENT_START] interaction task name: {task.name}")
 				target_func = self.runner.launch_interacted_run
 			else:
-				logger.warning(f"WARNING: UNRECOGNIZED task trigger type for task {task.name}")
+				logger.warning(f"[AGENT_START] WARNING: UNRECOGNIZED task trigger type for task {task.name}")
 				continue
 
 			# Submit the task and register it using its run_id
@@ -367,9 +370,10 @@ class EC_Agent(Agent):
 				with self.task_lock:
 					self.active_tasks[task.run_id] = future
 				future.add_done_callback(lambda f, run_id=task.run_id: self._task_done_callback(run_id, f))
-				logger.info(f"Task {task.name} with run_id {task.run_id} submitted and registered.")
+				qid_after = id(task.queue) if hasattr(task, 'queue') and task.queue is not None else None
+				logger.info(f"[AGENT_START] ✅ Submitted: agent={self.card.name}, task={task.name}, task_id={task.id}, run_id={task.run_id}, queue_id={qid_after}, future={future}")
 			else:
-				logger.error(f"Task {task.name} is missing a 'run_id' and cannot be tracked.")
+				logger.error(f"[AGENT_START] ❌ Task {task.name} is missing a 'run_id' and cannot be tracked.")
 
 
 		# runnable = self.skills[0].get_runnable()
