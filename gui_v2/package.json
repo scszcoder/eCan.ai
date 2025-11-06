@@ -120,5 +120,8 @@
     "ts-jest": "^29.4.0",
     "typescript": "^5.8.3",
     "vite": "^6.3.5"
+  },
+  "overrides": {
+    "draft-convert": "2.1.12"
   }
 }
