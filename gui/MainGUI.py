@@ -1444,7 +1444,7 @@ class MainWindow:
         """Start LightRAG server in deferred mode."""
         try:
             from knowledge.lightrag_server import LightragServer
-            from utils.env import secure_store
+            from utils.env.secure_store import secure_store
             
             # Prepare environment variables for LightRAG server
             lightrag_env = {"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"}
@@ -1642,7 +1642,7 @@ class MainWindow:
             # Initialize LightRAG server in main thread to allow signal handlers
             # but run the actual server start in executor for non-blocking behavior
             from knowledge.lightrag_server import LightragServer
-            from utils.env import secure_store
+            from utils.env.secure_store import secure_store
             
             # Prepare environment variables for LightRAG server
             lightrag_env = {"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"}

@@ -487,7 +487,7 @@ class HardwareDetector:
                                     for network in network_list:
                                         try:
                                             ssid = network.ssid()
-                                            logger.debug(f"Network SSID raw value: {repr(ssid)} (type: {type(ssid).__name__})")
+                                            logger.trace(f"Network SSID raw value: {repr(ssid)} (type: {type(ssid).__name__})")
                                             if ssid and ssid not in ssid_list:
                                                 ssid_list.append(ssid)
                                                 logger.debug(f"Added WiFi network: {ssid}")
