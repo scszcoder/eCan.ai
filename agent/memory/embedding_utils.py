@@ -62,10 +62,18 @@ class EmbeddingFactory:
                         provider_enum_value = config.provider.value.lower()
                         break
                 
+                # Special handling for common provider name variants
                 if provider_enum_value is None:
-                    # Last resort: use provider_name as fallback
-                    provider_enum_value = provider_name.lower()
-                    logger.warning(f"[EmbeddingFactory] Provider {provider_name} not found in config, using name as fallback")
+                    provider_lower = provider_name.lower()
+                    # Map "dashscope" to "alibaba_qwen" (DashScope is the API name for Alibaba Qwen)
+                    if provider_lower == "dashscope" or provider_lower == "qwen":
+                        provider_enum_value = "alibaba_qwen"
+                    else:
+                        # Last resort: use provider_name as fallback
+                        provider_enum_value = provider_lower
+                        logger.warning(f"[EmbeddingFactory] Provider {provider_name} not found in config, using name as fallback")
+            
+            logger.debug(f"[EmbeddingFactory] Creating embeddings: provider_name={provider_name}, provider_enum_value={provider_enum_value}, model_name={model_name}")
             
             if provider_enum_value == "openai":
                 api_key = secure_store.get("OPENAI_API_KEY")
@@ -124,7 +132,7 @@ class EmbeddingFactory:
                     # Use langchain_community version
                     return VertexAIEmbeddings(model_name=model_name)
                 except Exception as e:
-                    logger.warning(f"[EmbeddingFactory] Google Vertex AI setup failed: {e}")
+                    logger.error(f"[EmbeddingFactory] Google Vertex AI setup failed: {e}")
                     return FakeEmbeddings(size=768)  # Google default dimension
             
             elif provider_enum_value == "baidu_qianfan":
@@ -139,23 +147,27 @@ class EmbeddingFactory:
                             model=model_name
                         )
                     except Exception as e:
-                        logger.warning(f"[EmbeddingFactory] QianfanEmbeddingsEndpoint failed: {e}")
+                        logger.error(f"[EmbeddingFactory] QianfanEmbeddingsEndpoint failed: {e}")
                         return FakeEmbeddings(size=1024)  # Baidu default dimension
                 else:
                     logger.warning(f"[EmbeddingFactory] Baidu API keys not found")
                     return FakeEmbeddings(size=1024)
                     
             elif provider_enum_value == "alibaba_qwen":
-                # Alibaba Qwen embeddings
+                # Alibaba Qwen embeddings (DashScope API)
                 api_key = secure_store.get("DASHSCOPE_API_KEY")
                 if api_key:
                     try:
+                        logger.debug(f"[EmbeddingFactory] Creating DashScopeEmbeddings with model={model_name}")
                         return DashScopeEmbeddings(
                             dashscope_api_key=api_key,
                             model=model_name
                         )
+                    except ImportError as e:
+                        logger.error(f"[EmbeddingFactory] DashScopeEmbeddings failed: Missing 'dashscope' module. Please install it with: pip install dashscope")
+                        return FakeEmbeddings(size=1536)  # Qwen default dimension
                     except Exception as e:
-                        logger.warning(f"[EmbeddingFactory] DashScopeEmbeddings failed: {e}")
+                        logger.error(f"[EmbeddingFactory] DashScopeEmbeddings failed: {e}")
                         return FakeEmbeddings(size=1536)  # Qwen default dimension
                 else:
                     logger.warning(f"[EmbeddingFactory] DashScope API key not found")

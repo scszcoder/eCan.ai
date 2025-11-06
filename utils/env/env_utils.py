@@ -170,7 +170,7 @@ class EnvironmentLoader:
                                     os.environ[key] = value.strip()
                                     loaded_count += 1
                                     masked_value = self._mask_sensitive_value(key, value.strip())
-                                    logger.info(f"Reloaded from {config_file} (overriding inherited): {key}={masked_value}")
+                                    logger.trace(f"Reloaded from {config_file} (overriding inherited): {key}={masked_value}")
                                 else:
                                     # Load if not exists
                                     os.environ[key] = value.strip()
