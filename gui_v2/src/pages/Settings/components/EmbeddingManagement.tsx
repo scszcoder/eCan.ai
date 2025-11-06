@@ -21,24 +21,24 @@ import { useTranslation } from "react-i18next";
 import { get_ipc_api } from "../../../services/ipc_api";
 import type { LLMProvider } from "../types";
 
-interface LLMManagementProps {
+interface EmbeddingManagementProps {
   username: string | null;
-  defaultLLM?: string; // Default LLM passed from settings
+  defaultEmbedding?: string; // Default Embedding passed from settings
   settingsLoaded?: boolean; // Flag indicating whether settings have been loaded
-  onDefaultLLMChange?: (newDefaultLLM: string, newDefaultModel?: string) => void; // Callback to notify parent of default LLM changes
+  onDefaultEmbeddingChange?: (newDefaultEmbedding: string, newDefaultModel?: string) => void; // Callback to notify parent of default Embedding changes
   onSharedProviderUpdate?: (sharedProviders: Array<{ name: string; type: string }>) => void; // Callback to notify parent of shared provider updates
 }
 
 type ModelOption = { label: string; value: string; description?: string };
 
-const LLMManagement = React.forwardRef<
+const EmbeddingManagement = React.forwardRef<
   { loadProviders: () => Promise<void> },
-  LLMManagementProps
+  EmbeddingManagementProps
 >(({
   username,
-  defaultLLM: propDefaultLLM,
+  defaultEmbedding: propDefaultEmbedding,
   settingsLoaded,
-  onDefaultLLMChange,
+  onDefaultEmbeddingChange,
   onSharedProviderUpdate,
 }, ref) => {
   const { t } = useTranslation();
@@ -46,7 +46,7 @@ const LLMManagement = React.forwardRef<
 
   // State management
   const [providers, setProviders] = useState<LLMProvider[]>([]);
-  const [defaultLLM, setDefaultLLM] = useState<string>("");
+  const [defaultEmbedding, setDefaultEmbedding] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [modelLoadingMap, setModelLoadingMap] = useState<
     Record<string, boolean>
@@ -62,36 +62,20 @@ const LLMManagement = React.forwardRef<
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState<string>("");
   const [editingAzureEndpoint, setEditingAzureEndpoint] = useState<string>("");
-  const [editingAwsAccessKeyId, setEditingAwsAccessKeyId] =
-    useState<string>("");
-  const [editingAwsSecretAccessKey, setEditingAwsSecretAccessKey] =
-    useState<string>("");
   const [editingLoading, setEditingLoading] = useState<boolean>(false);
 
-  // Load LLM providers
+  // Load Embedding providers
   const loadProviders = useCallback(async () => {
     if (!username) return;
 
     setLoading(true);
     try {
-      const response = await get_ipc_api().getLLMProviders<{
+      const response = await get_ipc_api().getEmbeddingProviders<{
         providers: LLMProvider[];
       }>();
       if (response.success && response.data) {
         setProviders(response.data.providers);
-        console.log("✅ LLM providers loaded:", response.data.providers);
-        // Debug: Check OpenAI provider name
-        const openaiProvider = response.data.providers.find(p => 
-          p.name === 'OpenAI' || p.name === 'ChatOpenAI' || p.display_name?.toLowerCase().includes('openai')
-        );
-        if (openaiProvider) {
-          console.log("🔍 [loadProviders] OpenAI provider found:", {
-            name: openaiProvider.name,
-            display_name: openaiProvider.display_name,
-            api_key_configured: openaiProvider.api_key_configured
-          });
-        }
-        console.log("🔍 [loadProviders] Current defaultLLM state:", defaultLLM);
+        console.log("✅ Embedding providers loaded:", response.data.providers);
       } else {
         message.error(
           `${t("pages.settings.failed_to_load_providers")}: ${
@@ -100,12 +84,12 @@ const LLMManagement = React.forwardRef<
         );
       }
     } catch (error) {
-      console.error("Error loading LLM providers:", error);
+      console.error("Error loading Embedding providers:", error);
       message.error(t("pages.settings.failed_to_load_providers"));
     } finally {
       setLoading(false);
     }
-  }, [username, defaultLLM, t, message]);
+  }, [username, t, message]);
 
   // Expose loadProviders method via ref
   useImperativeHandle(ref, () => ({
@@ -113,8 +97,6 @@ const LLMManagement = React.forwardRef<
       await loadProviders();
     },
   }), [loadProviders]);
-
-  // loadDefaultLLM function removed, defaultLLM now passed from Settings page via props
 
   const modelOptionsCache = useMemo(() => {
     const cache: Record<string, ModelOption[]> = {};
@@ -178,7 +160,7 @@ const LLMManagement = React.forwardRef<
       setModelLoadingMap((prev) => ({ ...prev, [providerName]: true }));
 
       try {
-        const response = await get_ipc_api().setLLMProviderModel<{
+        const response = await get_ipc_api().setEmbeddingProviderModel<{
           message: string;
         }>(providerName, modelName);
         if (response.success) {
@@ -227,8 +209,8 @@ const LLMManagement = React.forwardRef<
     [message, t]
   );
 
-  // Set default LLM
-  const handleDefaultLLMChange = async (providerName: string) => {
+  // Set default Embedding
+  const handleDefaultEmbeddingChange = async (providerName: string) => {
     // Find the provider to check its configuration status
     const provider = providers.find((p) => p.name === providerName);
     if (!provider) {
@@ -255,23 +237,19 @@ const LLMManagement = React.forwardRef<
     const modelToUse = selectedModel || provider.preferred_model || provider.default_model || undefined;
 
     try {
-      const response = await get_ipc_api().setDefaultLLM<{ message: string }>(
+      const response = await get_ipc_api().setDefaultEmbedding<{ message: string }>(
         providerName,
         username || "",
         modelToUse
       );
 
       if (response.success) {
-        setDefaultLLM(providerName);
-        // Notify parent component to update settings
-        onDefaultLLMChange?.(providerName);
+        setDefaultEmbedding(providerName);
+        // Notify parent component to update settings with model
+        onDefaultEmbeddingChange?.(providerName, modelToUse);
         message.success(
-          `${t("pages.settings.default_llm_set")}: ${providerName} - ${t(
-            "pages.settings.hot_updated"
-          )}`
+          `${t("pages.settings.default_embedding_set")}: ${providerName}`
         );
-
-        // No restart required - hot-update is supported
       } else {
         // If backend says provider is not configured, reload providers to sync
         if (response.error?.message?.includes("not configured")) {
@@ -289,7 +267,7 @@ const LLMManagement = React.forwardRef<
         }
       }
     } catch (error) {
-      console.error("Error setting default LLM:", error);
+      console.error("Error setting default Embedding:", error);
       message.error(t("pages.settings.failed_to_set_default"));
     }
   };
@@ -298,33 +276,29 @@ const LLMManagement = React.forwardRef<
   const updateProvider = async (
     name: string,
     apiKey: string,
-    azureEndpoint?: string,
-    awsAccessKeyId?: string,
-    awsSecretAccessKey?: string
+    azureEndpoint?: string
   ) => {
     try {
-      const response = await get_ipc_api().updateLLMProvider<{
+      const response = await get_ipc_api().updateEmbeddingProvider<{
         message: string;
         auto_set_as_default?: boolean;
-        default_llm?: string;
-        default_llm_model?: string;
+        default_embedding?: string;
+        default_embedding_model?: string;
         settings?: {
-          default_llm: string;
-          default_llm_model: string;
+          default_embedding: string;
+          default_embedding_model: string;
         };
-      }>(name, apiKey, azureEndpoint, awsAccessKeyId, awsSecretAccessKey);
+      }>(name, apiKey, azureEndpoint);
 
       if (response.success) {
         const responseData = response.data;
         const autoSetAsDefault = responseData?.auto_set_as_default || false;
         
         // Show success message
-        let successMessage = `${name} ${t("pages.settings.llm_updated_successfully")} - ${t(
-          "pages.settings.hot_updated"
-        )}`;
+        let successMessage = `${name} ${t("pages.settings.embedding_updated_successfully")}`;
         
-        if (autoSetAsDefault && responseData?.default_llm) {
-          successMessage += ` - ${t("pages.settings.auto_set_as_default")}: ${responseData.default_llm}`;
+        if (autoSetAsDefault && responseData?.default_embedding) {
+          successMessage += ` - ${t("pages.settings.auto_set_as_default")}: ${responseData.default_embedding}`;
         }
         
         message.success(successMessage);
@@ -332,10 +306,10 @@ const LLMManagement = React.forwardRef<
         // If auto-set as default, update local state
         if (autoSetAsDefault && responseData?.settings) {
           console.log('🔄 Auto-set as default after update:', responseData.settings);
-          setDefaultLLM(responseData.settings.default_llm);
-          onDefaultLLMChange?.(
-            responseData.settings.default_llm, 
-            responseData.settings.default_llm_model
+          setDefaultEmbedding(responseData.settings.default_embedding);
+          onDefaultEmbeddingChange?.(
+            responseData.settings.default_embedding, 
+            responseData.settings.default_embedding_model
           );
         }
         
@@ -344,11 +318,9 @@ const LLMManagement = React.forwardRef<
 
         // Check for shared providers and notify parent to refresh other component
         if (responseData?.shared_providers && Array.isArray(responseData.shared_providers) && responseData.shared_providers.length > 0) {
-          console.log("🔄 [LLM] Found shared providers, notifying parent:", responseData.shared_providers);
+          console.log("🔄 [Embedding] Found shared providers, notifying parent:", responseData.shared_providers);
           onSharedProviderUpdate?.(responseData.shared_providers);
         }
-
-        // No restart required - hot-update is supported
       } else {
         message.error(
           `${t("pages.settings.failed_to_update_provider")} ${name}: ${
@@ -364,8 +336,8 @@ const LLMManagement = React.forwardRef<
 
   // Delete provider configuration
   const deleteProviderConfig = (name: string) => {
-    // Check if this is the default LLM
-    const isDefault = defaultLLM === name;
+    // Check if this is the default Embedding
+    const isDefault = defaultEmbedding === name;
     
     // Show confirmation dialog using modal from App.useApp() for proper theme support
     modal.confirm({
@@ -377,7 +349,7 @@ const LLMManagement = React.forwardRef<
           </p>
           {isDefault && (
             <p style={{ color: "#ff4d4f", marginTop: "8px", fontWeight: 500 }}>
-              ⚠️ {t("pages.settings.warning_default_llm_deletion")}
+              ⚠️ {t("pages.settings.warning_default_embedding_deletion")}
             </p>
           )}
           <p style={{ marginTop: "8px", opacity: 0.65, fontSize: "13px" }}>
@@ -390,40 +362,36 @@ const LLMManagement = React.forwardRef<
       cancelText: t("common.cancel"),
       onOk: async () => {
         try {
-          const response = await get_ipc_api().deleteLLMProviderConfig<{
+          const response = await get_ipc_api().deleteEmbeddingProviderConfig<{
             message: string;
-            was_default_llm?: boolean;
-            new_default_llm?: string;
+            was_default_embedding?: boolean;
+            new_default_embedding?: string;
             new_default_model?: string;
             deleted_env_vars?: string[];
             reset_to_default?: boolean;
             settings?: {
-              default_llm: string;
-              default_llm_model: string;
+              default_embedding: string;
+              default_embedding_model: string;
             };
           }>(name, username || "");
 
           if (response.success && response.data) {
             const responseData = response.data;
-            const wasDefaultLLM = responseData.was_default_llm || false;
-            const newDefaultLLM = responseData.new_default_llm;
+            const wasDefaultEmbedding = responseData.was_default_embedding || false;
+            const newDefaultEmbedding = responseData.new_default_embedding;
             const resetToDefault = responseData.reset_to_default || false;
 
             // Show success message
-            if (wasDefaultLLM && newDefaultLLM) {
+            if (wasDefaultEmbedding && newDefaultEmbedding) {
               const resetMessage = resetToDefault 
                 ? ` ${t("pages.settings.reset_to_default_provider")}`
-                : ` Default LLM changed to: ${newDefaultLLM}`;
+                : ` Default Embedding changed to: ${newDefaultEmbedding}`;
               message.success(
-                `${name} ${t("pages.settings.llm_config_deleted")} - ${t(
-                  "pages.settings.hot_updated"
-                )}.${resetMessage}`
+                `${name} ${t("pages.settings.embedding_config_deleted")}.${resetMessage}`
               );
             } else {
               message.success(
-                `${name} ${t("pages.settings.llm_config_deleted")} - ${t(
-                  "pages.settings.hot_updated"
-                )}`
+                `${name} ${t("pages.settings.embedding_config_deleted")}`
               );
             }
 
@@ -450,24 +418,24 @@ const LLMManagement = React.forwardRef<
               return newVisible;
             });
 
-            // If this was the default LLM, update to new default
-            if (wasDefaultLLM && newDefaultLLM) {
-              setDefaultLLM(newDefaultLLM);
-              // Notify parent component to update default_llm in settings
+            // If this was the default Embedding, update to new default
+            if (wasDefaultEmbedding && newDefaultEmbedding) {
+              setDefaultEmbedding(newDefaultEmbedding);
+              // Notify parent component to update default_embedding in settings
               // Use settings from response if available for complete update
               if (responseData.settings) {
                 console.log('🔄 Updating settings after deletion:', responseData.settings);
-                onDefaultLLMChange?.(
-                  responseData.settings.default_llm, 
-                  responseData.settings.default_llm_model
+                onDefaultEmbeddingChange?.(
+                  responseData.settings.default_embedding, 
+                  responseData.settings.default_embedding_model
                 );
               } else {
-                onDefaultLLMChange?.(newDefaultLLM, responseData.new_default_model);
+                onDefaultEmbeddingChange?.(newDefaultEmbedding, responseData.new_default_model);
               }
-            } else if (defaultLLM === name) {
-              // Fallback: if backend didn't return new_default_llm but this was default
-              setDefaultLLM("");
-              onDefaultLLMChange?.("", "");
+            } else if (defaultEmbedding === name) {
+              // Fallback: if backend didn't return new_default_embedding but this was default
+              setDefaultEmbedding("");
+              onDefaultEmbeddingChange?.("", "");
             }
 
             // Reload providers from backend to verify the deletion and get updated state
@@ -477,7 +445,7 @@ const LLMManagement = React.forwardRef<
             
             // Check for shared providers and notify parent to refresh other component
             if (responseData?.shared_providers && Array.isArray(responseData.shared_providers) && responseData.shared_providers.length > 0) {
-              console.log("🔄 [LLM] Found shared providers after deletion, notifying parent:", responseData.shared_providers);
+              console.log("🔄 [Embedding] Found shared providers after deletion, notifying parent:", responseData.shared_providers);
               onSharedProviderUpdate?.(responseData.shared_providers);
             }
           } else {
@@ -510,57 +478,35 @@ const LLMManagement = React.forwardRef<
     // If provider is configured, try to get the current credentials
     if (provider.api_key_configured) {
       try {
-        const response = await get_ipc_api().getLLMProviderApiKey<{
+        const response = await get_ipc_api().getEmbeddingProviderApiKey<{
           api_key?: string;
           credentials?: any;
         }>(providerName, true);
         if (response.success && response.data) {
           // Handle special cases with multiple credentials
-          if (providerName === "AzureOpenAI" && response.data.credentials) {
+          if (providerName === "Azure OpenAI" && response.data.credentials) {
             setEditingValue(response.data.credentials.api_key || "");
             setEditingAzureEndpoint(
               response.data.credentials.azure_endpoint || ""
             );
-            setEditingAwsAccessKeyId("");
-            setEditingAwsSecretAccessKey("");
-          } else if (
-            providerName === "ChatBedrockConverse" &&
-            response.data.credentials
-          ) {
-            setEditingValue("");
-            setEditingAzureEndpoint("");
-            setEditingAwsAccessKeyId(
-              response.data.credentials.aws_access_key_id || ""
-            );
-            setEditingAwsSecretAccessKey(
-              response.data.credentials.aws_secret_access_key || ""
-            );
           } else {
             setEditingValue(response.data.api_key || "");
             setEditingAzureEndpoint("");
-            setEditingAwsAccessKeyId("");
-            setEditingAwsSecretAccessKey("");
           }
         } else {
           // If failed to get credentials, start with empty values
           setEditingValue("");
           setEditingAzureEndpoint("");
-          setEditingAwsAccessKeyId("");
-          setEditingAwsSecretAccessKey("");
         }
       } catch (error) {
         console.error("Error fetching credentials for editing:", error);
         setEditingValue("");
         setEditingAzureEndpoint("");
-        setEditingAwsAccessKeyId("");
-        setEditingAwsSecretAccessKey("");
       }
     } else {
       // If not configured, start with empty values
       setEditingValue("");
       setEditingAzureEndpoint("");
-      setEditingAwsAccessKeyId("");
-      setEditingAwsSecretAccessKey("");
     }
 
     setEditingLoading(false);
@@ -571,15 +517,11 @@ const LLMManagement = React.forwardRef<
       await updateProvider(
         editingProvider,
         editingValue,
-        editingAzureEndpoint,
-        editingAwsAccessKeyId,
-        editingAwsSecretAccessKey
+        editingAzureEndpoint
       );
       setEditingProvider(null);
       setEditingValue("");
       setEditingAzureEndpoint("");
-      setEditingAwsAccessKeyId("");
-      setEditingAwsSecretAccessKey("");
     }
   };
 
@@ -587,8 +529,6 @@ const LLMManagement = React.forwardRef<
     setEditingProvider(null);
     setEditingValue("");
     setEditingAzureEndpoint("");
-    setEditingAwsAccessKeyId("");
-    setEditingAwsSecretAccessKey("");
     setEditingLoading(false);
   };
 
@@ -623,7 +563,7 @@ const LLMManagement = React.forwardRef<
     } else {
       // Show the API key - fetch it from backend
       try {
-        const response = await get_ipc_api().getLLMProviderApiKey<{
+        const response = await get_ipc_api().getEmbeddingProviderApiKey<{
           api_key: string;
         }>(providerName, true);
 
@@ -651,20 +591,19 @@ const LLMManagement = React.forwardRef<
     }
   };
 
-  // Update local state when passed defaultLLM changes
+  // Update local state when passed defaultEmbedding changes
   useEffect(() => {
-    console.log('🔄 [LLMManagement] propDefaultLLM changed:', propDefaultLLM);
-    if (propDefaultLLM !== undefined) {
-      setDefaultLLM(propDefaultLLM);
-      console.log('✅ [LLMManagement] Local defaultLLM updated to:', propDefaultLLM);
+    console.log('🔄 [EmbeddingManagement] propDefaultEmbedding changed:', propDefaultEmbedding);
+    if (propDefaultEmbedding !== undefined) {
+      setDefaultEmbedding(propDefaultEmbedding);
+      console.log('✅ [EmbeddingManagement] Local defaultEmbedding updated to:', propDefaultEmbedding);
     }
-  }, [propDefaultLLM]);
+  }, [propDefaultEmbedding]);
 
   // Initialize loading - wait for settings to load before loading providers
   useEffect(() => {
     if (username && settingsLoaded) {
       loadProviders();
-      // No longer call loadDefaultLLM() as defaultLLM is passed from Settings page
     }
   }, [username, settingsLoaded]);
 
@@ -672,11 +611,11 @@ const LLMManagement = React.forwardRef<
   if (!username) {
     return (
       <Card
-        title={t("pages.settings.llm_management")}
+        title={t("pages.settings.embedding_management")}
         style={{ marginTop: "20px" }}
       >
         <div style={{ textAlign: "center", padding: "40px", color: "#999" }}>
-          🔐 {t("pages.settings.login_to_view_llm")}
+          🔐 {t("pages.settings.login_to_view_embedding")}
         </div>
       </Card>
     );
@@ -685,7 +624,7 @@ const LLMManagement = React.forwardRef<
   // Table column definitions
   const columns = [
     {
-      title: t("pages.settings.llm_provider"),
+      title: t("pages.settings.embedding_provider"),
       dataIndex: "display_name",
       key: "display_name",
       width: "20%",
@@ -715,7 +654,7 @@ const LLMManagement = React.forwardRef<
           return (
             <Space direction="vertical" style={{ width: "100%" }}>
               {/* Azure OpenAI specific fields */}
-              {record.name === "AzureOpenAI" && (
+              {record.name === "Azure OpenAI" && (
                 <>
                   <Input
                     value={editingAzureEndpoint}
@@ -742,52 +681,20 @@ const LLMManagement = React.forwardRef<
                 </>
               )}
 
-              {/* AWS Bedrock specific fields */}
-              {record.name === "ChatBedrockConverse" && (
-                <>
-                  <Input
-                    value={editingAwsAccessKeyId}
-                    onChange={(e) => setEditingAwsAccessKeyId(e.target.value)}
-                    placeholder={
-                      editingLoading
-                        ? "Loading current AWS Access Key ID..."
-                        : "Enter AWS Access Key ID"
-                    }
-                    style={{ width: "350px" }}
-                    disabled={editingLoading}
-                  />
-                  <Input
-                    value={editingAwsSecretAccessKey}
-                    onChange={(e) =>
-                      setEditingAwsSecretAccessKey(e.target.value)
-                    }
-                    placeholder={
-                      editingLoading
-                        ? "Loading current AWS Secret Access Key..."
-                        : "Enter AWS Secret Access Key"
-                    }
-                    style={{ width: "350px" }}
-                    disabled={editingLoading}
-                    type="password"
-                  />
-                </>
-              )}
-
               {/* Standard single API key field for other providers */}
-              {record.name !== "AzureOpenAI" &&
-                record.name !== "ChatBedrockConverse" && (
-                  <Input
-                    value={editingValue}
-                    onChange={(e) => setEditingValue(e.target.value)}
-                    placeholder={
-                      editingLoading
-                        ? "Loading current API key..."
-                        : t("pages.settings.enter_api_key")
-                    }
-                    style={{ width: "350px" }}
-                    disabled={editingLoading}
-                  />
-                )}
+              {record.name !== "Azure OpenAI" && (
+                <Input
+                  value={editingValue}
+                  onChange={(e) => setEditingValue(e.target.value)}
+                  placeholder={
+                    editingLoading
+                      ? "Loading current API key..."
+                      : t("pages.settings.enter_api_key")
+                  }
+                  style={{ width: "350px" }}
+                  disabled={editingLoading}
+                />
+              )}
 
               <Space>
                 <Button
@@ -848,7 +755,7 @@ const LLMManagement = React.forwardRef<
       },
     },
     {
-      title: t("pages.settings.llm_model"),
+      title: t("pages.settings.embedding_model"),
       key: "model",
       width: "20%",
       render: (_: any, record: LLMProvider) => {
@@ -910,19 +817,15 @@ const LLMManagement = React.forwardRef<
       key: "default",
       width: "15%",
       render: (name: string, record: LLMProvider) => {
-        const isChecked = defaultLLM === name;
-        // Debug logging for OpenAI specifically
-        if (name === 'OpenAI' || name === 'ChatOpenAI') {
-          console.log(`🔍 [Radio] ${name}: checked=${isChecked}, defaultLLM=${defaultLLM}, api_key_configured=${record.api_key_configured}`);
-        }
+        const isChecked = defaultEmbedding === name;
         return (
           <Radio
-            key={`radio-${name}-${defaultLLM}`}
+            key={`radio-${name}-${defaultEmbedding}`}
             checked={isChecked}
             disabled={!record.api_key_configured}
             onClick={() => {
-              if (record.api_key_configured && defaultLLM !== name) {
-                handleDefaultLLMChange(name);
+              if (record.api_key_configured && defaultEmbedding !== name) {
+                handleDefaultEmbeddingChange(name);
               }
             }}
           >
@@ -980,7 +883,7 @@ const LLMManagement = React.forwardRef<
 
   return (
     <Card
-      title={t("pages.settings.llm_management")}
+      title={t("pages.settings.embedding_management")}
       style={{ marginTop: "20px" }}
     >
       <Table
@@ -995,6 +898,7 @@ const LLMManagement = React.forwardRef<
   );
 });
 
-LLMManagement.displayName = 'LLMManagement';
+EmbeddingManagement.displayName = 'EmbeddingManagement';
 
-export default LLMManagement;
+export default EmbeddingManagement;
+

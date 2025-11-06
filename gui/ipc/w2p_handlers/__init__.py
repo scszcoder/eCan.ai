@@ -14,9 +14,26 @@ def _ensure_handlers_loaded():
     """Lazy load all handlers when first needed"""
     import pkgutil
     import importlib
+    import sys
+    from utils.logger_helper import logger_helper as logger
+    
+    # Explicitly import embedding_handler to ensure it's loaded
+    try:
+        from . import embedding_handler  # noqa: F401
+    except Exception as e:
+        import traceback
+        logger.error(f"Failed to import embedding_handler: {e}")
+        logger.debug(traceback.format_exc())
     
     for loader, name, is_pkg in pkgutil.walk_packages(__path__):
         try:
+            # Skip __init__ and already imported modules
+            if name == '__init__':
+                continue
+            module_name = f'{__name__}.{name}'
+            if module_name in sys.modules:
+                continue
             importlib.import_module('.' + name, __name__)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to import handler module {name}: {e}")
             pass

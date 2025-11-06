@@ -136,6 +136,14 @@ class ConfigManager:
             self._llm_manager = LLMManager(self)
         return self._llm_manager
 
+    @property
+    def embedding_manager(self):
+        """Embedding manager entity"""
+        if not hasattr(self, '_embedding_manager'):
+            from gui.manager.embedding_manager import EmbeddingManager
+            self._embedding_manager = EmbeddingManager(self)
+        return self._embedding_manager
+
     def save_all_settings(self) -> bool:
         """Save all settings"""
         try:

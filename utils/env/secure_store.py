@@ -76,10 +76,10 @@ class SecureStore:
             try:
                 value = keyring.get_password(service_name, safe_key)
                 if value:
-                    logger.debug(f"[SecureStore] Retrieved {key} from keyring")
+                    # logger.debug(f"[SecureStore] Retrieved {key} from keyring")
                     return value
             except Exception as e:
-                logger.debug(f"[SecureStore] Keyring retrieval failed for {key}: {e}")
+                logger.error(f"[SecureStore] Keyring retrieval failed for {key}: {e}")
         
         # Try file fallback
         return self._fallback_get(env, key)

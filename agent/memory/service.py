@@ -10,11 +10,11 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel
 
 from utils.logger_helper import logger_helper as logger
-from langchain_core.language_models.chat_models import BaseChatModel
 from agent.memory.models import MemoryItem, RetrievalQuery, RetrievedMemory
-from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_core.embeddings import FakeEmbeddings
+
+from agent.memory.embedding_utils import EmbeddingFactory
 
 class MemorySettings(BaseModel):
 	"""Settings for procedural memory."""
@@ -51,7 +51,8 @@ class MemoryManager:
         self,
         agent_id: str,
         persist_dir: str = ".cache/chroma",
-        embedding_model: str = "text-embedding-3-small",
+        embedding_model: str = None,
+        embedding_provider: str = None,
         collection_prefix: str = "ecan_mem_",
 		llm: BaseChatModel = None,
     ) -> None:
@@ -60,19 +61,41 @@ class MemoryManager:
 		os.makedirs(self.persist_dir, exist_ok=True)
 		self.llm = llm
 		
-		# Get OpenAI API key from secure store (no env fallback)
+		# Get default embedding settings if not provided
+		if embedding_provider is None or embedding_model is None:
+			try:
+				from app_context import AppContext
+				main_window = AppContext.get_main_window()
+				if main_window:
+					general_settings = main_window.config_manager.general_settings
+					if embedding_provider is None:
+						embedding_provider = general_settings.default_embedding or "OpenAI"
+					if embedding_model is None:
+						embedding_model = general_settings.default_embedding_model or "text-embedding-3-small"
+				else:
+					# Fallback if main_window not available
+					if embedding_provider is None:
+						embedding_provider = "OpenAI"
+					if embedding_model is None:
+						embedding_model = "text-embedding-3-small"
+			except Exception as e:
+				logger.warning(f"[MemoryManager] Failed to get embedding settings, using defaults: {e}")
+				if embedding_provider is None:
+					embedding_provider = "OpenAI"
+				if embedding_model is None:
+					embedding_model = "text-embedding-3-small"
+		
+		# Initialize embeddings using EmbeddingFactory with settings from config
 		try:
-			from utils.env.secure_store import secure_store
-			openai_api_key = secure_store.get("OPENAI_API_KEY")
-		except Exception:
-			openai_api_key = None
-		if openai_api_key:
-			logger.debug(f"[MemoryManager] Creating OpenAI embeddings with API key for agent {agent_id}")
-			self._embeddings = OpenAIEmbeddings(model=embedding_model, openai_api_key=openai_api_key)
-		else:
-			# No key → use deterministic local embeddings to ensure startup
+			self._embeddings = EmbeddingFactory.create_embeddings(
+				provider_name=embedding_provider,
+				model_name=embedding_model
+			)
+			logger.debug(f"[MemoryManager] Initialized embeddings for agent {agent_id} with provider={embedding_provider}, model={embedding_model}")
+		except Exception as e:
+			# Fallback to FakeEmbeddings if initialization fails
 			self._embeddings = FakeEmbeddings(size=1536)
-			logger.info(f"[MemoryManager] OPENAI_API_KEY not set in secure_store; using FakeEmbeddings(size=1536) for agent {agent_id}")
+			logger.warning(f"[MemoryManager] Failed to initialize embeddings, using FakeEmbeddings: {e}")
 		
 		self.max_context_size = 65536
 		self._collection_prefix = collection_prefix
@@ -238,6 +261,44 @@ class MemoryManager:
 			return "__".join(parts) if parts else "default"
 		except Exception:
 			return "default"
+
+
+	def update_embeddings(self, provider_name: str = "OpenAI", model_name: str = "text-embedding-3-small"):
+		"""Update the embeddings instance and recreate all Chroma stores.
+		
+		This method should be called when embedding settings change to ensure
+		all existing stores use the new embeddings.
+		
+		Args:
+			provider_name: Name of the embedding provider
+			model_name: Model name to use
+		"""
+		try:
+			logger.info(f"[MemoryManager] Updating embeddings to {provider_name}/{model_name}")
+			
+			# Create new embeddings instance using EmbeddingFactory
+			new_embeddings = EmbeddingFactory.create_embeddings(provider_name, model_name)
+			
+			# Update the embeddings instance
+			self._embeddings = new_embeddings
+			
+			# Recreate all Chroma stores with new embeddings
+			# We need to persist old stores first, then recreate them
+			old_stores = {}
+			for ns_key, store in self._stores.items():
+				try:
+					store.persist()
+					old_stores[ns_key] = store
+				except Exception as e:
+					logger.warning(f"[MemoryManager] Failed to persist store {ns_key}: {e}")
+			
+			# Clear existing stores - they will be recreated on next access
+			self._stores.clear()
+			
+			# logger.info(f"[MemoryManager] Updated embeddings and cleared {len(old_stores)} stores")
+			
+		except Exception as e:
+			logger.error(f"[MemoryManager] Error updating embeddings: {e}", exc_info=True)
 
 	def move_item(self, doc_id: str, old_ns: Tuple[str, ...], new_ns: Tuple[str, ...]) -> None:
 		"""Move a single item by id from old_ns collection to new_ns collection.

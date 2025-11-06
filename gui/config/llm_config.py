@@ -31,6 +31,7 @@ class LLMProvider(Enum):
     DEEPSEEK = "deepseek"
     DASHSCOPE = "dashscope"
     BYTEDANCE = "bytedance"
+    BAIDU_QIANFAN = "baidu_qianfan"
     OLLAMA = "ollama"
 
 
