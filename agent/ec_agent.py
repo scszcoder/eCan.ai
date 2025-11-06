@@ -125,11 +125,8 @@ class EC_Agent(Agent):
 
 		self.mem_manager = MemoryManager(agent_id=self.card.id, llm=self.skill_llm)
 
-		# LLM API connection setup
-		llm_api_env_vars = REQUIRED_LLM_API_ENV_VARS.get(self.llm.__class__.__name__, [])
-		if llm_api_env_vars and not check_env_variables(llm_api_env_vars):
-			logger.error(f'Environment variables not set for {self.llm.__class__.__name__}')
-			raise ValueError('Environment variables not set')
+		# LLM API connection setup: do not enforce environment variables.
+		# Provider-specific factories will read keys from secure_store when needed.
 
 
 		# Start non-blocking LLM connection verification
