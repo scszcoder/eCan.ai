@@ -22,6 +22,7 @@ import { useUserStore } from '../../../../../stores/userStore';
 import { useSheetsStore } from '../../../stores/sheets-store';
 import { useSkillInfoStore } from '../../../stores/skill-info-store';
 import { useRunningNodeStore } from '../../../stores/running-node-store';
+import { useRuntimeStateStore } from '../../../stores/runtime-state-store';
 
 import styles from './index.module.less';
 
@@ -67,6 +68,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
       // TODO: Implement backend cancel
       setRunning(false);
       setRunningNodeId(null); // Clear indicator on cancel
+      try { useRuntimeStateStore.getState().clearAll(); } catch {}
       return;
     }
 
@@ -74,6 +76,8 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
     setResult(undefined);
     setErrors(undefined);
     setRunning(true);
+    // Clear all runtime states so badges from previous runs are removed
+    try { useRuntimeStateStore.getState().clearAll(); } catch {}
     const startNode = document.toJSON().nodes.find((node: any) => node.id === 'start');
     if (startNode) {
       setRunningNodeId(startNode.id);
@@ -152,6 +156,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
       // TODO: Implement backend cancel
       setRunning(false);
       setRunningNodeId(null); // Clear indicator on close
+      try { useRuntimeStateStore.getState().clearAll(); } catch {}
     }
     setValues({});
     onCancel();
