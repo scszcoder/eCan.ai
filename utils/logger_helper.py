@@ -108,7 +108,15 @@ class LoggerHelper:
             message = str(message)
 
         # On Windows systems, if encoding issues occur, replace problematic characters
+        # Only check encoding if we're on Windows and message might have issues
         if sys.platform == "win32":
+            # Quick check: if message is pure ASCII, skip encoding check
+            try:
+                message.encode('ascii')
+                return message  # Pure ASCII, no encoding issues
+            except UnicodeEncodeError:
+                pass  # Contains non-ASCII, need to check GBK
+            
             try:
                 # Try encoding to GBK, if it fails then replace characters
                 message.encode('gbk')
@@ -119,6 +127,7 @@ class LoggerHelper:
         return message
 
     def _join_message_args(self, message, *args):
+        """Join message and args into a single string"""
         def safe_str(x):
             try:
                 return str(x)
@@ -137,32 +146,38 @@ class LoggerHelper:
         return self._safe_encode_message(result)
 
     def trace(self, message, *args, **kwargs):
-        if hasattr(self, 'logger'):
+        """Log trace message - only format if trace level is enabled"""
+        if hasattr(self, 'logger') and self.logger.isEnabledFor(TRACE_LEVEL_NUM):
             msg = self._join_message_args(message, *args)
             self.logger.trace(msg, **kwargs)
 
     def debug(self, message, *args, **kwargs):
-        if hasattr(self, 'logger'):
+        """Log debug message - only format if debug level is enabled"""
+        if hasattr(self, 'logger') and self.logger.isEnabledFor(logging.DEBUG):
             msg = self._join_message_args(message, *args)
             self.logger.debug(msg, **kwargs)
 
     def info(self, message, *args, **kwargs):
-        if hasattr(self, 'logger'):
+        """Log info message - only format if info level is enabled"""
+        if hasattr(self, 'logger') and self.logger.isEnabledFor(logging.INFO):
             msg = self._join_message_args(message, *args)
             self.logger.info(msg, **kwargs)
 
     def warning(self, message, *args, **kwargs):
-        if hasattr(self, 'logger'):
+        """Log warning message - only format if warning level is enabled"""
+        if hasattr(self, 'logger') and self.logger.isEnabledFor(logging.WARNING):
             msg = self._join_message_args(message, *args)
             self.logger.warning(msg, **kwargs)
 
     def error(self, message, *args, **kwargs):
-        if hasattr(self, 'logger'):
+        """Log error message - only format if error level is enabled"""
+        if hasattr(self, 'logger') and self.logger.isEnabledFor(logging.ERROR):
             msg = self._join_message_args(message, *args)
             self.logger.error(msg, **kwargs)
 
     def critical(self, message, *args, **kwargs):
-        if hasattr(self, 'logger'):
+        """Log critical message - only format if critical level is enabled"""
+        if hasattr(self, 'logger') and self.logger.isEnabledFor(logging.CRITICAL):
             msg = self._join_message_args(message, *args)
             self.logger.critical(msg, **kwargs)
 

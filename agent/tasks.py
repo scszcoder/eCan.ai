@@ -141,6 +141,9 @@ class ManagedTask(Task):
         # Safely serialize checkpoint_nodes - filter out non-serializable objects
         safe_checkpoint_nodes = self._make_serializable(self.checkpoint_nodes) if self.checkpoint_nodes else None
 
+        # Safely serialize metadata - filter out non-serializable objects like Pydantic models
+        safe_metadata = self._make_serializable(self.metadata) if self.metadata else None
+
         # Safely get skill name
         skill_name = None
         if self.skill:
@@ -160,7 +163,7 @@ class ManagedTask(Task):
             "name": self.name,
             "description": self.description,
             "skill": skill_name,
-            "metadata": self.metadata,
+            "metadata": safe_metadata,
             "state": safe_state,
             "resume_from": self.resume_from,
             "trigger": self.trigger,
@@ -183,6 +186,11 @@ class ManagedTask(Task):
 
         if obj is None:
             return None
+
+        # Handle Pydantic BaseModel objects (e.g., TaskSendParams, Message, etc.)
+        if isinstance(obj, BaseModel):
+            # Use model_dump with mode='json' to ensure proper serialization
+            return self._make_serializable(obj.model_dump(mode='json'))
 
         # Handle langchain Message objects (SystemMessage, HumanMessage, AIMessage, etc.)
         # These inherit from BaseMessage and have content, type, and optional metadata
@@ -1978,7 +1986,7 @@ class TaskRunner(Generic[Context]):
             # High-frequency tick for My Twin Agent only to verify loop progress and queue binding
             try:
                 if "Twin" in self.agent.card.name:
-                    logger.debug(
+                    logger.trace(
                         f"[WORKER_THREAD][Twin] Loop tick: trigger={trigger_type}, loop={loop_count}, "
                         f"task_id={getattr(current_task, 'id', None)}, task_obj_id={id(current_task)}, qid={id(current_task.queue) if current_task and hasattr(current_task,'queue') else None}"
                     )
@@ -2020,13 +2028,13 @@ class TaskRunner(Generic[Context]):
                     
                     # Prefer blocking get with short timeout to minimize latency and avoid empty() races
                     if loop_count % 30 == 0:
-                        logger.debug(f"[WORKER_THREAD] Checking queue for task_id={current_task.id}, queue={id(current_task.queue)}")
+                        logger.trace(f"[WORKER_THREAD] Checking queue for task_id={current_task.id}, queue={id(current_task.queue)}")
 
                     # Twin-specific: log right before blocking queue.get
                     if "Twin" in self.agent.card.name:
                         try:
                             qsz = current_task.queue.qsize()
-                            logger.debug(
+                            logger.trace(
                                 f"[WORKER_THREAD][Twin] About to queue.get(timeout=0.5) for task_id={getattr(current_task,'id', None)}, qid={id(current_task.queue)}, qsize_before={qsz}"
                             )
                         except Exception:
@@ -2060,7 +2068,7 @@ class TaskRunner(Generic[Context]):
                         if "Twin" in self.agent.card.name:
                             try:
                                 qsz_now = current_task.queue.qsize()
-                                logger.debug(f"[WORKER_THREAD][Twin] queue.get timeout (no message), loop={loop_count}, qid={id(current_task.queue)}, qsize_now={qsz_now}")
+                                logger.trace(f"[WORKER_THREAD][Twin] queue.get timeout (no message), loop={loop_count}, qid={id(current_task.queue)}, qsize_now={qsz_now}")
                             except Exception:
                                 pass
                         if self._stop_event.wait(timeout=0.5):

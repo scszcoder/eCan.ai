@@ -71,12 +71,11 @@ def convert_agent_dict_to_ec_agent(
         elif not isinstance(extra_data, dict):
             extra_data = {}
         
-        # Create browser_use compatible LLM
-        try:
-            browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
-        except Exception as e:
-            logger.warning(f"[AgentConverter] Failed to create BrowserUseChatOpenAI: {e}")
-            browser_use_llm = None
+        # Create browser_use compatible LLM from main_window configuration (no fallback)
+        from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm
+        browser_use_llm = create_browser_use_llm(mainwin=main_window, skip_playwright_check=True)
+        if not browser_use_llm:
+            raise ValueError("Failed to create browser_use LLM from main_window. Please configure LLM provider API key in Settings.")
         
         avatar = agent_data.get('avatar') or DBAvatarService.generate_default_avatar(agent_data.get('id'))
         

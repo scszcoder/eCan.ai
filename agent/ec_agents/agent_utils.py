@@ -1386,7 +1386,11 @@ def gen_new_knowledge(mainwin, kjs):
             skills=agent_skills,
         )
         logger.info("knowledge created:", agent_card.name, agent_card.url)
-        browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+        # Use unified function to create browser_use LLM from mainwin configuration (no fallback)
+        from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
+        if not browser_use_llm:
+            raise ValueError("Failed to create browser_use LLM from mainwin. Please configure LLM provider API key in Settings.")
         new_knowledge = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_knowledge
     except Exception as e:

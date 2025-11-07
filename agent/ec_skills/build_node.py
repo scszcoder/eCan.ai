@@ -313,8 +313,23 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             messages.append(SystemMessage(content=final_system_prompt))
         messages.append(HumanMessage(content=final_user_prompt))
 
-        # Instantiate the LLM client
-        llm = get_llm_client(llm_provider, model_name, temperature)
+        # Get mainwin from agent via state and use mainwin's LLM (no fallback)
+        llm = None
+        try:
+            from agent.agent_service import get_agent_by_id
+            if state.get("messages") and len(state["messages"]) > 0:
+                agent_id = state["messages"][0]
+                agent = get_agent_by_id(agent_id)
+                if agent and hasattr(agent, 'mainwin') and agent.mainwin and hasattr(agent.mainwin, 'llm'):
+                    llm = agent.mainwin.llm
+        except Exception as e:
+            logger.error(f"[build_llm_node] Failed to get mainwin.llm: {e}")
+        
+        if not llm:
+            error_msg = "Cannot create LLM: mainwin.llm not available. Please ensure agent is properly initialized and LLM provider is configured."
+            logger.error(f"[build_llm_node] {error_msg}")
+            state['error'] = error_msg
+            return state
 
         # Log LLM configuration for debugging
         logger.info(f"🔧 LLM Config: provider={llm_provider}, model={model_name}, temperature={temperature}")
@@ -1329,17 +1344,23 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     wait_for_done = bool((config_metadata or {}).get("wait_for_done", False))
     task_text = (config_metadata or {}).get("task") or f"{action} {params}".strip()
 
-    async def _run_browser_use(task: str, model_name: str | None) -> dict:
+    async def _run_browser_use(task: str, mainwin) -> dict:
         try:
             from browser_use import Agent as BUAgent, Controller as BUController
-            from browser_use.llm import ChatOpenAI as BUChatOpenAI
             from browser_use.browser.profile import BrowserProfile as BUBrowserProfile
 
+            if not mainwin:
+                raise ValueError("mainwin is required. Must use mainwin configuration for browser_use LLM.")
+
+            # Use mainwin's LLM configuration (no fallback)
+            from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm
+            llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
+            if not llm:
+                raise ValueError("Failed to create browser_use LLM from mainwin. Please configure LLM provider API key in Settings.")
+
             controller = BUController()
-            model_name = model_name or os.getenv('BROWSER_USE_MODEL') or 'gpt-4o-mini'
-            model = BUChatOpenAI(model=model_name)
             profile = BUBrowserProfile()
-            agent = BUAgent(task=task, llm=model, controller=controller, browser_profile=profile)
+            agent = BUAgent(task=task, llm=llm, controller=controller, browser_profile=profile)
             history = await agent.run()
             final = history.final_result() if hasattr(history, 'final_result') else None
             return {"final": final, "history": str(history)}
@@ -1348,10 +1369,28 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
     def _auto(state: dict, *, runtime=None, store=None, **kwargs):
         if provider == 'browser-use':
-            model_name = (config_metadata or {}).get('model')
+            # Get mainwin from agent via state
+            mainwin = None
+            try:
+                from agent.agent_service import get_agent_by_id
+                if state.get("messages") and len(state["messages"]) > 0:
+                    agent_id = state["messages"][0]
+                    agent = get_agent_by_id(agent_id)
+                    if agent and hasattr(agent, 'mainwin'):
+                        mainwin = agent.mainwin
+            except Exception as e:
+                logger.warning(f"[build_browser_automation_node] Failed to get mainwin: {e}")
+            
+            if not mainwin:
+                error_msg = "Cannot create browser_use LLM: mainwin not available. Please ensure agent is properly initialized."
+                logger.error(f"[build_browser_automation_node] {error_msg}")
+                state.setdefault("tool_result", {})
+                state["tool_result"][node_name] = {"provider": provider, "task": task_text, "error": error_msg}
+                return state
+            
             info = {}
             try:
-                info = run_async_in_sync(_run_browser_use(task_text, model_name)) or {}
+                info = run_async_in_sync(_run_browser_use(task_text, mainwin)) or {}
             except Exception as e:
                 info = {"error": f"browser-use run failed: {e}"}
             state.setdefault("tool_result", {})

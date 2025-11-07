@@ -524,14 +524,13 @@ class LLMManager:
                 self.config_manager.general_settings.default_llm = "OpenAI"
                 # Also set the default model if not already set
                 if not self.config_manager.general_settings.default_llm_model:
-                    provider = llm_config.get_provider("OpenAI")
-                    if provider:
-                        self.config_manager.general_settings.default_llm_model = provider.default_model
-                        logger.info(f"[LLMManager] Set default model to {provider.default_model}")
+                    provider_config = llm_config.get_provider("OpenAI")
+                    if provider_config:
+                        self.config_manager.general_settings.default_llm_model = provider_config.default_model
+                        logger.info(f"[LLMManager] Set default model to {provider_config.default_model}")
                 self.config_manager.general_settings.save()
                 default_llm = "OpenAI"
-                # Still show onboarding since API key is likely not configured
-                return False, None
+                # Continue to check API key configuration below
             
             # Get provider configuration
             provider = self.get_provider(default_llm)
@@ -590,8 +589,12 @@ class LLMManager:
 
     async def check_and_show_onboarding(self, delay_seconds: float = 2.0):
         """
-        Check LLM provider configuration and show onboarding guide if needed
+        Check LLM and Embedding provider configuration and show onboarding guide if needed
         This runs asynchronously and should be called after initialization is complete
+        
+        Checks in order:
+        1. LLM provider default API key configuration
+        2. Embedding provider default API key configuration (if LLM is configured)
         
         Args:
             delay_seconds: Delay before checking to ensure web GUI is ready
@@ -601,16 +604,31 @@ class LLMManager:
             # Wait a bit to ensure web GUI is ready
             await asyncio.sleep(delay_seconds)
             
-            is_configured, configured_provider = self.check_provider_configured()
+            # Step 1: Check LLM provider configuration
+            is_llm_configured, configured_llm_provider = self.check_provider_configured()
             
-            if not is_configured:
+            if not is_llm_configured:
                 logger.info("[LLMManager] 📋 LLM provider not configured, showing onboarding guide")
                 await self.show_onboarding_guide()
+                return
             else:
-                logger.debug(f"[LLMManager] LLM provider configured: {configured_provider}")
+                logger.debug(f"[LLMManager] LLM provider configured: {configured_llm_provider}")
+            
+            # Step 2: If LLM is configured, check Embedding provider configuration
+            if hasattr(self.config_manager, 'embedding_manager'):
+                embedding_manager = self.config_manager.embedding_manager
+                is_embedding_configured, configured_embedding_provider = embedding_manager.check_provider_configured()
+                
+                if not is_embedding_configured:
+                    logger.info("[LLMManager] 📋 Embedding provider not configured, showing onboarding guide")
+                    await self.show_embedding_onboarding_guide()
+                else:
+                    logger.debug(f"[LLMManager] Embedding provider configured: {configured_embedding_provider}")
+            else:
+                logger.warning("[LLMManager] Embedding manager not available")
                 
         except Exception as e:
-            logger.error(f"[LLMManager] Error in LLM provider onboarding check: {e}")
+            logger.error(f"[LLMManager] Error in provider onboarding check: {e}")
 
     async def show_onboarding_guide(self):
         """
@@ -654,6 +672,48 @@ class LLMManager:
             
         except Exception as e:
             logger.error(f"[LLMManager] Error showing LLM provider onboarding guide: {e}")
+    
+    async def show_embedding_onboarding_guide(self):
+        """
+        Show onboarding guide for Embedding provider configuration
+        Sends instruction to frontend to display onboarding guide and navigate to embedding tab.
+        """
+        try:
+            from app_context import AppContext
+            web_gui = AppContext.get_web_gui()
+            if not web_gui:
+                logger.warning("[LLMManager] Web GUI not available for embedding onboarding guide")
+                return
+            
+            ipc_api = web_gui.get_ipc_api()
+            if not ipc_api:
+                logger.warning("[LLMManager] IPC API not available for embedding onboarding guide")
+                return
+            
+            # Push onboarding instruction to frontend for embedding provider
+            ipc_api.push_onboarding_message(
+                onboarding_type='embedding_provider_config',
+                context={
+                    'suggestedAction': {
+                        'type': 'navigate',
+                        'path': '/settings',
+                        'params': {'tab': 'embedding'}
+                    }
+                }
+            )
+            
+            logger.info("[LLMManager] Embedding onboarding instruction pushed to frontend")
+            
+        except Exception as e:
+            logger.error(f"[LLMManager] Error showing Embedding provider onboarding guide: {e}")
+    
+    def reset_onboarding_flag(self):
+        """
+        Reset the onboarding flag so onboarding can be shown again
+        This is useful when a new user logs in or when we want to force show onboarding
+        """
+        self._onboarding_shown = False
+        logger.debug("[LLMManager] Onboarding flag reset")
     
     def validate_and_fix_default_llm_model(self, default_llm: str, default_llm_model: str) -> Tuple[str, bool]:
         """

@@ -494,7 +494,8 @@ class WebGUI(QMainWindow):
             logger.info(f"Current platform {sys.platform} does not support custom window styles; using system default")
 
     def _apply_messagebox_style(self, msg_box):
-        """Apply dark gray theme to QMessageBox (Windows only)"""
+        """Apply dark gray theme to QMessageBox with logo background support"""
+        # Apply style to all platforms for better logo visibility
         if sys.platform == 'win32':
             msg_box.setStyleSheet("""
                 QMessageBox {
@@ -511,6 +512,12 @@ class WebGUI(QMainWindow):
                     font-weight: 600;
                     font-size: 14px;
                     border-bottom: 1px solid #404040;  /* Bottom border of title bar */
+                }
+                /* Icon area background for better logo visibility */
+                QMessageBox QLabel[objectName="qt_msgbox_icon_label"] {
+                    background-color: #1a1a1a;  /* Dark background for icon area */
+                    border-radius: 4px;
+                    padding: 8px;
                 }
                 QMessageBox QLabel {
                     background-color: transparent;
@@ -544,8 +551,63 @@ class WebGUI(QMainWindow):
             """)
             logger.info("MessageBox Windows style applied")
         else:
-            # Non-Windows platform, keep system default style
-            logger.info(f"Current platform {sys.platform} does not support custom MessageBox style; using system default")
+            # macOS and Linux: Apply style with icon area background and header support
+            msg_box.setStyleSheet("""
+                QMessageBox {
+                    background-color: #2d2d2d;  /* Dark gray background */
+                    color: #e0e0e0;  /* Light gray text */
+                    border: 1px solid #404040;  /* Medium gray border */
+                    border-radius: 8px;  /* Rounded corners */
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                }
+                /* Top header area background for logo visibility (macOS system title area) */
+                QMessageBox::title {
+                    background-color: #1a1a1a;  /* Very dark background for title/logo area */
+                    color: #ffffff;  /* White text for better contrast */
+                    padding: 12px 16px;
+                    font-weight: 600;
+                    font-size: 16px;
+                    border-bottom: 1px solid #404040;
+                    border-top-left-radius: 8px;
+                    border-top-right-radius: 8px;
+                }
+                /* Icon area background for better logo visibility */
+                QMessageBox QLabel[objectName="qt_msgbox_icon_label"] {
+                    background-color: #1a1a1a;  /* Dark background for icon area */
+                    border-radius: 4px;
+                    padding: 8px;
+                }
+                QMessageBox QLabel {
+                    background-color: transparent;
+                    color: #e0e0e0;  /* Light gray text */
+                    font-size: 14px;
+                    padding: 10px;
+                }
+                QMessageBox QPushButton {
+                    background-color: #404040;  /* Medium gray button background */
+                    color: #e0e0e0;  /* Light gray button text */
+                    border: 1px solid #606060;  /* Slightly brighter border */
+                    border-radius: 6px;
+                    padding: 8px 16px;
+                    font-weight: 500;
+                    min-width: 80px;
+                }
+                QMessageBox QPushButton:hover {
+                    background-color: #505050;  /* Slightly brighter on hover */
+                    border-color: #707070;
+                }
+                QMessageBox QPushButton:pressed {
+                    background-color: #353535;  /* Slightly darker when pressed */
+                }
+                QMessageBox QPushButton:default {
+                    background-color: #5a5a5a;  /* Default button slightly brighter */
+                    border-color: #707070;
+                }
+                QMessageBox QPushButton:default:hover {
+                    background-color: #656565;
+                }
+            """)
+            logger.info(f"MessageBox style applied for {sys.platform}")
 
     def _apply_dark_titlebar_to_messagebox(self, msg_box):
         """Apply Windows dark title bar to MessageBox"""
@@ -697,6 +759,14 @@ class WebGUI(QMainWindow):
             msg_box.setText('Are you sure you want to exit the program?')
             msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             msg_box.setDefaultButton(QMessageBox.No)
+            
+            # Set window flags to ensure proper rendering on macOS
+            if sys.platform == 'darwin':
+                # On macOS, ensure the dialog is opaque and has proper background
+                msg_box.setAttribute(Qt.WA_TranslucentBackground, False)
+                msg_box.setWindowFlags(msg_box.windowFlags() | Qt.FramelessWindowHint)
+                # Re-enable window frame for proper system integration
+                msg_box.setWindowFlags(msg_box.windowFlags() & ~Qt.FramelessWindowHint)
 
             # Apply dark gray theme to dialog
             self._apply_messagebox_style(msg_box)
