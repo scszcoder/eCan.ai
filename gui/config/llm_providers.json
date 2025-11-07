@@ -784,8 +784,7 @@
       "provider": "baidu_qianfan",
       "class_name": "ChatBaiduQianfan",
       "api_key_env_vars": [
-        "BAIDU_API_KEY",
-        "BAIDU_SECRET_KEY"
+        "BAIDU_API_KEY"
       ],
       "base_url": "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat",
       "default_model": "ernie-4.0-8k",

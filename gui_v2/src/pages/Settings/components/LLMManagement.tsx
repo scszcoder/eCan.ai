@@ -373,7 +373,8 @@ const LLMManagement = React.forwardRef<
           );
         }
         
-        await loadProviders(); // Reload data
+        // Reload providers to get updated state from backend
+        await loadProviders();
         console.log("✅ Provider updated:", name);
 
         // Check for shared providers and notify parent to refresh other component
