@@ -556,9 +556,35 @@ export class IPCHandlers {
           effectiveNode &&
           (status === 'paused' || status === 'breakpoint' || status === 'stalled')
         ) {
+          // Immediately mark node as visible
           showNode(effectiveNode);
+          // Also set runtime state so UI sees paused status and renders orange glow
+          try {
+            const payload = nodeState ?? {};
+            const normalized = payload && typeof payload === 'object' && 'nodeState' in payload
+              ? (payload as any).nodeState
+              : payload;
+            useRuntimeStateStore.getState().setNodeRuntimeState(effectiveNode, normalized, 'paused');
+          } catch {}
           return { success: true };
         }
+
+        // On resume/step/continue, proactively mark runtime state as running so GIF resumes immediately
+        try {
+          const isRunLikeEarly = (status === 'running' || status === 'resumed' || status === 'resume' || status === 'step' || status === 'stepping' || status === 'continue' || status === 'continued');
+          if (isRunLikeEarly) {
+            const payload = nodeState ?? {};
+            const normalized = payload && typeof payload === 'object' && 'nodeState' in payload
+              ? (payload as any).nodeState
+              : payload;
+            if (effectiveNode) {
+              useRuntimeStateStore.getState().setNodeRuntimeState(effectiveNode, normalized, 'running');
+            } else if (((window as any).__runningNodeQueue?.showing)) {
+              const cur = (window as any).__runningNodeQueue.showing as string;
+              if (cur) useRuntimeStateStore.getState().setNodeRuntimeState(cur, normalized, 'running');
+            }
+          }
+        } catch {}
 
         // Update the running node if the backend provides a specific node ID.
         if (typeof effectiveNode === 'string' && effectiveNode.length > 0) {
@@ -644,13 +670,37 @@ export class IPCHandlers {
 
         // Capture runtime state even if current_node is empty, using effectiveNode
         try {
+          const payload = nodeState ?? {};
+          const normalized = payload && typeof payload === 'object' && 'nodeState' in payload
+            ? (payload as any).nodeState
+            : payload;
+          // Map backend status to UI runtime status
+          const isPausedLike = (status === 'paused' || status === 'breakpoint' || status === 'stalled');
+          const isRunLike = (
+            status === 'running' || status === 'resumed' || status === 'resume' ||
+            status === 'step' || status === 'stepping' || status === 'continue' || status === 'continued'
+          );
+          const uiStatus: 'paused' | 'running' | any = isPausedLike ? 'paused' : (isRunLike ? 'running' : (status || 'running'));
+
           if (effectiveNode) {
-            const payload = nodeState ?? {};
-            const normalized = payload && typeof payload === 'object' && 'nodeState' in payload
-              ? (payload as any).nodeState
-              : payload;
-            try { if (RUN_TRACE) console.info('[NodeRuntime] update', { node: effectiveNode, status, normalized }); } catch {}
-            useRuntimeStateStore.getState().setNodeRuntimeState(effectiveNode, normalized, status);
+            try { if (RUN_TRACE) console.info('[NodeRuntime] update', { node: effectiveNode, status, uiStatus, normalized }); } catch {}
+            useRuntimeStateStore.getState().setNodeRuntimeState(effectiveNode, normalized, uiStatus);
+          } else if ((isRunLike) && q.showing) {
+            // Fallback: when backend omits current_node/this_node on resume, update the currently showing node
+            // Only flip to running if this node was previously paused-like to prevent UI churn
+            try {
+              const st = useRuntimeStateStore.getState();
+              const prev = (st as any).getNodeRuntimeState?.(q.showing);
+              const wasPausedLike = prev?.status === 'paused' || prev?.status === 'breakpoint' || prev?.status === 'stalled';
+              if (wasPausedLike) {
+                if (RUN_TRACE) console.info('[NodeRuntime] resume-fallback update', { node: q.showing, status, uiStatus, normalized });
+                st.setNodeRuntimeState(q.showing, normalized, 'running');
+              }
+            } catch {}
+          } else if (status === 'paused' && q.showing) {
+            // Fallback: when backend omits current_node/this_node on pause, update the currently showing node
+            try { if (RUN_TRACE) console.info('[NodeRuntime] pause-fallback update', { node: q.showing, status, normalized }); } catch {}
+            useRuntimeStateStore.getState().setNodeRuntimeState(q.showing, normalized, 'paused');
           }
         } catch (e) {
           logger.warn('updateSkillRunStat: failed to capture runtime state', e as any);
