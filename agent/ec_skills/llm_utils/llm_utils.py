@@ -34,7 +34,7 @@ from agent.agent_service import get_agent_by_id
 from agent.ec_skill import *
 from agent.ec_skills.dev_defs import BreakpointManager
 from agent.memory.models import MemoryItem
-from utils.env.secure_store import secure_store
+from utils.env.secure_store import secure_store, get_current_username
 from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
 
@@ -314,11 +314,11 @@ def _select_regional_provider(country, llm_providers):
     
     # Find first available provider with API key
     for preferred_name in preferences:
-        logger.debug(f"Looking for provider matching: {preferred_name}")
+        # logger.debug(f"Looking for provider matching: {preferred_name}")
         for provider in llm_providers:
             provider_name = provider.get('name', '').lower()
             api_key_configured = provider.get('api_key_configured', False)
-            logger.debug(f"Checking provider: {provider.get('name')}, API key configured: {api_key_configured}")
+            # logger.debug(f"Checking provider: {provider.get('name')}, API key configured: {api_key_configured}")
             
             if preferred_name.lower() in provider_name:
                 # For local providers like Ollama, check if base_url is configured
@@ -648,10 +648,12 @@ def _create_llm_instance(provider, config_manager=None):
         
         logger.info(f"Creating LLM instance - Provider: {provider_display} ({provider_name_actual}), Model: {model_name}")
         
-        # Helper to get API key from secure store (no env fallback)
+        # Helper to get API key from secure store with user isolation (no env fallback)
         def get_api_key(env_var):
             try:
-                return secure_store.get(env_var)
+                # Get current username for user isolation
+                username = get_current_username()
+                return secure_store.get(env_var, username=username)
             except Exception:
                 return None
         
@@ -1178,51 +1180,60 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                 config_manager = mainwin.config_manager
                 default_llm_name = config_manager.general_settings.default_llm
                 
+                if not default_llm_name:
+                    logger.error("[create_browser_use_llm] default_llm is empty - this should not happen")
+                    return None
+                
                 # Use get_provider() to get the specific provider dict
-                if default_llm_name:
-                    provider_dict = config_manager.llm_manager.get_provider(default_llm_name)
-                    
-                    if provider_dict:
-                        # Use shared extract_provider_config to get configuration
-                        # Pass config_manager to automatically use user-selected model
-                        config = extract_provider_config(provider_dict, config_manager=config_manager)
-                        
-                        provider_type = config['provider_type']
-                        model_name = config['model_name']  # Already includes user-selected model from extract_provider_config
-                        api_key = config['api_key']
-                        base_url = config['base_url']
-                        class_name = config['class_name']
-                        
-                        logger.info(
-                            f"[create_browser_use_llm] Using MainWindow config: "
-                            f"provider={config['provider_display']}, model={model_name}"
-                        )
-                        
-                        # Use centralized function (already validates BrowserUseChatOpenAI type)
-                        llm_instance = create_browser_use_llm_by_provider_type(
-                            provider_type=provider_type,
-                            model_name=model_name,
-                            api_key=api_key,
-                            base_url=base_url,
-                            class_name=class_name,
-                            default_config=None,  # No fallback config needed when using mainwin
-                            fallback_llm=None,  # Don't pass fallback_llm as it may be incompatible
-                            mainwin=mainwin
-                        )
-                        # Final type check before returning
-                        if llm_instance is not None and not isinstance(llm_instance, BrowserUseChatOpenAI):
-                            logger.error(
-                                f"[create_browser_use_llm] Type check failed: expected BrowserUseChatOpenAI, "
-                                f"got {type(llm_instance).__name__}, returning None"
-                            )
-                            return None
-                        return llm_instance
-                    else:
-                        logger.warning(
-                            f"[create_browser_use_llm] Default LLM '{default_llm_name}' not found in providers"
-                        )
-                else:
-                    logger.debug("[create_browser_use_llm] No default LLM configured in mainwin")
+                provider_dict = config_manager.llm_manager.get_provider(default_llm_name)
+                
+                if not provider_dict:
+                    logger.error(f"[create_browser_use_llm] Default LLM '{default_llm_name}' not found in providers")
+                    return None
+                
+                # Use shared extract_provider_config to get configuration
+                # Pass config_manager to automatically use user-selected model
+                config = extract_provider_config(provider_dict, config_manager=config_manager)
+                
+                provider_type = config['provider_type']
+                model_name = config['model_name']  # Already includes user-selected model from extract_provider_config
+                api_key = config.get('api_key')  # May be None if not configured
+                base_url = config.get('base_url')
+                class_name = config.get('class_name', '')
+                
+                # Use dummy API key if no API key is available (for initialization purposes)
+                # This allows browser_use to initialize even without API key
+                if not api_key:
+                    logger.warning(
+                        f"[create_browser_use_llm] No API key for provider '{default_llm_name}', "
+                        f"using dummy key for initialization"
+                    )
+                    api_key = 'dummy-key'
+                
+                logger.info(
+                    f"[create_browser_use_llm] Using default LLM: "
+                    f"provider={config.get('provider_display', default_llm_name)}, model={model_name}"
+                )
+                
+                # Use centralized function (already validates BrowserUseChatOpenAI type)
+                llm_instance = create_browser_use_llm_by_provider_type(
+                    provider_type=provider_type,
+                    model_name=model_name,
+                    api_key=api_key,
+                    base_url=base_url,
+                    class_name=class_name,
+                    default_config=None,  # No fallback config needed when using mainwin
+                    fallback_llm=None,  # Don't pass fallback_llm as it may be incompatible
+                    mainwin=mainwin
+                )
+                # Final type check before returning
+                if llm_instance is not None and not isinstance(llm_instance, BrowserUseChatOpenAI):
+                    logger.error(
+                        f"[create_browser_use_llm] Type check failed: expected BrowserUseChatOpenAI, "
+                        f"got {type(llm_instance).__name__}, returning None"
+                    )
+                    return None
+                return llm_instance
                         
             except Exception as e:
                 logger.error(

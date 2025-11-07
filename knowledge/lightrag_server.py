@@ -269,11 +269,13 @@ class LightragServer:
             env.setdefault('WORKING_DIR', os.path.join(app_data_path, 'rag_storage'))
             env.setdefault('LOG_DIR', os.path.join(app_data_path, 'runlogs'))
 
-        # Prefer secure_store for API keys; fallback to env and finally .env
+        # Prefer secure_store for API keys with user isolation; fallback to env and finally .env
         openai_api_key = None
         try:
-            from utils.env.secure_store import secure_store
-            openai_api_key = secure_store.get('OPENAI_API_KEY')
+            from utils.env.secure_store import secure_store, get_current_username
+            # Get current username for user isolation
+            username = get_current_username()
+            openai_api_key = secure_store.get('OPENAI_API_KEY', username=username)
         except Exception:
             openai_api_key = None
 

@@ -68,7 +68,7 @@ def find_shared_providers(env_vars: list, provider_type: str) -> list:
                     # Check if there's any overlap in env_vars
                     if any(env_var in provider_env_vars for env_var in env_vars):
                         shared_providers.append({
-                            'name': provider['name'],
+                            'name': provider.get('provider'),  # Use standard identifier
                             'type': 'embedding',
                             'shared_env_vars': [ev for ev in env_vars if ev in provider_env_vars]
                         })
@@ -87,7 +87,7 @@ def find_shared_providers(env_vars: list, provider_type: str) -> list:
                     # Check if there's any overlap in env_vars
                     if any(env_var in provider_env_vars for env_var in env_vars):
                         shared_providers.append({
-                            'name': provider['name'],
+                            'name': provider.get('provider'),  # Use standard identifier
                             'type': 'llm',
                             'shared_env_vars': [ev for ev in env_vars if ev in provider_env_vars]
                         })
@@ -149,14 +149,27 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
             return create_error_response(request, 'INVALID_PARAMS', error)
 
         llm_manager = get_llm_manager()
-        provider_name = data['name']
+        # Frontend MUST send standard provider identifier (e.g., "openai", "dashscope", "azure_openai")
+        # NOT name or display_name (e.g., NOT "OpenAI", "Qwen (DashScope)")
+        provider_identifier = (data.get('name') or "").strip()
+        if not provider_identifier:
+            return create_error_response(request, 'INVALID_PARAMS', "Provider identifier is required")
+        
         api_key = data.get('api_key')
         azure_endpoint = data.get('azure_endpoint')
 
-        # Get provider information
-        provider = llm_manager.get_provider(provider_name)
+        # Get provider by standard identifier (case-insensitive)
+        provider = llm_manager.get_provider(provider_identifier)
         if not provider:
-            return create_error_response(request, 'LLM_ERROR', f"Provider {provider_name} not found")
+            # Provide helpful error message with available identifiers
+            all_providers = llm_manager.get_all_providers()
+            available_ids = [p.get("provider") for p in all_providers if p.get("provider")]
+            return create_error_response(
+                request, 
+                'LLM_ERROR', 
+                f"Provider identifier '{provider_identifier}' not found. "
+                f"Available identifiers: {', '.join(available_ids[:5])}{'...' if len(available_ids) > 5 else ''}"
+            )
 
         # Get environment variable names for this provider
         env_vars = provider.get('api_key_env_vars', [])
@@ -165,7 +178,7 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
         api_key_stored = False
         
         # Handle special cases requiring multiple credentials
-        if provider_name == 'AzureOpenAI':
+        if provider_identifier == 'azure_openai':
             if azure_endpoint:
                 # Store Azure endpoint
                 if 'AZURE_ENDPOINT' in env_vars:
@@ -182,7 +195,7 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
                         return create_error_response(request, 'LLM_ERROR', f"Failed to store API key: {error_msg}")
                     api_key_stored = True
 
-        elif provider_name == 'ChatBedrockConverse':
+        elif provider_identifier == 'bedrock':
             # AWS Bedrock requires two credentials: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
             aws_access_key_id = data.get('aws_access_key_id')
             aws_secret_access_key = data.get('aws_secret_access_key')
@@ -217,15 +230,15 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
                 configured_providers = []
                 for p in llm_manager.get_all_providers():
                     if p.get('api_key_configured', False):
-                        configured_providers.append(p['name'])
+                        configured_providers.append(p['provider'])
                 
                 # If only one provider is configured, set it as default
-                if len(configured_providers) == 1 and configured_providers[0] == provider_name:
+                if len(configured_providers) == 1 and configured_providers[0] == provider_identifier:
                     from app_context import AppContext
                     main_window = AppContext.get_main_window()
                     if main_window:
                         general_settings = main_window.config_manager.general_settings
-                        general_settings.default_llm = provider_name
+                        general_settings.default_llm = provider_identifier
                         # Always update default model when auto-setting provider
                         default_model = provider.get('default_model')
                         if default_model:
@@ -233,32 +246,32 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
                             logger.info(f"Auto-set default model to {default_model}")
                         general_settings.save()
                         auto_set_as_default = True
-                        logger.info(f"Auto-set {provider_name} as default_llm (only configured provider)")
+                        logger.info(f"Auto-set {provider_identifier} as default_llm (only configured provider)")
                         
                         # Hot-update LLM instances to use the new provider
                         try:
-                            provider_info = f"{provider.get('display_name', provider_name)}, Model: {default_model}"
+                            provider_info = f"{provider.get('display_name', provider_identifier)}, Model: {default_model}"
                             update_success = main_window.update_all_llms(reason=f"Default LLM changed to {provider_info}")
                             if update_success:
-                                logger.info(f"Successfully hot-updated LLM instances to {provider_name}")
+                                logger.info(f"Successfully hot-updated LLM instances to {provider_identifier}")
                             else:
-                                logger.warning(f"Failed to hot-update LLM instances after setting default to {provider_name}")
+                                logger.warning(f"Failed to hot-update LLM instances after setting default to {provider_identifier}")
                         except Exception as update_error:
                             logger.error(f"Error during hot-update of LLM instances: {update_error}")
             except Exception as e:
                 logger.warning(f"Failed to auto-set default_llm: {e}")
 
-        logger.info(f"Updated LLM provider: {provider_name}")
+        logger.info(f"Updated LLM provider: {provider_identifier}")
         
         # Find shared Embedding providers that use the same API keys
         shared_providers = find_shared_providers(env_vars, 'llm')
         
         # Get updated provider info for frontend
-        updated_provider = llm_manager.get_provider(provider_name)
+        updated_provider = llm_manager.get_provider(provider_identifier)
         
         # Build response with auto-set information and updated provider
         response_data = {
-            'message': f'LLM provider {provider_name} updated successfully',
+            'message': f'LLM provider {provider_identifier} updated successfully',
             'provider': updated_provider  # Include updated provider info for UI refresh
         }
         
@@ -268,11 +281,11 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
         if shared_providers:
             logger.info(f"[LLM] Found {len(shared_providers)} shared Embedding providers: {[p['name'] for p in shared_providers]}")
         else:
-            logger.debug(f"[LLM] No shared Embedding providers found for {provider_name}")
+            logger.debug(f"[LLM] No shared Embedding providers found for {provider_identifier}")
         
         if auto_set_as_default:
             response_data['auto_set_as_default'] = True
-            response_data['default_llm'] = provider_name
+            response_data['default_llm'] = provider_identifier
             response_data['default_llm_model'] = provider.get('default_model')
             # Also include current settings for frontend
             main_window = AppContext.get_main_window()
@@ -311,8 +324,9 @@ def handle_set_llm_provider_model(request: IPCRequest, params: Optional[Dict[str
 
         updated_provider = llm_manager.get_provider(provider_name)
         
-        # If this is the current default LLM, also update default_llm_model in general_settings
-        if main_window.config_manager.general_settings.default_llm == provider_name:
+        # If this is the current default LLM, also update default_llm_model in general_settings (case-insensitive)
+        current_default = (main_window.config_manager.general_settings.default_llm or "").lower()
+        if current_default == (provider_name or "").lower():
             main_window.config_manager.general_settings.default_llm_model = model_name
             main_window.config_manager.general_settings.save()
             logger.info(f"[LLM] Updated default_llm_model to {model_name} for current provider {provider_name}")
@@ -358,9 +372,9 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
         if not provider:
             return create_error_response(request, 'LLM_ERROR', f"Provider {provider_name} not found")
 
-        # Check if this is the current default LLM
-        current_default_llm = main_window.config_manager.general_settings.default_llm
-        is_default_llm = (current_default_llm == provider_name)
+        # Check if this is the current default LLM (case-insensitive)
+        current_default_llm = (main_window.config_manager.general_settings.default_llm or "").lower()
+        is_default_llm = (current_default_llm == (provider_name or "").lower())
 
         # Delete API key and other credentials from environment variables
         env_vars = provider.get('api_key_env_vars', [])
@@ -416,15 +430,15 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
             if configured_providers:
                 # Select the first available configured provider
                 new_provider = configured_providers[0]
-                new_default_llm = new_provider.get('name')
+                new_default_llm = new_provider.get('provider')  # Use provider identifier
                 new_default_model = new_provider.get('preferred_model') or new_provider.get('default_model') or ''
                 logger.info(f"Selected new default LLM {new_default_llm} with model {new_default_model}")
             else:
                 # No providers are configured, default to OpenAI with its default model
-                new_default_llm = 'OpenAI'
+                new_default_llm = 'openai'
                 # Get OpenAI's default model from llm_manager
                 try:
-                    openai_provider = llm_manager.get_provider('OpenAI')
+                    openai_provider = llm_manager.get_provider('openai')
                     new_default_model = openai_provider.get('default_model', 'gpt-5') if openai_provider else 'gpt-5'
                 except:
                     new_default_model = 'gpt-5'
@@ -648,7 +662,7 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
         final_default_llm = main_window.config_manager.general_settings.default_llm
         final_llm_type = type(main_window.llm).__name__ if main_window.llm else "None"
         
-        verification_status = "VERIFIED" if final_default_llm == name else "MISMATCH"
+        verification_status = "VERIFIED" if (final_default_llm or "").lower() == (name or "").lower() else "MISMATCH"
         logger.info("Provider switch verification:")
         logger.info(f"   Setting: default_llm={name}, model={provider_model}")
         logger.info(f"   Actual: default_llm={final_default_llm}, LLM Type={final_llm_type}")
@@ -659,7 +673,7 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
             'model_name': provider_model,
             'actual_default_llm': final_default_llm,
             'llm_type': final_llm_type,
-            'verified': final_default_llm == name,
+            'verified': (final_default_llm or "").lower() == (name or "").lower(),
             'message': f'Default LLM set to {name} successfully (hot-updated)' + (f' - {verification_status}' if verification_status else '')
         })
 

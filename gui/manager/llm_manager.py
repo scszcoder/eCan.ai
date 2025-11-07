@@ -10,11 +10,14 @@ It integrates with the configuration system and provides methods for:
 """
 
 import os
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, asdict
 
 from gui.config.llm_config import llm_config, LLMProviderConfig
 from utils.logger_helper import logger_helper as logger
+
+if TYPE_CHECKING:
+    from gui.manager.config_manager import ConfigManager
 
 
 @dataclass
@@ -44,7 +47,7 @@ class LLMManager:
     
     def store_api_key(self, env_var: str, api_key: str) -> Tuple[bool, Optional[str]]:
         """
-        Store an API key securely
+        Store an API key securely with user isolation
 
         Args:
             env_var: Environment variable name
@@ -64,13 +67,16 @@ class LLMManager:
 
             value = api_key.strip()
 
-            # Persist to secure store (Keychain on macOS, Credential Manager on Windows, etc.)
-            from utils.env.secure_store import secure_store
-            ok = secure_store.set(env_var, value)
+            # Get current username for user isolation
+            from utils.env.secure_store import secure_store, get_current_username
+            username = get_current_username()
+            
+            # Persist to secure store with user isolation (Keychain on macOS, Credential Manager on Windows, etc.)
+            ok = secure_store.set(env_var, value, username=username)
             if not ok:
                 return False, "Failed to persist API key to secure store"
 
-            logger.info(f"API key stored for {env_var} in secure store")
+            logger.info(f"API key stored for {env_var} in secure store (user: {username or 'anonymous'})")
             return True, None
 
         except Exception as e:
@@ -80,7 +86,7 @@ class LLMManager:
 
     def retrieve_api_key(self, env_var: str) -> Optional[str]:
         """
-        Retrieve an API key from secure store
+        Retrieve an API key from secure store with user isolation
 
         Args:
             env_var: Environment variable name
@@ -89,8 +95,10 @@ class LLMManager:
             API key if found, None otherwise
         """
         try:
-            from utils.env.secure_store import secure_store
-            value = secure_store.get(env_var)
+            # Get current username for user isolation
+            from utils.env.secure_store import secure_store, get_current_username
+            username = get_current_username()
+            value = secure_store.get(env_var, username=username)
             if value and value.strip():
                 return value
             return None
@@ -101,7 +109,7 @@ class LLMManager:
 
     def has_api_key(self, env_var: str) -> bool:
         """
-        Check if an API key exists in secure store
+        Check if an API key exists in secure store with user isolation
 
         Args:
             env_var: Environment variable name
@@ -110,8 +118,10 @@ class LLMManager:
             True if API key exists, False otherwise
         """
         try:
-            from utils.env.secure_store import secure_store
-            value = secure_store.get(env_var)
+            # Get current username for user isolation
+            from utils.env.secure_store import secure_store, get_current_username
+            username = get_current_username()
+            value = secure_store.get(env_var, username=username)
             return bool(value and value.strip())
         except Exception:
             return False
@@ -136,11 +146,14 @@ class LLMManager:
             else:
                 logger.debug(f"Environment variable {env_var} not present in current session")
 
+            # Get current username for user isolation
+            from utils.env.secure_store import secure_store, get_current_username
+            username = get_current_username()
+            
             # Delete from secure store
-            from utils.env.secure_store import secure_store
             store_deleted = False
             try:
-                store_deleted = secure_store.delete(env_var)
+                store_deleted = secure_store.delete(env_var, username=username)
             except Exception as e:
                 logger.warning(f"Failed to delete from secure store: {e}")
                 store_deleted = False
@@ -311,8 +324,8 @@ class LLMManager:
             current_default_model = general_settings.default_llm_model
         
         for provider_name, provider_config in llm_config.get_all_providers().items():
-            # Only set preferred_model if this is the current default provider
-            is_default_provider = (provider_name == current_default_llm)
+            # Only set preferred_model if this is the current default provider (case-insensitive comparison)
+            is_default_provider = (provider_config.provider.value.lower() == (current_default_llm or "").lower())
             preferred_model = current_default_model if (is_default_provider and current_default_model) else provider_config.default_model
             is_preferred = is_default_provider
             custom_params = {}
@@ -327,7 +340,7 @@ class LLMManager:
                 "name": provider_config.name,
                 "display_name": provider_config.display_name,
                 "class_name": provider_config.class_name,
-                "provider": provider_config.provider.value,  # Convert enum to string value
+                "provider": provider_config.provider.value,  # Convert enum to string value (canonical identifier)
                 "description": provider_config.description,
                 "documentation_url": provider_config.documentation_url,
                 "is_local": provider_config.is_local,
@@ -352,12 +365,91 @@ class LLMManager:
         
         return providers
     
-    def get_provider(self, provider_name: str) -> Optional[Dict[str, Any]]:
-        """Get a specific provider with user preferences"""
+    def get_provider(self, provider_key: str) -> Optional[Dict[str, Any]]:
+        """Get a specific provider by canonical provider identifier (providers[i]['provider']).
+        
+        Provider comparison is case-insensitive for better compatibility.
+        Also supports lookup by:
+        1. provider identifier (canonical, e.g., "openai")
+        2. class_name (backward compatibility, e.g., "ChatOpenAI" -> "openai")
+        3. name (backward compatibility, e.g., "Qwen (DashScope)" -> "dashscope")
+        """
+        key = (provider_key or "").strip().lower()
+        if not key:
+            return None
+        
         providers = self.get_all_providers()
+        
+        # First try: match by provider identifier (canonical)
         for provider in providers:
-            if provider["name"] == provider_name:
+            provider_id = (provider.get("provider") or "").lower()
+            if provider_id == key:
                 return provider
+        
+        # Second try: match by class_name (backward compatibility for old settings)
+        for provider in providers:
+            class_name = (provider.get("class_name") or "").lower()
+            if class_name == key:
+                provider_id = provider.get("provider")
+                logger.info(f"[LLMManager] Found provider '{provider.get('name')}' by class_name '{provider_key}', provider_id='{provider_id}'")
+                # Auto-migrate settings if this was found by class_name (not provider identifier)
+                # This ensures settings.json is updated to use canonical identifier
+                if provider_id and provider_id.lower() != key:
+                    try:
+                        from app_context import AppContext
+                        main_window = AppContext.get_main_window()
+                        if main_window and main_window.config_manager.general_settings.default_llm == provider_key:
+                            logger.info(f"[LLMManager] Auto-updating settings: '{provider_key}' -> '{provider_id}'")
+                            main_window.config_manager.general_settings.default_llm = provider_id
+                            main_window.config_manager.general_settings.save()
+                    except Exception as e:
+                        logger.debug(f"[LLMManager] Could not auto-update settings (non-critical): {e}")
+                return provider
+        
+        # Third try: match by name (backward compatibility with old settings using display names)
+        for provider in providers:
+            provider_name = (provider.get("name") or "").lower()
+            if provider_name == key:
+                provider_id = provider.get("provider")
+                logger.info(f"[LLMManager] Found provider '{provider.get('name')}' by name '{provider_key}', provider_id='{provider_id}'")
+                # Auto-migrate settings if this was found by name (not provider identifier)
+                if provider_id and provider_id.lower() != key:
+                    try:
+                        from app_context import AppContext
+                        main_window = AppContext.get_main_window()
+                        if main_window and main_window.config_manager.general_settings.default_llm == provider_key:
+                            logger.info(f"[LLMManager] Auto-updating settings: '{provider_key}' -> '{provider_id}'")
+                            main_window.config_manager.general_settings.default_llm = provider_id
+                            main_window.config_manager.general_settings.save()
+                    except Exception as e:
+                        logger.debug(f"[LLMManager] Could not auto-update settings (non-critical): {e}")
+                return provider
+        
+        logger.warning(f"[LLMManager] Provider '{provider_key}' not found (tried identifier, class_name, and name)")
+        return None
+    
+    def _try_migrate_class_name_to_identifier(self, class_name_or_identifier: str) -> Optional[str]:
+        """Try to migrate class_name to provider identifier (e.g., "ChatOpenAI" -> "openai").
+        
+        Returns the provider identifier if found, None otherwise.
+        """
+        key = (class_name_or_identifier or "").strip().lower()
+        if not key:
+            return None
+        
+        # Try to find by class_name and return its provider identifier
+        providers = self.get_all_providers()
+        logger.debug(f"[LLMManager] Attempting migration for '{class_name_or_identifier}' (normalized: '{key}'), checking {len(providers)} providers...")
+        
+        for provider in providers:
+            class_name = (provider.get("class_name") or "").lower()
+            provider_id = provider.get("provider", "")
+            # logger.debug(f"[LLMManager] Checking provider '{provider.get('name')}': class_name='{provider.get('class_name')}' (normalized: '{class_name}'), provider_id='{provider_id}'")
+            if class_name == key:
+                logger.info(f"[LLMManager] Found match: '{class_name_or_identifier}' -> '{provider_id}'")
+                return provider_id  # Return the canonical identifier
+        
+        logger.debug(f"[LLMManager] No provider found with class_name matching '{class_name_or_identifier}'")
         return None
     
     def get_provider_summary(self) -> Dict[str, Any]:
@@ -389,22 +481,88 @@ class LLMManager:
         
         return models
 
-    def set_provider_default_model(self, provider_name: str, model_name: str) -> Tuple[bool, Optional[str]]:
+    def update_default_llm(self, provider_key: str) -> bool:
+        """Update the default LLM provider
+        
+        Args:
+            provider_key: Provider identifier (e.g., "openai", "azure_openai") - case-insensitive
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        # Normalize provider key (case-insensitive)
+        provider_key_normalized = (provider_key or "").strip().lower()
+        if not provider_key_normalized:
+            logger.warning("[LLMManager] Cannot update default LLM: empty provider key")
+            return False
+        
+        # Get provider config by identifier (case-insensitive)
+        provider_config = None
+        for name, pc in llm_config.get_all_providers().items():
+            if pc.provider.value.lower() == provider_key_normalized:
+                provider_config = pc
+                break
+        
+        if not provider_config:
+            logger.warning(f"[LLMManager] Provider '{provider_key}' not found")
+            return False
+        
+        # Save to user's settings.json (writable even in PyInstaller)
+        from app_context import AppContext
+        main_window = AppContext.get_main_window()
+        if not main_window:
+            logger.warning("[LLMManager] Main window not available")
+            return False
+        
+        general_settings = main_window.config_manager.general_settings
+        
+        # Update default LLM
+        general_settings.default_llm = provider_config.provider.value
+        
+        # If provider has a default model, set it
+        available_models = llm_config.get_models_for_provider(provider_config.name)
+        if available_models:
+            general_settings.default_llm_model = available_models[0].name
+        
+        # Save settings
+        if not general_settings.save():
+            logger.error(f"[LLMManager] Failed to save default LLM setting")
+            return False
+        
+        logger.info(f"[LLMManager] ✅ Updated default LLM to {provider_config.provider.value}")
+        return True
+    
+    def set_provider_default_model(self, provider_key: str, model_name: str) -> Tuple[bool, Optional[str]]:
         """Update the default model for the default LLM provider
+        
+        Args:
+            provider_key: Provider identifier (e.g., "openai", "azure_openai") - case-insensitive
+            model_name: Model name to set as default
         
         Note: Only saves if this is the current default provider.
         Saves to user's settings.json (writable in PyInstaller), 
         NOT to llm_providers.json (read-only in PyInstaller).
         """
-        provider_config = llm_config.get_provider(provider_name)
+        # Normalize provider key (case-insensitive)
+        provider_key_normalized = (provider_key or "").strip().lower()
+        if not provider_key_normalized:
+            return False, "Provider key cannot be empty"
+        
+        # Get provider config by identifier (case-insensitive)
+        provider_config = None
+        for name, pc in llm_config.get_all_providers().items():
+            if pc.provider.value.lower() == provider_key_normalized:
+                provider_config = pc
+                break
+        
         if not provider_config:
-            return False, f"Provider {provider_name} not found"
+            return False, f"Provider '{provider_key}' not found"
 
-        available_models = llm_config.get_models_for_provider(provider_name)
+        available_models = llm_config.get_models_for_provider(provider_config.name)
         valid_model_names = {model.name for model in available_models}
 
         if available_models and model_name not in valid_model_names:
-            return False, f"Model {model_name} is not supported by provider {provider_name}"
+            return False, f"Model '{model_name}' is not supported by provider '{provider_config.name}'"
 
         # Save to user's settings.json (writable even in PyInstaller)
         from app_context import AppContext
@@ -414,20 +572,21 @@ class LLMManager:
         
         general_settings = main_window.config_manager.general_settings
         
-        # Check if this is the current default provider
-        current_default_llm = general_settings.default_llm
-        if current_default_llm == provider_name:
+        # Check if this is the current default provider (compare by provider identifier, case-insensitive)
+        current_default_llm = (general_settings.default_llm or "").lower()
+        provider_identifier = provider_config.provider.value.lower()
+        if current_default_llm == provider_identifier:
             # Update default_llm_model for the current default provider
             general_settings.default_llm_model = model_name
             
             if not general_settings.save():
                 return False, "Failed to save model selection to settings"
             
-            logger.info(f"Updated default_llm_model to {model_name} for current default provider {provider_name}")
+            logger.info(f"Updated default_llm_model to {model_name} for current default provider '{provider_config.name}'")
         else:
             # Not the default provider, just return success without saving
             # The frontend may want to change models for non-default providers for preview
-            logger.info(f"Model {model_name} selected for {provider_name} (not saved since it's not the default provider)")
+            logger.info(f"Model '{model_name}' selected for '{provider_config.name}' (not saved since it's not the default provider)")
 
         return True, None
     
@@ -515,13 +674,13 @@ class LLMManager:
             - configured_provider_name: Name of configured default provider, or None
         """
         try:
-            # Get default LLM from settings
+            # Get default LLM from settings (provider identifier expected, e.g., "openai")
             default_llm = self.config_manager.general_settings.default_llm
             
             # Case 1: If default_llm is empty, set it to OpenAI as default
             if not default_llm or not default_llm.strip():
-                logger.info("[LLMManager] No default LLM is set - setting to OpenAI with default model")
-                self.config_manager.general_settings.default_llm = "OpenAI"
+                logger.info("[LLMManager] No default LLM is set - setting to OpenAI (provider identifier: 'openai') with default model")
+                self.config_manager.general_settings.default_llm = "openai"
                 # Also set the default model if not already set
                 if not self.config_manager.general_settings.default_llm_model:
                     provider_config = llm_config.get_provider("OpenAI")
@@ -529,17 +688,33 @@ class LLMManager:
                         self.config_manager.general_settings.default_llm_model = provider_config.default_model
                         logger.info(f"[LLMManager] Set default model to {provider_config.default_model}")
                 self.config_manager.general_settings.save()
-                default_llm = "OpenAI"
+                default_llm = "openai"
                 # Continue to check API key configuration below
             
-            # Get provider configuration
+            # Get provider configuration (supports both provider identifier and class_name)
             provider = self.get_provider(default_llm)
             
-            # Case 2: Provider not found, show onboarding but keep the default_llm setting
+            # Case 2: Provider not found, try auto-migration from class_name to identifier
             if not provider:
-                logger.warning(f"[LLMManager] Default LLM '{default_llm}' provider not found - onboarding required")
-                # Keep default_llm setting, don't clear it
-                return False, None
+                logger.warning(f"[LLMManager] Provider '{default_llm}' not found by identifier, trying class_name lookup...")
+                # Try to auto-migrate if it's a class_name (e.g., "ChatOpenAI" -> "openai")
+                provider_identifier = self._try_migrate_class_name_to_identifier(default_llm)
+                if provider_identifier:
+                    logger.info(f"[LLMManager] Auto-migrated '{default_llm}' (class_name) to provider identifier '{provider_identifier}'")
+                    self.config_manager.general_settings.default_llm = provider_identifier
+                    self.config_manager.general_settings.save()
+                    # Continue with migrated identifier (don't recurse to avoid infinite loop)
+                    default_llm = provider_identifier
+                    provider = self.get_provider(provider_identifier)
+                    if not provider:
+                        logger.error(f"[LLMManager] Failed to find provider after migration to '{provider_identifier}'")
+                        return False, None
+                    logger.info(f"[LLMManager] Successfully found provider '{provider.get('name')}' after migration")
+                    # Continue to check configuration below
+                else:
+                    logger.warning(f"[LLMManager] Default LLM '{default_llm}' provider not found - onboarding required")
+                    # Keep default_llm setting, don't clear it
+                    return False, None
             
             # For local providers (e.g., Ollama), check base_url configuration
             if provider.get('is_local', False):
@@ -564,7 +739,7 @@ class LLMManager:
             
             if not api_key_env_vars:
                 # Provider doesn't require API keys (unusual but possible)
-                logger.debug(f"[LLMManager] Provider '{default_llm}' doesn't require API keys")
+                logger.warning(f"[LLMManager] Provider '{default_llm}' doesn't require API keys")
                 return True, default_llm
             
             # Check each required API key
@@ -575,7 +750,7 @@ class LLMManager:
             
             if missing_keys:
                 # API keys are missing, show onboarding
-                logger.info(f"[LLMManager] Provider '{default_llm}' is missing API keys: {missing_keys} - onboarding required")
+                logger.warning(f"[LLMManager] Provider '{default_llm}' is missing API keys: {missing_keys} - onboarding required")
                 return False, None
             
             # All API keys are configured
