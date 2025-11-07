@@ -1098,7 +1098,8 @@ jobs:
             if [ -f "$file" ]; then
               filename=$(basename "$file")
               size=$(du -h "$file" | cut -f1)
-              echo "- [\`${filename}\`](${S3_BASE_URL}/windows/${filename}) (${size})" >> $GITHUB_STEP_SUMMARY
+              echo "- \`${filename}\` (${size})" >> $GITHUB_STEP_SUMMARY
+              echo "  \`${S3_BASE_URL}/windows/${filename}\`" >> $GITHUB_STEP_SUMMARY
             fi
           done
         fi
@@ -1110,23 +1111,44 @@ jobs:
             if [ -f "$file" ]; then
               filename=$(basename "$file")
               size=$(du -h "$file" | cut -f1)
-              echo "- [\`${filename}\`](${S3_BASE_URL}/macos/${filename}) (${size})" >> $GITHUB_STEP_SUMMARY
+              echo "- \`${filename}\` (${size})" >> $GITHUB_STEP_SUMMARY
+              echo "  \`${S3_BASE_URL}/macos/${filename}\`" >> $GITHUB_STEP_SUMMARY
             fi
           done
         fi
         
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 校验和 Checksums" >> $GITHUB_STEP_SUMMARY
-        echo "- [SHA256SUMS](${S3_BASE_URL}/checksums/SHA256SUMS)" >> $GITHUB_STEP_SUMMARY
+        echo "- SHA256SUMS" >> $GITHUB_STEP_SUMMARY
+        echo "  \`${S3_BASE_URL}/checksums/SHA256SUMS\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "---" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🚀 加速下载 (S3 Transfer Acceleration)" >> $GITHUB_STEP_SUMMARY
         echo "如果从远程地区下载较慢，可以使用加速 URL (需在 S3 Bucket 启用传输加速)：" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        echo "${S3_ACCELERATE_URL}" >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        if [ -d "upload/windows" ]; then
+          echo "#### Windows 加速下载" >> $GITHUB_STEP_SUMMARY
+          for file in upload/windows/*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              echo "- \`${S3_ACCELERATE_URL}/windows/${filename}\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+        if [ -d "upload/macos" ]; then
+          echo "#### macOS 加速下载" >> $GITHUB_STEP_SUMMARY
+          for file in upload/macos/*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              echo "- \`${S3_ACCELERATE_URL}/macos/${filename}\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "#### 校验和加速下载" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${S3_ACCELERATE_URL}/checksums/SHA256SUMS\`" >> $GITHUB_STEP_SUMMARY
         
         echo ""
         echo "================================================================"
@@ -1502,11 +1524,16 @@ jobs:
   publish-appcast:
     needs: [validate-tag, upload-to-s3]
     # Only generate appcast for tag/release builds (branch builds don't need OTA updates)
-    if: needs.validate-tag.outputs.is-branch == 'false'
+    # Run even if upload-to-s3 was skipped, as long as it's a tag/release build
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.validate-tag.outputs.is-branch == 'false' &&
+      (needs.upload-to-s3.result == 'success' || needs.upload-to-s3.result == 'skipped')
     runs-on: ubuntu-latest
     env:
       ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY || 'NOT_SET' }}
-      S3_BASE_URL: ${{ needs.upload-to-s3.outputs.s3_base_url }}
+      S3_BASE_URL: ${{ needs.upload-to-s3.outputs.s3_base_url || '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -1528,10 +1555,17 @@ jobs:
           else
             echo "ED25519_PRIVATE_KEY: Not available - Appcast generation disabled"
           fi
-          echo "S3 Base URL: ${S3_BASE_URL}"
+          echo ""
+          if [ -z "${S3_BASE_URL}" ] || [ "${S3_BASE_URL}" = "" ]; then
+            echo "⚠️  S3_BASE_URL: Not available (upload-to-s3 may have been skipped)"
+            echo "   Appcast generation will be skipped if S3_BASE_URL is required"
+          else
+            echo "✅ S3_BASE_URL: ${S3_BASE_URL}"
+          fi
           echo ""
           echo "Version: ${{ needs.validate-tag.outputs.version }}"
           echo "Is Branch: ${{ needs.validate-tag.outputs.is-branch }}"
+          echo "Upload-to-S3 Result: ${{ needs.upload-to-s3.result }}"
 
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
@@ -1564,7 +1598,7 @@ jobs:
           pip install requests cryptography
 
       - name: Generate macOS appcast (amd64)
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && env.S3_BASE_URL != '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
@@ -1573,6 +1607,9 @@ jobs:
           import os, glob
           from build_system.generate_appcast import main
           s3_base_url = os.environ.get('S3_BASE_URL', '')
+          if not s3_base_url:
+              print("⚠️  S3_BASE_URL is empty, skipping appcast generation")
+              exit(0)
           assets = []
           for pat in ('macos-artifacts/*amd64*.pkg','macos-artifacts/*amd64*.zip','macos-artifacts/*x86_64*.pkg','macos-artifacts/*x86_64*.zip','macos-artifacts/*x64*.pkg','macos-artifacts/*x64*.zip'):
               for p in glob.glob(pat):
@@ -1585,7 +1622,7 @@ jobs:
           PY
 
       - name: Generate macOS appcast (aarch64)
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && env.S3_BASE_URL != '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
@@ -1594,6 +1631,9 @@ jobs:
           import os, glob
           from build_system.generate_appcast import main
           s3_base_url = os.environ.get('S3_BASE_URL', '')
+          if not s3_base_url:
+              print("⚠️  S3_BASE_URL is empty, skipping appcast generation")
+              exit(0)
           assets = []
           for pat in ('macos-artifacts/*aarch64*.pkg','macos-artifacts/*aarch64*.zip','macos-artifacts/*arm64*.pkg','macos-artifacts/*arm64*.zip'):
               for p in glob.glob(pat):
@@ -1606,7 +1646,7 @@ jobs:
           PY
 
       - name: Generate Windows appcast (amd64)
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && env.S3_BASE_URL != '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
@@ -1615,6 +1655,9 @@ jobs:
           import os, glob
           from build_system.generate_appcast import main
           s3_base_url = os.environ.get('S3_BASE_URL', '')
+          if not s3_base_url:
+              print("⚠️  S3_BASE_URL is empty, skipping appcast generation")
+              exit(0)
           assets = []
           for pat in (
               'windows-artifacts/*amd64*.exe',
@@ -1637,7 +1680,7 @@ jobs:
 
 
       - name: Generate macOS aggregate appcast (all arches)
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && env.S3_BASE_URL != '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
@@ -1646,6 +1689,9 @@ jobs:
           import os, glob
           from build_system.generate_appcast import main
           s3_base_url = os.environ.get('S3_BASE_URL', '')
+          if not s3_base_url:
+              print("⚠️  S3_BASE_URL is empty, skipping appcast generation")
+              exit(0)
           assets = []
           for pat in (
               'macos-artifacts/*.pkg',
@@ -1666,7 +1712,7 @@ jobs:
           PY
 
       - name: Generate Windows aggregate appcast (all arches)
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && env.S3_BASE_URL != '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
@@ -1675,6 +1721,9 @@ jobs:
           import os, glob
           from build_system.generate_appcast import main
           s3_base_url = os.environ.get('S3_BASE_URL', '')
+          if not s3_base_url:
+              print("⚠️  S3_BASE_URL is empty, skipping appcast generation")
+              exit(0)
           assets = []
           for pat in (
               'windows-artifacts/*.exe',
