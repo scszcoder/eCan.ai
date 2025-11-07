@@ -479,7 +479,7 @@ async def create_ec_customer_support_chat_skill(mainwin):
             ex_stat = "ErrorCreateSearch1688ChatterSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateSearch1688ChatterSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
 
     return searcher_chatter_skill

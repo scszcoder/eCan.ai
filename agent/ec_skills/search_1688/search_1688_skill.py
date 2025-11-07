@@ -414,7 +414,7 @@ async def create_search_1688_skill(mainwin):
             ex_stat = "ErrorCreateSearch1688Skill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateSearch1688Skill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
 
     return searcher_skill

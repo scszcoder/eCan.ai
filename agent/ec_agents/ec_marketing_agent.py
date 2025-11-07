@@ -45,7 +45,6 @@ def set_up_ec_marketing_agent(mainwin):
             ex_stat = "ErrorSetUpECMarketingAgent:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorSetUpECMarketingAgent: traceback information not available:" + str(e)
-        # mainwin.showMsg(ex_stat)
         logger.error(ex_stat)
         return None
 

@@ -124,7 +124,7 @@ async def create_rpa_helper_chatter_skill(mainwin):
             ex_stat = "ErrorCreateRPAHelperSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateRPAHelperSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
 
     return helper_skill
@@ -202,7 +202,7 @@ async def create_rpa_operator_chatter_skill(mainwin):
             ex_stat = "ErrorCreateRPASupervisorSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateRPASupervisorSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
 
     return operator_skill
@@ -291,7 +291,7 @@ async def create_rpa_supervisor_scheduling_chatter_skill(mainwin):
             ex_stat = "ErrorCreateRPASupervisorSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateRPASupervisorSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
 
     return supervisor_skill
@@ -445,7 +445,7 @@ async def create_rpa_supervisor_chatter_skill(mainwin):
             ex_stat = "ErrorCreateRPASupervisorSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateRPASupervisorSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
 
     return supervisor_skill

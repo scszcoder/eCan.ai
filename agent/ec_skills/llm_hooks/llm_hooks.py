@@ -19,8 +19,8 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state):
         # mm_content = prep_multi_modal_content(state, runtime)
 
         state["prompts"] = nodes_prompts[0]
-        print("state prompts:", state["input"], nodes_prompts)
-        print("standard_pre_llm_hook current state:", state)
+        logger.debug(f"state prompts: {state['input']} {nodes_prompts}")
+        logger.debug(f"standard_pre_llm_hook current state: {state}")
         langchain_prompt = ChatPromptTemplate.from_messages(state["prompts"])
 
         # Collect variables required by the prompt template
@@ -150,7 +150,7 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state):
         logger.debug("pre ll hook vars:", var_values)
 
         formatted_prompt = langchain_prompt.format_messages(**var_values)
-        print("state:", state)
+        logger.debug(f"state: {state}")
         # Ensure list exists
         if not isinstance(state.get("history"), list):
             state["history"] = []
@@ -206,7 +206,7 @@ def standard_post_llm_func(askid, node_name, state, response):
 
         # Extract content from AIMessage if needed
         raw_content = response.content if hasattr(response, 'content') else str(response)
-        print("standard_post_llm_func Raw llm response content:", raw_content)  # Debug log
+        logger.debug(f"standard_post_llm_func Raw llm response content: {raw_content}")  # Debug log
 
         # as a good convention LLM should always return structured data rather than pure string text
         # we should always ask LLM to return {"message": "your message here", "meta_data": dict}
@@ -269,7 +269,7 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
         # we really shouldn't send the reponse back here, instead we should update state and other node takes care of what to do with the results.
         post_hook_result = None
         state["result"] = response
-        print("post llm hook input response:", type(response), response)
+        logger.debug(f"post llm hook input response: {type(response)} {response}")
         state["metadata"] = _deep_merge(state["metadata"], response["llm_result"].get("meta_data", {}))
         state["messages"].append(f"llm:{response['llm_result'].get('next_prompt', '')}")
 
@@ -280,7 +280,7 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
         prelim = response['llm_result'].get('preliminary_info', [{}])[0]
         if work_related:
             if prelim:
-                print("prelim:", prelim)
+                logger.debug(f"prelim: {prelim}")
                 if "part name" in prelim:
                     apps = prelim.get('applications_usage', "")
                     # "part name": "string", "oems": ["string"], "model_part_numbers": ["string"], "applications_usage": ["string"]
@@ -367,13 +367,13 @@ POST_LLM_HOOKS_TABLE = {
 def run_pre_llm_hook(node_name, agent, state):
     try:
         mainwin = agent.mainwin
-        print("node_name:", node_name, agent.card.name)
+        logger.debug(f"node_name: {node_name} {agent.card.name}")
         skill_name = node_name.split(":")[1]
         this_skill = next((sk for sk in mainwin.agent_skills if sk.name == skill_name), None)
         askid = this_skill.askid
-        print("[run_pre_llm_hook] askid:", askid)
+        logger.debug(f"[run_pre_llm_hook] askid: {askid}")
         askid = "skid0"
-        print("pre llm hook node name:", node_name, askid)
+        logger.debug(f"pre llm hook node name: {node_name} {askid}")
         # Try exact match first
         if node_name in PRE_LLM_HOOKS_TABLE:
             return PRE_LLM_HOOKS_TABLE[node_name](askid, node_name, agent, state)
@@ -403,7 +403,7 @@ def run_post_llm_hook(node_name, agent, state, response):
         # first run standard stuff, then then the individual func for a specific skill node.
         parsed_response = standard_post_llm_func(askid, node_name, state, response)
 
-        print("post llm hook  name:", node_name, askid, type(parsed_response), parsed_response)
+        logger.debug(f"post llm hook  name: {node_name} {askid} {type(parsed_response)} {parsed_response}")
         # Try exact match first
         if node_name in POST_LLM_HOOKS_TABLE:
             return POST_LLM_HOOKS_TABLE[node_name](askid, node_name, agent, state, parsed_response)
@@ -425,21 +425,21 @@ def run_post_llm_hook(node_name, agent, state, response):
 
 def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
     try:
-        print("in llm_node_with_raw_files....")
+        logger.debug("in llm_node_with_raw_files....")
         user_input = state.get("input", "")
         agent_id = state["messages"][0]
         agent = get_agent_by_id(agent_id)
         mainwin = agent.mainwin
-        print("run time:", runtime)
+        logger.debug(f"run time: {runtime}")
         current_node_name = runtime.context["this_node"].get("name")
         skill_name = runtime.context["this_node"].get("skill_name")
         owner = runtime.context["this_node"].get("owner")
 
-        # print("current node:", current_node)
+        # logger.debug(f"current node: {current_node}")
         full_node_name = f"{owner}:{skill_name}:{current_node_name}"
         run_pre_llm_hook(full_node_name, agent, state)
 
-        print("networked prompts:", state["prompts"])
+        logger.debug(f"networked prompts: {state['prompts']}")
         node_prompt = state["prompts"]
 
         # mm_content = prep_multi_modal_content(state, runtime)
@@ -457,12 +457,12 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
             raise ValueError("LLM not available in mainwin")
 
 
-        print("chat node: llm prompt ready:", formatted_prompt)
+        logger.debug(f"chat node: llm prompt ready: {formatted_prompt}")
         response = llm.invoke(formatted_prompt)
-        print("chat node: LLM response:", response)
+        logger.debug(f"chat node: LLM response: {response}")
         # Parse the response
         run_post_llm_hook(full_node_name, agent, state, response)
-        print("llm_node_with_raw_file finished.....", state)
+        logger.debug(f"llm_node_with_raw_file finished..... {state}")
         return state
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPreLLMHook")
