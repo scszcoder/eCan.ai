@@ -6106,13 +6106,13 @@ def processGenRespMsg(step, i, mission):
 
 def find_original_buy(mainwin, buy_mission):
     # Construct the SQL query with a parameterized IN clause
-    mainwin.showMsg("find_original_buy ......")
+    logger.debug("find_original_buy ......")
     if mainwin.mission_service:
         db_data = mainwin.mission_service.find_missions_by_ticket(buy_mission.getTicket())
     else:
         db_data = []
     allMids = [m.getMid() for m in mainwin.missions]
-    mainwin.showMsg("same ticket missions: " + json.dumps(db_data))
+    logger.debug("same ticket missions: " + json.dumps(db_data))
     if db_data:
         if db_data["mid"] in allMids:
             original_buy_mission = next((m for m in mainwin.missions if m.getMid() == db_data["mid"] ), None)

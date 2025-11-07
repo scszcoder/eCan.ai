@@ -132,7 +132,7 @@ async def create_rpa_helper_skill(mainwin):
             ex_stat = "ErrorCreateRPAHelperSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateRPAHelperSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
 
     return helper_skill
@@ -164,7 +164,7 @@ async def operator_message_handler(state: NodeState) -> NodeState:
             ex_stat = "ErrorCallTool:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCallTool: traceback information not available:" + str(e)
-        print(ex_stat)
+        logger.error(ex_stat)
         end_state["messages"][0] = f"Task Error: {ex_stat}"
 
     print("operator_message_handler task end state:", end_state)
@@ -210,7 +210,7 @@ async def create_rpa_operator_skill(mainwin):
             ex_stat = "ErrorCreateRPASupervisorSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateRPASupervisorSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
 
     return operator_skill
@@ -299,7 +299,7 @@ async def create_rpa_supervisor_scheduling_skill(mainwin):
             ex_stat = "ErrorCreateRPASupervisorSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateRPASupervisorSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
 
     return supervisor_skill
@@ -412,6 +412,7 @@ async def supervisor_message_handler(state: NodeState) -> NodeState:
         else:
             ex_stat = "ErrorCallTool: traceback information not available:" + str(e)
         end_state["messages"][0] = f"Task Error: {ex_stat}"
+        logger.error(ex_stat)
 
     return end_state  # must return the new state
 

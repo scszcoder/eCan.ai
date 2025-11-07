@@ -68,9 +68,9 @@ def prep_multi_modal_content(state, runtime):
     try:
         attachments = state.get("attachments", [])
         user_content = []
-        print("node running:", runtime)
+        logger.debug(f"node running: {runtime}")
         user_input = state.get("input", "")
-        print("LLM input text:", user_input)
+        logger.debug(f"LLM input text: {user_input}")
         # Add user text
         user_content.append({"type": "text", "text": user_input})
 
@@ -79,11 +79,11 @@ def prep_multi_modal_content(state, runtime):
             fname = att["filename"].lower()
 
             mime_type = att.get("mime_type", "").lower()
-            print(f"Processing file: {fname} (MIME: {mime_type})")
+            logger.debug(f"Processing file: {fname} (MIME: {mime_type})")
 
             # Skip if no file data
             if not att.get("file_data"):
-                print(f"Skipping empty file: {fname}")
+                logger.debug(f"Skipping empty file: {fname}")
                 continue
 
             data = att["file_data"]
@@ -92,7 +92,7 @@ def prep_multi_modal_content(state, runtime):
 
             # Handle image files (PNG, JPG, etc.)
             if mime_type.startswith('image/'):
-                print(f"Processing image file: {fname}")
+                logger.debug(f"Processing image file: {fname}")
                 file_data = data if isinstance(data, str) else base64.b64encode(data).decode('utf-8')
                 user_content.append({
                     "type": "image_url",
@@ -104,7 +104,7 @@ def prep_multi_modal_content(state, runtime):
 
             # Handle PDF files
             elif mime_type == 'application/pdf':
-                print(f"Processing PDF file: {fname}")
+                logger.debug(f"Processing PDF file: {fname}")
                 # For PDFs, we'll just note its existence since we can't process it directly
                 user_content.append({
                     "type": "text",
@@ -113,7 +113,7 @@ def prep_multi_modal_content(state, runtime):
 
             # Handle audio files
             elif mime_type.startswith('audio/'):
-                print(f"Processing audio file: {fname}")
+                logger.debug(f"Processing audio file: {fname}")
                 # For audio files, we'll just note its existence
                 user_content.append({
                     "type": "text",
@@ -143,7 +143,7 @@ def get_country_by_ip() -> str | None:
             logger.debug(f"This host IP lookup result: {resp.json()}")
             return resp.json().get("country")
     except Exception as e:
-        print(f"IP lookup failed: {e}")
+        logger.warning(f"IP lookup failed: {e}")
     return None
 
 
@@ -1381,7 +1381,7 @@ def _deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
 def find_opposite_agent(self_agent, chat_id):
     mainwin = self_agent.mainwin
     this_chat = mainwin.db_chat_service.get_chat_by_id(chat_id, True)
-    print("found chat:", this_chat["data"]["id"])
+    logger.debug(f"found chat: {this_chat['data']['id']}")
 
     # Check if chat exists and has data
     if not this_chat.get("success") or this_chat.get("data") is None:
@@ -1389,13 +1389,13 @@ def find_opposite_agent(self_agent, chat_id):
         return None
 
     members = this_chat["data"].get("members", [])
-    print("chat members:", members)
-    print("me id:", self_agent.card.id)
+    logger.debug(f"chat members: {members}")
+    logger.debug(f"me id: {self_agent.card.id}")
     # for now, let's just assume 1-1 chat, find first chat member not myself.
     oppsite_member = next((ag for ag in members if ag["userId"] != self_agent.card.id), None)
     if oppsite_member:
         opposite_side = get_agent_by_id(oppsite_member["userId"])
-        print("found opposite side agent:", opposite_side.card.name)
+        logger.debug(f"found opposite side agent: {opposite_side.card.name}")
     else:
         logger.error("No chat mate found for chat:", chat_id)
         opposite_side = None
@@ -1408,7 +1408,7 @@ def send_response_back(state: NodeState) -> NodeState:
         self_agent = get_agent_by_id(agent_id)
         mainwin = self_agent.mainwin
 
-        print("standard_post_llm_hook send_response_back:", state)
+        logger.debug(f"standard_post_llm_hook send_response_back: {state}")
         
         # CRITICAL FIX: Use chatId from attributes.params if available, otherwise fallback to messages[1]
         # When a chat is deleted and recreated, attributes.params.chatId has the new chatId,
@@ -1523,7 +1523,7 @@ def send_response_back(state: NodeState) -> NodeState:
                 }
             }
         }
-        print("sending response msg back to twin:", agent_response_message)
+        logger.debug(f"sending response msg back to twin: {agent_response_message}")
         send_result = self_agent.a2a_send_chat_message(opposite_agent, agent_response_message)
         # state.result = result
         return send_result
@@ -1597,7 +1597,7 @@ def run_async_in_worker_thread(awaitable_or_factory):
                 loop = asyncio.new_event_loop()
         try:
             asyncio.set_event_loop(loop)
-            print(f"[run_async_in_worker_thread] thread={__import__('threading').current_thread().name}, policy={type(asyncio.get_event_loop_policy()).__name__}, loop={type(loop).__name__}")
+            logger.debug(f"[run_async_in_worker_thread] thread={__import__('threading').current_thread().name}, policy={type(asyncio.get_event_loop_policy()).__name__}, loop={type(loop).__name__}")
             # Create the coroutine inside the worker thread if a factory is provided
             if callable(awaitable_or_factory):
                 coro = awaitable_or_factory()

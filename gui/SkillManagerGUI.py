@@ -10,7 +10,7 @@ import traceback
 from typing import List, Dict, Any, Optional
 
 from bot.Cloud import send_query_skills_request_to_cloud
-from bot.Logger import log3
+from utils.logger_helper import logger_helper as logger
 
 
 class SkillManager:
@@ -95,7 +95,7 @@ class SkillManager:
         Returns:
             Response from cloud API
         """
-        self.mainwin.showMsg("Start fetching my skills......")
+        logger.debug("Start fetching my skills......")
         
         try:
             if search_phrase == "":
@@ -118,7 +118,7 @@ class SkillManager:
                 ex_stat = "ErrorFetchMySkills:" + traceback.format_exc() + " " + str(e)
             else:
                 ex_stat = "ErrorFetchMySkills traceback information not available:" + str(e)
-            log3(ex_stat)
+            logger.error(ex_stat)
             resp = {}
             
         return resp
@@ -130,7 +130,7 @@ class SkillManager:
         Args:
             skill_data: List of skill data rows
         """
-        print("Saving skill attributes...")
+        logger.debug("Saving skill attributes...")
         
         # Loop through the rows and save the data
         for row_data in skill_data:
@@ -148,21 +148,21 @@ class SkillManager:
                     # (example: skill.setName(row_data[1]))
                     
             except Exception as e:
-                print(f"Error saving skill {skill_id}: {e}")
+                logger.error(f"Error saving skill {skill_id}: {e}")
                 
-        print("Skills saved successfully.")
+        logger.debug("Skills saved successfully.")
         
     def open_skill(self, skill: Any):
         """Open a skill for editing"""
-        self.mainwin.showMsg("opening skill....")
+        logger.debug("opening skill....")
         if hasattr(self.mainwin, 'train_manager'):
                 # Note: TrainManager is now a data handler, not a GUI window
             # You may need to implement a new GUI or use existing skill display methods
-            self.mainwin.showMsg("TrainManager is now a data handler. Use train_manager methods directly.")
+            logger.debug("TrainManager is now a data handler. Use train_manager methods directly.")
             
     def copy_skill(self, skill: Any):
         """Copy a skill"""
-        self.mainwin.showMsg("copying skill....")
+        logger.debug("copying skill....")
         # Implement skill copying logic here
         
     def delete_skill(self, skill: Any) -> bool:
@@ -175,7 +175,7 @@ class SkillManager:
         Returns:
             True if deletion was confirmed, False otherwise
         """
-        self.mainwin.showMsg("deleting skill....")
+        logger.debug("deleting skill....")
         
         # Note: In the original code, this showed a confirmation dialog
         # Since we're removing GUI, you'll need to handle confirmation differently
@@ -258,7 +258,7 @@ class SkillManager:
                 return True
                 
         except Exception as e:
-            print(f"Error updating skill {skill_id} column {column}: {e}")
+            logger.error(f"Error updating skill {skill_id} column {column}: {e}")
             
         return False
         
@@ -308,10 +308,10 @@ class SkillManager:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(skills_data, f, indent=2, ensure_ascii=False)
                 
-            self.mainwin.showMsg(f"Skills exported to {filepath}")
+            logger.debug(f"Skills exported to {filepath}")
             
         except Exception as e:
-            self.mainwin.showMsg(f"Error exporting skills: {e}")
+            logger.error(f"Error exporting skills: {e}")
             
     def import_skills_from_json(self, filepath: str):
         """Import skills from JSON file"""
@@ -326,10 +326,10 @@ class SkillManager:
                 # This depends on how your skill class works
                 pass
                 
-            self.mainwin.showMsg(f"Skills imported from {filepath}")
+            logger.debug(f"Skills imported from {filepath}")
             
         except Exception as e:
-            self.mainwin.showMsg(f"Error importing skills: {e}")
+            logger.error(f"Error importing skills: {e}")
             
     def validate_skill(self, skill: Any) -> Dict[str, Any]:
         """
