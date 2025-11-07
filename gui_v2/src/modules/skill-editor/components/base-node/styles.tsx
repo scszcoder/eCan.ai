@@ -38,14 +38,39 @@ export const NodeWrapperStyle = styled.div`
     ${RunningIcon} {
       display: block;
     }
-    /* Glowing animation for running emphasis */
-    animation: runningGlow 1200ms ease-in-out infinite;
+    /* Breathing boundary glow from red to green */
+    animation: runningGlow 1800ms ease-in-out infinite;
+  }
+
+  &.is-breakpoint-stalled {
+    /* Dark yellow breathing glow when paused at a breakpoint */
+    animation: breakpointGlow 1600ms ease-in-out infinite;
   }
 
   @keyframes runningGlow {
-    0% { box-shadow: 0 0 0 2px rgba(255,77,79,0.20), 0 0 8px rgba(255,77,79,0.15); }
-    50% { box-shadow: 0 0 0 3px rgba(255,77,79,0.35), 0 0 14px rgba(255,77,79,0.30); }
-    100% { box-shadow: 0 0 0 2px rgba(255,77,79,0.20), 0 0 8px rgba(255,77,79,0.15); }
+    0% {
+      border-color: #ff4d4f; /* red */
+      box-shadow: 0 0 0 2px rgba(255,77,79,0.25), 0 0 8px rgba(255,77,79,0.20);
+    }
+    50% {
+      border-color: #20c020; /* green */
+      box-shadow: 0 0 0 3px rgba(32,192,32,0.35), 0 0 14px rgba(32,192,32,0.30);
+    }
+    100% {
+      border-color: #ff4d4f; /* red */
+      box-shadow: 0 0 0 2px rgba(255,77,79,0.25), 0 0 8px rgba(255,77,79,0.20);
+    }
+  }
+
+  @keyframes breakpointGlow {
+    0%, 100% {
+      border-color: #b38f00; /* dark yellow */
+      box-shadow: 0 0 0 2px rgba(179,143,0,0.35), 0 0 8px rgba(179,143,0,0.25);
+    }
+    50% {
+      border-color: #b38f00;
+      box-shadow: 0 0 0 3px rgba(179,143,0,0.55), 0 0 14px rgba(179,143,0,0.45);
+    }
   }
 `;
 
@@ -73,4 +98,20 @@ export const BreakpointIcon = styled.div`
   border-radius: 50%;
   box-shadow: 0 0 0 2px #ffffff; /* white ring for contrast */
   z-index: 11;
+`;
+
+export const StatusBadgeContainer = styled.div`
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border-radius: 10px;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  z-index: 12;
 `;
