@@ -167,6 +167,20 @@ const LLMManagement = React.forwardRef<
         return;
       }
 
+      // Find provider by name to get standard identifier
+      const provider = providers.find((p) => p.name === providerName);
+      if (!provider) {
+        message.error(`Provider ${providerName} not found`);
+        return;
+      }
+      
+      // Use standard provider identifier for API calls
+      const providerIdentifier = provider.provider;
+      if (!providerIdentifier) {
+        message.error(`Provider ${providerName} has no identifier`);
+        return;
+      }
+
       // Update UI state immediately
       setCurrentModelSelections((prev) => ({
         ...prev,
@@ -178,7 +192,7 @@ const LLMManagement = React.forwardRef<
       try {
         const response = await get_ipc_api().setLLMProviderModel<{
           message: string;
-        }>(providerName, modelName);
+        }>(providerIdentifier, modelName);
         if (response.success) {
           message.success(t("pages.settings.model_update_success"));
           setProviders((prev) =>
@@ -227,10 +241,17 @@ const LLMManagement = React.forwardRef<
 
   // Set default LLM
   const handleDefaultLLMChange = async (providerName: string) => {
-    // Find the provider to check its configuration status
+    // Find the provider by name (for display) to get its standard identifier
     const provider = providers.find((p) => p.name === providerName);
     if (!provider) {
       message.error(`Provider ${providerName} not found`);
+      return;
+    }
+
+    // Use standard provider identifier for API calls
+    const providerIdentifier = provider.provider;
+    if (!providerIdentifier) {
+      message.error(`Provider ${providerName} has no identifier`);
       return;
     }
 
@@ -254,15 +275,15 @@ const LLMManagement = React.forwardRef<
 
     try {
       const response = await get_ipc_api().setDefaultLLM<{ message: string }>(
-        providerName,
+        providerIdentifier,  // Use standard identifier
         username || "",
         modelToUse
       );
 
       if (response.success) {
         setDefaultLLM(providerName);
-        // Notify parent component to update settings
-        onDefaultLLMChange?.(providerName);
+        // Notify parent component to update settings - use providerIdentifier for consistency
+        onDefaultLLMChange?.(providerIdentifier, modelToUse);
         message.success(
           `${t("pages.settings.default_llm_set")}: ${providerName} - ${t(
             "pages.settings.hot_updated"
@@ -294,12 +315,26 @@ const LLMManagement = React.forwardRef<
 
   // Update provider configuration
   const updateProvider = async (
-    name: string,
+    name: string,  // This is provider.name (display name), need to convert to provider.provider
     apiKey: string,
     azureEndpoint?: string,
     awsAccessKeyId?: string,
     awsSecretAccessKey?: string
   ) => {
+    // Find provider by name to get standard identifier
+    const provider = providers.find((p) => p.name === name);
+    if (!provider) {
+      message.error(`Provider ${name} not found`);
+      return;
+    }
+    
+    // Use standard provider identifier for API calls
+    const providerIdentifier = provider.provider;
+    if (!providerIdentifier) {
+      message.error(`Provider ${name} has no identifier`);
+      return;
+    }
+
     try {
       const response = await get_ipc_api().updateLLMProvider<{
         message: string;
@@ -310,7 +345,8 @@ const LLMManagement = React.forwardRef<
           default_llm: string;
           default_llm_model: string;
         };
-      }>(name, apiKey, azureEndpoint, awsAccessKeyId, awsSecretAccessKey);
+        shared_providers?: Array<{ name: string; type: string }>;
+      }>(providerIdentifier, apiKey, azureEndpoint, awsAccessKeyId, awsSecretAccessKey);
 
       if (response.success) {
         const responseData = response.data;
@@ -362,8 +398,22 @@ const LLMManagement = React.forwardRef<
 
   // Delete provider configuration
   const deleteProviderConfig = (name: string) => {
-    // Check if this is the default LLM
-    const isDefault = defaultLLM === name;
+    // Find provider by name to get standard identifier
+    const provider = providers.find((p) => p.name === name);
+    if (!provider) {
+      message.error(`Provider ${name} not found`);
+      return;
+    }
+    
+    // Use standard provider identifier for API calls
+    const providerIdentifier = provider.provider;
+    if (!providerIdentifier) {
+      message.error(`Provider ${name} has no identifier`);
+      return;
+    }
+
+    // Check if this is the default LLM (compare using provider identifier)
+    const isDefault = providerIdentifier && (defaultLLM || "").toLowerCase() === (providerIdentifier || "").toLowerCase();
     
     // Show confirmation dialog using modal from App.useApp() for proper theme support
     modal.confirm({
@@ -399,7 +449,8 @@ const LLMManagement = React.forwardRef<
               default_llm: string;
               default_llm_model: string;
             };
-          }>(name, username || "");
+            shared_providers?: Array<{ name: string; type: string }>;
+          }>(providerIdentifier, username || "");
 
           if (response.success && response.data) {
             const responseData = response.data;
@@ -462,10 +513,14 @@ const LLMManagement = React.forwardRef<
               } else {
                 onDefaultLLMChange?.(newDefaultLLM, responseData.new_default_model);
               }
-            } else if (defaultLLM === name) {
-              // Fallback: if backend didn't return new_default_llm but this was default
-              setDefaultLLM("");
-              onDefaultLLMChange?.("", "");
+            } else {
+              // Check if this was the default LLM (compare using provider identifier)
+              // providerIdentifier is already defined above
+              if (providerIdentifier && (defaultLLM || "").toLowerCase() === (providerIdentifier || "").toLowerCase()) {
+                // Fallback: if backend didn't return new_default_llm but this was default
+                setDefaultLLM("");
+                onDefaultLLMChange?.("", "");
+              }
             }
 
             // Reload providers from backend to verify the deletion and get updated state
@@ -502,6 +557,13 @@ const LLMManagement = React.forwardRef<
       return;
     }
 
+    // Use standard provider identifier for API calls
+    const providerIdentifier = provider.provider;
+    if (!providerIdentifier) {
+      message.error(`Provider ${providerName} has no identifier`);
+      return;
+    }
+
     setEditingProvider(providerName);
     setEditingLoading(true);
 
@@ -511,7 +573,7 @@ const LLMManagement = React.forwardRef<
         const response = await get_ipc_api().getLLMProviderApiKey<{
           api_key?: string;
           credentials?: any;
-        }>(providerName, true);
+        }>(providerIdentifier, true);
         if (response.success && response.data) {
           // Handle special cases with multiple credentials
           if (providerName === "AzureOpenAI" && response.data.credentials) {
@@ -598,6 +660,13 @@ const LLMManagement = React.forwardRef<
       return;
     }
 
+    // Use standard provider identifier for API calls
+    const providerIdentifier = provider.provider;
+    if (!providerIdentifier) {
+      message.error(`Provider ${providerName} has no identifier`);
+      return;
+    }
+
     // For local providers, show a different message
     if (provider.is_local) {
       message.info(
@@ -623,7 +692,7 @@ const LLMManagement = React.forwardRef<
       try {
         const response = await get_ipc_api().getLLMProviderApiKey<{
           api_key: string;
-        }>(providerName, true);
+        }>(providerIdentifier, true);
 
         if (response.success && response.data) {
           // Add to visible set
@@ -908,18 +977,20 @@ const LLMManagement = React.forwardRef<
       key: "default",
       width: "15%",
       render: (name: string, record: LLMProvider) => {
-        const isChecked = defaultLLM === name;
+        // Compare using provider identifier (canonical), not display name
+        const providerIdentifier = record.provider;
+        const isChecked = (defaultLLM || "").toLowerCase() === (providerIdentifier || "").toLowerCase();
         // Debug logging for OpenAI specifically
-        if (name === 'OpenAI' || name === 'ChatOpenAI') {
-          console.log(`🔍 [Radio] ${name}: checked=${isChecked}, defaultLLM=${defaultLLM}, api_key_configured=${record.api_key_configured}`);
+        if (name === 'OpenAI' || name === 'ChatOpenAI' || providerIdentifier === 'openai') {
+          console.log(`🔍 [Radio] ${name} (${providerIdentifier}): checked=${isChecked}, defaultLLM=${defaultLLM}, api_key_configured=${record.api_key_configured}`);
         }
         return (
           <Radio
-            key={`radio-${name}-${defaultLLM}`}
+            key={`radio-${providerIdentifier}-${defaultLLM}`}
             checked={isChecked}
             disabled={!record.api_key_configured}
             onClick={() => {
-              if (record.api_key_configured && defaultLLM !== name) {
+              if (record.api_key_configured && !isChecked) {
                 handleDefaultLLMChange(name);
               }
             }}

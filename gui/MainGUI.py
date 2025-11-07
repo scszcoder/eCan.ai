@@ -1474,8 +1474,10 @@ class MainWindow:
             # Prepare environment variables for LightRAG server
             lightrag_env = {"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"}
             
-            # Ensure OPENAI_API_KEY is passed to LightRAG server from secure store
-            openai_api_key = secure_store.get('OPENAI_API_KEY')
+            # Ensure OPENAI_API_KEY is passed to LightRAG server from secure store with user isolation
+            from utils.env.secure_store import get_current_username
+            username = get_current_username()
+            openai_api_key = secure_store.get('OPENAI_API_KEY', username=username)
             if openai_api_key and openai_api_key.strip():
                 lightrag_env['OPENAI_API_KEY'] = openai_api_key
                 logger.info("[MainWindow] 🔑 OPENAI_API_KEY found in secure store and will be passed to LightRAG server (deferred)")
@@ -1672,8 +1674,10 @@ class MainWindow:
             # Prepare environment variables for LightRAG server
             lightrag_env = {"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"}
             
-            # Ensure OPENAI_API_KEY is passed to LightRAG server from secure store
-            openai_api_key = secure_store.get('OPENAI_API_KEY')
+            # Ensure OPENAI_API_KEY is passed to LightRAG server from secure store with user isolation
+            from utils.env.secure_store import get_current_username
+            username = get_current_username()
+            openai_api_key = secure_store.get('OPENAI_API_KEY', username=username)
             if openai_api_key and openai_api_key.strip():
                 lightrag_env['OPENAI_API_KEY'] = openai_api_key
                 logger.info("[MainWindow] 🔑 OPENAI_API_KEY found in secure store and will be passed to LightRAG server")

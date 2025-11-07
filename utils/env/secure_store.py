@@ -42,56 +42,82 @@ class SecureStore:
         self._keyring_available = self._check_keyring_availability()
 
     # ---------- Public API ----------
-    def set(self, key: str, value: str) -> bool:
-        """Store a key-value pair in secure storage.
+    def set(self, key: str, value: str, username: Optional[str] = None) -> bool:
+        """Store a key-value pair in secure storage with user isolation.
+        
+        Args:
+            key: Environment variable name (e.g., "OPENAI_API_KEY")
+            value: API key value to store
+            username: Optional username for user-specific isolation. If provided, 
+                     the key will be stored as "{username}@{key}" to ensure 
+                     each user has their own isolated storage.
         
         Uses keyring as primary storage, with file fallback if keyring fails.
         """
+        # Build user-isolated key if username is provided
+        isolated_key = self._build_user_key(key, username)
+        
         env = self._detect_env()
         service_name = self._get_service_name(env)
-        safe_key = self._sanitize_key_name(key)
+        safe_key = self._sanitize_key_name(isolated_key)
         
         if self._keyring_available:
             try:
                 keyring.set_password(service_name, safe_key, value)
-                logger.debug(f"[SecureStore] Stored {key} in keyring (service: {service_name})")
+                logger.debug(f"[SecureStore] Stored {isolated_key} in keyring (service: {service_name})")
                 return True
             except Exception as e:
-                logger.warning(f"[SecureStore] Keyring storage failed for {key}: {e}")
+                logger.warning(f"[SecureStore] Keyring storage failed for {isolated_key}: {e}")
                 logger.info("[SecureStore] Falling back to file storage")
         
         # Fallback to file storage
-        return self._fallback_set(env, key, value)
+        return self._fallback_set(env, isolated_key, value)
 
-    def get(self, key: str) -> Optional[str]:
-        """Retrieve a value from secure storage.
+    def get(self, key: str, username: Optional[str] = None) -> Optional[str]:
+        """Retrieve a value from secure storage with user isolation.
+        
+        Args:
+            key: Environment variable name (e.g., "OPENAI_API_KEY")
+            username: Optional username for user-specific isolation. If provided,
+                     will look for key stored as "{username}@{key}".
         
         Tries keyring first, then falls back to file storage.
         """
+        # Build user-isolated key if username is provided
+        isolated_key = self._build_user_key(key, username)
+        
         env = self._detect_env()
         service_name = self._get_service_name(env)
-        safe_key = self._sanitize_key_name(key)
+        safe_key = self._sanitize_key_name(isolated_key)
         
         if self._keyring_available:
             try:
                 value = keyring.get_password(service_name, safe_key)
                 if value:
-                    # logger.debug(f"[SecureStore] Retrieved {key} from keyring")
+                    # logger.debug(f"[SecureStore] Retrieved {isolated_key} from keyring")
                     return value
             except Exception as e:
-                logger.error(f"[SecureStore] Keyring retrieval failed for {key}: {e}")
+                logger.error(f"[SecureStore] Keyring retrieval failed for {isolated_key}: {e}")
         
         # Try file fallback
-        return self._fallback_get(env, key)
+        return self._fallback_get(env, isolated_key)
 
-    def delete(self, key: str) -> bool:
-        """Delete a key from secure storage.
+    def delete(self, key: str, username: Optional[str] = None) -> bool:
+        """Delete a key from secure storage with user isolation.
+        
+        Args:
+            key: Environment variable name (e.g., "OPENAI_API_KEY")
+            username: Optional username for user-specific isolation. If provided,
+                     will delete key stored as "{username}@{key}".
         
         Deletes from both keyring and file storage to ensure complete removal.
         """
+        # Build user-isolated key if username is provided
+        isolated_key = self._build_user_key(key, username)
+        
         env = self._detect_env()
         service_name = self._get_service_name(env)
-        safe_key = self._sanitize_key_name(key)
+        safe_key = self._sanitize_key_name(isolated_key)
         
         success = True
         
@@ -99,19 +125,35 @@ class SecureStore:
         if self._keyring_available:
             try:
                 keyring.delete_password(service_name, safe_key)
-                logger.debug(f"[SecureStore] Deleted {key} from keyring")
+                logger.debug(f"[SecureStore] Deleted {isolated_key} from keyring")
             except Exception:
                 # Fallback: overwrite with empty string
                 try:
                     keyring.set_password(service_name, safe_key, "")
                 except Exception as e:
-                    logger.warning(f"[SecureStore] Failed to delete {key} from keyring: {e}")
+                    logger.warning(f"[SecureStore] Failed to delete {isolated_key} from keyring: {e}")
                     success = False
         
         # Also delete from file fallback
-        file_success = self._fallback_delete(env, key)
+        file_success = self._fallback_delete(env, isolated_key)
         
         return success or file_success
+    
+    def _build_user_key(self, key: str, username: Optional[str] = None) -> str:
+        """Build user-isolated key name.
+        
+        Args:
+            key: Base key name (e.g., "OPENAI_API_KEY")
+            username: Optional username for isolation
+        
+        Returns:
+            Isolated key name: "{username}@{key}" if username provided, otherwise "{key}"
+        """
+        if username and username.strip():
+            # Use "@" separator to clearly distinguish user and key
+            # Format: "user@example.com@OPENAI_API_KEY"
+            return f"{username}@{key}"
+        return key
 
     # ---------- Environment detection (reused from auth_manager) ----------
     def _detect_env(self) -> str:
@@ -229,7 +271,10 @@ class SecureStore:
             return False
 
     def _fallback_set(self, env: str, key: str, value: str) -> bool:
-        """Store key in fallback JSON file."""
+        """Store key in fallback JSON file.
+        
+        Note: key is already user-isolated (format: "{username}@{env_var}") if username was provided.
+        """
         data = self._read_fallback()
         if not isinstance(data, dict):
             data = {}
@@ -242,7 +287,10 @@ class SecureStore:
         return success
 
     def _fallback_get(self, env: str, key: str) -> Optional[str]:
-        """Get key from fallback JSON file."""
+        """Get key from fallback JSON file.
+        
+        Note: key is already user-isolated (format: "{username}@{env_var}") if username was provided.
+        """
         data = self._read_fallback()
         if not isinstance(data, dict):
             return None
@@ -255,7 +303,10 @@ class SecureStore:
         return None
 
     def _fallback_delete(self, env: str, key: str) -> bool:
-        """Delete key from fallback JSON file."""
+        """Delete key from fallback JSON file.
+        
+        Note: key is already user-isolated (format: "{username}@{env_var}") if username was provided.
+        """
         data = self._read_fallback()
         if not isinstance(data, dict):
             return False
@@ -272,3 +323,25 @@ class SecureStore:
 
 # Global instance for easy access
 secure_store = SecureStore()
+
+
+def get_current_username() -> Optional[str]:
+    """Get current logged-in username for API key isolation.
+    
+    This is a utility function that can be used throughout the application
+    to get the current user's username for secure store operations.
+    
+    Returns:
+        Username if user is logged in, None otherwise
+    """
+    try:
+        from app_context import AppContext
+        auth_manager = AppContext.get_auth_manager()
+        if auth_manager:
+            username = auth_manager.get_current_user()
+            if username:
+                return username
+    except Exception:
+        # Silently fail - this is called from many places and shouldn't break if auth is unavailable
+        pass
+    return None

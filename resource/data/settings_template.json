@@ -54,10 +54,10 @@
   
   "ocr_api_endpoint": "http://47.120.48.82:8848/graphql/reqScreenTxtRead",
   
-  "default_llm": "OpenAI",
+  "default_llm": "openai",
   "default_llm_model": "gpt-5",
   
-  "default_embedding": "OpenAI",
+  "default_embedding": "openai",
   "default_embedding_model": "text-embedding-3-small",
   
   "skill_use_git": false,
