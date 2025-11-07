@@ -192,7 +192,7 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         return state
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPreLLMHook")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         state["result"] = {"error": err_trace}
         return state
 

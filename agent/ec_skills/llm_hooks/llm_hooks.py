@@ -197,8 +197,8 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state):
         logger.debug(f"standard_pre_llm_hook: {full_node_name} prompts: {formatted_prompt}")
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPreLLMHook")
-        logger.debug(err_trace)
-
+        logger.error(err_trace)
+        raise e
 
 
 def standard_post_llm_func(askid, node_name, state, response):
@@ -261,8 +261,8 @@ def standard_post_llm_func(askid, node_name, state, response):
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPostLLMFunc")
-        logger.debug(err_trace)
-        return {"llm_result": {"error": err_trace}}
+        logger.error(err_trace)
+        raise e
 
 
 
@@ -319,7 +319,7 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
         logger.debug(f"standard_post_llm_hook: {post_hook_result}")
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPostLLMHook")
-        logger.debug(err_trace)
+        logger.error(err_trace)
 
 
 PRE_LLM_HOOKS_TABLE = {
@@ -392,7 +392,7 @@ def run_pre_llm_hook(node_name, agent, state):
         # raise KeyError(f"pre llm hook not found for '{node_name}'. Available: {available}")
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPreLLMHook")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return err_trace
 
 # post llm is mostly about parsing the response and set up conditional variable for conditional edges (if there is one)
@@ -422,7 +422,7 @@ def run_post_llm_hook(node_name, agent, state, response):
         # raise KeyError(f"post llm hook not found for '{node_name}'. Available: {available}")
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPostLLMHook")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return err_trace
 
 def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
@@ -468,6 +468,6 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         return state
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPreLLMHook")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         state["result"] = {"error": err_trace}
         return state
