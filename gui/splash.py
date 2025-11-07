@@ -826,3 +826,119 @@ def create_startup_progress_manager(splash_screen):
     return StartupProgressManager(splash_screen)
 
 
+def init_minimal_splash():
+    """
+    Create and show a minimal splash screen IMMEDIATELY after QApplication creation.
+    This is a lightweight version that shows instantly, before loading the full splash.
+    The structure and styling match ThemedSplashScreen exactly for smooth transition.
+    Returns the splash instance (or None on failure).
+    
+    This function uses minimal imports to ensure fast display, but matches the
+    exact visual appearance of ThemedSplashScreen for seamless transition.
+    """
+    try:
+        from PySide6.QtWidgets import QWidget, QApplication, QLabel, QVBoxLayout
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QGraphicsDropShadowEffect
+        import sys
+        
+        app = QApplication.instance()
+        if not app:
+            return None
+        
+        # Create minimal splash window - match ThemedSplashScreen exactly
+        window_flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        if sys.platform == 'win32':
+            window_flags |= Qt.Tool  # Prevents taskbar entry and reduces flicker
+        
+        splash = QWidget(None, window_flags)
+        splash.setAttribute(Qt.WA_TranslucentBackground, True)
+        splash.setFixedSize(640, 400)  # Match ThemedSplashScreen size
+        splash.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        
+        # Create container widget with same styling as ThemedSplashScreen
+        container = QWidget(splash)
+        container.setObjectName("container")
+        container.setStyleSheet("""
+            QWidget#container {
+                background-color: #0f172a; /* --bg-primary */
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 14px;
+            }
+        """)
+        
+        # Add shadow effect to match ThemedSplashScreen
+        shadow = QGraphicsDropShadowEffect(splash)
+        shadow.setBlurRadius(28)
+        shadow.setXOffset(0)
+        shadow.setYOffset(8)
+        shadow.setColor(Qt.black)
+        container.setGraphicsEffect(shadow)
+        
+        # Root layout with same margins as ThemedSplashScreen
+        root_layout = QVBoxLayout(container)
+        root_layout.setContentsMargins(18, 18, 18, 18)  # Match ThemedSplashScreen
+        root_layout.setSpacing(10)
+        
+        # Center column with same width as ThemedSplashScreen
+        center = QWidget()
+        center.setFixedWidth(520)  # Match ThemedSplashScreen center width
+        col_layout = QVBoxLayout(center)
+        col_layout.setContentsMargins(0, 0, 0, 0)
+        col_layout.setSpacing(10)
+        
+        # App name with same styling as ThemedSplashScreen title
+        title_label = QLabel("eCan")
+        title_label.setObjectName("title")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet("""
+            QLabel#title {
+                color: #f8fafc;
+                font-size: 26px;
+                font-weight: 700;
+                letter-spacing: 0.4px;
+                padding: 0px;
+            }
+        """)
+        col_layout.addWidget(title_label)
+        
+        # Loading text with same styling as ThemedSplashScreen subtitle
+        loading_label = QLabel("启动中...")
+        loading_label.setObjectName("subtitle")
+        loading_label.setAlignment(Qt.AlignCenter)
+        loading_label.setStyleSheet("""
+            QLabel#subtitle {
+                color: #94a3b8;
+                font-size: 14px;
+            }
+        """)
+        col_layout.addWidget(loading_label)
+        
+        # Vertical centering relative to footer (match ThemedSplashScreen structure)
+        root_layout.addStretch(1)
+        root_layout.addWidget(center, alignment=Qt.AlignHCenter)
+        root_layout.addStretch(2)
+        
+        # Put container into main widget
+        main_layout = QVBoxLayout(splash)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(container)
+        
+        # Center on screen using same logic as ThemedSplashScreen
+        screen = app.primaryScreen()
+        if screen:
+            screen_geometry = screen.availableGeometry()
+            x = screen_geometry.center().x() - splash.width() // 2
+            y = screen_geometry.center().y() - splash.height() // 2
+            splash.move(x, y)
+        
+        # Show immediately
+        splash.show()
+        app.processEvents()
+        
+        return splash
+    except Exception as e:
+        print(f"Failed to initialize minimal splash screen: {e}")
+        return None
+
+

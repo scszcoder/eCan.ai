@@ -178,7 +178,17 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
         api_key_stored = False
         
         # Handle special cases requiring multiple credentials
-        if provider_identifier == 'azure_openai':
+        if provider_identifier == 'baidu_qianfan':
+            # Baidu Qianfan only requires BAIDU_API_KEY (single API key)
+            if api_key and env_vars:
+                # Use BAIDU_API_KEY if available, otherwise use first env_var
+                env_var = 'BAIDU_API_KEY' if 'BAIDU_API_KEY' in env_vars else env_vars[0]
+                success, error_msg = llm_manager.store_api_key(env_var, api_key)
+                if not success:
+                    return create_error_response(request, 'LLM_ERROR', f"Failed to store Baidu API key: {error_msg}")
+                api_key_stored = True
+        
+        elif provider_identifier == 'azure_openai':
             if azure_endpoint:
                 # Store Azure endpoint
                 if 'AZURE_ENDPOINT' in env_vars:

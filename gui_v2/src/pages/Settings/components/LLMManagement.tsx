@@ -319,7 +319,7 @@ const LLMManagement = React.forwardRef<
     apiKey: string,
     azureEndpoint?: string,
     awsAccessKeyId?: string,
-    awsSecretAccessKey?: string
+    awsSecretAccessKey?: string,
   ) => {
     // Find provider by name to get standard identifier
     const provider = providers.find((p) => p.name === name);

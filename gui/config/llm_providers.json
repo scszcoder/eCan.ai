@@ -790,7 +790,7 @@
       "base_url": "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat",
       "default_model": "ernie-4.0-8k",
       "description": "百度千帆大模型平台，支持文心系列模型",
-      "documentation_url": "https://cloud.baidu.com/doc/WENXINWORKSHOP/s/llmk7mviz",
+      "documentation_url": "https://console.bce.baidu.com/iam/#/iam/apikey/list",
       "is_local": false,
       "supported_models": [
         {
