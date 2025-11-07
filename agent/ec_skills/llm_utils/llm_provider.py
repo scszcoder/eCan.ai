@@ -196,11 +196,15 @@ class LLMProvider:
     
     def get_api_key(self) -> Optional[str]:
         """
-        Get API key from secure store (no env fallback).
+        Get API key from secure store with user isolation (no env fallback).
         """
         try:
+            # Get current username for user isolation
+            from utils.env.secure_store import get_current_username
+            username = get_current_username()
+            
             for env_var in self.api_key_env_vars:
-                api_key = secure_store.get(env_var)
+                api_key = secure_store.get(env_var, username=username)
                 if api_key and api_key.strip():
                     return api_key
             return None

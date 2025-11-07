@@ -65,14 +65,27 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
             return create_error_response(request, 'INVALID_PARAMS', error)
 
         embedding_manager = get_embedding_manager()
-        provider_name = data['name']
+        # Frontend MUST send standard provider identifier (e.g., "openai", "dashscope", "azure_openai")
+        # NOT name or display_name (e.g., NOT "OpenAI", "Qwen (DashScope)")
+        provider_identifier = (data.get('name') or "").strip()
+        if not provider_identifier:
+            return create_error_response(request, 'INVALID_PARAMS', "Provider identifier is required")
+        
         api_key = data.get('api_key')
         azure_endpoint = data.get('azure_endpoint')
 
-        # Get provider information
-        provider = embedding_manager.get_provider(provider_name)
+        # Get provider by standard identifier (case-insensitive)
+        provider = embedding_manager.get_provider(provider_identifier)
         if not provider:
-            return create_error_response(request, 'EMBEDDING_ERROR', f"Provider {provider_name} not found")
+            # Provide helpful error message with available identifiers
+            all_providers = embedding_manager.get_all_providers()
+            available_ids = [p.get("provider") for p in all_providers if p.get("provider")]
+            return create_error_response(
+                request, 
+                'EMBEDDING_ERROR', 
+                f"Provider identifier '{provider_identifier}' not found. "
+                f"Available identifiers: {', '.join(available_ids[:5])}{'...' if len(available_ids) > 5 else ''}"
+            )
 
         # Get environment variable names for this provider
         env_vars = provider.get('api_key_env_vars', [])
@@ -81,7 +94,7 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
         api_key_stored = False
         
         # Handle special cases requiring multiple credentials
-        if provider_name == 'Azure OpenAI':
+        if provider_identifier == 'azure_openai':
             if azure_endpoint:
                 # Store Azure endpoint
                 if 'AZURE_ENDPOINT' in env_vars:
@@ -119,16 +132,16 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
                     configured_providers = []
                     for p in embedding_manager.get_all_providers():
                         if p.get('api_key_configured', False):
-                            configured_providers.append(p['name'])
+                            configured_providers.append(p['provider'])
                     
                     # Auto-set if:
                     # 1. No default is set, OR
                     # 2. This is the only configured provider
                     should_auto_set = (not current_default or current_default.strip() == "") or \
-                                     (len(configured_providers) == 1 and configured_providers[0] == provider_name)
+                                     (len(configured_providers) == 1 and configured_providers[0] == provider_identifier)
                     
                     if should_auto_set:
-                        general_settings.default_embedding = provider_name
+                        general_settings.default_embedding = provider_identifier
                         # Always update default model when auto-setting provider
                         default_model = provider.get('default_model') or provider.get('preferred_model')
                         if default_model:
@@ -136,30 +149,30 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
                             logger.info(f"Auto-set default embedding model to {default_model}")
                         else:
                             # Fallback to provider's default model
-                            provider_config = embedding_manager.get_provider(provider_name)
+                            provider_config = embedding_manager.get_provider(provider_identifier)
                             if provider_config:
                                 fallback_model = provider_config.get('default_model', 'text-embedding-3-small')
                                 general_settings.default_embedding_model = fallback_model
                                 logger.info(f"Auto-set default embedding model to {fallback_model} (fallback)")
                         general_settings.save()
                         auto_set_as_default = True
-                        logger.info(f"Auto-set {provider_name} as default_embedding")
+                        logger.info(f"Auto-set {provider_identifier} as default_embedding")
             except Exception as e:
                 logger.warning(f"Failed to auto-set default_embedding: {e}")
 
-        logger.info(f"Updated Embedding provider: {provider_name}")
+        logger.info(f"Updated Embedding provider: {provider_identifier}")
         
         # Find shared LLM providers that use the same API keys
         from gui.ipc.w2p_handlers.llm_handler import find_shared_providers
         shared_providers = find_shared_providers(env_vars, 'embedding')
         
         # Get updated provider info for frontend
-        updated_provider = embedding_manager.get_provider(provider_name)
+        updated_provider = embedding_manager.get_provider(provider_identifier)
         
         # Build response with auto-set information and updated provider
         main_window = AppContext.get_main_window()
         response_data = {
-            'message': f'Embedding provider {provider_name} updated successfully',
+            'message': f'Embedding provider {provider_identifier} updated successfully',
             'provider': updated_provider
         }
         
@@ -169,7 +182,7 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
         if shared_providers:
             logger.info(f"[Embedding] Found {len(shared_providers)} shared LLM providers: {[p['name'] for p in shared_providers]}")
         else:
-            logger.debug(f"[Embedding] No shared LLM providers found for {provider_name}")
+            logger.debug(f"[Embedding] No shared LLM providers found for {provider_identifier}")
         
         # Always include current settings for frontend UI update
         if main_window:
@@ -180,7 +193,7 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
         
         if auto_set_as_default:
             response_data['auto_set_as_default'] = True
-            response_data['default_embedding'] = provider_name
+            response_data['default_embedding'] = provider_identifier
             default_model = provider.get('default_model') or provider.get('preferred_model')
             response_data['default_embedding_model'] = default_model
             
@@ -192,7 +205,7 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
                         # Update memoryManager embeddings
                         if hasattr(agent, 'mem_manager') and agent.mem_manager:
                             try:
-                                agent.mem_manager.update_embeddings(provider_name=provider_name, model_name=default_model)
+                                agent.mem_manager.update_embeddings(provider_name=provider_identifier, model_name=default_model)
                                 updated_agents += 1
                                 logger.debug(f"[Embedding] Updated embeddings for agent: {agent.card.name}")
                             except Exception as e:
@@ -217,25 +230,42 @@ def handle_set_embedding_provider_model(request: IPCRequest, params: Optional[Di
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
 
-        provider_name = data['name']
+        # Frontend MUST send standard provider identifier (e.g., "openai", "dashscope")
+        provider_identifier = (data.get('name') or "").strip()
+        if not provider_identifier:
+            return create_error_response(request, 'INVALID_PARAMS', "Provider identifier is required")
+        
         model_name = data['model']
 
         embedding_manager = get_embedding_manager()
         main_window = AppContext.get_main_window()
         
+        # Get provider by standard identifier (case-insensitive)
+        provider = embedding_manager.get_provider(provider_identifier)
+        if not provider:
+            all_providers = embedding_manager.get_all_providers()
+            available_ids = [p.get("provider") for p in all_providers if p.get("provider")]
+            return create_error_response(
+                request, 
+                'EMBEDDING_ERROR', 
+                f"Provider identifier '{provider_identifier}' not found. "
+                f"Available identifiers: {', '.join(available_ids[:5])}{'...' if len(available_ids) > 5 else ''}"
+            )
+        
         # Update provider's default model
-        success, error_msg = embedding_manager.set_provider_default_model(provider_name, model_name)
+        success, error_msg = embedding_manager.set_provider_default_model(provider_identifier, model_name)
 
         if not success:
             return create_error_response(request, 'EMBEDDING_ERROR', error_msg or 'Failed to update model')
 
-        updated_provider = embedding_manager.get_provider(provider_name)
+        updated_provider = embedding_manager.get_provider(provider_identifier)
         
-        # If this is the current default embedding, also update default_embedding_model in general_settings
-        if main_window.config_manager.general_settings.default_embedding == provider_name:
+        # If this is the current default embedding, also update default_embedding_model in general_settings (case-insensitive)
+        current_default = (main_window.config_manager.general_settings.default_embedding or "").lower()
+        if current_default == (provider_identifier or "").lower():
             main_window.config_manager.general_settings.default_embedding_model = model_name
             main_window.config_manager.general_settings.save()
-            logger.info(f"[Embedding] Updated default_embedding_model to {model_name} for current provider {provider_name}")
+            logger.info(f"[Embedding] Updated default_embedding_model to {model_name} for current provider {provider_identifier}")
             
             # Hot-update: Update all agents' memoryManager embeddings (similar to update_all_llms)
             if hasattr(main_window, 'agents') and main_window.agents:
@@ -245,7 +275,7 @@ def handle_set_embedding_provider_model(request: IPCRequest, params: Optional[Di
                         # Update memoryManager embeddings
                         if hasattr(agent, 'mem_manager') and agent.mem_manager:
                             try:
-                                agent.mem_manager.update_embeddings(provider_name=provider_name, model_name=model_name)
+                                agent.mem_manager.update_embeddings(provider_name=provider_identifier, model_name=model_name)
                                 updated_agents += 1
                                 logger.debug(f"[Embedding] Updated embeddings for agent: {agent.card.name}")
                             except Exception as e:
@@ -256,7 +286,7 @@ def handle_set_embedding_provider_model(request: IPCRequest, params: Optional[Di
                     logger.error(f"[Embedding] ❌ Error updating agent embeddings: {e}")
 
         return create_success_response(request, {
-            'message': f'Default model for {provider_name} updated successfully',
+            'message': f'Default model for {provider_identifier} updated successfully',
             'provider': updated_provider,
             'settings': {
                 'default_embedding': main_window.config_manager.general_settings.default_embedding,
@@ -279,17 +309,28 @@ def handle_delete_embedding_provider_config(request: IPCRequest, params: Optiona
 
         embedding_manager = get_embedding_manager()
         main_window = AppContext.get_main_window()
-        provider_name = data['name']
+        # Frontend MUST send standard provider identifier
+        provider_identifier = (data.get('name') or "").strip()
+        if not provider_identifier:
+            return create_error_response(request, 'INVALID_PARAMS', "Provider identifier is required")
+        
         username = data.get('username', '')
 
-        # Get provider information
-        provider = embedding_manager.get_provider(provider_name)
+        # Get provider by standard identifier (case-insensitive)
+        provider = embedding_manager.get_provider(provider_identifier)
         if not provider:
-            return create_error_response(request, 'EMBEDDING_ERROR', f"Provider {provider_name} not found")
+            all_providers = embedding_manager.get_all_providers()
+            available_ids = [p.get("provider") for p in all_providers if p.get("provider")]
+            return create_error_response(
+                request, 
+                'EMBEDDING_ERROR', 
+                f"Provider identifier '{provider_identifier}' not found. "
+                f"Available identifiers: {', '.join(available_ids[:5])}{'...' if len(available_ids) > 5 else ''}"
+            )
 
-        # Check if this is the current default embedding
-        current_default_embedding = main_window.config_manager.general_settings.default_embedding
-        is_default_embedding = (current_default_embedding == provider_name)
+        # Check if this is the current default embedding (case-insensitive)
+        current_default_embedding = (main_window.config_manager.general_settings.default_embedding or "").lower()
+        is_default_embedding = (current_default_embedding == (provider_identifier or "").lower())
 
         # Delete API key and other credentials from environment variables
         env_vars = provider.get('api_key_env_vars', [])
@@ -297,7 +338,7 @@ def handle_delete_embedding_provider_config(request: IPCRequest, params: Optiona
         failed_vars = []
         
         for env_var in env_vars:
-            logger.debug(f"Deleting environment variable {env_var} for provider {provider_name}")
+            logger.debug(f"Deleting environment variable {env_var} for provider {provider_identifier}")
 
             if env_var in os.environ:
                 del os.environ[env_var]
@@ -319,9 +360,9 @@ def handle_delete_embedding_provider_config(request: IPCRequest, params: Optiona
                 logger.error(f"Error deleting environment variable {env_var}: {e}", exc_info=True)
         
         if deleted_vars:
-            logger.info(f"Deleted Embedding provider config {provider_name}, removed environment variables: {deleted_vars}")
+            logger.info(f"Deleted Embedding provider config {provider_identifier}, removed environment variables: {deleted_vars}")
         if failed_vars:
-            logger.warning(f"Failed to delete some environment variables for {provider_name}: {failed_vars}")
+            logger.warning(f"Failed to delete some environment variables for {provider_identifier}: {failed_vars}")
 
         # Check if we need to update default embedding after deletion
         new_default_embedding = None
@@ -337,21 +378,21 @@ def handle_delete_embedding_provider_config(request: IPCRequest, params: Optiona
         
         if should_update_default:
             if is_default_embedding:
-                logger.info(f"Provider {provider_name} was the default embedding, selecting a new default")
+                logger.info(f"Provider {provider_identifier} was the default embedding, selecting a new default")
             else:
                 logger.info("All API keys deleted, resetting to default OpenAI provider")
             
             if configured_providers:
                 # Select the first available configured provider
                 new_provider = configured_providers[0]
-                new_default_embedding = new_provider.get('name')
+                new_default_embedding = new_provider.get('provider')  # Use provider identifier
                 new_default_model = new_provider.get('preferred_model') or new_provider.get('default_model') or ''
                 logger.info(f"Selected new default Embedding {new_default_embedding} with model {new_default_model}")
             else:
                 # No providers are configured, default to OpenAI with its default model
-                new_default_embedding = 'OpenAI'
+                new_default_embedding = 'openai'
                 try:
-                    openai_provider = embedding_manager.get_provider('OpenAI')
+                    openai_provider = embedding_manager.get_provider('openai')
                     new_default_model = openai_provider.get('default_model', 'text-embedding-3-small') if openai_provider else 'text-embedding-3-small'
                 except:
                     new_default_model = 'text-embedding-3-small'
@@ -389,10 +430,10 @@ def handle_delete_embedding_provider_config(request: IPCRequest, params: Optiona
         shared_providers = find_shared_providers(env_vars, 'embedding')
         
         # Get updated provider info for frontend
-        updated_provider = embedding_manager.get_provider(provider_name)
+        updated_provider = embedding_manager.get_provider(provider_identifier)
         
         response_data = {
-            'message': f'Embedding provider {provider_name} configuration deleted successfully',
+            'message': f'Embedding provider {provider_identifier} configuration deleted successfully',
             'deleted_env_vars': deleted_vars,
             'was_default_embedding': is_default_embedding,
             'provider': updated_provider
@@ -404,7 +445,7 @@ def handle_delete_embedding_provider_config(request: IPCRequest, params: Optiona
         if shared_providers:
             logger.info(f"[Embedding] Found {len(shared_providers)} shared LLM providers affected by deletion: {[p['name'] for p in shared_providers]}")
         else:
-            logger.debug(f"[Embedding] No shared LLM providers affected by deletion of {provider_name}")
+            logger.debug(f"[Embedding] No shared LLM providers affected by deletion of {provider_identifier}")
         
         # Always include current settings for frontend UI update
         response_data['settings'] = {
@@ -433,7 +474,7 @@ def handle_set_default_embedding(request: IPCRequest, params: Optional[Dict[str,
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
 
-        name = data['name']
+        name = data['name']  # May be name or provider identifier
         model = data.get('model')  # Optional model parameter from frontend
 
         embedding_manager = get_embedding_manager()
@@ -443,16 +484,21 @@ def handle_set_default_embedding(request: IPCRequest, params: Optional[Dict[str,
         provider = embedding_manager.get_provider(name)
         if not provider:
             return create_error_response(request, 'EMBEDDING_ERROR', f"Provider {name} not found")
+        
+        # Use provider identifier for all operations
+        provider_identifier = provider.get('provider')
+        if not provider_identifier:
+            return create_error_response(request, 'EMBEDDING_ERROR', f"Provider {name} has no provider identifier")
 
         if not provider['api_key_configured']:
-            return create_error_response(request, 'EMBEDDING_ERROR', f"Provider {name} is not configured")
+            return create_error_response(request, 'EMBEDDING_ERROR', f"Provider {provider_identifier} is not configured")
 
         # Save current settings for potential rollback
         old_default_embedding = main_window.config_manager.general_settings.default_embedding
         old_default_model = main_window.config_manager.general_settings.default_embedding_model
 
         # Update default_embedding and default_embedding_model in general_settings
-        main_window.config_manager.general_settings.default_embedding = name
+        main_window.config_manager.general_settings.default_embedding = provider_identifier
         
         # Use model from frontend if provided, otherwise fallback to provider's preferred/default model
         if model:
@@ -478,7 +524,7 @@ def handle_set_default_embedding(request: IPCRequest, params: Optional[Dict[str,
         if not save_result:
             return create_error_response(request, 'EMBEDDING_ERROR', f"Failed to save default Embedding setting")
 
-        logger.info(f"Default Embedding set to {name} with model {provider_model}")
+        logger.info(f"Default Embedding set to {provider_identifier} with model {provider_model}")
         
         # Hot-update: Update all agents' memoryManager embeddings (similar to update_all_llms)
         try:
@@ -487,7 +533,7 @@ def handle_set_default_embedding(request: IPCRequest, params: Optional[Dict[str,
                 # Update memoryManager embeddings
                 if hasattr(agent, 'mem_manager') and agent.mem_manager:
                     try:
-                        agent.mem_manager.update_embeddings(provider_name=name, model_name=provider_model)
+                        agent.mem_manager.update_embeddings(provider_name=provider_identifier, model_name=provider_model)
                         updated_agents += 1
                         logger.debug(f"[Embedding] Updated embeddings for agent: {agent.card.name}")
                     except Exception as e:
@@ -499,12 +545,12 @@ def handle_set_default_embedding(request: IPCRequest, params: Optional[Dict[str,
             # Don't fail the request if agent update fails, but log the error
         
         # Get updated provider info for frontend
-        updated_provider = embedding_manager.get_provider(name)
+        updated_provider = embedding_manager.get_provider(provider_identifier)
         
         return create_success_response(request, {
-            'default_embedding': name,
+            'default_embedding': provider_identifier,
             'model_name': provider_model,
-            'message': f'Default Embedding set to {name} successfully (hot-updated {updated_agents} agents)',
+            'message': f'Default Embedding set to {provider_identifier} successfully (hot-updated {updated_agents} agents)',
             'provider': updated_provider,
             'settings': {
                 'default_embedding': main_window.config_manager.general_settings.default_embedding,
@@ -548,28 +594,39 @@ def handle_get_embedding_provider_api_key(request: IPCRequest, params: Optional[
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
 
-        provider_name = data['name']
+        # Frontend MUST send standard provider identifier
+        provider_identifier = (data.get('name') or "").strip()
+        if not provider_identifier:
+            return create_error_response(request, 'INVALID_PARAMS', "Provider identifier is required")
+        
         show_full = data.get('show_full', False)  # Whether to show full API key
 
         embedding_manager = get_embedding_manager()
 
-        # Get provider information
-        provider = embedding_manager.get_provider(provider_name)
+        # Get provider by standard identifier (case-insensitive)
+        provider = embedding_manager.get_provider(provider_identifier)
         if not provider:
-            return create_error_response(request, 'EMBEDDING_ERROR', f"Provider {provider_name} not found")
+            all_providers = embedding_manager.get_all_providers()
+            available_ids = [p.get("provider") for p in all_providers if p.get("provider")]
+            return create_error_response(
+                request, 
+                'EMBEDDING_ERROR', 
+                f"Provider identifier '{provider_identifier}' not found. "
+                f"Available identifiers: {', '.join(available_ids[:5])}{'...' if len(available_ids) > 5 else ''}"
+            )
 
         # Get API key environment variables
         env_vars = provider.get('api_key_env_vars', [])
         if not env_vars:
-            return create_error_response(request, 'EMBEDDING_ERROR', f"Provider {provider_name} has no API key environment variables")
+            return create_error_response(request, 'EMBEDDING_ERROR', f"Provider {provider_identifier} has no API key environment variables")
 
         # Handle special cases requiring multiple credentials
-        if provider_name == 'Azure OpenAI':
+        if provider_identifier == 'azure_openai':
             result = {
-                'provider_name': provider_name,
+                'provider_name': provider_identifier,
                 'credentials': {},
                 'is_masked': not show_full,
-                'message': f'Credentials retrieved for {provider_name}'
+                'message': f'Credentials retrieved for {provider_identifier}'
             }
 
             # Get Azure endpoint
@@ -602,14 +659,14 @@ def handle_get_embedding_provider_api_key(request: IPCRequest, params: Optional[
                 api_key = embedding_manager._get_masked_api_key(env_var)
 
             if api_key is None:
-                return create_error_response(request, 'EMBEDDING_ERROR', f"No API key found for {provider_name}")
+                return create_error_response(request, 'EMBEDDING_ERROR', f"No API key found for {provider_identifier}")
 
             return create_success_response(request, {
-                'provider_name': provider_name,
+                'provider_name': provider_identifier,
                 'env_var': env_var,
                 'api_key': api_key,
                 'is_masked': not show_full,
-                'message': f'API key retrieved for {provider_name}'
+                'message': f'API key retrieved for {provider_identifier}'
             })
 
     except Exception as e:

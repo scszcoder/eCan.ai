@@ -108,21 +108,21 @@ async def list_tools() -> list[Tool]:
     all_tools = get_tool_schemas()
     
     logger.debug(f"\n✅ Total MCP Tools: {len(all_tools)}\n")
-    logger.debug("📝 Tool List:")
-    logger.debug("-" * 80)
+    # logger.debug("📝 Tool List:")
+    # logger.debug("-" * 80)
     
-    for idx, tool in enumerate(all_tools, 1):
-        tool_name = tool.name if hasattr(tool, 'name') else str(tool)
-        tool_desc = tool.description if hasattr(tool, 'description') else 'No description'
+    # for idx, tool in enumerate(all_tools, 1):
+    #     tool_name = tool.name if hasattr(tool, 'name') else str(tool)
+    #     tool_desc = tool.description if hasattr(tool, 'description') else 'No description'
         
-        # 截断过长的描述
-        if len(tool_desc) > 60:
-            tool_desc = tool_desc[:57] + "..."
+    #     # 截断过长的描述
+    #     if len(tool_desc) > 60:
+    #         tool_desc = tool_desc[:57] + "..."
         
-        logger.debug(f"  {idx:2d}. {tool_name:<40s} | {tool_desc}")
+    #     logger.debug(f"  {idx:2d}. {tool_name:<40s} | {tool_desc}")
     
-    logger.debug("-" * 80)
-    logger.debug(f"✅ Listed {len(all_tools)} MCP tools successfully\n")
+    # logger.debug("-" * 80)
+    # logger.debug(f"✅ Listed {len(all_tools)} MCP tools successfully\n")
     
     return all_tools
 
