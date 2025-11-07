@@ -13,7 +13,7 @@ import { FlowNodeMeta } from '../../typings';
 import { useNodeRenderContext, usePortClick } from '../../hooks';
 import { SidebarContext } from '../../context';
 import { scrollToView } from './utils';
-import { NodeWrapperStyle, BreakpointIcon, RunningIcon, StatusBadgeContainer } from './styles';
+import { NodeWrapperStyle, BreakpointIcon, RunningIcon, PausedIcon, StatusBadgeContainer } from './styles';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useRunningNodeStore } from '../../stores/running-node-store';
 import { useNodeStatusStore } from '../../stores/node-status-store';
@@ -50,9 +50,11 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
   const runtimeStatus = runtimeEntry?.status;
   const stateObj: any = runtimeEntry?.state || {};
 
-  // Determine if the node is paused/stalled on a breakpoint
-  const isBreakpointStalled = isRunning && isBreakpoint &&
-    (runtimeStatus === 'paused' || runtimeStatus === 'breakpoint' || runtimeStatus === 'stalled');
+  // Determine paused vs running from runtime status
+  const isPausedLike = (runtimeStatus === 'paused' || runtimeStatus === 'breakpoint' || runtimeStatus === 'stalled');
+  const isRunLike = (runtimeStatus === 'running' || runtimeStatus === 'resumed');
+  // For glow class we keep coupling to runningNodeId to avoid global blinking
+  const isBreakpointStalled = isRunning && isPausedLike;
 
   // Compute result badge severity
   let resultSeverity: 'error' | 'warning' | 'success' | 'none' = 'none';
@@ -135,8 +137,12 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
           position: 'relative',
         }}
       >
-        {/* Show running GIF on all running nodes except End node */}
-        {!(isRunning && isEndNode) && <RunningIcon />}
+        {/* Stickman: explicit render based on runtimeStatus with display override (bypasses CSS class timing) */}
+        {!isEndNode && (
+          isRunning && isPausedLike
+            ? <PausedIcon key={`${node.id}-paused`} style={{ display: 'block' }} />
+            : (isRunning && !isPausedLike) ? <RunningIcon key={`${node.id}-running`} style={{ display: 'block' }} /> : null
+        )}
         {children}
         {isBreakpoint && <BreakpointIcon />}
         {/* Top-right result badge */}
