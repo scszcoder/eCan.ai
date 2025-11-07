@@ -12,7 +12,7 @@ from sqlalchemy import select
 import os
 import json
 import uuid
-import time
+import time as time_module
 import copy
 
 from app_context import AppContext
@@ -107,7 +107,7 @@ class DBChatService(BaseService):
                 
                 logger.info(f"[create_chat] No duplicate found, creating new chat with members: {input_member_ids}")
 
-                chat_id = id or f"chat-{str(int(time.time() * 1000))[-6:]}"
+                chat_id = id or f"chat-{str(int(time_module.time() * 1000))[-6:]}"
                 chat = Chat(
                     id=chat_id,
                     type=type,
@@ -183,10 +183,14 @@ class DBChatService(BaseService):
         Returns:
             dict: Standard response with success status and data
         """
+        t_add_msg_start = time_module.time()
         logger.debug(f"[db_chat_service] add_message: {chatId}, {role}, {content}, {senderId}, {createAt}, {id}, {status}, {senderName}, {time}, {ext}, {attachments}")
         
+        t_db_start = time_module.time()
         with self.session_scope() as session:
+            t_session = time_module.time()
             chat = session.get(Chat, chatId)
+            logger.debug(f"[PERF] add_message - session.get(Chat): {time_module.time()-t_session:.3f}s")
             if not chat:
                 return {
                     "success": False,
@@ -237,7 +241,11 @@ class DBChatService(BaseService):
                 logger.debug(f"[add_message] Not incrementing unread for user message in chat {chatId}")
             chat.messages.append(message)
             session.add(message)
+            t_flush = time_module.time()
             session.flush()
+            logger.debug(f"[PERF] add_message - session.flush: {time_module.time()-t_flush:.3f}s")
+            logger.debug(f"[PERF] add_message - DB operations: {time_module.time()-t_db_start:.3f}s")
+            logger.debug(f"[PERF] add_message - TOTAL: {time_module.time()-t_add_msg_start:.3f}s")
             return {
                 "success": True,
                 "id": message.id,
@@ -256,6 +264,7 @@ class DBChatService(BaseService):
         Returns:
             dict: Standard response from add_message methods
         """
+        t_dispatch_start = time_module.time()
         content = args.get('content')
         chatId = chatId if chatId is not None else args.get('chatId')
         role = args.get('role')
@@ -272,7 +281,7 @@ class DBChatService(BaseService):
         if isinstance(createAt, list) and len(createAt) > 0:
             createAt = createAt[0]
         elif createAt is None:
-            createAt = int(time.time() * 1000)
+            createAt = int(time_module.time() * 1000)
 
         # Normalize fields that must be scalars for DB binding
         if isinstance(senderId, list):
@@ -285,23 +294,26 @@ class DBChatService(BaseService):
         if isinstance(content, dict) and 'type' in content:
             content_type = content.get('type')
             if content_type == 'form':
-                return self.add_form_message(
+                result = self.add_form_message(
                     chatId=chatId, role=role, text=content.get('text', ''), form=content.get('form', {}),
                     senderId=senderId, createAt=createAt, id=messageId, status=status,
                     senderName=senderName, time=time_, ext=ext, attachments=attachments)
             elif content_type == 'notification':
-                return self.add_notification_message(
+                result = self.add_notification_message(
                     chatId=chatId, notification=content.get('notification', {}),
                     senderId=senderId, createAt=createAt, id=messageId, status=status,
                     senderName=senderName, time=time_, ext=ext, attachments=attachments)
             else:
-                return self.add_message(
+                result = self.add_message(
                     chatId=chatId, role=role, content=content, senderId=senderId, createAt=createAt,
                     id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
         else:
-            return self.add_text_message(
+            result = self.add_text_message(
                 chatId=chatId, role=role, text=str(content), senderId=senderId, createAt=createAt,
                 id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
+        
+        logger.debug(f"[PERF] dispatch_add_message - TOTAL: {time_module.time()-t_dispatch_start:.3f}s")
+        return result
 
     def add_text_message(self, chatId: str, role: str, text: str, senderId: str = None, createAt: int = None, **kwargs):
         """Add a text message to the chat."""
@@ -311,7 +323,7 @@ class DBChatService(BaseService):
             role=role, 
             content=content, 
             senderId=senderId or role, 
-            createAt=createAt or int(time.time()*1000), 
+            createAt=createAt or int(time_module.time()*1000), 
             **kwargs
         )
 
@@ -324,7 +336,7 @@ class DBChatService(BaseService):
             role=role, 
             content=content, 
             senderId=senderId or role, 
-            createAt=createAt or int(time.time()*1000), 
+            createAt=createAt or int(time_module.time()*1000), 
             **kwargs
         )
 
@@ -343,7 +355,7 @@ class DBChatService(BaseService):
             role="system",
             content=notification_content,
             senderId=senderId,
-            createAt=createAt or int(time.time()*1000),
+            createAt=createAt or int(time_module.time()*1000),
             **kwargs
         )
         logger.debug(f"[db_chat_service] add_notification_message result: {result}")
@@ -948,7 +960,7 @@ class DBChatService(BaseService):
         """Push notification to chat and frontend."""
         logger.debug("[db_chat_service] push notification to front", notif)
 
-        db_result = self.add_chat_notification(chatId, notif, int(time.time() * 1000))
+        db_result = self.add_chat_notification(chatId, notif, int(time_module.time() * 1000))
         logger.info(f"[db_chat_service] push notification to db_result: {db_result}")
         # Push to frontend
         web_gui = AppContext.get_web_gui()

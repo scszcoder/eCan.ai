@@ -2129,9 +2129,11 @@ class TaskRunner(Generic[Context]):
                 # Submit skill execution to background thread
                 def _execute_skill():
                     try:
+                        t_skill_start = time.time()
                         if is_initial_run:
                             # Initial run
                             logger.debug(f"[EXECUTOR] Initial run: {current_task.skill.name}")
+                            t_prep = time.time()
                             current_task.metadata["state"] = prep_skills_run(
                                 current_task.skill,
                                 self.agent, 
@@ -2139,15 +2141,22 @@ class TaskRunner(Generic[Context]):
                                 msg, 
                                 None
                             )
+                            logger.debug(f"[PERF] _execute_skill - prep_skills_run: {time.time()-t_prep:.3f}s")
+                            t_run = time.time()
                             response = current_task.stream_run()
+                            logger.debug(f"[PERF] _execute_skill - initial stream_run: {time.time()-t_run:.3f}s")
+                            logger.debug(f"[PERF] _execute_skill - TOTAL: {time.time()-t_skill_start:.3f}s")
                             logger.debug(f"[EXECUTOR] Initial run response: {response}")
                             return response, True  # (response, task_completed)
                         else:
                             # Resume run
                             logger.debug(f"[EXECUTOR] Resume run: {current_task.skill.name}")
+                            t_resume = time.time()
                             resume_payload, cp = self._build_resume_payload(current_task, msg)
+                            logger.debug(f"[PERF] _execute_skill - build_resume_payload: {time.time()-t_resume:.3f}s")
                             logger.debug(f"[EXECUTOR] Resume payload: {resume_payload}")
                             
+                            t_run = time.time()
                             if cp:
                                 response = current_task.stream_run(
                                     Command(resume=resume_payload), 
@@ -2159,6 +2168,8 @@ class TaskRunner(Generic[Context]):
                                     Command(resume=resume_payload), 
                                     stream_mode="updates"
                                 )
+                            logger.debug(f"[PERF] _execute_skill - resume stream_run: {time.time()-t_run:.3f}s")
+                            logger.debug(f"[PERF] _execute_skill - TOTAL: {time.time()-t_skill_start:.3f}s")
                             logger.debug(f"[EXECUTOR] Resume run response: {response}")
                             return response, False  # (response, task_interrupted)
                     except Exception as e:
@@ -2169,6 +2180,7 @@ class TaskRunner(Generic[Context]):
                 # Callback when skill execution completes
                 def _on_skill_complete(future):
                     try:
+                        t_callback_start = time.time()
                         response, task_completed = future.result()
                         logger.info(f"[NON_BLOCKING] Skill execution completed for waiter_task_id={waiter_task_id}")
                         
@@ -2206,6 +2218,7 @@ class TaskRunner(Generic[Context]):
                             if waiter_task_id:
                                 logger.debug(f"[A2A] Resolving waiter for task_id={waiter_task_id}, trigger_type={trigger_type}")
                                 self.agent.a2a_server.task_manager.resolve_waiter(waiter_task_id, response)
+                                logger.debug(f"[PERF] _on_skill_complete - TOTAL callback time: {time.time()-t_callback_start:.3f}s")
                                 logger.debug(f"[A2A] Waiter resolved for task_id={waiter_task_id}")
                             else:
                                 logger.warning(f"[A2A] No waiter_task_id found for trigger_type={trigger_type}")
