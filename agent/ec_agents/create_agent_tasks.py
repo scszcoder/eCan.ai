@@ -3,7 +3,6 @@ import typing
 import uuid
 import asyncio
 from agent.ec_agents.agent_utils import load_agent_tasks_from_cloud
-from agent.ec_skills.search_parts.search_parts_chatter_skill import chat_or_work
 from agent.tasks import TaskStatus, TaskState
 
 from agent.tasks import ManagedTask, TaskSchedule

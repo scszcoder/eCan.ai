@@ -1,19 +1,42 @@
+# Standard library imports
+import asyncio
+import base64
+import json
 import re
+import sys
 import time
+import uuid
+from threading import Thread
+from typing import Any, Dict, Tuple
 
-from utils.logger_helper import logger_helper as logger
-from utils.logger_helper import get_traceback
+# Third-party library imports
+import requests
+from langchain_community.chat_models import ChatAnthropic, ChatOllama
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_deepseek import ChatDeepSeek
+from langchain_openai import AzureChatOpenAI, ChatOpenAI
+from langchain_qwq import ChatQwQ
+from langgraph.types import Interrupt
+
+# Optional third-party imports
+try:
+    from langchain_aws import ChatBedrock  # type: ignore
+except ImportError:
+    ChatBedrock = None
+
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+except ImportError:
+    ChatGoogleGenerativeAI = None
+
+# Local application imports
 from agent.agent_service import get_agent_by_id
 from agent.ec_skill import *
-import json
-import base64
-import asyncio
-import sys
-from threading import Thread
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, BaseMessage
 from agent.ec_skills.dev_defs import BreakpointManager
 from agent.memory.models import MemoryItem
 from utils.env.secure_store import secure_store
+from utils.logger_helper import get_traceback
+from utils.logger_helper import logger_helper as logger
 
 
 def rough_token_count(text: str) -> int:
@@ -110,27 +133,6 @@ def prep_multi_modal_content(state, runtime):
     except Exception as e:
         err_trace = get_traceback(e, "ErrorPrepMultiModalContent")
         logger.debug(err_trace)
-
-
-
-import requests
-from langgraph.graph import StateGraph
-from langgraph.checkpoint.memory import MemorySaver
-from langchain_openai import ChatOpenAI, AzureChatOpenAI
-from langchain_community.chat_models import ChatAnthropic, ChatOllama
-from langchain_deepseek import ChatDeepSeek
-from langchain_qwq import ChatQwQ
-
-# Import optional providers that may not be available
-try:
-    from langchain_google_genai import ChatGoogleGenerativeAI
-except ImportError:
-    ChatGoogleGenerativeAI = None
-
-try:
-    from langchain_aws import ChatBedrock
-except ImportError:
-    ChatBedrock = None
 
 
 def get_country_by_ip() -> str | None:
@@ -1665,8 +1667,6 @@ def find_key(data, target_key, path=None):
 
     return results
 
-
-from langgraph.types import Interrupt
 
 def debuggable_node(node_fn, name):
     """Wrap a node so it can pause after execution."""

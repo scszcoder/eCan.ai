@@ -1,59 +1,73 @@
-from starlette.types import Receive, Scope, Send
-from mcp.server.sse import SseServerTransport
-import pyautogui
-from pynput.mouse import Controller
-import pygetwindow as gw
-import time
+# Standard library imports
 import asyncio
-from typing import TypeVar
-import subprocess
-from mcp.server.lowlevel import Server
-import traceback
-from mcp.server.fastmcp.prompts import base
-from mcp.types import CallToolResult, TextContent
-from mcp.server.streamable_http import (
-    StreamableHTTPServerTransport
-)
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-
-from agent.mcp.server.tool_schemas import *
 import json
-from dotenv import load_dotenv
-
 import shutil
-from bot.basicSkill import readRandomWindow8, takeScreenShot, carveOutImage, maskOutImage, saveImageToFile, mousePressAndHold, mousePressAndHoldOnScreenWord
-from bot.seleniumSkill import *
-from bot.adsAPISkill import startADSWebDriver, queryAdspowerProfile
+import subprocess
+import time
+import traceback
+from typing import TypeVar
 
+# Third-party library imports
+import pyautogui
+import pygetwindow as gw
+from dotenv import load_dotenv
+from pynput.mouse import Controller
+from starlette.types import Receive, Scope, Send
+
+# MCP library imports
+from mcp.server.fastmcp.prompts import base
+from mcp.server.lowlevel import Server
+from mcp.server.sse import SseServerTransport
+from mcp.server.streamable_http import StreamableHTTPServerTransport
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.types import CallToolResult, TextContent, Tool
+
+# Local application imports
 from agent.ec_skill import *
-from app_context import AppContext
-from utils.logger_helper import logger_helper as logger
-from utils.logger_helper import get_traceback
-from .event_store import InMemoryEventStore
 from agent.ec_skills.dom.dom_utils import *
+from agent.mcp.server.tool_schemas import get_tool_schemas
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import (
-    ecan_ai_api_query_components,
     api_ecan_ai_get_nodes_prompts,
     api_ecan_ai_ocr_read_screen,
+    ecan_ai_api_get_agent_status,
+    ecan_ai_api_query_components,
     ecan_ai_api_query_fom,
-    ecan_ai_api_rerank_results
+    ecan_ai_api_rerank_results,
 )
-from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
+from agent.mcp.server.scrapers.amazon_seller.amazon_fbs_orders_scrape import fullfill_amazon_fbs_orders
+from agent.mcp.server.scrapers.amazon_seller.amazon_messages_scrape import (
+    answer_amazon_messages,
+    fetch_amazon_messages,
+)
 from agent.mcp.server.scrapers.api_ecan_ai_cloud_search.api_ecan_ai_cloud_search import api_ecan_ai_cloud_search
+from agent.mcp.server.scrapers.ebay_seller.ebay_messages_scrape import answer_ebay_messages, fetch_ebay_messages
+from agent.mcp.server.scrapers.ebay_seller.ebay_orders_scrape import fullfill_ebay_orders
+from agent.mcp.server.scrapers.etsy_seller.etsy_messages_scrape import answer_etsy_messages, fetch_etsy_messages
+from agent.mcp.server.scrapers.etsy_seller.etsy_orders_scrape import fullfill_etsy_orders
+from agent.mcp.server.scrapers.eval_util import calculate_score, get_default_fom_form
+from agent.mcp.server.scrapers.pirate_shipping.purchase_label import pirate_shipping_purchase_labels
 from agent.mcp.server.scrapers.selenium_search_component import (
     selenium_search_component,
-    selenium_sort_search_results
+    selenium_sort_search_results,
 )
-from agent.mcp.server.scrapers.ebay_seller.ebay_orders_scrape import fullfill_ebay_orders
-from agent.mcp.server.scrapers.etsy_seller.etsy_orders_scrape import fullfill_etsy_orders
-from agent.mcp.server.scrapers.amazon_seller.amazon_fbs_orders_scrape import fullfill_amazon_fbs_orders
-from agent.mcp.server.scrapers.ebay_seller.ebay_messages_scrape import fetch_ebay_messages, answer_ebay_messages
-from agent.mcp.server.scrapers.etsy_seller.etsy_messages_scrape import fetch_etsy_messages, answer_etsy_messages
-from agent.mcp.server.scrapers.amazon_seller.amazon_messages_scrape import fetch_amazon_messages, answer_amazon_messages
-from agent.mcp.server.scrapers.pirate_shipping.purchase_label import pirate_shipping_purchase_labels
 from agent.mcp.server.utils.print_utils import reformat_and_print_labels
+from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
+from app_context import AppContext
+from bot.adsAPISkill import queryAdspowerProfile, startADSWebDriver
+from bot.basicSkill import (
+    carveOutImage,
+    maskOutImage,
+    mousePressAndHold,
+    mousePressAndHoldOnScreenWord,
+    readRandomWindow8,
+    saveImageToFile,
+    takeScreenShot,
+)
+from bot.seleniumSkill import *
+from utils.logger_helper import get_traceback
+from utils.logger_helper import logger_helper as logger
+from .event_store import InMemoryEventStore
 
-from agent.mcp.server.scrapers.eval_util import calculate_score, get_default_fom_form
 
 server_main_win = None
 
@@ -86,7 +100,7 @@ def read_resource() -> dict:
 
 # ================= tools section ============================================
 @meca_mcp_server.list_tools()
-async def list_tools() -> list[types.Tool]:
+async def list_tools() -> list[Tool]:
     logger.debug("=" * 80)
     logger.debug("📋 MCP Tools List Request")
     logger.debug("=" * 80)
@@ -1221,7 +1235,8 @@ async def os_screen_analyze(mainwin, args):
         sub_area = args["input"]["sub_area"]
         site = args["input"]["site"]
         engine = args["input"]["engine"]
-        screen_content = await read_screen8(mainwin, win_title_kw, sub_area, site,engine)
+        # Use readRandomWindow8 instead of read_screen8 (which doesn't exist)
+        screen_content = await readRandomWindow8(mainwin, win_title_kw, sub_area, site, engine)
 
         msg = "completed screen analysis"
         result = TextContent(type="text", text=msg)
@@ -1348,6 +1363,7 @@ async def rpa_operator_dispatch_works(mainwin, args):
     # the runbotworks task will then take over.....
     # including put reactive work into it.
     try:
+        workable = args.get("input", {}).get("workable", {})
         works_to_be_dispatched = mainwin.handleCloudScheduledWorks(workable)
         msg = "completed rpa operator dispatch works"
         result = [TextContent(type="text", text=msg)]
@@ -1362,6 +1378,7 @@ async def rpa_supervisor_process_work_results(mainwin, args):
     # handle RPA work results from a platoon host.
     # mostly bookkeeping.
     try:
+        workable = args.get("input", {}).get("workable", {})
         works_to_be_dispatched = mainwin.handleCloudScheduledWorks(workable)
         msg = "completed rpa supervisor process work results"
         result = [TextContent(type="text", text=msg)]
@@ -1377,6 +1394,7 @@ async def rpa_supervisor_run_daily_housekeeping(mainwin, args):
     # the runbotworks task will then take over.....
     # including put reactive work into it.
     try:
+        workable = args.get("input", {}).get("workable", {})
         works_to_be_dispatched = mainwin.handleCloudScheduledWorks(workable)
         text_content = [TextContent(type="text", text=f"works dispatched")]
         return text_content
@@ -1390,6 +1408,7 @@ async def rpa_operator_report_work_results(mainwin, args):
     # the runbotworks task will then take over.....
     # including put reactive work into it.
     try:
+        workable = args.get("input", {}).get("workable", {})
         works_to_be_dispatched = mainwin.handleCloudScheduledWorks(workable)
         msg = "completed rpa operator report work results"
         result = [TextContent(type="text", text=msg)]
@@ -1486,6 +1505,7 @@ async def api_ecan_ai_show_status(mainwin, args):
     try:
         print("api_ecan_ai_show_status args: ", args['input'])
         agent_status = ecan_ai_api_get_agent_status(mainwin, args['input'])
+        agent_id = args.get('input', {}).get('agent_id', 'unknown')
 
         msg = f"Get agent current status completed- with agent id of {agent_id}"
 

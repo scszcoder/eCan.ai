@@ -173,9 +173,8 @@ class UnifiedBrowserManager:
                 raise ValueError("mainwin is required. Must use mainwin.llm from MainWindow. Please configure LLM provider API key in Settings.")
             
             logger.debug("create bu agent....")
-            from browser_use import Agent, Controller
+            from browser_use import Agent
             from browser_use.browser import BrowserProfile, BrowserSession
-            from browser_use.llm import ChatOpenAI
             logger.debug("done import browser use....")
             
             # Use mainwin's LLM configuration (no fallback)

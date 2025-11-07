@@ -24,8 +24,8 @@ import traceback
 from agent.ec_skill import EC_Skill
 from utils.logger_helper import logger_helper as logger
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
-
-from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
+from agent.a2a.common.types import AgentCard, AgentCapabilities
+import json
 from agent.playwright import create_browser_use_llm
 
 
@@ -1227,7 +1227,7 @@ def remove_agent_tasks_from_cloud(mainwin, agent_tasks):
 
 def add_new_knowledges_to_cloud(mainwin, knowledges):
     try:
-        cloud_knowledges = prep_agent_data_for_cloud(mainwin, knowledges)
+        cloud_knowledges = prep_knowledges_data_for_cloud(mainwin, knowledges)
         auth_token = mainwin.get_auth_token()
         if not auth_token:
             logger.error("No valid authentication token available")
@@ -1405,31 +1405,31 @@ def gen_new_knowledge(mainwin, kjs):
         return None
 
 
-# def prep_knowledges_data_for_cloud(mainwin, knowledges):
-#     try:
-#         knjs = []
-#         for knowledge in knowledges:
-#             knj = {
-#                 "knid": knowledge.card.id,
-#                 "owner": mainwin.user,
-#                 "name": knowledge.name,
-#                 "description": knowledge.description,
-#                 "path": knowledge.path,
-#                 "status": knowledge.status,
-#                 "metadata": json.dumps(knowledge.metadata),
-#                 "rag": knowledge.rag
-#             }
-#             knjs.append(knj)
-#
-#         return knjs
-#     except Exception as e:
-#         traceback_info = traceback.extract_tb(e.__traceback__)
-#         if traceback_info:
-#             ex_stat = "ErrorNewKnowledges:" + traceback.format_exc() + " " + str(e)
-#         else:
-#             ex_stat = "ErrorNewKnowledges: traceback information not available:" + str(e)
-#         logger.error(ex_stat)
-#         return None
+def prep_knowledges_data_for_cloud(mainwin, knowledges):
+    try:
+        knjs = []
+        for knowledge in knowledges:
+            knj = {
+                "knid": knowledge.card.id,
+                "owner": mainwin.user,
+                "name": knowledge.name,
+                "description": knowledge.description,
+                "path": knowledge.path,
+                "status": knowledge.status,
+                "metadata": json.dumps(knowledge.metadata),
+                "rag": knowledge.rag
+            }
+            knjs.append(knj)
+
+        return knjs
+    except Exception as e:
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        if traceback_info:
+            ex_stat = "ErrorNewKnowledges:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorNewKnowledges: traceback information not available:" + str(e)
+        logger.error(ex_stat)
+        return None
 
 
 

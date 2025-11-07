@@ -1,6 +1,5 @@
 
 
-from langchain_openai import ChatOpenAI
 from agent.ec_skill import NodeState
 from utils.logger_helper import get_traceback, logger_helper as logger
 from agent.agent_service import get_agent_by_id

@@ -13,7 +13,6 @@ from typing import Dict, Any, Optional, TYPE_CHECKING
 from agent.ec_agent import EC_Agent
 from agent.a2a.common.types import AgentCard, AgentCapabilities
 from agent.ec_agents.agent_utils import get_a2a_server_url
-from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
 from utils.logger_helper import logger_helper as logger
 from agent.db.services.db_avatar_service import DBAvatarService
 
