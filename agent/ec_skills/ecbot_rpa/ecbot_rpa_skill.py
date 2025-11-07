@@ -455,7 +455,7 @@ async def create_rpa_supervisor_skill(mainwin):
             ex_stat = "ErrorCreateRPASupervisorSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateRPASupervisorSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
 
     return supervisor_skill
@@ -584,7 +584,7 @@ async def in_browser_scrape_content(state: NodeState) -> NodeState:
             ex_stat = "ErrorCreateRPASupervisorSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateRPASupervisorSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
 
     finally:

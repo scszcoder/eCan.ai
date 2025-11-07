@@ -287,7 +287,8 @@ class MigrationManager:
                 return '1.0.0'
                 
         except Exception as e:
-            logger.error(f"Failed to get current database version: {e}")
+            # For fresh databases, this is expected - log as debug instead of error
+            logger.debug(f"Could not get current database version (fresh database expected): {e}")
             # Re-raise the exception so migrate_to_latest can handle it properly
             raise
         finally:

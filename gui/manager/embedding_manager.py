@@ -10,11 +10,14 @@ It integrates with the configuration system and provides methods for:
 """
 
 import os
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, asdict
 
 from gui.config.embedding_config import embedding_config, EmbeddingProviderConfig
 from utils.logger_helper import logger_helper as logger
+
+if TYPE_CHECKING:
+    from gui.manager.config_manager import ConfigManager
 
 
 @dataclass
@@ -44,7 +47,7 @@ class EmbeddingManager:
     
     def store_api_key(self, env_var: str, api_key: str) -> Tuple[bool, Optional[str]]:
         """
-        Store an API key securely
+        Store an API key securely with user isolation
 
         Args:
             env_var: Environment variable name
@@ -64,13 +67,16 @@ class EmbeddingManager:
 
             value = api_key.strip()
 
-            # Persist to secure store (Keychain on macOS, Credential Manager on Windows, etc.)
-            from utils.env.secure_store import secure_store
-            ok = secure_store.set(env_var, value)
+            # Get current username for user isolation
+            from utils.env.secure_store import secure_store, get_current_username
+            username = get_current_username()
+            
+            # Persist to secure store with user isolation (Keychain on macOS, Credential Manager on Windows, etc.)
+            ok = secure_store.set(env_var, value, username=username)
             if not ok:
                 return False, "Failed to persist API key to secure store"
 
-            logger.info(f"API key stored for {env_var} in secure store")
+            logger.info(f"API key stored for {env_var} in secure store (user: {username or 'anonymous'})")
             return True, None
 
         except Exception as e:
@@ -80,7 +86,7 @@ class EmbeddingManager:
 
     def retrieve_api_key(self, env_var: str) -> Optional[str]:
         """
-        Retrieve an API key from secure store
+        Retrieve an API key from secure store with user isolation
 
         Args:
             env_var: Environment variable name
@@ -89,8 +95,10 @@ class EmbeddingManager:
             API key if found, None otherwise
         """
         try:
-            from utils.env.secure_store import secure_store
-            value = secure_store.get(env_var)
+            # Get current username for user isolation
+            from utils.env.secure_store import secure_store, get_current_username
+            username = get_current_username()
+            value = secure_store.get(env_var, username=username)
             if value and value.strip():
                 return value
             return None
@@ -101,7 +109,7 @@ class EmbeddingManager:
 
     def has_api_key(self, env_var: str) -> bool:
         """
-        Check if an API key exists in secure store
+        Check if an API key exists in secure store with user isolation
 
         Args:
             env_var: Environment variable name
@@ -110,8 +118,10 @@ class EmbeddingManager:
             True if API key exists, False otherwise
         """
         try:
-            from utils.env.secure_store import secure_store
-            value = secure_store.get(env_var)
+            # Get current username for user isolation
+            from utils.env.secure_store import secure_store, get_current_username
+            username = get_current_username()
+            value = secure_store.get(env_var, username=username)
             return bool(value and value.strip())
         except Exception:
             return False
@@ -136,11 +146,14 @@ class EmbeddingManager:
             else:
                 logger.debug(f"Environment variable {env_var} not present in current session")
 
+            # Get current username for user isolation
+            from utils.env.secure_store import secure_store, get_current_username
+            username = get_current_username()
+            
             # Delete from secure store
-            from utils.env.secure_store import secure_store
             store_deleted = False
             try:
-                store_deleted = secure_store.delete(env_var)
+                store_deleted = secure_store.delete(env_var, username=username)
             except Exception as e:
                 logger.warning(f"Failed to delete from secure store: {e}")
                 store_deleted = False
@@ -243,8 +256,8 @@ class EmbeddingManager:
             current_default_model = general_settings.default_embedding_model
         
         for provider_name, provider_config in embedding_config.get_all_providers().items():
-            # Only set preferred_model if this is the current default provider
-            is_default_provider = (provider_name == current_default_embedding)
+            # Only set preferred_model if this is the current default provider (compare by provider identifier, case-insensitive)
+            is_default_provider = (provider_config.provider.value.lower() == (current_default_embedding or "").lower())
             preferred_model = current_default_model if (is_default_provider and current_default_model) else provider_config.default_model
             is_preferred = is_default_provider
 
@@ -258,7 +271,7 @@ class EmbeddingManager:
                 "name": provider_config.name,
                 "display_name": provider_config.display_name,
                 "class_name": provider_config.class_name,
-                "provider": provider_config.provider.value,  # Convert enum to string value
+                "provider": provider_config.provider.value,  # Convert enum to string value (canonical identifier)
                 "description": provider_config.description,
                 "documentation_url": provider_config.documentation_url,
                 "is_local": provider_config.is_local,
@@ -282,18 +295,38 @@ class EmbeddingManager:
         
         return providers
     
-    def get_provider(self, provider_name: str) -> Optional[Dict[str, Any]]:
-        """Get a specific provider with user preferences"""
-        # Get all providers (this will auto-configure if needed)
-        providers = self.get_all_providers()
-        for provider in providers:
-            if provider["name"] == provider_name:
+    def get_provider(self, provider_key: str) -> Optional[Dict[str, Any]]:
+        """Get a specific provider by canonical provider identifier (providers[i]['provider']).
+        
+        Provider comparison is case-insensitive for better compatibility.
+        Also supports lookup by class_name for backward compatibility.
+        """
+        key = (provider_key or "").strip().lower()
+        if not key:
+            return None
+        
+        # First try: match by provider identifier (canonical)
+        for provider in self.get_all_providers():
+            provider_id = (provider.get("provider") or "").lower()
+            if provider_id == key:
                 return provider
+        
+        # Second try: match by class_name (backward compatibility for old settings)
+        for provider in self.get_all_providers():
+            class_name = (provider.get("class_name") or "").lower()
+            if class_name == key:
+                return provider
+        
         return None
     
-    def _get_provider_config_only(self, provider_name: str) -> Optional[Dict[str, Any]]:
+    def _get_provider_config_only(self, provider_key: str) -> Optional[Dict[str, Any]]:
         """Get provider configuration without triggering auto-configuration
         Used internally to avoid recursion in check_provider_configured
+        
+        Supports matching by:
+        1. provider identifier (canonical, e.g., "alibaba_qwen")
+        2. name (e.g., "阿里云通义千问")
+        3. display_name (for backward compatibility)
         """
         providers = []
         
@@ -307,9 +340,11 @@ class EmbeddingManager:
             current_default_embedding = general_settings.default_embedding
             current_default_model = general_settings.default_embedding_model
         
+        provider_key_normalized = (provider_key or "").lower()
         for provider_name_key, provider_config in embedding_config.get_all_providers().items():
-            if provider_name_key == provider_name:
-                is_default_provider = (provider_name_key == current_default_embedding)
+            # Match by provider identifier (canonical) - preferred
+            if provider_config.provider.value.lower() == provider_key_normalized:
+                is_default_provider = (provider_config.provider.value.lower() == (current_default_embedding or "").lower())
                 preferred_model = current_default_model if (is_default_provider and current_default_model) else provider_config.default_model
                 
                 api_key_configured = self._check_provider_api_keys_configured(provider_config)
@@ -334,24 +369,71 @@ class EmbeddingManager:
                     "validation_error": validation.get("error"),
                     "missing_env_vars": validation.get("missing_env_vars", [])
                 }
+            # Match by name (for backward compatibility with old settings)
+            elif provider_config.name.lower() == provider_key_normalized:
+                is_default_provider = (provider_config.provider.value.lower() == (current_default_embedding or "").lower())
+                preferred_model = current_default_model if (is_default_provider and current_default_model) else provider_config.default_model
+                
+                api_key_configured = self._check_provider_api_keys_configured(provider_config)
+                validation = embedding_config.validate_provider_config(provider_name_key)
+                
+                # Auto-migrate: update settings.json to use provider identifier
+                if main_window and current_default_embedding.lower() == provider_key_normalized:
+                    logger.info(f"[EmbeddingManager] Auto-migrating default_embedding from '{current_default_embedding}' to '{provider_config.provider.value}'")
+                    main_window.config_manager.general_settings.default_embedding = provider_config.provider.value
+                    main_window.config_manager.general_settings.save()
+                
+                return {
+                    "name": provider_config.name,
+                    "display_name": provider_config.display_name,
+                    "class_name": provider_config.class_name,
+                    "provider": provider_config.provider.value,
+                    "description": provider_config.description,
+                    "documentation_url": provider_config.documentation_url,
+                    "is_local": provider_config.is_local,
+                    "base_url": provider_config.base_url,
+                    "default_model": provider_config.default_model,
+                    "api_key_env_vars": provider_config.api_key_env_vars,
+                    "supported_models": self._serialize_models(provider_config.supported_models),
+                    "is_preferred": is_default_provider,
+                    "preferred_model": preferred_model,
+                    "api_key_configured": api_key_configured,
+                    "is_valid": validation["valid"],
+                    "validation_error": validation.get("error"),
+                    "missing_env_vars": validation.get("missing_env_vars", [])
+                }
         return None
     
-    def set_provider_default_model(self, provider_name: str, model_name: str) -> Tuple[bool, Optional[str]]:
+    def set_provider_default_model(self, provider_key: str, model_name: str) -> Tuple[bool, Optional[str]]:
         """Update the default model for the default Embedding provider
+        
+        Args:
+            provider_key: Provider identifier (e.g., "openai", "azure_openai") - case-insensitive
+            model_name: Model name to set as default
         
         Note: Only saves if this is the current default provider.
         Saves to user's settings.json (writable in PyInstaller), 
         NOT to embedding_providers.json (read-only in PyInstaller).
         """
-        provider_config = embedding_config.get_provider(provider_name)
+        # Normalize provider key (case-insensitive)
+        provider_key_normalized = (provider_key or "").strip().lower()
+        if not provider_key_normalized:
+            return False, "Provider key cannot be empty"
+        
+        # Resolve provider config by provider identifier (case-insensitive)
+        provider_config = None
+        for _, pc in embedding_config.get_all_providers().items():
+            if pc.provider.value.lower() == provider_key_normalized:
+                provider_config = pc
+                break
         if not provider_config:
-            return False, f"Provider {provider_name} not found"
+            return False, f"Provider '{provider_key}' not found"
 
         # Validate model belongs to provider
         if provider_config.supported_models:
             valid_model_names = {m.name for m in provider_config.supported_models}
             if model_name not in valid_model_names:
-                return False, f"Model {model_name} is not supported by provider {provider_name}"
+                return False, f"Model '{model_name}' is not supported by provider '{provider_config.name}'"
 
         # Save to user's settings.json (writable even in PyInstaller)
         from app_context import AppContext
@@ -361,19 +443,20 @@ class EmbeddingManager:
         
         general_settings = main_window.config_manager.general_settings
         
-        # Check if this is the current default provider
-        current_default_embedding = general_settings.default_embedding
-        if current_default_embedding == provider_name:
+        # Check if this is the current default provider (case-insensitive comparison)
+        current_default_embedding = (general_settings.default_embedding or "").lower()
+        provider_identifier = provider_config.provider.value.lower()
+        if current_default_embedding == provider_identifier:
             # Update default_embedding_model for the current default provider
             general_settings.default_embedding_model = model_name
             
             if not general_settings.save():
                 return False, "Failed to save model selection to settings"
             
-            logger.info(f"Updated default_embedding_model to {model_name} for current default provider {provider_name}")
+            logger.info(f"Updated default_embedding_model to '{model_name}' for current default provider '{provider_config.name}'")
         else:
             # Not the default provider, just return success without saving
-            logger.info(f"Model {model_name} selected for {provider_name} (not saved since it's not the default provider)")
+            logger.info(f"Model '{model_name}' selected for '{provider_config.name}' (not saved since it's not the default provider)")
 
         return True, None
 
@@ -401,13 +484,13 @@ class EmbeddingManager:
         
         self._checking_provider = True
         try:
-            # Get default Embedding from settings
+            # Get default Embedding from settings (provider identifier expected, e.g., "openai")
             default_embedding = self.config_manager.general_settings.default_embedding
             
-            # Case 1: If default_embedding is empty, set it to OpenAI as default
+            # Case 1: If default_embedding is empty, set it to OpenAI (provider identifier: "openai") as default
             if not default_embedding or not default_embedding.strip():
-                logger.info("[EmbeddingManager] No default Embedding is set - setting to OpenAI with default model")
-                self.config_manager.general_settings.default_embedding = "OpenAI"
+                logger.info("[EmbeddingManager] No default Embedding is set - setting to OpenAI (provider identifier: 'openai') with default model")
+                self.config_manager.general_settings.default_embedding = "openai"
                 # Also set the default model if not already set
                 if not self.config_manager.general_settings.default_embedding_model:
                     provider_config = embedding_config.get_provider("OpenAI")
@@ -415,7 +498,7 @@ class EmbeddingManager:
                         self.config_manager.general_settings.default_embedding_model = provider_config.default_model
                         logger.info(f"[EmbeddingManager] Set default model to {provider_config.default_model}")
                 self.config_manager.general_settings.save()
-                default_embedding = "OpenAI"
+                default_embedding = "openai"
                 # Continue to check API key configuration below
             
             # Get provider configuration (without triggering auto-configuration to avoid recursion)
