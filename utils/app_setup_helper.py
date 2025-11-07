@@ -460,7 +460,8 @@ def set_windows_taskbar_icon(app, icon_path, logger=None, target_window=None):
 
             if success:
                 # Refresh window and taskbar
-                user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0020 | 0x0004 | 0x0001)  # SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOSIZE
+                # SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOSIZE | SWP_NOMOVE
+                user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0020 | 0x0004 | 0x0001 | 0x0002)
                 try:
                     user32.UpdateWindow(hwnd)
                     shell32 = ctypes.windll.shell32
