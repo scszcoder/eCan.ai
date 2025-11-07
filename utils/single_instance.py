@@ -74,24 +74,62 @@ def _clean_stale_lock(lock_file_path):
 def install_single_instance():
     """
     Cross-platform single instance protection for Windows and macOS/Linux.
-    Uses username and executable path to distinguish between different users and versions.
+    Uses username and a fixed per-user AppID to distinguish between different users.
     Automatically cleans up locks when process exits.
     Enhanced with stale lock detection and PID validation.
     """
     username = getpass.getuser()
 
-    # Use executable path to create unique identifier, avoiding conflicts between different versions
-    executable_path = sys.executable
-    if hasattr(sys, 'frozen'):
-        # PyInstaller environment, use actual executable file path
-        executable_path = sys.argv[0]
+    # Windows: add a global named mutex to prevent multiple instances across sessions/users
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            from ctypes import wintypes
 
-    # Create unique identifier based on username and executable path
-    unique_id = hashlib.md5(f"{username}_{executable_path}".encode()).hexdigest()[:16]
+            mutex_name = "Global\\eCan.AI.SingleInstance"
+            kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+            CreateMutexW = kernel32.CreateMutexW
+            CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+            CreateMutexW.restype = wintypes.HANDLE
+
+            handle = CreateMutexW(None, False, mutex_name)
+            if not handle:
+                raise ctypes.WinError(ctypes.get_last_error())
+
+            # ERROR_ALREADY_EXISTS = 183
+            ERROR_ALREADY_EXISTS = 183
+            last_error = ctypes.get_last_error()
+            if last_error == ERROR_ALREADY_EXISTS:
+                print("[SINGLE_INSTANCE] [ERROR] Another instance detected by Global mutex, exiting...")
+                try:
+                    # Close the handle we just opened
+                    kernel32.CloseHandle(handle)
+                except Exception:
+                    pass
+                sys.exit(0)
+
+            # Keep mutex handle globally and ensure it's released on exit
+            globals()['_ecan_global_mutex_handle'] = handle
+            import atexit
+            def _release_mutex():
+                try:
+                    h = globals().get('_ecan_global_mutex_handle')
+                    if h:
+                        kernel32.CloseHandle(h)
+                        globals().pop('_ecan_global_mutex_handle', None)
+                except Exception:
+                    pass
+            atexit.register(_release_mutex)
+            print(f"[SINGLE_INSTANCE] Global mutex acquired: {mutex_name}")
+        except Exception as e:
+            print(f"[SINGLE_INSTANCE] Global mutex setup failed (continuing with file lock): {e}")
+
+    # Create a fixed per-user unique identifier (same for dev/frozen and different paths)
+    app_id = 'eCan.AI'
+    unique_id = hashlib.md5(f"{username}_{app_id}".encode()).hexdigest()[:16]
     lock_file_path = os.path.join(tempfile.gettempdir(), f'ecbot_main_{unique_id}.lock')
 
     print(f"[SINGLE_INSTANCE] Using lock file: {lock_file_path}")
-    print(f"[SINGLE_INSTANCE] Executable: {executable_path}")
     print(f"[SINGLE_INSTANCE] User: {username}")
 
     # First, try to clean up stale lock files
