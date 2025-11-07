@@ -79,6 +79,12 @@ class EC_Agent(Agent):
 		self.images = [{"image_name":"", "image_source":"","text":""}]
 		self.avatar = avatar or (DBAvatarService.generate_default_avatar(card.id) if card else None)
 
+		# Auto-detect model vision support and set use_vision accordingly to avoid warnings
+		if 'use_vision' not in kwargs:
+			from agent.ec_skills.llm_utils.llm_utils import get_use_vision_from_llm
+			llm = kwargs.get('llm')
+			kwargs['use_vision'] = get_use_vision_from_llm(llm, context="EC_Agent")
+
 		super().__init__(*args, **kwargs)
 		# Configure extraction
 		from agent.memory.service import MemoryManager

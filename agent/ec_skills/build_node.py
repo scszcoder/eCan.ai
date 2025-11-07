@@ -1171,7 +1171,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
             controller = BUController()
             profile = BUBrowserProfile()
-            agent = BUAgent(task=task, llm=llm, controller=controller, browser_profile=profile)
+            
+            # Auto-detect model vision support and set use_vision accordingly to avoid warnings
+            from agent.ec_skills.llm_utils.llm_utils import get_use_vision_from_llm
+            agent_kwargs = {'use_vision': get_use_vision_from_llm(llm, context="build_browser_automation_node")}
+            agent = BUAgent(task=task, llm=llm, controller=controller, browser_profile=profile, **agent_kwargs)
             history = await agent.run()
             final = history.final_result() if hasattr(history, 'final_result') else None
             return {"final": final, "history": str(history)}
