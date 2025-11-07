@@ -134,6 +134,12 @@
       "message": "为了正常使用 AI 功能，您需要先配置至少一个 LLM Provider。这只需要几分钟时间。",
       "primaryButton": "立即配置",
       "skipButton": "稍后再说"
+    },
+    "embeddingProviderConfig": {
+      "title": "配置 Embedding Provider",
+      "message": "为了使用记忆功能，您需要先配置至少一个 Embedding Provider。这只需要几分钟时间。",
+      "primaryButton": "立即配置",
+      "skipButton": "稍后再说"
     }
   },
   "pages": {

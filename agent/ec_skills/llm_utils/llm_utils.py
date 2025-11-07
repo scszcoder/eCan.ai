@@ -484,12 +484,23 @@ def extract_provider_config(provider, config_manager=None):
         # Get current model name (may include preferred_model from user settings)
         model_name = provider.get_model_name()
         
+        # Get supports_vision from model config (default True if not found)
+        supports_vision = True  # Default to True
+        if provider.supported_models:
+            for model in provider.supported_models:
+                if (model.model_id == model_name or 
+                    model.name == model_name or
+                    model.display_name == model_name):
+                    supports_vision = getattr(model, 'supports_vision', True)
+                    break
+        
         # Override with user-selected model if available and valid for this provider
         if config_manager and hasattr(config_manager, 'general_settings'):
             user_selected_model = config_manager.general_settings.default_llm_model
             if user_selected_model:
                 # Validate that user-selected model belongs to this provider
                 is_valid_model = False
+                selected_model_config = None
                 if provider.supported_models:
                     # Check if model_id or name matches
                     for model in provider.supported_models:
@@ -497,11 +508,15 @@ def extract_provider_config(provider, config_manager=None):
                             user_selected_model == model.name or
                             user_selected_model == model.display_name):
                             is_valid_model = True
+                            selected_model_config = model
                             break
                 
                 if is_valid_model:
                     logger.debug(f"[extract_provider_config] Using user-selected model: {user_selected_model} (instead of {model_name})")
                     model_name = user_selected_model
+                    # Update supports_vision from selected model
+                    if selected_model_config:
+                        supports_vision = getattr(selected_model_config, 'supports_vision', True)
                 else:
                     # Use the original provider default model, not preferred_model (which may be from wrong provider)
                     model_name = original_provider_model
@@ -522,7 +537,8 @@ def extract_provider_config(provider, config_manager=None):
             'api_key_env_vars': provider.api_key_env_vars,
             'is_openai_compatible': provider.is_openai_compatible(),
             'is_browser_use_compatible': provider.is_browser_use_compatible(),
-            'temperature': provider.temperature
+            'temperature': provider.temperature,
+            'supports_vision': supports_vision
         }
     
     # Legacy dict-based provider (backward compatibility)
@@ -550,6 +566,10 @@ def extract_provider_config(provider, config_manager=None):
         first_model = supported_models[0]
         model_name = first_model.get('model_id', first_model.get('name'))
     
+    # Get supports_vision from model config (default True if not found)
+    supports_vision = True  # Default to True
+    selected_model_config = None
+    
     # Override with user-selected model if available and valid for this provider (for dict-based providers)
     if config_manager and hasattr(config_manager, 'general_settings'):
         user_selected_model = config_manager.general_settings.default_llm_model
@@ -566,6 +586,7 @@ def extract_provider_config(provider, config_manager=None):
                         user_selected_model == model_name_key or
                         user_selected_model == display_name):
                         is_valid_model = True
+                        selected_model_config = model
                         break
             
             if is_valid_model:
@@ -578,6 +599,21 @@ def extract_provider_config(provider, config_manager=None):
                     f"[extract_provider_config] User-selected model '{user_selected_model}' "
                     f"does not belong to provider '{provider_name}'. Using provider's default model '{model_name}' instead."
                 )
+    
+    # Get supports_vision from the selected/current model config
+    if selected_model_config:
+        supports_vision = selected_model_config.get('supports_vision', True)
+    elif supported_models:
+        # Find the current model in supported_models
+        for model in supported_models:
+            model_id = model.get('model_id', '')
+            model_name_key = model.get('name', '')
+            display_name = model.get('display_name', '')
+            if (model_name == model_id or 
+                model_name == model_name_key or
+                model_name == display_name):
+                supports_vision = model.get('supports_vision', True)
+                break
     
     # Get API key from environment variables
     api_key = None
@@ -619,7 +655,8 @@ def extract_provider_config(provider, config_manager=None):
         'provider_name_actual': provider.get('name', provider_name),
         'provider_display': provider.get('display_name', provider.get('name', provider_name)),
         'api_key_env_vars': api_key_env_vars,
-        'temperature': provider.get('temperature', 0.7)
+        'temperature': provider.get('temperature', 0.7),
+        'supports_vision': supports_vision
     }
 
 
@@ -1132,6 +1169,29 @@ def create_browser_use_llm_by_provider_type(
             return None
 
 
+def get_use_vision_from_llm(llm, context="") -> bool:
+    """
+    Get use_vision value from LLM object, defaulting to True if not found.
+    
+    Args:
+        llm: LLM instance that may have supports_vision attribute
+        context: Optional context string for logging (e.g., "EC_Agent", "build_node")
+    
+    Returns:
+        bool: use_vision value (True by default)
+    """
+    if llm and hasattr(llm, 'supports_vision'):
+        use_vision = llm.supports_vision
+        if context:
+            logger.debug(f"[{context}] Auto-set use_vision={use_vision} from LLM config")
+        return use_vision
+    else:
+        # Default to True if not found (browser-use default behavior)
+        if context:
+            logger.debug(f"[{context}] Auto-set use_vision=True (default, no config found)")
+        return True
+
+
 def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_check=False):
     """
     Create BrowserUse-compatible LLM based on mainwin's current LLM provider configuration.
@@ -1215,6 +1275,9 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                     f"provider={config.get('provider_display', default_llm_name)}, model={model_name}"
                 )
                 
+                # Get supports_vision from config (default True if not found)
+                supports_vision = config.get('supports_vision', True)
+                
                 # Use centralized function (already validates BrowserUseChatOpenAI type)
                 llm_instance = create_browser_use_llm_by_provider_type(
                     provider_type=provider_type,
@@ -1233,6 +1296,12 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                         f"got {type(llm_instance).__name__}, returning None"
                     )
                     return None
+                
+                # Attach supports_vision to LLM instance for later use
+                if llm_instance is not None:
+                    llm_instance.supports_vision = supports_vision
+                    logger.debug(f"[create_browser_use_llm] Model {model_name} supports_vision: {supports_vision}")
+                
                 return llm_instance
                         
             except Exception as e:
