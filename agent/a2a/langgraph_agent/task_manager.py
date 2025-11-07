@@ -161,6 +161,7 @@ class AgentTaskManager(InMemoryTaskManager):
 
     async def on_send_task(self, request: SendTaskRequest) -> SendTaskResponse:
         """Handles the 'send task' request."""
+        t_start = time.time()
         logger.info(f"[A2A] Receiving incoming request to agent: {self._agent.card.name}")
         logger.debug(f"[A2A] Request details - task_id: {request.params.id}, session_id: {request.params.sessionId}, metadata: {request.params.metadata}")
         
@@ -173,11 +174,13 @@ class AgentTaskManager(InMemoryTaskManager):
             if not await self.set_push_notification_info(request.params.id, request.params.pushNotification):
                 return SendTaskResponse(id=request.id, error=InvalidParamsError(message="Push notification URL is invalid"))
 
+        t0 = time.time()
         await self.upsert_task(request.params)
         task = await self.update_store(
             request.params.id, TaskStatus(state=TaskState.WORKING), None
         )
         await self.send_task_notification(task)
+        logger.debug(f"[PERF] on_send_task - upsert+update+notify: {time.time()-t0:.3f}s")
 
         task_send_params: TaskSendParams = request.params
         query = self._get_user_query(task_send_params)
@@ -192,6 +195,8 @@ class AgentTaskManager(InMemoryTaskManager):
             
             msg_js = request.params.message  # need , encoding='utf-8'?
             logger.debug(f"[A2A] Message type: {msg_js.metadata.get('mtype', 'unknown')}")
+            
+            t1 = time.time()
             if msg_js.metadata["mtype"] == "send_task":
                 logger.info("task wait in line")
                 # agent_wait_response = await self._agent.runner.task_wait_in_line(request)
@@ -202,6 +207,7 @@ class AgentTaskManager(InMemoryTaskManager):
                 agent_wait_response = self._agent.runner.sync_task_wait_in_line("human_chat", request)
             else:
                 agent_wait_response = {}
+            logger.debug(f"[PERF] on_send_task - sync_task_wait_in_line: {time.time()-t1:.3f}s")
 
             logger.debug("[A2A] Waiting for runner response...", agent_wait_response)
             
@@ -232,9 +238,10 @@ class AgentTaskManager(InMemoryTaskManager):
                 
                 # Calculate execution time
                 execution_time = time.time() - self._task_start_times.get(task_id, time.time())
+                wait_time = time.time() - t_start
                 self._task_start_times.pop(task_id, None)
                 
-                logger.info(f"[A2A] Waiter completed successfully in {execution_time:.2f}s: {type(result)}")
+                logger.info(f"[A2A] Waiter completed successfully in {execution_time:.2f}s (total API time: {wait_time:.2f}s): {type(result)}")
                 # Update store to COMPLETED so cleanup can track completion time
                 task_stat = TaskStatus(state=TaskState.COMPLETED)
                 await self.update_store(request.params.id, task_stat, None)
