@@ -32,6 +32,7 @@ import { ActiveSheetBinder } from './components/tabs/ActiveSheetBinder';
 import { RunningNodeNavigator } from './components/tabs/RunningNodeNavigator';
 import { isValidationDisabled } from './services/validation-config';
 import { useEditorCacheStore, useAutoSaveCache } from './stores/editor-cache-store';
+import { BreakpointBinder } from './components/runtime/BreakpointBinder';
 
 const EditorContainer = styled.div`
   position: relative;
@@ -246,6 +247,8 @@ export const Editor = () => {
             <RouteFileLoader />
             {/* Sync the active sheet's document with the editor's WorkflowDocument */}
             <ActiveSheetBinder />
+            {/* Ensure breakpoint-stalled nodes still show visuals when no running node is set */}
+            <BreakpointBinder />
             <RunningNodeNavigator />
             <SidebarProvider>
               <NodeInfoDisplay />
