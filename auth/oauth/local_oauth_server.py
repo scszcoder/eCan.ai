@@ -83,8 +83,9 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
         lang = language or self._detect_language()
         title = auth_messages.get_message('oauth_success_title', lang)
         message = auth_messages.get_message('oauth_success_message', lang)
+        app_prompt = auth_messages.get_message('oauth_success_app_prompt', lang)
         # Use a single countdown setting and inject into i18n string
-        countdown_seconds = 5
+        countdown_seconds = 3
         launching_text = auth_messages.get_message('oauth_success_launching', lang).format(countdown=countdown_seconds)
         manual_launch_text = auth_messages.get_message('oauth_manual_launch', lang)
         
@@ -175,55 +176,122 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
                 }}
             </style>
         </head>
-        <body>
+            <body>
             <div class="container">
                 <div class="success">✅</div>
                 <div class="message">{message}</div>
+                <div class="message" style="font-size: 1.4em; font-weight: bold; margin-top: 30px;">{app_prompt}</div>
                 <div class="progress-bar">
                     <div class="progress-fill"></div>
                 </div>
                 <div id="launch-message" class="countdown">{launching_text}</div>
-                <div id="countdown" class="countdown">Window will close in <span id="countdown-number">{countdown_seconds}</span> seconds</div>
                 <a href="{app_scheme}" id="manual-launch">{manual_launch_text}</a>
                 
                 <script>
                     let countdown = {countdown_seconds};
-                    const countdownElement = document.getElementById('countdown-number');
+                    let appLaunched = false;
+                    const currentLang = '{lang}';
+                    
+                    function launchApplication() {{
+                        if (appLaunched) return;
+                        appLaunched = true;
+                        
+                        // Try multiple methods to ensure app launch
+                        // Method 1: Direct location change
+                        window.location.href = '{app_scheme}';
+                        
+                        // Method 2: Create hidden iframe (for better compatibility)
+                        const iframe = document.createElement('iframe');
+                        iframe.style.display = 'none';
+                        iframe.src = '{app_scheme}';
+                        document.body.appendChild(iframe);
+                        
+                        // Method 3: Try window.open as fallback
+                        setTimeout(function() {{
+                            try {{
+                                window.open('{app_scheme}', '_blank');
+                            }} catch(e) {{
+                                console.log('Window.open failed:', e);
+                            }}
+                        }}, 500);
+                        
+                        // Update message after attempting launch
+                        setTimeout(function() {{
+                            const launchMsg = document.getElementById('launch-message');
+                            if (launchMsg) {{
+                                launchMsg.innerHTML = '{manual_launch_text}';
+                                launchMsg.style.color = '#4CAF50';
+                            }}
+                        }}, 1000);
+                    }}
                     
                     function updateCountdown() {{
-                        countdownElement.textContent = countdown;
-                        countdown--;
-                        if (countdown < 0) {{
-                            // Try to close the window
-                            window.close();
-                            // If window.close() doesn't work, show manual close instruction
-                            setTimeout(function() {{
-                                document.getElementById('countdown').innerHTML = 
-                                    'Please close this browser window manually.';
-                            }}, 1000);
-                        }} else {{
+                        if (countdown > 0) {{
+                            countdown--;
                             setTimeout(updateCountdown, 1000);
+                        }} else {{
+                            // Try to close the window after countdown
+                            setTimeout(function() {{
+                                window.close();
+                                // If window.close() doesn't work, show manual close instruction
+                                setTimeout(function() {{
+                                    const container = document.querySelector('.container');
+                                    if (container) {{
+                                        container.innerHTML = '<div class="message">Please close this browser window manually.</div>';
+                                    }}
+                                }}, 1000);
+                            }}, 500);
                         }}
                     }}
                     
-                    function launchApplication() {{
-                        window.location.href = '{app_scheme}';
-                        // Fallback message if scheme doesn't work
-                        setTimeout(function() {{
-                            document.getElementById('launch-message').innerHTML = '{manual_launch_text}';
-                        }}, 2000);
+                    // Show prompt dialog to open app
+                    function showOpenAppPrompt() {{
+                        // Detect language and show appropriate message
+                        const isChinese = currentLang.includes('zh') || navigator.language.includes('zh');
+                        let promptText;
+                        if (isChinese) {{
+                            promptText = '认证成功！\\n\\n点击"确定"打开 ecan.ai 应用。\\n\\n如果应用没有自动打开，请点击页面上的"打开 ecan.ai 应用"按钮。';
+                        }} else {{
+                            promptText = 'Authentication Successful!\\n\\nClick "OK" to open the ecan.ai application.\\n\\nIf the app doesn\\'t open automatically, please click the "Open ecan.ai Application" button on the page.';
+                        }}
+                        
+                        // Show confirm dialog
+                        const userConfirmed = confirm(promptText);
+                        
+                        // Launch app regardless of user choice (but immediately if confirmed)
+                        if (userConfirmed) {{
+                            launchApplication();
+                        }} else {{
+                            // User cancelled, but still try to launch after a short delay
+                            setTimeout(function() {{
+                                launchApplication();
+                            }}, 1000);
+                        }}
                     }}
                     
-                    // Start countdown and try to launch app
+                    // Start countdown and launch app immediately
                     document.addEventListener('DOMContentLoaded', function() {{
-                        launchApplication();
-                        setTimeout(updateCountdown, 2000);
+                        // Show prompt dialog first
+                        showOpenAppPrompt();
+                        // Also launch automatically as fallback
+                        setTimeout(function() {{
+                            launchApplication();
+                        }}, 1000);
+                        // Start countdown
+                        updateCountdown();
                     }});
                     
                     // Handle manual launch link
                     document.getElementById('manual-launch').addEventListener('click', function(e) {{
                         e.preventDefault();
                         launchApplication();
+                    }});
+                    
+                    // Also try to launch on page visibility change (when user switches back to tab)
+                    document.addEventListener('visibilitychange', function() {{
+                        if (!document.hidden && !appLaunched) {{
+                            launchApplication();
+                        }}
                     }});
                 </script>
             </div>
@@ -533,3 +601,4 @@ def create_oauth_server(url: str, timeout: int = 300) -> LocalOAuthServer:
         LocalOAuthServer instance
     """
     return LocalOAuthServer(url=url, timeout=timeout)
+
