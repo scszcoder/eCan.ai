@@ -124,18 +124,50 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         { key: 'profile', icon: <UserOutlined />, label: t('common.profile') },
     ], [t]) as NonNullable<MenuProps['items']>;
 
+    // Prevent navigation if already on the target route
     const onMenuClick = ({ key }: { key: string }) => {
+        const currentPath = location.pathname;
+        let targetPath = key;
+        
         // IfClick Agents Menu，Restore到最后访问的 agents Path
         if (key === '/agents') {
-            navigate(lastAgentsPathRef.current);
-        } else {
-            navigate(key);
+            targetPath = lastAgentsPathRef.current;
+        }
+        
+        // Only navigate if not already on the target path
+        if (currentPath !== targetPath && !currentPath.startsWith(targetPath + '/')) {
+            navigate(targetPath);
         }
     };
 
     const isSkillEditor = location.pathname.startsWith('/skill_editor');
     // Check是否在 agents 相关Page，只有这些Page才DisplayRightFastOperationMenu
     const isAgentsPage = location.pathname.startsWith('/agents');
+
+    // Calculate selected menu key based on current pathname
+    // Match the longest matching menu key to handle nested routes
+    const getSelectedMenuKey = () => {
+        const pathname = location.pathname;
+        // Find the longest matching menu key
+        let selectedKey = '/agents'; // default
+        let maxMatchLength = 0;
+        
+        if (menuItems) {
+            menuItems.forEach(item => {
+                if (item && item.key) {
+                    const key = item.key as string;
+                    if (pathname === key || pathname.startsWith(key + '/')) {
+                        if (key.length > maxMatchLength) {
+                            maxMatchLength = key.length;
+                            selectedKey = key;
+                        }
+                    }
+                }
+            });
+        }
+        
+        return selectedKey;
+    };
 
     return (
         <StyledLayout>
@@ -144,7 +176,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 collapsed={collapsed}
                 onLogoClick={handleLogoClick}
                 menuItems={menuItems}
-                selectedKey={location.pathname}
+                selectedKey={getSelectedMenuKey()}
                 onMenuClick={onMenuClick}
             />
             <StyledInnerLayout>

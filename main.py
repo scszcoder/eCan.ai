@@ -239,19 +239,55 @@ try:
     print(TimeUtil.formatted_now_with_ms() + " processing Qt events...")
     _global_app.processEvents()
 
-    # Create and show themed splash as early as possible
-    print(TimeUtil.formatted_now_with_ms() + " importing gui.splash...")
+    # Show minimal splash IMMEDIATELY - this gives instant visual feedback
+    # Import only the minimal splash function (lightweight, doesn't load full splash)
+    print(TimeUtil.formatted_now_with_ms() + " showing minimal splash...")
+    minimal_splash = None
+    try:
+        from gui.splash import init_minimal_splash
+        minimal_splash = init_minimal_splash()
+        if minimal_splash:
+            print(TimeUtil.formatted_now_with_ms() + " minimal splash shown")
+            # Force immediate display
+            _global_app.processEvents()
+    except Exception as e:
+        print(f"Failed to show minimal splash: {e}")
+        import traceback
+        traceback.print_exc()
+
+    # Now load the full splash screen (this can take a bit longer)
+    # The minimal splash is already visible, so user sees immediate feedback
+    print(TimeUtil.formatted_now_with_ms() + " importing full splash...")
+    # Process events to keep minimal splash responsive during import
+    if minimal_splash:
+        _global_app.processEvents()
+    
     try:
         from gui.splash import init_startup_splash, create_startup_progress_manager
 
         startup_splash = init_startup_splash()
-        print(TimeUtil.formatted_now_with_ms() + " startup splash initialized")
+        print(TimeUtil.formatted_now_with_ms() + " full splash initialized")
+        
+        # Smoothly transition from minimal to full splash
+        if minimal_splash and startup_splash:
+            try:
+                # Hide minimal splash after full splash is shown
+                # Use deleteLater for safe cleanup
+                minimal_splash.hide()
+                minimal_splash.deleteLater()
+                minimal_splash = None
+                # Process events to ensure smooth transition
+                _global_app.processEvents()
+            except Exception:
+                pass
 
         progress_manager = create_startup_progress_manager(startup_splash)
     except Exception as e:
-        print(f"Failed to initialize splash screen: {e}")
+        print(f"Failed to initialize full splash screen: {e}")
         import traceback
         traceback.print_exc()
+        # Keep minimal splash if full splash failed
+        startup_splash = minimal_splash
         # Create a dummy progress manager to continue startup
         class DummyProgressManager:
             def update_progress(self, progress, status=None):
@@ -261,7 +297,8 @@ try:
             def finish(self, main_window=None):
                 pass
         progress_manager = DummyProgressManager()
-        startup_splash = None
+        if not startup_splash:
+            startup_splash = None
 
     progress_manager.update_progress(5, "Loading core modules...")
 
