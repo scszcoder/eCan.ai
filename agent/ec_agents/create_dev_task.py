@@ -1,5 +1,4 @@
 import uuid
-from agent.ec_agents.agent_utils import load_agent_tasks_from_cloud
 from agent.tasks import TaskStatus, TaskState
 
 from agent.tasks import ManagedTask, TaskSchedule
