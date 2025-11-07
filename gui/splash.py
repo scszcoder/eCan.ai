@@ -28,9 +28,12 @@ class ThemedSplashScreen(QWidget):
     """
 
     def __init__(self):
-        # Initialize state variables first, before any other operations
+        # Initialize ALL state variables FIRST, before any other operations
         self._is_deleted = False
-        self._center_timers = []  # Track centering timers for cleanup
+        self._is_hidden = False
+        self._centered_on_show = False
+        self._center_timers = []
+        self._last_center_pos = None
 
         # Use additional window flags for better Windows compatibility
         window_flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
@@ -51,9 +54,6 @@ class ThemedSplashScreen(QWidget):
         # Install event filter for Windows-specific handling
         if sys.platform == 'win32':
             self.installEventFilter(self)
-
-        # Track last stable center position to guard against unintended jumps
-        self._last_center_pos = None
 
         # Build UI first, then position
         self._build_ui()
@@ -282,22 +282,71 @@ class ThemedSplashScreen(QWidget):
             raise
 
     def showEvent(self, event):
-        """Override showEvent to ensure the window is always centered when shown"""
+        """Override showEvent to ensure the window is centered once when shown"""
+        # Center BEFORE calling super to ensure correct position from the start
+        if not self._is_deleted and not hasattr(self, '_centered_on_show'):
+            self._centered_on_show = True
+            self._center_on_screen()
+            # Process events to ensure position is applied
+            QApplication.processEvents()
         super().showEvent(event)
-        # Re-center the window after it's shown to ensure it's always in the center
-        if not self._is_deleted:
-            timer1 = QTimer.singleShot(0, self._center_on_screen)
-            self._center_timers.extend([timer1])
 
-    def moveEvent(self, event):
-        """Guard against unintended jumps to (0,0) by restoring last center."""
+    def move(self, *args):
+        """Override move to prevent moving to (0,0) at source"""
         try:
-            if not self._is_deleted and not self._is_hidden and self._last_center_pos is not None:
-                pos = self.pos()
-                # If the window suddenly moves near (0,0), restore last stable position
+            # Parse position from args
+            if len(args) == 1:
+                # QPoint argument
+                pos = args[0]
+                x, y = pos.x(), pos.y()
+            elif len(args) == 2:
+                # x, y arguments
+                x, y = args[0], args[1]
+            else:
+                return super().move(*args)
+            
+            # Block moves to (0,0) unless we're being hidden
+            if x < 5 and y < 5 and not self._is_hidden:
+                # Debug log
+                try:
+                    from utils.logger_helper import logger_helper as logger
+                    logger.warning(f"[Splash] 🛡️ BLOCKED move to ({x},{y}), staying at current position")
+                except Exception:
+                    print(f"[Splash] 🛡️ BLOCKED move to ({x},{y})")
+                
+                # Ignore this move request - stay at current position
+                if self._last_center_pos is not None:
+                    return super().move(self._last_center_pos)
+                return  # Don't move at all
+            
+            # Allow valid moves
+            return super().move(*args)
+        except Exception as e:
+            print(f"[Splash] move() exception: {e}")
+            return super().move(*args)
+    
+    def moveEvent(self, event):
+        """Guard against unintended jumps to (0,0) by immediately restoring position."""
+        try:
+            # Only guard if visible and not being hidden
+            if (not self._is_deleted and 
+                not self._is_hidden and 
+                self.isVisible()):
+                pos = event.pos()
+                # If moved to (0,0), immediately restore to saved position
                 if pos.x() < 5 and pos.y() < 5:
-                    from PySide6.QtCore import QTimer
-                    QTimer.singleShot(0, lambda: self.move(self._last_center_pos))
+                    try:
+                        from utils.logger_helper import logger_helper as logger
+                        logger.warning(f"[Splash] 🛡️ Detected move to ({pos.x()}, {pos.y()}), restoring position")
+                    except Exception:
+                        pass
+                    # Must call super first to process the event
+                    super().moveEvent(event)
+                    # Then immediately restore position
+                    if self._last_center_pos is not None:
+                        from PySide6.QtCore import QTimer
+                        QTimer.singleShot(0, lambda: super(ThemedSplashScreen, self).move(self._last_center_pos))
+                    return
         except Exception:
             pass
         return super().moveEvent(event)
@@ -500,11 +549,7 @@ class ThemedSplashScreen(QWidget):
         try:
             if not self._is_hidden:
                 self._is_hidden = True
-                # Fade out first to avoid any visible reposition during hide
-                try:
-                    self.setUpdatesEnabled(False)
-                except Exception:
-                    pass
+                # Immediately set opacity to 0 for smooth fade
                 try:
                     self.setWindowOpacity(0.0)
                 except Exception:
@@ -524,9 +569,8 @@ class ThemedSplashScreen(QWidget):
                             return
                     except Exception:
                         pass
-                # Fallback: hide on next tick to avoid paint at (0,0)
-                from PySide6.QtCore import QTimer
-                QTimer.singleShot(0, self.hide)
+                # Fallback: hide immediately
+                self.hide()
         except Exception:
             pass
 
@@ -766,13 +810,10 @@ def init_startup_splash():
             pass
 
 
-        # Ensure the splash is centered after showing and processing events
+        # Ensure the splash is centered immediately after showing
         app.processEvents()
-        try:
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(120, splash._center_on_screen)
-        except Exception:
-            splash._center_on_screen()
+        splash._center_on_screen()
+        app.processEvents()
 
         return splash
     except Exception as e:

@@ -32,8 +32,9 @@ class WebGUI(QMainWindow):
         self._splash = splash
         self._progress_callback = progress_callback
         self._centered_once = False
-        self._taskbar_icon_set = False  # prevent repeated taskbar icon setup
+        self._restoring_position = False  # prevent recursion during position restore
         self._last_center_pos = None    # guard against unintended (0,0) jumps
+        self._taskbar_icon_set = False  # prevent repeated taskbar icon setup
 
         # Update progress if callback is available
         if self._progress_callback:
@@ -43,6 +44,8 @@ class WebGUI(QMainWindow):
         if sys.platform == 'win32':
             # Hide window during setup to prevent flicker
             self.setAttribute(Qt.WA_DontShowOnScreen, True)
+            # Disable updates during initialization
+            self.setUpdatesEnabled(False)
 
         # Set window icon for taskbar display (required for taskbar icon)
         self._set_window_icon()
@@ -130,6 +133,7 @@ class WebGUI(QMainWindow):
         # Windows-specific: Re-enable showing after setup is complete
         if sys.platform == 'win32':
             self.setAttribute(Qt.WA_DontShowOnScreen, False)
+            self.setUpdatesEnabled(True)
 
         # Show behavior: if no splash, show immediately; else splash will call show on finished
         if self._splash is None:
@@ -147,28 +151,27 @@ class WebGUI(QMainWindow):
         QTimer.singleShot(100, self._start_background_preload)
 
     def showEvent(self, event):
-        """On first show: center+front (deferred); always: reset cursors."""
-        super().showEvent(event)
+        """On first show: center+front immediately; always: reset cursors."""
+        # Center BEFORE calling super to ensure correct position from the start
         try:
             if not self._centered_once:
+                self._centered_once = True
                 if sys.platform == 'win32':
                     try:
                         self.setAttribute(Qt.WA_DontShowOnScreen, False)
                     except Exception:
                         pass
-                # Defer to ensure screen/geometry is stable
-                from PySide6.QtCore import QTimer
-                def _deferred_center():
-                    try:
-                        if not self.isMaximized():
-                            self._center_on_screen()
-                        self._bring_to_front()
-                        self._centered_once = True
-                    except Exception:
-                        pass
-                QTimer.singleShot(120, _deferred_center)
+                # Center immediately on first show
+                if not self.isMaximized():
+                    self._center_on_screen()
+                # Process events to ensure position is applied
+                QApplication.processEvents()
+                self._bring_to_front()
         except Exception:
             pass
+        
+        super().showEvent(event)
+        
         # Always ensure cursors are sane
         try:
             self.setCursor(Qt.ArrowCursor)
@@ -242,20 +245,72 @@ class WebGUI(QMainWindow):
             import traceback
             logger.warning(f"⚠️ [WebGUI] Traceback: {traceback.format_exc()}")
 
+    def move(self, *args):
+        """Override move to prevent moving to (0,0) at source"""
+        try:
+            # Parse position from args
+            if len(args) == 1:
+                # QPoint argument
+                pos = args[0]
+                x, y = pos.x(), pos.y()
+            elif len(args) == 2:
+                # x, y arguments
+                x, y = args[0], args[1]
+            else:
+                return super().move(*args)
+            
+            # Skip guard while maximized or fullscreen
+            if self.isMaximized() or self.isFullScreen():
+                return super().move(*args)
+            
+            # Block moves to (0,0) unless window is being initialized
+            if x < 5 and y < 5 and hasattr(self, '_centered_once') and self._centered_once:
+                # Debug log
+                logger.warning(f"[WebGUI] 🛡️ BLOCKED move to ({x},{y}), staying at current position")
+                
+                # Ignore this move request - stay at current position
+                if self._last_center_pos is not None:
+                    return super().move(self._last_center_pos)
+                return  # Don't move at all
+            
+            # Allow valid moves
+            return super().move(*args)
+        except Exception as e:
+            logger.debug(f"[WebGUI] move() exception: {e}")
+            return super().move(*args)
+    
     def moveEvent(self, event):
-        """Guard against unintended jumps to (0,0) by restoring last center."""
+        """Guard against unintended jumps to (0,0) by immediately restoring position."""
         try:
             # Skip guard while maximized or fullscreen so window can align to (0,0)
             if self.isMaximized() or self.isFullScreen():
                 return super().moveEvent(event)
+            
+            # Skip if we're currently restoring position (prevent recursion)
+            if self._restoring_position:
+                return super().moveEvent(event)
 
-            if self._last_center_pos is not None:
-                pos = self.pos()
-                if pos.x() < 5 and pos.y() < 5:
-                    from PySide6.QtCore import QTimer
-                    QTimer.singleShot(0, lambda: self.move(self._last_center_pos))
-        except Exception:
-            pass
+            # Only guard if window is visible and initialized
+            if self.isVisible() and hasattr(self, '_centered_once') and self._centered_once:
+                pos = event.pos()
+                
+                # If moved to (0,0), immediately restore to saved position
+                if pos.x() < 5 and pos.y() < 5 and self._last_center_pos is not None:
+                    logger.warning(f"[WebGUI] Detected move to ({pos.x()}, {pos.y()}), restoring immediately")
+                    # Set flag to prevent recursion
+                    self._restoring_position = True
+                    try:
+                        # Call super first to process the event
+                        super().moveEvent(event)
+                        # Immediately restore position synchronously
+                        super(WebGUI, self).move(self._last_center_pos)
+                    finally:
+                        # Clear flag
+                        self._restoring_position = False
+                    return
+        except Exception as e:
+            logger.debug(f"[WebGUI] moveEvent exception: {e}")
+            self._restoring_position = False
         return super().moveEvent(event)
     
     def _center_on_screen(self):
@@ -305,7 +360,7 @@ class WebGUI(QMainWindow):
                 self._last_center_pos = QPoint(final_pos.x(), final_pos.y())
             except Exception:
                 self._last_center_pos = final_pos
-            logger.debug(f"Final position: ({final_pos.x()}, {final_pos.y()})")
+            logger.info(f"[WebGUI] ✅ Centered at ({final_pos.x()}, {final_pos.y()}), saved as guard position")
         except Exception as e:
             logger.debug(f"Failed to center window: {e}")
     
@@ -331,28 +386,6 @@ class WebGUI(QMainWindow):
             self._setup_windows_taskbar_icon_delayed()
             # Bring to front once more after splash is gone
             self._bring_to_front()
-            # Final deferred centering guard: if still near (0,0), re-center once
-            try:
-                from PySide6.QtCore import QTimer
-                def _final_center_guard():
-                    try:
-                        if not self.isMaximized():
-                            pos = self.pos()
-                            if pos.x() < 5 and pos.y() < 5:
-                                self._center_on_screen()
-                    except Exception:
-                        pass
-                QTimer.singleShot(180, _final_center_guard)
-                # Unconditional one more centering after things stabilize (does nothing if already centered)
-                def _final_center_unconditional():
-                    try:
-                        if not self.isMaximized():
-                            self._center_on_screen()
-                    except Exception:
-                        pass
-                QTimer.singleShot(320, _final_center_unconditional)
-            except Exception:
-                pass
         except Exception:
             try:
                 self.show()
@@ -715,38 +748,6 @@ class WebGUI(QMainWindow):
             self.web_engine_view.reload_page()
         else:
             self.load_local_html()
-    
-    def showEvent(self, event):
-        """On first show: center on primary + bring to front (deferred). Always reset cursors."""
-        super().showEvent(event)
-        try:
-            if not getattr(self, '_centered_once', False):
-                if sys.platform == 'win32':
-                    try:
-                        self.setAttribute(Qt.WA_DontShowOnScreen, False)
-                    except Exception:
-                        pass
-                from PySide6.QtCore import QTimer
-                def _deferred_center():
-                    try:
-                        if not self.isMaximized():
-                            self._center_on_screen()
-                        self._bring_to_front()
-                        self._centered_once = True
-                    except Exception:
-                        pass
-                QTimer.singleShot(150, _deferred_center)
-        except Exception:
-            pass
-        # Always reset cursors
-        try:
-            self.setCursor(Qt.ArrowCursor)
-            if hasattr(self, 'centralWidget') and self.centralWidget():
-                self.centralWidget().setCursor(Qt.ArrowCursor)
-            if hasattr(self, 'web_engine_view'):
-                self.web_engine_view.setCursor(Qt.ArrowCursor)
-        except Exception:
-            pass
     
     def closeEvent(self, event):
         """Window close event - debug version"""
