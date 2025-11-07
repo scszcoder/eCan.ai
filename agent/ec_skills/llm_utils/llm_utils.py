@@ -255,13 +255,26 @@ def pick_llm(default_llm, llm_providers, config_manager=None, allow_fallback=Tru
 
 
 def _find_provider_by_name(provider_name, llm_providers):
-    """Find provider by name in the providers list"""
+    """Find provider by name in the providers list
+    
+    Supports matching by:
+    - provider identifier (canonical, e.g., 'baidu_qianfan')
+    - name (display name, e.g., '百度千帆')
+    - display_name
+    """
     if not provider_name:
         return None
         
     provider_name_lower = provider_name.lower()
     
-    # First try exact match
+    # First try exact match on provider identifier (canonical)
+    for provider in llm_providers:
+        provider_identifier = provider.get('provider', '').lower()
+        if provider_identifier == provider_name_lower:
+            logger.debug(f"Found provider by identifier match: '{provider_name}' -> '{provider.get('name')}'")
+            return provider
+    
+    # Then try exact match on name (display name)
     for provider in llm_providers:
         if provider.get('name', '').lower() == provider_name_lower:
             return provider
@@ -876,6 +889,31 @@ def _create_llm_instance(provider, config_manager=None):
                 temperature=0
             )
         
+        # Check for Baidu Qianfan - use OpenAI-compatible V2 API
+        elif 'baidu' in provider_name.lower() or 'qianfan' in provider_name.lower() or 'chatbaiduqianfan' == class_name:
+            model_name = model_name or 'ernie-4.0-8k'
+            # Baidu Qianfan V2 API uses OpenAI-compatible format with Bearer token
+            baidu_api_key = get_api_key('BAIDU_API_KEY')
+            if not baidu_api_key:
+                logger.error("Baidu Qianfan requires BAIDU_API_KEY in secure_store")
+                return None
+            
+            # Baidu Qianfan OpenAI-compatible V2 API endpoint
+            base_url = base_url or 'https://qianfan.baidubce.com/v2'
+            
+            try:
+                # Use ChatOpenAI with Baidu's OpenAI-compatible endpoint
+                # API key is passed as Bearer token in Authorization header
+                return ChatOpenAI(
+                    model=model_name,
+                    api_key=baidu_api_key,
+                    base_url=base_url,
+                    temperature=0
+                )
+            except Exception as e:
+                logger.error(f"Failed to create Baidu Qianfan ChatOpenAI instance: {e}")
+                return None
+        
         # Check for Ollama
         elif 'ollama' in provider_name.lower() or 'chatollama' == class_name:
             model_name = model_name or 'llama3.2'
@@ -1065,8 +1103,8 @@ def create_browser_use_llm_by_provider_type(
         )
         return _create_and_validate_browser_use_llm(bu_config)
     
-    # OpenAI-compatible providers (DeepSeek, DashScope, Ollama, Qwen, etc.)
-    elif provider_type in ['deepseek', 'dashscope', 'ollama', 'qwen', 'qwq']:
+    # OpenAI-compatible providers (DeepSeek, DashScope, Ollama, Qwen, Baidu Qianfan, etc.)
+    elif provider_type in ['deepseek', 'dashscope', 'ollama', 'qwen', 'qwq', 'baidu_qianfan']:
         bu_config = {
             'model': model_name or default_config['model'],
             'api_key': api_key or default_config['api_key'] or 'dummy-key'
@@ -1080,9 +1118,9 @@ def create_browser_use_llm_by_provider_type(
         )
         
         # Check if this is a domestic API that needs proxy bypass
-        # Domestic APIs (DashScope, DeepSeek) may have proxy restrictions
+        # Domestic APIs (DashScope, DeepSeek, Baidu Qianfan) may have proxy restrictions
         # Optimization: Only creates no-proxy clients if proxy is actually configured
-        domestic_apis_need_direct = ['dashscope', 'qwen', 'qwq', 'deepseek']
+        domestic_apis_need_direct = ['dashscope', 'qwen', 'qwq', 'deepseek', 'baidu_qianfan']
         
         if provider_type in domestic_apis_need_direct:
             # Create no-proxy httpx clients (sync + async, thread-safe, doesn't modify global env vars)
@@ -1819,3 +1857,4 @@ def step3(state): return {"c": state["b"] * 2}
 # python
 # 复制代码
 # bp_manager.clear_breakpoint("step2")
+

@@ -20,6 +20,91 @@ except Exception:
     app_info = None
 
 
+# Internationalization for splash screen
+class SplashMessages:
+    """Simple i18n support for splash screen."""
+    
+    DEFAULT_LANG = 'zh-CN'
+    
+    MESSAGES = {
+        'en-US': {
+            'app_subtitle': 'Your Intelligent E-Commerce Agent Network',
+            'loading': 'Loading...',
+            'initializing': 'Initializing...',
+            'init_python_env': 'Initializing Python environment...',
+            'loading_core_modules': 'Loading core modules...',
+            'loading_config': 'Loading configuration...',
+            'init_services': 'Initializing services...',
+            'preparing_gui': 'Preparing interface...',
+            'finalizing': 'Finalizing startup...',
+            'ready': 'Ready to launch!',
+        },
+        'zh-CN': {
+            'app_subtitle': '您的智能电商代理网络',
+            'loading': '加载中...',
+            'initializing': '初始化中...',
+            'init_python_env': '初始化Python环境...',
+            'loading_core_modules': '加载核心模块...',
+            'loading_config': '加载配置...',
+            'init_services': '初始化服务...',
+            'preparing_gui': '准备界面...',
+            'finalizing': '完成启动...',
+            'ready': '准备启动!',
+        }
+    }
+    
+    def __init__(self):
+        self.language = self._detect_language()
+    
+    def _detect_language(self):
+        """Detect language from system settings."""
+        try:
+            # For macOS: Use system defaults to get actual UI language
+            if sys.platform == 'darwin':
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ['defaults', 'read', '-g', 'AppleLanguages'],
+                        capture_output=True,
+                        text=True,
+                        timeout=1
+                    )
+                    if result.returncode == 0:
+                        output = result.stdout.lower()
+                        # Check for Chinese variants
+                        if 'zh-hans' in output or 'zh-cn' in output or 'zh_cn' in output:
+                            return 'zh-CN'
+                        elif 'zh-hant' in output or 'zh-tw' in output or 'zh-hk' in output:
+                            return 'zh-CN'  # Use simplified Chinese for traditional as well
+                        elif 'en' in output:
+                            return 'en-US'
+                except Exception as e:
+                    print(f"[Splash] macOS language detection failed: {e}")
+            
+            # Fallback: Try locale (for Windows/Linux or if macOS detection fails)
+            import locale
+            system_lang = locale.getdefaultlocale()[0]
+            if system_lang:
+                if 'zh' in system_lang.lower() or 'cn' in system_lang.lower():
+                    return 'zh-CN'
+                elif 'en' in system_lang.lower():
+                    return 'en-US'
+            
+            # If all detection fails, default to Chinese
+            return self.DEFAULT_LANG
+        except Exception:
+            return self.DEFAULT_LANG
+    
+    def get(self, key: str) -> str:
+        """Get localized message."""
+        lang = self.language if self.language in self.MESSAGES else self.DEFAULT_LANG
+        return self.MESSAGES[lang].get(key, key)
+
+
+# Global instance
+_splash_messages = SplashMessages()
+
+
 class ThemedSplashScreen(QWidget):
     """
     A modern splash screen following the provided spec:
@@ -100,12 +185,12 @@ class ThemedSplashScreen(QWidget):
             """
         )
 
-        # subtle shadow
+        # Optimized shadow effect - reduce blur radius for better performance
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(28)
+        shadow.setBlurRadius(16)  # Reduced from 28 for better performance
         shadow.setXOffset(0)
-        shadow.setYOffset(8)
-        shadow.setColor(Qt.black)
+        shadow.setYOffset(6)  # Reduced from 8
+        shadow.setColor(QColor(0, 0, 0, 180))  # Slightly transparent
         container.setGraphicsEffect(shadow)
 
         # Root layout
@@ -133,7 +218,7 @@ class ThemedSplashScreen(QWidget):
         title = QLabel(app_name)
         title.setObjectName("title")
         title.setAlignment(Qt.AlignHCenter)
-        subtitle = QLabel("Your Intelligent E-Commerce Agent Network")
+        subtitle = QLabel(_splash_messages.get('app_subtitle'))
         subtitle.setObjectName("subtitle")
         subtitle.setWordWrap(True)
         subtitle.setAlignment(Qt.AlignHCenter)
@@ -150,7 +235,7 @@ class ThemedSplashScreen(QWidget):
         col.addWidget(self.progress_bar)
 
         # Status text
-        self.status_label = QLabel("loading…")
+        self.status_label = QLabel(_splash_messages.get('loading'))
         self.status_label.setObjectName("status")
         self.status_label.setAlignment(Qt.AlignHCenter)
         col.addWidget(self.status_label)
@@ -452,22 +537,24 @@ class ThemedSplashScreen(QWidget):
         return None
 
     def set_status(self, text: str):
+        """Update status text with optimized repaint."""
         try:
             if hasattr(self, 'status_label') and self.status_label is not None:
                 self.status_label.setText(str(text))
-                # Force immediate repaint of the status label
-                self.status_label.repaint()
-                QApplication.processEvents()
+                # Use update() instead of repaint() for better performance
+                # update() schedules a paint event, while repaint() forces immediate painting
+                self.status_label.update()
+                # Reduce processEvents calls to improve performance
         except Exception:
             pass
 
     def set_progress(self, value: int):
+        """Update progress with optimized rendering."""
         try:
             # Treat as WebView load progress
             self._web_progress = max(0, min(100, int(value)))
             self._update_combined()
-            # Force immediate UI update
-            QApplication.processEvents()
+            # Remove excessive processEvents() calls to reduce CPU usage
         except Exception:
             pass
 
@@ -517,15 +604,15 @@ class ThemedSplashScreen(QWidget):
             pass
 
     def _on_status_update(self, status: str):
-        """Handle status updates from Python initialization worker"""
+        """Handle status updates from Python initialization worker with optimized rendering."""
         try:
             self.set_status(status)
-            # Force immediate UI update
-            QApplication.processEvents()
+            # Removed excessive processEvents() call for better performance
         except Exception:
             pass
 
     def _update_combined(self):
+        """Update combined progress with optimized rendering."""
         try:
             combined = int(round((self._web_progress + self._py_progress) / 2))
             if combined != self._progress_value:
@@ -538,8 +625,8 @@ class ThemedSplashScreen(QWidget):
                         # Show centered percentage text
                         self.progress_bar.setFormat(f"{self._progress_value}%")
                         self.progress_bar.setAlignment(Qt.AlignCenter)
-                        # Force immediate repaint of the progress bar
-                        self.progress_bar.repaint()
+                        # Use update() instead of repaint() for better performance
+                        self.progress_bar.update()
                     except Exception:
                         pass
         except Exception:
@@ -706,31 +793,31 @@ class PythonInitWorker(QObject):
     def run(self):
         try:
             # Phase 1: Basic initialization
-            self.status_update.emit("Initializing Python environment...")
+            self.status_update.emit(_splash_messages.get('init_python_env'))
             self.progress.emit(5)
 
             # Phase 2: Import core modules
-            self.status_update.emit("Loading core modules...")
+            self.status_update.emit(_splash_messages.get('loading_core_modules'))
             self.progress.emit(15)
             
             # Phase 3: Load configuration
-            self.status_update.emit("Loading configuration...")
+            self.status_update.emit(_splash_messages.get('loading_config'))
             self.progress.emit(30)
 
             # Phase 4: Initialize services
-            self.status_update.emit("Initializing services...")
+            self.status_update.emit(_splash_messages.get('init_services'))
             self.progress.emit(35)
 
             # Phase 5 Prepare GUI components
-            self.status_update.emit("Preparing interface...")
+            self.status_update.emit(_splash_messages.get('preparing_gui'))
             self.progress.emit(40)
 
             # Phase 6: Final preparations
-            self.status_update.emit("Finalizing startup...")
+            self.status_update.emit(_splash_messages.get('finalizing'))
             self.progress.emit(50)
 
         finally:
-            self.status_update.emit("Ready to launch!")
+            self.status_update.emit(_splash_messages.get('ready'))
             self.progress.emit(100)
             self.finished.emit()
 
@@ -867,12 +954,12 @@ def init_minimal_splash():
             }
         """)
         
-        # Add shadow effect to match ThemedSplashScreen
+        # Optimized shadow effect for minimal splash
         shadow = QGraphicsDropShadowEffect(splash)
-        shadow.setBlurRadius(28)
+        shadow.setBlurRadius(16)  # Reduced for better performance
         shadow.setXOffset(0)
-        shadow.setYOffset(8)
-        shadow.setColor(Qt.black)
+        shadow.setYOffset(6)
+        shadow.setColor(QColor(0, 0, 0, 180))
         container.setGraphicsEffect(shadow)
         
         # Root layout with same margins as ThemedSplashScreen
@@ -903,7 +990,7 @@ def init_minimal_splash():
         col_layout.addWidget(title_label)
         
         # Loading text with same styling as ThemedSplashScreen subtitle
-        loading_label = QLabel("启动中...")
+        loading_label = QLabel(_splash_messages.get('initializing'))
         loading_label.setObjectName("subtitle")
         loading_label.setAlignment(Qt.AlignCenter)
         loading_label.setStyleSheet("""

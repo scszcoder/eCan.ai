@@ -786,7 +786,7 @@
       "api_key_env_vars": [
         "BAIDU_API_KEY"
       ],
-      "base_url": "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat",
+      "base_url": "https://qianfan.baidubce.com/v2",
       "default_model": "ernie-4.0-8k",
       "description": "百度千帆大模型平台，支持文心系列模型",
       "documentation_url": "https://console.bce.baidu.com/iam/#/iam/apikey/list",
