@@ -370,9 +370,23 @@ DisableProgramGroupPage=auto
 CloseApplications=yes
 RestartApplications=no
 VersionInfoVersion={file_version}
+WizardStyle=modern
+LanguageDetectionMethod=uilanguage
+UsePreviousLanguage=yes
+ShowLanguageDialog=auto
+; Prevent multiple installer instances when user double-clicks repeatedly
+SetupMutex=eCanInstallerMutex
+AllowMultipleInstances=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "chinesesimp"; MessagesFile: "compiler:Languages\\ChineseSimplified.isl"
+
+[CustomMessages]
+english.InitializeCaption=Initializing installer...
+chinesesimp.InitializeCaption=正在启动安装器...
+english.RemoveUserDataPrompt=Do you want to remove user data and settings?
+chinesesimp.RemoveUserDataPrompt=是否删除用户数据和设置？
 
 [Tasks]
 Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: "{{cm:AdditionalIcons}}"; Flags: unchecked
@@ -388,28 +402,66 @@ Name: "{{userdesktop}}\eCan"; Filename: "{run_target}"; IconFilename: "{run_targ
 Type: filesandordirs; Name: "{{localappdata}}\eCan"
 
 [Code]
-// Notify Windows of new application installation
+var
+  SplashForm: TSetupForm;
+  SplashLabel: TNewStaticText;
+
+// Show an ultra-light splash immediately to improve perceived startup speed
+function InitializeSetup(): Boolean;
+begin
+  Result := True;
+  try
+    SplashForm := CreateCustomForm();
+    SplashForm.BorderStyle := bsNone;
+    SplashForm.ClientWidth := ScaleX(360);
+    SplashForm.ClientHeight := ScaleY(120);
+    SplashForm.Position := poScreenCenter;
+    SplashForm.Color := clWhite;
+
+    SplashLabel := TNewStaticText.Create(SplashForm);
+    SplashLabel.Parent := SplashForm;
+    SplashLabel.Caption := ExpandConstant('{cm:InitializeCaption}');
+    SplashLabel.AutoSize := True;
+    SplashLabel.Left := (SplashForm.ClientWidth - SplashLabel.Width) div 2;
+    SplashLabel.Top := (SplashForm.ClientHeight - SplashLabel.Height) div 2;
+
+    SplashForm.Show;
+    SplashForm.Update;
+  except
+  end;
+end;
+
+// Close splash when welcome page is shown
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if Assigned(SplashForm) and (CurPageID = wpWelcome) then
+  begin
+    SplashForm.Close;
+    SplashForm.Free;
+    SplashForm := nil;
+  end;
+end;
+
+// Notify Windows of new application installation (placeholder)
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
-    // Refresh shell to recognize new application
-    // This is less intrusive than restarting explorer
+    // Reserved for shell refresh if needed
   end;
 end;
 
-[Code]
+// Optional: ask to remove user data on uninstall
 function InitializeUninstall(): Boolean;
 var
   ResultCode: Integer;
 begin
   Result := True;
-  if MsgBox('Do you want to remove user data and settings?', mbConfirmation, MB_YESNO) = IDYES then
+  if MsgBox(ExpandConstant('{cm:RemoveUserDataPrompt}'), mbConfirmation, MB_YESNO) = IDYES then
   begin
-    // Remove user data directory
-    if DirExists(ExpandConstant('{{localappdata}}\eCan')) then
+    if DirExists(ExpandConstant('{localappdata}\eCan')) then
     begin
-      if not DelTree(ExpandConstant('{{localappdata}}\eCan'), True, True, True) then
+      if not DelTree(ExpandConstant('{localappdata}\eCan'), True, True, True) then
         MsgBox('Could not remove user data directory. You may need to remove it manually.', mbInformation, MB_OK);
     end;
   end;
