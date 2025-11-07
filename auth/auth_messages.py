@@ -49,8 +49,9 @@ class AuthMessages:
             # OAuth callback messages
             'oauth_success_title': 'Authentication Successful',
             'oauth_success_message': 'You have successfully authenticated with Google.',
-            'oauth_success_launching': 'Launching application in {countdown} seconds...',
-            'oauth_manual_launch': 'Launch Application Manually',
+            'oauth_success_app_prompt': 'Please open the ecan.ai application',
+            'oauth_success_launching': 'Opening ecan.ai application in {countdown} seconds...',
+            'oauth_manual_launch': 'Open ecan.ai Application',
             
             # OAuth error messages
             'oauth_error_title': 'Authentication Error',
@@ -96,8 +97,9 @@ class AuthMessages:
             # OAuth callback messages
             'oauth_success_title': '认证成功',
             'oauth_success_message': '您已成功通过Google认证。',
-            'oauth_success_launching': '应用程序将在 {countdown} 秒后启动...',
-            'oauth_manual_launch': '手动启动应用程序',
+            'oauth_success_app_prompt': '请打开 ecan.ai 应用',
+            'oauth_success_launching': '正在打开 ecan.ai 应用，{countdown} 秒后自动启动...',
+            'oauth_manual_launch': '打开 ecan.ai 应用',
             
             # OAuth error messages
             'oauth_error_title': '认证错误',

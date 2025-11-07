@@ -44,7 +44,7 @@ class URLSchemeHandler:
         Process incoming URL scheme calls
         
         Args:
-            url_string: The complete URL scheme string (e.g., "ecan://auth/success")
+            url_string: The complete URL scheme string (e.g., "ecan://auth/success" or "ecan://")
             
         Returns:
             bool: True if handled successfully, False otherwise
@@ -57,9 +57,20 @@ class URLSchemeHandler:
                 logger.warning(f"Unsupported URL scheme: {parsed_url.scheme}")
                 return False
             
-            # Route based on host
+            # Bring application to foreground first
+            self._bring_app_to_front()
+            
+            # Route based on host or path
             if parsed_url.netloc == "auth":
                 return self._handle_auth_callback(parsed_url)
+            elif not parsed_url.netloc or parsed_url.netloc == "":
+                # Handle simple ecan:// calls (OAuth success from browser)
+                logger.info("OAuth success callback received via simple ecan:// scheme")
+                if self.auth_success_callback:
+                    self.auth_success_callback()
+                elif self.app and hasattr(self.app, 'handle_oauth_success'):
+                    self.app.handle_oauth_success()
+                return True
             else:
                 logger.warning(f"Unknown URL host: {parsed_url.netloc}")
                 return False
@@ -100,6 +111,47 @@ class URLSchemeHandler:
         except Exception as e:
             logger.error(f"Error handling auth callback: {e}")
             return False
+    
+    def _bring_app_to_front(self):
+        """Bring application window to foreground"""
+        try:
+            if self.app:
+                # Try different methods to bring window to front
+                if hasattr(self.app, 'activateWindow'):
+                    self.app.activateWindow()
+                if hasattr(self.app, 'raise_'):
+                    self.app.raise_()
+                if hasattr(self.app, 'show'):
+                    self.app.show()
+                
+                # Platform-specific methods
+                import platform
+                if platform.system() == 'Windows':
+                    try:
+                        import ctypes
+                        hwnd = None
+                        if hasattr(self.app, 'winId'):
+                            hwnd = int(self.app.winId())
+                        if hwnd:
+                            user32 = ctypes.windll.user32
+                            # Bring window to foreground
+                            user32.SetForegroundWindow(hwnd)
+                            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                            user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002)  # SWP_NOMOVE | SWP_NOSIZE
+                            user32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, 0x0001 | 0x0002)  # HWND_TOPMOST then HWND_NOTOPMOST
+                    except Exception as e:
+                        logger.debug(f"Windows-specific bring to front failed: {e}")
+                elif platform.system() == 'Darwin':  # macOS
+                    try:
+                        from AppKit import NSApplication, NSApplicationActivateIgnoringOtherApps
+                        app = NSApplication.sharedApplication()
+                        app.activateIgnoringOtherApps_(True)
+                    except Exception as e:
+                        logger.debug(f"macOS-specific bring to front failed: {e}")
+                
+                logger.info("Application brought to foreground")
+        except Exception as e:
+            logger.warning(f"Failed to bring application to foreground: {e}")
 
 
 class URLSchemeRegistrar:

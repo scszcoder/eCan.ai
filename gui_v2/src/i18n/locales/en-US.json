@@ -134,6 +134,12 @@
       "message": "To use AI features, you need to configure at least one LLM Provider. This only takes a few minutes.",
       "primaryButton": "Configure Now",
       "skipButton": "Maybe Later"
+    },
+    "embeddingProviderConfig": {
+      "title": "Configure Embedding Provider",
+      "message": "To use memory features, you need to configure at least one Embedding Provider. This only takes a few minutes.",
+      "primaryButton": "Configure Now",
+      "skipButton": "Maybe Later"
     }
   },
   "pages": {
