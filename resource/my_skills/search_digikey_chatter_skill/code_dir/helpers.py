@@ -17,7 +17,6 @@ from agent.mcp.local_client import mcp_call_tool
 from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync, try_parse_json, get_standard_prompt
 from agent.ec_skills.llm_hooks.llm_hooks import run_pre_llm_hook, run_post_llm_hook
 from agent.mcp.server.scrapers.eval_util import get_default_rerank_req
-from langchain_openai import ChatOpenAI
 
 
 def chat_or_work(state: NodeState, *, runtime: Runtime) -> str:
@@ -175,7 +174,11 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         # else:
         #     formatted_prompt = get_standard_prompt(state)            #STARDARD_PROMPT
 
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
+        # This ensures API keys are properly configured from the system's LLM manager
+        llm = mainwin.llm if mainwin and mainwin.llm else None
+        if not llm:
+            raise ValueError("LLM not available in mainwin. Please configure LLM provider API key in Settings.")
 
         # Get recent context within token limit to reduce costs and fit within model limits
         recent_context = get_recent_context(state.get("history", []))

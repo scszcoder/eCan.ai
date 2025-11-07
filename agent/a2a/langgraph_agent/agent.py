@@ -67,9 +67,17 @@ class ECRPAHelperAgent:
         "Set response status to completed if the request is complete."
     )
      
-    def __init__(self):
-        # self.model = ChatGoogleGenerativeAI(model="gemini-2.0-flash")
-        self.model = ChatOpenAI(model='gpt-4o')
+    def __init__(self, llm):
+        """
+        Initialize ECRPAHelperAgent
+        
+        Args:
+            llm: LLM instance from mainwin.llm (required, no fallback)
+        """
+        if not llm:
+            raise ValueError("LLM instance is required. Must use mainwin.llm from MainWindow. Please configure LLM provider API key in Settings.")
+        
+        self.model = llm
         self.tools = [get_exchange_rate]
 
         self.graph = create_react_agent(

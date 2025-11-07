@@ -167,15 +167,24 @@ class UnifiedBrowserManager:
 
         return self._browser_session
 
-    def _create_bu_agent(self):
+    def _create_bu_agent(self, mainwin=None):
         try:
+            if not mainwin:
+                raise ValueError("mainwin is required. Must use mainwin.llm from MainWindow. Please configure LLM provider API key in Settings.")
+            
             logger.debug("create bu agent....")
             from browser_use import Agent, Controller
             from browser_use.browser import BrowserProfile, BrowserSession
             from browser_use.llm import ChatOpenAI
             logger.debug("done import browser use....")
+            
+            # Use mainwin's LLM configuration (no fallback)
+            from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm
+            llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
+            if not llm:
+                raise ValueError("Failed to create browser_use LLM from mainwin. Please configure LLM provider API key in Settings.")
+            
             BasicConfig = {
-                "openai_api_key": os.getenv("OPENAI_API_KEY"),
                 "chrome_path": "",
                 "target_user":  "",# Twitter handle without @
                 "message":  "",
@@ -203,7 +212,6 @@ class UnifiedBrowserManager:
                 - Make sure the search phrase is typed exactly as shown
                 """
             logger.debug("done basic task....", basic_task)
-            llm = ChatOpenAI(model=config["model"], api_key=config["openai_api_key"])
             logger.debug("llm set....")
             browser_profile = BrowserProfile(
                 headless=config["headless"],
@@ -249,11 +257,18 @@ class UnifiedBrowserManager:
         logger.debug("get_browser_user called: returning None to avoid creating Agent on GUI thread")
         return None
 
-    def run_basic_agent_task(self, product_phrase: Optional[str] = None):
+    def run_basic_agent_task(self, product_phrase: Optional[str] = None, mainwin=None):
         """Build and run a simple Browser Use agent inside a worker thread with its own Selector loop.
 
         This avoids running Playwright on the GUI/qasync loop (which lacks subprocess support on Windows).
+        
+        Args:
+            product_phrase: Optional product phrase to search for
+            mainwin: MainWindow instance (required, no fallback)
         """
+        if not mainwin:
+            raise ValueError("mainwin is required. Must use mainwin.llm from MainWindow. Please configure LLM provider API key in Settings.")
+        
         async def _do():
             try:
                 loop = asyncio.get_running_loop()
@@ -261,7 +276,6 @@ class UnifiedBrowserManager:
             except Exception:
                 pass
             from browser_use import Agent
-            from browser_use.llm import ChatOpenAI
             from browser_use.browser import BrowserProfile, BrowserSession
 
             cfg_phrase = product_phrase or "resistance loop band"
@@ -272,7 +286,11 @@ class UnifiedBrowserManager:
                 4. Press Enter and wait for results
             """
 
-            llm = ChatOpenAI(model='gpt-5-mini', api_key=os.getenv("OPENAI_API_KEY"))
+            # Use mainwin's LLM configuration (no fallback)
+            from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm
+            llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
+            if not llm:
+                raise ValueError("Failed to create browser_use LLM from mainwin. Please configure LLM provider API key in Settings.")
             browser_profile = BrowserProfile(
                 headless=False,
                 executable_path='',

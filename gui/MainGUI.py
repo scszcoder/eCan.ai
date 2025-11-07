@@ -339,7 +339,7 @@ class MainWindow:
             new_browser_use_llm = None
             try:
                 from agent.playwright import create_browser_use_llm
-                new_browser_use_llm = create_browser_use_llm(mainwin=self, fallback_llm=new_llm)
+                new_browser_use_llm = create_browser_use_llm(mainwin=self)
                 if new_browser_use_llm:
                     # Get detailed info for browser_use LLM
                     browser_llm_type = type(new_browser_use_llm).__name__

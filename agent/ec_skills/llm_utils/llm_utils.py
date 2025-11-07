@@ -247,9 +247,9 @@ def pick_llm(default_llm, llm_providers, config_manager=None, allow_fallback=Tru
         else:
             logger.error(f"Failed to create LLM instance for selected provider: {selected_provider['name']}")
     
-    # Step 3: Fallback to hardcoded defaults
-    logger.warning("No configured providers available, falling back to hardcoded defaults")
-    return _fallback_llm_selection(country)
+    # Step 3: No fallback - return None if no configured providers available
+    logger.error("No configured providers available - cannot create LLM without mainwin configuration")
+    return None
 
 
 def _find_provider_by_name(provider_name, llm_providers):
@@ -1170,14 +1170,7 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
             except ImportError:
                 logger.debug("[create_browser_use_llm] Playwright not available, skipping initialization check")
         
-        # Default configuration
-        default_config = {
-            'model': 'gpt-4-turbo-preview',
-            'api_key': os.getenv("OPENAI_API_KEY"),
-            'base_url': None
-        }
-        
-        # Try to get configuration from mainwin
+        # Try to get configuration from mainwin (required, no fallback)
         if mainwin and hasattr(mainwin, 'config_manager'):
             try:
                 config_manager = mainwin.config_manager
@@ -1210,7 +1203,7 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                             api_key=api_key,
                             base_url=base_url,
                             class_name=class_name,
-                            default_config=default_config,
+                            default_config=None,  # No fallback config needed when using mainwin
                             fallback_llm=None,  # Don't pass fallback_llm as it may be incompatible
                             mainwin=mainwin
                         )
@@ -1230,40 +1223,18 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                     logger.debug("[create_browser_use_llm] No default LLM configured in mainwin")
                         
             except Exception as e:
-                logger.warning(
-                    f"[create_browser_use_llm] Exception getting LLM config from mainwin: {e}, "
-                    f"falling back to default OpenAI config"
+                logger.error(
+                    f"[create_browser_use_llm] Exception getting LLM config from mainwin: {e}"
                 )
                 import traceback
                 logger.debug(f"[create_browser_use_llm] Exception details: {traceback.format_exc()}")
+                return None
         else:
             if not mainwin:
-                logger.debug("[create_browser_use_llm] No mainwin provided")
+                logger.error("[create_browser_use_llm] No mainwin provided - cannot create LLM without mainwin configuration")
             else:
-                logger.debug("[create_browser_use_llm] mainwin has no config_manager")
-        
-        # Fallback to default OpenAI configuration
-        logger.info(
-            f"[create_browser_use_llm] Using default OpenAI config, model: {default_config['model']}"
-        )
-        # Use centralized function (already validates BrowserUseChatOpenAI type)
-        llm_instance = create_browser_use_llm_by_provider_type(
-            provider_type='openai',
-            model_name=default_config['model'],
-            api_key=default_config['api_key'],
-            base_url=default_config['base_url'],
-            default_config=default_config,
-            fallback_llm=None,  # Don't pass fallback_llm as it may be incompatible
-            mainwin=mainwin
-        )
-        # Final type check before returning
-        if llm_instance is not None and not isinstance(llm_instance, BrowserUseChatOpenAI):
-            logger.error(
-                f"[create_browser_use_llm] Type check failed: expected BrowserUseChatOpenAI, "
-                f"got {type(llm_instance).__name__}, returning None"
-            )
+                logger.error("[create_browser_use_llm] mainwin has no config_manager - cannot create LLM")
             return None
-        return llm_instance
         
     except Exception as e:
         logger.error(f"[create_browser_use_llm] Failed to create BrowserUseChatOpenAI: {e}")
@@ -1295,29 +1266,42 @@ def _update_default_llm_via_config_manager(provider_name, config_manager=None):
         logger.error(f"Error updating default_llm setting via config manager: {e}")
 
 
-def _fallback_llm_selection(country):
-    """Fallback LLM selection when no configured providers are available"""
-    logger.warning("[_fallback_llm_selection] Using fallback LLM selection - API keys may not be configured")
+# def _fallback_llm_selection(country):
+#     """Fallback LLM selection when no configured providers are available"""
+#     logger.warning("[_fallback_llm_selection] Using fallback LLM selection - API keys may not be configured")
     
-    try:
-        if country == "CN":
-            logger.info("[_fallback_llm_selection] Using DeepSeek for China")
-            llm = ChatDeepSeek(model="deepseek-chat", temperature=0)
-            logger.info(f"[_fallback_llm_selection] Created DeepSeek LLM, model: deepseek-chat")
-            return llm
-        elif country == "US":
-            logger.info("[_fallback_llm_selection] Using OpenAI for US")
-            llm = ChatOpenAI(model="gpt-4o", temperature=0)
-            logger.info(f"[_fallback_llm_selection] Created OpenAI LLM, model: gpt-4o")
-            return llm
-        else:
-            logger.info("[_fallback_llm_selection] Using OpenAI as default")
-            llm = ChatOpenAI(model="gpt-4o", temperature=0)
-            logger.info(f"[_fallback_llm_selection] Created OpenAI LLM, model: gpt-4o")
-            return llm
-    except Exception as e:
-        logger.error(f"[_fallback_llm_selection] Fallback LLM creation failed: {e}")
-        return None
+#     try:
+#         # Helper to get API key from secure store
+#         from utils.env.secure_store import secure_store
+#         def get_api_key(env_var):
+#             try:
+#                 return secure_store.get(env_var)
+#             except Exception:
+#                 return None
+        
+#         if country == "CN":
+#             logger.info("[_fallback_llm_selection] Using DeepSeek for China")
+#             deepseek_api_key = get_api_key('DEEPSEEK_API_KEY')
+#             if deepseek_api_key:
+#                 llm = ChatDeepSeek(model="deepseek-chat", api_key=deepseek_api_key, temperature=0)
+#                 logger.info(f"[_fallback_llm_selection] Created DeepSeek LLM, model: deepseek-chat")
+#                 return llm
+#             else:
+#                 logger.warning("[_fallback_llm_selection] DEEPSEEK_API_KEY not found in secure_store")
+        
+#         # Try OpenAI for US or default
+#         logger.info("[_fallback_llm_selection] Attempting to use OpenAI")
+#         openai_api_key = get_api_key('OPENAI_API_KEY')
+#         if openai_api_key:
+#             llm = ChatOpenAI(model="gpt-4o", api_key=openai_api_key, temperature=0)
+#             logger.info(f"[_fallback_llm_selection] Created OpenAI LLM, model: gpt-4o")
+#             return llm
+#         else:
+#             logger.error("[_fallback_llm_selection] OPENAI_API_KEY not found in secure_store - cannot create fallback LLM")
+#             return None
+#     except Exception as e:
+#         logger.error(f"[_fallback_llm_selection] Fallback LLM creation failed: {e}")
+#         return None
 
 def msg_role(msg: BaseMessage) -> str:
     if isinstance(msg, SystemMessage):

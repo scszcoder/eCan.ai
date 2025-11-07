@@ -448,14 +448,35 @@ class LogViewer(QMainWindow):
             self.progress_bar.setVisible(False)
 
     def _on_file_loaded(self, content: str):
+        # Remember if user was viewing history before loading new content
+        was_viewing_history = self.user_is_scrolling
+        
+        # Set programmatic scroll flag to ignore scroll events during text setting
+        self.programmatic_scroll = True
         self.log_display.setPlainText(content)
+        self.programmatic_scroll = False
 
         # Start real-time monitoring if enabled
         if self.realtime_checkbox.isChecked() and self.current_log_file:
             self._start_realtime_monitoring(self.current_log_file)
 
-        if self.auto_scroll:
-            self._scroll_to_bottom()
+        # Only auto-scroll if:
+        # 1. Auto-scroll checkbox is enabled
+        # 2. User was NOT viewing history (was at bottom before load)
+        # This prevents interrupting users who are reading historical logs
+        if self.auto_scroll and not was_viewing_history:
+            # Use QTimer.singleShot to scroll after the text is fully rendered
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, self._scroll_to_bottom)
+        else:
+            # If user was viewing history, reset the flag since content changed
+            # but don't scroll - let them stay where they were (or at top)
+            if was_viewing_history:
+                # Keep the scroll position at top or preserve it
+                cursor = self.log_display.textCursor()
+                cursor.movePosition(QTextCursor.Start)
+                self.log_display.setTextCursor(cursor)
+                self.user_is_scrolling = False  # Reset since content changed
 
         self.progress_bar.setVisible(False)
 
@@ -477,20 +498,36 @@ class LogViewer(QMainWindow):
     def _append_new_content(self, content):
         """Append new content to the log display"""
         if content.strip():
-            # Check current state before adding content
+            # Check if scroll bar is at bottom BEFORE adding new content
+            # Also check if user is actively viewing history
             was_at_bottom = self._is_at_bottom()
+            user_viewing_history = self.user_is_scrolling or not was_at_bottom
+            
+            # Save current scroll position if user is viewing history
+            scrollbar = self.log_display.verticalScrollBar()
+            saved_scroll_position = scrollbar.value() if user_viewing_history else None
 
+            # Set programmatic scroll flag to prevent scroll events from affecting user_is_scrolling
+            self.programmatic_scroll = True
+            
+            # Insert content at the end
             cursor = self.log_display.textCursor()
             cursor.movePosition(QTextCursor.End)
             self.log_display.setTextCursor(cursor)
             self.log_display.insertPlainText(content)
-
-            # Only auto-scroll if:
-            # 1. Auto-scroll is enabled
-            # 2. User is not manually scrolling (viewing history)
-            # 3. User was at the bottom before new content was added
-            if self.auto_scroll and not self.user_is_scrolling and was_at_bottom:
+            
+            # Restore scroll position if user was viewing history
+            if user_viewing_history and saved_scroll_position is not None:
+                # Restore the saved scroll position
+                scrollbar.setValue(saved_scroll_position)
+            elif self.auto_scroll and was_at_bottom:
+                # Only auto-scroll if:
+                # 1. Auto-scroll checkbox is enabled
+                # 2. Scroll bar was at bottom before new content was added
+                # This ensures we don't interrupt users who are reading historical logs
                 self._scroll_to_bottom()
+            
+            self.programmatic_scroll = False
 
     def _scroll_to_bottom(self):
         """Scroll to the bottom of the log display"""
@@ -506,20 +543,20 @@ class LogViewer(QMainWindow):
 
     def _on_scroll_changed(self, value):
         """Handle scroll bar value changes"""
-        # Ignore programmatic scrolls
+        # Ignore programmatic scrolls (when we programmatically scroll to bottom)
         if self.programmatic_scroll:
             return
 
-        scrollbar = self.log_display.verticalScrollBar()
-
-        # Always update the user scrolling state based on current position
+        # Track user scrolling state based on whether scroll bar is at bottom
+        # This is used for status display only - the actual auto-scroll decision
+        # is made in _append_new_content based on was_at_bottom check
         was_user_scrolling = self.user_is_scrolling
 
         if self._is_at_bottom():
-            # User is at bottom, enable auto-scroll
+            # User scrolled back to bottom
             self.user_is_scrolling = False
         else:
-            # User is not at bottom, disable auto-scroll
+            # User scrolled away from bottom (viewing history)
             self.user_is_scrolling = True
 
         # Update status if state changed
@@ -597,11 +634,34 @@ class LogViewer(QMainWindow):
             loader = FileReaderThread(self.current_log_file)
 
             def on_loaded(content: str):
+                # Remember if user was viewing history before filtering
+                was_viewing_history = self.user_is_scrolling
+                
                 filtered_content, msg = do_filter(content, level)
+                
+                # Set programmatic scroll flag to ignore scroll events during text setting
+                self.programmatic_scroll = True
                 self.log_display.setPlainText(filtered_content)
+                self.programmatic_scroll = False
+                
                 self._set_status_message(msg)
-                if self.auto_scroll:
-                    self._scroll_to_bottom()
+                
+                # Only auto-scroll if:
+                # 1. Auto-scroll checkbox is enabled
+                # 2. User was NOT viewing history (was at bottom before filter)
+                # This prevents interrupting users who are reading historical logs
+                if self.auto_scroll and not was_viewing_history:
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(0, self._scroll_to_bottom)
+                else:
+                    # If user was viewing history, reset the flag since content changed
+                    # but don't scroll - let them stay at top
+                    if was_viewing_history:
+                        cursor = self.log_display.textCursor()
+                        cursor.movePosition(QTextCursor.Start)
+                        self.log_display.setTextCursor(cursor)
+                        self.user_is_scrolling = False  # Reset since content changed
+                
                 self.progress_bar.setVisible(False)
 
             def on_error(err: str):

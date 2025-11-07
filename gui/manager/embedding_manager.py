@@ -379,17 +379,16 @@ class EmbeddingManager:
 
     def check_provider_configured(self) -> Tuple[bool, Optional[str]]:
         """
-        Check if Embedding provider is configured and a default is selected
+        Check if default Embedding provider is configured with API key
         
-        This method ensures:
-        1. No default_embedding is set (empty or None) - will auto-set based on available API keys
+        This method ensures onboarding is shown when:
+        1. No default_embedding is set (empty or None) - will auto-set to OpenAI
         2. default_embedding is set but provider not found - will keep the setting
         3. default_embedding is set but API key is missing (for non-local providers)
+        4. default_embedding is set but base_url is missing/invalid (for local providers)
         
-        If secure_store has API keys configured, automatically selects the first available provider.
-        If no API keys are configured, defaults to OpenAI with text-embedding-3-small.
-        
-        Note: default_embedding is NEVER cleared, ensuring there's always a default provider.
+        Note: Only checks the default provider's API key, not all providers.
+        default_embedding is NEVER cleared, ensuring there's always a default provider.
         
         Returns:
             tuple: (is_configured: bool, configured_provider_name: Optional[str])
@@ -405,36 +404,19 @@ class EmbeddingManager:
             # Get default Embedding from settings
             default_embedding = self.config_manager.general_settings.default_embedding
             
-            # Case 1: If default_embedding is empty, try to auto-detect based on API keys
+            # Case 1: If default_embedding is empty, set it to OpenAI as default
             if not default_embedding or not default_embedding.strip():
-                logger.info("[EmbeddingManager] No default Embedding is set - attempting to auto-detect")
-                
-                # Find providers with configured API keys
-                configured_providers = []
-                for provider_name, provider_config in embedding_config.get_all_providers().items():
-                    if self._check_provider_api_keys_configured(provider_config):
-                        configured_providers.append((provider_name, provider_config))
-                
-                if configured_providers:
-                    # Use the first configured provider
-                    selected_provider_name, selected_provider = configured_providers[0]
-                    default_model = selected_provider.default_model or "text-embedding-3-small"
-                    
-                    logger.info(f"[EmbeddingManager] Auto-selected {selected_provider_name} (has API keys configured)")
-                    self.config_manager.general_settings.default_embedding = selected_provider_name
-                    self.config_manager.general_settings.default_embedding_model = default_model
-                    self.config_manager.general_settings.save()
-                    default_embedding = selected_provider_name
-                    return True, default_embedding
-                else:
-                    # No providers configured, default to OpenAI
-                    logger.info("[EmbeddingManager] No providers with API keys found - defaulting to OpenAI")
-                    self.config_manager.general_settings.default_embedding = "OpenAI"
-                    self.config_manager.general_settings.default_embedding_model = "text-embedding-3-small"
-                    self.config_manager.general_settings.save()
-                    default_embedding = "OpenAI"
-                    # Still show onboarding since API key is likely not configured
-                    return False, None
+                logger.info("[EmbeddingManager] No default Embedding is set - setting to OpenAI with default model")
+                self.config_manager.general_settings.default_embedding = "OpenAI"
+                # Also set the default model if not already set
+                if not self.config_manager.general_settings.default_embedding_model:
+                    provider_config = embedding_config.get_provider("OpenAI")
+                    if provider_config:
+                        self.config_manager.general_settings.default_embedding_model = provider_config.default_model
+                        logger.info(f"[EmbeddingManager] Set default model to {provider_config.default_model}")
+                self.config_manager.general_settings.save()
+                default_embedding = "OpenAI"
+                # Continue to check API key configuration below
             
             # Get provider configuration (without triggering auto-configuration to avoid recursion)
             provider = self._get_provider_config_only(default_embedding)
@@ -445,8 +427,25 @@ class EmbeddingManager:
                 # Keep default_embedding setting, don't clear it
                 return False, None
             
+            # For local providers (e.g., Ollama), check base_url configuration
+            if provider.get('is_local', False):
+                base_url = provider.get('base_url', '')
+                if not base_url or not base_url.strip():
+                    logger.info(f"[EmbeddingManager] Local provider '{default_embedding}' has no base_url - onboarding required")
+                    return False, None
+                
+                # Validate base_url format
+                base_url = base_url.strip()
+                if not (base_url.startswith('http://') or base_url.startswith('https://')):
+                    logger.warning(f"[EmbeddingManager] Local provider '{default_embedding}' has invalid base_url: {base_url} - onboarding required")
+                    return False, None
+                
+                # Local provider properly configured
+                logger.debug(f"[EmbeddingManager] Local provider '{default_embedding}' is properly configured with base_url: {base_url}")
+                return True, default_embedding
+            
             # For non-local providers, check API key configuration
-            # Case 3: Check if required API keys are configured
+            # Case 3: Check if required API keys are configured for the default provider
             api_key_env_vars = provider.get('api_key_env_vars', [])
             
             if not api_key_env_vars:
@@ -454,7 +453,7 @@ class EmbeddingManager:
                 logger.debug(f"[EmbeddingManager] Provider '{default_embedding}' doesn't require API keys")
                 return True, default_embedding
             
-            # Check each required API key
+            # Check each required API key for the default provider
             missing_keys = []
             for env_var in api_key_env_vars:
                 if not self.has_api_key(env_var):
@@ -465,7 +464,7 @@ class EmbeddingManager:
                 logger.info(f"[EmbeddingManager] Provider '{default_embedding}' is missing API keys: {missing_keys} - onboarding required")
                 return False, None
             
-            # All API keys are configured
+            # All API keys are configured for the default provider
             logger.debug(f"[EmbeddingManager] Provider '{default_embedding}' is fully configured with all required API keys")
             return True, default_embedding
             
