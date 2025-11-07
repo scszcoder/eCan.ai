@@ -87,6 +87,28 @@ const ONBOARDING_CONFIGS: Record<string, OnboardingConfig> = {
       return "/settings?tab=llm";
     },
   },
+  embedding_provider_config: {
+    icon: RocketOutlined,
+    iconColor: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+    textKeys: {
+      title: "onboarding.embeddingProviderConfig.title",
+      message: "onboarding.embeddingProviderConfig.message",
+      primaryButton: "onboarding.embeddingProviderConfig.primaryButton",
+      skipButton: "onboarding.embeddingProviderConfig.skipButton",
+    },
+    showSkipButton: true,
+    getNavigationPath: (context) => {
+      if (context?.suggestedAction?.path) {
+        const params = context.suggestedAction.params;
+        if (params && Object.keys(params).length > 0) {
+          const query = new URLSearchParams(params).toString();
+          return `${context.suggestedAction.path}?${query}`;
+        }
+        return context.suggestedAction.path;
+      }
+      return "/settings?tab=embedding";
+    },
+  },
   // 可以轻松添加更多引导类型
   // agent_setup: { ... },
   // first_task: { ... },

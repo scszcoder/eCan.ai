@@ -228,13 +228,17 @@ class UnifiedBrowserManager:
             logger.debug("browser session set....", browser_session)
             # Construct the full message with tag
             # Create the agent with detailed instructions
-            agent = Agent(
-                task=basic_task,
-                llm=llm,
-                browser_session=browser_session,
-                validate_output=True,
-                enable_memory=False,
-            )
+            # Auto-detect model vision support and set use_vision accordingly to avoid warnings
+            from agent.ec_skills.llm_utils.llm_utils import get_use_vision_from_llm
+            agent_kwargs = {
+                'task': basic_task,
+                'llm': llm,
+                'browser_session': browser_session,
+                'validate_output': True,
+                'enable_memory': False,
+                'use_vision': get_use_vision_from_llm(llm, context="UnifiedBrowserManager")
+            }
+            agent = Agent(**agent_kwargs)
             logger.debug("browser agent set....", browser_session)
             return agent
 
@@ -303,13 +307,17 @@ class UnifiedBrowserManager:
             )
             browser_session = BrowserSession(browser_profile=browser_profile)
 
-            agent = Agent(
-                task=task_text,
-                llm=llm,
-                browser_session=browser_session,
-                validate_output=True,
-                enable_memory=False,
-            )
+            # Auto-detect model vision support and set use_vision accordingly to avoid warnings
+            from agent.ec_skills.llm_utils.llm_utils import get_use_vision_from_llm
+            agent_kwargs = {
+                'task': task_text,
+                'llm': llm,
+                'browser_session': browser_session,
+                'validate_output': True,
+                'enable_memory': False,
+                'use_vision': get_use_vision_from_llm(llm, context="UnifiedBrowserManager._do")
+            }
+            agent = Agent(**agent_kwargs)
 
             history = await agent.run()
             return history

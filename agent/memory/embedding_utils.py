@@ -96,7 +96,7 @@ class EmbeddingFactory:
                 if api_key:
                     return OpenAIEmbeddings(model=model_name, openai_api_key=api_key)
                 else:
-                    logger.warning(f"[EmbeddingFactory] OPENAI_API_KEY not found, using FakeEmbeddings")
+                    logger.debug(f"[EmbeddingFactory] OPENAI_API_KEY not found, using FakeEmbeddings (memory features will be limited)")
                     return FakeEmbeddings(size=1536)  # OpenAI default dimension
                     
             elif provider_enum_value == "azure_openai":

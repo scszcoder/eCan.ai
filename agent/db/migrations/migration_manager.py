@@ -72,7 +72,8 @@ class MigrationManager:
             "3.0.2": "migration_301_to_302",
             "3.0.3": "migration_302_to_303",
             "3.0.4": "migration_303_to_304",
-            "3.0.5": "migration_304_to_305"
+            "3.0.5": "migration_304_to_305",
+            "3.0.6": "migration_305_to_306"
         }
         
         module_name = version_patterns.get(version)
@@ -269,10 +270,28 @@ class MigrationManager:
                     else:
                         raise e
             
-            # Try to get the version record
-            version = DBVersion.get_current_version(session)
-            if version:
-                return version.version
+            # Check if db_version table exists before querying
+            from sqlalchemy import inspect
+            inspector = inspect(self.engine)
+            table_names = inspector.get_table_names()
+            
+            if 'db_version' not in table_names:
+                # Fresh database - no tables exist yet
+                logger.debug("Fresh database detected (db_version table not found). This is normal for new installations.")
+                raise Exception("Fresh database detected - needs initialization")
+            
+            # Try to get the version record (table exists, so this should work)
+            try:
+                version = DBVersion.get_current_version(session)
+                if version:
+                    return version.version
+            except OperationalError as e:
+                # Table exists but query failed - log and re-raise
+                error_str = str(e)
+                if 'no such table' in error_str.lower():
+                    logger.debug("db_version table check passed but query failed - treating as fresh database")
+                    raise Exception("Fresh database detected - needs initialization")
+                raise
             
             # If no version record, check if this is a completely fresh database
             is_fresh = self._is_fresh_database(session)
@@ -287,8 +306,17 @@ class MigrationManager:
                 return '1.0.0'
                 
         except Exception as e:
-            # For fresh databases, this is expected - log as debug instead of error
-            logger.debug(f"Could not get current database version (fresh database expected): {e}")
+            # For fresh databases, this is expected - check if it's a missing table error
+            error_str = str(e)
+            if 'fresh database' in error_str.lower() or 'needs initialization' in error_str.lower():
+                # This is a fresh database - already logged above, just re-raise
+                pass
+            elif 'no such table' in error_str.lower() or 'db_version' in error_str.lower():
+                # This is a fresh database - log as debug
+                logger.debug(f"Fresh database detected (db_version table not found). This is normal for new installations.")
+            else:
+                # Unexpected error - log with more detail
+                logger.debug(f"Could not get current database version: {e}")
             # Re-raise the exception so migrate_to_latest can handle it properly
             raise
         finally:
@@ -466,7 +494,7 @@ class MigrationManager:
                 
                 if not table_names:
                     # Fresh database: create all tables directly without migration
-                    logger.info("Detected fresh database with no tables. Creating latest schema directly.")
+                    logger.info("Detected fresh database with no tables. Creating latest schema directly (this is normal for new installations).")
                     
                     # Use transaction to ensure atomicity
                     session = self.Session()

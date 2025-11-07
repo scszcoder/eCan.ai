@@ -63,6 +63,11 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         else:
             formatted_prompt = get_standard_prompt(state)            #STARDARD_PROMPT
 
+        # Ensure formatted_prompt is a list (llm.invoke expects a list of messages)
+        # If it's a single message object, wrap it in a list
+        if not isinstance(formatted_prompt, list):
+            formatted_prompt = [formatted_prompt]
+
         # Use mainwin's llm object instead of hardcoded ChatOpenAI
         llm = mainwin.llm if mainwin and mainwin.llm else None
         if not llm:
