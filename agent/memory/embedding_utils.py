@@ -152,21 +152,24 @@ class EmbeddingFactory:
                     return FakeEmbeddings(size=768)  # Google default dimension
             
             elif provider_enum_value == "baidu_qianfan":
-                # Baidu Qianfan embeddings
+                # Baidu Qianfan embeddings - use V2 OpenAI-compatible API (same as LLM)
+                # Only requires API Key, passed as Bearer token
                 api_key = secure_store.get("BAIDU_API_KEY", username=username)
-                secret_key = secure_store.get("BAIDU_SECRET_KEY", username=username)
-                if api_key and secret_key:
+                
+                if api_key:
                     try:
-                        return QianfanEmbeddingsEndpoint(
-                            qianfan_ak=api_key,
-                            qianfan_sk=secret_key,
-                            model=model_name
+                        # Use OpenAIEmbeddings with Baidu's V2 API endpoint
+                        # API key is automatically passed as Bearer token
+                        return OpenAIEmbeddings(
+                            model=model_name or "bge-large-zh",
+                            openai_api_key=api_key,
+                            openai_api_base="https://qianfan.baidubce.com/v2"
                         )
                     except Exception as e:
-                        logger.error(f"[EmbeddingFactory] QianfanEmbeddingsEndpoint failed: {e}")
+                        logger.error(f"[EmbeddingFactory] Baidu Qianfan OpenAI-compatible embeddings failed: {e}")
                         return FakeEmbeddings(size=1024)  # Baidu default dimension
                 else:
-                    logger.warning(f"[EmbeddingFactory] Baidu API keys not found")
+                    logger.warning(f"[EmbeddingFactory] Baidu API key not found")
                     return FakeEmbeddings(size=1024)
                     
             elif provider_enum_value == "alibaba_qwen":

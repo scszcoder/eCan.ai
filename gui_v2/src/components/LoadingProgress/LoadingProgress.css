@@ -9,7 +9,10 @@
   align-items: center;
   justify-content: center;
   z-index: 9999;
-  backdrop-filter: blur(4px);
+  /* Reduced blur for better performance - backdrop blur is expensive */
+  backdrop-filter: blur(2px);
+  /* Use will-change to optimize rendering */
+  will-change: opacity;
 }
 
 .loading-progress-card {
@@ -18,7 +21,11 @@
   background: linear-gradient(135deg, #1e1e2e 0%, #2d2d42 100%);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 16px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  /* Reduced shadow blur for better performance */
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  /* Hardware acceleration for smoother animations */
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 .loading-progress-content {
@@ -58,7 +65,10 @@
   gap: 12px;
   padding: 8px 12px;
   border-radius: 8px;
-  transition: all 0.3s ease;
+  /* Optimize transitions - only animate necessary properties */
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+  /* Hardware acceleration */
+  will-change: background-color, border-color;
 }
 
 .loading-step.loading {
@@ -111,18 +121,24 @@
   line-height: 1.5;
 }
 
-/* Animation for loading dots */
+/* Optimized animation for loading dots - use transform instead of opacity for better performance */
 @keyframes pulse {
   0%, 100% {
-    opacity: 0.4;
+    transform: scale(1);
+    opacity: 0.5;
   }
   50% {
+    transform: scale(1.2);
     opacity: 1;
   }
 }
 
 .loading-step.loading .step-dot {
-  animation: pulse 1.5s ease-in-out infinite;
+  /* Reduced animation duration and optimized with will-change */
+  animation: pulse 1.2s ease-in-out infinite;
+  will-change: transform, opacity;
+  /* Hardware acceleration */
+  transform: translateZ(0);
 }
 
 /* Compact mode styles for main page */
@@ -137,8 +153,11 @@
   background: rgba(30, 30, 46, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  backdrop-filter: blur(8px);
+  /* Reduced shadow and blur for better performance */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(4px);
+  /* Hardware acceleration */
+  transform: translateZ(0);
 }
 
 .loading-progress-compact-content {

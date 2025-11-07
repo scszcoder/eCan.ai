@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, memo } from 'react';
 import { Progress, Typography, Card, Spin } from 'antd';
 import { CheckCircleOutlined, LoadingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -46,25 +46,28 @@ const LoadingProgress: React.FC<LoadingProgressProps> = ({
   const { progress: internalProgress, isLoading, error } = useInitializationProgress(shouldUseInternalHook);
   const initProgress = externalProgress !== undefined ? externalProgress : internalProgress;
 
-  const [steps, setSteps] = useState<LoadingStep[]>([
+  // Memoize initial steps to prevent recreating array on every render
+  const initialSteps = useMemo<LoadingStep[]>(() => [
     { key: 'auth', label: t('loading.authentication'), completed: false, loading: false },
     { key: 'config', label: t('loading.configuration'), completed: false, loading: false },
     { key: 'database', label: t('loading.database'), completed: false, loading: false },
     { key: 'services', label: t('loading.services'), completed: false, loading: false },
     { key: 'network', label: t('loading.network'), completed: false, loading: false },
-  ]);
+  ], [t]);
 
+  const [steps, setSteps] = useState<LoadingStep[]>(initialSteps);
   const [currentStep, setCurrentStep] = useState(0);
   const [progress, setProgress] = useState(0); // Start at 0%
 
   // Update steps based on real initialization progress
+  // Optimized with dependency array to reduce unnecessary re-renders
   useEffect(() => {
     if (!visible) return;
 
     let newProgress = 0;
     let newCurrentStep = 0;
 
-    const newSteps = [...steps];
+    const newSteps = [...initialSteps];
 
     // If we have initialization progress data
     if (initProgress) {
@@ -79,10 +82,10 @@ const LoadingProgress: React.FC<LoadingProgressProps> = ({
         newProgress = Math.max(newProgress, 40);
         newCurrentStep = Math.max(newCurrentStep, 1);
 
-        // Whenui_ready时就Can跳转到主Page了，后台继续Initialize
+        // When ui_ready, can navigate to main page, background init continues
         setTimeout(() => {
           onComplete?.();
-        }, 200); // 减少Delay，提升Response性
+        }, 200); // Reduced delay for better responsiveness
       } else {
         newSteps[1] = { ...newSteps[1], completed: false, loading: true };
       }
@@ -123,7 +126,7 @@ const LoadingProgress: React.FC<LoadingProgressProps> = ({
     setSteps(newSteps);
     setProgress(newProgress);
     setCurrentStep(newCurrentStep);
-  }, [visible, initProgress, onComplete]);
+  }, [visible, initProgress, onComplete, initialSteps]);
 
   if (!visible) return null;
 
@@ -185,7 +188,7 @@ const LoadingProgress: React.FC<LoadingProgressProps> = ({
           />
           
           <div className="loading-steps">
-            {steps.map((step, index) => (
+            {steps.map((step) => (
               <div key={step.key} className={`loading-step ${step.completed ? 'completed' : ''} ${step.loading ? 'loading' : ''}`}>
                 <div className="step-icon">
                   {step.completed ? (
@@ -210,4 +213,5 @@ const LoadingProgress: React.FC<LoadingProgressProps> = ({
   );
 };
 
-export default LoadingProgress;
+// Wrap component with memo to prevent unnecessary re-renders
+export default memo(LoadingProgress);

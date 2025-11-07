@@ -24,6 +24,108 @@ if sys.platform == 'darwin':
     os.environ["QT_LOGGING_RULES"] = "qt.webengine* = false"
 
 
+# Internationalization for WebGUI
+class WebGUIMessages:
+    """Simple i18n support for WebGUI status and error messages."""
+    
+    DEFAULT_LANG = 'zh-CN'
+    
+    MESSAGES = {
+        'en-US': {
+            'initializing_webgui': 'Initializing WebGUI...',
+            'creating_layout': 'Creating interface layout...',
+            'init_web_engine': 'Initializing web engine...',
+            'setup_dev_tools': 'Setting up developer tools...',
+            'config_window_style': 'Configuring window style...',
+            'connecting_web_engine': 'Connecting web engine...',
+            'loading_progress': 'Loading {progress}%...',
+            'error_page_title': 'Failed to Load',
+            'error_page_subtitle': 'We encountered an error while loading the application',
+            'possible_reasons': 'Possible reasons:',
+            'reason_network': 'Network connection issue',
+            'reason_config': 'Configuration error',
+            'reason_resources': 'Missing required resources',
+            'retry_button': 'Retry',
+            'web_url_unavailable': 'Web URL not available',
+            'init_error': 'Initialization error: {error}',
+            'confirm_exit_title': 'Confirm Exit',
+            'confirm_exit_message': 'Are you sure you want to exit the program?',
+        },
+        'zh-CN': {
+            'initializing_webgui': '初始化 WebGUI...',
+            'creating_layout': '创建界面布局...',
+            'init_web_engine': '初始化 Web 引擎...',
+            'setup_dev_tools': '设置开发者工具...',
+            'config_window_style': '配置窗口样式...',
+            'connecting_web_engine': '连接 Web 引擎...',
+            'loading_progress': '加载中 {progress}%...',
+            'error_page_title': '加载失败',
+            'error_page_subtitle': '在加载应用程序时遇到错误',
+            'possible_reasons': '可能的原因：',
+            'reason_network': '网络连接问题',
+            'reason_config': '配置错误',
+            'reason_resources': '缺少必需的资源',
+            'retry_button': '重试',
+            'web_url_unavailable': 'Web URL 不可用',
+            'init_error': '初始化错误：{error}',
+            'confirm_exit_title': '确认退出',
+            'confirm_exit_message': '确定要退出程序吗？',
+        }
+    }
+    
+    def __init__(self):
+        self.language = self._detect_language()
+    
+    def _detect_language(self):
+        """Detect language from system settings."""
+        try:
+            # For macOS: Use system defaults to get actual UI language
+            if sys.platform == 'darwin':
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ['defaults', 'read', '-g', 'AppleLanguages'],
+                        capture_output=True,
+                        text=True,
+                        timeout=1
+                    )
+                    if result.returncode == 0:
+                        output = result.stdout.lower()
+                        if 'zh-hans' in output or 'zh-cn' in output or 'zh_cn' in output:
+                            return 'zh-CN'
+                        elif 'zh-hant' in output or 'zh-tw' in output or 'zh-hk' in output:
+                            return 'zh-CN'
+                        elif 'en' in output:
+                            return 'en-US'
+                except Exception:
+                    pass
+            
+            # Fallback: Try locale
+            import locale
+            system_lang = locale.getdefaultlocale()[0]
+            if system_lang:
+                if 'zh' in system_lang.lower() or 'cn' in system_lang.lower():
+                    return 'zh-CN'
+                elif 'en' in system_lang.lower():
+                    return 'en-US'
+            
+            return self.DEFAULT_LANG
+        except Exception:
+            return self.DEFAULT_LANG
+    
+    def get(self, key: str, **kwargs) -> str:
+        """Get localized message with optional formatting."""
+        lang = self.language if self.language in self.MESSAGES else self.DEFAULT_LANG
+        message = self.MESSAGES[lang].get(key, key)
+        if kwargs:
+            return message.format(**kwargs)
+        return message
+
+
+# Global instance
+_webgui_messages = WebGUIMessages()
+
+
 class WebGUI(QMainWindow):
     def __init__(self, parent=None, splash=None, progress_callback=None):
         super().__init__()
@@ -38,7 +140,7 @@ class WebGUI(QMainWindow):
 
         # Update progress if callback is available
         if self._progress_callback:
-            self._progress_callback(30, "Initializing WebGUI...")
+            self._progress_callback(30, _webgui_messages.get('initializing_webgui'))
 
         # Windows-specific optimizations to reduce flicker
         if sys.platform == 'win32':
@@ -54,7 +156,7 @@ class WebGUI(QMainWindow):
         # Defer centering until the window is actually shown to avoid (0,0) jumps
 
         if self._progress_callback:
-            self._progress_callback(74, "Creating interface layout...")
+            self._progress_callback(74, _webgui_messages.get('creating_layout'))
 
         # Create central widget and layout
         central_widget = QWidget()
@@ -63,25 +165,25 @@ class WebGUI(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
 
         if self._progress_callback:
-            self._progress_callback(76, "Initializing web engine...")
+            self._progress_callback(76, _webgui_messages.get('init_web_engine'))
 
         # Create web engine
         self.web_engine_view = WebEngineView(self)
 
         if self._progress_callback:
-            self._progress_callback(78, "Setting up developer tools...")
+            self._progress_callback(78, _webgui_messages.get('setup_dev_tools'))
 
         # Developer tools manager will be created on-demand
         self.dev_tools_manager = None
 
         if self._progress_callback:
-            self._progress_callback(80, "Configuring window style...")
+            self._progress_callback(80, _webgui_messages.get('config_window_style'))
 
         # Set Windows window style to match content theme
         self._setup_window_style()
 
         if self._progress_callback:
-            self._progress_callback(82, "Connecting web engine...")
+            self._progress_callback(82, _webgui_messages.get('connecting_web_engine'))
 
         # Wire splash updates to web load if provided
         if self._splash is not None:
@@ -107,13 +209,13 @@ class WebGUI(QMainWindow):
                     self.load_local_html()
             else:
                 logger.error("Failed to get web URL - will show error page")
-                self._show_error_page("Web URL not available")
+                self._show_error_page(_webgui_messages.get('web_url_unavailable'))
 
         except Exception as e:
             logger.error(f"Error during WebGUI initialization: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
-            self._show_error_page(f"Initialization error: {str(e)}")
+            self._show_error_page(_webgui_messages.get('init_error', error=str(e)))
         
         # Add web engine to layout
         layout.addWidget(self.web_engine_view)
@@ -368,7 +470,7 @@ class WebGUI(QMainWindow):
     def _on_load_progress(self, progress: int):
         try:
             if self._splash is not None:
-                self._splash.set_status(f"Loading {progress}%…")
+                self._splash.set_status(_webgui_messages.get('loading_progress', progress=progress))
                 self._splash.set_progress(progress)
         except Exception:
             pass
@@ -404,7 +506,7 @@ class WebGUI(QMainWindow):
                 <title>eCan.ai - Error</title>
                 <style>
                     body {{
-                        font-family: Arial, sans-serif;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
                         background: #1a1a1a;
                         color: #ffffff;
                         display: flex;
@@ -443,16 +545,16 @@ class WebGUI(QMainWindow):
             </head>
             <body>
                 <div class="error-container">
-                    <h1>⚠️ Application Error</h1>
-                    <p>eCan.ai encountered an error during startup:</p>
+                    <h1>⚠️ {_webgui_messages.get('error_page_title')}</h1>
+                    <p>{_webgui_messages.get('error_page_subtitle')}</p>
                     <div class="error-message">{error_message}</div>
-                    <p>This usually happens when:</p>
+                    <p>{_webgui_messages.get('possible_reasons')}</p>
                     <ul style="text-align: left; display: inline-block;">
-                        <li>Frontend files are missing or corrupted</li>
-                        <li>PyInstaller packaging issue</li>
-                        <li>File permissions problem</li>
+                        <li>{_webgui_messages.get('reason_network')}</li>
+                        <li>{_webgui_messages.get('reason_config')}</li>
+                        <li>{_webgui_messages.get('reason_resources')}</li>
                     </ul>
-                    <button class="retry-button" onclick="location.reload()">Retry</button>
+                    <button class="retry-button" onclick="location.reload()">{_webgui_messages.get('retry_button')}</button>
                 </div>
             </body>
             </html>
@@ -754,10 +856,10 @@ class WebGUI(QMainWindow):
         logger.info("closeEvent triggered")
 
         try:
-            # Create custom dialog
+            # Create custom dialog with i18n support
             msg_box = QMessageBox(self)
-            msg_box.setWindowTitle('Confirm Exit')
-            msg_box.setText('Are you sure you want to exit the program?')
+            msg_box.setWindowTitle(_webgui_messages.get('confirm_exit_title'))
+            msg_box.setText(_webgui_messages.get('confirm_exit_message'))
             msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             msg_box.setDefaultButton(QMessageBox.No)
             

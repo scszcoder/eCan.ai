@@ -179,7 +179,7 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
         
         # Handle special cases requiring multiple credentials
         if provider_identifier == 'baidu_qianfan':
-            # Baidu Qianfan only requires BAIDU_API_KEY (single API key)
+            # Baidu Qianfan V2 API only requires BAIDU_API_KEY (OpenAI-compatible with Bearer token)
             if api_key and env_vars:
                 # Use BAIDU_API_KEY if available, otherwise use first env_var
                 env_var = 'BAIDU_API_KEY' if 'BAIDU_API_KEY' in env_vars else env_vars[0]
