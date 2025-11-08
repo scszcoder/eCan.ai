@@ -1,4 +1,4 @@
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, List
 import os
 import json
 from pathlib import Path
@@ -304,6 +304,156 @@ def handle_clear_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -
             'LOGIN_ERROR',
             f"Error during clearning skill breakpoints: {str(e)}"
         )
+
+
+@IPCHandlerRegistry.handler('get_editor_agents')
+def handle_get_editor_agents(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Return simplified agent list for Skill Editor dropdowns.
+
+    Schema:
+      {
+        "agents": [{
+          id, name, kind,
+          description, provider, url,
+          orgId, status, title, rank,
+          skillsCount, tasksCount,
+          avatar
+        }],
+        "defaults": {"top": "human"}
+      }
+    """
+    try:
+        main_window = AppContext.get_main_window()
+        agents: List[Dict[str, str]] = []
+
+        if main_window and hasattr(main_window, 'agents'):
+            for ag in getattr(main_window, 'agents', []) or []:
+                try:
+                    # Prefer unified serialization from EC_Agent.to_dict for field consistency
+                    ag_dict = {}
+                    try:
+                        if hasattr(ag, 'to_dict') and callable(getattr(ag, 'to_dict')):
+                            ag_dict = ag.to_dict(owner=None) or {}
+                    except Exception:
+                        ag_dict = {}
+
+                    card = getattr(ag, 'card', None)
+                    agid = ag_dict.get('id') or (getattr(card, 'id', None) if card else None)
+                    agname = ag_dict.get('name') or (getattr(card, 'name', None) if card else None)
+                    if isinstance(agid, str) and isinstance(agname, str) and agid and agname:
+                        # Derive optional fields safely using serialized dict as primary source
+                        description = ag_dict.get('description') or (getattr(card, 'description', None) if card else None) or ''
+                        provider = getattr(card, 'provider', None) if card else None
+                        url = getattr(card, 'url', None) if card else None
+                        org_id = ag_dict.get('org_id', None)
+                        status = ag_dict.get('status', None) or getattr(ag, 'status', None)
+                        title = ag_dict.get('title', None) or getattr(ag, 'title', None)
+                        rank = ag_dict.get('rank', None) or getattr(ag, 'rank', None)
+                        skills_list = ag_dict.get('skills', []) or []
+                        tasks_list = ag_dict.get('tasks', []) or []
+                        skills_count = len(skills_list) if isinstance(skills_list, list) else 0
+                        tasks_count = len(tasks_list) if isinstance(tasks_list, list) else 0
+                        avatar = ag_dict.get('avatar') if isinstance(ag_dict.get('avatar', None), dict) else None
+
+                        agents.append({
+                            'id': agid,
+                            'name': agname,
+                            'kind': 'agent',
+                            'description': description,
+                            'provider': provider,
+                            'url': url,
+                            # Include both org_id (snake_case) and orgId (camelCase) for compatibility
+                            'org_id': org_id,
+                            'orgId': org_id,
+                            'status': status,
+                            'title': title,
+                            'rank': rank,
+                            'skillsCount': skills_count,
+                            'tasksCount': tasks_count,
+                            'avatar': avatar,
+                        })
+                except Exception:
+                    # Skip malformed agent entries
+                    continue
+
+        # Always include default Human option on top
+        result = {
+            'agents': [{
+                'id': 'human',
+                'name': 'Human',
+                'kind': 'human',
+                'description': 'Human operator',
+                'provider': None,
+                'url': None,
+                'orgId': None,
+                'status': 'active',
+                'title': None,
+                'rank': None,
+                'skillsCount': 0,
+                'tasksCount': 0,
+                'avatar': None,
+            }] + agents,
+            'defaults': {'top': 'human'}
+        }
+        logger.info(f"[Editor] get_editor_agents -> total={len(result['agents'])}")
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"[Editor] get_editor_agents error: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'GET_EDITOR_AGENTS_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('get_editor_pending_sources')
+def handle_get_editor_pending_sources(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Return queues and events the Skill Editor can pend on.
+
+    Schema:
+      { "queues": [{id, name}], "events": [{id, name}] }
+    """
+    try:
+        main_window = AppContext.get_main_window()
+        queues: List[Dict[str, str]] = []
+
+        if main_window and hasattr(main_window, 'agents'):
+            for ag in getattr(main_window, 'agents', []) or []:
+                try:
+                    card = getattr(ag, 'card', None)
+                    agid = getattr(card, 'id', None)
+                    agname = getattr(card, 'name', None) or 'Agent'
+                    if not isinstance(agid, str) or not agid:
+                        continue
+
+                    # Detect available queues from runtime agent if present
+                    chat_q = None
+                    work_q = None
+                    try:
+                        chat_q = ag.get_chat_msg_queue()
+                    except Exception:
+                        pass
+                    try:
+                        work_q = ag.get_work_msg_queue()
+                    except Exception:
+                        pass
+
+                    if chat_q is not None:
+                        queues.append({'id': f'agent:{agid}:chat', 'name': f'{agname} Chat'})
+                    if work_q is not None:
+                        queues.append({'id': f'agent:{agid}:work', 'name': f'{agname} Work'})
+                except Exception:
+                    continue
+
+        # Provide a minimal, sensible set of event types
+        events: List[Dict[str, str]] = [
+            {'id': 'human_chat', 'name': 'Human Chat'},
+            {'id': 'agent_message', 'name': 'Agent Message'},
+            {'id': 'timer', 'name': 'Timer'},
+        ]
+
+        result = {'queues': queues, 'events': events}
+        logger.info(f"[Editor] get_editor_pending_sources -> queues={len(queues)} events={len(events)}")
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"[Editor] get_editor_pending_sources error: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'GET_EDITOR_PENDING_SOURCES_ERROR', str(e))
 
 
 @IPCHandlerRegistry.handler('request_skill_state')
