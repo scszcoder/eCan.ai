@@ -37,6 +37,16 @@ class AuthManager:
             logger.warning(f"Keychain issue detected: {keychain_msg}")
             logger.info("Refresh tokens will be stored in encrypted files as fallback")
 
+        # Try to restore user info from uli.json for API key isolation
+        # This ensures get_current_username() returns the correct user even without full session restore
+        try:
+            saved_username = self._get_saved_username()
+            if saved_username:
+                self.current_user = saved_username
+                logger.debug(f"AuthManager: Restored user identity from uli.json: {saved_username}")
+        except Exception as e:
+            logger.debug(f"AuthManager: Could not restore user identity: {e}")
+
         # Try to restore session from persisted refresh token
         # try:
         #     self.try_restore_session()
