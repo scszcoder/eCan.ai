@@ -271,7 +271,7 @@ const EventItemComponent = memo<{
     <Tooltip 
       title={tooltipTitle}
       mouseEnterDelay={0.5}
-      destroyTooltipOnHide
+      destroyOnHidden
     >
       <EventItem
         $color={event.color}
