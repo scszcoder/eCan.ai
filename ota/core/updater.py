@@ -1,0 +1,252 @@
+import os
+import platform
+import subprocess
+import threading
+import time
+from typing import Optional, Callable
+from threading import Lock, Event
+
+import sys
+from pathlib import Path
+
+# Add project root directory to Python path
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
+
+try:
+    from config.app_info import app_info
+    from config.constants import APP_NAME
+except ImportError:
+    # If import fails, use default values
+    class DefaultAppInfo:
+        def __init__(self):
+            self.app_home_path = str(Path.cwd())
+    
+    app_info = DefaultAppInfo()
+    APP_NAME = 'ecbot'
+from utils.logger_helper import logger_helper as logger
+
+from .config import ota_config
+from .package_manager import package_manager, UpdatePackage
+from .platforms import SparkleUpdater, WinSparkleUpdater, GenericUpdater
+from .errors import UpdateError, UpdateErrorCode, get_user_friendly_message
+
+
+class OTAUpdater:
+    """OTA update manager"""
+    
+    def __init__(self):
+        self.platform = platform.system()
+        # Get version from app_info (which reads from VERSION file)
+        try:
+            self.app_version = app_info.version
+        except Exception as e:
+            logger.warning(f"Failed to get version from app_info: {e}, using fallback")
+            self.app_version = ota_config.get('app_version', '1.0.0')
+        self.update_server_url = ota_config.get_update_server()
+        
+        # Thread safety related
+        self._check_lock = Lock()  # Check update lock
+        self._install_lock = Lock()  # Install update lock
+        self._callback_lock = Lock()  # Callback lock
+        self._stop_event = Event()  # Stop event
+        
+        self.is_checking = False
+        self.is_installing = False
+        self.update_callback: Optional[Callable] = None
+        self.error_callback: Optional[Callable] = None
+        self._auto_check_thread = None
+        
+        # Get application path
+        self.app_home_path = app_info.app_home_path
+        
+        # Platform-specific updater
+        self.platform_updater = self._create_platform_updater()
+        
+        logger.info(f"OTA Updater initialized for {self.platform}")
+    
+    def _create_platform_updater(self):
+        """Create platform-specific updater"""
+        # Dev mode can force generic updater for local debugging without platform dependencies
+        try:
+            if ota_config.is_dev_mode() and ota_config.get("force_generic_updater_in_dev", True):
+                return GenericUpdater(self)
+        except Exception:
+            pass
+        if self.platform == "Darwin":
+            return SparkleUpdater(self)
+        elif self.platform == "Windows":
+            return WinSparkleUpdater(self)
+        else:
+            return GenericUpdater(self)
+    
+    def check_for_updates(self, silent: bool = False, return_info: bool = False):
+        """Check for updates
+        
+        Args:
+            silent: If True, suppress log messages
+            return_info: If True, return (has_update, update_info) tuple
+            
+        Returns:
+            bool or tuple: If return_info is False, returns bool indicating if update is available.
+                          If return_info is True, returns (has_update, update_info) tuple.
+        """
+        with self._check_lock:
+            if self.is_checking:
+                if not silent:
+                    logger.info("Update check already in progress")
+                return (False, None) if return_info else False
+            
+            self.is_checking = True
+        
+        try:
+            logger.info("Checking for updates...")
+            
+            has_update, update_info = self.platform_updater.check_for_updates(silent, return_info=True)
+            
+            # Check if error information was returned
+            if isinstance(update_info, UpdateError):
+                # Thread-safe error callback call
+                self._safe_error_callback(update_info)
+                return (False, update_info) if return_info else False
+            
+            # Thread-safe callback call
+            if has_update:
+                self._safe_callback(has_update, update_info)
+            
+            if return_info:
+                return has_update, update_info
+            else:
+                return has_update
+            
+        except UpdateError as e:
+            logger.error(f"Update check failed: {e}")
+            self._safe_error_callback(e)
+            return (False, e) if return_info else False
+        except Exception as e:
+            logger.error(f"Update check failed with unexpected error: {e}")
+            error = UpdateError(
+                UpdateErrorCode.UNKNOWN_ERROR,
+                f"Unexpected error during update check: {str(e)}",
+                {"original_error": str(e)}
+            )
+            self._safe_error_callback(error)
+            return (False, error) if return_info else False
+        finally:
+            with self._check_lock:
+                self.is_checking = False
+    
+    def install_update(self) -> bool:
+        """Install update"""
+        with self._install_lock:
+            if self.is_installing:
+                logger.info("Update installation already in progress")
+                return False
+            
+            self.is_installing = True
+        
+        try:
+            logger.info("Installing update...")
+            result = self.platform_updater.install_update(package_manager=package_manager)
+            return result
+        except Exception as e:
+            logger.error(f"Update installation failed: {e}")
+            return False
+        finally:
+            with self._install_lock:
+                self.is_installing = False
+    
+    def _safe_callback(self, has_update: bool, update_info: any):
+        """Thread-safe callback call"""
+        with self._callback_lock:
+            if self.update_callback:
+                try:
+                    self.update_callback(has_update, update_info)
+                except Exception as e:
+                    logger.error(f"Update callback failed: {e}")
+    
+    def _safe_error_callback(self, error: UpdateError):
+        """Thread-safe error callback call"""
+        with self._callback_lock:
+            if self.error_callback:
+                try:
+                    self.error_callback(error)
+                except Exception as e:
+                    logger.error(f"Error callback failed: {e}")
+            else:
+                # If no error callback, log user-friendly error message
+                user_message = get_user_friendly_message(error)
+                logger.error(f"Update error: {user_message}")
+    
+    def start_auto_check(self):
+        """Start automatic checking"""
+        if self._auto_check_thread and self._auto_check_thread.is_alive():
+            logger.info("Auto check already running")
+            return
+        
+        # Reset stop event
+        self._stop_event.clear()
+        
+        def check_loop():
+            check_interval = ota_config.get_check_interval()
+            while not self._stop_event.is_set():
+                try:
+                    # Check if stop was requested
+                    if self._stop_event.is_set():
+                        break
+                    
+                    self.check_for_updates(silent=True)
+                    
+                    # Use event wait, can be interrupted immediately
+                    if self._stop_event.wait(timeout=check_interval):
+                        break  # Received stop signal
+                        
+                except Exception as e:
+                    logger.error(f"Auto check failed: {e}")
+                    # Wait shorter time on error before retry
+                    if self._stop_event.wait(timeout=300):  # 5 minutes
+                        break  # Received stop signal
+        
+        self._auto_check_thread = threading.Thread(target=check_loop, daemon=True)
+        self._auto_check_thread.start()
+        logger.info("Auto update check started")
+    
+    def stop_auto_check(self):
+        """Stop automatic checking"""
+        if self._auto_check_thread and self._auto_check_thread.is_alive():
+            # Set stop event
+            self._stop_event.set()
+            
+            # Wait for thread to end
+            self._auto_check_thread.join(timeout=5)  # Wait up to 5 seconds
+            
+            if self._auto_check_thread.is_alive():
+                logger.warning("Auto check thread did not stop gracefully")
+            else:
+                logger.info("Auto update check stopped")
+        else:
+            logger.info("Auto check not running")
+    
+    def set_update_callback(self, callback: Callable):
+        """Set update callback"""
+        with self._callback_lock:
+            self.update_callback = callback
+    
+    def set_error_callback(self, callback: Callable):
+        """Set error callback"""
+        with self._callback_lock:
+            self.error_callback = callback
+    
+    def is_busy(self) -> bool:
+        """Check if update-related operations are in progress"""
+        return self.is_checking or self.is_installing
+    
+    def get_status(self) -> dict:
+        """Get current status"""
+        return {
+            "is_checking": self.is_checking,
+            "is_installing": self.is_installing,
+            "auto_check_running": self._auto_check_thread and self._auto_check_thread.is_alive(),
+            "platform": self.platform,
+            "app_version": self.app_version
+        } 
