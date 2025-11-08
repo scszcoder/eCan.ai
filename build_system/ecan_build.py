@@ -289,8 +289,10 @@ class InstallerBuilder:
 
             # AppId (GUID) from config for Inno Setup
             raw_app_id = windows_config.get("app_id", "6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1")
-            # Normalize: strip any braces and whitespace; Inno requires GUID in double braces in .iss to avoid constant expansion
+            # Normalize: strip any braces and whitespace
             app_id = str(raw_app_id).strip().strip("{}").strip()
+            # Pre-wrap with double braces for Inno Setup (to prevent constant expansion)
+            app_id_wrapped = "{{" + app_id + "}}"
 
             # Get compression settings based on build mode
             compression_modes = installer_config.get("compression_modes", {})
@@ -349,7 +351,7 @@ class InstallerBuilder:
             iss_content = f"""
 ; eCan Installer Script
 [Setup]
-AppId={{{{{{app_id}}}}}}
+AppId={app_id_wrapped}
 AppName={installer_config.get('app_name', app_info.get('name', 'eCan'))}
 AppVersion={installer_config.get('app_version', app_info.get('version', '1.0.0'))}
 AppPublisher={installer_config.get('app_publisher', 'eCan Team')}
