@@ -5,8 +5,10 @@ import WarehouseDetail from './WarehouseDetail';
 import type { Warehouse } from './types';
 import { useWarehouseStore } from '../../stores/warehouseStore';
 import { useUserStore } from '../../stores/userStore';
+import { useTranslation } from 'react-i18next';
 
 const Warehouses: React.FC = () => {
+  const { t } = useTranslation();
   const username = useUserStore((s) => s.username || 'user');
   const { warehouses, fetch, save, remove, fetched } = useWarehouseStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -29,7 +31,7 @@ const Warehouses: React.FC = () => {
     const newId = `wh-${Math.floor(Math.random() * 100000)}`;
     const w: Warehouse = {
       id: newId,
-      name: 'New Warehouse',
+      name: t('pages.warehouses.newWarehouse'),
       city: '',
       state: '',
       contactFirstName: '',
@@ -66,7 +68,7 @@ const Warehouses: React.FC = () => {
   return (
     <DetailLayout
       listTitle={null}
-      detailsTitle={selected ? selected.name : 'Details'}
+      detailsTitle={selected ? selected.name : t('pages.warehouses.details')}
       listContent={
         <WarehouseList
           warehouses={warehouses}

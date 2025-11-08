@@ -143,6 +143,84 @@
     }
   },
   "pages": {
+    "products": {
+      "title": "产品",
+      "add": "新增",
+      "details": "详情",
+      "newProduct": "新产品",
+      "renameTitle": "重命名产品",
+      "namePlaceholder": "产品名称",
+      "totalInventory": "总库存：{{count}}",
+      "empty": {
+        "selectProduct": "选择一个产品查看详情"
+      },
+      "sections": {
+        "inventories": "库存",
+        "dropShippers": "代发商",
+        "media": "图片 / 视频",
+        "suppliers": "供应商",
+        "platforms": "电商平台"
+      },
+      "fields": {
+        "id": "ID",
+        "nickName": "昵称",
+        "title": "标题",
+        "features": "特点",
+        "sizeL": "长度（英寸）",
+        "sizeW": "宽度（英寸）",
+        "sizeH": "高度（英寸）",
+        "weightOz": "重量（盎司）",
+        "fragile": "易碎",
+        "batteryInside": "内置电池",
+        "chemical": "化学品",
+        "flammable": "易燃"
+      },
+      "placeholders": {
+        "selectLocation": "选择仓库位置",
+        "location": "位置",
+        "quantity": "数量",
+        "name": "名称",
+        "link": "链接",
+        "description": "描述",
+        "factoryUnitPrice": "出厂单价",
+        "id": "ID"
+      },
+      "actions": {
+        "addInventory": "添加库存",
+        "addDropShipper": "添加代发商",
+        "addMedia": "添加图片/视频",
+        "addSupplier": "添加供应商",
+        "addPlatform": "添加平台"
+      }
+    },
+    "warehouses": {
+      "title": "仓库",
+      "add": "新增",
+      "details": "详情",
+      "newWarehouse": "新仓库",
+      "renameTitle": "重命名仓库",
+      "namePlaceholder": "仓库名称",
+      "empty": {
+        "selectWarehouse": "选择一个仓库查看详情"
+      },
+      "fields": {
+        "id": "ID",
+        "contactFirstName": "联系人名",
+        "contactLastName": "联系人姓",
+        "phone": "电话",
+        "email": "邮箱",
+        "messagingPlatform": "消息平台",
+        "messagingId": "消息账号",
+        "address": "地址",
+        "street1": "街道 1",
+        "street2": "街道 2",
+        "city": "城市",
+        "state": "州/省",
+        "zip": "邮编",
+        "costDescription": "成本结构描述",
+        "parsedJson": "解析后的 JSON（预览）"
+      }
+    },
     "agents": {
       "add": "添加",
       "add_agent": "添加代理",
@@ -1361,6 +1439,7 @@
     "dashboard": "仪表盘",
     "knowledge": "知识库",
     "organizations": "组织",
+    "products": "产品",
     "schedule": "日程",
     "settings": "设置",
     "skill_editor": "技能编辑器",
@@ -1368,7 +1447,8 @@
     "tasks": "任务",
     "tests": "测试",
     "tools": "工具",
-    "vehicles": "电脑"
+    "vehicles": "电脑",
+    "warehouses": "仓库"
   },
   "agentnotify": {
     "behind_the_scene": "幕后",

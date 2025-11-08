@@ -3,6 +3,7 @@ import { List, Dropdown, Button, Modal, Input, Typography } from 'antd';
 import { MoreOutlined, PlusOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import type { Warehouse } from './types';
+import { useTranslation } from 'react-i18next';
 
 interface WarehouseListProps {
   warehouses: Warehouse[];
@@ -14,6 +15,7 @@ interface WarehouseListProps {
 }
 
 const WarehouseList: React.FC<WarehouseListProps> = ({ warehouses, selectedId, onSelect, onRename, onDelete, onAdd }) => {
+  const { t } = useTranslation();
   const [renameTarget, setRenameTarget] = useState<Warehouse | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
@@ -30,17 +32,17 @@ const WarehouseList: React.FC<WarehouseListProps> = ({ warehouses, selectedId, o
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography.Text strong style={{ color: '#fff' }}>Warehouses</Typography.Text>
-        <Button type="primary" icon={<PlusOutlined />} onClick={onAdd}>Add New</Button>
+        <Typography.Text strong style={{ color: '#fff' }}>{t('pages.warehouses.title')}</Typography.Text>
+        <Button type="primary" icon={<PlusOutlined />} onClick={onAdd}>{t('pages.warehouses.add')}</Button>
       </div>
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         <List
           dataSource={warehouses}
           renderItem={(item) => {
             const menuItems: MenuProps['items'] = [
-              { key: 'rename', label: 'Rename' },
+              { key: 'rename', label: t('common.rename', { defaultValue: 'Rename' }) },
               { type: 'divider' },
-              { key: 'delete', label: 'Delete', danger: true },
+              { key: 'delete', label: t('common.delete'), danger: true },
             ];
             return (
               <List.Item
@@ -71,13 +73,13 @@ const WarehouseList: React.FC<WarehouseListProps> = ({ warehouses, selectedId, o
       </div>
 
       <Modal
-        title="Rename Warehouse"
+        title={t('pages.warehouses.renameTitle')}
         open={!!renameTarget}
         onOk={confirmRename}
         onCancel={closeRename}
-        okText="Save"
+        okText={t('common.save')}
       >
-        <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} placeholder="Warehouse name" />
+        <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} placeholder={t('pages.warehouses.namePlaceholder')} />
       </Modal>
     </div>
   );

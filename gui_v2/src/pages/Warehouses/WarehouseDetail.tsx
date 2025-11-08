@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { Form, Input, Row, Col, Button, Switch, Card } from 'antd';
 import type { Warehouse } from './types';
+import { useTranslation } from 'react-i18next';
 
 interface WarehouseDetailProps {
   warehouse: Warehouse | null;
@@ -26,13 +27,12 @@ function parseCostDescriptionToJson(text: string): any {
 }
 
 const WarehouseDetail: React.FC<WarehouseDetailProps> = ({ warehouse, onChange }) => {
+  const { t } = useTranslation();
   const [edit, setEdit] = useState(false);
   const [form] = Form.useForm<Warehouse>();
 
-  const jsonPreview = useMemo(() => parseCostDescriptionToJson(form.getFieldValue('costDescription') || warehouse?.costDescription || ''), [warehouse, form]);
-
   if (!warehouse) {
-    return <div style={{ padding: 16, color: 'rgba(255,255,255,0.65)' }}>Select a warehouse to view details</div>;
+    return <div style={{ padding: 16, color: 'rgba(255,255,255,0.65)' }}>{t('pages.warehouses.empty.selectWarehouse')}</div>;
   }
 
   const initialValues: Warehouse = { ...warehouse };
@@ -49,7 +49,7 @@ const WarehouseDetail: React.FC<WarehouseDetailProps> = ({ warehouse, onChange }
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
         <Switch checked={edit} onChange={() => handleSaveToggle()} />
-        <span style={{ color: '#fff' }}>{edit ? 'Save' : 'Edit'}</span>
+        <span style={{ color: '#fff' }}>{edit ? t('common.save') : t('common.edit')}</span>
       </div>
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 16 }}>
         <Form
@@ -60,54 +60,60 @@ const WarehouseDetail: React.FC<WarehouseDetailProps> = ({ warehouse, onChange }
         >
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item label="ID" name="id">
+              <Form.Item label={t('pages.warehouses.fields.id')} name="id">
                 <Input />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Row gutter={12}>
                 <Col span={12}>
-                  <Form.Item label="Contact First Name" name="contactFirstName"><Input /></Form.Item>
+                  <Form.Item label={t('pages.warehouses.fields.contactFirstName')} name="contactFirstName"><Input /></Form.Item>
                 </Col>
                 <Col span={12}>
-                  <Form.Item label="Contact Last Name" name="contactLastName"><Input /></Form.Item>
+                  <Form.Item label={t('pages.warehouses.fields.contactLastName')} name="contactLastName"><Input /></Form.Item>
                 </Col>
               </Row>
             </Col>
           </Row>
 
           <Row gutter={16}>
-            <Col span={8}><Form.Item label="Phone" name="phone"><Input /></Form.Item></Col>
-            <Col span={8}><Form.Item label="Email" name="email"><Input /></Form.Item></Col>
-            <Col span={8}><Form.Item label="Messaging Platform" name="messagingPlatform"><Input /></Form.Item></Col>
+            <Col span={8}><Form.Item label={t('pages.warehouses.fields.phone')} name="phone"><Input /></Form.Item></Col>
+            <Col span={8}><Form.Item label={t('pages.warehouses.fields.email')} name="email"><Input /></Form.Item></Col>
+            <Col span={8}><Form.Item label={t('pages.warehouses.fields.messagingPlatform')} name="messagingPlatform"><Input /></Form.Item></Col>
           </Row>
           <Row gutter={16}>
-            <Col span={8}><Form.Item label="Messaging ID" name="messagingId"><Input /></Form.Item></Col>
+            <Col span={8}><Form.Item label={t('pages.warehouses.fields.messagingId')} name="messagingId"><Input /></Form.Item></Col>
           </Row>
 
-          <Card title="Address" size="small" style={{ marginBottom: 16 }}>
+          <Card title={t('pages.warehouses.fields.address')} size="small" style={{ marginBottom: 16 }}>
             <Row gutter={16}>
-              <Col span={24}><Form.Item label="Street 1" name="address1"><Input /></Form.Item></Col>
-              <Col span={24}><Form.Item label="Street 2" name="address2"><Input /></Form.Item></Col>
+              <Col span={24}><Form.Item label={t('pages.warehouses.fields.street1')} name="address1"><Input /></Form.Item></Col>
+              <Col span={24}><Form.Item label={t('pages.warehouses.fields.street2')} name="address2"><Input /></Form.Item></Col>
             </Row>
             <Row gutter={16}>
-              <Col span={8}><Form.Item label="City" name="addressCity"><Input /></Form.Item></Col>
-              <Col span={8}><Form.Item label="State" name="addressState"><Input /></Form.Item></Col>
-              <Col span={8}><Form.Item label="ZIP" name="addressZip"><Input /></Form.Item></Col>
+              <Col span={8}><Form.Item label={t('pages.warehouses.fields.city')} name="addressCity"><Input /></Form.Item></Col>
+              <Col span={8}><Form.Item label={t('pages.warehouses.fields.state')} name="addressState"><Input /></Form.Item></Col>
+              <Col span={8}><Form.Item label={t('pages.warehouses.fields.zip')} name="addressZip"><Input /></Form.Item></Col>
             </Row>
           </Card>
 
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item label="Cost Structure Description" name="costDescription">
-                <Input.TextArea autoSize={{ minRows: 6 }} onChange={() => { /* trigger preview via form state */ }} />
+              <Form.Item label={t('pages.warehouses.fields.costDescription')} name="costDescription">
+                <Input.TextArea rows={6} onChange={() => { /* trigger preview via form state */ }} />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item label="Parsed JSON (preview)">
-                <pre style={{ background: '#0b1220', color: '#d6e3ff', padding: 12, borderRadius: 8, maxHeight: 240, overflow: 'auto' }}>
-                  {JSON.stringify(jsonPreview, null, 2)}
-                </pre>
+              <Form.Item label={t('pages.warehouses.fields.parsedJson')} shouldUpdate>
+                {() => {
+                  const text = form.getFieldValue('costDescription') ?? warehouse.costDescription ?? '';
+                  const preview = parseCostDescriptionToJson(text);
+                  return (
+                    <pre style={{ background: '#0b1220', color: '#d6e3ff', padding: 12, borderRadius: 8, maxHeight: 240, overflow: 'auto' }}>
+                      {JSON.stringify(preview, null, 2)}
+                    </pre>
+                  );
+                }}
               </Form.Item>
             </Col>
           </Row>

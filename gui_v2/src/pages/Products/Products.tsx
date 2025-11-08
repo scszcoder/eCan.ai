@@ -5,8 +5,10 @@ import ProductDetail from './ProductDetail';
 import type { Product } from './types';
 import { useProductStore } from '../../stores/productStore';
 import { useUserStore } from '../../stores/userStore';
+import { useTranslation } from 'react-i18next';
 
 const Products: React.FC = () => {
+  const { t } = useTranslation();
   const username = useUserStore((s) => s.username || 'user');
   const { products, fetch, save, remove, fetched } = useProductStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -25,7 +27,7 @@ const Products: React.FC = () => {
     const newId = `p-${Math.floor(Math.random() * 100000)}`;
     const p: Product = {
       id: newId,
-      nickName: 'New Product',
+      nickName: t('pages.products.newProduct'),
       title: '', features: '', sizeL: '', sizeW: '', sizeH: '', weightOz: '',
       fragile: false, batteryInside: false, chemical: false, flammable: false,
       inventories: [], dropShippers: [], media: [], suppliers: [], platforms: [],
@@ -51,7 +53,7 @@ const Products: React.FC = () => {
   return (
     <DetailLayout
       listTitle={null}
-      detailsTitle={selected ? (selected.nickName || selected.title) : 'Details'}
+      detailsTitle={selected ? (selected.nickName || selected.title) : t('pages.products.details')}
       listContent={
         <ProductsList
           products={products}

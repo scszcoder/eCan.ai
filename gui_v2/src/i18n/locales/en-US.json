@@ -143,6 +143,84 @@
     }
   },
   "pages": {
+    "products": {
+      "title": "Products",
+      "add": "Add New",
+      "details": "Details",
+      "newProduct": "New Product",
+      "renameTitle": "Rename Product",
+      "namePlaceholder": "Product name",
+      "totalInventory": "Total inventory: {{count}}",
+      "empty": {
+        "selectProduct": "Select a product to view details"
+      },
+      "sections": {
+        "inventories": "Inventories",
+        "dropShippers": "Drop Shippers",
+        "media": "Images / Videos",
+        "suppliers": "Suppliers",
+        "platforms": "EC Platforms"
+      },
+      "fields": {
+        "id": "ID",
+        "nickName": "Nick Name",
+        "title": "Title",
+        "features": "Features",
+        "sizeL": "Size L (inches)",
+        "sizeW": "Size W (inches)",
+        "sizeH": "Size H (inches)",
+        "weightOz": "Weight (oz)",
+        "fragile": "Fragile",
+        "batteryInside": "Battery Inside",
+        "chemical": "Chemical",
+        "flammable": "Flammable"
+      },
+      "placeholders": {
+        "selectLocation": "Select location",
+        "location": "Location",
+        "quantity": "Quantity",
+        "name": "Name",
+        "link": "Link",
+        "description": "Description",
+        "factoryUnitPrice": "Factory Unit Price",
+        "id": "ID"
+      },
+      "actions": {
+        "addInventory": "Add Inventory",
+        "addDropShipper": "Add Drop Shipper",
+        "addMedia": "Add Image/Video",
+        "addSupplier": "Add Supplier",
+        "addPlatform": "Add Platform"
+      }
+    },
+    "warehouses": {
+      "title": "Warehouses",
+      "add": "Add New",
+      "details": "Details",
+      "newWarehouse": "New Warehouse",
+      "renameTitle": "Rename Warehouse",
+      "namePlaceholder": "Warehouse name",
+      "empty": {
+        "selectWarehouse": "Select a warehouse to view details"
+      },
+      "fields": {
+        "id": "ID",
+        "contactFirstName": "Contact First Name",
+        "contactLastName": "Contact Last Name",
+        "phone": "Phone",
+        "email": "Email",
+        "messagingPlatform": "Messaging Platform",
+        "messagingId": "Messaging ID",
+        "address": "Address",
+        "street1": "Street 1",
+        "street2": "Street 2",
+        "city": "City",
+        "state": "State",
+        "zip": "ZIP",
+        "costDescription": "Cost Structure Description",
+        "parsedJson": "Parsed JSON (preview)"
+      }
+    },
     "agents": {
       "add": "Add",
       "add_agent": "Add Agent",
@@ -1361,6 +1439,7 @@
     "dashboard": "Dashboard",
     "knowledge": "Knowledge",
     "organizations": "Organizations",
+    "products": "Products",
     "schedule": "Schedule",
     "settings": "Settings",
     "skill_editor": "Skill Editor",
@@ -1368,7 +1447,8 @@
     "tasks": "Tasks",
     "tests": "Tests",
     "tools": "Tools",
-    "vehicles": "Vehicles"
+    "vehicles": "Vehicles",
+    "warehouses": "Warehouses"
   },
   "agentnotify": {
     "behind_the_scene": "Behind_the_scene",
