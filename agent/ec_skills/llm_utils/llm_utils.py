@@ -628,12 +628,26 @@ def extract_provider_config(provider, config_manager=None):
                 supports_vision = model.get('supports_vision', True)
                 break
     
-    # Get API key from environment variables
+    # Get API key from secure store (with user isolation, same as LLMProvider.get_api_key())
     api_key = None
-    for env_var in api_key_env_vars:
-        api_key = os.environ.get(env_var)
-        if api_key:
-            break
+    try:
+        from utils.env.secure_store import get_current_username, secure_store
+        username = get_current_username()
+        for env_var in api_key_env_vars:
+            api_key = secure_store.get(env_var, username=username)
+            if api_key and api_key.strip():
+                break
+        
+        # Log error if no API key found
+        if not api_key and api_key_env_vars:
+            logger.error(
+                f"[extract_provider_config] No API key found for provider '{provider_name}' "
+                f"in secure store. Required env vars: {api_key_env_vars}"
+            )
+    except Exception as e:
+        logger.error(
+            f"[extract_provider_config] Failed to get API key for provider '{provider_name}': {e}"
+        )
     
     # Extract other configs
     base_url = provider.get('base_url')

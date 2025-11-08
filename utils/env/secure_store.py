@@ -331,17 +331,19 @@ def get_current_username() -> Optional[str]:
     This is a utility function that can be used throughout the application
     to get the current user's username for secure store operations.
     
+    Note: AuthManager is responsible for restoring user identity from uli.json
+    during initialization, so this function only needs to query AuthManager.
+    
     Returns:
-        Username if user is logged in, None otherwise
+        Username if user is logged in or identity was restored, None otherwise
     """
     try:
         from app_context import AppContext
         auth_manager = AppContext.get_auth_manager()
         if auth_manager:
-            username = auth_manager.get_current_user()
-            if username:
-                return username
+            return auth_manager.get_current_user()
     except Exception:
         # Silently fail - this is called from many places and shouldn't break if auth is unavailable
         pass
+    
     return None
