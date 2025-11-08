@@ -381,16 +381,6 @@ UsePreviousLanguage=yes
 ShowLanguageDialog=auto
 ; Prevent multiple installer instances when user double-clicks repeatedly
 SetupMutex=eCanInstallerMutex
-; Window focus and visibility settings
-AlwaysShowComponentsList=no
-DisableWelcomePage=no
-DisableReadyPage=no
-AppendDefaultDirName=no
-; Ensure installer window stays on top and gets focus
-WindowVisible=yes
-WindowShowCaption=yes
-WindowStartMaximized=no
-WindowResizable=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -462,7 +452,6 @@ begin
     SplashForm := nil;
   end;
   WizardForm.BringToFront;
-  WizardForm.SetFocus;
 end;
 
 // Handle installer step changes
@@ -496,7 +485,7 @@ begin
 end;
 
 [Run]
-Filename: \"""" + run_target + """\"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowait postinstall skipifsilent
+Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowait postinstall skipifsilent
 """
 
             iss_file = self.project_root / "build" / "setup.iss"
