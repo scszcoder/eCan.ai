@@ -158,13 +158,27 @@ class EmbeddingFactory:
                 
                 if api_key:
                     try:
+                        # Create no-proxy httpx client for Baidu Qianfan (domestic API, bypass proxy)
+                        from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
+                        sync_client, _ = _create_no_proxy_http_client()
+                        
                         # Use OpenAIEmbeddings with Baidu's V2 API endpoint
                         # API key is automatically passed as Bearer token
-                        return OpenAIEmbeddings(
-                            model=model_name or "bge-large-zh",
-                            openai_api_key=api_key,
-                            openai_api_base="https://qianfan.baidubce.com/v2"
-                        )
+                        if sync_client:
+                            logger.debug(f"[EmbeddingFactory] Baidu Qianfan using no-proxy client (domestic API)")
+                            return OpenAIEmbeddings(
+                                model=model_name or "bge-large-zh",
+                                openai_api_key=api_key,
+                                openai_api_base="https://qianfan.baidubce.com/v2",
+                                http_client=sync_client  # Bypass proxy for domestic API
+                            )
+                        else:
+                            logger.debug(f"[EmbeddingFactory] Baidu Qianfan using default client (no proxy configured)")
+                            return OpenAIEmbeddings(
+                                model=model_name or "bge-large-zh",
+                                openai_api_key=api_key,
+                                openai_api_base="https://qianfan.baidubce.com/v2"
+                            )
                     except Exception as e:
                         logger.error(f"[EmbeddingFactory] Baidu Qianfan OpenAI-compatible embeddings failed: {e}")
                         return FakeEmbeddings(size=1024)  # Baidu default dimension
@@ -192,16 +206,39 @@ class EmbeddingFactory:
                     logger.warning(f"[EmbeddingFactory] DashScope API key not found")
                     return FakeEmbeddings(size=1536)
                     
-            elif provider_enum_value == "doubao":
-                # Doubao embeddings
-                # Note: Doubao is not directly supported in langchain_community.embeddings
-                # If it becomes available, implement it here
-                api_key = secure_store.get("DOUBAO_API_KEY", username=username)
+            elif provider_enum_value == "doubao" or provider_enum_value == "bytedance":
+                # Bytedance Doubao embeddings - use OpenAI-compatible API (Volcano Engine)
+                # Doubao provides OpenAI-compatible embedding API
+                api_key = secure_store.get("ARK_API_KEY", username=username)
+                
                 if api_key:
-                    logger.warning(f"[EmbeddingFactory] Doubao embeddings not yet implemented in langchain_community")
-                    return FakeEmbeddings(size=1024)  # Doubao default dimension
+                    try:
+                        # Create no-proxy httpx client for Bytedance (domestic API, bypass proxy)
+                        from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
+                        sync_client, _ = _create_no_proxy_http_client()
+                        
+                        # Use OpenAIEmbeddings with Bytedance's OpenAI-compatible endpoint
+                        # API key is automatically passed as Bearer token
+                        if sync_client:
+                            logger.debug(f"[EmbeddingFactory] Bytedance Doubao using no-proxy client (domestic API)")
+                            return OpenAIEmbeddings(
+                                model=model_name or "doubao-embedding",
+                                openai_api_key=api_key,
+                                openai_api_base="https://ark.cn-beijing.volces.com/api/v3",
+                                http_client=sync_client  # Bypass proxy for domestic API
+                            )
+                        else:
+                            logger.debug(f"[EmbeddingFactory] Bytedance Doubao using default client (no proxy configured)")
+                            return OpenAIEmbeddings(
+                                model=model_name or "doubao-embedding",
+                                openai_api_key=api_key,
+                                openai_api_base="https://ark.cn-beijing.volces.com/api/v3"
+                            )
+                    except Exception as e:
+                        logger.error(f"[EmbeddingFactory] Bytedance Doubao OpenAI-compatible embeddings failed: {e}")
+                        return FakeEmbeddings(size=1024)  # Doubao default dimension
                 else:
-                    logger.warning(f"[EmbeddingFactory] Doubao API key not found")
+                    logger.warning(f"[EmbeddingFactory] Bytedance ARK_API_KEY not found")
                     return FakeEmbeddings(size=1024)
                 
             else:

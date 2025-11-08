@@ -628,12 +628,26 @@ def extract_provider_config(provider, config_manager=None):
                 supports_vision = model.get('supports_vision', True)
                 break
     
-    # Get API key from environment variables
+    # Get API key from secure store (with user isolation, same as LLMProvider.get_api_key())
     api_key = None
-    for env_var in api_key_env_vars:
-        api_key = os.environ.get(env_var)
-        if api_key:
-            break
+    try:
+        from utils.env.secure_store import get_current_username, secure_store
+        username = get_current_username()
+        for env_var in api_key_env_vars:
+            api_key = secure_store.get(env_var, username=username)
+            if api_key and api_key.strip():
+                break
+        
+        # Log error if no API key found
+        if not api_key and api_key_env_vars:
+            logger.error(
+                f"[extract_provider_config] No API key found for provider '{provider_name}' "
+                f"in secure store. Required env vars: {api_key_env_vars}"
+            )
+    except Exception as e:
+        logger.error(
+            f"[extract_provider_config] Failed to get API key for provider '{provider_name}': {e}"
+        )
     
     # Extract other configs
     base_url = provider.get('base_url')
@@ -902,16 +916,77 @@ def _create_llm_instance(provider, config_manager=None):
             base_url = base_url or 'https://qianfan.baidubce.com/v2'
             
             try:
-                # Use ChatOpenAI with Baidu's OpenAI-compatible endpoint
-                # API key is passed as Bearer token in Authorization header
-                return ChatOpenAI(
-                    model=model_name,
-                    api_key=baidu_api_key,
-                    base_url=base_url,
-                    temperature=0
-                )
+                # Create no-proxy httpx clients for Baidu Qianfan (domestic API, bypass proxy)
+                sync_client, async_client = _create_no_proxy_http_client()
+                
+                if sync_client or async_client:
+                    logger.debug(f"[Baidu Qianfan] Using no-proxy httpx clients (domestic API, bypassing proxy)")
+                    
+                    # ChatOpenAI supports both http_client and http_async_client
+                    llm_instance = ChatOpenAI(
+                        model=model_name,
+                        api_key=baidu_api_key,
+                        base_url=base_url,
+                        temperature=0,
+                        http_client=sync_client,  # Use custom SYNC client that bypasses proxy
+                        http_async_client=async_client  # Use custom ASYNC client that bypasses proxy
+                    )
+                    
+                    return llm_instance
+                else:
+                    # No proxy configured - use default clients (more efficient, direct connection)
+                    logger.debug(f"[Baidu Qianfan] Using default httpx clients (no proxy configured)")
+                    return ChatOpenAI(
+                        model=model_name,
+                        api_key=baidu_api_key,
+                        base_url=base_url,
+                        temperature=0
+                    )
             except Exception as e:
                 logger.error(f"Failed to create Baidu Qianfan ChatOpenAI instance: {e}")
+                return None
+        
+        # Check for Bytedance Doubao - use OpenAI-compatible API (Volcano Engine)
+        elif 'bytedance' in provider_name.lower() or 'doubao' in provider_name.lower() or 'chatdoubao' == class_name:
+            model_name = model_name or 'doubao-pro-256k'
+            # Bytedance Doubao (Volcano Engine) uses OpenAI-compatible format
+            ark_api_key = get_api_key('ARK_API_KEY')
+            if not ark_api_key:
+                logger.error("Bytedance Doubao requires ARK_API_KEY in secure_store")
+                return None
+            
+            # Bytedance Doubao OpenAI-compatible API endpoint (Volcano Engine)
+            base_url = base_url or 'https://ark.cn-beijing.volces.com/api/v3'
+            
+            try:
+                # Create no-proxy httpx clients for Bytedance (domestic API, bypass proxy)
+                sync_client, async_client = _create_no_proxy_http_client()
+                
+                if sync_client or async_client:
+                    logger.debug(f"[Bytedance Doubao] Using no-proxy httpx clients (domestic API, bypassing proxy)")
+                    
+                    # ChatOpenAI supports both http_client and http_async_client
+                    llm_instance = ChatOpenAI(
+                        model=model_name,
+                        api_key=ark_api_key,
+                        base_url=base_url,
+                        temperature=0,
+                        http_client=sync_client,  # Use custom SYNC client that bypasses proxy
+                        http_async_client=async_client  # Use custom ASYNC client that bypasses proxy
+                    )
+                    
+                    return llm_instance
+                else:
+                    # No proxy configured - use default clients (more efficient, direct connection)
+                    logger.debug(f"[Bytedance Doubao] Using default httpx clients (no proxy configured)")
+                    return ChatOpenAI(
+                        model=model_name,
+                        api_key=ark_api_key,
+                        base_url=base_url,
+                        temperature=0
+                    )
+            except Exception as e:
+                logger.error(f"Failed to create Bytedance Doubao ChatOpenAI instance: {e}")
                 return None
         
         # Check for Ollama
@@ -1103,8 +1178,8 @@ def create_browser_use_llm_by_provider_type(
         )
         return _create_and_validate_browser_use_llm(bu_config)
     
-    # OpenAI-compatible providers (DeepSeek, DashScope, Ollama, Qwen, Baidu Qianfan, etc.)
-    elif provider_type in ['deepseek', 'dashscope', 'ollama', 'qwen', 'qwq', 'baidu_qianfan']:
+    # OpenAI-compatible providers (DeepSeek, DashScope, Ollama, Qwen, Baidu Qianfan, Bytedance, etc.)
+    elif provider_type in ['deepseek', 'dashscope', 'ollama', 'qwen', 'qwq', 'baidu_qianfan', 'bytedance']:
         bu_config = {
             'model': model_name or default_config['model'],
             'api_key': api_key or default_config['api_key'] or 'dummy-key'
@@ -1118,9 +1193,9 @@ def create_browser_use_llm_by_provider_type(
         )
         
         # Check if this is a domestic API that needs proxy bypass
-        # Domestic APIs (DashScope, DeepSeek, Baidu Qianfan) may have proxy restrictions
+        # Domestic APIs (DashScope, DeepSeek, Baidu Qianfan, Bytedance) may have proxy restrictions
         # Optimization: Only creates no-proxy clients if proxy is actually configured
-        domestic_apis_need_direct = ['dashscope', 'qwen', 'qwq', 'deepseek', 'baidu_qianfan']
+        domestic_apis_need_direct = ['dashscope', 'qwen', 'qwq', 'deepseek', 'baidu_qianfan', 'bytedance']
         
         if provider_type in domestic_apis_need_direct:
             # Create no-proxy httpx clients (sync + async, thread-safe, doesn't modify global env vars)

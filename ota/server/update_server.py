@@ -8,7 +8,7 @@ import logging
 import os
 from flask import Flask, jsonify, request, send_file, Response
 from pathlib import Path
-from appcast_generator import AppcastGenerator
+from .appcast_generator import AppcastGenerator
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
