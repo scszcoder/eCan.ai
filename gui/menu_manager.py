@@ -272,45 +272,12 @@ class MenuMessages:
     DEFAULT_LANG = 'zh-CN'
     
     def __init__(self):
-        self.current_lang = self._detect_language()
-        logger.info(f"MenuMessages initialized with language: {self.current_lang}")
-    
-    def _detect_language(self):
-        """Detect language from system settings."""
-        try:
-            # macOS: Try to read system UI language directly
-            if sys.platform == 'darwin':
-                try:
-                    import subprocess
-                    result = subprocess.run(
-                        ['defaults', 'read', '-g', 'AppleLanguages'],
-                        capture_output=True,
-                        text=True,
-                        timeout=1
-                    )
-                    if result.returncode == 0:
-                        output = result.stdout.lower()
-                        if 'zh-hans' in output or 'zh-cn' in output or 'zh_cn' in output:
-                            return 'zh-CN'
-                        elif 'zh-hant' in output or 'zh-tw' in output or 'zh-hk' in output:
-                            return 'zh-CN'
-                        elif 'en' in output:
-                            return 'en-US'
-                except Exception:
-                    pass
-            
-            # Fallback: Use Python locale module
-            import locale
-            system_lang = locale.getdefaultlocale()[0]
-            if system_lang:
-                if 'zh' in system_lang.lower() or 'cn' in system_lang.lower():
-                    return 'zh-CN'
-                elif 'en' in system_lang.lower():
-                    return 'en-US'
-            
-            return self.DEFAULT_LANG
-        except Exception:
-            return self.DEFAULT_LANG
+        from utils.i18n_helper import detect_language
+        self.current_lang = detect_language(
+            default_lang=self.DEFAULT_LANG,
+            supported_languages=list(self.MESSAGES.keys())
+        )
+        logger.info(f"[MenuManager] Language: {self.current_lang}")
     
     def get(self, key, **kwargs):
         """Get message by key with optional formatting."""

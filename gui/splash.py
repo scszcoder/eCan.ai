@@ -54,46 +54,12 @@ class SplashMessages:
     }
     
     def __init__(self):
-        self.language = self._detect_language()
-    
-    def _detect_language(self):
-        """Detect language from system settings."""
-        try:
-            # For macOS: Use system defaults to get actual UI language
-            if sys.platform == 'darwin':
-                try:
-                    import subprocess
-                    result = subprocess.run(
-                        ['defaults', 'read', '-g', 'AppleLanguages'],
-                        capture_output=True,
-                        text=True,
-                        timeout=1
-                    )
-                    if result.returncode == 0:
-                        output = result.stdout.lower()
-                        # Check for Chinese variants
-                        if 'zh-hans' in output or 'zh-cn' in output or 'zh_cn' in output:
-                            return 'zh-CN'
-                        elif 'zh-hant' in output or 'zh-tw' in output or 'zh-hk' in output:
-                            return 'zh-CN'  # Use simplified Chinese for traditional as well
-                        elif 'en' in output:
-                            return 'en-US'
-                except Exception as e:
-                    print(f"[Splash] macOS language detection failed: {e}")
-            
-            # Fallback: Try locale (for Windows/Linux or if macOS detection fails)
-            import locale
-            system_lang = locale.getdefaultlocale()[0]
-            if system_lang:
-                if 'zh' in system_lang.lower() or 'cn' in system_lang.lower():
-                    return 'zh-CN'
-                elif 'en' in system_lang.lower():
-                    return 'en-US'
-            
-            # If all detection fails, default to Chinese
-            return self.DEFAULT_LANG
-        except Exception:
-            return self.DEFAULT_LANG
+        from utils.i18n_helper import detect_language
+        self.language = detect_language(
+            default_lang=self.DEFAULT_LANG,
+            supported_languages=list(self.MESSAGES.keys())
+        )
+        print(f"[Splash] Language: {self.language}")
     
     def get(self, key: str) -> str:
         """Get localized message."""
