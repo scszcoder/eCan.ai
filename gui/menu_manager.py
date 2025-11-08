@@ -291,8 +291,15 @@ class MenuMessages:
         return message
 
 
-# Global message instance
-_menu_messages = MenuMessages()
+# Global message instance - lazy initialization
+_menu_messages = None
+
+def _get_menu_messages():
+    """Get MenuMessages instance with lazy initialization."""
+    global _menu_messages
+    if _menu_messages is None:
+        _menu_messages = MenuMessages()
+    return _menu_messages
 
 class MenuManager:
     """Menu Manager Class"""
@@ -326,11 +333,11 @@ class MenuManager:
             logger.info("Setting up custom title bar menu for Windows/Linux...")
             
             # Set up simplified menus for custom title bar
-            app_menu = custom_menubar.addMenu(_menu_messages.get('menu_ecan'))
+            app_menu = custom_menubar.addMenu(_get_menu_messages().get('menu_ecan'))
             logger.debug("Added 'eCan' menu to custom menubar")
             self._setup_app_menu(app_menu)
 
-            help_menu = custom_menubar.addMenu(_menu_messages.get('menu_help'))
+            help_menu = custom_menubar.addMenu(_get_menu_messages().get('menu_help'))
             logger.debug("Added 'Help' menu to custom menubar")
             self._setup_help_menu(help_menu)
 
@@ -371,7 +378,7 @@ class MenuManager:
                 return
 
         # Only keep Help menu in addition to application menu
-        help_menu = menubar.addMenu(_menu_messages.get('menu_help'))
+        help_menu = menubar.addMenu(_get_menu_messages().get('menu_help'))
         self._setup_help_menu(help_menu)
 
         logger.info("macOS menu bar setup complete (eCan + Help only)")
@@ -391,11 +398,11 @@ class MenuManager:
             logger.warning(f"Windows menu setup failed: {e}")
 
         # Application menu
-        app_menu = menubar.addMenu(_menu_messages.get('menu_ecan'))
+        app_menu = menubar.addMenu(_get_menu_messages().get('menu_ecan'))
         self._setup_app_menu(app_menu)
 
         # Only keep Help menu
-        help_menu = menubar.addMenu(_menu_messages.get('menu_help'))
+        help_menu = menubar.addMenu(_get_menu_messages().get('menu_help'))
         self._setup_help_menu(help_menu)
     
     def _setup_linux_menus(self, menubar):
@@ -413,10 +420,10 @@ class MenuManager:
             logger.warning(f"Linux menu setup failed: {e}")
 
         # Standard menu layout on Linux - keep only eCan and Help
-        app_menu = menubar.addMenu(_menu_messages.get('menu_ecan'))
+        app_menu = menubar.addMenu(_get_menu_messages().get('menu_ecan'))
         self._setup_app_menu(app_menu)
 
-        help_menu = menubar.addMenu(_menu_messages.get('menu_help'))
+        help_menu = menubar.addMenu(_get_menu_messages().get('menu_help'))
         self._setup_help_menu(help_menu)
 
     def _setup_titlebar_menu_style(self, menubar):
@@ -523,19 +530,19 @@ class MenuManager:
     def _setup_app_menu(self, app_menu):
         """Set up application menu"""
         # About eCan
-        about_action = QAction(_menu_messages.get('about_ecan'), self.main_window)
+        about_action = QAction(_get_menu_messages().get('about_ecan'), self.main_window)
         about_action.triggered.connect(self.show_about_dialog)
         app_menu.addAction(about_action)
         
         # Check for updates
-        check_update_action = QAction(_menu_messages.get('check_updates'), self.main_window)
+        check_update_action = QAction(_get_menu_messages().get('check_updates'), self.main_window)
         check_update_action.triggered.connect(self.show_update_dialog)
         app_menu.addAction(check_update_action)
         
         app_menu.addSeparator()
         
         # Preferences/Settings
-        preferences_action = QAction(_menu_messages.get('preferences'), self.main_window)
+        preferences_action = QAction(_get_menu_messages().get('preferences'), self.main_window)
         preferences_action.setShortcut('Ctrl+,')
         preferences_action.triggered.connect(self.show_settings)
         app_menu.addAction(preferences_action)
@@ -543,32 +550,32 @@ class MenuManager:
         app_menu.addSeparator()
         
         # Services menu (macOS standard)
-        services_menu = app_menu.addMenu(_menu_messages.get('services'))
+        services_menu = app_menu.addMenu(_get_menu_messages().get('services'))
         # Services menu is usually managed by system, just placeholder here
         
         app_menu.addSeparator()
         
         # Hide eCan
-        hide_action = QAction(_menu_messages.get('hide_ecan'), self.main_window)
+        hide_action = QAction(_get_menu_messages().get('hide_ecan'), self.main_window)
         hide_action.setShortcut('Ctrl+H')
         hide_action.triggered.connect(self.hide_app)
         app_menu.addAction(hide_action)
         
         # Hide others
-        hide_others_action = QAction(_menu_messages.get('hide_others'), self.main_window)
+        hide_others_action = QAction(_get_menu_messages().get('hide_others'), self.main_window)
         hide_others_action.setShortcut('Ctrl+Alt+H')
         hide_others_action.triggered.connect(self.hide_others)
         app_menu.addAction(hide_others_action)
         
         # Show all
-        show_all_action = QAction(_menu_messages.get('show_all'), self.main_window)
+        show_all_action = QAction(_get_menu_messages().get('show_all'), self.main_window)
         show_all_action.triggered.connect(self.show_all)
         app_menu.addAction(show_all_action)
         
         app_menu.addSeparator()
         
         # Quit eCan
-        quit_action = QAction(_menu_messages.get('quit_ecan'), self.main_window)
+        quit_action = QAction(_get_menu_messages().get('quit_ecan'), self.main_window)
         quit_action.setShortcut('Ctrl+Q')
         quit_action.triggered.connect(self.main_window.close)
         app_menu.addAction(quit_action)
@@ -579,20 +586,20 @@ class MenuManager:
         """Set up Help menu"""
         try:
             # User manual
-            user_manual_action = QAction(_menu_messages.get('ecan_help'), self.main_window)
+            user_manual_action = QAction(_get_menu_messages().get('ecan_help'), self.main_window)
             user_manual_action.setShortcut('F1')
             user_manual_action.triggered.connect(self.show_user_manual)
             help_menu.addAction(user_manual_action)
             logger.debug("Added 'eCan Help' menu item")
             
             # Quick start guide
-            quick_start_action = QAction(_menu_messages.get('quick_start'), self.main_window)
+            quick_start_action = QAction(_get_menu_messages().get('quick_start'), self.main_window)
             quick_start_action.triggered.connect(self.show_quick_start)
             help_menu.addAction(quick_start_action)
             logger.debug("Added 'Quick Start Guide' menu item")
             
             # Keyboard shortcuts
-            shortcuts_action = QAction(_menu_messages.get('keyboard_shortcuts'), self.main_window)
+            shortcuts_action = QAction(_get_menu_messages().get('keyboard_shortcuts'), self.main_window)
             shortcuts_action.triggered.connect(self.show_shortcuts)
             help_menu.addAction(shortcuts_action)
             logger.debug("Added 'Keyboard Shortcuts' menu item")
@@ -600,7 +607,7 @@ class MenuManager:
             help_menu.addSeparator()
 
             # Log Viewer - use platform-specific shortcut
-            log_viewer_action = QAction(_menu_messages.get('view_logs'), self.main_window)
+            log_viewer_action = QAction(_get_menu_messages().get('view_logs'), self.main_window)
             # Only set shortcut on macOS to avoid conflicts on Windows
             if sys.platform == 'darwin':
                 log_viewer_action.setShortcut('Cmd+Shift+L')
@@ -610,7 +617,7 @@ class MenuManager:
             logger.debug("Added 'View Logs' menu item")
 
             # Test (for eCan.ai app) - simple harness entry below 'View Logs'
-            test_action = QAction(_menu_messages.get('test'), self.main_window)
+            test_action = QAction(_get_menu_messages().get('test'), self.main_window)
             test_action.triggered.connect(self.quick_test)
             help_menu.addAction(test_action)
             logger.debug("Added 'Test' menu item under Help")
@@ -635,21 +642,21 @@ class MenuManager:
     def _setup_macos_app_menu(self, app_menu):
         """Set up macOS-specific application menu (ensure all functionality included)"""
         # About eCan
-        about_action = QAction(_menu_messages.get('about_ecan'), self.main_window)
+        about_action = QAction(_get_menu_messages().get('about_ecan'), self.main_window)
         about_action.triggered.connect(self.show_about_dialog)
         app_menu.addAction(about_action)
         
         app_menu.addSeparator()
         
         # Check for updates (OTA functionality)
-        check_update_action = QAction(_menu_messages.get('check_updates'), self.main_window)
+        check_update_action = QAction(_get_menu_messages().get('check_updates'), self.main_window)
         check_update_action.triggered.connect(self.show_update_dialog)
         app_menu.addAction(check_update_action)
         
         app_menu.addSeparator()
         
         # Preferences/Settings
-        preferences_action = QAction(_menu_messages.get('preferences'), self.main_window)
+        preferences_action = QAction(_get_menu_messages().get('preferences'), self.main_window)
         preferences_action.setShortcut('Cmd+,')  # macOS uses Cmd instead of Ctrl
         preferences_action.triggered.connect(self.show_settings)
         app_menu.addAction(preferences_action)
@@ -657,32 +664,32 @@ class MenuManager:
         app_menu.addSeparator()
         
         # Services menu (macOS standard)
-        services_menu = app_menu.addMenu(_menu_messages.get('services'))
+        services_menu = app_menu.addMenu(_get_menu_messages().get('services'))
         # Services menu is usually managed by system, just placeholder here
         
         app_menu.addSeparator()
         
         # Hide eCan
-        hide_action = QAction(_menu_messages.get('hide_ecan'), self.main_window)
+        hide_action = QAction(_get_menu_messages().get('hide_ecan'), self.main_window)
         hide_action.setShortcut('Cmd+H')  # macOS uses Cmd
         hide_action.triggered.connect(self.hide_app)
         app_menu.addAction(hide_action)
         
         # Hide others
-        hide_others_action = QAction(_menu_messages.get('hide_others'), self.main_window)
+        hide_others_action = QAction(_get_menu_messages().get('hide_others'), self.main_window)
         hide_others_action.setShortcut('Cmd+Alt+H')  # macOS uses Cmd
         hide_others_action.triggered.connect(self.hide_others)
         app_menu.addAction(hide_others_action)
         
         # Show all
-        show_all_action = QAction(_menu_messages.get('show_all'), self.main_window)
+        show_all_action = QAction(_get_menu_messages().get('show_all'), self.main_window)
         show_all_action.triggered.connect(self.show_all)
         app_menu.addAction(show_all_action)
         
         app_menu.addSeparator()
         
         # Quit eCan
-        quit_action = QAction(_menu_messages.get('quit_ecan'), self.main_window)
+        quit_action = QAction(_get_menu_messages().get('quit_ecan'), self.main_window)
         quit_action.setShortcut('Cmd+Q')  # macOS uses Cmd
         quit_action.triggered.connect(self.main_window.close)
         app_menu.addAction(quit_action)
@@ -736,10 +743,10 @@ class MenuManager:
             except Exception:
                 pass
             
-            about_text = _menu_messages.get('about_text', version=version)
+            about_text = _get_menu_messages().get('about_text', version=version)
             
             msg = QMessageBox(self.main_window)
-            msg.setWindowTitle(_menu_messages.get('about_title'))
+            msg.setWindowTitle(_get_menu_messages().get('about_title'))
             msg.setText(about_text)
             msg.setTextFormat(Qt.RichText)
             self._apply_messagebox_style(msg)
@@ -762,36 +769,36 @@ class MenuManager:
             dialog.exec()
         except Exception as e:
             logger.error(f"Failed to show update dialog: {e}")
-            QMessageBox.warning(self.main_window, _menu_messages.get('error_title'), 
-                              _menu_messages.get('update_error', error=str(e)))
+            QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'), 
+                              _get_menu_messages().get('update_error', error=str(e)))
     
     def show_settings(self):
         """Show settings dialog"""
         try:
             settings_dialog = QDialog(self.main_window)
-            settings_dialog.setWindowTitle(_menu_messages.get('settings_title'))
+            settings_dialog.setWindowTitle(_get_menu_messages().get('settings_title'))
             settings_dialog.setModal(True)
             settings_dialog.setFixedSize(600, 500)
             
             layout = QVBoxLayout()
             
             # Settings label
-            title_label = QLabel(_menu_messages.get('app_settings'))
+            title_label = QLabel(_get_menu_messages().get('app_settings'))
             title_label.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
             layout.addWidget(title_label)
             
             # OTA Update Settings Group
-            ota_group = QGroupBox(_menu_messages.get('ota_update_settings'))
+            ota_group = QGroupBox(_get_menu_messages().get('ota_update_settings'))
             ota_layout = QVBoxLayout()
             
             # Server selection
             server_layout = QHBoxLayout()
-            server_label = QLabel(_menu_messages.get('update_server'))
+            server_label = QLabel(_get_menu_messages().get('update_server'))
             server_layout.addWidget(server_label)
             
             # Radio buttons for server selection
-            self.remote_server_radio = QRadioButton(_menu_messages.get('remote_server'))
-            self.local_server_radio = QRadioButton(_menu_messages.get('local_server'))
+            self.remote_server_radio = QRadioButton(_get_menu_messages().get('remote_server'))
+            self.local_server_radio = QRadioButton(_get_menu_messages().get('local_server'))
             
             # Load current configuration
             try:
@@ -809,7 +816,7 @@ class MenuManager:
             
             # Local server URL input
             local_url_layout = QHBoxLayout()
-            local_url_label = QLabel(_menu_messages.get('local_server_url'))
+            local_url_label = QLabel(_get_menu_messages().get('local_server_url'))
 
             # Get default URL from config
             try:
@@ -824,7 +831,7 @@ class MenuManager:
             ota_layout.addLayout(local_url_layout)
             
             # Start local server button
-            start_server_button = QPushButton(_menu_messages.get('start_local_server'))
+            start_server_button = QPushButton(_get_menu_messages().get('start_local_server'))
             start_server_button.clicked.connect(self.start_local_ota_server)
             ota_layout.addWidget(start_server_button)
             
@@ -832,14 +839,14 @@ class MenuManager:
             layout.addWidget(ota_group)
             
             # Other settings
-            other_group = QGroupBox(_menu_messages.get('general_settings'))
+            other_group = QGroupBox(_get_menu_messages().get('general_settings'))
             other_layout = QVBoxLayout()
             
-            auto_save_checkbox = QCheckBox(_menu_messages.get('auto_save_projects'))
+            auto_save_checkbox = QCheckBox(_get_menu_messages().get('auto_save_projects'))
             auto_save_checkbox.setChecked(True)
             other_layout.addWidget(auto_save_checkbox)
             
-            dark_mode_checkbox = QCheckBox(_menu_messages.get('dark_mode'))
+            dark_mode_checkbox = QCheckBox(_get_menu_messages().get('dark_mode'))
             other_layout.addWidget(dark_mode_checkbox)
             
             other_group.setLayout(other_layout)
@@ -847,9 +854,9 @@ class MenuManager:
             
             # Buttons
             button_layout = QHBoxLayout()
-            ok_button = QPushButton(_menu_messages.get('ok'))
-            cancel_button = QPushButton(_menu_messages.get('cancel'))
-            apply_button = QPushButton(_menu_messages.get('apply'))
+            ok_button = QPushButton(_get_menu_messages().get('ok'))
+            cancel_button = QPushButton(_get_menu_messages().get('cancel'))
+            apply_button = QPushButton(_get_menu_messages().get('apply'))
             
             ok_button.clicked.connect(lambda: self.save_ota_settings(settings_dialog))
             cancel_button.clicked.connect(settings_dialog.reject)
@@ -865,8 +872,8 @@ class MenuManager:
             
         except Exception as e:
             logger.error(f"Failed to show settings: {e}")
-            QMessageBox.warning(self.main_window, _menu_messages.get('error_title'), 
-                              _menu_messages.get('settings_open_error'))
+            QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'), 
+                              _get_menu_messages().get('settings_open_error'))
     
     def save_ota_settings(self, dialog=None):
         """Save OTA settings"""
@@ -883,16 +890,16 @@ class MenuManager:
                 ota_config.set_local_server_url(local_url)
             
             logger.info(f"OTA settings saved: use_local={use_local}, local_url={local_url}")
-            QMessageBox.information(self.main_window, _menu_messages.get('settings_title'), 
-                                  _menu_messages.get('settings_saved'))
+            QMessageBox.information(self.main_window, _get_menu_messages().get('settings_title'), 
+                                  _get_menu_messages().get('settings_saved'))
             
             if dialog:
                 dialog.accept()
                 
         except Exception as e:
             logger.error(f"Failed to save OTA settings: {e}")
-            QMessageBox.warning(self.main_window, _menu_messages.get('error_title'), 
-                              _menu_messages.get('settings_error', error=str(e)))
+            QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'), 
+                              _get_menu_messages().get('settings_error', error=str(e)))
     
     def start_local_ota_server(self):
         """Start local OTA test server"""
@@ -906,7 +913,7 @@ class MenuManager:
             start_script = project_root / "ota" / "start_local_server.py"
 
             if not start_script.exists():
-                QMessageBox.warning(self.main_window, _menu_messages.get('error_title'), 
+                QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'), 
                                   f"Local server script not found: {start_script}")
                 return
 
@@ -933,14 +940,14 @@ class MenuManager:
             
             QMessageBox.information(
                 self.main_window, 
-                _menu_messages.get('server_starting'), 
-                _menu_messages.get('server_starting_message', url=server_url)
+                _get_menu_messages().get('server_starting'), 
+                _get_menu_messages().get('server_starting_message', url=server_url)
             )
             
         except Exception as e:
             logger.error(f"Failed to start local OTA server: {e}")
-            QMessageBox.warning(self.main_window, _menu_messages.get('error_title'), 
-                              _menu_messages.get('server_error', error=str(e)))
+            QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'), 
+                              _get_menu_messages().get('server_error', error=str(e)))
     
     def hide_app(self):
         """Hide application"""
@@ -981,10 +988,10 @@ class MenuManager:
     def show_user_manual(self):
         """Show user manual"""
         try:
-            manual_text = _menu_messages.get('user_manual_text')
+            manual_text = _get_menu_messages().get('user_manual_text')
             
             msg = QMessageBox(self.main_window)
-            msg.setWindowTitle(_menu_messages.get('user_manual_title'))
+            msg.setWindowTitle(_get_menu_messages().get('user_manual_title'))
             msg.setText(manual_text)
             msg.setTextFormat(Qt.RichText)
             self._apply_messagebox_style(msg)
@@ -992,16 +999,16 @@ class MenuManager:
             
         except Exception as e:
             logger.error(f"Failed to show user manual: {e}")
-            QMessageBox.warning(self.main_window, _menu_messages.get('error_title'), 
-                              _menu_messages.get('user_manual_error'))
+            QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'), 
+                              _get_menu_messages().get('user_manual_error'))
     
     def show_quick_start(self):
         """Show quick start guide"""
         try:
-            quick_start_text = _menu_messages.get('quick_start_text')
+            quick_start_text = _get_menu_messages().get('quick_start_text')
             
             msg = QMessageBox(self.main_window)
-            msg.setWindowTitle(_menu_messages.get('quick_start_title'))
+            msg.setWindowTitle(_get_menu_messages().get('quick_start_title'))
             msg.setText(quick_start_text)
             msg.setTextFormat(Qt.RichText)
             self._apply_messagebox_style(msg)
@@ -1009,8 +1016,8 @@ class MenuManager:
             
         except Exception as e:
             logger.error(f"Failed to show quick start guide: {e}")
-            QMessageBox.warning(self.main_window, _menu_messages.get('error_title'), 
-                              _menu_messages.get('quick_start_error'))
+            QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'), 
+                              _get_menu_messages().get('quick_start_error'))
 
     def show_test_item(self):
         """Handler for Help > Test: simple test dialog"""
@@ -1075,36 +1082,36 @@ class MenuManager:
                 modifier = 'Ctrl'
             
             shortcuts_text = f"""
-            <h2>{_menu_messages.get('shortcuts_title')}</h2>
+            <h2>{_get_menu_messages().get('shortcuts_title')}</h2>
             
-            <h3>{_menu_messages.get('shortcuts_app_control')}</h3>
+            <h3>{_get_menu_messages().get('shortcuts_app_control')}</h3>
             <table style="width: 100%; border-collapse: collapse;">
-                <tr><td style="padding: 4px;"><b>{modifier}+,</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_open_prefs')}</td></tr>
-                <tr><td style="padding: 4px;"><b>{modifier}+H</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_hide_app')}</td></tr>
-                <tr><td style="padding: 4px;"><b>{modifier}+Q</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_quit_app')}</td></tr>
-                <tr><td style="padding: 4px;"><b>F1</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_open_help')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+,</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_open_prefs')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+H</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_hide_app')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+Q</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_quit_app')}</td></tr>
+                <tr><td style="padding: 4px;"><b>F1</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_open_help')}</td></tr>
             </table>
             
-            <h3>{_menu_messages.get('shortcuts_system')}</h3>
+            <h3>{_get_menu_messages().get('shortcuts_system')}</h3>
             <table style="width: 100%; border-collapse: collapse;">
-                <tr><td style="padding: 4px;"><b>{modifier}+Shift+L</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_view_logs')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+Shift+L</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_view_logs')}</td></tr>
             </table>
             
-            <h3>{_menu_messages.get('shortcuts_navigation')}</h3>
+            <h3>{_get_menu_messages().get('shortcuts_navigation')}</h3>
             <table style="width: 100%; border-collapse: collapse;">
-                <tr><td style="padding: 4px;"><b>{modifier}+1</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_nav_chat')}</td></tr>
-                <tr><td style="padding: 4px;"><b>{modifier}+2</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_nav_agents')}</td></tr>
-                <tr><td style="padding: 4px;"><b>{modifier}+3</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_nav_skills')}</td></tr>
-                <tr><td style="padding: 4px;"><b>{modifier}+4</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_nav_schedule')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+1</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_nav_chat')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+2</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_nav_agents')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+3</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_nav_skills')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+4</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_nav_schedule')}</td></tr>
             </table>
             
             <p style="margin-top: 16px; color: #666; font-size: 12px;">
-            {_menu_messages.get('shortcuts_note')}
+            {_get_menu_messages().get('shortcuts_note')}
             </p>
             """
             
             msg = QMessageBox(self.main_window)
-            msg.setWindowTitle(_menu_messages.get('shortcuts_title'))
+            msg.setWindowTitle(_get_menu_messages().get('shortcuts_title'))
             msg.setText(shortcuts_text)
             msg.setTextFormat(Qt.RichText)
             self._apply_messagebox_style(msg)
@@ -1112,8 +1119,8 @@ class MenuManager:
             
         except Exception as e:
             logger.error(f"Failed to show shortcuts: {e}")
-            QMessageBox.warning(self.main_window, _menu_messages.get('error_title'), 
-                              _menu_messages.get('shortcuts_error'))
+            QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'), 
+                              _get_menu_messages().get('shortcuts_error'))
     
     def report_issue(self):
         """Report issue"""
