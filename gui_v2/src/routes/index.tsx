@@ -24,6 +24,8 @@ const Tests = React.lazy(() => import('../pages/Tests/Tests'));
 const OrgNavigator = React.lazy(() => import('../pages/Agents/OrgNavigator'));
 const AgentDetails = React.lazy(() => import('../pages/Agents/components/AgentDetails'));
 const Orgs = React.lazy(() => import('../pages/Orgs/Orgs'));
+const Warehouses = React.lazy(() => import('../pages/Warehouses/Warehouses'));
+const Products = React.lazy(() => import('../pages/Products/Products'));
 
 // LoadComponent包装器
 const LazyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -153,6 +155,16 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'tools',
                 element: <LazyWrapper><Tools /></LazyWrapper>,
+                keepAlive: true,
+            },
+            {
+                path: 'warehouses',
+                element: <LazyWrapper><Warehouses /></LazyWrapper>,
+                keepAlive: true,
+            },
+            {
+                path: 'products',
+                element: <LazyWrapper><Products /></LazyWrapper>,
                 keepAlive: true,
             },
             {
