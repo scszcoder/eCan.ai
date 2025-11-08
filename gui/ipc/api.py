@@ -8,11 +8,12 @@ from .types import IPCResponse
 from .wc_service import IPCWCService
 from utils.logger_helper import logger_helper as logger
 import gui.ipc.w2p_handlers
+# Ensure context handlers are registered
+import gui.ipc.context_handlers  # noqa: F401
 
 
 # Define generic type
 T = TypeVar('T')
-
 @dataclass
 class APIResponse(Generic[T]):
     """API response wrapper class"""

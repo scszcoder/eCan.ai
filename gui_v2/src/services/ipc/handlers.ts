@@ -12,13 +12,15 @@ import {
   useTaskStore,
   useSkillStore,
   useKnowledgeStore,
-  useChatStore
+  useChatStore,
 } from '../../stores';
 import { eventBus } from '@/utils/eventBus';
 import { useRunningNodeStore } from '@/modules/skill-editor/stores/running-node-store';
 import { useAvatarSceneStore } from '../../stores/avatarSceneStore';
 import { useRuntimeStateStore } from '@/modules/skill-editor/stores/runtime-state-store';
 import { logger } from '@/utils/logger';
+import { handleSendAllContexts, handleUpdateContexts } from './contextHandlers';
+
 import { handleOnboardingRequest, type OnboardingContext } from '../onboarding/onboardingService';
 import { avatarSceneOrchestrator } from '../avatarSceneOrchestrator';
 import type { SceneClip } from '@/types/avatarScene';
@@ -54,13 +56,6 @@ export class IPCHandlers {
         this.registerHandler('notify_event', this.notifyEvent);
         this.registerHandler('update_agents', this.updateAgents);
         this.registerHandler('update_agents_scenes', this.updateAgentsScenes);
-        this.registerHandler('update_skills', this.updateSkills);
-        this.registerHandler('update_tasks', this.updateTasks);
-        this.registerHandler('update_knowledge', this.updateKnowledges);
-        this.registerHandler('update_settings', this.updateSettings);
-        this.registerHandler('update_chats', this.updateChats);
-        // this.registerHandler('update_tools', this.updateTools);
-        // this.registerHandler('update_vehicles', this.updateVehicles);
         this.registerHandler('push_chat_message', this.pushChatMessage);
         this.registerHandler('update_skill_run_stat', this.updateSkillRunStat);
         this.registerHandler('update_tasks_stat', this.updateTasksStat);
@@ -68,21 +63,22 @@ export class IPCHandlers {
         this.registerHandler('update_all', this.updateAll);
         this.registerHandler('update_screens', this.updateScreens);
         this.registerHandler('onboarding_message', this.onboardingMessage);
+        // Context panel
+        this.registerHandler('send_all_contexts', handleSendAllContexts);
+        this.registerHandler('update_contexts', handleUpdateContexts);
     }
-
     private registerHandler(method: string, handler: Handler): void {
         this.handlers[method] = handler;
     }
 
     getHandlers(): HandlerMap {
-        return this.handlers;
+        return { ...this.handlers };
     }
-
-    /**
+/**
      * Handle onboarding message from backend
      * Standard request handler - delegates to onboarding service
      */
-    async onboardingMessage(request: IPCRequest): Promise<unknown> {
+    async onboardingMessage(request: IPCRequest): Promise<{ success: boolean; onboardingType: string; timestamp: number }> {
         try {
             // Extract onboarding data from request params
             const params = request.params as {
