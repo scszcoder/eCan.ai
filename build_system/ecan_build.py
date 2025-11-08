@@ -450,8 +450,8 @@ begin
     SplashForm.Close;
     SplashForm.Free;
     SplashForm := nil;
+    WizardForm.BringToFront;
   end;
-  WizardForm.BringToFront;
 end;
 
 // Handle installer step changes
