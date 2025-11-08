@@ -268,6 +268,14 @@ jobs:
           exit 1
         }
 
+    - name: Clean build artifacts
+      shell: pwsh
+      run: |
+        Write-Host "=== Cleaning build artifacts ===" -ForegroundColor Cyan
+        Remove-Item -Path dist, build -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path *.spec -Force -ErrorAction SilentlyContinue
+        Write-Host "Cleaned dist/, build/, and spec files" -ForegroundColor Green
+
     - name: Build Windows EXE
       shell: pwsh
       run: |
@@ -631,6 +639,13 @@ jobs:
         matrix-arch: ${{ matrix.arch }}
         matrix-target-arch: ${{ matrix.target_arch }}
         matrix-pyinstaller-arch: ${{ matrix.pyinstaller_arch }}
+
+    - name: Clean build artifacts
+      if: steps.should_build.outputs.should_build == 'true'
+      run: |
+        echo "=== Cleaning build artifacts ==="
+        rm -rf dist/ build/ *.spec
+        echo "Cleaned dist/, build/, and spec files"
 
     - name: Build macOS App
       if: steps.should_build.outputs.should_build == 'true'

@@ -432,11 +432,17 @@ class BuildValidator:
             })
 
         all_checks_passed = all(check["status"] == "pass" for check in checks)
+        any_fails = any(check["status"] == "fail" for check in checks)
+
+        # Overall status policy:
+        # - fail if any check failed
+        # - pass if there are no failures (warnings are non-fatal)
+        overall_status = "fail" if any_fails else "pass"
 
         return {
-            "status": "pass" if all_checks_passed else "fail",
+            "status": overall_status,
             "checks": checks,
-            "summary": f"Build artifacts validation {'passed' if all_checks_passed else 'failed'}"
+            "summary": f"Build artifacts validation {'passed' if overall_status == 'pass' else 'failed'}"
         }
 
     def _validate_windows_artifacts(self, version: str, arch: str) -> List[Dict[str, Any]]:
@@ -537,10 +543,21 @@ class BuildValidator:
                 break
 
         if not pkg_found:
+            # Try to help: list any PKG files present, even if names don't match
+            dist_dir = Path("dist")
+            existing_pkgs = []
+            try:
+                if dist_dir.exists():
+                    for p in dist_dir.glob("*.pkg"):
+                        existing_pkgs.append(p.name)
+            except Exception:
+                existing_pkgs = []
+
+            extra_info = f" | Found in dist: {existing_pkgs}" if existing_pkgs else ""
             checks.append({
                 "name": "pkg_installer",
                 "status": "warn",
-                "message": f"PKG installer not found. Tried: {', '.join(pkg_patterns)}"
+                "message": f"PKG installer not found. Tried: {', '.join(pkg_patterns)}{extra_info}"
             })
 
         return checks
