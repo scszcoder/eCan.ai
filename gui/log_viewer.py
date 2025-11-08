@@ -125,8 +125,15 @@ class LogViewerMessages:
         return message
 
 
-# Global message instance
-_log_viewer_messages = LogViewerMessages()
+# Global message instance - lazy initialization
+_log_viewer_messages = None
+
+def _get_log_viewer_messages():
+    """Get LogViewerMessages instance with lazy initialization."""
+    global _log_viewer_messages
+    if _log_viewer_messages is None:
+        _log_viewer_messages = LogViewerMessages()
+    return _log_viewer_messages
 
 
 class LogFileWatcher(QThread):
@@ -237,7 +244,7 @@ class LogViewer(QMainWindow):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"{APP_NAME} - {_log_viewer_messages.get('window_title')}")
+        self.setWindowTitle(f"{APP_NAME} - {_get_log_viewer_messages().get('window_title')}")
         self.setGeometry(100, 100, 1000, 700)
         
         # Initialize variables
@@ -326,13 +333,13 @@ class LogViewer(QMainWindow):
         layout = QHBoxLayout(panel)
         
         # Real-time monitoring checkbox
-        self.realtime_checkbox = QCheckBox(_log_viewer_messages.get('realtime_monitoring'))
+        self.realtime_checkbox = QCheckBox(_get_log_viewer_messages().get('realtime_monitoring'))
         self.realtime_checkbox.setChecked(True)
         self.realtime_checkbox.toggled.connect(self._toggle_realtime_monitoring)
         layout.addWidget(self.realtime_checkbox)
         
         # Auto-scroll checkbox
-        self.autoscroll_checkbox = QCheckBox(_log_viewer_messages.get('auto_scroll'))
+        self.autoscroll_checkbox = QCheckBox(_get_log_viewer_messages().get('auto_scroll'))
         self.autoscroll_checkbox.setChecked(True)
         self.autoscroll_checkbox.toggled.connect(self._toggle_auto_scroll)
         layout.addWidget(self.autoscroll_checkbox)
@@ -340,26 +347,26 @@ class LogViewer(QMainWindow):
         layout.addStretch()
         
         # Log level filter
-        layout.addWidget(QLabel(_log_viewer_messages.get('filter')))
+        layout.addWidget(QLabel(_get_log_viewer_messages().get('filter')))
         self.level_filter = QComboBox()
-        self.level_filter.addItems([_log_viewer_messages.get('filter_all'), "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+        self.level_filter.addItems([_get_log_viewer_messages().get('filter_all'), "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
         self.level_filter.currentTextChanged.connect(self._filter_logs)
         layout.addWidget(self.level_filter)
         
         # Refresh button
-        self.refresh_btn = QPushButton(_log_viewer_messages.get('refresh'))
+        self.refresh_btn = QPushButton(_get_log_viewer_messages().get('refresh'))
         self.refresh_btn.clicked.connect(self._refresh_logs)
         layout.addWidget(self.refresh_btn)
         
         # Search box
-        layout.addWidget(QLabel(_log_viewer_messages.get('search')))
+        layout.addWidget(QLabel(_get_log_viewer_messages().get('search')))
         self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText(_log_viewer_messages.get('search_placeholder'))
+        self.search_box.setPlaceholderText(_get_log_viewer_messages().get('search_placeholder'))
         self.search_box.textChanged.connect(self._search_logs)
         layout.addWidget(self.search_box)
 
         # Clear button
-        self.clear_btn = QPushButton(_log_viewer_messages.get('clear'))
+        self.clear_btn = QPushButton(_get_log_viewer_messages().get('clear'))
         self.clear_btn.clicked.connect(self._clear_logs)
         layout.addWidget(self.clear_btn)
 
@@ -371,19 +378,19 @@ class LogViewer(QMainWindow):
         layout = QHBoxLayout(panel)
         
         # Open log file button
-        self.open_file_btn = QPushButton(_log_viewer_messages.get('open_log_file'))
+        self.open_file_btn = QPushButton(_get_log_viewer_messages().get('open_log_file'))
         self.open_file_btn.clicked.connect(self._open_log_file)
         layout.addWidget(self.open_file_btn)
         
         # Save logs button
-        self.save_btn = QPushButton(_log_viewer_messages.get('save_logs'))
+        self.save_btn = QPushButton(_get_log_viewer_messages().get('save_logs'))
         self.save_btn.clicked.connect(self._save_logs)
         layout.addWidget(self.save_btn)
         
         layout.addStretch()
         
         # Close button
-        self.close_btn = QPushButton(_log_viewer_messages.get('close'))
+        self.close_btn = QPushButton(_get_log_viewer_messages().get('close'))
         self.close_btn.clicked.connect(self.close)
         layout.addWidget(self.close_btn)
         
@@ -394,34 +401,34 @@ class LogViewer(QMainWindow):
         menubar = self.menuBar()
         
         # File menu
-        file_menu = menubar.addMenu(_log_viewer_messages.get('file_menu'))
+        file_menu = menubar.addMenu(_get_log_viewer_messages().get('file_menu'))
         
-        open_action = QAction(_log_viewer_messages.get('open_log_file'), self)
+        open_action = QAction(_get_log_viewer_messages().get('open_log_file'), self)
         open_action.setShortcut("Ctrl+O")
         open_action.triggered.connect(self._open_log_file)
         file_menu.addAction(open_action)
         
-        save_action = QAction(_log_viewer_messages.get('save_logs'), self)
+        save_action = QAction(_get_log_viewer_messages().get('save_logs'), self)
         save_action.setShortcut("Ctrl+S")
         save_action.triggered.connect(self._save_logs)
         file_menu.addAction(save_action)
         
         file_menu.addSeparator()
         
-        close_action = QAction(_log_viewer_messages.get('close'), self)
+        close_action = QAction(_get_log_viewer_messages().get('close'), self)
         close_action.setShortcut("Ctrl+W")
         close_action.triggered.connect(self.close)
         file_menu.addAction(close_action)
         
         # View menu
-        view_menu = menubar.addMenu(_log_viewer_messages.get('view_menu'))
+        view_menu = menubar.addMenu(_get_log_viewer_messages().get('view_menu'))
         
-        refresh_action = QAction(_log_viewer_messages.get('refresh'), self)
+        refresh_action = QAction(_get_log_viewer_messages().get('refresh'), self)
         refresh_action.setShortcut("F5")
         refresh_action.triggered.connect(self._refresh_logs)
         view_menu.addAction(refresh_action)
         
-        clear_action = QAction(_log_viewer_messages.get('clear'), self)
+        clear_action = QAction(_get_log_viewer_messages().get('clear'), self)
         clear_action.setShortcut("Ctrl+L")
         clear_action.triggered.connect(self._clear_logs)
         view_menu.addAction(clear_action)
@@ -436,7 +443,7 @@ class LogViewer(QMainWindow):
         self.progress_bar.setVisible(False)
         self.status_bar.addPermanentWidget(self.progress_bar)
 
-        self._last_status_message = _log_viewer_messages.get('ready')
+        self._last_status_message = _get_log_viewer_messages().get('ready')
         self.status_bar.showMessage(self._last_status_message)
     
     def _apply_dark_theme(self):
@@ -527,15 +534,15 @@ class LogViewer(QMainWindow):
             if log_file and log_file != "Unknown" and os.path.exists(log_file):
                 self.current_log_file = log_file
                 self._load_log_file(log_file)
-                self._set_status_message(_log_viewer_messages.get('loaded', filename=os.path.basename(log_file)))
+                self._set_status_message(_get_log_viewer_messages().get('loaded', filename=os.path.basename(log_file)))
                 logger.info(f"Loaded log file: {log_file}")
             else:
-                self._set_status_message(_log_viewer_messages.get('no_log_file'))
+                self._set_status_message(_get_log_viewer_messages().get('no_log_file'))
                 logger.warning("No valid log file found")
 
         except Exception as e:
             logger.error(f"Error loading current log file: {e}")
-            self._set_status_message(_log_viewer_messages.get('error_loading'))
+            self._set_status_message(_get_log_viewer_messages().get('error_loading'))
 
     def _load_log_file(self, file_path):
         """Load and display log file content asynchronously"""
@@ -555,8 +562,8 @@ class LogViewer(QMainWindow):
 
         except Exception as e:
             logger.error(f"Error loading log file {file_path}: {e}")
-            QMessageBox.warning(self, _log_viewer_messages.get('error_title'), 
-                              _log_viewer_messages.get('error_load_file', error=str(e)))
+            QMessageBox.warning(self, _get_log_viewer_messages().get('error_title'), 
+                              _get_log_viewer_messages().get('error_load_file', error=str(e)))
             self.progress_bar.setVisible(False)
 
     def _on_file_loaded(self, content: str):
@@ -593,8 +600,8 @@ class LogViewer(QMainWindow):
         self.progress_bar.setVisible(False)
 
     def _on_file_load_error(self, err: str):
-        QMessageBox.warning(self, _log_viewer_messages.get('error_title'), 
-                          _log_viewer_messages.get('error_load_file', error=err))
+        QMessageBox.warning(self, _get_log_viewer_messages().get('error_title'), 
+                          _get_log_viewer_messages().get('error_load_file', error=err))
         self.progress_bar.setVisible(False)
 
     def _start_realtime_monitoring(self, file_path):
@@ -694,12 +701,12 @@ class LogViewer(QMainWindow):
     def _update_scroll_status(self):
         """Update status bar to show scroll state"""
         if self.user_is_scrolling and self.auto_scroll:
-            self.status_bar.showMessage(_log_viewer_messages.get('viewing_history'))
+            self.status_bar.showMessage(_get_log_viewer_messages().get('viewing_history'))
         elif hasattr(self, '_last_status_message'):
             # Restore the last status message
             self.status_bar.showMessage(self._last_status_message)
         else:
-            self.status_bar.showMessage(_log_viewer_messages.get('ready'))
+            self.status_bar.showMessage(_get_log_viewer_messages().get('ready'))
 
     def _set_status_message(self, message):
         """Set status message and save it as the last message"""
@@ -712,12 +719,12 @@ class LogViewer(QMainWindow):
         """Toggle real-time monitoring on/off"""
         if enabled and self.current_log_file:
             self._start_realtime_monitoring(self.current_log_file)
-            self._set_status_message(_log_viewer_messages.get('realtime_enabled'))
+            self._set_status_message(_get_log_viewer_messages().get('realtime_enabled'))
         else:
             if self.log_watcher:
                 self.log_watcher.stop()
                 self.log_watcher = None
-            self._set_status_message(_log_viewer_messages.get('realtime_disabled'))
+            self._set_status_message(_get_log_viewer_messages().get('realtime_disabled'))
 
     def _toggle_auto_scroll(self, enabled):
         """Toggle auto-scroll on/off"""
@@ -737,12 +744,12 @@ class LogViewer(QMainWindow):
             self.progress_bar.setRange(0, 0)
 
             def do_filter(content: str, level_text: str):
-                all_text = _log_viewer_messages.get('filter_all')
+                all_text = _get_log_viewer_messages().get('filter_all')
                 if level_text == all_text or level_text == "All":
-                    return content, _log_viewer_messages.get('showing_all_levels')
+                    return content, _get_log_viewer_messages().get('showing_all_levels')
                 lines = content.split('\n')
                 filtered = [line for line in lines if (f" - {level_text} - " in line) or (level_text.upper() in line)]
-                return '\n'.join(filtered), _log_viewer_messages.get('showing_level', count=len(filtered), level=level_text)
+                return '\n'.join(filtered), _get_log_viewer_messages().get('showing_level', count=len(filtered), level=level_text)
 
             # Reuse file loader thread to avoid blocking
             loader = FileReaderThread(self.current_log_file)
@@ -780,7 +787,7 @@ class LogViewer(QMainWindow):
 
             def on_error(err: str):
                 logger.error(f"Error filtering logs: {err}")
-                self._set_status_message(_log_viewer_messages.get('error_filtering'))
+                self._set_status_message(_get_log_viewer_messages().get('error_filtering'))
                 self.progress_bar.setVisible(False)
 
             loader.loaded.connect(on_loaded)
@@ -791,7 +798,7 @@ class LogViewer(QMainWindow):
 
         except Exception as e:
             logger.error(f"Error filtering logs: {e}")
-            self._set_status_message(_log_viewer_messages.get('error_filtering'))
+            self._set_status_message(_get_log_viewer_messages().get('error_filtering'))
 
     def _search_logs(self, search_term):
         """Search for specific text in logs"""
@@ -822,10 +829,10 @@ class LogViewer(QMainWindow):
             if matching_lines:
                 filtered_content = '\n'.join(matching_lines)
                 self.log_display.setPlainText(filtered_content)
-                self._set_status_message(_log_viewer_messages.get('found_lines', count=len(matching_lines), term=search_term))
+                self._set_status_message(_get_log_viewer_messages().get('found_lines', count=len(matching_lines), term=search_term))
             else:
                 self.log_display.setPlainText("")
-                self._set_status_message(_log_viewer_messages.get('no_lines_found', term=search_term))
+                self._set_status_message(_get_log_viewer_messages().get('no_lines_found', term=search_term))
 
             # Auto-scroll to top for search results
             cursor = self.log_display.textCursor()
@@ -834,28 +841,28 @@ class LogViewer(QMainWindow):
 
         except Exception as e:
             logger.error(f"Error searching logs: {e}")
-            self._set_status_message(_log_viewer_messages.get('error_searching'))
+            self._set_status_message(_get_log_viewer_messages().get('error_searching'))
 
     def _refresh_logs(self):
         """Refresh the log display"""
         if self.current_log_file:
             self._load_log_file(self.current_log_file)
-            self._set_status_message(_log_viewer_messages.get('logs_refreshed'))
+            self._set_status_message(_get_log_viewer_messages().get('logs_refreshed'))
         else:
             self._load_current_log_file()
 
     def _clear_logs(self):
         """Clear the log display"""
         self.log_display.clear()
-        self._set_status_message(_log_viewer_messages.get('display_cleared'))
+        self._set_status_message(_get_log_viewer_messages().get('display_cleared'))
 
     def _open_log_file(self):
         """Open a different log file"""
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            _log_viewer_messages.get('open_log_title'),
+            _get_log_viewer_messages().get('open_log_title'),
             os.path.dirname(self.current_log_file) if self.current_log_file else "",
-            _log_viewer_messages.get('log_files_filter')
+            _get_log_viewer_messages().get('log_files_filter')
         )
 
         if file_path:
@@ -866,21 +873,21 @@ class LogViewer(QMainWindow):
         """Save current log content to a file"""
         file_path, _ = QFileDialog.getSaveFileName(
             self,
-            _log_viewer_messages.get('save_logs_title'),
+            _get_log_viewer_messages().get('save_logs_title'),
             f"eCan_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-            _log_viewer_messages.get('save_files_filter')
+            _get_log_viewer_messages().get('save_files_filter')
         )
 
         if file_path:
             try:
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(self.log_display.toPlainText())
-                self._set_status_message(_log_viewer_messages.get('logs_saved', filename=os.path.basename(file_path)))
+                self._set_status_message(_get_log_viewer_messages().get('logs_saved', filename=os.path.basename(file_path)))
                 logger.info(f"Logs saved to: {file_path}")
             except Exception as e:
                 logger.error(f"Error saving logs: {e}")
-                QMessageBox.warning(self, _log_viewer_messages.get('error_title'), 
-                                  _log_viewer_messages.get('error_save', error=str(e)))
+                QMessageBox.warning(self, _get_log_viewer_messages().get('error_title'), 
+                                  _get_log_viewer_messages().get('error_save', error=str(e)))
 
     def closeEvent(self, event):
         """Handle window close event"""

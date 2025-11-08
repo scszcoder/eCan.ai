@@ -94,8 +94,15 @@ class WebGUIMessages:
         return message
 
 
-# Global instance
-_webgui_messages = WebGUIMessages()
+# Global instance - lazy initialization
+_webgui_messages = None
+
+def _get_webgui_messages():
+    """Get WebGUIMessages instance with lazy initialization."""
+    global _webgui_messages
+    if _webgui_messages is None:
+        _webgui_messages = WebGUIMessages()
+    return _webgui_messages
 
 
 class WebGUI(QMainWindow):
@@ -112,7 +119,7 @@ class WebGUI(QMainWindow):
 
         # Update progress if callback is available
         if self._progress_callback:
-            self._progress_callback(30, _webgui_messages.get('initializing_webgui'))
+            self._progress_callback(30, _get_webgui_messages().get('initializing_webgui'))
 
         # Windows-specific optimizations to reduce flicker
         if sys.platform == 'win32':
@@ -126,7 +133,7 @@ class WebGUI(QMainWindow):
         # Defer centering until the window is actually shown to avoid (0,0) jumps
 
         if self._progress_callback:
-            self._progress_callback(74, _webgui_messages.get('creating_layout'))
+            self._progress_callback(74, _get_webgui_messages().get('creating_layout'))
 
         # Create central widget and layout
         central_widget = QWidget()
@@ -135,25 +142,25 @@ class WebGUI(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
 
         if self._progress_callback:
-            self._progress_callback(76, _webgui_messages.get('init_web_engine'))
+            self._progress_callback(76, _get_webgui_messages().get('init_web_engine'))
 
         # Create web engine
         self.web_engine_view = WebEngineView(self)
 
         if self._progress_callback:
-            self._progress_callback(78, _webgui_messages.get('setup_dev_tools'))
+            self._progress_callback(78, _get_webgui_messages().get('setup_dev_tools'))
 
         # Developer tools manager will be created on-demand
         self.dev_tools_manager = None
 
         if self._progress_callback:
-            self._progress_callback(80, _webgui_messages.get('config_window_style'))
+            self._progress_callback(80, _get_webgui_messages().get('config_window_style'))
 
         # Set Windows window style to match content theme
         self._setup_window_style()
 
         if self._progress_callback:
-            self._progress_callback(82, _webgui_messages.get('connecting_web_engine'))
+            self._progress_callback(82, _get_webgui_messages().get('connecting_web_engine'))
 
         # Wire splash updates to web load if provided
         if self._splash is not None:
@@ -179,13 +186,13 @@ class WebGUI(QMainWindow):
                     self.load_local_html()
             else:
                 logger.error("Failed to get web URL - will show error page")
-                self._show_error_page(_webgui_messages.get('web_url_unavailable'))
+                self._show_error_page(_get_webgui_messages().get('web_url_unavailable'))
 
         except Exception as e:
             logger.error(f"Error during WebGUI initialization: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
-            self._show_error_page(_webgui_messages.get('init_error', error=str(e)))
+            self._show_error_page(_get_webgui_messages().get('init_error', error=str(e)))
         
         # Add web engine to layout
         layout.addWidget(self.web_engine_view)
@@ -440,7 +447,7 @@ class WebGUI(QMainWindow):
     def _on_load_progress(self, progress: int):
         try:
             if self._splash is not None:
-                self._splash.set_status(_webgui_messages.get('loading_progress', progress=progress))
+                self._splash.set_status(_get_webgui_messages().get('loading_progress', progress=progress))
                 self._splash.set_progress(progress)
         except Exception:
             pass
@@ -515,16 +522,16 @@ class WebGUI(QMainWindow):
             </head>
             <body>
                 <div class="error-container">
-                    <h1>⚠️ {_webgui_messages.get('error_page_title')}</h1>
-                    <p>{_webgui_messages.get('error_page_subtitle')}</p>
+                    <h1>⚠️ {_get_webgui_messages().get('error_page_title')}</h1>
+                    <p>{_get_webgui_messages().get('error_page_subtitle')}</p>
                     <div class="error-message">{error_message}</div>
-                    <p>{_webgui_messages.get('possible_reasons')}</p>
+                    <p>{_get_webgui_messages().get('possible_reasons')}</p>
                     <ul style="text-align: left; display: inline-block;">
-                        <li>{_webgui_messages.get('reason_network')}</li>
-                        <li>{_webgui_messages.get('reason_config')}</li>
-                        <li>{_webgui_messages.get('reason_resources')}</li>
+                        <li>{_get_webgui_messages().get('reason_network')}</li>
+                        <li>{_get_webgui_messages().get('reason_config')}</li>
+                        <li>{_get_webgui_messages().get('reason_resources')}</li>
                     </ul>
-                    <button class="retry-button" onclick="location.reload()">{_webgui_messages.get('retry_button')}</button>
+                    <button class="retry-button" onclick="location.reload()">{_get_webgui_messages().get('retry_button')}</button>
                 </div>
             </body>
             </html>
@@ -828,8 +835,8 @@ class WebGUI(QMainWindow):
         try:
             # Create custom dialog with i18n support
             msg_box = QMessageBox(self)
-            msg_box.setWindowTitle(_webgui_messages.get('confirm_exit_title'))
-            msg_box.setText(_webgui_messages.get('confirm_exit_message'))
+            msg_box.setWindowTitle(_get_webgui_messages().get('confirm_exit_title'))
+            msg_box.setText(_get_webgui_messages().get('confirm_exit_message'))
             msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             msg_box.setDefaultButton(QMessageBox.No)
             
@@ -837,9 +844,9 @@ class WebGUI(QMainWindow):
             yes_button = msg_box.button(QMessageBox.Yes)
             no_button = msg_box.button(QMessageBox.No)
             if yes_button:
-                yes_button.setText(_webgui_messages.get('button_yes'))
+                yes_button.setText(_get_webgui_messages().get('button_yes'))
             if no_button:
-                no_button.setText(_webgui_messages.get('button_no'))
+                no_button.setText(_get_webgui_messages().get('button_no'))
             
             # Set window flags to ensure proper rendering on macOS
             if sys.platform == 'darwin':

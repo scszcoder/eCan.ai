@@ -67,8 +67,15 @@ class SplashMessages:
         return self.MESSAGES[lang].get(key, key)
 
 
-# Global instance
-_splash_messages = SplashMessages()
+# Global instance - lazy initialization
+_splash_messages = None
+
+def _get_splash_messages():
+    """Get SplashMessages instance with lazy initialization."""
+    global _splash_messages
+    if _splash_messages is None:
+        _splash_messages = SplashMessages()
+    return _splash_messages
 
 
 class ThemedSplashScreen(QWidget):
@@ -184,7 +191,7 @@ class ThemedSplashScreen(QWidget):
         title = QLabel(app_name)
         title.setObjectName("title")
         title.setAlignment(Qt.AlignHCenter)
-        subtitle = QLabel(_splash_messages.get('app_subtitle'))
+        subtitle = QLabel(_get_splash_messages().get('app_subtitle'))
         subtitle.setObjectName("subtitle")
         subtitle.setWordWrap(True)
         subtitle.setAlignment(Qt.AlignHCenter)
@@ -201,7 +208,7 @@ class ThemedSplashScreen(QWidget):
         col.addWidget(self.progress_bar)
 
         # Status text
-        self.status_label = QLabel(_splash_messages.get('loading'))
+        self.status_label = QLabel(_get_splash_messages().get('loading'))
         self.status_label.setObjectName("status")
         self.status_label.setAlignment(Qt.AlignHCenter)
         col.addWidget(self.status_label)
@@ -759,31 +766,31 @@ class PythonInitWorker(QObject):
     def run(self):
         try:
             # Phase 1: Basic initialization
-            self.status_update.emit(_splash_messages.get('init_python_env'))
+            self.status_update.emit(_get_splash_messages().get('init_python_env'))
             self.progress.emit(5)
 
             # Phase 2: Import core modules
-            self.status_update.emit(_splash_messages.get('loading_core_modules'))
+            self.status_update.emit(_get_splash_messages().get('loading_core_modules'))
             self.progress.emit(15)
             
             # Phase 3: Load configuration
-            self.status_update.emit(_splash_messages.get('loading_config'))
+            self.status_update.emit(_get_splash_messages().get('loading_config'))
             self.progress.emit(30)
 
             # Phase 4: Initialize services
-            self.status_update.emit(_splash_messages.get('init_services'))
+            self.status_update.emit(_get_splash_messages().get('init_services'))
             self.progress.emit(35)
 
             # Phase 5 Prepare GUI components
-            self.status_update.emit(_splash_messages.get('preparing_gui'))
+            self.status_update.emit(_get_splash_messages().get('preparing_gui'))
             self.progress.emit(40)
 
             # Phase 6: Final preparations
-            self.status_update.emit(_splash_messages.get('finalizing'))
+            self.status_update.emit(_get_splash_messages().get('finalizing'))
             self.progress.emit(50)
 
         finally:
-            self.status_update.emit(_splash_messages.get('ready'))
+            self.status_update.emit(_get_splash_messages().get('ready'))
             self.progress.emit(100)
             self.finished.emit()
 
@@ -956,7 +963,7 @@ def init_minimal_splash():
         col_layout.addWidget(title_label)
         
         # Loading text with same styling as ThemedSplashScreen subtitle
-        loading_label = QLabel(_splash_messages.get('initializing'))
+        loading_label = QLabel(_get_splash_messages().get('initializing'))
         loading_label.setObjectName("subtitle")
         loading_label.setAlignment(Qt.AlignCenter)
         loading_label.setStyleSheet("""
