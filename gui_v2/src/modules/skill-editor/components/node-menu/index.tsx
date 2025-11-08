@@ -102,6 +102,7 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
     // compute current state from store at click-time to avoid stale closure
     const currIsBp = useSkillInfoStore.getState().breakpoints.includes(targetId);
     const nextIsBp = !currIsBp;
+    try { console.log('[Breakpoint][UI] toggle', { node: targetId, currIsBp, nextIsBp }); } catch {}
 
     // 1) Optimistic UI update: store + node JSON
     try {
@@ -124,11 +125,20 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
     try {
       if (!username) return;
       const node_name = targetId;
-      const resp = nextIsBp
-        ? await ipcApi.setSkillBreakpoints(username, node_name)
-        : await ipcApi.clearSkillBreakpoints(username, node_name);
-      if (!resp.success) {
-        console.warn('[Breakpoint] backend rejected toggle for', node_name);
+      if (nextIsBp) {
+        try { console.log('[Breakpoint][UI] calling set_skill_breakpoints', { node: node_name, username }); } catch {}
+        const resp = await ipcApi.setSkillBreakpoints(username, node_name);
+        try { console.log('[Breakpoint][UI] set_skill_breakpoints response', resp); } catch {}
+        if (!resp.success) {
+          console.warn('[Breakpoint] backend rejected toggle for', node_name);
+        }
+      } else {
+        try { console.log('[Breakpoint][UI] calling clear_skill_breakpoints', { node: node_name, username }); } catch {}
+        const resp = await ipcApi.clearSkillBreakpoints(username, node_name);
+        try { console.log('[Breakpoint][UI] clear_skill_breakpoints response', resp); } catch {}
+        if (!resp.success) {
+          console.warn('[Breakpoint] backend rejected toggle for', node_name);
+        }
       }
     } catch {
       console.warn('[Breakpoint] network error during toggle');

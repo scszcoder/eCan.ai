@@ -13,10 +13,11 @@ import { FlowNodeMeta } from '../../typings';
 import { useNodeRenderContext, usePortClick } from '../../hooks';
 import { SidebarContext } from '../../context';
 import { scrollToView } from './utils';
-import { NodeWrapperStyle, BreakpointIcon, RunningIcon } from './styles';
+import { NodeWrapperStyle, BreakpointIcon, RunningIcon, PausedIcon, StatusBadgeContainer } from './styles';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useRunningNodeStore } from '../../stores/running-node-store';
 import { useNodeStatusStore } from '../../stores/node-status-store';
+import { useRuntimeStateStore } from '../../stores/runtime-state-store';
 
 export interface NodeWrapperProps {
   isScrollToView?: boolean;
@@ -45,13 +46,32 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
   const endNodeId = useNodeStatusStore((s) => s.endNodeId);
   const endStatus = useNodeStatusStore((s) => s.endStatus);
   const isEndNode = endNodeId === node.id && !!endStatus;
+  const runtimeEntry = useRuntimeStateStore((s) => s.getNodeRuntimeState(node.id));
+  const runtimeStatus = runtimeEntry?.status;
+  const stateObj: any = runtimeEntry?.state || {};
+
+  // Determine paused vs running from runtime status
+  const isPausedLike = (runtimeStatus === 'paused' || runtimeStatus === 'breakpoint' || runtimeStatus === 'stalled');
+  const isRunLike = (runtimeStatus === 'running' || runtimeStatus === 'resumed');
+  // For glow class we keep coupling to runningNodeId to avoid global blinking
+  const isBreakpointStalled = isRunning && isPausedLike;
+
+  // Compute result badge severity
+  let resultSeverity: 'error' | 'warning' | 'success' | 'none' = 'none';
+  if (stateObj?.errors?.length || stateObj?.error) {
+    resultSeverity = 'error';
+  } else if (stateObj?.warnings?.length || stateObj?.warning) {
+    resultSeverity = 'warning';
+  } else if (runtimeStatus === 'completed' || stateObj?.success === true) {
+    resultSeverity = 'success';
+  }
   
-  // Debug: Log when running state changes for this node
-  useEffect(() => {
-    if (isRunning) {
-      console.log(`[NodeWrapper] Node '${node.id}' is now RUNNING`);
-    }
-  }, [isRunning, node.id]);
+  // // Debug: Log when running state changes for this node
+  // useEffect(() => {
+  //   if (isRunning) {
+  //     console.log(`[NodeWrapper] Node '${node.id}' is now RUNNING`);
+  //   }
+  // }, [isRunning, node.id]);
 
   const portsRender = ports.map((p) => (
     <WorkflowPortRender key={p.id} entity={p} onClick={!readonly ? onPortClick : undefined} />
@@ -68,7 +88,13 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
   return (
     <>
       <NodeWrapperStyle
-        className={classnames(selected ? 'selected' : '', { 'is-running': isRunning })}
+        className={classnames(
+          selected ? 'selected' : '',
+          {
+            'is-running': isRunning && !isBreakpointStalled,
+            'is-breakpoint-stalled': isBreakpointStalled,
+          }
+        )}
         ref={nodeRef}
         draggable
         onDragStart={(e) => {
@@ -106,15 +132,53 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
         style={{
           ...meta.wrapperStyle,
           outline: form?.state.invalid ? '1px solid red' : 'none',
-          // Thick red border to emphasize currently running node
-          border: isRunning ? '3px solid #ff4d4f' : meta.wrapperStyle?.border,
+          // Let animations control border color and glow; avoid forcing red border when running
+          border: meta.wrapperStyle?.border,
           position: 'relative',
         }}
       >
-        {/* Show running GIF on all running nodes except End node */}
-        {!(isRunning && isEndNode) && <RunningIcon />}
+        {/* Stickman: explicit render based on runtimeStatus with display override (bypasses CSS class timing) */}
+        {!isEndNode && (
+          isRunning && isPausedLike
+            ? <PausedIcon key={`${node.id}-paused`} style={{ display: 'block' }} />
+            : (isRunning && !isPausedLike) ? <RunningIcon key={`${node.id}-running`} style={{ display: 'block' }} /> : null
+        )}
         {children}
         {isBreakpoint && <BreakpointIcon />}
+        {/* Top-right result badge */}
+        {resultSeverity !== 'none' && !isEndNode && (
+          <StatusBadgeContainer
+            title={
+              resultSeverity === 'error'
+                ? 'Node has errors'
+                : resultSeverity === 'warning'
+                ? 'Node has warnings'
+                : 'Node succeeded'
+            }
+          >
+            <div
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: 8,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 12,
+                fontWeight: 700,
+                color: '#fff',
+                background:
+                  resultSeverity === 'error'
+                    ? '#e53935' // red
+                    : resultSeverity === 'warning'
+                    ? '#fb8c00' // orange
+                    : '#43a047', // green
+              }}
+            >
+              {resultSeverity === 'error' ? '✕' : resultSeverity === 'warning' ? '!' : '✓'}
+            </div>
+          </StatusBadgeContainer>
+        )}
         {isEndNode && (
           <div
             style={{

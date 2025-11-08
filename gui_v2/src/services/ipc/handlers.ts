@@ -323,8 +323,29 @@ export class IPCHandlers {
     async updateSkillRunStat(request: IPCRequest): Promise<{ success: boolean }> {
         const { agentTaskId, current_node, status, nodeState, timestamp } = request.params as { agentTaskId?: string, current_node?: string, status?: string, nodeState?: any, timestamp?: number };
 
+        // Derive node id from nodeState when current_node is empty
+        const thisNodeFromState =
+          nodeState?.attributes?.__this_node__?.name ||
+          (request.params as any)?.currentNode ||
+          undefined;
+
+        const effectiveNode: string | undefined =
+          (typeof current_node === 'string' && current_node.length > 0)
+            ? current_node
+            : (typeof thisNodeFromState === 'string' && thisNodeFromState.length > 0)
+              ? thisNodeFromState
+              : undefined;
+        // Derive thread id (prefer nodeState, fallback to langgraphState)
+        const threadId =
+          nodeState?.attributes?.thread_id ||
+          (request.params as any)?.langgraphState?.attributes?.thread_id ||
+          undefined;
+
+        // Verbose trace toggle (enable with: window.__RUN_TRACE__ = true)
+        const RUN_TRACE = ((window as any).__RUN_TRACE__ === true);
+
         // Log every update received from backend
-        console.log(`[RunningNode][IPC] Received: current_node='${current_node}', status='${status}', ts=${timestamp ?? 'n/a'}`);
+        // if (RUN_TRACE) console.log(`[RunningNode][IPC] Received: current_node='${current_node}', status='${status}', ts=${timestamp ?? 'n/a'}`);
 
         // Drop stale/out-of-order updates based on timestamp
         const g: any = (window as any);
@@ -341,16 +362,63 @@ export class IPCHandlers {
 
         // Queue scheme to enforce a minimum visible duration per node
         const GN: any = (window as any);
-        if (!GN.__runningNodeQueue) GN.__runningNodeQueue = { runId: null as string | null, queue: [] as string[], showing: null as string | null, shownAt: 0, t: null as any, completed: false, clearT: null as any, endStatus: null as null | 'completed' | 'failed' };
-        const q = GN.__runningNodeQueue as { runId: string | null; queue: string[]; showing: string | null; shownAt: number; t: any; completed: boolean; clearT: any; endStatus: null | 'completed' | 'failed' };
-        // Reset queue if this is a new run
-        if (agentTaskId && q.runId !== agentTaskId) {
-            if (q.t) { try { clearTimeout(q.t); } catch {} }
-            if (q.clearT) { try { clearTimeout(q.clearT); } catch {} }
-            GN.__runningNodeQueue = { runId: agentTaskId, queue: [], showing: null, shownAt: 0, t: null, completed: false, clearT: null, endStatus: null };
-            // Clear any previous end status overlay when a new run starts
-            try { useNodeStatusStore.getState().clear(); } catch {}
+        if (!GN.__runningNodeQueue) {
+            GN.__runningNodeQueue = {
+                runId: null as string | null,
+                threadId: null as string | null,
+                queue: [] as string[],
+                showing: null as string | null,
+                shownAt: 0,
+                t: null as any,
+                completed: false,
+                clearT: null as any,
+                endStatus: null as null | 'completed' | 'failed',
+                pendingSet: new Set<string>(),
+                recentShown: new Map<string, number>(),
+                shownSet: new Set<string>(),        // <-- add this
+            };
         }
+
+        const q = GN.__runningNodeQueue as {
+          runId: string | null;
+          threadId: string | null;
+          queue: string[];
+          showing: string | null;
+          shownAt: number;
+          t: any;
+          completed: boolean;
+          clearT: any;
+          endStatus: null | 'completed' | 'failed';
+          pendingSet: Set<string>;
+          recentShown: Map<string, number>;
+          shownSet: Set<string>;
+        };
+
+        if (!q.threadId && threadId) q.threadId = threadId;
+
+        // Reset queue if this is a new run (by agentTaskId OR threadId change)
+        const newAgentRun = agentTaskId && q.runId !== agentTaskId;
+        const newThreadRun = threadId && q.threadId && q.threadId !== threadId;
+
+        if (newAgentRun || newThreadRun) {
+          if (q.t) { try { clearTimeout(q.t); } catch {} }
+          if (q.clearT) { try { clearTimeout(q.clearT); } catch {} }
+
+          // In-place reset
+          q.runId = agentTaskId ?? q.runId;
+          q.threadId = threadId ?? null;
+          q.queue.length = 0;
+          q.showing = null;
+          q.shownAt = 0;
+          q.completed = false;
+          q.endStatus = null;
+          q.pendingSet = new Set<string>();
+          q.recentShown = new Map<string, number>();
+          q.shownSet = new Set<string>();
+
+          try { useNodeStatusStore.getState().clear(); } catch {}
+        }
+
         // Re-read q after potential reset
         // const qRef = (window as any).__runningNodeQueue as { runId: string | null; queue: string[]; showing: string | null; shownAt: number; t: any; completed: boolean; clearT: any; endStatus: null | 'completed' | 'failed' };
         // const now = Date.now();
@@ -358,10 +426,13 @@ export class IPCHandlers {
         const MAX_STUCK_EXTRA_MS = 2000; // fail-safe: if timers get throttled, advance after this extra time
 
         const showNode = (nodeId: string) => {
-            console.log(`[RunningNode] → Show '${nodeId}'`);
+            if (RUN_TRACE) console.log(`[RunningNode] → Show '${nodeId}'`);
             runningNodeStore.setRunningNodeId(nodeId);
             q.showing = nodeId;
             q.shownAt = Date.now();
+            try { q.pendingSet?.delete(nodeId); } catch {}
+            try { q.recentShown?.set(nodeId, Date.now()); } catch {}
+            try { q.shownSet?.add(nodeId); } catch {}
         };
 
         const scheduleTick = () => {
@@ -380,7 +451,7 @@ export class IPCHandlers {
             if (q.queue.length === 0 && q.showing) {
                 const remaining = Math.max(0, MIN_VISIBLE_MS - elapsed);
                 const delay = Math.max(remaining, 450);
-                console.log(`[RunningNode] ✓ Queue drained after completion, clearing after ${delay} ms`);
+                if (RUN_TRACE) console.log(`[RunningNode] ✓ Queue drained after completion, clearing after ${delay} ms`);
                 // Record end status overlay
                 try {
                     const st = useNodeStatusStore.getState();
@@ -480,26 +551,102 @@ export class IPCHandlers {
             }
         };
 
-        // Update the running node if the backend provides a specific node ID.
-        if (typeof current_node === 'string' && current_node.length > 0) {
-            // Avoid duplicates: only enqueue if different from the last item and current showing
-            const lastQueued = q.queue.length > 0 ? q.queue[q.queue.length - 1] : null;
-            if (current_node !== q.showing && current_node !== lastQueued) {
-                console.log(`[RunningNode] ≈ Enqueue '${current_node}'`);
-                // If this looks like a fresh start (no showing and empty queue), clear any old end-status overlays
-                if (!q.showing && q.queue.length === 0 && !q.completed) {
-                    try { useNodeStatusStore.getState().clear(); } catch {}
-                }
-                q.queue.push(current_node);
-                processQueue();
-            } else {
-                console.log(`[RunningNode] ⊘ Skipping enqueue, already showing or pending '${current_node}'`);
+        // If backend indicates a pause/breakpoint/stall, immediately show the node for visuals
+        if (
+          effectiveNode &&
+          (status === 'paused' || status === 'breakpoint' || status === 'stalled')
+        ) {
+          // Immediately mark node as visible
+          showNode(effectiveNode);
+          // Also set runtime state so UI sees paused status and renders orange glow
+          try {
+            const payload = nodeState ?? {};
+            const normalized = payload && typeof payload === 'object' && 'nodeState' in payload
+              ? (payload as any).nodeState
+              : payload;
+            useRuntimeStateStore.getState().setNodeRuntimeState(effectiveNode, normalized, 'paused');
+          } catch {}
+          return { success: true };
+        }
+
+        // On resume/step/continue, proactively mark runtime state as running so GIF resumes immediately
+        try {
+          const isRunLikeEarly = (status === 'running' || status === 'resumed' || status === 'resume' || status === 'step' || status === 'stepping' || status === 'continue' || status === 'continued');
+          if (isRunLikeEarly) {
+            const payload = nodeState ?? {};
+            const normalized = payload && typeof payload === 'object' && 'nodeState' in payload
+              ? (payload as any).nodeState
+              : payload;
+            if (effectiveNode) {
+              useRuntimeStateStore.getState().setNodeRuntimeState(effectiveNode, normalized, 'running');
+            } else if (((window as any).__runningNodeQueue?.showing)) {
+              const cur = (window as any).__runningNodeQueue.showing as string;
+              if (cur) useRuntimeStateStore.getState().setNodeRuntimeState(cur, normalized, 'running');
             }
+          }
+        } catch {}
+
+        // Update the running node if the backend provides a specific node ID.
+        if (typeof effectiveNode === 'string' && effectiveNode.length > 0) {
+          const nodeId = effectiveNode;
+          // Fresh-start if nothing is currently showing, nothing queued, and not completed
+          const isFreshStart = !q.showing && q.queue.length === 0 && !q.completed;
+
+          // Optional (recommended): clear anti-duplication guards on fresh start
+          if (isFreshStart) {
+              try {
+                  q.pendingSet.clear();
+              } catch {
+              }
+              try {
+                  q.recentShown.clear();
+              } catch {
+              }
+              try {
+                  q.shownSet.clear();
+              } catch {
+              }
+          }
+
+          // enqueue logic should use nodeId instead of current_node
+          const lastQueued = q.queue.length > 0 ? q.queue[q.queue.length - 1] : null;
+          const cooldownMs = 800;
+          const nowTs = Date.now();
+          const lastShown = q.recentShown ? (q.recentShown.get(nodeId) || 0) : 0;
+          const alreadyPending = q.pendingSet ? q.pendingSet.has(nodeId) : false;
+          const canEnqueue =
+            nodeId !== q.showing &&
+            nodeId !== lastQueued &&
+            !alreadyPending &&
+            ((nowTs - lastShown >= cooldownMs) || isFreshStart) &&
+            (!q.shownSet?.has(nodeId) || isFreshStart);
+
+          if (canEnqueue) {
+            if (RUN_TRACE) console.log(`[RunningNode] ≈ Enqueue '${nodeId}'`);
+            if (!q.showing && q.queue.length === 0 && !q.completed) {
+              try { useNodeStatusStore.getState().clear(); } catch {}
+            }
+            q.queue.push(nodeId);
+            try { q.pendingSet?.add(nodeId); } catch {}
+            processQueue();
+          } else {
+            if (RUN_TRACE) console.log(`[RunningNode] ⊘ Skipping enqueue '${nodeId}' (dup or cooldown)`);
+          }
         } else if (current_node === null || current_node === undefined) {
-            // Do NOT clear on null/undefined current_node.
-            // Some backends emit heartbeat or partial updates without node id between steps.
-            // Keep the previous running node to avoid flicker.
-            console.log('[RunningNode] ⏸ Received update without current_node; preserving previous running node');
+          if (RUN_TRACE) console.log('[RunningNode] ⏸ Received update without current_node; preserving previous running node');
+        }
+
+        if (
+          !current_node &&
+          effectiveNode &&
+          (status === 'paused' || status === 'breakpoint' || status === 'stalled')
+        ) {
+          // Show immediately to render breakpoint visuals (stickman + breathing)
+          showNode(effectiveNode);
+          // Do not schedule draining here; wait for subsequent updates
+          return { success: true };
+        } else if (current_node === null || current_node === undefined) {
+          if (RUN_TRACE) console.log('[RunningNode] ⏸ Received update without current_node; preserving previous running node');
         }
 
         // Handle terminal statuses
@@ -507,7 +654,7 @@ export class IPCHandlers {
             // Mark as completed and let the queue drain naturally to honor MIN_VISIBLE_MS per node
             q.completed = true;
             q.endStatus = status === 'failed' ? 'failed' : 'completed';
-            console.log(`[RunningNode] ◷ Workflow ${status}, allowing queue to drain before clear`);
+            if (RUN_TRACE) console.log(`[RunningNode] ◷ Workflow ${status}, allowing queue to drain before clear`);
             processQueue();
         }
         // Handle cancel events by clearing overlays and running icon immediately
@@ -518,23 +665,45 @@ export class IPCHandlers {
             q.queue.length = 0; q.showing = null; q.shownAt = 0; q.completed = false; q.endStatus = null;
             const rs = useRunningNodeStore.getState();
             if (rs.runningNodeId !== null) rs.setRunningNodeId(null);
-            console.log('[RunningNode] ◼ Run canceled, cleared running state and overlays');
+            if (RUN_TRACE) console.log('[RunningNode] ◼ Run canceled, cleared running state and overlays');
         }
 
-        // Capture runtime state for the current node (if provided)
+        // Capture runtime state even if current_node is empty, using effectiveNode
         try {
-            if (current_node) {
-                // Some backends send nodeState as { nodeState: {...} }, normalize it
-                const payload = nodeState ?? {};
-                const normalized = payload && typeof payload === 'object' && 'nodeState' in payload
-                    ? (payload as any).nodeState
-                    : payload;
-                try { console.info('[NodeRuntime] update', { node: current_node, status, normalized }); } catch {}
-                useRuntimeStateStore.getState().setNodeRuntimeState(current_node, normalized, status);
-            }
+          const payload = nodeState ?? {};
+          const normalized = payload && typeof payload === 'object' && 'nodeState' in payload
+            ? (payload as any).nodeState
+            : payload;
+          // Map backend status to UI runtime status
+          const isPausedLike = (status === 'paused' || status === 'breakpoint' || status === 'stalled');
+          const isRunLike = (
+            status === 'running' || status === 'resumed' || status === 'resume' ||
+            status === 'step' || status === 'stepping' || status === 'continue' || status === 'continued'
+          );
+          const uiStatus: 'paused' | 'running' | any = isPausedLike ? 'paused' : (isRunLike ? 'running' : (status || 'running'));
+
+          if (effectiveNode) {
+            try { if (RUN_TRACE) console.info('[NodeRuntime] update', { node: effectiveNode, status, uiStatus, normalized }); } catch {}
+            useRuntimeStateStore.getState().setNodeRuntimeState(effectiveNode, normalized, uiStatus);
+          } else if ((isRunLike) && q.showing) {
+            // Fallback: when backend omits current_node/this_node on resume, update the currently showing node
+            // Only flip to running if this node was previously paused-like to prevent UI churn
+            try {
+              const st = useRuntimeStateStore.getState();
+              const prev = (st as any).getNodeRuntimeState?.(q.showing);
+              const wasPausedLike = prev?.status === 'paused' || prev?.status === 'breakpoint' || prev?.status === 'stalled';
+              if (wasPausedLike) {
+                if (RUN_TRACE) console.info('[NodeRuntime] resume-fallback update', { node: q.showing, status, uiStatus, normalized });
+                st.setNodeRuntimeState(q.showing, normalized, 'running');
+              }
+            } catch {}
+          } else if (status === 'paused' && q.showing) {
+            // Fallback: when backend omits current_node/this_node on pause, update the currently showing node
+            try { if (RUN_TRACE) console.info('[NodeRuntime] pause-fallback update', { node: q.showing, status, normalized }); } catch {}
+            useRuntimeStateStore.getState().setNodeRuntimeState(q.showing, normalized, 'paused');
+          }
         } catch (e) {
-            // non-fatal
-            logger.warn('updateSkillRunStat: failed to capture runtime state', e as any);
+          logger.warn('updateSkillRunStat: failed to capture runtime state', e as any);
         }
 
         eventBus.emit('chat:latestSkillRunStat', request.params);
