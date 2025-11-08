@@ -11,7 +11,6 @@ from typing import Optional
 
 from langchain_core.embeddings import Embeddings, FakeEmbeddings
 from langchain_community.embeddings import (
-    OpenAIEmbeddings,
     AzureOpenAIEmbeddings,
     HuggingFaceEmbeddings,
     CohereEmbeddings,
@@ -20,6 +19,7 @@ from langchain_community.embeddings import (
     QianfanEmbeddingsEndpoint,
     DashScopeEmbeddings,
 )
+from langchain_openai import OpenAIEmbeddings
 
 from utils.logger_helper import logger_helper as logger
 
@@ -94,7 +94,7 @@ class EmbeddingFactory:
             if provider_enum_value == "openai":
                 api_key = secure_store.get("OPENAI_API_KEY", username=username)
                 if api_key:
-                    return OpenAIEmbeddings(model=model_name, openai_api_key=api_key)
+                    return OpenAIEmbeddings(model=model_name, api_key=api_key)
                 else:
                     logger.debug(f"[EmbeddingFactory] OPENAI_API_KEY not found, using FakeEmbeddings (memory features will be limited)")
                     return FakeEmbeddings(size=1536)  # OpenAI default dimension
@@ -160,24 +160,27 @@ class EmbeddingFactory:
                     try:
                         # Create no-proxy httpx client for Baidu Qianfan (domestic API, bypass proxy)
                         from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
-                        sync_client, _ = _create_no_proxy_http_client()
+                        sync_client, async_client = _create_no_proxy_http_client()
                         
                         # Use OpenAIEmbeddings with Baidu's V2 API endpoint
                         # API key is automatically passed as Bearer token
-                        if sync_client:
-                            logger.debug(f"[EmbeddingFactory] Baidu Qianfan using no-proxy client (domestic API)")
+                        # IMPORTANT: OpenAIEmbeddings requires BOTH http_client (sync) and http_async_client (async)
+                        # If you provide a custom client, you must provide both
+                        if sync_client and async_client:
+                            logger.debug(f"[EmbeddingFactory] Baidu Qianfan using no-proxy clients (domestic API)")
                             return OpenAIEmbeddings(
                                 model=model_name or "bge-large-zh",
-                                openai_api_key=api_key,
-                                openai_api_base="https://qianfan.baidubce.com/v2",
-                                http_client=sync_client  # Bypass proxy for domestic API
+                                api_key=api_key,
+                                base_url="https://qianfan.baidubce.com/v2",
+                                http_client=sync_client,
+                                http_async_client=async_client
                             )
                         else:
                             logger.debug(f"[EmbeddingFactory] Baidu Qianfan using default client (no proxy configured)")
                             return OpenAIEmbeddings(
                                 model=model_name or "bge-large-zh",
-                                openai_api_key=api_key,
-                                openai_api_base="https://qianfan.baidubce.com/v2"
+                                api_key=api_key,
+                                base_url="https://qianfan.baidubce.com/v2"
                             )
                     except Exception as e:
                         logger.error(f"[EmbeddingFactory] Baidu Qianfan OpenAI-compatible embeddings failed: {e}")
@@ -215,24 +218,27 @@ class EmbeddingFactory:
                     try:
                         # Create no-proxy httpx client for Bytedance (domestic API, bypass proxy)
                         from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
-                        sync_client, _ = _create_no_proxy_http_client()
+                        sync_client, async_client = _create_no_proxy_http_client()
                         
                         # Use OpenAIEmbeddings with Bytedance's OpenAI-compatible endpoint
                         # API key is automatically passed as Bearer token
-                        if sync_client:
-                            logger.debug(f"[EmbeddingFactory] Bytedance Doubao using no-proxy client (domestic API)")
+                        # IMPORTANT: OpenAIEmbeddings requires BOTH http_client (sync) and http_async_client (async)
+                        # If you provide a custom client, you must provide both
+                        if sync_client and async_client:
+                            logger.debug(f"[EmbeddingFactory] Bytedance Doubao using no-proxy clients (domestic API)")
                             return OpenAIEmbeddings(
                                 model=model_name or "doubao-embedding",
-                                openai_api_key=api_key,
-                                openai_api_base="https://ark.cn-beijing.volces.com/api/v3",
-                                http_client=sync_client  # Bypass proxy for domestic API
+                                api_key=api_key,
+                                base_url="https://ark.cn-beijing.volces.com/api/v3",
+                                http_client=sync_client,
+                                http_async_client=async_client
                             )
                         else:
                             logger.debug(f"[EmbeddingFactory] Bytedance Doubao using default client (no proxy configured)")
                             return OpenAIEmbeddings(
                                 model=model_name or "doubao-embedding",
-                                openai_api_key=api_key,
-                                openai_api_base="https://ark.cn-beijing.volces.com/api/v3"
+                                api_key=api_key,
+                                base_url="https://ark.cn-beijing.volces.com/api/v3"
                             )
                     except Exception as e:
                         logger.error(f"[EmbeddingFactory] Bytedance Doubao OpenAI-compatible embeddings failed: {e}")
