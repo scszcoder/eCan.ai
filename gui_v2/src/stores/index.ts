@@ -15,6 +15,8 @@ export { useRankStore } from './domain/rankStore';
 export { useKnowledgeStore } from './domain/knowledgeStore';
 export { useChatStore } from './domain/chatStore';
 export { useContextStore } from './contextStore';
+export { useWarehouseStore } from './warehouseStore';
+export { useProductStore } from './productStore';
 
 // === Tool和Service ===
 export { storeSyncManager } from './sync/syncManager';
