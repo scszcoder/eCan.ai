@@ -202,6 +202,28 @@ jobs:
             exit 1
         }
 
+    - name: Install Inno Setup Chinese Language Pack
+      run: |
+        echo "=== Installing Inno Setup Chinese Language Pack ==="
+        $LangUrl = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl"
+        $LangDir = "${env:ProgramFiles(x86)}\Inno Setup 6\Languages"
+        $LangPath = "$LangDir\ChineseSimplified.isl"
+
+        Write-Host "Downloading Chinese Simplified language file..."
+        Invoke-WebRequest -Uri $LangUrl -OutFile $LangPath -UseBasicParsing
+
+        Write-Host "Chinese language pack installation completed"
+
+        # Verify installation
+        if (Test-Path $LangPath) {
+            Write-Host "Chinese language pack verified at: $LangPath"
+            $fileSize = (Get-Item $LangPath).Length
+            Write-Host "File size: $fileSize bytes"
+        } else {
+            Write-Host "ERROR: Chinese language pack not found at expected location"
+            exit 1
+        }
+
     - name: Setup OTA Dependencies
       uses: ./.github/actions/setup-ota-deps
       with:
