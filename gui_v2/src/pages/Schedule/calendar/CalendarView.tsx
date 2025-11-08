@@ -520,7 +520,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({
         onCancel={handleCloseMoreEventsModal}
         footer={null}
         width={600}
-        destroyOnClose
+        destroyOnHidden
       >
         <div style={MORE_EVENTS_CONTAINER_STYLE}>
           {moreEventsList.map((event, index) => (
