@@ -16,6 +16,7 @@ import { useUserStore } from '../../../../../stores/userStore';
 import { useSkillInfoStore } from '../../../stores/skill-info-store';
 import { useSheetsStore } from '../../../stores/sheets-store';
 import { useRunningNodeStore } from '../../../stores/running-node-store';
+import { useRuntimeStateStore } from '../../../stores/runtime-state-store';
 
 import styles from './index.module.less';
 
@@ -82,6 +83,9 @@ export function TestRunButton(props: { disabled: boolean }) {
         const startNode = clientContext.document.toJSON().nodes.find((n: any) => n.id === 'start');
         if (startNode) setRunningNodeId(startNode.id);
       } catch {}
+
+      // Clear all per-node runtime states so badges reset at the start of a new run
+      try { useRuntimeStateStore.getState().clearAll(); } catch {}
 
       // Deep copy diagram (base)
       const diagram = clientContext.document.toJSON();

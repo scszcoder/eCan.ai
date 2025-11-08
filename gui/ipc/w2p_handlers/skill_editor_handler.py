@@ -272,13 +272,29 @@ def handle_clear_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -
     try:
         logger.debug(f"Get clearing skill breakpoints with request: {request}")
 
-        owner = params["username"]
+        # Lazy import to avoid slow startup; reuse dev utils clear implementation
+        from agent.ec_skills.dev_utils.skill_dev_utils import clear_bps_dev_skill
+
         main_win = AppContext.get_main_window()
-        bps = [params["node_name"]]
-        main_win.clear_skill_breakpoints(owner, bps)
+        owner = (params or {}).get("username")
+        node_name = (params or {}).get("node_name")
+        # Normalize node_name parameter to a list
+        if isinstance(node_name, list):
+            bps = node_name
+        elif isinstance(node_name, str) and node_name:
+            bps = [node_name]
+        else:
+            bps = []
+
+        try:
+            logger.info(f"[TaskRunner] Clearing breakpoints -> request nodes: {bps}")
+        except Exception:
+            pass
+
+        results = clear_bps_dev_skill(main_win, bps)
         return create_success_response(request, {
-            "tests": ["test1", "test2", "test3"],
-            'message': 'Clear skill breakpoints successful'
+            "results": results,
+            'message': 'Clear skill breakpoints successful' if results.get('success') else 'Clear skill breakpoints failed'
         })
 
     except Exception as e:
