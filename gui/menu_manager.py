@@ -17,6 +17,316 @@ import traceback
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 
+
+class MenuMessages:
+    """Internationalization messages for menu"""
+    
+    MESSAGES = {
+        'en-US': {
+            # Menus
+            'menu_help': 'Help',
+            'menu_ecan': 'eCan',
+            
+            # App Menu
+            'about_ecan': 'About eCan',
+            'check_updates': 'Check for Updates...',
+            'preferences': 'Preferences...',
+            'services': 'Services',
+            'hide_ecan': 'Hide eCan',
+            'hide_others': 'Hide Others',
+            'show_all': 'Show All',
+            'quit_ecan': 'Quit eCan',
+            
+            # Help Menu
+            'ecan_help': 'eCan Help',
+            'quick_start': 'Quick Start Guide',
+            'keyboard_shortcuts': 'Keyboard Shortcuts',
+            'view_logs': 'View Logs...',
+            'test': 'Test',
+            
+            # About Dialog
+            'about_title': 'About eCan',
+            'about_text': '<h2>eCan</h2><p>Version: {version}</p><p>An intelligent automation platform for e-commerce operations.</p><p>© 2024 eCan Team</p>',
+            
+            # Settings Dialog
+            'settings_title': 'eCan Settings',
+            'app_settings': 'Application Settings',
+            'ota_update_settings': 'OTA Update Settings',
+            'update_server': 'Update Server:',
+            'remote_server': 'Remote Server (GitHub)',
+            'local_server': 'Local Test Server',
+            'local_server_url': 'Local Server URL:',
+            'start_local_server': 'Start Local Test Server',
+            'general_settings': 'General Settings',
+            'auto_save_projects': 'Auto-save projects',
+            'dark_mode': 'Dark mode',
+            'ok': 'OK',
+            'cancel': 'Cancel',
+            'apply': 'Apply',
+            'settings_saved': 'OTA settings saved successfully!',
+            'settings_error': 'Failed to save settings: {error}',
+            
+            # Server Dialog
+            'server_starting': 'Server Starting',
+            'server_starting_message': 'Local OTA test server is starting in a new window.\nServer will be available at: {url}\n\nCheck the terminal window for server status.',
+            'server_error': 'Failed to start server: {error}',
+            'error_title': 'Error',
+            'settings_open_error': 'Failed to open settings',
+            'update_error': 'Failed to open update dialog: {error}',
+            
+            # User Manual
+            'user_manual_title': 'eCan User Manual',
+            'user_manual_text': '''
+            <h2>eCan User Manual</h2>
+            <h3>Overview</h3>
+            <p>eCan is an enterprise-grade intelligent automation platform designed to streamline 
+            e-commerce operations through advanced AI-powered agents and workflow automation.</p>
+            
+            <h3>Core Capabilities</h3>
+            <ul>
+                <li><b>Agent Management:</b> Deploy and orchestrate AI agents for automated task execution</li>
+                <li><b>Skill Development:</b> Create and customize automation skills using visual workflow editor</li>
+                <li><b>Organization Structure:</b> Manage hierarchical teams and agent assignments</li>
+                <li><b>Task Scheduling:</b> Configure automated workflows with flexible scheduling options</li>
+                <li><b>Real-time Monitoring:</b> Track agent performance and task execution status</li>
+            </ul>
+            
+            <h3>Getting Help</h3>
+            <ul>
+                <li>Press <b>F1</b> at any time to access this help documentation</li>
+                <li>View <b>Quick Start Guide</b> for step-by-step instructions</li>
+                <li>Check <b>Keyboard Shortcuts</b> for productivity tips</li>
+                <li>Access <b>View Logs</b> for system diagnostics and troubleshooting</li>
+            </ul>
+            ''',
+            'user_manual_error': 'Failed to open user manual',
+            
+            # Quick Start
+            'quick_start_title': 'Quick Start Guide',
+            'quick_start_text': '''
+            <h2>Quick Start Guide</h2>
+            
+            <h3>Step 1: Configure Your Organization</h3>
+            <p>Navigate to the <b>Agents</b> page to set up your organizational structure. 
+            Create departments and assign agents to appropriate teams for optimal workflow management.</p>
+            
+            <h3>Step 2: Deploy AI Agents</h3>
+            <p>Access the <b>Agents</b> section to deploy and configure AI agents. 
+            Assign specific roles, capabilities, and permissions to each agent based on your operational requirements.</p>
+            
+            <h3>Step 3: Create Automation Skills</h3>
+            <p>Use the <b>Skills</b> editor to design custom automation workflows. 
+            Leverage the visual node-based interface to create, test, and deploy automation skills.</p>
+            
+            <h3>Step 4: Schedule Tasks</h3>
+            <p>Configure task schedules in the <b>Schedule</b> section. 
+            Set up recurring automation tasks with flexible timing and execution parameters.</p>
+            
+            <h3>Step 5: Monitor and Optimize</h3>
+            <p>Use the <b>Chat</b> interface to interact with agents and monitor task execution. 
+            Review performance metrics and optimize workflows for improved efficiency.</p>
+            ''',
+            'quick_start_error': 'Failed to open quick start guide',
+            
+            # Keyboard Shortcuts
+            'shortcuts_title': 'Keyboard Shortcuts',
+            'shortcuts_app_control': 'Application Control',
+            'shortcuts_open_prefs': 'Open Preferences',
+            'shortcuts_hide_app': 'Hide Application',
+            'shortcuts_quit_app': 'Quit Application',
+            'shortcuts_open_help': 'Open Help Documentation',
+            'shortcuts_system': 'System Utilities',
+            'shortcuts_view_logs': 'View System Logs',
+            'shortcuts_navigation': 'Navigation',
+            'shortcuts_nav_chat': 'Navigate to Chat',
+            'shortcuts_nav_agents': 'Navigate to Agents',
+            'shortcuts_nav_skills': 'Navigate to Skills',
+            'shortcuts_nav_schedule': 'Navigate to Schedule',
+            'shortcuts_note': '<i>Note: Additional context-specific shortcuts are available within each module.</i>',
+            'shortcuts_error': 'Failed to open shortcuts',
+        },
+        'zh-CN': {
+            # 菜单
+            'menu_help': '帮助',
+            'menu_ecan': 'eCan',
+            
+            # 应用菜单
+            'about_ecan': '关于 eCan',
+            'check_updates': '检查更新...',
+            'preferences': '偏好设置...',
+            'services': '服务',
+            'hide_ecan': '隐藏 eCan',
+            'hide_others': '隐藏其他',
+            'show_all': '全部显示',
+            'quit_ecan': '退出 eCan',
+            
+            # 帮助菜单
+            'ecan_help': 'eCan 帮助',
+            'quick_start': '快速入门指南',
+            'keyboard_shortcuts': '键盘快捷键',
+            'view_logs': '查看日志...',
+            'test': '测试',
+            
+            # 关于对话框
+            'about_title': '关于 eCan',
+            'about_text': '<h2>eCan</h2><p>版本: {version}</p><p>智能电商运营自动化平台。</p><p>© 2024 eCan 团队</p>',
+            
+            # 设置对话框
+            'settings_title': 'eCan 设置',
+            'app_settings': '应用程序设置',
+            'ota_update_settings': 'OTA 更新设置',
+            'update_server': '更新服务器:',
+            'remote_server': '远程服务器 (GitHub)',
+            'local_server': '本地测试服务器',
+            'local_server_url': '本地服务器 URL:',
+            'start_local_server': '启动本地测试服务器',
+            'general_settings': '通用设置',
+            'auto_save_projects': '自动保存项目',
+            'dark_mode': '深色模式',
+            'ok': '确定',
+            'cancel': '取消',
+            'apply': '应用',
+            'settings_saved': 'OTA 设置保存成功！',
+            'settings_error': '保存设置失败: {error}',
+            
+            # 服务器对话框
+            'server_starting': '服务器启动中',
+            'server_starting_message': '本地 OTA 测试服务器正在新窗口中启动。\n服务器地址: {url}\n\n请查看终端窗口了解服务器状态。',
+            'server_error': '启动服务器失败: {error}',
+            'error_title': '错误',
+            'settings_open_error': '打开设置失败',
+            'update_error': '打开更新对话框失败: {error}',
+            
+            # 用户手册
+            'user_manual_title': 'eCan 用户手册',
+            'user_manual_text': '''
+            <h2>eCan 用户手册</h2>
+            <h3>概述</h3>
+            <p>eCan 是企业级智能自动化平台，通过先进的 AI 代理和工作流自动化来简化电子商务运营。</p>
+            
+            <h3>核心功能</h3>
+            <ul>
+                <li><b>代理管理：</b>部署和编排 AI 代理以执行自动化任务</li>
+                <li><b>技能开发：</b>使用可视化工作流编辑器创建和自定义自动化技能</li>
+                <li><b>组织架构：</b>管理层级团队和代理分配</li>
+                <li><b>任务调度：</b>配置具有灵活时间和执行参数的自动化工作流</li>
+                <li><b>实时监控：</b>跟踪代理性能和任务执行状态</li>
+            </ul>
+            
+            <h3>获取帮助</h3>
+            <ul>
+                <li>随时按 <b>F1</b> 访问此帮助文档</li>
+                <li>查看<b>快速入门指南</b>以获取分步说明</li>
+                <li>查看<b>键盘快捷键</b>以获取生产力提示</li>
+                <li>访问<b>查看日志</b>进行系统诊断和故障排除</li>
+            </ul>
+            ''',
+            'user_manual_error': '打开用户手册失败',
+            
+            # 快速入门
+            'quick_start_title': '快速入门指南',
+            'quick_start_text': '''
+            <h2>快速入门指南</h2>
+            
+            <h3>步骤 1: 配置您的组织</h3>
+            <p>导航到<b>代理</b>页面设置您的组织架构。
+            创建部门并将代理分配到适当的团队以实现最佳工作流管理。</p>
+            
+            <h3>步骤 2: 部署 AI 代理</h3>
+            <p>访问<b>代理</b>部分以部署和配置 AI 代理。
+            根据您的运营要求为每个代理分配特定的角色、功能和权限。</p>
+            
+            <h3>步骤 3: 创建自动化技能</h3>
+            <p>使用<b>技能</b>编辑器设计自定义自动化工作流。
+            利用基于可视化节点的界面创建、测试和部署自动化技能。</p>
+            
+            <h3>步骤 4: 调度任务</h3>
+            <p>在<b>调度</b>部分配置任务调度。
+            设置具有灵活时间和执行参数的周期性自动化任务。</p>
+            
+            <h3>步骤 5: 监控和优化</h3>
+            <p>使用<b>聊天</b>界面与代理互动并监控任务执行。
+            查看性能指标并优化工作流以提高效率。</p>
+            ''',
+            'quick_start_error': '打开快速入门指南失败',
+            
+            # 键盘快捷键
+            'shortcuts_title': '键盘快捷键',
+            'shortcuts_app_control': '应用程序控制',
+            'shortcuts_open_prefs': '打开偏好设置',
+            'shortcuts_hide_app': '隐藏应用程序',
+            'shortcuts_quit_app': '退出应用程序',
+            'shortcuts_open_help': '打开帮助文档',
+            'shortcuts_system': '系统工具',
+            'shortcuts_view_logs': '查看系统日志',
+            'shortcuts_navigation': '导航',
+            'shortcuts_nav_chat': '导航到聊天',
+            'shortcuts_nav_agents': '导航到代理',
+            'shortcuts_nav_skills': '导航到技能',
+            'shortcuts_nav_schedule': '导航到调度',
+            'shortcuts_note': '<i>注意: 每个模块内都有额外的上下文相关快捷键。</i>',
+            'shortcuts_error': '打开快捷键失败',
+        }
+    }
+    
+    DEFAULT_LANG = 'zh-CN'
+    
+    def __init__(self):
+        self.current_lang = self._detect_language()
+        logger.info(f"MenuMessages initialized with language: {self.current_lang}")
+    
+    def _detect_language(self):
+        """Detect language from system settings."""
+        try:
+            # macOS: Try to read system UI language directly
+            if sys.platform == 'darwin':
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ['defaults', 'read', '-g', 'AppleLanguages'],
+                        capture_output=True,
+                        text=True,
+                        timeout=1
+                    )
+                    if result.returncode == 0:
+                        output = result.stdout.lower()
+                        if 'zh-hans' in output or 'zh-cn' in output or 'zh_cn' in output:
+                            return 'zh-CN'
+                        elif 'zh-hant' in output or 'zh-tw' in output or 'zh-hk' in output:
+                            return 'zh-CN'
+                        elif 'en' in output:
+                            return 'en-US'
+                except Exception:
+                    pass
+            
+            # Fallback: Use Python locale module
+            import locale
+            system_lang = locale.getdefaultlocale()[0]
+            if system_lang:
+                if 'zh' in system_lang.lower() or 'cn' in system_lang.lower():
+                    return 'zh-CN'
+                elif 'en' in system_lang.lower():
+                    return 'en-US'
+            
+            return self.DEFAULT_LANG
+        except Exception:
+            return self.DEFAULT_LANG
+    
+    def get(self, key, **kwargs):
+        """Get message by key with optional formatting."""
+        messages = self.MESSAGES.get(self.current_lang, self.MESSAGES[self.DEFAULT_LANG])
+        message = messages.get(key, key)
+        if kwargs:
+            try:
+                return message.format(**kwargs)
+            except Exception:
+                return message
+        return message
+
+
+# Global message instance
+_menu_messages = MenuMessages()
+
 class MenuManager:
     """Menu Manager Class"""
     
@@ -49,11 +359,11 @@ class MenuManager:
             logger.info("Setting up custom title bar menu for Windows/Linux...")
             
             # Set up simplified menus for custom title bar
-            app_menu = custom_menubar.addMenu('eCan')
+            app_menu = custom_menubar.addMenu(_menu_messages.get('menu_ecan'))
             logger.debug("Added 'eCan' menu to custom menubar")
             self._setup_app_menu(app_menu)
 
-            help_menu = custom_menubar.addMenu('Help')
+            help_menu = custom_menubar.addMenu(_menu_messages.get('menu_help'))
             logger.debug("Added 'Help' menu to custom menubar")
             self._setup_help_menu(help_menu)
 
@@ -94,7 +404,7 @@ class MenuManager:
                 return
 
         # Only keep Help menu in addition to application menu
-        help_menu = menubar.addMenu('Help')
+        help_menu = menubar.addMenu(_menu_messages.get('menu_help'))
         self._setup_help_menu(help_menu)
 
         logger.info("macOS menu bar setup complete (eCan + Help only)")
@@ -114,11 +424,11 @@ class MenuManager:
             logger.warning(f"Windows menu setup failed: {e}")
 
         # Application menu
-        app_menu = menubar.addMenu('eCan')
+        app_menu = menubar.addMenu(_menu_messages.get('menu_ecan'))
         self._setup_app_menu(app_menu)
 
         # Only keep Help menu
-        help_menu = menubar.addMenu('Help')
+        help_menu = menubar.addMenu(_menu_messages.get('menu_help'))
         self._setup_help_menu(help_menu)
     
     def _setup_linux_menus(self, menubar):
@@ -136,10 +446,10 @@ class MenuManager:
             logger.warning(f"Linux menu setup failed: {e}")
 
         # Standard menu layout on Linux - keep only eCan and Help
-        app_menu = menubar.addMenu('eCan')
+        app_menu = menubar.addMenu(_menu_messages.get('menu_ecan'))
         self._setup_app_menu(app_menu)
 
-        help_menu = menubar.addMenu('Help')
+        help_menu = menubar.addMenu(_menu_messages.get('menu_help'))
         self._setup_help_menu(help_menu)
 
     def _setup_titlebar_menu_style(self, menubar):
@@ -246,19 +556,19 @@ class MenuManager:
     def _setup_app_menu(self, app_menu):
         """Set up application menu"""
         # About eCan
-        about_action = QAction('About eCan', self.main_window)
+        about_action = QAction(_menu_messages.get('about_ecan'), self.main_window)
         about_action.triggered.connect(self.show_about_dialog)
         app_menu.addAction(about_action)
         
         # Check for updates
-        check_update_action = QAction('Check for Updates...', self.main_window)
+        check_update_action = QAction(_menu_messages.get('check_updates'), self.main_window)
         check_update_action.triggered.connect(self.show_update_dialog)
         app_menu.addAction(check_update_action)
         
         app_menu.addSeparator()
         
         # Preferences/Settings
-        preferences_action = QAction('Preferences...', self.main_window)
+        preferences_action = QAction(_menu_messages.get('preferences'), self.main_window)
         preferences_action.setShortcut('Ctrl+,')
         preferences_action.triggered.connect(self.show_settings)
         app_menu.addAction(preferences_action)
@@ -266,32 +576,32 @@ class MenuManager:
         app_menu.addSeparator()
         
         # Services menu (macOS standard)
-        services_menu = app_menu.addMenu('Services')
+        services_menu = app_menu.addMenu(_menu_messages.get('services'))
         # Services menu is usually managed by system, just placeholder here
         
         app_menu.addSeparator()
         
         # Hide eCan
-        hide_action = QAction('Hide eCan', self.main_window)
+        hide_action = QAction(_menu_messages.get('hide_ecan'), self.main_window)
         hide_action.setShortcut('Ctrl+H')
         hide_action.triggered.connect(self.hide_app)
         app_menu.addAction(hide_action)
         
         # Hide others
-        hide_others_action = QAction('Hide Others', self.main_window)
+        hide_others_action = QAction(_menu_messages.get('hide_others'), self.main_window)
         hide_others_action.setShortcut('Ctrl+Alt+H')
         hide_others_action.triggered.connect(self.hide_others)
         app_menu.addAction(hide_others_action)
         
         # Show all
-        show_all_action = QAction('Show All', self.main_window)
+        show_all_action = QAction(_menu_messages.get('show_all'), self.main_window)
         show_all_action.triggered.connect(self.show_all)
         app_menu.addAction(show_all_action)
         
         app_menu.addSeparator()
         
         # Quit eCan
-        quit_action = QAction('Quit eCan', self.main_window)
+        quit_action = QAction(_menu_messages.get('quit_ecan'), self.main_window)
         quit_action.setShortcut('Ctrl+Q')
         quit_action.triggered.connect(self.main_window.close)
         app_menu.addAction(quit_action)
@@ -302,20 +612,20 @@ class MenuManager:
         """Set up Help menu"""
         try:
             # User manual
-            user_manual_action = QAction('eCan Help', self.main_window)
+            user_manual_action = QAction(_menu_messages.get('ecan_help'), self.main_window)
             user_manual_action.setShortcut('F1')
             user_manual_action.triggered.connect(self.show_user_manual)
             help_menu.addAction(user_manual_action)
             logger.debug("Added 'eCan Help' menu item")
             
             # Quick start guide
-            quick_start_action = QAction('Quick Start Guide', self.main_window)
+            quick_start_action = QAction(_menu_messages.get('quick_start'), self.main_window)
             quick_start_action.triggered.connect(self.show_quick_start)
             help_menu.addAction(quick_start_action)
             logger.debug("Added 'Quick Start Guide' menu item")
             
             # Keyboard shortcuts
-            shortcuts_action = QAction('Keyboard Shortcuts', self.main_window)
+            shortcuts_action = QAction(_menu_messages.get('keyboard_shortcuts'), self.main_window)
             shortcuts_action.triggered.connect(self.show_shortcuts)
             help_menu.addAction(shortcuts_action)
             logger.debug("Added 'Keyboard Shortcuts' menu item")
@@ -323,7 +633,7 @@ class MenuManager:
             help_menu.addSeparator()
 
             # Log Viewer - use platform-specific shortcut
-            log_viewer_action = QAction('View Logs...', self.main_window)
+            log_viewer_action = QAction(_menu_messages.get('view_logs'), self.main_window)
             # Only set shortcut on macOS to avoid conflicts on Windows
             if sys.platform == 'darwin':
                 log_viewer_action.setShortcut('Cmd+Shift+L')
@@ -333,7 +643,7 @@ class MenuManager:
             logger.debug("Added 'View Logs' menu item")
 
             # Test (for eCan.ai app) - simple harness entry below 'View Logs'
-            test_action = QAction('Test', self.main_window)
+            test_action = QAction(_menu_messages.get('test'), self.main_window)
             test_action.triggered.connect(self.quick_test)
             help_menu.addAction(test_action)
             logger.debug("Added 'Test' menu item under Help")
@@ -358,21 +668,21 @@ class MenuManager:
     def _setup_macos_app_menu(self, app_menu):
         """Set up macOS-specific application menu (ensure all functionality included)"""
         # About eCan
-        about_action = QAction('About eCan', self.main_window)
+        about_action = QAction(_menu_messages.get('about_ecan'), self.main_window)
         about_action.triggered.connect(self.show_about_dialog)
         app_menu.addAction(about_action)
         
         app_menu.addSeparator()
         
         # Check for updates (OTA functionality)
-        check_update_action = QAction('Check for Updates...', self.main_window)
+        check_update_action = QAction(_menu_messages.get('check_updates'), self.main_window)
         check_update_action.triggered.connect(self.show_update_dialog)
         app_menu.addAction(check_update_action)
         
         app_menu.addSeparator()
         
         # Preferences/Settings
-        preferences_action = QAction('Preferences...', self.main_window)
+        preferences_action = QAction(_menu_messages.get('preferences'), self.main_window)
         preferences_action.setShortcut('Cmd+,')  # macOS uses Cmd instead of Ctrl
         preferences_action.triggered.connect(self.show_settings)
         app_menu.addAction(preferences_action)
@@ -380,32 +690,32 @@ class MenuManager:
         app_menu.addSeparator()
         
         # Services menu (macOS standard)
-        services_menu = app_menu.addMenu('Services')
+        services_menu = app_menu.addMenu(_menu_messages.get('services'))
         # Services menu is usually managed by system, just placeholder here
         
         app_menu.addSeparator()
         
         # Hide eCan
-        hide_action = QAction('Hide eCan', self.main_window)
+        hide_action = QAction(_menu_messages.get('hide_ecan'), self.main_window)
         hide_action.setShortcut('Cmd+H')  # macOS uses Cmd
         hide_action.triggered.connect(self.hide_app)
         app_menu.addAction(hide_action)
         
         # Hide others
-        hide_others_action = QAction('Hide Others', self.main_window)
+        hide_others_action = QAction(_menu_messages.get('hide_others'), self.main_window)
         hide_others_action.setShortcut('Cmd+Alt+H')  # macOS uses Cmd
         hide_others_action.triggered.connect(self.hide_others)
         app_menu.addAction(hide_others_action)
         
         # Show all
-        show_all_action = QAction('Show All', self.main_window)
+        show_all_action = QAction(_menu_messages.get('show_all'), self.main_window)
         show_all_action.triggered.connect(self.show_all)
         app_menu.addAction(show_all_action)
         
         app_menu.addSeparator()
         
         # Quit eCan
-        quit_action = QAction('Quit eCan', self.main_window)
+        quit_action = QAction(_menu_messages.get('quit_ecan'), self.main_window)
         quit_action.setShortcut('Cmd+Q')  # macOS uses Cmd
         quit_action.triggered.connect(self.main_window.close)
         app_menu.addAction(quit_action)
@@ -459,15 +769,10 @@ class MenuManager:
             except Exception:
                 pass
             
-            about_text = f"""
-            <h2>eCan</h2>
-            <p>Version: {version}</p>
-            <p>An intelligent automation platform for e-commerce operations.</p>
-            <p>© 2024 eCan Team</p>
-            """
+            about_text = _menu_messages.get('about_text', version=version)
             
             msg = QMessageBox(self.main_window)
-            msg.setWindowTitle("About eCan")
+            msg.setWindowTitle(_menu_messages.get('about_title'))
             msg.setText(about_text)
             msg.setTextFormat(Qt.RichText)
             self._apply_messagebox_style(msg)
@@ -490,35 +795,36 @@ class MenuManager:
             dialog.exec()
         except Exception as e:
             logger.error(f"Failed to show update dialog: {e}")
-            QMessageBox.warning(self.main_window, "Error", f"Failed to open update dialog: {str(e)}")
+            QMessageBox.warning(self.main_window, _menu_messages.get('error_title'), 
+                              _menu_messages.get('update_error', error=str(e)))
     
     def show_settings(self):
         """Show settings dialog"""
         try:
             settings_dialog = QDialog(self.main_window)
-            settings_dialog.setWindowTitle("eCan Settings")
+            settings_dialog.setWindowTitle(_menu_messages.get('settings_title'))
             settings_dialog.setModal(True)
             settings_dialog.setFixedSize(600, 500)
             
             layout = QVBoxLayout()
             
             # Settings label
-            title_label = QLabel("Application Settings")
+            title_label = QLabel(_menu_messages.get('app_settings'))
             title_label.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
             layout.addWidget(title_label)
             
             # OTA Update Settings Group
-            ota_group = QGroupBox("OTA Update Settings")
+            ota_group = QGroupBox(_menu_messages.get('ota_update_settings'))
             ota_layout = QVBoxLayout()
             
             # Server selection
             server_layout = QHBoxLayout()
-            server_label = QLabel("Update Server:")
+            server_label = QLabel(_menu_messages.get('update_server'))
             server_layout.addWidget(server_label)
             
             # Radio buttons for server selection
-            self.remote_server_radio = QRadioButton("Remote Server (GitHub)")
-            self.local_server_radio = QRadioButton("Local Test Server")
+            self.remote_server_radio = QRadioButton(_menu_messages.get('remote_server'))
+            self.local_server_radio = QRadioButton(_menu_messages.get('local_server'))
             
             # Load current configuration
             try:
@@ -536,7 +842,7 @@ class MenuManager:
             
             # Local server URL input
             local_url_layout = QHBoxLayout()
-            local_url_label = QLabel("Local Server URL:")
+            local_url_label = QLabel(_menu_messages.get('local_server_url'))
 
             # Get default URL from config
             try:
@@ -551,7 +857,7 @@ class MenuManager:
             ota_layout.addLayout(local_url_layout)
             
             # Start local server button
-            start_server_button = QPushButton("Start Local Test Server")
+            start_server_button = QPushButton(_menu_messages.get('start_local_server'))
             start_server_button.clicked.connect(self.start_local_ota_server)
             ota_layout.addWidget(start_server_button)
             
@@ -559,14 +865,14 @@ class MenuManager:
             layout.addWidget(ota_group)
             
             # Other settings
-            other_group = QGroupBox("General Settings")
+            other_group = QGroupBox(_menu_messages.get('general_settings'))
             other_layout = QVBoxLayout()
             
-            auto_save_checkbox = QCheckBox("Auto-save projects")
+            auto_save_checkbox = QCheckBox(_menu_messages.get('auto_save_projects'))
             auto_save_checkbox.setChecked(True)
             other_layout.addWidget(auto_save_checkbox)
             
-            dark_mode_checkbox = QCheckBox("Dark mode")
+            dark_mode_checkbox = QCheckBox(_menu_messages.get('dark_mode'))
             other_layout.addWidget(dark_mode_checkbox)
             
             other_group.setLayout(other_layout)
@@ -574,9 +880,9 @@ class MenuManager:
             
             # Buttons
             button_layout = QHBoxLayout()
-            ok_button = QPushButton("OK")
-            cancel_button = QPushButton("Cancel")
-            apply_button = QPushButton("Apply")
+            ok_button = QPushButton(_menu_messages.get('ok'))
+            cancel_button = QPushButton(_menu_messages.get('cancel'))
+            apply_button = QPushButton(_menu_messages.get('apply'))
             
             ok_button.clicked.connect(lambda: self.save_ota_settings(settings_dialog))
             cancel_button.clicked.connect(settings_dialog.reject)
@@ -592,7 +898,8 @@ class MenuManager:
             
         except Exception as e:
             logger.error(f"Failed to show settings: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to open settings")
+            QMessageBox.warning(self.main_window, _menu_messages.get('error_title'), 
+                              _menu_messages.get('settings_open_error'))
     
     def save_ota_settings(self, dialog=None):
         """Save OTA settings"""
@@ -609,14 +916,16 @@ class MenuManager:
                 ota_config.set_local_server_url(local_url)
             
             logger.info(f"OTA settings saved: use_local={use_local}, local_url={local_url}")
-            QMessageBox.information(self.main_window, "Settings", "OTA settings saved successfully!")
+            QMessageBox.information(self.main_window, _menu_messages.get('settings_title'), 
+                                  _menu_messages.get('settings_saved'))
             
             if dialog:
                 dialog.accept()
                 
         except Exception as e:
             logger.error(f"Failed to save OTA settings: {e}")
-            QMessageBox.warning(self.main_window, "Error", f"Failed to save settings: {e}")
+            QMessageBox.warning(self.main_window, _menu_messages.get('error_title'), 
+                              _menu_messages.get('settings_error', error=str(e)))
     
     def start_local_ota_server(self):
         """Start local OTA test server"""
@@ -630,7 +939,8 @@ class MenuManager:
             start_script = project_root / "ota" / "start_local_server.py"
 
             if not start_script.exists():
-                QMessageBox.warning(self.main_window, "Error", f"Local server script not found: {start_script}")
+                QMessageBox.warning(self.main_window, _menu_messages.get('error_title'), 
+                                  f"Local server script not found: {start_script}")
                 return
 
             # Start server in new command line window
@@ -656,15 +966,14 @@ class MenuManager:
             
             QMessageBox.information(
                 self.main_window, 
-                "Server Starting", 
-                f"Local OTA test server is starting in a new window.\n"
-                f"Server will be available at: {server_url}\n\n"
-                "Check the terminal window for server status."
+                _menu_messages.get('server_starting'), 
+                _menu_messages.get('server_starting_message', url=server_url)
             )
             
         except Exception as e:
             logger.error(f"Failed to start local OTA server: {e}")
-            QMessageBox.warning(self.main_window, "Error", f"Failed to start server: {e}")
+            QMessageBox.warning(self.main_window, _menu_messages.get('error_title'), 
+                              _menu_messages.get('server_error', error=str(e)))
     
     def hide_app(self):
         """Hide application"""
@@ -705,32 +1014,10 @@ class MenuManager:
     def show_user_manual(self):
         """Show user manual"""
         try:
-            manual_text = """
-            <h2>eCan User Manual</h2>
-            <h3>Overview</h3>
-            <p>eCan is an enterprise-grade intelligent automation platform designed to streamline 
-            e-commerce operations through advanced AI-powered agents and workflow automation.</p>
-            
-            <h3>Core Capabilities</h3>
-            <ul>
-                <li><b>Agent Management:</b> Deploy and orchestrate AI agents for automated task execution</li>
-                <li><b>Skill Development:</b> Create and customize automation skills using visual workflow editor</li>
-                <li><b>Organization Structure:</b> Manage hierarchical teams and agent assignments</li>
-                <li><b>Task Scheduling:</b> Configure automated workflows with flexible scheduling options</li>
-                <li><b>Real-time Monitoring:</b> Track agent performance and task execution status</li>
-            </ul>
-            
-            <h3>Getting Help</h3>
-            <ul>
-                <li>Press <b>F1</b> at any time to access this help documentation</li>
-                <li>View <b>Quick Start Guide</b> for step-by-step instructions</li>
-                <li>Check <b>Keyboard Shortcuts</b> for productivity tips</li>
-                <li>Access <b>View Logs</b> for system diagnostics and troubleshooting</li>
-            </ul>
-            """
+            manual_text = _menu_messages.get('user_manual_text')
             
             msg = QMessageBox(self.main_window)
-            msg.setWindowTitle("eCan User Manual")
+            msg.setWindowTitle(_menu_messages.get('user_manual_title'))
             msg.setText(manual_text)
             msg.setTextFormat(Qt.RichText)
             self._apply_messagebox_style(msg)
@@ -738,37 +1025,16 @@ class MenuManager:
             
         except Exception as e:
             logger.error(f"Failed to show user manual: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to open user manual")
+            QMessageBox.warning(self.main_window, _menu_messages.get('error_title'), 
+                              _menu_messages.get('user_manual_error'))
     
     def show_quick_start(self):
         """Show quick start guide"""
         try:
-            quick_start_text = """
-            <h2>Quick Start Guide</h2>
-            
-            <h3>Step 1: Configure Your Organization</h3>
-            <p>Navigate to the <b>Agents</b> page to set up your organizational structure. 
-            Create departments and assign agents to appropriate teams for optimal workflow management.</p>
-            
-            <h3>Step 2: Deploy AI Agents</h3>
-            <p>Access the <b>Agents</b> section to deploy and configure AI agents. 
-            Assign specific roles, capabilities, and permissions to each agent based on your operational requirements.</p>
-            
-            <h3>Step 3: Create Automation Skills</h3>
-            <p>Use the <b>Skills</b> editor to design custom automation workflows. 
-            Leverage the visual node-based interface to create, test, and deploy automation skills.</p>
-            
-            <h3>Step 4: Schedule Tasks</h3>
-            <p>Configure task schedules in the <b>Schedule</b> section. 
-            Set up recurring automation tasks with flexible timing and execution parameters.</p>
-            
-            <h3>Step 5: Monitor and Optimize</h3>
-            <p>Use the <b>Chat</b> interface to interact with agents and monitor task execution. 
-            Review performance metrics and optimize workflows for improved efficiency.</p>
-            """
+            quick_start_text = _menu_messages.get('quick_start_text')
             
             msg = QMessageBox(self.main_window)
-            msg.setWindowTitle("Quick Start Guide")
+            msg.setWindowTitle(_menu_messages.get('quick_start_title'))
             msg.setText(quick_start_text)
             msg.setTextFormat(Qt.RichText)
             self._apply_messagebox_style(msg)
@@ -776,7 +1042,8 @@ class MenuManager:
             
         except Exception as e:
             logger.error(f"Failed to show quick start guide: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to open quick start guide")
+            QMessageBox.warning(self.main_window, _menu_messages.get('error_title'), 
+                              _menu_messages.get('quick_start_error'))
 
     def show_test_item(self):
         """Handler for Help > Test: simple test dialog"""
@@ -841,36 +1108,36 @@ class MenuManager:
                 modifier = 'Ctrl'
             
             shortcuts_text = f"""
-            <h2>Keyboard Shortcuts</h2>
+            <h2>{_menu_messages.get('shortcuts_title')}</h2>
             
-            <h3>Application Control</h3>
+            <h3>{_menu_messages.get('shortcuts_app_control')}</h3>
             <table style="width: 100%; border-collapse: collapse;">
-                <tr><td style="padding: 4px;"><b>{modifier}+,</b></td><td style="padding: 4px;">Open Preferences</td></tr>
-                <tr><td style="padding: 4px;"><b>{modifier}+H</b></td><td style="padding: 4px;">Hide Application</td></tr>
-                <tr><td style="padding: 4px;"><b>{modifier}+Q</b></td><td style="padding: 4px;">Quit Application</td></tr>
-                <tr><td style="padding: 4px;"><b>F1</b></td><td style="padding: 4px;">Open Help Documentation</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+,</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_open_prefs')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+H</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_hide_app')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+Q</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_quit_app')}</td></tr>
+                <tr><td style="padding: 4px;"><b>F1</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_open_help')}</td></tr>
             </table>
             
-            <h3>System Utilities</h3>
+            <h3>{_menu_messages.get('shortcuts_system')}</h3>
             <table style="width: 100%; border-collapse: collapse;">
-                <tr><td style="padding: 4px;"><b>{modifier}+Shift+L</b></td><td style="padding: 4px;">View System Logs</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+Shift+L</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_view_logs')}</td></tr>
             </table>
             
-            <h3>Navigation</h3>
+            <h3>{_menu_messages.get('shortcuts_navigation')}</h3>
             <table style="width: 100%; border-collapse: collapse;">
-                <tr><td style="padding: 4px;"><b>{modifier}+1</b></td><td style="padding: 4px;">Navigate to Chat</td></tr>
-                <tr><td style="padding: 4px;"><b>{modifier}+2</b></td><td style="padding: 4px;">Navigate to Agents</td></tr>
-                <tr><td style="padding: 4px;"><b>{modifier}+3</b></td><td style="padding: 4px;">Navigate to Skills</td></tr>
-                <tr><td style="padding: 4px;"><b>{modifier}+4</b></td><td style="padding: 4px;">Navigate to Schedule</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+1</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_nav_chat')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+2</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_nav_agents')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+3</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_nav_skills')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+4</b></td><td style="padding: 4px;">{_menu_messages.get('shortcuts_nav_schedule')}</td></tr>
             </table>
             
             <p style="margin-top: 16px; color: #666; font-size: 12px;">
-            <i>Note: Additional context-specific shortcuts are available within each module.</i>
+            {_menu_messages.get('shortcuts_note')}
             </p>
             """
             
             msg = QMessageBox(self.main_window)
-            msg.setWindowTitle("Keyboard Shortcuts")
+            msg.setWindowTitle(_menu_messages.get('shortcuts_title'))
             msg.setText(shortcuts_text)
             msg.setTextFormat(Qt.RichText)
             self._apply_messagebox_style(msg)
@@ -878,7 +1145,8 @@ class MenuManager:
             
         except Exception as e:
             logger.error(f"Failed to show shortcuts: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to open shortcuts")
+            QMessageBox.warning(self.main_window, _menu_messages.get('error_title'), 
+                              _menu_messages.get('shortcuts_error'))
     
     def report_issue(self):
         """Report issue"""

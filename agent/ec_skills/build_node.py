@@ -12,6 +12,19 @@ from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from langgraph.types import interrupt
 from app_context import AppContext
+from utils.env.secure_store import secure_store, get_current_username
+from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
+from langchain_openai import ChatOpenAI, AzureChatOpenAI
+from langchain_community.chat_models import ChatAnthropic, ChatOllama
+from langchain_deepseek import ChatDeepSeek
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+except Exception:
+    ChatGoogleGenerativeAI = None
+try:
+    from langchain_qwq import ChatQwQ
+except Exception:
+    ChatQwQ = None
 
 def get_default_node_schemas():
     schemas = {
@@ -81,6 +94,9 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         'qwen (dashscope)': 'qwen',
         'ollama (local)': 'ollama',
         'bytedance doubao': 'bytedance',
+        'dashscope/qwen': 'dashscope',
+        'baidu qianfan': 'baidu_qianfan',
+        '百度千帆': 'baidu_qianfan',
     }
     llm_provider = provider_mapping.get(llm_provider, llm_provider)
 
@@ -124,26 +140,154 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             messages.append(SystemMessage(content=final_system_prompt))
         messages.append(HumanMessage(content=final_user_prompt))
 
-        # Get mainwin from agent via state and use mainwin's LLM (no fallback)
+        # Build LLM from node config (do NOT depend on mainwin.llm)
         llm = None
         try:
-            from agent.agent_service import get_agent_by_id
-            if state.get("messages") and len(state["messages"]) > 0:
-                agent_id = state["messages"][0]
-                agent = get_agent_by_id(agent_id)
-                if agent and hasattr(agent, 'mainwin') and agent.mainwin and hasattr(agent.mainwin, 'llm'):
-                    llm = agent.mainwin.llm
+            # Helper: resolve API key (prefer node config; fallback to secure store)
+            def _resolve_api_key(provider: str, provided_key: str) -> str | None:
+                if isinstance(provided_key, str) and provided_key.strip():
+                    return provided_key.strip()
+                provider_l = (provider or "").lower()
+                try:
+                    username = get_current_username()
+                except Exception:
+                    username = None
+                def gs(name: str) -> str | None:
+                    try:
+                        return secure_store.get(name, username=username)
+                    except Exception:
+                        return None
+                if provider_l in ("openai",):
+                    return gs("OPENAI_API_KEY")
+                if provider_l in ("anthropic", "claude"):
+                    return gs("ANTHROPIC_API_KEY")
+                if provider_l in ("google", "gemini"):
+                    return gs("GEMINI_API_KEY")
+                if provider_l in ("deepseek",):
+                    return gs("DEEPSEEK_API_KEY")
+                if provider_l in ("dashscope", "qwen", "qwq"):
+                    return gs("DASHSCOPE_API_KEY")
+                if provider_l in ("bytedance", "doubao"):
+                    return gs("ARK_API_KEY")
+                if provider_l in ("baidu", "qianfan", "baidu_qianfan"):
+                    return gs("BAIDU_API_KEY")
+                if provider_l in ("azure", "azure_openai"):
+                    # Azure uses a different key name
+                    return gs("AZURE_OPENAI_API_KEY")
+                return None
+
+            key = _resolve_api_key(llm_provider, api_key)
+            host = (api_host or "").strip()
+            prov = llm_provider
+
+            # Provider-specific construction
+            if prov in ("azure", "azure_openai"):
+                azure_endpoint = host or (secure_store.get("AZURE_ENDPOINT", username=get_current_username()) if key else None)
+                if not azure_endpoint or not key:
+                    raise ValueError("Azure OpenAI requires AZURE_ENDPOINT and API key")
+                llm = AzureChatOpenAI(
+                    azure_endpoint=azure_endpoint,
+                    api_key=key,
+                    azure_deployment=model_name,
+                    api_version="2024-02-15-preview",
+                    temperature=temperature
+                )
+            elif prov in ("openai",):
+                kwargs = {"model": model_name, "api_key": key, "temperature": temperature}
+                if host:
+                    kwargs["base_url"] = host
+                llm = ChatOpenAI(**kwargs)
+            elif prov in ("anthropic", "claude"):
+                if not key:
+                    raise ValueError("Anthropic API key missing")
+                llm = ChatAnthropic(model=model_name, api_key=key, temperature=temperature)
+            elif prov in ("google", "gemini"):
+                if ChatGoogleGenerativeAI is None:
+                    raise ImportError("langchain-google-genai not installed")
+                if not key:
+                    raise ValueError("Gemini API key missing")
+                llm = ChatGoogleGenerativeAI(model=model_name or "gemini-pro", google_api_key=key, temperature=temperature)
+            elif prov in ("deepseek",):
+                if not key:
+                    raise ValueError("DeepSeek API key missing")
+                base_url = host or "https://api.deepseek.com"
+                sync_client, async_client = _create_no_proxy_http_client()
+                llm = ChatDeepSeek(
+                    model=model_name or "deepseek-chat",
+                    api_key=key,
+                    base_url=base_url,
+                    temperature=temperature,
+                    http_client=sync_client,
+                    http_async_client=async_client
+                )
+            elif prov in ("dashscope", "qwen", "qwq"):
+                if ChatQwQ is None:
+                    raise ImportError("langchain-qwq not installed")
+                if not key:
+                    raise ValueError("DashScope (Qwen/QwQ) API key missing")
+                base_url = host or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                sync_client, async_client = _create_no_proxy_http_client()
+                kw = {
+                    "model": model_name or "qwq-plus",
+                    "api_key": key,
+                    "base_url": base_url,
+                    "temperature": temperature
+                }
+                if sync_client:
+                    kw["http_client"] = sync_client
+                if async_client:
+                    kw["http_async_client"] = async_client
+                llm = ChatQwQ(**kw)
+            elif prov in ("bytedance", "doubao"):
+                if not key:
+                    raise ValueError("Bytedance (Doubao/ARK) API key missing")
+                base_url = host or "https://ark.cn-beijing.volces.com/api/v3"
+                sync_client, async_client = _create_no_proxy_http_client()
+                kwargs = {
+                    "model": model_name or "doubao-pro-256k",
+                    "api_key": key,
+                    "base_url": base_url,
+                    "temperature": temperature
+                }
+                if sync_client:
+                    kwargs["http_client"] = sync_client
+                if async_client:
+                    kwargs["http_async_client"] = async_client
+                llm = ChatOpenAI(**kwargs)
+            elif prov in ("baidu", "qianfan", "baidu_qianfan"):
+                if not key:
+                    raise ValueError("Baidu Qianfan API key missing")
+                base_url = host or "https://qianfan.baidubce.com/v2"
+                sync_client, async_client = _create_no_proxy_http_client()
+                kwargs = {
+                    "model": model_name or "ernie-4.0-8k",
+                    "api_key": key,
+                    "base_url": base_url,
+                    "temperature": temperature
+                }
+                if sync_client:
+                    kwargs["http_client"] = sync_client
+                if async_client:
+                    kwargs["http_async_client"] = async_client
+                llm = ChatOpenAI(**kwargs)
+            elif prov in ("ollama",):
+                base_url = host or "http://localhost:11434"
+                llm = ChatOllama(model=model_name or "llama3.2", base_url=base_url, temperature=temperature)
+            else:
+                # Default to OpenAI-compatible
+                kwargs = {"model": model_name, "api_key": key, "temperature": temperature}
+                if host:
+                    kwargs["base_url"] = host
+                llm = ChatOpenAI(**kwargs)
+
         except Exception as e:
-            logger.error(f"[build_llm_node] Failed to get mainwin.llm: {e}")
-        
-        if not llm:
-            error_msg = "Cannot create LLM: mainwin.llm not available. Please ensure agent is properly initialized and LLM provider is configured."
-            logger.error(f"[build_llm_node] {error_msg}")
-            state['error'] = error_msg
+            err = f"Failed to create LLM from node config (provider={llm_provider}, model={model_name}): {e}"
+            logger.error(f"[build_llm_node] {err}")
+            state['error'] = err
             return state
 
         # Log LLM configuration for debugging
-        logger.info(f"🔧 LLM Config: provider={llm_provider}, model={model_name}, temperature={temperature}")
+        logger.info(f"🔧 LLM Config (node_config): provider={llm_provider}, model={model_name}, temperature={temperature}")
         logger.debug(f"📝 Prompt length: system={len(final_system_prompt)}, user={len(final_user_prompt)}")
 
         # Invoke the LLM and update the state
@@ -152,53 +296,40 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             import threading
             import queue
 
-            result_queue = queue.Queue()
-            exception_queue = queue.Queue()
+            def _invoke_with_thread(llm_to_use, timeout_sec: float):
+                result_queue = queue.Queue()
+                exception_queue = queue.Queue()
 
-            def invoke_llm():
-                try:
-                    logger.debug("🔄 LLM invocation thread started")
-                    result = llm.invoke(messages)
-                    result_queue.put(result)
-                    logger.debug("✅ LLM invocation thread completed")
-                except Exception as exc:  # capture exception for main thread
-                    logger.debug(f"❌ LLM invocation thread error: {exc}")
-                    exception_queue.put(exc)
+                def invoke_llm():
+                    try:
+                        logger.debug("🔄 LLM invocation thread started")
+                        result = llm_to_use.invoke(messages)
+                        result_queue.put(result)
+                        logger.debug("✅ LLM invocation thread completed")
+                    except Exception as exc:
+                        logger.debug(f"❌ LLM invocation thread error: {exc}")
+                        exception_queue.put(exc)
 
-            start_time = time.time()
+                start_time = time.time()
+                th = threading.Thread(target=invoke_llm, daemon=True)
+                th.start()
+                th.join(timeout=timeout_sec)
+                elapsed = time.time() - start_time
 
-            # Start LLM invocation in a separate thread
-            llm_thread = threading.Thread(target=invoke_llm, daemon=True)
-            llm_thread.start()
+                if th.is_alive():
+                    err_msg = f"⏱️ LLM request timed out after {timeout_sec}s (thread still running)"
+                    logger.error(err_msg)
+                    raise TimeoutError(err_msg)
+                if not exception_queue.empty():
+                    raise exception_queue.get()
+                if result_queue.empty():
+                    raise RuntimeError("❌ LLM thread completed but no result available")
+                resp = result_queue.get()
+                logger.debug(f"⏱️ Request completed in {elapsed:.2f}s")
+                return resp
 
-            # Wait for result with timeout (150s = 120s httpx timeout + 30s buffer)
-            # Give httpx timeout enough time to trigger, plus extra buffer
-            timeout_seconds = 150.0
-            llm_thread.join(timeout=timeout_seconds)
-
-            elapsed = time.time() - start_time
-
-            # Check if thread is still alive (timeout occurred)
-            if llm_thread.is_alive():
-                error_message = f"⏱️ LLM request timed out after {timeout_seconds}s (thread still running)"
-                logger.error(error_message)
-                logger.warning(f"⚠️ Network issue detected: The request to {llm_provider} is hanging. "
-                              f"This usually indicates network connectivity problems, firewall blocking, "
-                              f"or the API endpoint being unreachable. Consider checking your network connection.")
-                raise TimeoutError(error_message)
-
-            # Check for exceptions from the thread
-            if not exception_queue.empty():
-                raise exception_queue.get()
-
-            # Get the result
-            if result_queue.empty():
-                error_message = "❌ LLM thread completed but no result available"
-                logger.error(error_message)
-                raise RuntimeError(error_message)
-
-            response = result_queue.get()
-            logger.debug(f"⏱️ Request completed in {elapsed:.2f}s")
+            # Single attempt (node-configured llm, no fallback)
+            response = _invoke_with_thread(llm, 150.0)
             logger.info(f"✅ LLM response received from {llm_provider}")
 
             # It's good practice to put results in specific keys

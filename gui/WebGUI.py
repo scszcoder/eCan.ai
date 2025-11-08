@@ -50,6 +50,8 @@ class WebGUIMessages:
             'init_error': 'Initialization error: {error}',
             'confirm_exit_title': 'Confirm Exit',
             'confirm_exit_message': 'Are you sure you want to exit the program?',
+            'button_yes': 'Yes',
+            'button_no': 'No',
         },
         'zh-CN': {
             'initializing_webgui': '初始化 WebGUI...',
@@ -70,6 +72,8 @@ class WebGUIMessages:
             'init_error': '初始化错误：{error}',
             'confirm_exit_title': '确认退出',
             'confirm_exit_message': '确定要退出程序吗？',
+            'button_yes': '是',
+            'button_no': '否',
         }
     }
     
@@ -862,6 +866,14 @@ class WebGUI(QMainWindow):
             msg_box.setText(_webgui_messages.get('confirm_exit_message'))
             msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             msg_box.setDefaultButton(QMessageBox.No)
+            
+            # Set button text with i18n
+            yes_button = msg_box.button(QMessageBox.Yes)
+            no_button = msg_box.button(QMessageBox.No)
+            if yes_button:
+                yes_button.setText(_webgui_messages.get('button_yes'))
+            if no_button:
+                no_button.setText(_webgui_messages.get('button_no'))
             
             # Set window flags to ensure proper rendering on macOS
             if sys.platform == 'darwin':
