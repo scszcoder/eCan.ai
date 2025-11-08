@@ -5,6 +5,7 @@ import SplitPane, { Pane } from 'split-pane-react';
 import 'split-pane-react/esm/themes/default.css';
 import { useTranslation } from 'react-i18next';
 import { MenuFoldOutlined, MenuUnfoldOutlined, InboxOutlined, AppstoreOutlined } from '@ant-design/icons';
+import { ContextPanel } from './ContextPanel';
 
 // Add全局样式
 const GlobalStyles = styled.div`
@@ -237,14 +238,14 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
             </CenterPane>
           </Pane>
           <Pane minSize={rightCollapsed ? 0 : '10%'} maxSize={rightCollapsed ? 0 : '70%'}>
-            <div style={{ height: '100%', width: '100%', display: 'flex', overflow: 'hidden', minWidth: 0 }}>
+            <div style={{ height: '100%', width: '100%', display: 'flex', overflow: 'visible', minWidth: 0 }}>
               <Card
                 title={rightMode === 'context' ? (chatContextTitle ?? 'Context') : chatNotificationTitle}
                 variant="borderless"
-                style={{ height: '100%', width: '100%', borderRadius: 0, flex: 1 }}
-                styles={{ body: { height: 'calc(100% - 56px)', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
+                style={{ height: '100%', width: '100%', borderRadius: 0, flex: 1, display: 'flex', flexDirection: 'column' }}
+                styles={{ body: { flex: 1, minHeight: 0, padding: 0, overflow: 'auto' } }}
               >
-                {rightMode === 'context' ? (chatContextContent ?? <div style={{ padding: 16, color: '#ccc' }}>No context</div>) : chatNotificationContent}
+                {rightMode === 'context' ? (chatContextContent ?? <ContextPanel />) : chatNotificationContent}
               </Card>
             </div>
           </Pane>
