@@ -16,7 +16,9 @@ import {
     ReadOutlined,
     ExperimentOutlined,
     UserOutlined,
-    ApartmentOutlined
+    ApartmentOutlined,
+    ShopOutlined,
+    ShoppingOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import styled from '@emotion/styled';
@@ -113,6 +115,8 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         { key: '/orgs', icon: <ApartmentOutlined />, label: t('menu.organizations') },
         { key: '/vehicles', icon: <CarOutlined />, label: t('menu.vehicles') },
         { key: '/tools', icon: <ToolOutlined />, label: t('menu.tools') },
+        { key: '/warehouses', icon: <ShopOutlined />, label: 'Warehouse' },
+        { key: '/products', icon: <ShoppingOutlined />, label: 'Products' },
         { key: '/knowledge-ported', icon: <ReadOutlined />, label: t('menu.knowledge') },
         { key: '/settings', icon: <SettingOutlined />, label: t('menu.settings') },
         { key: '/dashboard', icon: <DashboardOutlined />, label: t('menu.dashboard') },
