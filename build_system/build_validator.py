@@ -556,7 +556,7 @@ class BuildValidator:
             extra_info = f" | Found in dist: {existing_pkgs}" if existing_pkgs else ""
             checks.append({
                 "name": "pkg_installer",
-                "status": "warn",
+                "status": "fail",
                 "message": f"PKG installer not found. Tried: {', '.join(pkg_patterns)}{extra_info}"
             })
 

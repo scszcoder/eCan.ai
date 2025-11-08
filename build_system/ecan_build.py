@@ -301,6 +301,7 @@ class InstallerBuilder:
             compression = mode_config.get("compression", installer_config.get("compression", "zip"))
             solid_compression = str(mode_config.get("solid_compression", installer_config.get("solid_compression", False))).lower()
             internal_compress_level = mode_config.get("internal_compress_level", "normal")
+            disk_spanning = mode_config.get("disk_spanning", "no")
 
             # Read runtime_tmpdir from build mode (Windows platform)
             runtime_tmpdir = None
@@ -350,6 +351,7 @@ class InstallerBuilder:
 
             iss_content = f"""
 ; eCan Installer Script
+; Compression: LZMA2 + Non-Solid + Normal level (with splash screen, 4-6s startup)
 [Setup]
 AppId={app_id_wrapped}
 AppName={installer_config.get('app_name', app_info.get('name', 'eCan'))}
@@ -361,6 +363,7 @@ OutputDir=..\dist
 OutputBaseFilename={installer_filename}
 Compression={compression}
 SolidCompression={solid_compression}
+DiskSpanning={disk_spanning}
 UsePreviousAppDir=yes
 PrivilegesRequired={privileges_required}
 InternalCompressLevel={internal_compress_level}
@@ -378,6 +381,16 @@ UsePreviousLanguage=yes
 ShowLanguageDialog=auto
 ; Prevent multiple installer instances when user double-clicks repeatedly
 SetupMutex=eCanInstallerMutex
+; Window focus and visibility settings
+AlwaysShowComponentsList=no
+DisableWelcomePage=no
+DisableReadyPage=no
+AppendDefaultDirName=no
+; Ensure installer window stays on top and gets focus
+WindowVisible=yes
+WindowShowCaption=yes
+WindowStartMaximized=no
+WindowResizable=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -407,7 +420,7 @@ var
   SplashForm: TSetupForm;
   SplashLabel: TNewStaticText;
 
-// Show an ultra-light splash immediately to improve perceived startup speed
+// Show splash screen to improve perceived startup speed
 function InitializeSetup(): Boolean;
 begin
   Result := True;
@@ -418,6 +431,7 @@ begin
     SplashForm.ClientHeight := ScaleY(120);
     SplashForm.Position := poScreenCenter;
     SplashForm.Color := clWhite;
+    SplashForm.FormStyle := fsStayOnTop;
 
     SplashLabel := TNewStaticText.Create(SplashForm);
     SplashLabel.Parent := SplashForm;
@@ -432,7 +446,13 @@ begin
   end;
 end;
 
-// Close splash when welcome page is shown
+// Initialize wizard form to stay on top
+procedure InitializeWizard();
+begin
+  WizardForm.FormStyle := fsStayOnTop;
+end;
+
+// Close splash and bring main window to front
 procedure CurPageChanged(CurPageID: Integer);
 begin
   if Assigned(SplashForm) and (CurPageID = wpWelcome) then
@@ -441,11 +461,18 @@ begin
     SplashForm.Free;
     SplashForm := nil;
   end;
+  WizardForm.BringToFront;
+  WizardForm.SetFocus;
 end;
 
-// Notify Windows of new application installation (placeholder)
+// Handle installer step changes
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
+  if CurStep = ssInstall then
+  begin
+    WizardForm.FormStyle := fsNormal;
+  end;
+  
   if CurStep = ssPostInstall then
   begin
     // Reserved for shell refresh if needed
@@ -460,16 +487,16 @@ begin
   Result := True;
   if MsgBox(ExpandConstant('{{cm:RemoveUserDataPrompt}}'), mbConfirmation, MB_YESNO) = IDYES then
   begin
-    if DirExists(ExpandConstant('{{localappdata}}\eCan')) then
+    if DirExists(ExpandConstant('{{localappdata}}\\eCan')) then
     begin
-      if not DelTree(ExpandConstant('{{localappdata}}\eCan'), True, True, True) then
+      if not DelTree(ExpandConstant('{{localappdata}}\\eCan'), True, True, True) then
         MsgBox('Could not remove user data directory. You may need to remove it manually.', mbInformation, MB_OK);
     end;
   end;
 end;
 
 [Run]
-Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowait postinstall skipifsilent
+Filename: \"""" + run_target + """\"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowait postinstall skipifsilent
 """
 
             iss_file = self.project_root / "build" / "setup.iss"
@@ -1429,6 +1456,10 @@ exit 0
         welcome_file = pkg_config.get("welcome_file", "")
         readme_file = pkg_config.get("readme_file", "")
         license_file = pkg_config.get("license_file", "")
+        conclusion_file = pkg_config.get("conclusion_file", "")
+        
+        # Build welcome section
+        welcome_section = ""
         if welcome_file and Path(welcome_file).exists():
             welcome_section = f'<welcome file="{welcome_file}"/>'
 
@@ -1869,3 +1900,4 @@ exit 0
         print(f"[INFO] Build mode: {self.mode}")
         print(f"[INFO] Platform: {self.env.platform}")
         print("=" * 60)
+
