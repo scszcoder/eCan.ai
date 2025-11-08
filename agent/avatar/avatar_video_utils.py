@@ -41,7 +41,12 @@ async def extract_first_frame(video_path: str, output_path: str = None) -> Optio
         
         # Check if ffmpeg is available (optional dependency)
         try:
-            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
+            try:
+                from utils.subprocess_helper import get_subprocess_kwargs
+                _kwargs = get_subprocess_kwargs({'capture_output': True, 'check': True})
+            except Exception:
+                _kwargs = {'capture_output': True, 'check': True}
+            subprocess.run(['ffmpeg', '-version'], **_kwargs)
         except (subprocess.CalledProcessError, FileNotFoundError):
             logger.info("[VideoUtils] ffmpeg not available, skipping frame extraction (this is optional)")
             return None
@@ -190,7 +195,12 @@ def get_video_info(file_path: str) -> Optional[dict]:
             str(file_path)
         ]
         
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        try:
+            from utils.subprocess_helper import get_subprocess_kwargs
+            _kwargs = get_subprocess_kwargs({'capture_output': True, 'text': True, 'check': True})
+        except Exception:
+            _kwargs = {'capture_output': True, 'text': True, 'check': True}
+        result = subprocess.run(cmd, **_kwargs)
         
         import json
         data = json.loads(result.stdout)

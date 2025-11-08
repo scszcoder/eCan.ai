@@ -8,6 +8,7 @@ using LLM APIs or fallback to ffmpeg-based placeholder videos.
 import os
 import asyncio
 import subprocess
+import sys
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -274,10 +275,27 @@ class AvatarVideoGenerator:
             ]
             
             # Run ffmpeg command
+            creationflags = None
+            startupinfo = None
+            try:
+                if sys.platform == 'win32':
+                    from utils.subprocess_helper import get_subprocess_creation_flags
+                    creationflags, startupinfo = get_subprocess_creation_flags()
+            except Exception:
+                pass
+
+            kwargs = {
+                'stdout': asyncio.subprocess.PIPE,
+                'stderr': asyncio.subprocess.PIPE,
+            }
+            if creationflags is not None:
+                kwargs['creationflags'] = creationflags
+            if startupinfo is not None:
+                kwargs['startupinfo'] = startupinfo
+
             process = await asyncio.create_subprocess_exec(
                 *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                **kwargs
             )
             
             stdout, stderr = await process.communicate()
@@ -327,10 +345,27 @@ class AvatarVideoGenerator:
             ]
             
             # Run ffmpeg command
+            creationflags = None
+            startupinfo = None
+            try:
+                if sys.platform == 'win32':
+                    from utils.subprocess_helper import get_subprocess_creation_flags
+                    creationflags, startupinfo = get_subprocess_creation_flags()
+            except Exception:
+                pass
+
+            _kwargs = {
+                'stdout': asyncio.subprocess.PIPE,
+                'stderr': asyncio.subprocess.PIPE,
+            }
+            if creationflags is not None:
+                _kwargs['creationflags'] = creationflags
+            if startupinfo is not None:
+                _kwargs['startupinfo'] = startupinfo
+
             process = await asyncio.create_subprocess_exec(
                 *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                **_kwargs
             )
             
             stdout, stderr = await process.communicate()

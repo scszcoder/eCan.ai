@@ -742,131 +742,15 @@ def set_app_icon(app, logger=None):
             logger.warning(f"No application icon found in: {icon_candidates}")
         return False
 
-def set_app_icon_early(app, logger=None):
-    """
-    Set application icon as early as possible, before splash screen
-    This ensures the taskbar shows the correct icon from the start
-    """
-    def log_msg(msg, level='info'):
-        """Helper to log message or print if logger not available"""
-        if logger:
-            if level == 'debug':
-                logger.debug(msg)
-            elif level == 'warning':
-                logger.warning(msg)
-            elif level == 'error':
-                logger.error(msg)
-            else:
-                logger.info(msg)
-        else:
-            print(f"[EARLY_ICON] {msg}")
-
-    try:
-        # Check if app_info is available
-        if app_info is None:
-            log_msg("app_info not available during early icon setting", 'warning')
-            return False
-
-        resource_path = app_info.app_resources_path
-        log_msg(f"Early icon setting started, resource_path: {resource_path}")
-
-        # Windows-specific early icon setting
-        if sys.platform == 'win32':
-            # Set AppUserModelID first (must be done early)
-            try:
-                app_id, result = set_windows_app_user_model_id()
-                log_msg(f"Early AppUserModelID set: {app_id} (result: {result})", 'debug')
-
-                # Set process title early for better Windows integration
-                try:
-                    import setproctitle
-                    setproctitle.setproctitle("eCan")
-                    log_msg("Early process title set to: eCan", 'debug')
-                except ImportError:
-                    log_msg("setproctitle not available for early process title setting", 'debug')
-
-                # Set console title early
-                try:
-                    kernel32 = ctypes.windll.kernel32
-                    kernel32.SetConsoleTitleW("eCan.ai")
-                    log_msg("Early console title set to: eCan.ai", 'debug')
-                except Exception as e:
-                    log_msg(f"Failed to set early console title: {e}", 'debug')
-
-            except Exception as e:
-                log_msg(f"Failed to set early AppUserModelID: {e}", 'warning')
-
-            # Find and set icon immediately
-            icon_candidates = [
-                os.path.join(os.path.dirname(resource_path), "eCan.ico"),
-                os.path.join(resource_path, "images", "logos", "icon_multi.ico"),
-                os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
-            ]
-
-            icon_path = None
-            for candidate in icon_candidates:
-                if os.path.exists(candidate):
-                    icon_path = candidate
-                    break
-
-            if icon_path:
-                # Set Qt application icon immediately
-                from PySide6.QtGui import QIcon
-                app_icon = QIcon(icon_path)
-                app.setWindowIcon(app_icon)
-                log_msg(f"Set Qt application icon: {icon_path}")
-
-                # Set Windows taskbar icon immediately
-                success = set_windows_taskbar_icon(app, icon_path, logger)
-                log_msg(f"Windows taskbar icon setting: {'success' if success else 'failed'}")
-
-                log_msg(f"Early icon set successfully: {icon_path}")
-                return True
-            else:
-                log_msg("No icon found for early setting", 'warning')
-                return False
-        else:
-            # For other platforms, use standard icon setting
-            log_msg("Non-Windows platform, using standard icon setting")
-            return set_app_icon(app, logger)
-
-    except Exception as e:
-        log_msg(f"Early icon setting failed: {e}", 'error')
-        return False
-
 def set_app_icon_delayed(app, logger=None):
     """
     Set application icon with delay to ensure main window is created
+    
+    Note: This function is now a no-op as WebGUI handles its own delayed icon setup
+    to prevent duplicate icon refresh operations that cause window flashing.
     """
-    from PySide6.QtCore import QTimer
-
-    def delayed_setup():
-        # Try to find WebGUI main window
-        main_window = None
-        for widget in app.topLevelWidgets():
-            if widget.isVisible() and widget.__class__.__name__ == 'WebGUI':
-                main_window = widget
-                break
-
-        if main_window:
-            try:
-                from config.app_info import app_info
-                resource_path = app_info.app_resources_path
-                icon_path = os.path.join(os.path.dirname(resource_path), "eCan.ico")
-
-                if os.path.exists(icon_path):
-                    success = set_windows_taskbar_icon(app, icon_path, logger, main_window)
-                    if success and logger:
-                        logger.info("Delayed taskbar icon setup successful")
-            except Exception as e:
-                if logger:
-                    logger.warning(f"Delayed icon setup failed: {e}")
-
-    # Shorter initial delay + bounded retry, set early and ensure main window is ready
-    _attempts = {'n': 0}
-    def _try_set():
-        _attempts['n'] += 1
-        delayed_setup()
-        if _attempts['n'] < 6:
-            QTimer.singleShot(300, _try_set)
-    QTimer.singleShot(300, _try_set)
+    # WebGUI._setup_windows_taskbar_icon_delayed() will handle this
+    # Removing duplicate calls to prevent window flashing during login
+    if logger:
+        logger.debug("set_app_icon_delayed: Skipped (WebGUI handles its own icon setup)")
+    pass

@@ -11,10 +11,29 @@ def run_git(cmd: str | list[str], repo: str | None = None, check=True, timeout=1
     else:
         args = ["git"] + cmd
     cwd = str(Path(repo)) if repo else None
-    proc = subprocess.run(
-        args, cwd=cwd, env=env, check=False,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout
-    )
+    # Apply Windows hidden console flags in frozen builds
+    try:
+        from utils.subprocess_helper import get_subprocess_kwargs
+        kwargs = get_subprocess_kwargs({
+            'cwd': cwd,
+            'env': env,
+            'check': False,
+            'stdout': subprocess.PIPE,
+            'stderr': subprocess.PIPE,
+            'text': True,
+            'timeout': timeout,
+        })
+    except Exception:
+        kwargs = {
+            'cwd': cwd,
+            'env': env,
+            'check': False,
+            'stdout': subprocess.PIPE,
+            'stderr': subprocess.PIPE,
+            'text': True,
+            'timeout': timeout,
+        }
+    proc = subprocess.run(args, **kwargs)
     if check and proc.returncode != 0:
         raise RuntimeError(f"git {' '.join(args[1:])} failed:\n{proc.stderr}")
     return proc.stdout.strip(), proc.stderr.strip(), proc.returncode

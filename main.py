@@ -239,6 +239,8 @@ try:
     print(TimeUtil.formatted_now_with_ms() + " processing Qt events...")
     _global_app.processEvents()
 
+    
+
     # Show minimal splash IMMEDIATELY - this gives instant visual feedback
     # Import only the minimal splash function (lightweight, doesn't load full splash)
     print(TimeUtil.formatted_now_with_ms() + " showing minimal splash...")
@@ -380,7 +382,7 @@ try:
 
         # Set application info and icon (unified management)
         progress_manager.update_progress(40, "Setting up application info...")
-        from utils.app_setup_helper import setup_application_info, set_app_icon, set_app_icon_delayed
+        from utils.app_setup_helper import setup_application_info
         setup_application_info(app, logger)
 
         # Initialize global AppContext
@@ -391,16 +393,20 @@ try:
         ctx.set_config(app_settings)
         ctx.set_app_info(app_info)
 
-
         # Initialize GUI dispatcher to ensure it's created on the main thread
         from utils.gui_dispatch import init_gui_dispatch
         init_gui_dispatch()
 
-        # Set application icon
+        # Set application icon using IconManager (centralized, no duplicates)
         progress_manager.update_progress(50, "Setting up application icons...")
-        set_app_icon(app, logger)
-        # Delay setting Windows taskbar icon (wait for main window creation)
-        set_app_icon_delayed(app, logger)
+        from utils.icon_manager import get_icon_manager
+        icon_mgr = get_icon_manager()
+        icon_mgr.set_logger(logger)
+        success = icon_mgr.set_application_icon(app)
+        if success:
+            logger.info("[IconManager] ✅ Application icon set successfully")
+        else:
+            logger.warning("[IconManager] ⚠️ Application icon setup failed")
 
         # Create event loop
         progress_manager.update_progress(55, "Creating event loop...")
