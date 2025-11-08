@@ -349,7 +349,7 @@ class InstallerBuilder:
             iss_content = f"""
 ; eCan Installer Script
 [Setup]
-AppId={{{{{app_id}}}}}
+AppId={{{{{{app_id}}}}}}
 AppName={installer_config.get('app_name', app_info.get('name', 'eCan'))}
 AppVersion={installer_config.get('app_version', app_info.get('version', '1.0.0'))}
 AppPublisher={installer_config.get('app_publisher', 'eCan Team')}
@@ -420,7 +420,7 @@ begin
 
     SplashLabel := TNewStaticText.Create(SplashForm);
     SplashLabel.Parent := SplashForm;
-    SplashLabel.Caption := ExpandConstant('{cm:InitializeCaption}');
+    SplashLabel.Caption := ExpandConstant('{{cm:InitializeCaption}}');
     SplashLabel.AutoSize := True;
     SplashLabel.Left := (SplashForm.ClientWidth - SplashLabel.Width) div 2;
     SplashLabel.Top := (SplashForm.ClientHeight - SplashLabel.Height) div 2;
@@ -457,11 +457,11 @@ var
   ResultCode: Integer;
 begin
   Result := True;
-  if MsgBox(ExpandConstant('{cm:RemoveUserDataPrompt}'), mbConfirmation, MB_YESNO) = IDYES then
+  if MsgBox(ExpandConstant('{{cm:RemoveUserDataPrompt}}'), mbConfirmation, MB_YESNO) = IDYES then
   begin
-    if DirExists(ExpandConstant('{localappdata}\eCan')) then
+    if DirExists(ExpandConstant('{{localappdata}}\eCan')) then
     begin
-      if not DelTree(ExpandConstant('{localappdata}\eCan'), True, True, True) then
+      if not DelTree(ExpandConstant('{{localappdata}}\eCan'), True, True, True) then
         MsgBox('Could not remove user data directory. You may need to remove it manually.', mbInformation, MB_OK);
     end;
   end;
