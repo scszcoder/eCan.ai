@@ -849,23 +849,16 @@ def init_startup_splash():
         splash = ThemedSplashScreen()
         splash.show()
         app.processEvents()
-        # Ensure taskbar icon is set for the splash window on Windows (standard behavior)
+        # Set window icon using IconManager for proper platform-specific handling
         try:
-            if sys.platform == 'win32':
-                from utils.app_setup_helper import set_windows_taskbar_icon
-                # Prefer the packaged root ICO used by the main app
-                icon_path = None
-                if app_info:
-                    import os as _os
-                    icon_path = _os.path.join(_os.path.dirname(app_info.app_resources_path), 'eCan.ico')
-                if icon_path and os.path.exists(icon_path):
-                    try:
-                        from PySide6.QtGui import QIcon as _QIcon
-                        splash.setWindowIcon(_QIcon(icon_path))
-                    except Exception:
-                        pass
-                    # Do NOT target the splash window for taskbar icon updates on Windows to avoid window recreation/reposition
-                    # Taskbar icon will be set for the main window after splash
+            from utils.icon_manager import get_icon_manager
+            icon_manager = get_icon_manager()
+            if icon_manager.icon_path:
+                try:
+                    from PySide6.QtGui import QIcon as _QIcon
+                    splash.setWindowIcon(_QIcon(icon_manager.icon_path))
+                except Exception:
+                    pass
         except Exception:
             pass
 

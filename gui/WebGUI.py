@@ -1154,31 +1154,16 @@ class WebGUI(QMainWindow):
 
 
     def _set_window_icon(self):
-        """Set window icon using the same logic as application icon"""
+        """Set window icon using IconManager for proper platform-specific handling"""
         try:
-            from config.app_info import app_info
-            resource_path = app_info.app_resources_path
-
-            # Use the same icon candidates as the application
-            icon_candidates = [
-                os.path.join(os.path.dirname(resource_path), "eCan.ico"),
-                os.path.join(resource_path, "images", "logos", "icon_multi.ico"),
-                os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
-                os.path.join(resource_path, "images", "logos", "taskbar_32x32.png"),
-                os.path.join(resource_path, "images", "logos", "taskbar_16x16.png"),
-            ]
-
-            # Find first existing icon
-            icon_path = None
-            for candidate in icon_candidates:
-                if os.path.exists(candidate):
-                    icon_path = candidate
-                    break
-
-            if icon_path:
-                window_icon = QIcon(icon_path)
+            from utils.icon_manager import get_icon_manager
+            icon_manager = get_icon_manager()
+            icon_manager.set_logger(logger)
+            
+            if icon_manager.icon_path:
+                window_icon = QIcon(icon_manager.icon_path)
                 self.setWindowIcon(window_icon)
-                logger.debug(f"WebGUI window icon set: {icon_path}")
+                logger.debug(f"WebGUI window icon set: {icon_manager.icon_path}")
             else:
                 logger.warning("No icon found for WebGUI window")
 
@@ -1233,8 +1218,14 @@ class WebGUI(QMainWindow):
 
     def _setup_taskbar_icon_via_manager(self):
         """
-        Set Windows taskbar icon using IconManager (centralized approach).
-        Prevents duplicate icon setting operations that cause window flashing.
+        Set Windows taskbar icon using IconManager (Windows-only, delayed setup).
+        
+        Why delayed?
+        - Windows taskbar icon requires valid window handle (HWND)
+        - In frozen/packaged builds, icon extraction from EXE resources needs time
+        - Immediate setup may fail, causing default Python icon to show
+        
+        Timing: 1-second delay ensures window is fully visible and stable.
         """
         if sys.platform != 'win32':
             return
@@ -1246,29 +1237,28 @@ class WebGUI(QMainWindow):
                 from utils.icon_manager import get_icon_manager
                 icon_mgr = get_icon_manager()
                 
-                # Check if already set (IconManager handles deduplication)
+                # Check if already set (prevent duplicate operations)
                 if icon_mgr.is_taskbar_icon_set():
                     logger.debug("[IconManager] Taskbar icon already set, skipping")
                     return
                 
-                # Ensure window is ready
+                # Ensure window is ready (has valid handle)
                 if not self.isVisible() or not self.winId():
                     logger.warning("[IconManager] Window not ready for taskbar icon setup")
                     return
                 
-                # Set taskbar icon through IconManager
+                # Set taskbar icon (will extract from EXE in frozen builds)
                 from PySide6.QtWidgets import QApplication
                 app = QApplication.instance()
                 success = icon_mgr.set_window_taskbar_icon(self, app)
                 
-                # IconManager will log success; only warn here on failure to avoid duplicates
                 if not success:
                     logger.warning("[IconManager] ⚠️ Taskbar icon setup failed")
                     
             except Exception as e:
                 logger.error(f"[IconManager] ❌ Failed to set taskbar icon: {e}")
         
-        # Delay 1 second to ensure window is fully displayed
+        # Delay 1 second to ensure window is fully visible and stable
         QTimer.singleShot(1000, setup_via_manager)
 
     def _add_window_controls(self, layout):

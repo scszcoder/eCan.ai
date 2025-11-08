@@ -58,17 +58,41 @@ class IconManager:
                 self.logger.info(f"[IconManager] {message}")
     
     def _find_icon_path(self) -> Optional[str]:
-        """Find the application icon file"""
+        """
+        Find the application icon file based on platform requirements.
+        
+        Platform-specific considerations:
+        - macOS: Prefers high-resolution PNG (512x512) for crisp Dock display
+                 Qt will automatically use this for window icon
+        - Windows: Prefers multi-size ICO format (eCan.ico)
+                   Contains 16x16, 32x32, 48x48, 256x256 for different contexts
+                   Taskbar icon setup is separate and delayed (needs window handle)
+        - Linux: Uses ICO or PNG as available
+        
+        Returns:
+            Path to the best available icon file, or None if not found
+        """
         try:
             from config.app_info import app_info
             resource_path = app_info.app_resources_path
             
-            # Icon candidates in priority order
-            candidates = [
-                os.path.join(os.path.dirname(resource_path), "eCan.ico"),
-                os.path.join(resource_path, "images", "logos", "icon_multi.ico"),
-                os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
-            ]
+            # Platform-specific icon candidates in priority order
+            if sys.platform == 'darwin':
+                # macOS: Use high-resolution PNG for crisp Dock icon
+                candidates = [
+                    os.path.join(resource_path, "images", "logos", "rounded", "dock_512x512.png"),
+                    os.path.join(resource_path, "images", "logos", "dock_512x512.png"),
+                    os.path.join(resource_path, "images", "logos", "rounded", "dock_256x256.png"),
+                    os.path.join(resource_path, "images", "logos", "dock_256x256.png"),
+                    os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
+                ]
+            else:
+                # Windows/Linux: Use ICO format (contains multiple sizes)
+                candidates = [
+                    os.path.join(os.path.dirname(resource_path), "eCan.ico"),
+                    os.path.join(resource_path, "images", "logos", "icon_multi.ico"),
+                    os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
+                ]
             
             for candidate in candidates:
                 if os.path.exists(candidate):
@@ -83,8 +107,14 @@ class IconManager:
     
     def set_application_icon(self, app: QApplication) -> bool:
         """
-        Set Qt application icon (affects all windows by default).
-        Should be called early in application startup.
+        Set Qt application icon (QApplication.setWindowIcon).
+        
+        This sets the default icon for all application windows.
+        - macOS: Used for window title bar and Dock (if .app doesn't have .icns)
+        - Windows: Used for window title bar only (taskbar requires separate setup)
+        - Linux: Used for window manager and taskbar
+        
+        Call timing: Early in startup (right after QApplication creation)
         
         Returns:
             bool: True if successful, False otherwise
@@ -109,12 +139,19 @@ class IconManager:
     
     def set_window_taskbar_icon(self, window, app: Optional[QApplication] = None) -> bool:
         """
-        Set Windows taskbar icon for a specific window.
-        Should be called ONCE after the window is fully visible.
+        Set Windows taskbar icon for a specific window (Windows-only operation).
+        
+        Why Windows needs special handling:
+        - Windows taskbar uses different icon than window title bar
+        - Requires valid window handle (HWND) from visible window
+        - In frozen/packaged builds, extracts icon from EXE resources
+        - Must be called AFTER window is visible and stable
+        
+        Call timing: Delayed by 1 second after window.show() (see WebGUI._setup_taskbar_icon_via_manager)
         
         Args:
-            window: The QMainWindow instance
-            app: Optional QApplication instance (will get from instance() if not provided)
+            window: The QMainWindow instance (must be visible)
+            app: Optional QApplication instance (auto-detected if not provided)
         
         Returns:
             bool: True if successful, False otherwise
@@ -146,7 +183,7 @@ class IconManager:
                 self._log("No icon path available", 'warning')
                 return False
             
-            # Import Windows-specific helper
+            # Import Windows-specific helper (handles frozen/packaged builds)
             from utils.app_setup_helper import set_windows_taskbar_icon
             
             success = set_windows_taskbar_icon(app, self.icon_path, self.logger, window)
