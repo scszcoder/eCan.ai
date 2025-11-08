@@ -376,7 +376,6 @@ UsePreviousLanguage=yes
 ShowLanguageDialog=auto
 ; Prevent multiple installer instances when user double-clicks repeatedly
 SetupMutex=eCanInstallerMutex
-AllowMultipleInstances=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
