@@ -58,17 +58,30 @@ class CustomWebEnginePage(QWebEnginePage):
         return True
 
     def createWindow(self, _type):
-        """Handle JavaScript window.open calls"""
+        """Handle JavaScript window.open calls without creating visible popup windows"""
         logger.debug(f"Window creation requested, type: {_type}")
 
-        # Create a new page instance so acceptNavigationRequest can be triggered
-        # Note: Need to ensure new page also has correct acceptNavigationRequest handling
-        new_page = CustomWebEnginePage(self.profile(), self)
+        # Create a temporary page to capture the target URL, then open in system browser
+        temp_page = CustomWebEnginePage(self.profile(), self)
 
-        # Connect new page signals
-        new_page.loadFinished.connect(lambda success: logger.debug(f"New page load finished: {success}"))
+        def _open_external(url):
+            try:
+                url_str = url.toString()
+                if url_str.startswith(('http://', 'https://')):
+                    import webbrowser
+                    webbrowser.open(url_str)
+                    logger.info(f"Opened external window.open URL in system browser: {url_str}")
+            except Exception as e:
+                logger.warning(f"Failed to open external URL from window.open: {e}")
+            finally:
+                try:
+                    temp_page.deleteLater()
+                except Exception:
+                    pass
 
-        return new_page
+        # When the temp page receives a URL, handle it externally and dispose the page
+        temp_page.urlChanged.connect(_open_external)
+        return temp_page
 
 
 class WebEngineView(QWebEngineView):

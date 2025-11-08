@@ -153,8 +153,6 @@ class WebGUI(QMainWindow):
             # Disable updates during initialization
             self.setUpdatesEnabled(False)
 
-        # Set window icon for taskbar display (required for taskbar icon)
-        self._set_window_icon()
         # Set window size first, then center it
         self.resize(1200, 800)
         # Defer centering until the window is actually shown to avoid (0,0) jumps
@@ -245,8 +243,8 @@ class WebGUI(QMainWindow):
         if self._splash is None:
             try:
                 self.show()
-                # Set Windows taskbar icon after window is shown
-                self._setup_windows_taskbar_icon_delayed()
+                # Set Windows taskbar icon using IconManager (centralized, no duplicates)
+                self._setup_taskbar_icon_via_manager()
             except Exception:
                 pass
         
@@ -488,8 +486,8 @@ class WebGUI(QMainWindow):
             self.show()
             # Ensure window icon is set after showing for taskbar display
             self._set_window_icon()
-            # Set Windows taskbar icon after window is shown
-            self._setup_windows_taskbar_icon_delayed()
+            # Set Windows taskbar icon using IconManager (centralized, no duplicates)
+            self._setup_taskbar_icon_via_manager()
             # Bring to front once more after splash is gone
             self._bring_to_front()
         except Exception:
@@ -1257,71 +1255,46 @@ class WebGUI(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to set titlebar icon: {e}")
 
-    def _setup_windows_taskbar_icon_delayed(self):
-        """Set Windows taskbar icon after window is fully displayed"""
+
+    def _setup_taskbar_icon_via_manager(self):
+        """
+        Set Windows taskbar icon using IconManager (centralized approach).
+        Prevents duplicate icon setting operations that cause window flashing.
+        """
         if sys.platform != 'win32':
             return
-
-        # Deduplicate: if already set, skip
-        try:
-            if getattr(self, '_taskbar_icon_set', False):
-                return
-        except Exception:
-            pass
-
+        
         from PySide6.QtCore import QTimer
-
-        def setup_taskbar_icon():
+        
+        def setup_via_manager():
             try:
-                from utils.app_setup_helper import set_windows_taskbar_icon, verify_taskbar_icon_setting
-                from PySide6.QtWidgets import QApplication
-
-                app = QApplication.instance()
-                if not app:
-                    logger.warning("No QApplication instance found for taskbar icon setup")
+                from utils.icon_manager import get_icon_manager
+                icon_mgr = get_icon_manager()
+                
+                # Check if already set (IconManager handles deduplication)
+                if icon_mgr.is_taskbar_icon_set():
+                    logger.debug("[IconManager] Taskbar icon already set, skipping")
                     return
-
-                # Ensure window is fully displayed and initialized
+                
+                # Ensure window is ready
                 if not self.isVisible() or not self.winId():
-                    logger.warning("Window not ready for taskbar icon setup")
+                    logger.warning("[IconManager] Window not ready for taskbar icon setup")
                     return
-
-                from config.app_info import app_info
-                resource_path = app_info.app_resources_path
-                icon_path = os.path.join(os.path.dirname(resource_path), "eCan.ico")
-
-                if os.path.exists(icon_path):
-                    success = set_windows_taskbar_icon(app, icon_path, logger, self)
-                    if success:
-                        # Verify if icon was actually set successfully
-                        verified = verify_taskbar_icon_setting(self, logger)
-                        if verified:
-                            logger.info("WebGUI delayed taskbar icon setup successful and verified")
-                            try:
-                                self._taskbar_icon_set = True
-                            except Exception:
-                                pass
-                        else:
-                            logger.warning("WebGUI taskbar icon setup completed but verification failed")
-
-                    else:
-                        logger.warning("WebGUI delayed taskbar icon setup failed")
-                        # Try fallback: reset window icon
-                        try:
-                            from PySide6.QtGui import QIcon
-                            window_icon = QIcon(icon_path)
-                            self.setWindowIcon(window_icon)
-                            logger.info("Fallback: Set window icon as backup")
-                        except Exception as fallback_e:
-                            logger.warning(f"Fallback icon setting failed: {fallback_e}")
-                else:
-                    logger.warning(f"Icon file not found: {icon_path}")
-
+                
+                # Set taskbar icon through IconManager
+                from PySide6.QtWidgets import QApplication
+                app = QApplication.instance()
+                success = icon_mgr.set_window_taskbar_icon(self, app)
+                
+                # IconManager will log success; only warn here on failure to avoid duplicates
+                if not success:
+                    logger.warning("[IconManager] ⚠️ Taskbar icon setup failed")
+                    
             except Exception as e:
-                logger.warning(f"WebGUI delayed taskbar icon setup failed: {e}")
-
+                logger.error(f"[IconManager] ❌ Failed to set taskbar icon: {e}")
+        
         # Delay 1 second to ensure window is fully displayed
-        QTimer.singleShot(1000, setup_taskbar_icon)
+        QTimer.singleShot(1000, setup_via_manager)
 
     def _add_window_controls(self, layout):
         """Add window control buttons (minimize, maximize, close)"""

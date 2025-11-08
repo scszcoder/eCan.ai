@@ -16,9 +16,13 @@ def _is_process_running(pid):
             # Windows: Use tasklist to check if process exists
             import subprocess
             try:
-                # More reliable: check if we can query process info
-                result = subprocess.run(['tasklist', '/FI', f'PID eq {pid}', '/NH'],
-                                      capture_output=True, text=True, timeout=2)
+                # More reliable: check if we can query process info (hide console window)
+                try:
+                    from utils.subprocess_helper import get_subprocess_kwargs
+                    kwargs = get_subprocess_kwargs({'capture_output': True, 'text': True, 'timeout': 2})
+                except Exception:
+                    kwargs = {'capture_output': True, 'text': True, 'timeout': 2}
+                result = subprocess.run(['tasklist', '/FI', f'PID eq {pid}', '/NH'], **kwargs)
                 # If PID is running, output will contain the PID as a separate word
                 # Use word boundary to avoid matching PID 123 with PID 1234
                 import re
