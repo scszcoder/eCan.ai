@@ -235,6 +235,24 @@ try:
     else:
         print(TimeUtil.formatted_now_with_ms() + " QApplication already exists")
 
+    # Set application icon early for macOS/Linux (Windows taskbar icon needs window handle, set later)
+    # This prevents showing the default Python icon during startup
+    print(TimeUtil.formatted_now_with_ms() + " setting application icon...")
+    try:
+        from utils.icon_manager import get_icon_manager
+        icon_mgr = get_icon_manager()
+        
+        # Set QApplication icon (works for all platforms)
+        if icon_mgr.set_application_icon(_global_app):
+            print(TimeUtil.formatted_now_with_ms() + " application icon set successfully")
+        else:
+            print(TimeUtil.formatted_now_with_ms() + " application icon setup warning")
+            
+        # Note: Windows taskbar icon requires window handle and will be set later in main()
+        # when the main window is visible (especially important for frozen/packaged builds)
+    except Exception as e:
+        print(f"Failed to set early application icon: {e}")
+
     # Process events to ensure Qt is fully initialized
     print(TimeUtil.formatted_now_with_ms() + " processing Qt events...")
     _global_app.processEvents()
@@ -397,16 +415,24 @@ try:
         from utils.gui_dispatch import init_gui_dispatch
         init_gui_dispatch()
 
-        # Set application icon using IconManager (centralized, no duplicates)
-        progress_manager.update_progress(50, "Setting up application icons...")
+        # Verify application icon (already set early for macOS/Linux)
+        progress_manager.update_progress(50, "Verifying application icons...")
         from utils.icon_manager import get_icon_manager
         icon_mgr = get_icon_manager()
         icon_mgr.set_logger(logger)
-        success = icon_mgr.set_application_icon(app)
-        if success:
-            logger.info("[IconManager] ✅ Application icon set successfully")
+        
+        if icon_mgr.is_icon_set():
+            logger.info("[IconManager] ✅ Application icon set (early startup)")
         else:
-            logger.warning("[IconManager] ⚠️ Application icon setup failed")
+            # Fallback: set icon now if early setup failed
+            success = icon_mgr.set_application_icon(app)
+            if success:
+                logger.info("[IconManager] ✅ Application icon set successfully (fallback)")
+            else:
+                logger.warning("[IconManager] ⚠️ Application icon setup failed")
+        
+        # Windows taskbar icon will be set by WebGUI after window is visible
+        # (requires window handle, especially important for frozen/packaged builds)
 
         # Create event loop
         progress_manager.update_progress(55, "Creating event loop...")
