@@ -712,7 +712,11 @@ jobs:
             if [ -f "$STD_PKG" ]; then
                 echo "[OK] Standardized PKG found: $STD_PKG"
             else
-                echo "[INFO] Standardized PKG will be created in next step"
+                echo "[ERROR] Standardized PKG not found: $STD_PKG"
+                echo "[ERROR] PKG installer creation failed during build"
+                echo "[INFO] Contents of dist/ directory:"
+                ls -la dist/ || true
+                BUILD_SUCCESS=false
             fi
         fi
 
@@ -879,6 +883,7 @@ jobs:
 
     - name: Compress macOS artifacts for upload
       if: steps.should_build.outputs.should_build == 'true'
+      id: compress_artifacts
       run: |
         echo "=== Compressing macOS artifacts ==="
         VERSION="${{ needs.validate-tag.outputs.version }}"
@@ -893,21 +898,28 @@ jobs:
           cp "$PKG_FILE" artifacts/
           SIZE=$(du -sh "$PKG_FILE" | cut -f1)
           echo "Copied PKG: ${SIZE}"
+          echo "has_artifacts=true" >> $GITHUB_OUTPUT
         else
-          echo "Warning: PKG file not found: $PKG_FILE"
+          echo "[ERROR] PKG file not found: $PKG_FILE"
+          echo "[ERROR] Build may have failed or PKG was not created"
+          echo "Contents of dist/ directory:"
+          ls -la dist/ || true
+          echo "has_artifacts=false" >> $GITHUB_OUTPUT
+          exit 1
         fi
         
         echo "Artifacts prepared for upload:"
         ls -lh artifacts/
 
     - name: Upload macOS artifacts
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.should_build.outputs.should_build == 'true' && steps.compress_artifacts.outputs.has_artifacts == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: eCan-macOS-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
         path: artifacts/
         retention-days: 30
         compression-level: 6
+        if-no-files-found: error
 
 
 
@@ -1071,25 +1083,41 @@ jobs:
         
         if [ "$IS_BRANCH" = "false" ]; then
           echo "=== Creating 'latest' version pointer (tag/release build) ==="
-          cat > latest.json <<EOF
-        {
-          "version": "${VERSION}",
-          "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-          "download_base": "https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_VERSION_PATH}",
-          "redirect_to": "${S3_VERSION_PATH}",
-          "files": {
-            "windows": {
-              "installer": "${S3_VERSION_PATH}/windows/eCan-${VERSION}-windows-amd64-Setup.exe",
-              "portable": "${S3_VERSION_PATH}/windows/eCan-${VERSION}-windows-amd64.exe"
-            },
-            "macos": {
-              "amd64": "${S3_VERSION_PATH}/macos/eCan-${VERSION}-macos-amd64.pkg",
-              "aarch64": "${S3_VERSION_PATH}/macos/eCan-${VERSION}-macos-aarch64.pkg"
-            },
-            "checksums": "${S3_VERSION_PATH}/checksums/SHA256SUMS"
-          }
-        }
-        EOF
+          RELEASE_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          DOWNLOAD_BASE="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_VERSION_PATH}"
+          WIN_INSTALLER="${S3_VERSION_PATH}/windows/eCan-${VERSION}-windows-amd64-Setup.exe"
+          WIN_PORTABLE="${S3_VERSION_PATH}/windows/eCan-${VERSION}-windows-amd64.exe"
+          MAC_AMD64="${S3_VERSION_PATH}/macos/eCan-${VERSION}-macos-amd64.pkg"
+          MAC_AARCH64="${S3_VERSION_PATH}/macos/eCan-${VERSION}-macos-aarch64.pkg"
+          CHECKSUMS="${S3_VERSION_PATH}/checksums/SHA256SUMS"
+          
+          jq -n \
+            --arg version "${VERSION}" \
+            --arg release_date "${RELEASE_DATE}" \
+            --arg download_base "${DOWNLOAD_BASE}" \
+            --arg redirect_to "${S3_VERSION_PATH}" \
+            --arg win_installer "${WIN_INSTALLER}" \
+            --arg win_portable "${WIN_PORTABLE}" \
+            --arg mac_amd64 "${MAC_AMD64}" \
+            --arg mac_aarch64 "${MAC_AARCH64}" \
+            --arg checksums "${CHECKSUMS}" \
+            '{
+              version: $version,
+              release_date: $release_date,
+              download_base: $download_base,
+              redirect_to: $redirect_to,
+              files: {
+                windows: {
+                  installer: $win_installer,
+                  portable: $win_portable
+                },
+                macos: {
+                  amd64: $mac_amd64,
+                  aarch64: $mac_aarch64
+                },
+                checksums: $checksums
+              }
+            }' > latest.json
           
           # Upload lightweight pointer file to 'latest' (only ~1KB vs 500MB+ of artifacts)
           aws s3 cp latest.json s3://${S3_BUCKET}/${S3_BASE_PATH}/latest.json \
@@ -1098,11 +1126,11 @@ jobs:
             --metadata "version=${VERSION}" \
             "${ACL_ARGS[@]}"
           
-          echo "✅ Latest version pointer updated (${S3_BASE_PATH}/latest.json)"
+          echo "[OK] Latest version pointer updated (${S3_BASE_PATH}/latest.json)"
           echo "   Points to: ${S3_VERSION_PATH}"
           echo "   This is a tag/release build, so 'latest' has been updated"
         else
-          echo "⏭️  Skipping 'latest' pointer update (branch build)"
+          echo "[SKIP] Skipping 'latest' pointer update (branch build)"
           echo "   This is a branch build (version: ${VERSION})"
           echo "   Artifacts uploaded to: ${S3_VERSION_PATH}"
           echo "   'latest' pointer remains unchanged (only updated for tag/release builds)"
@@ -1115,21 +1143,21 @@ jobs:
         
         # Display public download URLs in GitHub Actions Summary (visible to users)
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "## 📦 公开下载地址 (Public Download URLs)" >> $GITHUB_STEP_SUMMARY
+        echo "## Public Download URLs" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 版本 Version: \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+        echo "### Version: \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         
         # Display build type and latest pointer status
         if [ "$IS_BRANCH" = "false" ]; then
-          echo "> ✅ **正式发布构建** - \`latest\` 指针已更新为此版本" >> $GITHUB_STEP_SUMMARY
+          echo "> **Release Build** - \`latest\` pointer has been updated to this version" >> $GITHUB_STEP_SUMMARY
         else
-          echo "> ⚠️ **分支开发构建** - \`latest\` 指针保持不变（仅正式发布版本更新 \`latest\`）" >> $GITHUB_STEP_SUMMARY
+          echo "> **Branch Build** - \`latest\` pointer remains unchanged (only release builds update \`latest\`)" >> $GITHUB_STEP_SUMMARY
         fi
         echo "" >> $GITHUB_STEP_SUMMARY
         
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Windows 下载" >> $GITHUB_STEP_SUMMARY
+        echo "### Windows Downloads" >> $GITHUB_STEP_SUMMARY
         if [ -d "upload/windows" ]; then
           for file in upload/windows/*; do
             if [ -f "$file" ]; then
@@ -1142,7 +1170,7 @@ jobs:
         fi
         
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### macOS 下载" >> $GITHUB_STEP_SUMMARY
+        echo "### macOS Downloads" >> $GITHUB_STEP_SUMMARY
         if [ -d "upload/macos" ]; then
           for file in upload/macos/*; do
             if [ -f "$file" ]; then
@@ -1155,17 +1183,17 @@ jobs:
         fi
         
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 校验和 Checksums" >> $GITHUB_STEP_SUMMARY
+        echo "### Checksums" >> $GITHUB_STEP_SUMMARY
         echo "- SHA256SUMS" >> $GITHUB_STEP_SUMMARY
         echo "  \`${S3_BASE_URL}/checksums/SHA256SUMS\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "---" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🚀 加速下载 (S3 Transfer Acceleration)" >> $GITHUB_STEP_SUMMARY
-        echo "如果从远程地区下载较慢，可以使用加速 URL (需在 S3 Bucket 启用传输加速)：" >> $GITHUB_STEP_SUMMARY
+        echo "### S3 Transfer Acceleration" >> $GITHUB_STEP_SUMMARY
+        echo "Use accelerated URLs for faster downloads from remote regions (requires S3 Transfer Acceleration enabled on bucket):" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         if [ -d "upload/windows" ]; then
-          echo "#### Windows 加速下载" >> $GITHUB_STEP_SUMMARY
+          echo "#### Windows Accelerated Downloads" >> $GITHUB_STEP_SUMMARY
           for file in upload/windows/*; do
             if [ -f "$file" ]; then
               filename=$(basename "$file")
@@ -1175,7 +1203,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
         fi
         if [ -d "upload/macos" ]; then
-          echo "#### macOS 加速下载" >> $GITHUB_STEP_SUMMARY
+          echo "#### macOS Accelerated Downloads" >> $GITHUB_STEP_SUMMARY
           for file in upload/macos/*; do
             if [ -f "$file" ]; then
               filename=$(basename "$file")
@@ -1184,8 +1212,20 @@ jobs:
           done
           echo "" >> $GITHUB_STEP_SUMMARY
         fi
-        echo "#### 校验和加速下载" >> $GITHUB_STEP_SUMMARY
+        echo "#### Checksums Accelerated Downloads" >> $GITHUB_STEP_SUMMARY
         echo "- \`${S3_ACCELERATE_URL}/checksums/SHA256SUMS\`" >> $GITHUB_STEP_SUMMARY
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "---" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Complete Download Links List" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Get complete URLs without masking:**" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "1. **Download from S3**: [\`DOWNLOAD-LINKS.txt\`](${S3_BASE_URL}/DOWNLOAD-LINKS.txt)" >> $GITHUB_STEP_SUMMARY
+        echo "2. **Download from GitHub Artifacts**: Check the Artifacts list for this run, download \`download-links-${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "> NOTE: This file contains all download links with complete URLs (without \`***\` masking) that can be copied directly." >> $GITHUB_STEP_SUMMARY
         
         echo ""
         echo "================================================================"
@@ -1196,10 +1236,10 @@ jobs:
         echo "S3 Path: s3://${S3_BUCKET}/${S3_VERSION_PATH}"
         echo ""
         if [ "$IS_BRANCH" = "false" ]; then
-          echo "Build Type: ✅ Tag/Release Build"
+          echo "Build Type: [Release] Tag/Release Build"
           echo "Latest Pointer: Updated to this version"
         else
-          echo "Build Type: ⚠️  Branch Build"
+          echo "Build Type: [Branch] Branch Build"
           echo "Latest Pointer: Not updated (remains at last release)"
         fi
         echo ""
@@ -1327,10 +1367,10 @@ jobs:
         echo "   https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/latest.json"
         echo ""
         if [ "$IS_BRANCH" = "false" ]; then
-          echo "   ✅ This file has been updated to point to v${VERSION}"
+          echo "   [OK] This file has been updated to point to v${VERSION}"
         else
-          echo "   ⏭️  This file was NOT updated (branch build)"
-          echo "   📌 Latest still points to the last official release"
+          echo "   [SKIP] This file was NOT updated (branch build)"
+          echo "   [INFO] Latest still points to the last official release"
         fi
         echo ""
         
@@ -1345,27 +1385,104 @@ jobs:
         echo "S3 Path: s3://${S3_BUCKET}/${S3_VERSION_PATH}"
         echo ""
         echo "================================================================"
+        
+        # Create download links file (unmasked URLs for easy access)
+        echo "=== Creating download links file ==="
+        {
+          echo "eCan AI Assistant v${VERSION} - Download Links"
+          echo "================================================================"
+          echo ""
+          echo "Standard S3 URLs:"
+          echo "----------------------------------------------------------------"
+          echo "Windows Installer:"
+          echo "${S3_BASE_URL}/windows/eCan-${VERSION}-windows-amd64-Setup.exe"
+          echo ""
+          echo "macOS Intel (x86_64):"
+          echo "${S3_BASE_URL}/macos/eCan-${VERSION}-macos-amd64.pkg"
+          echo ""
+          echo "macOS Apple Silicon (ARM64):"
+          echo "${S3_BASE_URL}/macos/eCan-${VERSION}-macos-aarch64.pkg"
+          echo ""
+          echo "Checksums:"
+          echo "${S3_BASE_URL}/checksums/SHA256SUMS"
+          echo ""
+          echo "================================================================"
+          echo "S3 Transfer Acceleration URLs (Faster for remote regions):"
+          echo "----------------------------------------------------------------"
+          echo "Windows Installer:"
+          echo "${S3_ACCELERATE_URL}/windows/eCan-${VERSION}-windows-amd64-Setup.exe"
+          echo ""
+          echo "macOS Intel (x86_64):"
+          echo "${S3_ACCELERATE_URL}/macos/eCan-${VERSION}-macos-amd64.pkg"
+          echo ""
+          echo "macOS Apple Silicon (ARM64):"
+          echo "${S3_ACCELERATE_URL}/macos/eCan-${VERSION}-macos-aarch64.pkg"
+          echo ""
+          echo "Checksums:"
+          echo "${S3_ACCELERATE_URL}/checksums/SHA256SUMS"
+          echo ""
+          echo "================================================================"
+          echo "Latest Version Pointer:"
+          echo "https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/latest.json"
+          echo ""
+          echo "================================================================"
+          echo "Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+          echo "Build Type: $([ "$IS_BRANCH" = "false" ] && echo "Release" || echo "Branch")"
+          echo "================================================================"
+        } > download-links.txt
+        
+        # Upload download links file to S3
+        aws s3 cp download-links.txt s3://${S3_BUCKET}/${S3_VERSION_PATH}/DOWNLOAD-LINKS.txt \
+          "${ACL_ARGS[@]}" \
+          --content-type "text/plain; charset=utf-8" \
+          --cache-control "max-age=31536000"
+        
+        echo ""
+        echo "[OK] Download links file created and uploaded"
+        echo "   Access at: ${S3_BASE_URL}/DOWNLOAD-LINKS.txt"
+        echo ""
+        
+        # Display download links in console (formatted to avoid secret masking)
+        echo "================================================================"
+        echo "COPY-PASTE DOWNLOAD LINKS (Unmasked)"
+        echo "================================================================"
+        cat download-links.txt
+        echo "================================================================"
+
+    - name: Upload download links as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: download-links-${{ needs.validate-tag.outputs.version }}
+        path: download-links.txt
+        retention-days: 90
+        if-no-files-found: error
 
     - name: Create version metadata
       run: |
         VERSION="${{ needs.validate-tag.outputs.version }}"
         S3_VERSION_PATH="${S3_BASE_PATH}/v${VERSION}"
         
-        # Create metadata JSON
-        cat > version-metadata.json <<EOF
-        {
-          "version": "${VERSION}",
-          "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-          "tag": "v${VERSION}",
-          "is_branch": ${{ needs.validate-tag.outputs.is-branch }},
-          "ref_name": "${{ needs.validate-tag.outputs.ref-name }}",
-          "s3_base_url": "${{ steps.upload.outputs.s3_base_url }}",
-          "files": {
-            "windows": [],
-            "macos": []
-          }
-        }
-        EOF
+        # Create metadata JSON using jq
+        RELEASE_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        jq -n \
+          --arg version "${VERSION}" \
+          --arg release_date "${RELEASE_DATE}" \
+          --arg tag "v${VERSION}" \
+          --argjson is_branch ${{ needs.validate-tag.outputs.is-branch }} \
+          --arg ref_name "${{ needs.validate-tag.outputs.ref-name }}" \
+          --arg s3_base_url "${{ steps.upload.outputs.s3_base_url }}" \
+          '{
+            version: $version,
+            release_date: $release_date,
+            tag: $tag,
+            is_branch: $is_branch,
+            ref_name: $ref_name,
+            s3_base_url: $s3_base_url,
+            files: {
+              windows: [],
+              macos: []
+            }
+          }' > version-metadata.json
         
         # Add Windows files to metadata
         if [ -d "upload/windows" ]; then
@@ -1426,18 +1543,18 @@ jobs:
         rm -rf upload/ windows-artifacts/ macos-artifacts/ version-metadata.json latest.json 2>/dev/null || true
         
         echo ""
-        echo "✅ Cleanup completed - all artifacts are now in S3"
+        echo "[OK] Cleanup completed - all artifacts are now in S3"
         echo "   Local storage freed for GitHub Actions"
         
         # Display cleanup summary in GitHub Actions Summary
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "---" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🧹 存储清理 (Storage Cleanup)" >> $GITHUB_STEP_SUMMARY
+        echo "### Storage Cleanup" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "所有构建产物已成功上传到 S3 并从 GitHub Actions 存储中清理。" >> $GITHUB_STEP_SUMMARY
+        echo "All build artifacts have been successfully uploaded to S3 and cleaned from GitHub Actions storage." >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "✅ 本地临时文件已删除，节约 GitHub Actions 存储空间" >> $GITHUB_STEP_SUMMARY
+        echo "[OK] Local temporary files have been deleted, saving GitHub Actions storage space" >> $GITHUB_STEP_SUMMARY
 
   # Create Release (optional, for GitHub releases)
   create-release:
@@ -1582,7 +1699,7 @@ jobs:
         run: |
           echo "=== Checking Appcast Generation Environment ==="
           echo ""
-          echo "📝 Note: Appcast generation only runs for tag/release builds"
+          echo "NOTE: Appcast generation only runs for tag/release builds"
           echo "   - Tag/Release builds: Generate appcast for OTA updates"
           echo "   - Branch builds: Skip (development versions don't need OTA)"
           echo "   - This ensures appcast and latest.json stay in sync"
@@ -1594,10 +1711,10 @@ jobs:
           fi
           echo ""
           if [ -z "${S3_BASE_URL}" ] || [ "${S3_BASE_URL}" = "" ]; then
-            echo "⚠️  S3_BASE_URL: Not available (upload-to-s3 may have been skipped)"
+            echo "[WARN] S3_BASE_URL: Not available (upload-to-s3 may have been skipped)"
             echo "   Appcast generation will be skipped if S3_BASE_URL is required"
           else
-            echo "✅ S3_BASE_URL: ${S3_BASE_URL}"
+            echo "[OK] S3_BASE_URL: ${S3_BASE_URL}"
           fi
           echo ""
           echo "Version: ${{ needs.validate-tag.outputs.version }}"
@@ -1645,7 +1762,7 @@ jobs:
           from build_system.generate_appcast import main
           s3_base_url = os.environ.get('S3_BASE_URL', '')
           if not s3_base_url:
-              print("⚠️  S3_BASE_URL is empty, skipping appcast generation")
+              print("[WARN] S3_BASE_URL is empty, skipping appcast generation")
               exit(0)
           assets = []
           for pat in ('macos-artifacts/*amd64*.pkg','macos-artifacts/*amd64*.zip','macos-artifacts/*x86_64*.pkg','macos-artifacts/*x86_64*.zip','macos-artifacts/*x64*.pkg','macos-artifacts/*x64*.zip'):
@@ -1669,7 +1786,7 @@ jobs:
           from build_system.generate_appcast import main
           s3_base_url = os.environ.get('S3_BASE_URL', '')
           if not s3_base_url:
-              print("⚠️  S3_BASE_URL is empty, skipping appcast generation")
+              print("[WARN] S3_BASE_URL is empty, skipping appcast generation")
               exit(0)
           assets = []
           for pat in ('macos-artifacts/*aarch64*.pkg','macos-artifacts/*aarch64*.zip','macos-artifacts/*arm64*.pkg','macos-artifacts/*arm64*.zip'):
@@ -1693,7 +1810,7 @@ jobs:
           from build_system.generate_appcast import main
           s3_base_url = os.environ.get('S3_BASE_URL', '')
           if not s3_base_url:
-              print("⚠️  S3_BASE_URL is empty, skipping appcast generation")
+              print("[WARN] S3_BASE_URL is empty, skipping appcast generation")
               exit(0)
           assets = []
           for pat in (
@@ -1727,7 +1844,7 @@ jobs:
           from build_system.generate_appcast import main
           s3_base_url = os.environ.get('S3_BASE_URL', '')
           if not s3_base_url:
-              print("⚠️  S3_BASE_URL is empty, skipping appcast generation")
+              print("[WARN] S3_BASE_URL is empty, skipping appcast generation")
               exit(0)
           assets = []
           for pat in (
@@ -1759,7 +1876,7 @@ jobs:
           from build_system.generate_appcast import main
           s3_base_url = os.environ.get('S3_BASE_URL', '')
           if not s3_base_url:
-              print("⚠️  S3_BASE_URL is empty, skipping appcast generation")
+              print("[WARN] S3_BASE_URL is empty, skipping appcast generation")
               exit(0)
           assets = []
           for pat in (
@@ -1850,32 +1967,32 @@ jobs:
         run: |
           # Display in GitHub Actions Summary
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## 🔄 Appcast 更新源地址 (OTA Update Feed URLs)" >> $GITHUB_STEP_SUMMARY
+          echo "## OTA Update Feed URLs (Appcast)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> 📝 **说明**: Appcast 只在正式发布时生成，与 \`latest.json\` 保持同步" >> $GITHUB_STEP_SUMMARY
-          echo "> - **Appcast XML**: Sparkle/WinSparkle OTA 自动更新使用" >> $GITHUB_STEP_SUMMARY
-          echo "> - **latest.json**: 版本元数据，包含下载链接和版本信息" >> $GITHUB_STEP_SUMMARY
-          echo "> - 两者在每次正式发布时同步更新，指向相同的版本" >> $GITHUB_STEP_SUMMARY
+          echo "> **Note**: Appcast is only generated for release builds and stays in sync with \`latest.json\`" >> $GITHUB_STEP_SUMMARY
+          echo "> - **Appcast XML**: Used by Sparkle/WinSparkle for OTA automatic updates" >> $GITHUB_STEP_SUMMARY
+          echo "> - **latest.json**: Version metadata containing download links and version info" >> $GITHUB_STEP_SUMMARY
+          echo "> - Both are synchronized on each release, pointing to the same version" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### GitHub Pages (推荐)" >> $GITHUB_STEP_SUMMARY
+          echo "### GitHub Pages (Recommended)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **macOS (所有架构)**: [appcast-macos.xml](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos.xml)" >> $GITHUB_STEP_SUMMARY
+          echo "- **macOS (All Architectures)**: [appcast-macos.xml](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos.xml)" >> $GITHUB_STEP_SUMMARY
           echo "- **macOS (Intel x86_64)**: [appcast-macos-amd64.xml](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos-amd64.xml)" >> $GITHUB_STEP_SUMMARY
           echo "- **macOS (Apple Silicon)**: [appcast-macos-aarch64.xml](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos-aarch64.xml)" >> $GITHUB_STEP_SUMMARY
           echo "- **Windows (x86_64)**: [appcast-windows-amd64.xml](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-windows-amd64.xml)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [ -n "$S3_BUCKET" ] && [ "$S3_BUCKET" != "NOT_SET" ]; then
-            echo "### AWS S3 (备用)" >> $GITHUB_STEP_SUMMARY
+            echo "### AWS S3 (Alternative)" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "- **macOS (所有架构)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos.xml" >> $GITHUB_STEP_SUMMARY
+            echo "- **macOS (All Architectures)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos.xml" >> $GITHUB_STEP_SUMMARY
             echo "- **macOS (Intel x86_64)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos-amd64.xml" >> $GITHUB_STEP_SUMMARY
             echo "- **macOS (Apple Silicon)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos-aarch64.xml" >> $GITHUB_STEP_SUMMARY
             echo "- **Windows (x86_64)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-windows-amd64.xml" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           
-          echo "> **注意**: Windows 仅支持 x86_64 (amd64) 架构" >> $GITHUB_STEP_SUMMARY
+          echo "> **Note**: Windows only supports x86_64 (amd64) architecture" >> $GITHUB_STEP_SUMMARY
           
           # Also display in console log
           echo "=== Appcast URLs ==="
@@ -1947,5 +2064,5 @@ jobs:
           rm -rf windows-artifacts/ macos-artifacts/ 2>/dev/null || true
           
           echo ""
-          echo "✅ Cleanup completed - appcast files are published to GitHub Pages and S3"
+          echo "[OK] Cleanup completed - appcast files are published to GitHub Pages and S3"
           echo "   Local storage freed for GitHub Actions"
