@@ -149,10 +149,7 @@ const LoadingProgress: React.FC<LoadingProgressProps> = ({
             <Progress
               percent={progress}
               size="small"
-              strokeColor={{
-                '0%': '#108ee9',
-                '100%': '#87d068',
-              }}
+              strokeColor="#1890ff"
               showInfo={false}
               className="loading-compact-progress"
             />
@@ -179,10 +176,7 @@ const LoadingProgress: React.FC<LoadingProgressProps> = ({
           
           <Progress 
             percent={progress} 
-            strokeColor={{
-              '0%': '#108ee9',
-              '100%': '#87d068',
-            }}
+            strokeColor="#1890ff"
             showInfo={false}
             className="loading-progress-bar"
           />

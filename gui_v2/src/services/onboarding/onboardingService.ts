@@ -5,6 +5,8 @@
 
 import React from "react";
 import { Modal, Button } from "antd";
+import { createRoot, Root } from "react-dom/client";
+
 import { RocketOutlined, SettingOutlined } from "@ant-design/icons";
 import { logger } from "@/utils/logger";
 import i18n from "@/i18n";
@@ -19,6 +21,126 @@ let __modalAPI: ModalAPI | null = null;
 
 export const registerOnboardingModalApi = (modalApi: ModalAPI | null) => {
   __modalAPI = modalApi;
+};
+
+// Persistent React root to avoid flicker from mount/unmount of Modal
+let __onboardingContainer: HTMLDivElement | null = null;
+let __onboardingRoot: Root | null = null;
+type HostState = {
+  open: boolean;
+  config?: OnboardingConfig;
+  localized?: LocalizedOnboardingContent;
+  context?: OnboardingContext;
+  onNavigate?: (path: string) => void;
+};
+let __hostState: HostState = { open: false };
+
+// Clean up and fully unmount the persistent host
+const cleanupHost = () => {
+  try {
+    if (__onboardingRoot) {
+      __onboardingRoot.unmount();
+      __onboardingRoot = null as unknown as Root;
+    }
+    if (__onboardingContainer && __onboardingContainer.parentNode) {
+      __onboardingContainer.parentNode.removeChild(__onboardingContainer);
+    }
+  } catch {}
+  __onboardingContainer = null;
+};
+
+const ensureHost = () => {
+  if (__onboardingRoot) return __onboardingRoot;
+  const container = document.createElement('div');
+  container.id = 'onboarding-react-host';
+  document.body.appendChild(container);
+  __onboardingContainer = container;
+  __onboardingRoot = createRoot(container);
+  return __onboardingRoot;
+};
+ 
+
+// Render (or re-render) the persistent AntD Modal host
+const renderHost = () => {
+  const root = ensureHost();
+  const { open, config, localized, context, onNavigate } = __hostState;
+
+  const handleClose = () => {
+    __hostState.open = false;
+    __onboardingShowing = false;
+    renderHost();
+    // Fully remove the host after the state update render
+    setTimeout(() => cleanupHost(), 0);
+  };
+
+  const handlePrimary = () => {
+    try {
+      if (config && onNavigate) {
+        const path = config.getNavigationPath(context);
+        __hostState.open = false;
+        __onboardingShowing = false;
+        renderHost();
+        // Fully remove the host before navigation to avoid lingering overlay
+        setTimeout(() => cleanupHost(), 0);
+        onNavigate(path);
+      }
+    } catch (e) {
+      logger.error('[Onboarding] Navigation failed:', e);
+    }
+  };
+
+  const modalBody = config && localized
+    ? createModalContent(config, localized, handlePrimary, handleClose)
+    : null;
+
+  root.render(
+    React.createElement(
+      React.Fragment,
+      null,
+      // Custom static mask (no animations). Visible only when open.
+      React.createElement('div', {
+        className: 'onboarding-static-mask',
+        style: {
+          position: 'fixed',
+          inset: 0 as any,
+          background: 'rgba(0,0,0,0.45)',
+          display: open ? 'block' : 'none',
+          zIndex: 2147483000,
+          pointerEvents: open ? 'auto' : 'none',
+          transition: 'none',
+        } as any,
+      }),
+      React.createElement(
+        Modal,
+        {
+          open,
+          centered: true,
+          footer: null,
+          closable: false,
+          mask: false,
+          keyboard: false,
+          // Disable AntD animations at component level
+          transitionName: '',
+          maskTransitionName: '',
+          forceRender: true,
+          className: 'onboarding-modal',
+          rootClassName: 'onboarding-modal-root',
+          getContainer: () => document.body,
+          zIndex: 2147483600,
+          onCancel: handleClose,
+          width: 480,
+          styles: {
+            body: { transition: 'none' },
+            header: { transition: 'none' },
+            footer: { transition: 'none' },
+            content: { transition: 'none' },
+          } as any,
+          style: { transition: 'none' } as any,
+        } as any,
+        modalBody,
+      )
+    )
+  );
 };
 
 /**
@@ -187,13 +309,7 @@ export const handleOnboardingRequest = async (
 /**
  * Onboarding modal props for the React renderer
  */
-interface OnboardingModalProps {
-  config: OnboardingConfig;
-  context?: OnboardingContext;
-  onNavigate: (path: string) => void;
-  onClose: () => void;
-  localized: LocalizedOnboardingContent;
-}
+// No React component interface needed for host-driven Modal rendering
 
 /**
  * Create the modern onboarding modal content
@@ -221,11 +337,11 @@ const createModalContent = (
           height: "80px",
           margin: "0 auto 24px",
           borderRadius: "50%",
-          background: config.iconColor,
+          background: '#667eea',
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          boxShadow: "0 8px 24px rgba(102, 126, 234, 0.3)",
+          boxShadow: "0 4px 12px rgba(102, 126, 234, 0.24)",
         },
       },
       React.createElement(config.icon, {
@@ -288,9 +404,9 @@ const createModalContent = (
             fontSize: "16px",
             fontWeight: 500,
             borderRadius: "8px",
-            background: config.iconColor,
+            background: '#667eea',
             border: "none",
-            boxShadow: "0 4px 12px rgba(102, 126, 234, 0.4)",
+            boxShadow: "0 2px 8px rgba(102, 126, 234, 0.25)",
           },
         },
         content.primaryButtonText,
@@ -315,93 +431,6 @@ const createModalContent = (
     ),
   );
 };
-
-/**
- * React component that renders the onboarding modal using Ant Design's Modal component
- */
-const OnboardingModal: React.FC<OnboardingModalProps> = ({
-  config,
-  context,
-  onNavigate,
-  onClose,
-  localized,
-}) => {
-  const [open, setOpen] = React.useState(true);
-  const hasClosedRef = React.useRef(false);
-
-  const scheduleCleanup = React.useCallback(() => {
-    if (hasClosedRef.current) {
-      return;
-    }
-    hasClosedRef.current = true;
-    onClose();
-  }, [onClose]);
-
-  const closeModal = React.useCallback(() => {
-    setOpen(false);
-    window.setTimeout(scheduleCleanup, 0);
-  }, [scheduleCleanup]);
-
-  React.useEffect(() => {
-    if (!open) {
-      const timer = window.setTimeout(scheduleCleanup, 200);
-      return () => window.clearTimeout(timer);
-    }
-    return undefined;
-  }, [open, scheduleCleanup]);
-
-  const handleSkip = () => {
-    closeModal();
-  };
-
-  const handlePrimary = () => {
-    try {
-      const navigationPath = config.getNavigationPath(context);
-      closeModal();
-      setTimeout(() => {
-        onNavigate(navigationPath);
-      }, 120);
-    } catch (error) {
-      logger.error(
-        "[Onboarding] Error during primary action navigation:",
-        error,
-      );
-    }
-  };
-
-  const modalContent = createModalContent(
-    config,
-    localized,
-    handlePrimary,
-    handleSkip,
-  );
-
-  return React.createElement(
-    Modal,
-    {
-      open,
-      centered: true,
-      footer: null,
-      closable: false,
-      maskClosable: false,
-      onCancel: handleSkip,
-      className: "onboarding-modal",
-      rootClassName: "onboarding-modal-root",
-      getContainer: () => document.body,
-      zIndex: 2147483000,
-      styles: {
-        body: {
-          padding: "40px 24px",
-        },
-      },
-      width: 480,
-      focusTriggerAfterClose: false,
-      keyboard: false,
-    },
-    modalContent,
-  );
-};
-
 /**
  * Render the onboarding modal into a portal attached to document.body
  */
@@ -412,186 +441,16 @@ const renderOnboardingModal = (
   onNavigate: (path: string) => void,
 ): void => {
   try {
-    // Use AntD standard confirm modal for reliability
+    // Update host state and render AntD Modal without mounting/unmounting root
+    __hostState = {
+      open: true,
+      config,
+      localized,
+      context,
+      onNavigate,
+    };
     __onboardingShowing = true;
-
-    const onOk = async () => {
-      try {
-        const navigationPath = config.getNavigationPath(context);
-        onNavigate(navigationPath);
-      } catch (e) {
-        logger.error('[Onboarding] Navigation failed:', e);
-      }
-    };
-
-    const onCancel = () => {
-      /* no-op, just close */
-    };
-
-    const confirmFn = __modalAPI ? __modalAPI.confirm : Modal.confirm;
-    const instance = confirmFn({
-      title: localized.title,
-      content: localized.message,
-      okText: localized.primaryButtonText,
-      cancelText: config.showSkipButton ? (localized.skipButtonText || undefined) : undefined,
-      icon: React.createElement(config.icon, { style: { color: '#667eea' } }),
-      onOk,
-      onCancel,
-      closable: false,
-      keyboard: false,
-      maskClosable: false,
-      transitionName: '',
-      maskTransitionName: '',
-      centered: true,
-      className: 'onboarding-modal',
-      rootClassName: 'onboarding-modal-root',
-      zIndex: 2147483000,
-      getContainer: () => document.body,
-    });
-
-    // Ensure flag reset when closed
-    const finalize = () => { __onboardingShowing = false; };
-    // AntD confirm doesn't expose onClose, so we poll for DOM removal as a simple finalize
-    const finalizeCheck = () => {
-      const exists = document.querySelector('.onboarding-modal');
-      if (!exists) {
-        finalize();
-      } else {
-        setTimeout(finalizeCheck, 100);
-      }
-    };
-    setTimeout(finalizeCheck, 100);
-
-    const applyInlineFixes = () => {
-      try {
-        const wrap = document.querySelector('.onboarding-modal-root .ant-modal-wrap') as HTMLElement | null;
-        const modal = document.querySelector('.onboarding-modal-root .ant-modal') as HTMLElement | null;
-        const mask = document.querySelector('.onboarding-modal-root .ant-modal-mask') as HTMLElement | null;
-        if (wrap) {
-          wrap.style.position = 'fixed';
-          (wrap.style as any).inset = '0';
-          wrap.style.display = 'flex';
-          wrap.style.alignItems = 'center';
-          wrap.style.justifyContent = 'center';
-          wrap.style.zIndex = '2147483001';
-          wrap.style.pointerEvents = 'auto';
-          wrap.style.opacity = '1';
-          wrap.style.visibility = 'visible';
-        }
-        if (modal) {
-          modal.style.margin = '0 auto';
-          modal.style.opacity = '1';
-          modal.style.visibility = 'visible';
-          modal.style.transform = 'none';
-          modal.style.zIndex = '2147483002';
-        }
-        if (mask) {
-          mask.style.zIndex = '2147483000';
-          mask.style.opacity = '1';
-          mask.style.visibility = 'visible';
-        }
-      } catch {}
-    };
-
-    const ensureVisible = () => {
-      try {
-        const modalContent = document.querySelector('.onboarding-modal .ant-modal-content') as HTMLElement | null;
-        if (modalContent) {
-          const rect = modalContent.getBoundingClientRect();
-          const styles = getComputedStyle(modalContent);
-          const inViewport = rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
-          const visible = styles.visibility !== 'hidden' && styles.opacity !== '0';
-          if (inViewport && visible) return true;
-        }
-        return false;
-      } catch {
-        return false;
-      }
-    };
-
-    window.setTimeout(() => {
-      if (ensureVisible()) {
-        return;
-      }
-      // attempt inline fixes first
-      applyInlineFixes();
-      if (ensureVisible()) {
-        return;
-      }
-      const fallback = document.createElement('div');
-      fallback.setAttribute('data-onboarding-fallback', 'true');
-      fallback.style.position = 'fixed';
-      fallback.style.inset = '0';
-      fallback.style.zIndex = '2147483003';
-      fallback.style.background = 'rgba(0,0,0,0.45)';
-      fallback.style.display = 'flex';
-      fallback.style.alignItems = 'center';
-      fallback.style.justifyContent = 'center';
-
-      const card = document.createElement('div');
-      card.style.width = '480px';
-      card.style.maxWidth = '90vw';
-      card.style.background = '#fff';
-      card.style.borderRadius = '16px';
-      card.style.boxShadow = '0 20px 60px rgba(0,0,0,0.15)';
-      card.style.padding = '32px 24px';
-      card.style.textAlign = 'center';
-
-      const titleEl = document.createElement('h2');
-      titleEl.textContent = localized.title;
-      titleEl.style.margin = '0 0 12px';
-      titleEl.style.fontSize = '22px';
-      titleEl.style.color = 'rgba(0,0,0,0.85)';
-
-      const msgEl = document.createElement('p');
-      msgEl.textContent = localized.message;
-      msgEl.style.margin = '0 0 24px';
-      msgEl.style.color = 'rgba(0,0,0,0.65)';
-
-      const btnRow = document.createElement('div');
-      btnRow.style.display = 'flex';
-      btnRow.style.gap = '12px';
-      btnRow.style.justifyContent = 'center';
-
-      const primaryBtn = document.createElement('button');
-      primaryBtn.textContent = localized.primaryButtonText;
-      primaryBtn.style.padding = '10px 16px';
-      primaryBtn.style.border = 'none';
-      primaryBtn.style.borderRadius = '8px';
-      primaryBtn.style.background = '#3b82f6';
-      primaryBtn.style.color = '#fff';
-      primaryBtn.style.cursor = 'pointer';
-      primaryBtn.onclick = () => {
-        try {
-          const path = config.getNavigationPath(context);
-          if (fallback.parentNode) fallback.parentNode.removeChild(fallback);
-          __onboardingShowing = false;
-          onNavigate(path);
-        } catch {}
-      };
-
-      const skipBtn = document.createElement('button');
-      skipBtn.textContent = localized.skipButtonText || 'Close';
-      skipBtn.style.padding = '10px 16px';
-      skipBtn.style.border = '1px solid #d9d9d9';
-      skipBtn.style.borderRadius = '8px';
-      skipBtn.style.background = '#fff';
-      skipBtn.style.color = 'rgba(0,0,0,0.65)';
-      skipBtn.style.cursor = 'pointer';
-      skipBtn.onclick = () => {
-        if (fallback.parentNode) fallback.parentNode.removeChild(fallback);
-        __onboardingShowing = false;
-      };
-
-      btnRow.appendChild(primaryBtn);
-      if (config.showSkipButton) btnRow.appendChild(skipBtn);
-
-      card.appendChild(titleEl);
-      card.appendChild(msgEl);
-      card.appendChild(btnRow);
-      fallback.appendChild(card);
-      document.body.appendChild(fallback);
-    }, 160);
+    renderHost();
   } catch (error) {
     logger.error("[Onboarding] Failed to render onboarding modal:", error);
   }
