@@ -380,7 +380,6 @@ WizardStyle=modern
 LanguageDetectionMethod=uilanguage
 UsePreviousLanguage=yes
 ShowLanguageDialog=auto
-DefaultLanguage=english
 ; Prevent multiple installer instances when user double-clicks repeatedly
 SetupMutex=eCanInstallerMutex
 

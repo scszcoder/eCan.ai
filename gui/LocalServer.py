@@ -418,6 +418,29 @@ class ServerOptimizer:
         ServerOptimizer._disable_warnings()
 
     @staticmethod
+    def _hide_console_window_windows():
+        """Best-effort hide any attached console window on Windows.
+        This helps avoid a transient Python console flicker when starting background servers
+        in packaged (PyInstaller) applications.
+        """
+        try:
+            import sys
+            if sys.platform != 'win32':
+                return
+            import ctypes
+            user32 = ctypes.WinDLL('user32', use_last_error=True)
+            kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+            GetConsoleWindow = kernel32.GetConsoleWindow
+            GetConsoleWindow.restype = ctypes.c_void_p
+            hwnd = GetConsoleWindow()
+            if hwnd:
+                # SW_HIDE = 0
+                user32.ShowWindow(ctypes.c_void_p(hwnd), 0)
+        except Exception:
+            # Silent best-effort
+            pass
+
+    @staticmethod
     def _setup_event_loop():
         """Setup event loop"""
         import asyncio
@@ -533,6 +556,8 @@ class ServerManager:
 
         if mcp_server_config.is_frozen:
             ServerOptimizer.setup_pyinstaller_environment()
+            # Additionally, hide any console window to prevent transient flicker
+            ServerOptimizer._hide_console_window_windows()
 
         # Pre-create components to reduce startup time
         request_handlers = RequestHandlers(self.main_win)
