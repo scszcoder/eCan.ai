@@ -90,15 +90,23 @@ def scrape_ebay_orders_summary(web_driver):
         logger.debug(err_msg)
         return {"error": err_msg}
     
-
-def scrape_ebay_1_page_of_orders(web_driver):
+# scrape orders, strategy, just
+# # scrape list of orders,
+# # click on 1st one to purchase shipping label
+# # save the label pdf
+# # return the label pdf path
+# # reformat the label pdf to a standard format
+# # send the label to printer to print
+# # refresh the page (the just finished order will not be there anymore)
+# # repeat above steps until all done.
+def scrape_ebay_orders(web_driver):
     try:
-        #open ebay seller orders website
+        # open ebay seller orders website
         scrape_status = web_driver.get("https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT")
 
-        html_file_name= 'ebayOrders'+ str(int(datetime.now().timestamp()))+'.html'
+        html_file_name = 'ebayOrders' + str(int(datetime.now().timestamp())) + '.html'
         print('hf_name:', html_file_name)
-        
+
         # Initialize wait and ensure logged in
         wait = WebDriverWait(web_driver, 30)
         _ = ensure_logged_in_ebay(web_driver, wait)
