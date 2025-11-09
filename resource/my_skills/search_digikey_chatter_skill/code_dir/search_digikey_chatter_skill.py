@@ -22,8 +22,7 @@ from helpers import (
     pend_for_human_fill_FOM_node as h_pend_for_human_fill_FOM_node,
     pend_for_human_fill_specs_node as h_pend_for_human_fill_specs_node,
     examine_filled_specs_node as h_examine_filled_specs_node,
-    confirm_FOM_node as h_confirm_FOM_node, extract_first_non_none_content_meta_dict,
-    local_sort_search_results_node as h_local_sort_search_results_node,
+    confirm_FOM_node as h_confirm_FOM_node,
     re_rank_search_results_node as h_re_rank_search_results_node
 )
 
