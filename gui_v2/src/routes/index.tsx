@@ -26,6 +26,7 @@ const AgentDetails = React.lazy(() => import('../pages/Agents/components/AgentDe
 const Orgs = React.lazy(() => import('../pages/Orgs/Orgs'));
 const Warehouses = React.lazy(() => import('../pages/Warehouses/Warehouses'));
 const Products = React.lazy(() => import('../pages/Products/Products'));
+const Prompts = React.lazy(() => import('../pages/Prompts/Prompts'));
 
 // LoadComponent包装器
 const LazyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -165,6 +166,11 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'products',
                 element: <LazyWrapper><Products /></LazyWrapper>,
+                keepAlive: true,
+            },
+            {
+                path: 'prompts',
+                element: <LazyWrapper><Prompts /></LazyWrapper>,
                 keepAlive: true,
             },
             {
