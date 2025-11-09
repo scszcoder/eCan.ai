@@ -376,6 +376,7 @@ CloseApplications=yes
 RestartApplications=no
 VersionInfoVersion={file_version}
 WizardStyle=modern
+; Language detection: automatically match system language, fallback to English if no match
 LanguageDetectionMethod=uilanguage
 UsePreviousLanguage=yes
 ShowLanguageDialog=auto
