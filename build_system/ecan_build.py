@@ -379,18 +379,19 @@ WizardStyle=modern
 LanguageDetectionMethod=uilanguage
 UsePreviousLanguage=yes
 ShowLanguageDialog=auto
+DefaultLanguage=english
 ; Prevent multiple installer instances when user double-clicks repeatedly
 SetupMutex=eCanInstallerMutex
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
-Name: "chinesesimp"; MessagesFile: "compiler:Languages\\ChineseSimplified.isl"
+Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [CustomMessages]
 english.InitializeCaption=Initializing installer...
-chinesesimp.InitializeCaption=正在启动安装器...
+chinesesimplified.InitializeCaption=正在启动安装器...
 english.RemoveUserDataPrompt=Do you want to remove user data and settings?
-chinesesimp.RemoveUserDataPrompt=是否删除用户数据和设置？
+chinesesimplified.RemoveUserDataPrompt=是否删除用户数据和设置？
 
 [Tasks]
 Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: "{{cm:AdditionalIcons}}"; Flags: unchecked
