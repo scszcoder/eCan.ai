@@ -6,7 +6,8 @@
 .onboarding-modal .ant-modal-content {
   border-radius: 16px !important;
   overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15) !important;
+  /* Lighter shadow to avoid heavy compositing */
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.24) !important;
 }
 
 .onboarding-modal .ant-modal-body {
@@ -31,6 +32,7 @@
 /* Animation for modal entrance */
 .onboarding-modal.ant-modal {
   animation: none !important;
+  transform: none !important; /* Avoid GPU transforms */
 }
 
 /* Disable mask animation/transitions to prevent flicker */
@@ -49,7 +51,6 @@
   justify-content: center !important;
   opacity: 1 !important;
   visibility: visible !important;
-  z-index: 10001 !important;
   pointer-events: auto !important;
   animation: none !important;
   transition: none !important;
@@ -61,9 +62,9 @@
   opacity: 1 !important;
   visibility: visible !important;
   margin: 0 auto !important;
-  z-index: 10001 !important;
   animation: none !important;
   transition: none !important;
+  transform: none !important; /* Avoid any scale/translate remnants */
 }
 
 /* Ensure modal content is visible */
@@ -73,6 +74,17 @@
   pointer-events: auto !important;
   animation: none !important;
   transition: none !important;
+}
+
+/* Respect user/system reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-modal-root .ant-modal,
+  .onboarding-modal-root .ant-modal-wrap,
+  .onboarding-modal-root .ant-modal-mask,
+  .onboarding-modal .ant-modal-content {
+    transition: none !important;
+    animation: none !important;
+  }
 }
 
 /* Readable typography for AntD Modal.confirm */
@@ -111,10 +123,7 @@
   transition: none !important;
 }
 
-/* Ensure mask is beneath modal */
-.onboarding-modal-root .ant-modal-mask {
-  z-index: 10000 !important;
-}
+/* Note: z-index is controlled inline by the rendering service to avoid conflicts with custom mask */
 
 /* Dark theme support */
 .dark .onboarding-modal .ant-modal-content {
