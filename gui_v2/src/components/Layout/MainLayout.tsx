@@ -52,12 +52,12 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     
     // 记住最后访问的 agents Path（Used for从其他Page返回时Restore）
     const lastAgentsPathRef = React.useRef<string>('/agents');
-    
+
     // ListenPath变化，记录最后访问的 agents Path
     useEffect(() => {
         if (location.pathname.startsWith('/agents')) {
             lastAgentsPathRef.current = location.pathname;
-        }
+        };
     }, [location.pathname]);
     
     // 从 window 对象GetSearchStatus（由 OrgNavigator Settings）
@@ -115,11 +115,13 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         { key: '/orgs', icon: <ApartmentOutlined />, label: t('menu.organizations') },
         { key: '/vehicles', icon: <CarOutlined />, label: t('menu.vehicles') },
         { key: '/tools', icon: <ToolOutlined />, label: t('menu.tools') },
+        { key: '/prompts', icon: <ReadOutlined />, label: t('menu.prompts') },
         { key: '/warehouses', icon: <ShopOutlined />, label: t('menu.warehouses') },
         { key: '/products', icon: <ShoppingOutlined />, label: t('menu.products') },
         { key: '/knowledge-ported', icon: <ReadOutlined />, label: t('menu.knowledge') },
         { key: '/settings', icon: <SettingOutlined />, label: t('menu.settings') },
         { key: '/dashboard', icon: <DashboardOutlined />, label: t('menu.dashboard') },
+
         { key: '/console', icon: <AlignLeftOutlined />, label: t('menu.console') },
         { key: '/tests', icon: <ExperimentOutlined />, label: t('menu.tests') },
     ], [t]);
