@@ -1,21 +1,97 @@
 import os
+import re
 from datetime import datetime
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from agent.mcp.server.utils.print_utils import save_page_pdf_via_cdp, ensure_download_dir
 from mcp.types import CallToolResult, TextContent
 
-
 # Placeholder mode: when no live order/label UI is available, we can generate a
 # simple HTML label page and save it via CDP as a real PDF. Toggle as needed.
 EBAY_PLACEHOLDER_MODE = True
 
+# {
+#     "n_new_orders": integer,
+#     "n_pages": integer,
+#     "orders_per_page": integer,
+# }
+def scrape_ebay_orders_summary(web_driver):
+    try:
+        # Navigate to eBay Seller Hub orders
+        web_driver.get("https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT")
 
-def scrape_ebay_orders(web_driver):
+        # Initialize wait and ensure logged in
+        wait = WebDriverWait(web_driver, 30)
+        _ = ensure_logged_in_ebay(web_driver, wait)
+        logger.debug("ensured logged in....")
+
+        # Wait for summary/pagination section to render and read values
+        try:
+            summary_el = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '.summary-h2 .summary-content')))
+            logger.debug("summary_el:", summary_el)
+            results_text = summary_el.text or ''
+        except Exception:
+            # Fallback: try standalone summary content span
+            try:
+                summary_el = web_driver.find_element(By.CSS_SELECTOR, '.summary-content')
+                logger.debug("fallback summary_el:", summary_el)
+                results_text = summary_el.text or ''
+            except Exception:
+                results_text = ''
+
+        # Parse total results like 'Results: 0' -> 0
+        n_results = 0
+        m = re.search(r'(\d[\d,]*)', results_text)
+        if m:
+            try:
+                n_results = int(m.group(1).replace(',', ''))
+            except Exception:
+                n_results = 0
+
+        # Extract orders_per_page from the hidden select if available; fallback to visible button
+        orders_per_page = 0
+        try:
+            native_select = web_driver.find_element(By.CSS_SELECTOR, '.listbox__native')
+            selected_option = native_select.find_element(By.CSS_SELECTOR, 'option[selected]')
+            val = (selected_option.get_attribute('value') or selected_option.text or '').strip()
+            if val:
+                orders_per_page = int(val)
+        except Exception:
+            try:
+                btn_text_el = web_driver.find_element(By.CSS_SELECTOR, '.listbox-button.sh-core-ipp__listbox .btn__text')
+                btn_text = (btn_text_el.text or '').strip()
+                if btn_text:
+                    orders_per_page = int(btn_text)
+            except Exception:
+                pass
+
+        # Count pagination pages (visible page links)
+        try:
+            page_links = web_driver.find_elements(By.CSS_SELECTOR, 'ol.pagination__items a.pagination__item')
+            n_pages = len(page_links) if page_links else 1
+        except Exception:
+            n_pages = 1
+
+        summary = {
+            "n_new_orders": n_results,
+            "n_pages": n_pages,
+            "orders_per_page": orders_per_page,
+        }
+        logger.debug("new order summary:", summary)
+        return summary
+    except Exception as e:
+        err_msg = get_traceback(e, "ErrorScrapeEBayOrdersSummary")
+        logger.debug(err_msg)
+        return {"error": err_msg}
+    
+
+def scrape_ebay_1_page_of_orders(web_driver):
     try:
         #open ebay seller orders website
         scrape_status = web_driver.get("https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT")
@@ -225,6 +301,16 @@ def generate_placeholder_label_pdf(driver, output_path: str, meta: dict) -> bool
         logger.debug(f"Placeholder label generation failed: {e}")
         return False
 
+# will use this function to scrape bulk label orders
+# for now let's define bulk as 100 orders, if there are
+# more than 100 orders, we will need to use bulk mode
+def scrape_bulk_label_orders(webdriver):
+    try:
+        logger.debug("labels")
+    except Exception as e:
+        err_msg = get_traceback(e, "ErrorScrapeBulkLabelOrders")
+        logger.debug(err_msg)
+        return {"error": err_msg}
 
 
 from datetime import datetime
@@ -242,11 +328,22 @@ from mcp.types import CallToolResult, TextContent
 
 async def fullfill_ebay_orders(mainwin, args):  # type: ignore
     try:
-        logger.debug("fetch_ebay_messages started....")
+        logger.debug("fullfill_ebay_orders started....", args["input"])
         new_orders = []
         fullfilled_orders = []
         options = args["input"]["options"]
-        web_driver = mainwin.getWebDriver()
+        if options.get("use_ads", False):
+            webdriver = connect_to_adspower(mainwin, url)
+            if webdriver:
+                mainwin.setWebDriver(webdriver)
+        else:
+            webdriver = mainwin.getWebDriver()
+
+        if webdriver:
+            print("fullfill_ebay_orders:", site)
+            site_results = selenium_search_component(webdriver, pf, sites[site])
+            ebay_new_orders = scrape_ebay_orders(webdriver)
+            logger.debug("ebay_new_orders:", ebay_new_orders)
 
         msg = f"completed in fullfilling ebay new orders: {len(new_orders)} new orders came in, {len(fullfilled_orders)} orders processed."
         tool_result = TextContent(type="text", text=msg)
