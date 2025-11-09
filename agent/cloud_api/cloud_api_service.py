@@ -63,7 +63,7 @@ class CloudAPIService:
     
     def _get_api_endpoint(self) -> str:
         """Get API endpoint URL (using Cloud.py's common method)"""
-        from bot.Cloud import get_appsync_endpoint
+        from agent.cloud_api.cloud_api import get_appsync_endpoint
         return get_appsync_endpoint()
     
     def _get_cloud_api_function(self, operation: Union[Operation, str]) -> Optional[Callable]:
