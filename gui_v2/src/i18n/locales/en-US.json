@@ -143,6 +143,98 @@
     }
   },
   "pages": {
+    "prompts": {
+      "details": "Details",
+      "newPrompt": "New Prompt",
+      "searchPlaceholder": "Search prompts",
+      "uses": "uses",
+      "selectPrompt": "Select a prompt to view details",
+      "copied": "Copied",
+      "dragToResize": "Drag to resize",
+      "copyPreview": "Copy preview",
+      "fields": {
+        "title": "Title"
+      },
+      "sections": {
+        "roleToneContext": "System prompt: role / tone / context",
+        "goals": "System prompt: goals",
+        "guidelines": "System prompt: guidelines",
+        "rules": "System prompt: rules",
+        "instructions": "System prompt: instructions",
+        "systemInputs": "System prompt: inputs",
+        "humanInputs": "Human prompt: inputs"
+      },
+      "placeholders": {
+        "title": "Title",
+        "roleToneContext": "Describe the assistant role, tone, and context",
+        "addGoal": "Add a goal",
+        "addGuideline": "Add a guideline",
+        "addRule": "Add a rule",
+        "addInstruction": "Add an instruction",
+        "addSystemInput": "Add a system input",
+        "addHumanInput": "Add a human input"
+      },
+      "preview": {
+        "title": "Preview",
+        "systemRoleToneContext": "System: role/tone/context",
+        "goals": "Goals",
+        "guidelines": "Guidelines",
+        "rules": "Rules",
+        "instructions": "Instructions",
+        "systemInputs": "System inputs",
+        "humanInputs": "Human inputs"
+      },
+      "examples": {
+        "write_a_marketing_email": {
+          "title": "Write a marketing email",
+          "roleToneContext": "You are a helpful marketing assistant. Tone: friendly, concise.",
+          "goals": {
+            "0": "Introduce new product",
+            "1": "Encourage click-through"
+          },
+          "guidelines": {
+            "0": "Keep under 150 words",
+            "1": "Use American English"
+          },
+          "rules": {
+            "0": "No false claims",
+            "1": "Avoid spammy phrases"
+          },
+          "instructions": {
+            "0": "Start with a hook",
+            "1": "Add a CTA at the end"
+          },
+          "sysInputs": {
+            "0": "Product name",
+            "1": "Key features"
+          },
+          "humanInputs": {
+            "0": "Audience segment",
+            "1": "Special offers"
+          }
+        },
+        "write_a_sales_email": "Write a sales email",
+        "draft_a_press_release": "Draft a press release",
+        "write_product_description": "Write a product description",
+        "social_media_post": "Social media post",
+        "customer_support_reply": "Customer support reply",
+        "onboarding_email": "Onboarding email",
+        "performance_review": "Performance review",
+        "meeting_agenda": "Meeting agenda",
+        "blog_outline": "Blog outline",
+        "summarize_research_paper": {
+          "title": "Summarize research paper",
+          "roleToneContext": "You are a scientific assistant. Tone: neutral, precise.",
+          "goals": {
+            "0": "Capture main contributions",
+            "1": "Note limitations"
+          },
+          "guidelines": {
+            "0": "Cite key sections if available"
+          }
+        }
+      }
+    },
     "products": {
       "title": "Products",
       "add": "Add New",
@@ -1448,7 +1540,8 @@
     "tests": "Tests",
     "tools": "Tools",
     "vehicles": "Vehicles",
-    "warehouses": "Warehouses"
+    "warehouses": "Warehouses",
+    "prompts": "Prompts"
   },
   "agentnotify": {
     "behind_the_scene": "Behind_the_scene",

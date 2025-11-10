@@ -2,13 +2,21 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Input, Typography, Space, Button, Divider, Tooltip, message } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, SaveOutlined, CopyOutlined } from '@ant-design/icons';
 import type { Prompt } from './types';
+import { useTranslation } from 'react-i18next';
 
 interface PromptsDetailProps {
   prompt: Prompt | null;
   onChange: (next: Prompt) => void;
 }
 
-const Section: React.FC<{ title: string; extra?: React.ReactNode; style?: React.CSSProperties }>
+type SectionProps = {
+  title: string;
+  extra?: React.ReactNode;
+  style?: React.CSSProperties;
+  children?: React.ReactNode;
+};
+
+const Section: React.FC<SectionProps>
   = ({ title, extra, style, children }) => (
   <div style={{ padding: 16, ...style }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -25,25 +33,29 @@ const RepeatableList: React.FC<{
   onRemove: (idx: number) => void;
   onUpdate: (idx: number, val: string) => void;
   placeholder?: string;
-}> = ({ values, onAdd, onRemove, onUpdate, placeholder }) => (
-  <Space direction="vertical" style={{ width: '100%' }}>
-    {values.map((v, idx) => (
-      <div key={idx} style={{ display: 'flex', gap: 8, width: '100%', alignItems: 'flex-start' }}>
-        <Input.TextArea
-          autoSize={{ minRows: 2, maxRows: 6 }}
-          value={v}
-          onChange={(e) => onUpdate(idx, e.target.value)}
-          placeholder={placeholder}
-          style={{ flex: 1 }}
-        />
-        <Button danger icon={<DeleteOutlined />} onClick={() => onRemove(idx)} />
-      </div>
-    ))}
-    <Button icon={<PlusOutlined />} onClick={onAdd}>Add</Button>
-  </Space>
-);
+}> = ({ values, onAdd, onRemove, onUpdate, placeholder }) => {
+  const { t } = useTranslation();
+  return (
+    <Space direction="vertical" style={{ width: '100%' }}>
+      {values.map((v, idx) => (
+        <div key={idx} style={{ display: 'flex', gap: 8, width: '100%', alignItems: 'flex-start' }}>
+          <Input.TextArea
+            autoSize={{ minRows: 2, maxRows: 6 }}
+            value={v}
+            onChange={(e) => onUpdate(idx, e.target.value)}
+            placeholder={placeholder}
+            style={{ flex: 1 }}
+          />
+          <Button danger icon={<DeleteOutlined />} onClick={() => onRemove(idx)} />
+        </div>
+      ))}
+      <Button icon={<PlusOutlined />} onClick={onAdd}>{t('common.add')}</Button>
+    </Space>
+  );
+};
 
 const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
+  const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Prompt | null>(prompt);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -87,11 +99,61 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
     };
   }, [dragging]);
 
-  if (!prompt || !draft) {
-    return <div style={{ padding: 16, color: 'rgba(255,255,255,0.65)' }}>Select a prompt to view details</div>;
-  }
+  // Avoid early return before hooks to keep hook order stable
+  const hasDraft = !!(prompt && draft);
+  const emptyPrompt: Prompt = {
+    id: '',
+    title: '',
+    topic: '',
+    usageCount: 0,
+    roleToneContext: '',
+    goals: [],
+    guidelines: [],
+    rules: [],
+    instructions: [],
+    sysInputs: [],
+    humanInputs: [],
+  };
+  const active = draft ?? emptyPrompt;
 
-  const update = (patch: Partial<Prompt>) => setDraft({ ...draft, ...patch });
+  const update = (patch: Partial<Prompt>) =>
+    setDraft((prev) => ({ ...((prev ?? active) as Prompt), ...patch }));
+
+  // Derive example slug from topic/title, with fallback matching against known examples
+  const exampleSlug = useMemo(() => {
+    const raw = (active.topic || active.title || '').toLowerCase();
+    let slug = '';
+    if (raw) slug = raw.replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    if (slug) return slug;
+
+    // Fallback: try to map localized titles to known example keys
+    const knownKeys = [
+      'write_a_marketing_email',
+      // Add more keys here if needed in future
+    ];
+    const current = (active.title || active.topic || '').trim();
+    for (const key of knownKeys) {
+      // Some examples are simple strings, others have nested title
+      const simple = t(`pages.prompts.examples.${key}`, { defaultValue: '' }) as unknown as string;
+      const nested = t(`pages.prompts.examples.${key}.title`, { defaultValue: '' }) as unknown as string;
+      if (current && (current === simple || current === nested)) {
+        return key;
+      }
+    }
+    return '';
+  }, [active.topic, active.title, t]);
+
+  // Helpers to localize display-only values (do not mutate underlying data)
+  const safeString = (v: any) => (typeof v === 'string' ? v : (v == null ? '' : String(v)));
+  const lx = (path: string, fallback: string) => safeString(t(path, { defaultValue: fallback }));
+  const localizeList = (baseKey: string, list: any) => {
+    try {
+      const arr = Array.isArray(list) ? list : [];
+      return arr.map((v, i) => lx(`${baseKey}.${i}`, safeString(v)));
+    } catch {
+      return Array.isArray(list) ? list.map((v: any) => safeString(v)) : [];
+    }
+  };
 
   const handleToggle = () => {
     if (editing && draft) {
@@ -102,128 +164,173 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
 
   const previewText = useMemo(() => {
     const lines: string[] = [];
-    if (draft.title) lines.push(`# ${draft.title}`);
-    if (draft.roleToneContext) {
-      lines.push('System: role/tone/context:');
-      lines.push(draft.roleToneContext.trim());
+
+    // Resolve display values with localization when showing built-in examples (non-editing + exampleSlug)
+    const viewTitle = editing || !exampleSlug
+      ? active.title
+      : lx(`pages.prompts.examples.${exampleSlug}.title`, active.title);
+
+    const viewRoleTone = editing || !exampleSlug
+      ? active.roleToneContext
+      : lx(`pages.prompts.examples.${exampleSlug}.roleToneContext`, active.roleToneContext);
+
+    const viewGoals = (editing || !exampleSlug)
+      ? active.goals
+      : localizeList(`pages.prompts.examples.${exampleSlug}.goals`, active.goals);
+
+    const viewGuidelines = (editing || !exampleSlug)
+      ? active.guidelines
+      : localizeList(`pages.prompts.examples.${exampleSlug}.guidelines`, active.guidelines);
+
+    const viewRules = (editing || !exampleSlug)
+      ? active.rules
+      : localizeList(`pages.prompts.examples.${exampleSlug}.rules`, active.rules);
+
+    const viewInstructions = (editing || !exampleSlug)
+      ? active.instructions
+      : localizeList(`pages.prompts.examples.${exampleSlug}.instructions`, active.instructions);
+
+    const viewSysInputs = (editing || !exampleSlug)
+      ? active.sysInputs
+      : localizeList(`pages.prompts.examples.${exampleSlug}.sysInputs`, active.sysInputs);
+
+    const viewHumanInputs = (editing || !exampleSlug)
+      ? active.humanInputs
+      : localizeList(`pages.prompts.examples.${exampleSlug}.humanInputs`, active.humanInputs);
+
+    if (viewTitle) lines.push(`# ${safeString(viewTitle)}`);
+
+    if (viewRoleTone) {
+      lines.push(t('pages.prompts.preview.systemRoleToneContext', { defaultValue: 'System: role/tone/context' }) + ':');
+      lines.push(safeString(viewRoleTone).trim());
     }
+
     const pushList = (label: string, arr: string[]) => {
-      if (arr && arr.length) {
+      const list = Array.isArray(arr) ? arr : [];
+      if (list.length) {
         lines.push(label + ':');
-        arr.forEach((v, i) => { if (v?.trim()) lines.push(`- ${v.trim()}`); });
+        list.forEach((v) => { const s = safeString(v).trim(); if (s) lines.push(`- ${s}`); });
       }
     };
-    pushList('Goals', draft.goals);
-    pushList('Guidelines', draft.guidelines);
-    pushList('Rules', draft.rules);
-    pushList('Instructions', draft.instructions);
-    pushList('System inputs', draft.sysInputs);
-    pushList('Human inputs', draft.humanInputs);
+
+    pushList(t('pages.prompts.preview.goals', { defaultValue: 'Goals' }), viewGoals);
+    pushList(t('pages.prompts.preview.guidelines', { defaultValue: 'Guidelines' }), viewGuidelines);
+    pushList(t('pages.prompts.preview.rules', { defaultValue: 'Rules' }), viewRules);
+    pushList(t('pages.prompts.preview.instructions', { defaultValue: 'Instructions' }), viewInstructions);
+    pushList(t('pages.prompts.preview.systemInputs', { defaultValue: 'System inputs' }), viewSysInputs);
+    pushList(t('pages.prompts.preview.humanInputs', { defaultValue: 'Human inputs' }), viewHumanInputs);
+
     return lines.join('\n');
-  }, [draft]);
+  }, [active, editing, exampleSlug, t]);
 
   const copyPreview = async () => {
-    try { await navigator.clipboard.writeText(previewText); message.success('Copied'); } catch {}
+    try { await navigator.clipboard.writeText(previewText); message.success(t('pages.prompts.copied', { defaultValue: 'Copied' })); } catch {}
   };
 
   return (
     <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {!hasDraft ? (
+        <div style={{ padding: 16, color: 'rgba(255,255,255,0.65)' }}>
+          {t('pages.prompts.selectPrompt', { defaultValue: 'Select a prompt to view details' })}
+        </div>
+      ) : (
       <div style={{ height: topHeight, minHeight: 150, overflow: 'auto', paddingBottom: 8 }}>
         {/* Top editable area */}
         <Section
-          title="Title"
+          title={t('pages.prompts.fields.title', { defaultValue: 'Title' })}
           extra={
             <Button type={editing ? 'primary' : 'default'} icon={editing ? <SaveOutlined /> : <EditOutlined />} onClick={handleToggle}>
-              {editing ? 'Save' : 'Edit'}
+              {editing ? t('common.save') : t('common.edit')}
             </Button>
           }
         >
           <Input.TextArea
             autoSize={{ minRows: 2, maxRows: 6 }}
-            value={draft.title}
+            value={safeString(editing ? active.title : (exampleSlug ? lx(`pages.prompts.examples.${exampleSlug}.title`, active.title) : active.title))}
             onChange={(e) => update({ title: e.target.value })}
-            placeholder="Title"
+            placeholder={t('pages.prompts.placeholders.title', { defaultValue: 'Title' })}
             disabled={!editing}
           />
         </Section>
         <Divider style={{ margin: '0 0 8px' }} />
 
-        <Section title="System prompt: role / tone / context">
+        <Section title={t('pages.prompts.sections.roleToneContext', { defaultValue: 'System prompt: role / tone / context' })}>
           <Input.TextArea
             autoSize={{ minRows: 3, maxRows: 8 }}
-            value={draft.roleToneContext}
+            value={safeString(editing ? active.roleToneContext : (exampleSlug ? lx(`pages.prompts.examples.${exampleSlug}.roleToneContext`, active.roleToneContext) : active.roleToneContext))}
             onChange={(e) => update({ roleToneContext: e.target.value })}
-            placeholder="Describe the assistant role, tone, and context"
+            placeholder={t('pages.prompts.placeholders.roleToneContext', { defaultValue: 'Describe the assistant role, tone, and context' })}
             disabled={!editing}
           />
         </Section>
         <Divider style={{ margin: '0 0 8px' }} />
 
-        <Section title="System prompt: goals">
+        <Section title={t('pages.prompts.sections.goals', { defaultValue: 'System prompt: goals' })}>
           <RepeatableList
-            values={draft.goals}
-            onAdd={() => update({ goals: [...draft.goals, ''] })}
-            onRemove={(idx) => update({ goals: draft.goals.filter((_, i) => i !== idx) })}
-            onUpdate={(idx, val) => update({ goals: draft.goals.map((g, i) => i === idx ? val : g) })}
-            placeholder="Add a goal"
+            values={editing || !exampleSlug ? active.goals : localizeList(`pages.prompts.examples.${exampleSlug}.goals`, active.goals)}
+            onAdd={() => update({ goals: [...active.goals, ''] })}
+            onRemove={(idx) => update({ goals: active.goals.filter((_, i) => i !== idx) })}
+            onUpdate={(idx, val) => update({ goals: active.goals.map((g, i) => i === idx ? val : g) })}
+            placeholder={t('pages.prompts.placeholders.addGoal', { defaultValue: 'Add a goal' })}
           />
         </Section>
         <Divider style={{ margin: '0 0 8px' }} />
 
-        <Section title="System prompt: guidelines">
+        <Section title={t('pages.prompts.sections.guidelines', { defaultValue: 'System prompt: guidelines' })}>
           <RepeatableList
-            values={draft.guidelines}
-            onAdd={() => update({ guidelines: [...draft.guidelines, ''] })}
-            onRemove={(idx) => update({ guidelines: draft.guidelines.filter((_, i) => i !== idx) })}
-            onUpdate={(idx, val) => update({ guidelines: draft.guidelines.map((g, i) => i === idx ? val : g) })}
-            placeholder="Add a guideline"
+            values={editing || !exampleSlug ? active.guidelines : localizeList(`pages.prompts.examples.${exampleSlug}.guidelines`, active.guidelines)}
+            onAdd={() => update({ guidelines: [...active.guidelines, ''] })}
+            onRemove={(idx) => update({ guidelines: active.guidelines.filter((_, i) => i !== idx) })}
+            onUpdate={(idx, val) => update({ guidelines: active.guidelines.map((g, i) => i === idx ? val : g) })}
+            placeholder={t('pages.prompts.placeholders.addGuideline', { defaultValue: 'Add a guideline' })}
           />
         </Section>
         <Divider style={{ margin: '0 0 8px' }} />
 
-        <Section title="System prompt: rules">
+        <Section title={t('pages.prompts.sections.rules', { defaultValue: 'System prompt: rules' })}>
           <RepeatableList
-            values={draft.rules}
-            onAdd={() => update({ rules: [...draft.rules, ''] })}
-            onRemove={(idx) => update({ rules: draft.rules.filter((_, i) => i !== idx) })}
-            onUpdate={(idx, val) => update({ rules: draft.rules.map((g, i) => i === idx ? val : g) })}
-            placeholder="Add a rule"
+            values={editing || !exampleSlug ? active.rules : localizeList(`pages.prompts.examples.${exampleSlug}.rules`, active.rules)}
+            onAdd={() => update({ rules: [...active.rules, ''] })}
+            onRemove={(idx) => update({ rules: active.rules.filter((_, i) => i !== idx) })}
+            onUpdate={(idx, val) => update({ rules: active.rules.map((g, i) => i === idx ? val : g) })}
+            placeholder={t('pages.prompts.placeholders.addRule', { defaultValue: 'Add a rule' })}
           />
         </Section>
         <Divider style={{ margin: '0 0 8px' }} />
 
-        <Section title="System prompt: instructions">
+        <Section title={t('pages.prompts.sections.instructions', { defaultValue: 'System prompt: instructions' })}>
           <RepeatableList
-            values={draft.instructions}
-            onAdd={() => update({ instructions: [...draft.instructions, ''] })}
-            onRemove={(idx) => update({ instructions: draft.instructions.filter((_, i) => i !== idx) })}
-            onUpdate={(idx, val) => update({ instructions: draft.instructions.map((g, i) => i === idx ? val : g) })}
-            placeholder="Add an instruction"
+            values={editing || !exampleSlug ? active.instructions : localizeList(`pages.prompts.examples.${exampleSlug}.instructions`, active.instructions)}
+            onAdd={() => update({ instructions: [...active.instructions, ''] })}
+            onRemove={(idx) => update({ instructions: active.instructions.filter((_, i) => i !== idx) })}
+            onUpdate={(idx, val) => update({ instructions: active.instructions.map((g, i) => i === idx ? val : g) })}
+            placeholder={t('pages.prompts.placeholders.addInstruction', { defaultValue: 'Add an instruction' })}
           />
         </Section>
         <Divider style={{ margin: '0 0 8px' }} />
 
-        <Section title="System prompt: inputs">
+        <Section title={t('pages.prompts.sections.systemInputs', { defaultValue: 'System prompt: inputs' })}>
           <RepeatableList
-            values={draft.sysInputs}
-            onAdd={() => update({ sysInputs: [...draft.sysInputs, ''] })}
-            onRemove={(idx) => update({ sysInputs: draft.sysInputs.filter((_, i) => i !== idx) })}
-            onUpdate={(idx, val) => update({ sysInputs: draft.sysInputs.map((g, i) => i === idx ? val : g) })}
-            placeholder="Add a system input"
+            values={editing || !exampleSlug ? active.sysInputs : localizeList(`pages.prompts.examples.${exampleSlug}.sysInputs`, active.sysInputs)}
+            onAdd={() => update({ sysInputs: [...active.sysInputs, ''] })}
+            onRemove={(idx) => update({ sysInputs: active.sysInputs.filter((_, i) => i !== idx) })}
+            onUpdate={(idx, val) => update({ sysInputs: active.sysInputs.map((g, i) => i === idx ? val : g) })}
+            placeholder={t('pages.prompts.placeholders.addSystemInput', { defaultValue: 'Add a system input' })}
           />
         </Section>
         <Divider style={{ margin: '0 0 8px' }} />
 
-        <Section title="Human prompt: inputs">
+        <Section title={t('pages.prompts.sections.humanInputs', { defaultValue: 'Human prompt: inputs' })}>
           <RepeatableList
-            values={draft.humanInputs}
-            onAdd={() => update({ humanInputs: [...draft.humanInputs, ''] })}
-            onRemove={(idx) => update({ humanInputs: draft.humanInputs.filter((_, i) => i !== idx) })}
-            onUpdate={(idx, val) => update({ humanInputs: draft.humanInputs.map((g, i) => i === idx ? val : g) })}
-            placeholder="Add a human input"
+            values={editing || !exampleSlug ? active.humanInputs : localizeList(`pages.prompts.examples.${exampleSlug}.humanInputs`, active.humanInputs)}
+            onAdd={() => update({ humanInputs: [...active.humanInputs, ''] })}
+            onRemove={(idx) => update({ humanInputs: active.humanInputs.filter((_, i) => i !== idx) })}
+            onUpdate={(idx, val) => update({ humanInputs: active.humanInputs.map((g, i) => i === idx ? val : g) })}
+            placeholder={t('pages.prompts.placeholders.addHumanInput', { defaultValue: 'Add a human input' })}
           />
         </Section>
       </div>
+      )}
 
       {/* Drag handle divider */}
       <div
@@ -235,17 +342,17 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
           borderTop: '1px solid rgba(255,255,255,0.08)',
           borderBottom: '1px solid rgba(0,0,0,0.2)'
         }}
-        title="Drag to resize"
+        title={t('pages.prompts.dragToResize', { defaultValue: 'Drag to resize' })}
       />
 
       {/* Bottom preview panel */}
       <div style={{ flex: 1, overflow: 'auto', padding: 16, position: 'relative' }}>
         <div style={{ position: 'absolute', top: 16, right: 16 }}>
-          <Tooltip title="Copy preview">
+          <Tooltip title={t('pages.prompts.copyPreview', { defaultValue: 'Copy preview' })}>
             <Button icon={<CopyOutlined />} onClick={copyPreview} />
           </Tooltip>
         </div>
-        <Typography.Text strong style={{ color: '#fff' }}>Preview</Typography.Text>
+        <Typography.Text strong style={{ color: '#fff' }}>{t('pages.prompts.preview.title', { defaultValue: 'Preview' })}</Typography.Text>
         <pre style={{ marginTop: 8, whiteSpace: 'pre-wrap', color: 'rgba(255,255,255,0.85)' }}>{previewText}</pre>
       </div>
     </div>

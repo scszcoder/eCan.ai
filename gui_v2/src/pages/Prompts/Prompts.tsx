@@ -5,9 +5,11 @@ import PromptsDetail from './PromptsDetail';
 import type { Prompt } from './types';
 import { usePromptStore } from '../../stores/promptStore';
 import { useUserStore } from '../../stores/userStore';
+import { useTranslation } from 'react-i18next';
 
 const Prompts: React.FC = () => {
   const username = useUserStore((s) => s.username || 'user');
+  const { t } = useTranslation();
   const { prompts, fetch, save, fetched } = usePromptStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -39,8 +41,8 @@ const Prompts: React.FC = () => {
     const newId = `pr-${Math.floor(Math.random() * 100000)}`;
     const np: Prompt = {
       id: newId,
-      title: 'New Prompt',
-      topic: 'New prompt',
+      title: t('pages.prompts.newPrompt'),
+      topic: t('pages.prompts.newPrompt'),
       usageCount: 0,
       roleToneContext: '',
       goals: [],
@@ -62,7 +64,7 @@ const Prompts: React.FC = () => {
   return (
     <DetailLayout
       listTitle={null}
-      detailsTitle={selected ? selected.title : 'Details'}
+      detailsTitle={selected ? selected.title : t('pages.prompts.details')}
       listContent={
         <PromptsList
           prompts={filtered}
