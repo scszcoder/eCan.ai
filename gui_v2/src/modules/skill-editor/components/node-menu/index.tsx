@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { FC, useCallback, useState, type MouseEvent } from 'react';
+import React, { FC, useCallback, useState, type MouseEvent } from 'react';
 
 import {
   delay,
@@ -28,6 +28,7 @@ import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { IPCAPI } from '../../../../services/ipc/api';
 import { useUserStore } from '../../../../stores/userStore';
 import { usePortSideService } from '../../services/port-side';
+import { useNodeFlipStore } from '../../stores/node-flip-store';
 
 interface NodeMenuProps {
   node: WorkflowNodeEntity;
@@ -37,6 +38,8 @@ interface NodeMenuProps {
 
 export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit }) => {
   const [visible, setVisible] = useState(true);
+  const hFlipInProgress = React.useRef(false);
+  const lastHFlipAt = React.useRef(0);
   const clientContext = useClientContext();
   const registry = node.getNodeRegistry<FlowNodeRegistry>();
   const nodeIntoContainerService = useService(NodeIntoContainerService);
@@ -50,6 +53,7 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
   const ipcApi = IPCAPI.getInstance();
   const username = useUserStore((state) => state.username);
   const { canFlipAnchors, applyHFlipAnchors } = usePortSideService();
+  const { setFlipped, isFlipped, setBusy, isBusy } = useNodeFlipStore();
 
   const rerenderMenu = useCallback(() => {
     // force destroy component - 强制销毁ComponentTrigger重新Render
@@ -105,10 +109,27 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
   // Toggle horizontal flip for ports. Persist on node data.
   const handleHFlipToggle = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
+    const now = Date.now();
+    if (now - lastHFlipAt.current < 300) {
+      console.log('[H-flip] Ignored due to timestamp guard');
+      return;
+    }
+    lastHFlipAt.current = now;
+    
+    // Prevent double-firing from menu click propagation
+    if (hFlipInProgress.current || isBusy(node.id)) {
+      console.log('[H-flip] Ignoring duplicate call');
+      return;
+    }
+    hFlipInProgress.current = true;
+    setBusy(node.id, true);
+    
     try {
-      const raw: any = (node as any).raw || {};
-      const curr = !!(raw.data?.hFlip);
+      const curr = isFlipped(node.id);
       const next = !curr;
+      console.log('[H-flip] Toggling from', curr, 'to', next);
+      // Update persistent store
+      setFlipped(node.id, next);
       // Update both form and raw data to ensure persistence
       const formData = node.getData?.(FlowNodeFormData);
       const formModel = formData?.getFormModel?.();
@@ -130,60 +151,99 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
           json.data.hFlip = next;
         }
       } catch {}
-      // force rerender of menu label/state
-      rerenderMenu();
+      // do NOT force-remount the menu here; it resets the guard and double-triggers
 
-      // Try behavioral anchor flip if supported by editor commands
+      // Try behavioral anchor flip (skip for Condition to avoid engine resetting outputs)
       try {
-        if (canFlipAnchors()) {
+        if (registry.type === WorkflowNodeType.Condition) {
+          console.log('[H-flip] Condition node: skipping applyHFlipAnchors to preserve outputs');
+        } else if (canFlipAnchors()) {
           await applyHFlipAnchors(node, next);
         } else {
           console.info('[H-flip] Visual-only: anchor flip not supported by current editor API');
         }
-        // Force node wrapper to re-render so port wrappers recompute orientation classes
-        try { selectService.selectNode(node); } catch {}
-        // Imperatively sync triangle classes with actual anchor sides (in case React render lags)
-        try {
-          const allPorts: any[] = (documentSvc as any)?.getAllPorts?.() || [];
-          const portsOfNode = allPorts.filter((p) => p?.node?.id === node.id);
-          for (const p of portsOfNode) {
-            const pid: string = p?.id || '';
-            const el = document.querySelector(`.se-port[data-se-port-id="${pid}"]`);
-            if (!el) continue;
-            const isIn = pid.includes('port_input_');
-            const isOut = pid.includes('port_output_');
-            const loc = (p as any)?.location ?? (p as any)?.position;
-            const flip = (isIn && loc === 'right') || (isOut && loc === 'left');
-            el.classList.toggle('se-port--hflip', !!flip);
-          }
-        } catch {}
-        // Explicitly re-bind condition outputs to their markers by key to prevent cross-wiring
-        try {
-          const root = document.querySelector(`[data-node-id="${node.id}"]`);
-          if (root) {
-            const markerIf = root.querySelector('[data-port-id="if_out"]') as HTMLElement | null;
-            const markerElse = root.querySelector('[data-port-id="else_out"]') as HTMLElement | null;
-            const pIf = portsOfNode.find((p) => ((p as any)?.portID ?? (p as any)?.portId) === 'if_out' || String((p as any)?.id).includes('if_out')) as any;
-            const pElse = portsOfNode.find((p) => ((p as any)?.portID ?? (p as any)?.portId) === 'else_out' || String((p as any)?.id).includes('else_out')) as any;
-            if (pIf && markerIf) {
-              if (typeof pIf.setTargetElement === 'function') pIf.setTargetElement(markerIf);
-              else if (typeof pIf.update === 'function') pIf.update({ targetElement: markerIf });
-              try { markerIf.setAttribute('data-bound-port', (pIf as any)?.id || ''); } catch {}
+        // Sync classes and re-bind condition outputs (works regardless of branch above)
+        const rebindNow = () => {
+          try {
+            const allPorts: any[] = (documentSvc as any)?.getAllPorts?.() || [];
+            const portsOfNode = allPorts.filter((p) => p?.node?.id === node.id);
+            for (const p of portsOfNode) {
+              const pid: string = p?.id || '';
+              const el = document.querySelector(`.se-port[data-se-port-id="${pid}"]`);
+              if (!el) continue;
+              const isIn = pid.includes('port_input_');
+              const isOut = pid.includes('port_output_');
+              const loc = (p as any)?.location ?? (p as any)?.position;
+              const flip = (isIn && loc === 'right') || (isOut && loc === 'left');
+              el.classList.toggle('se-port--hflip', !!flip);
             }
-            if (pElse && markerElse) {
-              if (typeof pElse.setTargetElement === 'function') pElse.setTargetElement(markerElse);
-              else if (typeof pElse.update === 'function') pElse.update({ targetElement: markerElse });
-              try { markerElse.setAttribute('data-bound-port', (pElse as any)?.id || ''); } catch {}
+            // Re-bind condition outputs explicitly to IF/ELSE markers
+            if (registry.type === WorkflowNodeType.Condition) {
+              const root = document.querySelector(`[data-node-id="${node.id}"]`);
+              if (root) {
+                const markerIf = root.querySelector('[data-port-id="if_out"]') as HTMLElement | null;
+                const markerElse = root.querySelector('[data-port-id="else_out"]') as HTMLElement | null;
+                const sideOut = next ? 'left' : 'right';
+                const sideIn = next ? 'right' : 'left';
+                const getKey = (pp: any) => String((pp?.portID ?? pp?.portId ?? '')).toLowerCase();
+                const pIf = portsOfNode.find((pp: any) => getKey(pp) === 'if_out' || String(pp?.id || '').toLowerCase().includes('if_out')) as any;
+                const pElse = portsOfNode.find((pp: any) => getKey(pp) === 'else_out' || String(pp?.id || '').toLowerCase().includes('else_out')) as any;
+                const pIn = portsOfNode.find((pp: any) => String(pp?.id || '').includes('port_input_')) as any;
+                if (pIf) {
+                  if (markerIf) {
+                    if (typeof pIf.setTargetElement === 'function') pIf.setTargetElement(markerIf);
+                    else if (typeof pIf.update === 'function') pIf.update({ targetElement: markerIf });
+                  }
+                  try { pIf.update?.({ location: sideOut }); } catch {}
+                }
+                if (pElse) {
+                  if (markerElse) {
+                    if (typeof pElse.setTargetElement === 'function') pElse.setTargetElement(markerElse);
+                    else if (typeof pElse.update === 'function') pElse.update({ targetElement: markerElse });
+                  }
+                  try { pElse.update?.({ location: sideOut }); } catch {}
+                }
+                if (pIn) {
+                  try { pIn.update?.({ location: sideIn }); } catch {}
+                }
+              }
             }
+            // Validate ports and lines explicitly to sync geometry without needing a canvas click
+            try {
+              portsOfNode.forEach((pp: any) => {
+                try { pp.validate?.(); } catch {}
+                const lns = (pp as any)?.allLines ?? (pp as any)?.lines ?? [];
+                if (lns && typeof lns.forEach === 'function') {
+                  lns.forEach((ln: any) => { try { ln.validate?.(); } catch {} });
+                }
+              });
+            } catch {}
+            try { (linesMgr as any)?.forceUpdate?.(); } catch {}
+            try { (documentSvc as any)?.fireRender?.(); } catch {}
+          } catch (err) {
+            try { console.warn('[H-flip] rebindNow error', err); } catch {}
           }
-        } catch {}
-        try { (linesMgr as any)?.forceUpdate?.(); } catch {}
-        try { (documentSvc as any)?.fireRender?.(); } catch {}
+        };
+        // Apply immediately and delayed (engine may reflow after flip)
+        rebindNow();
+        setTimeout(rebindNow, 60);
+        setTimeout(rebindNow, 180);
+        // Extra passes after layout/paint cycles
+        try { requestAnimationFrame(() => rebindNow()); } catch {}
+        try { requestAnimationFrame(() => { try { requestAnimationFrame(() => rebindNow()); } catch {} }); } catch {}
+        setTimeout(rebindNow, 300);
       } catch (err) {
-        console.warn('[H-flip] Anchor flip attempt failed; keeping visual-only', err);
+        console.warn('[H-flip] Flip handling encountered an error', err);
       }
     } catch {}
-  }, [node, rerenderMenu, canFlipAnchors, applyHFlipAnchors, selectService, documentSvc]);
+    finally {
+      // Reset guard after short delay
+      setTimeout(() => {
+        hFlipInProgress.current = false;
+        setBusy(node.id, false);
+      }, 150);
+    }
+  }, [node, rerenderMenu, canFlipAnchors, applyHFlipAnchors, selectService, documentSvc, linesMgr, isFlipped, setFlipped]);
 
   const handleBreakpointToggle = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation(); // keep sidebar closed
@@ -247,7 +307,7 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
 
   return (
     <Dropdown
-      trigger="hover"
+      trigger="click"
       position="bottomRight"
       render={
         <Dropdown.Menu>
