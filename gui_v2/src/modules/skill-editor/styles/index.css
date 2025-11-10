@@ -38,6 +38,12 @@
     z-index: 33;
     background-color: var(--g-playground-selectBox-background);
   }
+
+  /* For condition outputs we render a separate overlay triangle; disable pseudo-element */
+  .se-port.se-port--no-overlay > *::after {
+    content: none !important;
+    display: none !important;
+  }
   
   @keyframes blink {
     0% {
@@ -239,4 +245,104 @@
     outline: none;
     border-color: #4d53e8;
     box-shadow: 0 0 0 2px rgba(77, 83, 232, 0.1);
+  }
+
+  /* === Skill Editor: Triangular Ports (Phase 1) === */
+  /* Wrapper created in node-wrapper.tsx around WorkflowPortRender */
+  /* Make wrapper not affect layout or positioning of the actual port */
+  .se-port { display: contents; }
+
+  /* Keep library's dot visible for now to avoid disappearance; we'll overlay triangle */
+  /* .se-port > * { opacity: 0; }  // disabled */
+
+  /* Triangle visual overlay anchored to the actual port element */
+  .se-port > * { position: relative; }
+  .se-port > *::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 14px;
+    height: 14px;
+    background: var(--g-workflow-port-color-primary);
+    /* RIGHT-pointing by default */
+    clip-path: polygon(100% 50%, 0 0, 0 100%);
+    transition: transform 0.15s ease, filter 0.15s ease, background-color 0.15s ease;
+    pointer-events: none; /* keep underlying element interactive */
+    z-index: 99;
+  }
+
+  /* Condition node outputs sometimes render their own dot above; force triangle on top */
+  .se-port[data-se-port-id^="port_output_condition_"] > *::after {
+    width: 16px;
+    height: 16px;
+    z-index: 199;
+  }
+
+  /* Explicit default: all ports point RIGHT (workflow direction) */
+  .se-port.se-port--input > *::after,
+  .se-port.se-port--output > *::after {
+    /* RIGHT-pointing */
+    clip-path: polygon(100% 50%, 0 0, 0 100%);
+  }
+
+  /* Flip orientation to LEFT when node or port has hflip (higher specificity) */
+  .se-node--hflip .se-port.se-port--input > *::after,
+  .se-node--hflip .se-port.se-port--output > *::after,
+  .se-port.se-port--hflip.se-port--input > *::after,
+  .se-port.se-port--hflip.se-port--output > *::after {
+    /* LEFT-pointing */
+    clip-path: polygon(0 50%, 100% 0, 100% 100%);
+  }
+
+  /* Hover affordance: brighten triangle when hovering the actual port (child) */
+  .se-port > *:hover::after { filter: brightness(1.15); }
+
+  /* Keyboard focus: show clear outline on the triangle when port gains focus */
+  .se-port > *:focus-visible::after,
+  .se-port > *:focus-visible + * {
+    outline: 2px solid rgba(77, 83, 232, 0.6);
+    outline-offset: 2px;
+    z-index: 1;
+  }
+
+  /* === JS overlay triangles for condition outputs === */
+  /* Positioned by NodeWrapper using port.relativePosition */
+  .se-tri {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    left: 0;
+    top: 0;
+    transform: translate(-50%, -50%);
+    background: var(--g-workflow-port-color-primary);
+    clip-path: polygon(100% 50%, 0 0, 0 100%); /* RIGHT by default */
+    pointer-events: none; /* keep port interactive */
+    z-index: 250; /* above default dots */
+  }
+  .se-tri.se-tri--flip {
+    clip-path: polygon(0 50%, 100% 0, 100% 100%); /* LEFT */
+  }
+
+  /* === Condition node output markers (triangles managed via CSS) === */
+  .se-cond-port {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    background: var(--g-workflow-port-color-primary);
+    clip-path: polygon(100% 50%, 0 0, 0 100%); /* RIGHT by default */
+    z-index: 250;
+    pointer-events: auto;
+    transform: translate(0, -50%);
+    right: -6px; /* anchor to right edge by default */
+  }
+  /* Vertical positions */
+  .se-cond-port[data-port-id="if_out"] { top: 60px; }
+  .se-cond-port[data-port-id="else_out"] { top: 80px; }
+  /* Flip to left edge + left orientation when node is hflipped */
+  .se-node--hflip .se-cond-port {
+    left: -6px;
+    right: auto;
+    clip-path: polygon(0 50%, 100% 0, 100% 100%);
   }
