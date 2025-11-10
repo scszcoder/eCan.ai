@@ -102,42 +102,23 @@ def scrape_ebay_orders_summary(web_driver):
 def scrape_ebay_orders(web_driver):
     try:
         # open ebay seller orders website
-        scrape_status = web_driver.get("https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT")
+        n_orders_to_be_fullfilled = summary.get("n_new_orders", 0)
+        while n_orders_to_be_fullfilled:
+            # Attempt to click 'Purchase shipping label' on current page
+            click_result = click_purchase_label_for_unshipped_on_page(web_driver, wait, max_clicks=1)
 
-        html_file_name = 'ebayOrders' + str(int(datetime.now().timestamp())) + '.html'
-        print('hf_name:', html_file_name)
+            labels_dir = os.path.join(os.path.expanduser("~"), "eCanLabels")
+            target_pdf = os.path.join(labels_dir, f"ebay_label_{int(datetime.now().timestamp())}.pdf")
 
-        # Initialize wait and ensure logged in
-        wait = WebDriverWait(web_driver, 30)
-        _ = ensure_logged_in_ebay(web_driver, wait)
+            if clicks > 0 and wait_for_purchase_label_ui(web_driver, timeout=30):
+                # Save actual label page via CDP
+                save_current_label_pdf(web_driver, target_pdf)
+            else:
+                logger.error("ERROR: No live label UI detected!")
 
-        # Attempt to click 'Purchase shipping label' on current page
-        clicks = click_purchase_label_for_unshipped_on_page(web_driver, wait, max_clicks=1)
-        labels_dir = os.path.join(os.path.expanduser("~"), "eCanLabels")
-        target_pdf = os.path.join(labels_dir, f"ebay_label_{int(datetime.now().timestamp())}.pdf")
-
-        if clicks > 0 and wait_for_purchase_label_ui(web_driver, timeout=30):
-            # Save actual label page via CDP
-            save_current_label_pdf(web_driver, target_pdf)
-        else:
-            logger.debug("No live label UI detected; considering placeholder generation.")
-            if EBAY_PLACEHOLDER_MODE:
-                # Produce a placeholder label PDF so downstream flows can be tested.
-                placeholder_meta = {
-                    "order_id": "EBAY-PLACEHOLDER-ORDER",
-                    "buyer": "John Doe",
-                    "address": [
-                        "123 Placeholder St",
-                        "Suite 100",
-                        "Somecity, ST 99999",
-                        "United States",
-                    ],
-                    "sku": "SKU-PLACEHOLDER",
-                    "quantity": "1",
-                }
-                ok = generate_placeholder_label_pdf(web_driver, target_pdf, placeholder_meta)
-                if not ok:
-                    logger.debug("Failed to generate placeholder label PDF.")
+            n_orders_to_be_fullfilled -= 1
+            if n_orders_to_be_fullfilled > 0:
+                web_driver.refresh()
 
     except Exception as e:
         err_msg = get_traceback(e, "ErrorScrapeEBayOrders")
@@ -195,19 +176,23 @@ def click_purchase_label_for_unshipped_on_page(driver, wait: WebDriverWait, max_
             "        'purchase shipping label']]"
             ")"
         )
-        for el in candidates:
-            if clicks >= max_clicks:
-                break
+        el = candidates[0]          #only need to do the 1st one, as the page is refreshed after the click
+        if el:
             try:
                 driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", el)
-                driver.execute_script("arguments[0].click();", el)
-                clicks += 1
-                break
-            except Exception:
-                continue
+                result = driver.execute_script("arguments[0].click();", el)
+            except Exception as e:
+                err_msg = get_traceback(e, "ErrorClickPurchaseLabelForUnshippedOnPage0")
+                logger.debug(err_msg)
+                result = err_msg
+        else:
+            result = "ERROR:No purchase label button found"
+
     except Exception as e:
-        logger.debug(f"Error clicking Purchase shipping label: {e}")
-    return clicks
+        err_msg = get_traceback(e, "ErrorClickPurchaseLabelForUnshippedOnPage0")
+        logger.debug(err_msg)
+        result = err_msg
+    return result
 
 
 def wait_for_purchase_label_ui(driver, timeout: int = 20) -> bool:

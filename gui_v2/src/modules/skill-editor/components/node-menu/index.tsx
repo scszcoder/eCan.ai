@@ -13,6 +13,8 @@ import {
   WorkflowNodeEntity,
   WorkflowSelectService,
   FlowNodeFormData,
+  WorkflowDocument,
+  WorkflowLinesManager,
 } from '@flowgram.ai/free-layout-editor';
 import { NodeIntoContainerService } from '@flowgram.ai/free-container-plugin';
 import { IconButton, Dropdown } from '@douyinfe/semi-ui';
@@ -25,6 +27,7 @@ import { CopyShortcut } from '../../shortcuts/copy';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { IPCAPI } from '../../../../services/ipc/api';
 import { useUserStore } from '../../../../stores/userStore';
+import { usePortSideService } from '../../services/port-side';
 
 interface NodeMenuProps {
   node: WorkflowNodeEntity;
@@ -39,11 +42,14 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
   const nodeIntoContainerService = useService(NodeIntoContainerService);
   const selectService = useService(WorkflowSelectService);
   const dragService = useService(WorkflowDragService);
+  const documentSvc = useService(WorkflowDocument);
+  const linesMgr = useService(WorkflowLinesManager);
   const canMoveOut = nodeIntoContainerService.canMoveOutContainer(node);
   const { breakpoints, addBreakpoint, removeBreakpoint } = useSkillInfoStore();
   const isBreakpoint = breakpoints.includes(node.id);
   const ipcApi = IPCAPI.getInstance();
   const username = useUserStore((state) => state.username);
+  const { canFlipAnchors, applyHFlipAnchors } = usePortSideService();
 
   const rerenderMenu = useCallback(() => {
     // force destroy component - 强制销毁ComponentTrigger重新Render
@@ -95,6 +101,89 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
   const handleEditTitle = useCallback(() => {
     updateTitleEdit(true);
   }, [updateTitleEdit]);
+
+  // Toggle horizontal flip for ports. Persist on node data.
+  const handleHFlipToggle = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const raw: any = (node as any).raw || {};
+      const curr = !!(raw.data?.hFlip);
+      const next = !curr;
+      // Update both form and raw data to ensure persistence
+      const formData = node.getData?.(FlowNodeFormData);
+      const formModel = formData?.getFormModel?.();
+      const formControl = formModel?.formControl as any;
+      if (formControl?.setFieldValue) {
+        formControl.setFieldValue('data.hFlip', next);
+      }
+      // Always patch raw as well for non-form reads
+      try {
+        if (!(node as any).raw) (node as any).raw = {};
+        if (!(node as any).raw.data) (node as any).raw.data = {};
+        (node as any).raw.data.hFlip = next;
+      } catch {}
+      // Also update the JSON directly
+      try {
+        const json = (node as any).json;
+        if (json) {
+          if (!json.data) json.data = {};
+          json.data.hFlip = next;
+        }
+      } catch {}
+      // force rerender of menu label/state
+      rerenderMenu();
+
+      // Try behavioral anchor flip if supported by editor commands
+      try {
+        if (canFlipAnchors()) {
+          await applyHFlipAnchors(node, next);
+        } else {
+          console.info('[H-flip] Visual-only: anchor flip not supported by current editor API');
+        }
+        // Force node wrapper to re-render so port wrappers recompute orientation classes
+        try { selectService.selectNode(node); } catch {}
+        // Imperatively sync triangle classes with actual anchor sides (in case React render lags)
+        try {
+          const allPorts: any[] = (documentSvc as any)?.getAllPorts?.() || [];
+          const portsOfNode = allPorts.filter((p) => p?.node?.id === node.id);
+          for (const p of portsOfNode) {
+            const pid: string = p?.id || '';
+            const el = document.querySelector(`.se-port[data-se-port-id="${pid}"]`);
+            if (!el) continue;
+            const isIn = pid.includes('port_input_');
+            const isOut = pid.includes('port_output_');
+            const loc = (p as any)?.location ?? (p as any)?.position;
+            const flip = (isIn && loc === 'right') || (isOut && loc === 'left');
+            el.classList.toggle('se-port--hflip', !!flip);
+          }
+        } catch {}
+        // Explicitly re-bind condition outputs to their markers by key to prevent cross-wiring
+        try {
+          const root = document.querySelector(`[data-node-id="${node.id}"]`);
+          if (root) {
+            const markerIf = root.querySelector('[data-port-id="if_out"]') as HTMLElement | null;
+            const markerElse = root.querySelector('[data-port-id="else_out"]') as HTMLElement | null;
+            const pIf = portsOfNode.find((p) => ((p as any)?.portID ?? (p as any)?.portId) === 'if_out' || String((p as any)?.id).includes('if_out')) as any;
+            const pElse = portsOfNode.find((p) => ((p as any)?.portID ?? (p as any)?.portId) === 'else_out' || String((p as any)?.id).includes('else_out')) as any;
+            if (pIf && markerIf) {
+              if (typeof pIf.setTargetElement === 'function') pIf.setTargetElement(markerIf);
+              else if (typeof pIf.update === 'function') pIf.update({ targetElement: markerIf });
+              try { markerIf.setAttribute('data-bound-port', (pIf as any)?.id || ''); } catch {}
+            }
+            if (pElse && markerElse) {
+              if (typeof pElse.setTargetElement === 'function') pElse.setTargetElement(markerElse);
+              else if (typeof pElse.update === 'function') pElse.update({ targetElement: markerElse });
+              try { markerElse.setAttribute('data-bound-port', (pElse as any)?.id || ''); } catch {}
+            }
+          }
+        } catch {}
+        try { (linesMgr as any)?.forceUpdate?.(); } catch {}
+        try { (documentSvc as any)?.fireRender?.(); } catch {}
+      } catch (err) {
+        console.warn('[H-flip] Anchor flip attempt failed; keeping visual-only', err);
+      }
+    } catch {}
+  }, [node, rerenderMenu, canFlipAnchors, applyHFlipAnchors, selectService, documentSvc]);
 
   const handleBreakpointToggle = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation(); // keep sidebar closed
@@ -174,6 +263,9 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
               {canMoveOut && <Dropdown.Item onClick={handleMoveOut}>Move out</Dropdown.Item>}
               <Dropdown.Item onClick={handleCopy} disabled={registry.meta!.copyDisable === true}>
                 Create Copy
+              </Dropdown.Item>
+              <Dropdown.Item onClick={handleHFlipToggle}>
+                H-flip
               </Dropdown.Item>
               {![WorkflowNodeType.Condition, WorkflowNodeType.Loop].includes(registry.type as any) && (
                 <Dropdown.Item onClick={(e) => handleBreakpointToggle(e)}>

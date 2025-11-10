@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { EditorRenderer, FreeLayoutEditorProvider } from '@flowgram.ai/free-layout-editor';
+import { EditorRenderer, FreeLayoutEditorProvider, useService, WorkflowDocument, WorkflowLinesManager, CommandService, usePlayground } from '@flowgram.ai/free-layout-editor';
 import { useEffect, useMemo, useRef } from 'react';
 import React from 'react';
 
@@ -243,6 +243,7 @@ export const Editor = () => {
       <div className="doc-free-feature-overview">
         <SkillEditorErrorBoundary>
           <FreeLayoutEditorProvider {...editorProps}>
+            <AnchorProbe />
             {/* Load file from route state if present */}
             <RouteFileLoader />
             {/* Sync the active sheet's document with the editor's WorkflowDocument */}
@@ -273,6 +274,81 @@ export const Editor = () => {
     </EditorContainer>
   );
 };
+
+// Phase 3: AnchorProbe – gated diagnostics for anchor-side updates
+const AnchorProbe: React.FC = () => {
+  const documentSvc = useService(WorkflowDocument);
+  const linesMgr = useService(WorkflowLinesManager);
+  const cmdSvc = useService(CommandService);
+  const playground = usePlayground();
+
+  React.useEffect(() => {
+    try {
+      // Toggle in DevTools: window.__SE_DEBUG_ANCHORS__ = true
+      // Then re-select a node or reload to see logs
+      // @ts-ignore
+      const dbg = (window as any).__SE_DEBUG_ANCHORS__ === true;
+      const safeListMethods = (obj: any) => {
+        if (!obj) return [];
+        return Object.getOwnPropertyNames(Object.getPrototypeOf(obj))
+          .filter((k) => typeof (obj as any)[k] === 'function')
+          .sort();
+      };
+
+      const dump = () => {
+        const info = {
+          services: {
+            document: documentSvc ? {
+              type: documentSvc.constructor?.name,
+              methods: safeListMethods(documentSvc),
+            } : null,
+            linesManager: linesMgr ? {
+              type: linesMgr.constructor?.name,
+              methods: safeListMethods(linesMgr),
+            } : null,
+            commandService: cmdSvc ? {
+              type: cmdSvc.constructor?.name,
+              methods: safeListMethods(cmdSvc),
+            } : null,
+            playground: playground ? {
+              type: playground.constructor?.name,
+              // Important helpers exposed via config/context
+              configMethods: playground.config ? safeListMethods(playground.config) : [],
+            } : null,
+          },
+        };
+        // eslint-disable-next-line no-console
+        console.log('[SkillEditor][Phase3][Probe] available services/methods', info);
+        return info;
+      };
+
+      // expose manual trigger
+      try {
+        (window as any).__SE_DUMP_ANCHORS__ = dump;
+        (window as any).__SE_CHECK_COMMANDS__ = () => ({
+          portUpdate: !!(cmdSvc as any)?.getCommand?.('workflow.port.updateSide'),
+          nodeUpdate: !!(cmdSvc as any)?.getCommand?.('workflow.node.updatePortsSide'),
+        });
+      } catch {}
+
+      if (dbg) {
+        dump();
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[SkillEditor][Phase3][Probe] failed to enumerate services', e);
+    }
+    return () => {
+      try {
+        delete (window as any).__SE_DUMP_ANCHORS__;
+        delete (window as any).__SE_CHECK_COMMANDS__;
+      } catch {}
+    };
+  }, [documentSvc, linesMgr, cmdSvc, playground]);
+
+  return null;
+};
+
 
 class SkillEditorErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error?: Error }>{
   constructor(props: { children: React.ReactNode }) {

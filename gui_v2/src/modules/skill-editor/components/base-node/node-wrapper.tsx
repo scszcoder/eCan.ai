@@ -73,9 +73,79 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
   //   }
   // }, [isRunning, node.id]);
 
-  const portsRender = ports.map((p) => (
-    <WorkflowPortRender key={p.id} entity={p} onClick={!readonly ? onPortClick : undefined} />
-  ));
+  // Read hFlip flag from form state first (menu writes here), fallback to node raw
+  const hFlip = (() => {
+    try {
+      // @ts-ignore
+      const fromForm = (form as any)?.state?.values?.data?.hFlip;
+      if (typeof fromForm === 'boolean') return fromForm;
+    } catch {}
+    try {
+      return !!(node as any)?.raw?.data?.hFlip;
+    } catch {
+      return false;
+    }
+  })();
+
+  const portsRender = ports.map((p) => {
+    const pid = (p as any)?.id as string;
+    const isInput = typeof pid === 'string' && pid.includes('port_input_');
+    const isOutput = typeof pid === 'string' && pid.includes('port_output_');
+    const role = isInput ? 'input' : isOutput ? 'output' : 'unknown';
+    const portKey = (p as any)?.portID ?? (p as any)?.portId; // e.g., 'if_out', 'else_out'
+    const isCondOut = role === 'output' && (portKey === 'if_out' || portKey === 'else_out');
+    // Determine current anchor side from port entity
+    const loc = (p as any)?.location ?? (p as any)?.position; // 'left' | 'right' | 'top' | 'bottom'
+    const flipPort = (isInput && loc === 'right') || (isOutput && loc === 'left');
+    const flipClass = flipPort ? 'se-port--hflip' : '';
+    // Skip rendering for condition outputs; their markers in form-meta are the visual ports
+    if (isCondOut) return null;
+    return (
+      <div
+        key={pid}
+        className={`se-port se-port--${role} ${flipClass}`}
+        data-se-port-id={pid}
+      >
+        <WorkflowPortRender entity={p} onClick={!readonly ? onPortClick : undefined} />
+      </div>
+    );
+  });
+
+  // Phase 0 diagnostics: log port entities when selected (toggle with window.__SE_DEBUG_PORTS__ = true in devtools)
+  useEffect(() => {
+    try {
+      // @ts-ignore
+      const dbg = (window as any).__SE_DEBUG_PORTS__ === true;
+      if (dbg && selected && ports?.length) {
+        // Shallow snapshot to avoid circular refs flooding console
+        const snapshot = ports.map((p: any) => ({
+          id: p?.id,
+          type: p?.type,
+          direction: p?.direction,
+          side: p?.side,
+          position: p?.position,
+          inout: p?.inout,
+          cls: p?.className,
+          meta: p?.meta,
+        }));
+        // Minimal node info
+        console.log('[SkillEditor][Phase0] Ports for node', node.id, snapshot);
+
+        // Also log DOM info for our wrappers to capture class and size
+        const wrappers = Array.from(document.querySelectorAll(`.se-port[data-se-port-id]`)) as HTMLElement[];
+        const domInfo = wrappers.map((el) => ({
+          id: el.getAttribute('data-se-port-id'),
+          classList: Array.from(el.classList),
+          bbox: el.getBoundingClientRect(),
+          child: el.firstElementChild ? {
+            tag: el.firstElementChild.tagName,
+            classList: Array.from(el.firstElementChild.classList || []),
+          } : null,
+        }));
+        console.log('[SkillEditor][Phase0] Port DOM wrappers', domInfo);
+      }
+    } catch {}
+  }, [selected, ports, node?.id]);
 
   const handleMouseEnter = useCallback(() => {
     if (readonly) {
@@ -90,6 +160,7 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
       <NodeWrapperStyle
         className={classnames(
           selected ? 'selected' : '',
+          hFlip ? 'se-node--hflip' : '',
           {
             'is-running': isRunning && !isBreakpointStalled,
             'is-breakpoint-stalled': isBreakpointStalled,
@@ -97,6 +168,7 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
         )}
         ref={nodeRef}
         draggable
+        data-node-id={node.id}
         onDragStart={(e) => {
           startDrag(e);
           setIsDragging(true);
@@ -141,10 +213,14 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
         {!isEndNode && (
           isRunning && isPausedLike
             ? <PausedIcon key={`${node.id}-paused`} style={{ display: 'block' }} />
-            : (isRunning && !isPausedLike) ? <RunningIcon key={`${node.id}-running`} style={{ display: 'block' }} /> : null
+            : (isRunning && !isPausedLike) ? (
+              <RunningIcon key={`${node.id}-running`} style={{ display: 'block' }} />
+            ) : null
         )}
+
         {children}
         {isBreakpoint && <BreakpointIcon />}
+
         {/* Top-right result badge */}
         {resultSeverity !== 'none' && !isEndNode && (
           <StatusBadgeContainer
@@ -179,6 +255,7 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
             </div>
           </StatusBadgeContainer>
         )}
+
         {isEndNode && (
           <div
             style={{
@@ -204,8 +281,9 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
             {endStatus === 'completed' ? '✓' : '✕'}
           </div>
         )}
+        {/* condition output triangles are rendered in form-meta markers */}
       </NodeWrapperStyle>
       {portsRender}
     </>
   );
-};
+}
