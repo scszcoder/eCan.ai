@@ -33,18 +33,23 @@ const RepeatableList: React.FC<{
   onRemove: (idx: number) => void;
   onUpdate: (idx: number, val: string) => void;
   placeholder?: string;
-}> = ({ values, onAdd, onRemove, onUpdate, placeholder }) => {
+  autoSizeEnabled?: boolean;
+  disabled?: boolean;
+}> = ({ values, onAdd, onRemove, onUpdate, placeholder, autoSizeEnabled = true, disabled = false }) => {
   const { t } = useTranslation();
   return (
     <Space direction="vertical" style={{ width: '100%' }}>
       {values.map((v, idx) => (
         <div key={idx} style={{ display: 'flex', gap: 8, width: '100%', alignItems: 'flex-start' }}>
           <Input.TextArea
-            autoSize={{ minRows: 2, maxRows: 6 }}
-            value={v}
+            key={`rl-ta-${idx}-${autoSizeEnabled ? 'auto' : 'fixed'}`}
+            autoSize={autoSizeEnabled && !disabled ? { minRows: 2, maxRows: 6 } : undefined}
+            rows={autoSizeEnabled && !disabled ? undefined : 2}
+            value={typeof v === 'string' ? v : (v == null ? '' : String(v))}
             onChange={(e) => onUpdate(idx, e.target.value)}
             placeholder={placeholder}
-            style={{ flex: 1 }}
+            style={{ flex: 1, lineHeight: '20px', fontSize: 14 }}
+            disabled={disabled}
           />
           <Button danger icon={<DeleteOutlined />} onClick={() => onRemove(idx)} />
         </div>
@@ -61,6 +66,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [topHeight, setTopHeight] = useState<number>(360); // px
   const [dragging, setDragging] = useState(false);
+  const [autoSizeEnabled, setAutoSizeEnabled] = useState(false);
 
   useEffect(() => {
     setDraft(prompt);
@@ -75,6 +81,36 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
       if (h > 0) setTopHeight(Math.max(200, Math.min(h - 150, Math.round(h * 0.6))));
     }
   }, []);
+
+  // Enable TextArea autoSize only after the container has a measurable layout
+  useEffect(() => {
+    const checkLayoutReady = () => {
+      const el = containerRef.current;
+      if (!el) return false;
+      const { clientWidth, clientHeight } = el;
+      return clientWidth > 0 && clientHeight > 0;
+    };
+
+    if (checkLayoutReady()) {
+      setAutoSizeEnabled(true);
+      return;
+    }
+
+    let rafId: number | null = null;
+    const tick = () => {
+      if (checkLayoutReady()) {
+        setAutoSizeEnabled(true);
+      } else {
+        rafId = requestAnimationFrame(tick);
+      }
+    };
+    rafId = requestAnimationFrame(tick);
+    const timer = setTimeout(() => setAutoSizeEnabled(true), 200); // final fallback
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      clearTimeout(timer);
+    };
+  }, [prompt, draft]);
 
   // Drag handlers
   useEffect(() => {
@@ -245,22 +281,28 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
           }
         >
           <Input.TextArea
-            autoSize={{ minRows: 2, maxRows: 6 }}
+            key={`title-ta-${autoSizeEnabled ? 'auto' : 'fixed'}`}
+            autoSize={autoSizeEnabled && editing ? { minRows: 2, maxRows: 6 } : undefined}
+            rows={autoSizeEnabled && editing ? undefined : 2}
             value={safeString(editing ? active.title : (exampleSlug ? lx(`pages.prompts.examples.${exampleSlug}.title`, active.title) : active.title))}
             onChange={(e) => update({ title: e.target.value })}
             placeholder={t('pages.prompts.placeholders.title', { defaultValue: 'Title' })}
             disabled={!editing}
+            style={{ lineHeight: '20px', fontSize: 14 }}
           />
         </Section>
         <Divider style={{ margin: '0 0 8px' }} />
 
         <Section title={t('pages.prompts.sections.roleToneContext', { defaultValue: 'System prompt: role / tone / context' })}>
           <Input.TextArea
-            autoSize={{ minRows: 3, maxRows: 8 }}
+            key={`rtc-ta-${autoSizeEnabled ? 'auto' : 'fixed'}`}
+            autoSize={autoSizeEnabled && editing ? { minRows: 3, maxRows: 8 } : undefined}
+            rows={autoSizeEnabled && editing ? undefined : 3}
             value={safeString(editing ? active.roleToneContext : (exampleSlug ? lx(`pages.prompts.examples.${exampleSlug}.roleToneContext`, active.roleToneContext) : active.roleToneContext))}
             onChange={(e) => update({ roleToneContext: e.target.value })}
             placeholder={t('pages.prompts.placeholders.roleToneContext', { defaultValue: 'Describe the assistant role, tone, and context' })}
             disabled={!editing}
+            style={{ lineHeight: '20px', fontSize: 14 }}
           />
         </Section>
         <Divider style={{ margin: '0 0 8px' }} />
@@ -272,6 +314,8 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
             onRemove={(idx) => update({ goals: active.goals.filter((_, i) => i !== idx) })}
             onUpdate={(idx, val) => update({ goals: active.goals.map((g, i) => i === idx ? val : g) })}
             placeholder={t('pages.prompts.placeholders.addGoal', { defaultValue: 'Add a goal' })}
+            autoSizeEnabled={autoSizeEnabled}
+            disabled={!editing}
           />
         </Section>
         <Divider style={{ margin: '0 0 8px' }} />
@@ -283,6 +327,8 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
             onRemove={(idx) => update({ guidelines: active.guidelines.filter((_, i) => i !== idx) })}
             onUpdate={(idx, val) => update({ guidelines: active.guidelines.map((g, i) => i === idx ? val : g) })}
             placeholder={t('pages.prompts.placeholders.addGuideline', { defaultValue: 'Add a guideline' })}
+            autoSizeEnabled={autoSizeEnabled}
+            disabled={!editing}
           />
         </Section>
         <Divider style={{ margin: '0 0 8px' }} />
@@ -294,6 +340,8 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
             onRemove={(idx) => update({ rules: active.rules.filter((_, i) => i !== idx) })}
             onUpdate={(idx, val) => update({ rules: active.rules.map((g, i) => i === idx ? val : g) })}
             placeholder={t('pages.prompts.placeholders.addRule', { defaultValue: 'Add a rule' })}
+            autoSizeEnabled={autoSizeEnabled}
+            disabled={!editing}
           />
         </Section>
         <Divider style={{ margin: '0 0 8px' }} />
@@ -305,6 +353,8 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
             onRemove={(idx) => update({ instructions: active.instructions.filter((_, i) => i !== idx) })}
             onUpdate={(idx, val) => update({ instructions: active.instructions.map((g, i) => i === idx ? val : g) })}
             placeholder={t('pages.prompts.placeholders.addInstruction', { defaultValue: 'Add an instruction' })}
+            autoSizeEnabled={autoSizeEnabled}
+            disabled={!editing}
           />
         </Section>
         <Divider style={{ margin: '0 0 8px' }} />
@@ -316,6 +366,8 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
             onRemove={(idx) => update({ sysInputs: active.sysInputs.filter((_, i) => i !== idx) })}
             onUpdate={(idx, val) => update({ sysInputs: active.sysInputs.map((g, i) => i === idx ? val : g) })}
             placeholder={t('pages.prompts.placeholders.addSystemInput', { defaultValue: 'Add a system input' })}
+            autoSizeEnabled={autoSizeEnabled}
+            disabled={!editing}
           />
         </Section>
         <Divider style={{ margin: '0 0 8px' }} />
@@ -327,6 +379,8 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
             onRemove={(idx) => update({ humanInputs: active.humanInputs.filter((_, i) => i !== idx) })}
             onUpdate={(idx, val) => update({ humanInputs: active.humanInputs.map((g, i) => i === idx ? val : g) })}
             placeholder={t('pages.prompts.placeholders.addHumanInput', { defaultValue: 'Add a human input' })}
+            autoSizeEnabled={autoSizeEnabled}
+            disabled={!editing}
           />
         </Section>
       </div>
