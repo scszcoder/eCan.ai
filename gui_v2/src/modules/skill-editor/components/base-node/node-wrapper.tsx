@@ -101,6 +101,8 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
           const pid: string = p?.id || '';
           const isIn = pid.includes('port_input_');
           const isOut = pid.includes('port_output_');
+          // For Condition outputs, skip stabilization; markers drive their placement
+          if (registry?.type === WorkflowNodeType.Condition && isOut) return;
           const targetLoc = hFlip
             ? (isIn ? 'right' : isOut ? 'left' : undefined)
             : (isIn ? 'left' : isOut ? 'right' : undefined);
@@ -133,17 +135,12 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
       } catch {}
       // Condition nodes handle their own port positioning via form-meta markers
       try { (linesMgr as any)?.forceUpdate?.(); } catch {}
-      try { (documentSvc as any)?.fireRender?.(); } catch {}
+      try { (documentSvc as any)?.fireContentChange?.(); } catch {}
     };
 
-    // Apply now and again shortly after to override any late resets in the library
+    // Apply once; avoid repeated re-applies that can cause oscillation with menu rebinds
     applyOnce();
-    const t1 = setTimeout(applyOnce, 60);
-    const t2 = setTimeout(applyOnce, 160);
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
+    return () => {};
   }, [hFlip, ports, node?.id]);
 
   const portsRender = ports.map((p) => {
@@ -172,15 +169,22 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
     const loc = (p as any)?.location ?? (p as any)?.position; // 'left' | 'right' | 'top' | 'bottom'
     const flipPort = (isInput && loc === 'right') || (isOutput && loc === 'left');
     const flipClass = flipPort ? 'se-port--hflip' : '';
-    // Render all ports, including Condition outputs. For Condition, the port will portal into markers via targetElement.
-    
-    let wrapperStyle: React.CSSProperties | undefined;
-    // For Condition outputs, the actual clickable port renders into the marker via portal,
-    // so prevent the wrapper from catching mouse events.
+    // For Condition outputs, avoid rendering until bound to a marker; render only the portalized port
     if (registry?.type === WorkflowNodeType.Condition && isOutput) {
-      wrapperStyle = { pointerEvents: 'none' };
+      const te = (p as any)?.targetElement;
+      if (!te) {
+        return null;
+      }
+      return (
+        <React.Fragment key={pid}>
+          <WorkflowPortRender
+            entity={p}
+            onClick={!readonly ? onPortClick : undefined}
+          />
+        </React.Fragment>
+      );
     }
-    // Render real port elements for all ports; triangles overlay via CSS
+    // Default: render wrapper + port
     return (
       <div
         key={pid}
@@ -188,10 +192,9 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
         data-se-port-id={pid}
         data-se-port-key={portKey}
         data-port-type={role}
-        style={wrapperStyle}
       >
-        <WorkflowPortRender 
-          entity={p} 
+        <WorkflowPortRender
+          entity={p}
           onClick={!readonly ? onPortClick : undefined}
         />
       </div>
