@@ -143,6 +143,95 @@
     }
   },
   "pages": {
+    "prompts": {
+      "details": "详情",
+      "newPrompt": "新提示词",
+      "searchPlaceholder": "搜索提示词",
+      "uses": "次使用",
+      "selectPrompt": "请选择一个提示词以查看详情",
+      "copied": "已复制",
+      "dragToResize": "拖动以调整大小",
+      "copyPreview": "复制预览",
+      "fields": {
+        "title": "标题"
+      },
+      "sections": {
+        "roleToneContext": "系统提示：角色 / 语气 / 场景",
+        "goals": "系统提示：目标",
+        "guidelines": "系统提示：指南",
+        "rules": "系统提示：规则",
+        "instructions": "系统提示：指令",
+        "systemInputs": "系统提示：输入",
+        "humanInputs": "用户提示：输入"
+      },
+      "placeholders": {
+        "title": "标题",
+        "roleToneContext": "描述助手的角色、语气和场景",
+        "addGoal": "添加一个目标",
+        "addGuideline": "添加一条指南",
+        "addRule": "添加一条规则",
+        "addInstruction": "添加一条指令",
+        "addSystemInput": "添加一个系统输入",
+        "addHumanInput": "添加一个用户输入"
+      },
+      "preview": {
+        "title": "预览",
+        "systemRoleToneContext": "系统：角色/语气/场景",
+        "goals": "目标",
+        "guidelines": "指南",
+        "rules": "规则",
+        "instructions": "指令",
+        "systemInputs": "系统输入",
+        "humanInputs": "用户输入"
+      },
+      "examples": {
+        "write_a_marketing_email": {
+          "title": "写一封营销邮件",
+          "roleToneContext": "你是一名营销助理。语气：友好、简洁。",
+          "goals": {
+            "0": "介绍新产品",
+            "1": "提升点击率"
+          },
+          "guidelines": {
+            "0": "控制在150词以内",
+            "1": "使用美式英语"
+          },
+          "rules": {
+            "0": "不夸大或虚假宣传",
+            "1": "避免垃圾邮件用语"
+          },
+          "instructions": {
+            "0": "以吸引人的开头开始",
+            "1": "在结尾添加明确的行动号召（CTA）"
+          },
+          "sysInputs": {
+            "0": "产品名称",
+            "1": "核心功能"
+          },
+          "humanInputs": {
+            "0": "目标受众细分",
+            "1": "优惠活动"
+          }
+        },
+        "write_a_sales_email": "写一封销售邮件",
+        "draft_a_press_release": "起草一份新闻稿",
+        "write_product_description": "撰写产品描述",
+        "social_media_post": "社交媒体帖子",
+        "customer_support_reply": "客服回复",
+        "onboarding_email": "入职欢迎邮件",
+        "performance_review": "绩效评估",
+        "meeting_agenda": "会议议程",
+        "blog_outline": "博客大纲",
+        "summarize_research_paper": {
+          "title": "总结研究论文",
+          "roleToneContext": "你是一名科学助理。语气：中性、精确。",
+          "goals": {
+            "0": "提炼主要贡献",
+            "1": "指出局限性"
+          }
+        }
+      }
+    },
     "products": {
       "title": "产品",
       "add": "新增",
@@ -1448,7 +1537,8 @@
     "tests": "测试",
     "tools": "工具",
     "vehicles": "电脑",
-    "warehouses": "仓库"
+    "warehouses": "仓库",
+    "prompts": "提示词"
   },
   "agentnotify": {
     "behind_the_scene": "幕后",

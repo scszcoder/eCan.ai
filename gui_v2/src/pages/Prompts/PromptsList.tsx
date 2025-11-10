@@ -3,6 +3,7 @@ import { List, Input, Badge, Typography, Button, Dropdown } from 'antd';
 import { SearchOutlined, PlusOutlined, MoreOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import type { Prompt } from './types';
+import { useTranslation } from 'react-i18next';
 
 interface PromptsListProps {
   prompts: Prompt[];
@@ -15,17 +16,18 @@ interface PromptsListProps {
 }
 
 const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect, search, onSearchChange, onAdd, onDelete }) => {
+  const { t } = useTranslation();
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: 12, display: 'flex', gap: 8 }}>
         <Input
           allowClear
-          placeholder="Search prompts"
+          placeholder={t('pages.prompts.searchPlaceholder', { defaultValue: 'Search prompts' })}
           prefix={<SearchOutlined />}
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
         />
-        <Button type="primary" icon={<PlusOutlined />} onClick={onAdd}>Add</Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={onAdd}>{t('common.add')}</Button>
       </div>
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         <List
@@ -37,7 +39,7 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
               actions={[
                 <Dropdown
                   key="menu"
-                  menu={{ items: [{ key: 'delete', label: 'Delete', danger: true }] as MenuProps['items'], onClick: ({ key }) => { if (key === 'delete') onDelete(item.id); } }}
+                  menu={{ items: [{ key: 'delete', label: t('common.delete'), danger: true }] as MenuProps['items'], onClick: ({ key }) => { if (key === 'delete') onDelete(item.id); } }}
                   trigger={["click"]}
                   placement="bottomRight"
                 >
@@ -46,11 +48,19 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
               ]}
             >
               <List.Item.Meta
-                title={<span style={{ color: '#fff' }}>{item.topic}</span>}
+                title={<span style={{ color: '#fff' }}>
+                  {(() => {
+                    const slug = (item.topic || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+                    const titleKey = `pages.prompts.examples.${slug}.title`;
+                    const titleText = t(titleKey, { defaultValue: '' });
+                    if (titleText && titleText !== titleKey) return titleText;
+                    return t(`pages.prompts.examples.${slug}`, { defaultValue: item.topic });
+                  })()}
+                </span>}
                 description={
                   <div style={{ color: 'rgba(255,255,255,0.65)' }}>
                     <Badge count={item.usageCount} style={{ backgroundColor: '#3b82f6' }} />
-                    <Typography.Text style={{ marginLeft: 8, color: 'rgba(255,255,255,0.65)' }}>uses</Typography.Text>
+                    <Typography.Text style={{ marginLeft: 8, color: 'rgba(255,255,255,0.65)' }}>{t('pages.prompts.uses', { defaultValue: 'uses' })}</Typography.Text>
                   </div>
                 }
               />
