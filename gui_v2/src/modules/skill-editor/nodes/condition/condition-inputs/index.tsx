@@ -147,7 +147,7 @@ export function ConditionInputs() {
                       </div>
                     </div>
                   </div>
-                  {/* No inline port markers here; relying on defaultPorts (if/else) only */}
+                  {/* No inline port markers here; relying on form-meta port markers */}
                 </div>
               );
             })}

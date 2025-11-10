@@ -39,6 +39,11 @@
     background-color: var(--g-playground-selectBox-background);
   }
 
+  /* When wrapper defines --se-top, apply it as child top to avoid overlap */
+  .se-port[style*="--se-top"] > * {
+    top: var(--se-top) !important;
+  }
+
   /* For condition outputs we render a separate overlay triangle; disable pseudo-element */
   .se-port.se-port--no-overlay > *::after {
     content: none !important;
@@ -249,14 +254,13 @@
 
   /* === Skill Editor: Triangular Ports (Phase 1) === */
   /* Wrapper created in node-wrapper.tsx around WorkflowPortRender */
-  /* Make wrapper not affect layout or positioning of the actual port */
-  .se-port { display: contents; }
+  /* Let engine control layout/positioning of each port wrapper to avoid overlaps */
+  .se-port { display: revert; }
 
   /* Keep library's dot visible for now to avoid disappearance; we'll overlay triangle */
   /* .se-port > * { opacity: 0; }  // disabled */
 
   /* Triangle visual overlay anchored to the actual port element */
-  .se-port > * { position: relative; }
   .se-port > *::after {
     content: '';
     position: absolute;
@@ -272,12 +276,12 @@
     pointer-events: none; /* keep underlying element interactive */
     z-index: 99;
   }
-
-  /* Condition node outputs sometimes render their own dot above; force triangle on top */
+  
+  /* Disable triangles for ALL condition node ports - keep them as circles */
+  .se-port[data-se-port-id^="port_input_condition_"] > *::after,
   .se-port[data-se-port-id^="port_output_condition_"] > *::after {
-    width: 16px;
-    height: 16px;
-    z-index: 199;
+    content: none !important;
+    display: none !important;
   }
 
   /* Explicit default: all ports point RIGHT (workflow direction) */
@@ -295,6 +299,8 @@
     /* LEFT-pointing */
     clip-path: polygon(0 50%, 100% 0, 100% 100%);
   }
+
+  /* === Removed static CSS positioning - handled dynamically in node-wrapper === */
 
   /* Hover affordance: brighten triangle when hovering the actual port (child) */
   .se-port > *:hover::after { filter: brightness(1.15); }

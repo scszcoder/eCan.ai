@@ -6,10 +6,11 @@
 import React, { useState, useContext, useCallback, useEffect } from 'react';
 
 import { WorkflowPortRender } from '@flowgram.ai/free-layout-editor';
-import { useClientContext } from '@flowgram.ai/free-layout-editor';
+import { useClientContext, useService, WorkflowDocument, WorkflowLinesManager } from '@flowgram.ai/free-layout-editor';
 import classnames from 'classnames';
 
-import { FlowNodeMeta } from '../../typings';
+import { FlowNodeMeta, FlowNodeRegistry } from '../../typings';
+import { WorkflowNodeType } from '../../nodes/constants';
 import { useNodeRenderContext, usePortClick } from '../../hooks';
 import { SidebarContext } from '../../context';
 import { scrollToView } from './utils';
@@ -39,6 +40,7 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
   const ctx = useClientContext();
   const onPortClick = usePortClick();
   const meta = node.getNodeMeta<FlowNodeMeta>();
+  const registry = node.getNodeRegistry<FlowNodeRegistry>();
   const { breakpoints } = useSkillInfoStore();
   const runningNodeId = useRunningNodeStore((state) => state.runningNodeId);
   const isBreakpoint = breakpoints.includes(node.id);
@@ -87,29 +89,115 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
     }
   })();
 
+  // Services for forcing visual refresh after anchor corrections
+  const linesMgr = useService(WorkflowLinesManager);
+  const documentSvc = useService(WorkflowDocument);
+
+  // Stabilize port anchor sides according to hFlip after renders to prevent library resets
+  useEffect(() => {
+    const applyOnce = () => {
+      try {
+        (ports || []).forEach((p: any) => {
+          const pid: string = p?.id || '';
+          const isIn = pid.includes('port_input_');
+          const isOut = pid.includes('port_output_');
+          const targetLoc = hFlip
+            ? (isIn ? 'right' : isOut ? 'left' : undefined)
+            : (isIn ? 'left' : isOut ? 'right' : undefined);
+          if (!targetLoc) return;
+          const curr = (p as any)?.location ?? (p as any)?.position ?? (p as any)?.side;
+          if (typeof (p as any)?.update === 'function' && curr !== targetLoc) {
+            (p as any).update({ location: targetLoc, position: targetLoc, side: targetLoc });
+          }
+        });
+        // For Condition nodes, make sure dynamic outputs are bound to their markers
+        if (registry?.type === WorkflowNodeType.Condition) {
+          const root = document.querySelector(`[data-node-id="${node.id}"]`);
+          if (root) {
+            const markerIf = root.querySelector('[data-port-id="if_out"]') as HTMLElement | null;
+            const markerElse = root.querySelector('[data-port-id="else_out"]') as HTMLElement | null;
+            (ports || []).forEach((p: any) => {
+              const portKey = String((p?.portID ?? p?.portId) || '').toLowerCase();
+              if (!p?.targetElement) {
+                if (portKey === 'if_out' && markerIf) {
+                  if (typeof p.setTargetElement === 'function') p.setTargetElement(markerIf);
+                  else if (typeof p.update === 'function') p.update({ targetElement: markerIf });
+                } else if (portKey === 'else_out' && markerElse) {
+                  if (typeof p.setTargetElement === 'function') p.setTargetElement(markerElse);
+                  else if (typeof p.update === 'function') p.update({ targetElement: markerElse });
+                }
+              }
+            });
+          }
+        }
+      } catch {}
+      // Condition nodes handle their own port positioning via form-meta markers
+      try { (linesMgr as any)?.forceUpdate?.(); } catch {}
+      try { (documentSvc as any)?.fireRender?.(); } catch {}
+    };
+
+    // Apply now and again shortly after to override any late resets in the library
+    applyOnce();
+    const t1 = setTimeout(applyOnce, 60);
+    const t2 = setTimeout(applyOnce, 160);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [hFlip, ports, node?.id]);
+
   const portsRender = ports.map((p) => {
     const pid = (p as any)?.id as string;
     const isInput = typeof pid === 'string' && pid.includes('port_input_');
     const isOutput = typeof pid === 'string' && pid.includes('port_output_');
     const role = isInput ? 'input' : isOutput ? 'output' : 'unknown';
-    const portKey = (p as any)?.portID ?? (p as any)?.portId; // e.g., 'if_out', 'else_out'
-    const isCondOut = role === 'output' && (portKey === 'if_out' || portKey === 'else_out');
+    
+    // Extract port key from the ID if not directly available
+    let portKey = (p as any)?.portID ?? (p as any)?.portId ?? (p as any)?.key;
+    if (!portKey && pid) {
+      // Try to extract key from port id like "port_output_condition_xyz_else_abc123"
+      const parts = pid.split('_');
+      if (parts.length > 3) {
+        // Get everything after "port_output_condition_nodeId_"
+        const nodeIdParts = pid.match(/port_output_condition_[^_]+_(.*)/);
+        if (nodeIdParts && nodeIdParts[1]) {
+          portKey = nodeIdParts[1];
+        }
+      }
+    }
+    
+    const isCondOut = role === 'output' && portKey && (portKey.startsWith('if_') || portKey.startsWith('else_') || portKey.startsWith('elif_'));
+    
     // Determine current anchor side from port entity
     const loc = (p as any)?.location ?? (p as any)?.position; // 'left' | 'right' | 'top' | 'bottom'
     const flipPort = (isInput && loc === 'right') || (isOutput && loc === 'left');
     const flipClass = flipPort ? 'se-port--hflip' : '';
-    // Skip rendering for condition outputs; their markers in form-meta are the visual ports
-    if (isCondOut) return null;
+    // Render all ports, including Condition outputs. For Condition, the port will portal into markers via targetElement.
+    
+    let wrapperStyle: React.CSSProperties | undefined;
+    // For Condition outputs, the actual clickable port renders into the marker via portal,
+    // so prevent the wrapper from catching mouse events.
+    if (registry?.type === WorkflowNodeType.Condition && isOutput) {
+      wrapperStyle = { pointerEvents: 'none' };
+    }
+    // Render real port elements for all ports; triangles overlay via CSS
     return (
       <div
         key={pid}
         className={`se-port se-port--${role} ${flipClass}`}
         data-se-port-id={pid}
+        data-se-port-key={portKey}
+        data-port-type={role}
+        style={wrapperStyle}
       >
-        <WorkflowPortRender entity={p} onClick={!readonly ? onPortClick : undefined} />
+        <WorkflowPortRender 
+          entity={p} 
+          onClick={!readonly ? onPortClick : undefined}
+        />
       </div>
     );
   });
+
 
   // Phase 0 diagnostics: log port entities when selected (toggle with window.__SE_DEBUG_PORTS__ = true in devtools)
   useEffect(() => {

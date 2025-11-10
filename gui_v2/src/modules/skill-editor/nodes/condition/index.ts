@@ -22,8 +22,8 @@ export const ConditionNodeRegistry: FlowNodeRegistry = {
     defaultPorts: [
       { type: 'input', key: 'in' },
     ],
-    useDynamicPort: true, // Enable dynamic ports for condition outputs
-    expandable: true, // allow expand/collapse like other nodes
+    useDynamicPort: true,
+    expandable: true,
     size: {
       width: 360,
       height: 240,
@@ -31,6 +31,8 @@ export const ConditionNodeRegistry: FlowNodeRegistry = {
   },
   formMeta,
   onAdd() {
+    const ifKey = `if_${nanoid(5)}`;
+    const elseKey = `else_${nanoid(5)}`;
     return {
       id: `condition_${nanoid(5)}`,
       type: 'condition',
@@ -38,11 +40,11 @@ export const ConditionNodeRegistry: FlowNodeRegistry = {
         title: 'Condition',
         conditions: [
           {
-            key: `if_${nanoid(5)}`,
+            key: ifKey,
             value: {},
           },
           {
-            key: `else_${nanoid(5)}`,
+            key: elseKey,
             value: {},
           },
         ],
