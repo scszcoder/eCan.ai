@@ -15,6 +15,7 @@ import {
   FlowNodeFormData,
   WorkflowDocument,
   WorkflowLinesManager,
+  WorkflowNodePortsData,
 } from '@flowgram.ai/free-layout-editor';
 import { NodeIntoContainerService } from '@flowgram.ai/free-container-plugin';
 import { IconButton, Dropdown } from '@douyinfe/semi-ui';
@@ -164,7 +165,15 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
         }
         // Sync classes and re-bind condition outputs (works regardless of branch above)
         const rebindNow = () => {
+          let em: any;
           try {
+            em = (documentSvc as any)?.entityManager;
+            if (em) em.changeEntityLocked = true;
+            // Ensure dynamic ports are up-to-date before we read ports from the document
+            try {
+              const portsData = (node as any)?.getData?.(WorkflowNodePortsData);
+              portsData?.updateAllPorts?.();
+            } catch {}
             const allPorts: any[] = (documentSvc as any)?.getAllPorts?.() || [];
             const portsOfNode = allPorts.filter((p) => p?.node?.id === node.id);
             for (const p of portsOfNode) {
@@ -186,25 +195,32 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
                 const sideOut = next ? 'left' : 'right';
                 const sideIn = next ? 'right' : 'left';
                 const getKey = (pp: any) => String((pp?.portID ?? pp?.portId ?? '')).toLowerCase();
-                const pIf = portsOfNode.find((pp: any) => getKey(pp) === 'if_out' || String(pp?.id || '').toLowerCase().includes('if_out')) as any;
-                const pElse = portsOfNode.find((pp: any) => getKey(pp) === 'else_out' || String(pp?.id || '').toLowerCase().includes('else_out')) as any;
-                const pIn = portsOfNode.find((pp: any) => String(pp?.id || '').includes('port_input_')) as any;
+                const pidLower = (pp: any) => String(pp?.id || '').toLowerCase();
+                const outPorts = portsOfNode.filter((pp: any) => pidLower(pp).includes('port_output_') || (pp?.inout === 'output')) as any[];
+                let pIf = outPorts.find((pp: any) => getKey(pp).includes('if') || pidLower(pp).includes('if_out') || pidLower(pp).includes('if_') || pidLower(pp).includes('elif_')) as any;
+                let pElse = outPorts.find((pp: any) => getKey(pp).includes('else') || pidLower(pp).includes('else_out') || pidLower(pp).includes('else_')) as any;
+                if (!pIf && outPorts.length) pIf = outPorts[0];
+                if (!pElse && outPorts.length > 1) pElse = outPorts.find((pp: any) => pp !== pIf) || outPorts[1];
+                const pIn = portsOfNode.find((pp: any) => pidLower(pp).includes('port_input_') || (pp?.inout === 'input')) as any;
                 if (pIf) {
                   if (markerIf) {
                     if (typeof pIf.setTargetElement === 'function') pIf.setTargetElement(markerIf);
                     else if (typeof pIf.update === 'function') pIf.update({ targetElement: markerIf });
                   }
-                  try { pIf.update?.({ location: sideOut }); } catch {}
+                  try { pIf.update?.({ location: sideOut, position: sideOut, side: sideOut }); } catch {}
+                  try { pIf.validate?.(); } catch {}
                 }
                 if (pElse) {
                   if (markerElse) {
                     if (typeof pElse.setTargetElement === 'function') pElse.setTargetElement(markerElse);
                     else if (typeof pElse.update === 'function') pElse.update({ targetElement: markerElse });
                   }
-                  try { pElse.update?.({ location: sideOut }); } catch {}
+                  try { pElse.update?.({ location: sideOut, position: sideOut, side: sideOut }); } catch {}
+                  try { pElse.validate?.(); } catch {}
                 }
                 if (pIn) {
-                  try { pIn.update?.({ location: sideIn }); } catch {}
+                  try { pIn.update?.({ location: sideIn, position: sideIn, side: sideIn }); } catch {}
+                  try { pIn.validate?.(); } catch {}
                 }
               }
             }
@@ -219,19 +235,158 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
               });
             } catch {}
             try { (linesMgr as any)?.forceUpdate?.(); } catch {}
-            try { (documentSvc as any)?.fireRender?.(); } catch {}
+            try { (documentSvc as any)?.fireContentChange?.(); } catch {}
+            // Wait until markers settle on the correct side, then finalize validation to avoid needing a user click
+            try {
+              const root = document.querySelector(`[data-node-id="${node.id}"]`) as HTMLElement | null;
+              const isStable = () => {
+                if (!root) return false;
+                const r = root.getBoundingClientRect();
+                const mi = root.querySelector('[data-port-id="if_out"]') as HTMLElement | null;
+                const me = root.querySelector('[data-port-id="else_out"]') as HTMLElement | null;
+                if (!mi || !me) return false;
+                const ri = mi.getBoundingClientRect();
+                const re = me.getBoundingClientRect();
+                const centerI = ri.left + ri.width / 2;
+                const centerE = re.left + re.width / 2;
+                const expectLeft = next === true;
+                const iLeftSide = centerI < r.left + r.width / 2;
+                const eLeftSide = centerE < r.left + r.width / 2;
+                return expectLeft ? (iLeftSide && eLeftSide) : (!iLeftSide && !eLeftSide);
+              };
+              const finalize = () => {
+                try {
+                  const allPorts: any[] = (documentSvc as any)?.getAllPorts?.() || [];
+                  const portsOfNode = allPorts.filter((p) => p?.node?.id === node.id);
+                  // As a final guard, rebind IF/ELSE to markers and set sides again
+                  try {
+                    const markerIf = root?.querySelector('[data-port-id="if_out"]') as HTMLElement | null;
+                    const markerElse = root?.querySelector('[data-port-id="else_out"]') as HTMLElement | null;
+                    const sideOut = next ? 'left' : 'right';
+                    const sideIn = next ? 'right' : 'left';
+                    const getKey = (pp: any) => String((pp?.portID ?? pp?.portId ?? '')).toLowerCase();
+                    const pidLower = (pp: any) => String(pp?.id || '').toLowerCase();
+                    const outPorts = portsOfNode.filter((pp: any) => pidLower(pp).includes('port_output_') || (pp?.inout === 'output')) as any[];
+                    let pIf = outPorts.find((pp: any) => getKey(pp).includes('if') || pidLower(pp).includes('if_out') || pidLower(pp).includes('if_') || pidLower(pp).includes('elif_')) as any;
+                    let pElse = outPorts.find((pp: any) => getKey(pp).includes('else') || pidLower(pp).includes('else_out') || pidLower(pp).includes('else_')) as any;
+                    if (!pIf && outPorts.length) pIf = outPorts[0];
+                    if (!pElse && outPorts.length > 1) pElse = outPorts.find((pp: any) => pp !== pIf) || outPorts[1];
+                    const pIn = portsOfNode.find((pp: any) => pidLower(pp).includes('port_input_') || (pp?.inout === 'input')) as any;
+                    if (pIf && markerIf) {
+                      if (typeof pIf.setTargetElement === 'function') pIf.setTargetElement(markerIf);
+                      else if (typeof pIf.update === 'function') pIf.update({ targetElement: markerIf });
+                      try { pIf.update?.({ location: sideOut, position: sideOut, side: sideOut }); } catch {}
+                    }
+                    if (pElse && markerElse) {
+                      if (typeof pElse.setTargetElement === 'function') pElse.setTargetElement(markerElse);
+                      else if (typeof pElse.update === 'function') pElse.update({ targetElement: markerElse });
+                      try { pElse.update?.({ location: sideOut, position: sideOut, side: sideOut }); } catch {}
+                    }
+                    if (pIn) {
+                      try { pIn.update?.({ location: sideIn, position: sideIn, side: sideIn }); } catch {}
+                    }
+                  } catch {}
+                  // Now validate ports and all their lines
+                  portsOfNode.forEach((pp: any) => {
+                    try { pp.validate?.(); } catch {}
+                    const lns = (pp as any)?.allLines ?? (pp as any)?.lines ?? [];
+                    if (lns && typeof lns.forEach === 'function') {
+                      lns.forEach((ln: any) => { try { ln.validate?.(); } catch {} });
+                    }
+                  });
+                  try { (linesMgr as any)?.forceUpdate?.(); } catch {}
+                  try { (documentSvc as any)?.fireContentChange?.(); } catch {}
+                  // Finalize by emulating the user's required click:
+                  // - odd flip (next=true): click on node
+                  // - even flip (next=false): click outside node but inside editor canvas (.demo-editor)
+                  try {
+                    const rootEl = document.querySelector(`[data-node-id="${node.id}"]`) as HTMLElement | null;
+                    const canvasEl = document.querySelector('.demo-editor') as HTMLElement | null;
+                    const clickAt = (el: HTMLElement, x: number, y: number) => {
+                      const opts: MouseEventInit = { bubbles: true, cancelable: true, clientX: Math.floor(x), clientY: Math.floor(y) };
+                      el.dispatchEvent(new MouseEvent('click', opts));
+                    };
+                    requestAnimationFrame(() => {
+                      requestAnimationFrame(() => {
+                        try {
+                          if (next && rootEl) {
+                            const r = rootEl.getBoundingClientRect();
+                            clickAt(rootEl, r.left + r.width / 2, r.top + r.height / 2);
+                          } else if (canvasEl) {
+                            const cr = canvasEl.getBoundingClientRect();
+                            const nr = rootEl?.getBoundingClientRect();
+                            const candidates = [
+                              { x: cr.left + 8, y: cr.top + 8 },
+                              { x: cr.right - 8, y: cr.top + 8 },
+                              { x: cr.left + 8, y: cr.bottom - 8 },
+                              { x: cr.right - 8, y: cr.bottom - 8 },
+                            ];
+                            const outside = (p: any) => !nr || p.x < nr.left || p.x > nr.right || p.y < nr.top || p.y > nr.bottom;
+                            const pt = candidates.find(outside) || { x: cr.left + 8, y: cr.top + 8 };
+                            clickAt(canvasEl, pt.x, pt.y);
+                          }
+                        } catch {}
+                      });
+                    });
+                  } catch {}
+                } catch {}
+              };
+              const waitStable = (attempt = 0) => {
+                if (attempt > 10) { finalize(); return; }
+                if (isStable()) { finalize(); return; }
+                requestAnimationFrame(() => waitStable(attempt + 1));
+              };
+              requestAnimationFrame(() => waitStable(0));
+            } catch {}
           } catch (err) {
             try { console.warn('[H-flip] rebindNow error', err); } catch {}
+          } finally {
+            try { if (em) em.changeEntityLocked = false; } catch {}
           }
         };
-        // Apply immediately and delayed (engine may reflow after flip)
+        // Apply immediately; stability check below will finalize and select the node
         rebindNow();
-        setTimeout(rebindNow, 60);
-        setTimeout(rebindNow, 180);
-        // Extra passes after layout/paint cycles
-        try { requestAnimationFrame(() => rebindNow()); } catch {}
-        try { requestAnimationFrame(() => { try { requestAnimationFrame(() => rebindNow()); } catch {} }); } catch {}
-        setTimeout(rebindNow, 300);
+        // Synthetic outside click (opt-in only). Enable via: window.__SE_SYNTH_CLICK__ = true
+        try {
+          // @ts-ignore
+          if ((window as any).__SE_SYNTH_CLICK__ === true) {
+            const doSyntheticClick = () => {
+              try {
+                // Ensure we do one more rebind right before the click
+                try { rebindNow(); } catch {}
+                const root = document.querySelector(`[data-node-id="${node.id}"]`) as HTMLElement | null;
+                if (!root) return;
+                // Prefer viewport center as a robust outside target
+                const center = { x: Math.floor(window.innerWidth / 2), y: Math.floor(window.innerHeight / 2) };
+                const isInsideNode = (x: number, y: number) => {
+                  const r = root.getBoundingClientRect();
+                  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+                };
+                let pt = !isInsideNode(center.x, center.y) ? center : { x: 10, y: 10 };
+                if (isInsideNode(pt.x, pt.y)) {
+                  // Fallback near bottom-right outside node
+                  const r = root.getBoundingClientRect();
+                  pt = { x: Math.min(window.innerWidth - 10, r.right + 30), y: Math.min(window.innerHeight - 10, r.bottom + 30) };
+                }
+                const target = document.elementFromPoint(pt.x, pt.y);
+                if (!target || root.contains(target)) return;
+                const opts: MouseEventInit = { bubbles: true, clientX: pt.x, clientY: pt.y };
+                try { target.dispatchEvent(new MouseEvent('pointermove', opts)); } catch {}
+                try { target.dispatchEvent(new MouseEvent('pointerdown', opts)); } catch {}
+                try { target.dispatchEvent(new MouseEvent('mousedown', opts)); } catch {}
+                try { target.dispatchEvent(new MouseEvent('mouseup', opts)); } catch {}
+                try { target.dispatchEvent(new MouseEvent('click', opts)); } catch {}
+              } catch {}
+            };
+            // Use a slightly longer delay for odd flips to cover slower reflow
+            setTimeout(doSyntheticClick, next ? 650 : 500);
+            // Re-select the node after synthetic click so the user focus remains
+            setTimeout(() => { try { (selectService as any)?.selectNode?.(node); } catch {} }, next ? 800 : 650);
+            // Fire a second synthetic click to catch any late settling in odd flips
+            setTimeout(doSyntheticClick, next ? 1000 : 850);
+            setTimeout(() => { try { (selectService as any)?.selectNode?.(node); } catch {} }, next ? 1150 : 1000);
+          }
+        } catch {}
       } catch (err) {
         console.warn('[H-flip] Flip handling encountered an error', err);
       }
