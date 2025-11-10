@@ -6,34 +6,57 @@ import time
 import hashlib
 
 def _is_process_running(pid):
-    """Check if a process with given PID is currently running"""
+    """Check if a process with given PID is currently running (cross-platform, no console subprocess)."""
     if not pid:
         return False
-    
+
     try:
         pid = int(pid)
-        if sys.platform == 'win32':
-            # Windows: Use tasklist to check if process exists
-            import subprocess
-            try:
-                # More reliable: check if we can query process info (hide console window)
-                try:
-                    from utils.subprocess_helper import get_subprocess_kwargs
-                    kwargs = get_subprocess_kwargs({'capture_output': True, 'text': True, 'timeout': 2})
-                except Exception:
-                    kwargs = {'capture_output': True, 'text': True, 'timeout': 2}
-                result = subprocess.run(['tasklist', '/FI', f'PID eq {pid}', '/NH'], **kwargs)
-                # If PID is running, output will contain the PID as a separate word
-                # Use word boundary to avoid matching PID 123 with PID 1234
-                import re
-                pattern = r'\b' + str(pid) + r'\b'
-                return bool(re.search(pattern, result.stdout))
-            except Exception:
+        # Use psutil universally to avoid spawning console tools like tasklist/ps
+        try:
+            import psutil  # lazy import
+        except Exception:
+            psutil = None
+
+        if psutil is not None:
+            if not psutil.pid_exists(pid):
                 return False
+            try:
+                p = psutil.Process(pid)
+                # is_running() may be True briefly for zombies; filter them out when possible
+                status = getattr(psutil, 'STATUS_ZOMBIE', 'zombie')
+                return p.is_running() and getattr(p, 'status', lambda: None)() != status
+            except psutil.NoSuchProcess:
+                return False
+            except Exception:
+                # Fallback minimal check when detailed query fails
+                return True
         else:
-            # Unix/macOS: Send signal 0 to check if process exists
-            os.kill(pid, 0)
-            return True
+            # Last-resort fallback without creating new processes
+            if sys.platform == 'win32':
+                # On Windows without psutil, use OpenProcess check via ctypes (no window)
+                try:
+                    import ctypes
+                    from ctypes import wintypes
+                    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+                    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+                    OpenProcess = kernel32.OpenProcess
+                    OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+                    OpenProcess.restype = wintypes.HANDLE
+                    CloseHandle = kernel32.CloseHandle
+                    CloseHandle.argtypes = [wintypes.HANDLE]
+                    CloseHandle.restype = wintypes.BOOL
+                    h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+                    if h:
+                        CloseHandle(h)
+                        return True
+                    return False
+                except Exception:
+                    return False
+            else:
+                # Unix-like: signal 0
+                os.kill(pid, 0)
+                return True
     except (OSError, ProcessLookupError, ValueError):
         return False
     except Exception:

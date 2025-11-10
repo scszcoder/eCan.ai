@@ -44,29 +44,17 @@ class SystemInfoManager:
             # Method 2: Try to get Windows computer name
             elif platform.system() == 'Windows':
                 try:
-                    # Prefer COMPUTERNAME environment variable
-                    machine_name = os.environ.get('COMPUTERNAME')
-                    
-                    # If not available, try using wmic for friendlier name
-                    if not machine_name:
-                        result = subprocess.run(['wmic', 'computersystem', 'get', 'name'], 
-                                              capture_output=True, text=True, timeout=2)
-                        if result.returncode == 0:
-                            lines = result.stdout.strip().split('\n')
-                            if len(lines) > 1:
-                                machine_name = lines[1].strip()
-                    
+                    # Prefer COMPUTERNAME environment variable; do not spawn console tools
+                    machine_name = os.environ.get('COMPUTERNAME') or platform.node()
+
                     # Try to get user-friendly display name
                     if machine_name:
                         try:
-                            # Get current username
                             username = os.environ.get('USERNAME', '')
-                            if username and machine_name != username:
-                                # If machine name is not username, combine for display
+                            if username and machine_name.lower() != username.lower():
                                 machine_name = f"{username}'s {machine_name}"
                         except Exception:
                             pass
-                            
                 except Exception as e:
                     logger.debug(f"Failed to get Windows computer name: {e}")
             
@@ -141,44 +129,20 @@ class SystemInfoManager:
             # Windows device type identification
             elif system == 'Windows':
                 try:
-                    # Method 1: Check system type
-                    result = subprocess.run(['wmic', 'computersystem', 'get', 'PCSystemType'], 
-                                          capture_output=True, text=True, timeout=2)
-                    if result.returncode == 0 and '2' in result.stdout:  # 2 = Mobile
-                        device_type = "Windows Laptop"
-                    else:
-                        # Method 2: Check battery presence
-                        try:
-                            battery_result = subprocess.run(['wmic', 'path', 'win32_battery', 'get', 'name'], 
-                                                          capture_output=True, text=True, timeout=2)
-                            if battery_result.returncode == 0 and battery_result.stdout.strip():
-                                # Has battery info, likely a laptop
-                                lines = battery_result.stdout.strip().split('\n')
-                                if len(lines) > 1 and any(line.strip() for line in lines[1:]):
-                                    device_type = "Windows Laptop"
-                                else:
-                                    device_type = "Windows Desktop"
-                            else:
-                                device_type = "Windows Desktop"
-                        except Exception:
-                            device_type = "Windows Desktop"
-                except Exception as e:
-                    logger.debug(f"Failed to get Windows system type: {e}")
-                    # Method 3: Fallback check - check for power management
+                    # Prefer psutil battery sensor; no console windows
                     try:
-                        import os
-                        if os.path.exists('C:\\Windows\\System32\\powercfg.exe'):
-                            power_result = subprocess.run(['powercfg', '/batteryreport', '/output', 'NUL'], 
-                                                        capture_output=True, text=True, timeout=2)
-                            # If command succeeds, has battery
-                            if power_result.returncode == 0:
-                                device_type = "Windows Laptop"
-                            else:
-                                device_type = "Windows Desktop"
+                        import psutil  # lazy import
+                        batt = getattr(psutil, 'sensors_battery', lambda: None)()
+                        if batt is not None:
+                            device_type = "Windows Laptop"
                         else:
-                            device_type = "Windows Computer"
+                            device_type = "Windows Desktop"
                     except Exception:
+                        # Fallback: simple default
                         device_type = "Windows Computer"
+                except Exception as e:
+                    logger.debug(f"Failed to detect Windows device type: {e}")
+                    device_type = "Windows Computer"
             
             # Linux device type identification
             elif system == 'Linux':
@@ -252,18 +216,39 @@ class SystemInfoManager:
         
         try:
             import psutil
-            from cpuinfo import get_cpu_info
             
-            cpu_info = get_cpu_info()
+            # Get CPU info without subprocess (avoid cpuinfo library which spawns processes)
             processor_info = {
-                'brand_raw': cpu_info.get('brand_raw', 'Unknown Processor'),
-                'arch': cpu_info.get('arch_string_raw', 'Unknown'),
-                'bits': cpu_info.get('bits', 0),
-                'count': psutil.cpu_count(logical=False),  # Physical cores
-                'threads': psutil.cpu_count(logical=True),  # Logical cores
-                'hz_advertised_friendly': cpu_info.get('hz_advertised_friendly', 'Unknown Speed'),
-                'flags': cpu_info.get('flags', [])
+                'brand_raw': 'Unknown Processor',
+                'arch': platform.machine(),
+                'bits': 64 if sys.maxsize > 2**32 else 32,
+                'count': psutil.cpu_count(logical=False) or 1,  # Physical cores
+                'threads': psutil.cpu_count(logical=True) or 1,  # Logical cores
+                'hz_advertised_friendly': 'Unknown Speed',
+                'flags': []
             }
+            
+            # On Windows, get CPU info from registry (no subprocess)
+            if sys.platform == 'win32':
+                try:
+                    import winreg
+                    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                        r'HARDWARE\DESCRIPTION\System\CentralProcessor\0')
+                    try:
+                        processor_name = winreg.QueryValueEx(key, 'ProcessorNameString')[0]
+                        processor_info['brand_raw'] = processor_name.strip()
+                        
+                        # Try to get MHz
+                        try:
+                            mhz = winreg.QueryValueEx(key, '~MHz')[0]
+                            ghz = mhz / 1000.0
+                            processor_info['hz_advertised_friendly'] = f'{ghz:.2f} GHz'
+                        except (OSError, ValueError):
+                            pass
+                    finally:
+                        winreg.CloseKey(key)
+                except Exception:
+                    pass
             
             self._cache[cache_key] = processor_info
             return processor_info

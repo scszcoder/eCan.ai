@@ -45,7 +45,7 @@ def detect_chrome_version() -> str:
             logger.warning("winreg module not available. Falling back to file path check.")
             pass # Fallback to the file check method below
 
-    # Try Windows App Paths registry for chrome.exe location
+    # Try Windows App Paths registry for chrome.exe location (prefer file version, avoid launching)
     if system == "Windows":
         try:
             import winreg
@@ -59,36 +59,43 @@ def detect_chrome_version() -> str:
                     with winreg.OpenKey(hive, key_path) as key:
                         chrome_exe_path, _ = winreg.QueryValueEx(key, "")  # Default value
                         if chrome_exe_path and os.path.exists(chrome_exe_path):
+                            # First try file version via win32api to avoid spawning a process
                             try:
-                                # Use multiple flags to prevent browser from opening, especially on Windows
-                                # Use encoding='utf-8' and errors='ignore' to handle encoding issues on Windows
-                                version_output = subprocess.check_output([chrome_exe_path, "--headless", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage", "--version"], 
-                                                                       stderr=subprocess.STDOUT, text=True, 
-                                                                       encoding='utf-8', errors='ignore', timeout=10)
-                                match = re.search(r"(\d+\.\d+\.\d+\.\d+)", version_output)
-                                if match:
-                                    version = match.group(1)
-                                    logger.info(f"Detected Chrome version {version} from App Paths: {chrome_exe_path}")
+                                import win32api  # type: ignore
+                                info = win32api.GetFileVersionInfo(chrome_exe_path, "\\")
+                                ms = info['FileVersionMS']; ls = info['FileVersionLS']
+                                version = f"{win32api.HIWORD(ms)}.{win32api.LOWORD(ms)}.{win32api.HIWORD(ls)}.{win32api.LOWORD(ls)}"
+                                if re.match(r"\d+\.\d+\.\d+\.\d+", version):
+                                    logger.info(f"Detected Chrome version {version} from file properties (App Paths): {chrome_exe_path}")
                                     return version
-                            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                                continue
+                            except Exception:
+                                # As a last resort, run with --version (still headless)
+                                try:
+                                    version_output = subprocess.check_output([chrome_exe_path, "--headless", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage", "--version"], 
+                                                                           stderr=subprocess.STDOUT, text=True, 
+                                                                           encoding='utf-8', errors='ignore', timeout=10)
+                                    match = re.search(r"(\d+\.\d+\.\d+\.\d+)", version_output)
+                                    if match:
+                                        version = match.group(1)
+                                        logger.info(f"Detected Chrome version {version} from App Paths: {chrome_exe_path}")
+                                        return version
+                                except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+                                    continue
                 except (FileNotFoundError, OSError):
                     continue
         except ImportError:
             pass
 
-    # Windows-specific: Try to get version from file properties as last resort
+    # Windows-specific: Try to get version from known paths via file properties before launching
     if system == "Windows":
-        logger.info("Trying Windows file version detection as final fallback")
         try:
-            import win32api
+            import win32api  # type: ignore
             chrome_paths = get_chrome_paths()
             for path in chrome_paths:
                 if os.path.exists(path):
                     try:
                         info = win32api.GetFileVersionInfo(path, "\\")
-                        ms = info['FileVersionMS']
-                        ls = info['FileVersionLS']
+                        ms = info['FileVersionMS']; ls = info['FileVersionLS']
                         version = f"{win32api.HIWORD(ms)}.{win32api.LOWORD(ms)}.{win32api.HIWORD(ls)}.{win32api.LOWORD(ls)}"
                         if re.match(r"\d+\.\d+\.\d+\.\d+", version):
                             logger.info(f"Detected Chrome version {version} from file properties: {path}")

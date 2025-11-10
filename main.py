@@ -4,6 +4,40 @@
 import sys
 import os
 import traceback
+import subprocess
+
+# ============================================================================
+# CRITICAL: Patch platform._syscmd_ver BEFORE any imports that use it
+# This prevents the 'ver' command from being called, which causes window flashes
+# ============================================================================
+if sys.platform == 'win32':
+    try:
+        import platform
+        
+        def _syscmd_ver_no_console(system='', release='', version='', csd='', ptype=''):
+            """Replacement for platform._syscmd_ver that doesn't call 'ver' command."""
+            try:
+                import winreg
+                key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 
+                                    r'SOFTWARE\Microsoft\Windows NT\CurrentVersion')
+                try:
+                    major = winreg.QueryValueEx(key, 'CurrentMajorVersionNumber')[0]
+                    minor = winreg.QueryValueEx(key, 'CurrentMinorVersionNumber')[0]
+                    build = winreg.QueryValueEx(key, 'CurrentBuildNumber')[0]
+                    version = f'{major}.{minor}.{build}'
+                except (OSError, ValueError):
+                    version = winreg.QueryValueEx(key, 'CurrentVersion')[0]
+                    build = winreg.QueryValueEx(key, 'CurrentBuildNumber')[0]
+                    version = f'{version}.{build}'
+                finally:
+                    winreg.CloseKey(key)
+                return system, release, version, csd, ptype
+            except Exception:
+                return system, release, version, csd, ptype
+        
+        platform._syscmd_ver = _syscmd_ver_no_console
+    except Exception:
+        pass
 
 # Configure UTF-8 encoding for Windows console to prevent UnicodeEncodeError
 # This must be done before any print statements that might contain Unicode characters
@@ -50,8 +84,145 @@ if __name__ == '__main__' and os.getenv('ECAN_RUN_SCRIPT'):
 # Main Application Code (only runs if not a worker process)
 # ============================================================================
 
+# Diagnostic hooks (enabled only when EC_DIAG=1)
+IS_WIN = sys.platform == 'win32'
+EC_DIAG = os.environ.get('EC_DIAG') == '1'
+EC_DIAG_LOG = os.environ.get('EC_DIAG_LOG')
+
+def _diag_write(msg: str):
+    try:
+        target = EC_DIAG_LOG or os.path.join(os.getenv('TEMP', os.getcwd()), 'ecan_diag.log')
+        with open(target, 'a', encoding='utf-8') as f:
+            f.write(msg + '\n')
+    except Exception:
+        pass
+
+if EC_DIAG:
+    try:
+        import threading
+        import time
+        import ctypes
+        from ctypes import wintypes
+        
+        _diag_write('[DIAG] enabled')
+
+        CREATE_NO_WINDOW = 0x08000000
+        DETACHED_PROCESS = 0x00000008
+        CREATE_NEW_PROCESS_GROUP = 0x00000200
+
+        _orig_run = subprocess.run
+        _orig_popen = subprocess.Popen
+        _orig_call = subprocess.call
+        _orig_check_call = subprocess.check_call
+        _orig_check_output = subprocess.check_output
+        _orig_system = os.system
+
+        def _ensure_hidden_kwargs(kwargs):
+            if IS_WIN:
+                si = kwargs.get('startupinfo')
+                if si is None:
+                    si = subprocess.STARTUPINFO()
+                si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                kwargs['startupinfo'] = si
+                flags = kwargs.get('creationflags', 0)
+                flags |= (CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+                kwargs['creationflags'] = flags
+            return kwargs
+
+        def _log_stack(prefix, cmd):
+            try:
+                stack = ''.join(traceback.format_stack(limit=8))
+                _diag_write(f"[SUBPROC] {prefix}: {cmd}\n{stack}")
+            except Exception:
+                pass
+
+        def run_hidden(*args, **kwargs):
+            _log_stack('run', args[0] if args else kwargs.get('args'))
+            kwargs = _ensure_hidden_kwargs(kwargs)
+            return _orig_run(*args, **kwargs)
+
+        class PopenHidden(subprocess.Popen):
+            def __init__(self, *args, **kwargs):
+                _log_stack('Popen', args[0] if args else kwargs.get('args'))
+                kwargs = _ensure_hidden_kwargs(kwargs)
+                super().__init__(*args, **kwargs)
+
+        def call_hidden(*args, **kwargs):
+            _log_stack('call', args[0] if args else kwargs.get('args'))
+            kwargs = _ensure_hidden_kwargs(kwargs)
+            return _orig_call(*args, **kwargs)
+
+        def check_call_hidden(*args, **kwargs):
+            _log_stack('check_call', args[0] if args else kwargs.get('args'))
+            kwargs = _ensure_hidden_kwargs(kwargs)
+            return _orig_check_call(*args, **kwargs)
+
+        def check_output_hidden(*args, **kwargs):
+            _log_stack('check_output', args[0] if args else kwargs.get('args'))
+            kwargs = _ensure_hidden_kwargs(kwargs)
+            return _orig_check_output(*args, **kwargs)
+
+        def system_hidden(cmd):
+            _log_stack('os.system', cmd)
+            return _orig_system(cmd)
+
+        subprocess.run = run_hidden
+        subprocess.Popen = PopenHidden
+        subprocess.call = call_hidden
+        subprocess.check_call = check_call_hidden
+        subprocess.check_output = check_output_hidden
+        os.system = system_hidden
+
+        def _win_monitor(duration_sec=8):
+            if not IS_WIN:
+                return
+            user32 = ctypes.windll.user32
+            GetWindowTextW = user32.GetWindowTextW
+            GetWindowTextLengthW = user32.GetWindowTextLengthW
+            GetClassNameW = user32.GetClassNameW
+            GetWindowThreadProcessId = user32.GetWindowThreadProcessId
+            IsWindowVisible = user32.IsWindowVisible
+            EnumWindows = user32.EnumWindows
+
+            windows_seen = set()
+
+            @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+            def enum_handler(hwnd, lParam):
+                if not IsWindowVisible(hwnd):
+                    return True
+                length = GetWindowTextLengthW(hwnd)
+                title = ctypes.create_unicode_buffer(length + 1)
+                GetWindowTextW(hwnd, title, length + 1)
+                cls = ctypes.create_unicode_buffer(256)
+                GetClassNameW(hwnd, cls, 256)
+                pid = wintypes.DWORD()
+                GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                key = (int(ctypes.c_size_t(hwnd).value), pid.value)
+                if key not in windows_seen:
+                    windows_seen.add(key)
+                    _diag_write(f"[WIN] pid={pid.value} hwnd={key[0]} cls={cls.value} title={title.value}")
+                return True
+
+            end = time.time() + duration_sec
+            while time.time() < end:
+                try:
+                    EnumWindows(enum_handler, 0)
+                except Exception:
+                    pass
+                time.sleep(0.05)
+
+        threading.Thread(target=_win_monitor, args=(8,), daemon=True).start()
+    except Exception:
+        pass
+
 # Global QApplication instance
 _global_app = None
+
+
+def _import_asyncio_safely():
+    """Import asyncio (asyncio issues have been fixed in stdlib)."""
+    import asyncio as _asyncio
+    return _asyncio
 
 
 def _is_multiprocessing_bootstrap() -> bool:
@@ -154,9 +325,11 @@ try:
 
         # Ensure Windows uses SelectorEventLoop to support subprocesses (e.g., Playwright)
         try:
+            _asyncio = _import_asyncio_safely()
             if sys.platform.startswith('win'):
-                import asyncio as _asyncio
                 _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
+            # Cache asyncio to avoid later re-import quirks
+            globals()['ASYNCIO'] = _asyncio
         except Exception:
             pass
 
@@ -323,7 +496,10 @@ try:
     progress_manager.update_progress(5, "Loading core modules...")
 
     # Standard imports
-    import asyncio
+    asyncio = globals().get('ASYNCIO')
+    if asyncio is None:
+        asyncio = _import_asyncio_safely()
+        globals()['ASYNCIO'] = asyncio
     import qasync
     progress_manager.update_progress(10, "Importing standard libraries...")
 
