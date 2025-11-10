@@ -9,6 +9,8 @@ Runtime utilities
 
 import os
 import sys
+import time
+import subprocess as _subprocess
 from pathlib import Path
 
 
@@ -79,12 +81,67 @@ def initialize_runtime_environment() -> None:
     """
     Initialize the runtime environment.
     This function should be called as early as possible in application startup.
+    Note: platform._syscmd_ver patch is done in main.py before any imports.
     """
-    # Log runtime environment status
-    if is_pyinstaller_environment():
-        print("[RUNTIME] Running from PyInstaller bundle")
-    else:
-        print("[RUNTIME] Running in development environment")
-
-    # Critical runtime setups
+    _install_global_subprocess_hiding()
     _setup_qt_webengine_environment()
+
+
+def _install_global_subprocess_hiding() -> None:
+    try:
+        if sys.platform != 'win32':
+            return
+        try:
+            from utils import subprocess_helper as _sh  # type: ignore
+        except Exception:
+            return
+
+        creation_flags, startupinfo = _sh.get_subprocess_creation_flags()
+
+        def _merge_kwargs(kwargs: dict) -> dict:
+            kwargs = kwargs.copy() if kwargs else {}
+            if 'creationflags' in kwargs:
+                kwargs['creationflags'] |= creation_flags
+            else:
+                kwargs['creationflags'] = creation_flags
+            if startupinfo is not None and 'startupinfo' not in kwargs:
+                kwargs['startupinfo'] = startupinfo
+            return kwargs
+
+        # Patch Popen with a proper class wrapper to maintain subclassability
+        _orig_popen = _subprocess.Popen
+        class _PatchedPopen(_orig_popen):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **_merge_kwargs(kwargs))
+        _subprocess.Popen = _PatchedPopen  # type: ignore[assignment]
+
+        _orig_run = _subprocess.run
+        def _patched_run(cmd, **kwargs):
+            return _orig_run(cmd, **_sh.get_subprocess_kwargs(kwargs))
+        _subprocess.run = _patched_run  # type: ignore[assignment]
+
+        _orig_check_output = _subprocess.check_output
+        def _patched_check_output(cmd, **kwargs):
+            return _orig_check_output(cmd, **_sh.get_subprocess_kwargs(kwargs))
+        _subprocess.check_output = _patched_check_output  # type: ignore[assignment]
+
+        _orig_check_call = _subprocess.check_call
+        def _patched_check_call(cmd, **kwargs):
+            return _orig_check_call(cmd, **_sh.get_subprocess_kwargs(kwargs))
+        _subprocess.check_call = _patched_check_call  # type: ignore[assignment]
+
+        _orig_call = _subprocess.call
+        def _patched_call(cmd, **kwargs):
+            return _orig_call(cmd, **_sh.get_subprocess_kwargs(kwargs))
+        _subprocess.call = _patched_call  # type: ignore[assignment]
+
+        _orig_system = os.system
+        def _patched_system(cmd):
+            try:
+                return _subprocess.call(cmd, shell=True, **_sh.get_subprocess_kwargs({}))
+            except Exception:
+                return _orig_system(cmd)
+        os.system = _patched_system  # type: ignore[assignment]
+
+    except Exception:
+        pass
