@@ -20,7 +20,7 @@ computer can monitor and command the agents remotely thru the internet.
 eCan.ai adopts the de-facto standard-in-making [A2A](https://github.com/a2aproject/A2A) protocol for messaging between agents. We also supports websocket based real time
 chat between human and agents and between human and agents over the internet.
 
-![](resource/images/icons/multi_agent0.png)
+<img src="resource/images/icons/multi_agent0.png" alt="" style="width:480px;"/>
 
 ### Multi-Agent, Multi-Task
 
