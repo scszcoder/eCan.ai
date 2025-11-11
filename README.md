@@ -160,6 +160,6 @@ Visit Our Repo on [Github](https://github.com/), look at issues and let us know 
 
 ### Discuss
 - the preferred technical discussion platform is github project discussion panel, 
-- <img src="resource/images/icons/discordlogo1.png" alt="" style="width:48px;"/> We also have a [Discord](https://discord.gg/ebMYEPVr) server.
+- <img src="resource/images/icons/discordlogo1.jpg" alt="" style="width:48px;"/> We also have a [Discord](https://discord.gg/ebMYEPVr) server.
 
 ## Quick Links
