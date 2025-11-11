@@ -28,7 +28,7 @@ eCan.ai has built-in agents for several e-commerce tasks, but you can easily cre
 tasks can be run on a pre-assigned schedule, for example routine daily task can be created to run at certain time each day. Each task will run in its own thread.
 A task doesn't just run by itself, it requires a skill to run, a skill is a work-flow description. So one must associate a task with an skill for it to run correctly.
 
-![](resource/images/icons/ast0.png)
+<img src="resource/images/icons/ast0.png" alt="" style="width:480px;"/>
 
 ### [Langgraph](https://github.com/langchain-ai/langgraph) based Agent Skills
 
@@ -160,6 +160,6 @@ Visit Our Repo on [Github](https://github.com/), look at issues and let us know 
 
 ### Discuss
 - the preferred technical discussion platform is github project discussion panel, 
-- ![](resource/images/icons/discordlogo64.png) We also have a [Discord](https://discord.gg/ebMYEPVr) server.
+- <img src="resource/images/icons/discordlogo1.png" alt="" style="width:48px;"/> We also have a [Discord](https://discord.gg/ebMYEPVr) server.
 
 ## Quick Links
