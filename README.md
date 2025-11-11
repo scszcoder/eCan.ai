@@ -17,7 +17,7 @@ computer can monitor and command the agents remotely thru the internet.
 
 ### A2A Protocol For Inter-Agent Communication
 
-eCan.ai adopts the de-facto standard-in-making A2A protocol for messaging between agents. We also supports websocket based real time
+eCan.ai adopts the de-facto standard-in-making [A2A](https://github.com/a2aproject/A2A) protocol for messaging between agents. We also supports websocket based real time
 chat between human and agents and between human and agents over the internet.
 
 
@@ -39,6 +39,7 @@ at least one skill, which is work-flow described by langgraph.
 
 #### Graphic [Flowgram](https://github.com/bytedance/flowgram.ai) based Langgraph IDE
 
+![](resource/images/icons/skill_editor0.png)
 eCan.ai includes a customized open-source [Flowgram](https://github.com/bytedance/flowgram.ai) editor to provide a graphic way to author a langgraph based workflow.
 you can simply drag and drop nodes to the canvas, connect them with edges, and fill in the necessary parameters and/or codes, and be done 
 Once you created a workflow graphically. You can also run/cancel/pause/resume/single-step(on a per-node basis) through the langgraph based workflow. Breakpoints can
