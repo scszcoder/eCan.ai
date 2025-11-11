@@ -159,7 +159,7 @@ Coming soon...
 Visit Our Repo on [Github](https://github.com/), look at issues and let us know what you like to solve.
 
 ### Discuss
-- the preferred technical discussion platform is github project discussion panel, 
+- <img src="resource/images/icons/github001.jpg" alt="" style="width:24px;"/>the preferred technical discussion platform is github project discussion panel, 
 - <img src="resource/images/icons/discordlogo1.jpg" alt="" style="width:24px;"/> We also have a [Discord](https://discord.gg/ebMYEPVr) server.
 
 ## Quick Links
