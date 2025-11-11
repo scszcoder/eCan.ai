@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="resource/images/logos/logoWhite20.png" alt="" style="width:128px;"/>
+  <img src="resource/images/logos/logoWhite22.png" alt="" style="width:96px;"/>
 </p>
 
 # eCan.ai (E-Commerce Agent Network)
