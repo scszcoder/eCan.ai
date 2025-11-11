@@ -205,22 +205,37 @@ jobs:
     - name: Install Inno Setup Chinese Language Pack
       run: |
         echo "=== Installing Inno Setup Chinese Language Pack ==="
-        $LangUrl = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl"
         $LangDir = "${env:ProgramFiles(x86)}\Inno Setup 6\Languages"
         $LangPath = "$LangDir\ChineseSimplified.isl"
+        $SourcePath = "${{ github.workspace }}\build_system\inno_setup_languages\ChineseSimplified.isl"
 
-        Write-Host "Downloading Chinese Simplified language file..."
-        Invoke-WebRequest -Uri $LangUrl -OutFile $LangPath -UseBasicParsing
+        Write-Host "Installing from repository: $SourcePath"
+        
+        # Verify source file exists
+        if (-not (Test-Path $SourcePath)) {
+            Write-Host "ERROR: Source language file not found: $SourcePath" -ForegroundColor Red
+            exit 1
+        }
 
-        Write-Host "Chinese language pack installation completed"
+        # Copy with correct encoding preservation
+        Copy-Item -Path $SourcePath -Destination $LangPath -Force
+        Write-Host "✓ Chinese language pack installed from repository" -ForegroundColor Green
 
         # Verify installation
         if (Test-Path $LangPath) {
-            Write-Host "Chinese language pack verified at: $LangPath"
             $fileSize = (Get-Item $LangPath).Length
-            Write-Host "File size: $fileSize bytes"
+            Write-Host "✓ File verified at: $LangPath" -ForegroundColor Green
+            Write-Host "  File size: $fileSize bytes" -ForegroundColor Gray
+            
+            # Verify content
+            $content = Get-Content $LangPath -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+            if ($content -match "ChineseSimplified" -or $content -match "中文") {
+                Write-Host "✓ File content verified" -ForegroundColor Green
+            } else {
+                Write-Host "⚠ WARNING: Could not verify file content" -ForegroundColor Yellow
+            }
         } else {
-            Write-Host "ERROR: Chinese language pack not found at expected location"
+            Write-Host "ERROR: Chinese language pack not found at expected location" -ForegroundColor Red
             exit 1
         }
 
