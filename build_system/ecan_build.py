@@ -549,7 +549,8 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
             print(f"[INSTALLER] Running Inno Setup: {iscc_path}")
             print(f"[INSTALLER] Script file: {iss_file}")
 
-            cmd = [iscc_path, "/Q", str(iss_file)]
+            # Remove /Q (Quiet) to show detailed compilation output including language processing
+            cmd = [iscc_path, str(iss_file)]
 
             result = subprocess.run(
                 cmd,
@@ -561,11 +562,19 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
                 timeout=1800  # 30 minutes timeout
             )
 
+            # Print Inno Setup output for debugging (especially language compilation)
+            if result.stdout:
+                print("[INSTALLER] Inno Setup output:")
+                for line in result.stdout.splitlines():
+                    print(f"  {line}")
+
             if result.returncode != 0:
                 print(f"[ERROR] Inno Setup compilation failed:")
                 print(f"[ERROR] Return code: {result.returncode}")
-                print(f"[ERROR] STDOUT: {result.stdout}")
-                print(f"[ERROR] STDERR: {result.stderr}")
+                if result.stdout:
+                    print(f"[ERROR] STDOUT: {result.stdout}")
+                if result.stderr:
+                    print(f"[ERROR] STDERR: {result.stderr}")
                 return False
 
             print("[SUCCESS] Windows installer created")
