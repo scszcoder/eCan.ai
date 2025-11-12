@@ -9,7 +9,7 @@ import os
 import sys
 import shutil
 from config.app_info import app_info
-from bot.envi import getECBotDataHome
+from config.envi import getECBotDataHome
 from utils.logger_helper import logger_helper as logger
 
 

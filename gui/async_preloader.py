@@ -119,14 +119,13 @@ class AsyncPreloader:
                 from utils.time_util import TimeUtil
                 from utils.logger_helper import logger_helper
                 from utils.port_allocator import get_port_allocator
-                from bot.envi import getECBotDataHome
+                from config.envi import getECBotDataHome
                 return "Core utilities"
             
             def _load_basic_models():
                 try:
-                    from bot.ebbot import EBBOT
-                    from bot.missions import EBMISSION
-                    from bot.vehicles import VEHICLE
+                    from agent.legacy.missions import EBMISSION
+                    from agent.vehicles.vehicles import VEHICLE
                     from common.models import BotModel, MissionModel, VehicleModel
                     return "Basic models"
                 except ImportError as e:
@@ -268,19 +267,11 @@ class AsyncPreloader:
                 nonlocal modules
                 try:
                     # Cloud service imports (heavy)
-                    from bot.Cloud import (send_dequeue_tasks_to_cloud, send_schedule_request_to_cloud,
-                                          send_update_missions_ex_status_to_cloud, set_up_cloud, upload_file)
+                    from agent.cloud_api.cloud_api import (send_dequeue_tasks_to_cloud, send_schedule_request_to_cloud,
+                                          set_up_cloud, upload_file)
                     modules.append("Cloud services")
                     
                     # Bot module imports (heavy)
-                    from bot.WorkSkill import WORKSKILL
-                    from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle
-                    from bot.basicSkill import processExternalHook, symTab, STEP_GAP
-                    from bot.genSkills import genSkillCode, getWorkRunSettings
-                    from bot.inventories import INVENTORY
-                    from bot.wanChat import wanSendMessage, wanSendMessage8
-                    from bot.network import myname, fieldLinks, commanderIP
-                    from bot.readSkill import RAIS, ARAIS, first_step
                     modules.append("Bot core modules")
                     
                     # Agent database (very heavy)
