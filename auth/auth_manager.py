@@ -9,7 +9,7 @@ import os
 import base64
 from os.path import exists
 
-from bot.envi import getECBotDataHome
+from config.envi import getECBotDataHome
 
 from auth.cognito.cognito_service import CognitoService
 from auth.oauth.local_oauth_server import LocalOAuthServer

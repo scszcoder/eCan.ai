@@ -1,8 +1,8 @@
 import json
 import os
 import base64
-
-from bot.envi import getECBotDataHome
+import requests
+from config.envi import getECBotDataHome
 from utils.logger_helper import logger_helper as logger
 import traceback
 from config.constants import API_DEV_MODE

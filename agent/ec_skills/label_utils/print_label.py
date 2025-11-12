@@ -17,8 +17,8 @@ from PIL import Image, ImageFont, ImageDraw
 from pdf2image import convert_from_path
 from concurrent.futures import ThreadPoolExecutor
 
-from bot.basicSkill import genStepHeader, DEFAULT_RUN_STATUS, symTab, STEP_GAP, genStepStub, genStepCallExtern, genStepCreateData
-from bot.Logger import log3
+from utils.logger_helper import logger_helper as logger
+from utils.logger_helper import get_traceback
 import fitz
 
 
@@ -217,7 +217,7 @@ def reformat_label_pdf(working_dir, pdffile, site, order_data, product_book, fon
         pvqs_name = genPVQSText(site, all_orders[i], product_book)
 
         prefix = "ebay_"+r_name+pvqs_name
-        # log3(json.dumps(sub))
+        # logger.debug(json.dumps(sub))
 
 
         # img = cv2.imread(working_dir + 'page0.jpg')
@@ -241,7 +241,7 @@ def reformat_label_pdf(working_dir, pdffile, site, order_data, product_book, fon
         for cntr in contours:
             x, y, w, h = cv2.boundingRect(cntr)
             cv2.rectangle(result, (x, y), (x + w, y + h), (0, 0, 255), 2)
-            log3("x,y,w,h:" + str(x) + " " + str(y) + " " + str(w) + " " + str(h))
+            logger.debug("[reformat_label_pdf] x,y,w,h:" + str(x) + " " + str(y) + " " + str(w) + " " + str(h))
 
         # save resulting image
         # cv2.imwrite(working_dir+'rect.jpg', result)
@@ -298,10 +298,10 @@ def reformat_label_pdf(working_dir, pdffile, site, order_data, product_book, fon
 def win_print_labels0(label_dir, printer, site, order_data, product_book, txt_font_path, txt_font_size):
 
     working_dir = label_dir
-    log3(working_dir)
+    logger.debug("[win_print_labels0] working_dir: ", working_dir)
     for file in os.listdir(working_dir):
         if file.startswith(site) and file.endswith(".pdf"):
-            log3(file)
+            logger.debug("[win_print_labels0] file: ", file)
 
             pdf_name, wpdf_name = reformat_label_pdf(working_dir, file, site, order_data, product_book, txt_font_path, txt_font_size)
 
@@ -312,7 +312,7 @@ def win_print_labels0(label_dir, printer, site, order_data, product_book, txt_fo
             else:
                 currentprinter = printer
 
-            log3(currentprinter)
+            logger.debug("[win_print_labels0] current printer: ", currentprinter)
 
             # the following command print silently.
             # C:\"Program Files"\gs\gs9.54.0\bin\gswin64c.exe  -dPrinted -dNoCancel -dBATCH -dNOPAUSE -dNOSAFER -q -dNumCopies=1 -dQueryUser=3 -sDEVICE=mswinpr2  testImage.pdf
@@ -332,14 +332,14 @@ def win_print_labels0(label_dir, printer, site, order_data, product_book, txt_fo
             from utils.subprocess_helper import run_no_window
             run_no_window(ghostscript, shell=True)
         else:
-            log3('file name format error:' + file)
+            logger.debug('[win_print_labels0] file name format error:' + file)
 
 
 def get_printers():
     return [printer[2] for printer in win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)]
 
 def print_pdf_sync(file_path, printer_name):
-    print(f"Printing {file_path} to {printer_name}")
+    logger.debug(f"[print_pdf_sync] Printing {file_path} to {printer_name}")
     if printer_name:
         # Set the specified printer as the default printer
         win32print.SetDefaultPrinter(printer_name)
@@ -359,7 +359,7 @@ async def print_pdf(file_path, printer_name):
         await loop.run_in_executor(pool, print_pdf_sync, file_path, printer_name)
 
 def add_text_to_img(in_img, text, text_loc, font_full_path="", default_font_name="arial.ttf", font_size=28):
-    print("Adding Text to image:", text)
+    logger.debug("[add_text_to_img] Adding Text to image:", text)
     pil_image = Image.fromarray(in_img)
     draw = ImageDraw.Draw(pil_image)
     if font_full_path:
@@ -382,10 +382,10 @@ async def win_print_labels1(label_dir, printers, ecsite, order_data, product_boo
     try:
         tasks = []
         working_dir = label_dir
-        log3("label dir:"+working_dir)
+        logger.debug("[win_print_labels1] label dir:"+working_dir)
         for pdf_file in os.listdir(working_dir):
             if pdf_file.startswith(ecsite) and pdf_file.endswith(".pdf"):
-                log3("working on label:"+pdf_file)
+                logger.debug("[win_print_labels1]working on label:"+pdf_file)
                 modified_pdfs, wpdf_names = reformat_label_pdf(working_dir, pdf_file, ecsite, order_data, product_book, txt_font_path, txt_font_size)
                 for modified_pdf in modified_pdfs:
                     if check_printer_status(printers[0]):
@@ -395,19 +395,14 @@ async def win_print_labels1(label_dir, printers, ecsite, order_data, product_boo
                     elif len(printers) > 2 and check_printer_status(printers[2]):
                         tasks.append(print_pdf(modified_pdf, printers[2]))
                     else:
-                        print(f"No available printers for {pdf_file}")
+                        print(f"[win_print_labels1] No available printers for {pdf_file}")
 
         if tasks:
             await asyncio.gather(*tasks)
     except Exception as e:
         # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorPrintLabels1:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorPrintLabels1: traceback information not available:" + str(e)
-        log3(ex_stat)
+        ex_stat = get_traceback(e, "ErrorWinPrintLabels1")
+        logger.error(f"{ex_stat}")
 
     return ex_stat
 
@@ -421,36 +416,31 @@ def sync_win_print_labels1(label_dir, printer, ecsite, order_data, product_book,
         else:
             printers = [printer]
 
-        print("printers are:", printers)
+        logger.debug("[sync_win_print_labels1] printers are:", printers)
 
         working_dir = label_dir
-        log3("label dir:"+working_dir)
+        logger.debug("[sync_win_print_labels1] label dir:"+working_dir)
         for pdf_file in os.listdir(working_dir):
             if pdf_file.startswith(ecsite) and pdf_file.endswith(".pdf"):
-                log3("working on label:"+pdf_file)
+                logger.debug("[sync_win_print_labels1] working on label:"+pdf_file)
                 modified_pdfs, wpdf_names = reformat_label_pdf(working_dir, pdf_file, ecsite, order_data, product_book, txt_font_path, txt_font_size)
                 files_tbp = files_tbp + modified_pdfs
 
         if files_tbp:
             for file_path in files_tbp:
                 if check_printer_status(printers[0]):
-                    print("printing:"+file_path+" on printer: "+printers[0])
+                    logger.debug("[sync_win_print_labels1] printing:"+file_path+" on printer: "+printers[0])
                     # print_pdf_sync(file_path, printers[0])
                 elif len(printers) > 1 and check_printer_status(printers[1]):
-                    print("printing:" + file_path + " on printer: " + printers[1])
+                    logger.debug("[sync_win_print_labels1] printing:" + file_path + " on printer: " + printers[1])
                     print_pdf_sync(file_path, printers[1])
                 elif len(printers) > 2 and check_printer_status(printers[2]):
-                    print("printing:" + file_path + " on printer: " + printers[2])
+                    logger.debug("[sync_win_print_labels1] printing:" + file_path + " on printer: " + printers[2])
                     print_pdf_sync(file_path, printers[2])
 
     except Exception as e:
         # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorPrintLabels1:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorPrintLabels1: traceback information not available:" + str(e)
-        log3(ex_stat)
+        ex_stat = get_traceback(e, "ErrorSyncWinPrintLabels1")
+        logger.error(f"{ex_stat}")
 
     return ex_stat
