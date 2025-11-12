@@ -69,7 +69,7 @@ pytesseract==0.3.13
 # ============================================================================
 selenium>=4.30.0
 playwright==1.54.0
-browser-use==0.5.5
+browser-use==0.9.5
 crawl4ai==0.7.1
 webdriver-manager>=4.0.2
 fake-useragent==2.2.0
