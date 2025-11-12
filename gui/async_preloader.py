@@ -273,7 +273,6 @@ class AsyncPreloader:
                     modules.append("Cloud services")
                     
                     # Bot module imports (heavy)
-                    from bot.Logger import log3
                     from bot.WorkSkill import WORKSKILL
                     from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle
                     from bot.basicSkill import processExternalHook, symTab, STEP_GAP

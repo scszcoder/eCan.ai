@@ -27,7 +27,6 @@ import base64
 
 from agent.chats.chat_utils import gui_a2a_send_chat
 from agent.ec_skills.file_utils.file_utils import extract_file_text
-from bot.Logger import *
 from agent.ec_skill import NodeState, WorkFlowContext, EC_Skill, node_builder
 from agent.ec_skills.dev_defs import BreakpointManager
 

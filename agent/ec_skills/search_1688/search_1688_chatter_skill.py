@@ -11,7 +11,6 @@ from langchain_core.messages.utils import (
 
 import base64
 from agent.ec_skills.file_utils.file_utils import extract_file_text
-from bot.Logger import *
 from agent.ec_skill import *
 from agent.agent_service import get_agent_by_id
 from typing import Literal
