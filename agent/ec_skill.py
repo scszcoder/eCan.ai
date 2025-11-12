@@ -5,7 +5,7 @@ from typing import  Annotated
 from pydantic import ConfigDict, Field
 import uuid
 from langgraph.graph import StateGraph
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langmem.short_term import RunningSummary
 
 

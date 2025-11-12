@@ -1,6 +1,6 @@
 from langgraph.graph import END, StateGraph, START
 from langchain_core.messages import AIMessage, HumanMessage
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langgraph.prebuilt import create_react_agent
 # from sqlalchemy.testing.suite.test_reflection import metadata
 from browser_use.agent.message_manager.utils import save_conversation

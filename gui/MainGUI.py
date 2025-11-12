@@ -74,7 +74,6 @@ from common.services import ProductService, VehicleService
 # ============================================================================
 # 7. GUI Manager Imports
 # ============================================================================
-# from gui.VehicleMonitorGUI import VehicleMonitorManager
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui #2 finished...")
 
@@ -463,10 +462,7 @@ class MainWindow:
             )
 
             # Phase 2C: Extensions and plugins (can run in parallel)
-            logger.info("[MainWindow] 🔌 Loading extensions and plugins...")
-            extensions_task = asyncio.get_event_loop().run_in_executor(
-                None, self._init_extensions_and_plugins
-            )
+
 
             # Phase 2D: Server and agent initialization (heavy operations)
             logger.info("[MainWindow] 🤖 Initializing servers and agents...")
@@ -475,7 +471,6 @@ class MainWindow:
             )
 
             # Wait for remaining parallel services to complete
-            await extensions_task
             await servers_task
 
             self._initialization_status['critical_services_ready'] = True
@@ -1016,7 +1011,7 @@ class MainWindow:
             engine = init_db(self.dbfile)
             session = get_session(engine)
             db_init_time = time.time() - start_time
-            logger.info(f"[MainWindow] 🗄️ ecbot Database engine created in {db_init_time:.3f}s")
+            logger.info(f"[MainWindow] 🗄️ ecb Database engine created in {db_init_time:.3f}s")
 
             # Store engine and session for service initialization
             self._db_engine = engine
@@ -1151,11 +1146,8 @@ class MainWindow:
         self.agent_knowledges = []
 
         # Bot and mission management
-        self.bots = []
         self.missions = []
-        self.skills = []
         self.vehicles = []
-        self.platoons = []
         self.products = []
         self.inventories = []
 
@@ -1182,18 +1174,14 @@ class MainWindow:
 
         # Bot states and profiles
         self.bot_states = ["active", "disabled", "banned", "deleted"]
-        self.todays_bot_profiles = []
-        self.bot_cookie_site_lists = {}
 
         # Working state
-        self.botRank = "soldier"
         self.rpa_work_assigned_for_today = False
         self.running_mission = None
         self.botsFingerPrintsReady = False
         self.default_webdriver = None
         self.working_state = "running_idle"
         self.staff_officer_on_line = False
-        self.DONE_WITH_TODAY = True
 
         # Utility objects
         from lzstring import LZString
@@ -1202,7 +1190,6 @@ class MainWindow:
 
         # Data files
         self.sellerInventoryJsonData = None
-        self.botJsonData = None
         self.fetch_schedule_counter = 1
 
         logger.info("[MainWindow] ✅ Business objects initialized")
@@ -1258,6 +1245,7 @@ class MainWindow:
                 self._should_start_cloud_sync = False
                 
         logger.info("[MainWindow] ✅ Local data loading completed")
+
 
     def _init_task_management(self):
         """Initialize task and work management"""
@@ -1376,7 +1364,7 @@ class MainWindow:
             logger.info("[MainWindow] Started commander serving task")
 
         # Initialize core monitoring and communication tasks
-        self.monitor_task = asyncio.create_task(self.runRPAMonitor(self.gui_monitor_msg_queue))
+        self.monitor_task = asyncio.create_task(self.runAgentsMonitor(self.gui_monitor_msg_queue))
         self.chat_task = asyncio.create_task(self.connectChat(self.gui_chat_msg_queue))
 
         # Initialize core async tasks (non-blocking)
@@ -1440,32 +1428,12 @@ class MainWindow:
         try:
             logger.info("[MainWindow] 🌐 Starting background cloud data synchronization...")
 
-            # Sync bot data
-            logger.info("📥 Syncing bot data from cloud...")
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                self.session,
-                self.get_auth_token(),
-                self
-            )
-
-
-            # Sync mission data
-            logger.info("[MainWindow] 📥 Syncing mission data from cloud...")
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                self.session,
-                self.get_auth_token(),
-                self
-            )
+            # Sync data
+            logger.info("📥 Syncing data from cloud...")
 
             # Reload local missions after cloud sync
-            logger.info("[MainWindow] 🔄 Reloading mission data after cloud sync...")
-            self.loadLocalMissions(missions_data)
-            logger.info(f"[MainWindow] ✅ Mission cloud sync completed - {len(missions_data)} missions loaded")
 
             # Update UI to reflect new data
-            logger.info("[MainWindow] Cloud data sync completed successfully")
             logger.info("[MainWindow] 🎉 Background cloud data synchronization completed successfully!")
 
         except Exception as e:
@@ -2208,9 +2176,12 @@ class MainWindow:
             logger.info(f"[MainWindow] Released agent ports: {ports}")
         except Exception as e:
             logger.warning(f"[MainWindow] Failed to release ports {ports}: {e}")
+
+
     def save_agent_skill(self, skill):
         from agent.ec_skills.save_agent_skills import save_agent_skills
         return save_agent_skills(self, [skill])
+
 
     async def _get_mcp_tools_direct(self):
         """Direct MCP tools retrieval using original method"""
@@ -2895,37 +2866,12 @@ class MainWindow:
 
     # SC note - really need to have
     async def run_async_tasks(self):
-        if self.host_role != "Staff Officer":
-            self.rpa_task = asyncio.create_task(self.runbotworks(self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
-            self.manager_task = asyncio.create_task(self.runmanagerworks(self.gui_manager_msg_queue, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
-
-        else:
-            self.rpa_task = asyncio.create_task(self.wait_forever())
-
-        # all_tasks = [self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task]
-        all_tasks = [self.peer_task, self.monitor_task, self.chat_task, self.rpa_task]
-
-        # atasks = []
-        # for ag in self.agents:
-        #     for task in ag.tasks:
-        #         if task.trigger == "schedule":
-        #             all_tasks.append(asyncio.create_task(ag.runner.launch_scheduled_run(task)))
-        #         # await loop.run_in_executor(threading.Thread(), await self.runner.launch_scheduled_run(task), True)
-        #         elif task.trigger == "message":
-        #             all_tasks.append(asyncio.create_task(ag.runner.launch_reacted_run(task)))
-        #         # await loop.run_in_executor(threading.Thread(), await self.runner.launch_reacted_run(task), True)
-        #         elif task.trigger == "interaction":
-        #             all_tasks.append(asyncio.create_task(ag.runner.launch_interacted_run(task)))
-        #         # await loop.run_in_executor(threading.Thread(), await self.runner.launch_interacted_run(task), True)
-        #         else:
-        #             print("WARNING: UNRECOGNIZED task trigger type....")
-
+        all_tasks = [self.peer_task, self.monitor_task, self.chat_task]
         await asyncio.gather(*all_tasks)
 
 
     def get_helper_agent(self):
         return self.helper_agent
-
 
 
     def translateSiteName(self, site_text):
@@ -3438,7 +3384,7 @@ class MainWindow:
         to_cancel = []
         for name in (
             'lan_task', 'peer_task', 'monitor_task', 'chat_task', 'wan_sub_task',
-            'rpa_task', 'manager_task', 'wan_chat_task', 'llm_sub_task', 'cloud_show_sub_task'
+            'wan_chat_task', 'llm_sub_task', 'cloud_show_sub_task'
         ):
             try:
                 t = getattr(self, name, None)
@@ -3549,7 +3495,7 @@ class MainWindow:
         # Clear data collections
         try:
             data_attrs = [
-                'agents', 'botJsonData', 'sellerInventoryJsonData', 'mcp_tools_schemas',
+                'agents', 'sellerInventoryJsonData', 'mcp_tools_schemas',
                 'todays_work', 'reactive_work'
             ]
             for attr in data_attrs:
@@ -3796,12 +3742,6 @@ class MainWindow:
             logger.error(f"[MainWindow] Failed to save vehicle {vehicle.getName()}: {e}")
             raise  # Re-raise the exception to make the error visible
 
-    def fetchVehicleStatus(self, rows):
-        cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
-        effective_rows = list(filter(lambda r: r >= 0, rows))
-        if len(effective_rows) > 0:
-            self.sendToPlatoonsByRowIdxs(effective_rows, cmd)
-
     def sendPlatoonCommand(self, command, rows, mids):
         self.showMsg("hello???")
         if command == "refresh":
@@ -3834,12 +3774,6 @@ class MainWindow:
         self.sendToPlatoonsByRowIdxs(effective_rows, cmd)
 
 
-    def cancelVehicleMission(self, rows):
-        # cmd = '{\"cmd\":\"reqCancelMission\", \"missions\":\"all\"}'
-        cmd = {"cmd": "reqCancelMission", "missions": "all"}
-        effective_rows = list(filter(lambda r: r >= 0, rows))
-        if len(effective_rows) > 0:
-            self.sendToPlatoonsByRowIdxs(effective_rows, cmd)
 
 
     # this function sends commands to platoon(s)
@@ -3856,6 +3790,9 @@ class MainWindow:
         else:
             self.showMsg("Warning..... TCP server not up and running yet...")
 
+    def getVehicleByName(self, vname):
+        found_vehicle = next((v for i, v in enumerate(self.vehicles) if v.getName() == vname), None)
+        return found_vehicle
 
     def readVehicleJsonFile(self):
         self.showMsg("Reading Vehicle Json File: "+self.VEHICLES_FILE)
@@ -3984,26 +3921,6 @@ class MainWindow:
 
 
 
-    def matchSkill(self, sk_long_name, sk):
-        sk_words = sk_long_name.split("_")
-        sk_name = "_".join(sk_words[4:])
-        if sk.getPlatform() == sk_words[0] and sk.getApp() == sk_words[1] and sk.getSiteName() == sk_words[2] and sk.getName() == sk_name:
-            return True
-        else:
-            return False
-
-
-    def checkIsMain(self, sk_long_name):
-        is_main = False
-        # first find out the skill based on sk_long_name.
-        sk = next((x for x in self.skills if self.matchSkill(sk_long_name, x)), None)
-        # then check whether this is a main skill
-        if sk:
-            if sk.getIsMain():
-                is_main = True
-
-        return is_main
-
     def newProductsFromFile(self):
 
         self.showMsg("loading products from a local file or DB...")
@@ -4113,20 +4030,6 @@ class MainWindow:
 
 
 
-    #update a vehicle's missions status
-    # rx_data is a list of mission status for each mission that belongs to the vehicle.
-    def updateVMStats(self, rx_data):
-        foundV = None
-        for v in self.vehicles:
-            if v.getIP() == rx_data["ip"]:
-                logger.debug("found vehicle by IP", "runbotworks", self)
-                foundV = v
-                break
-
-        if foundV:
-            logger.debug("updating vehicle Mission status...", "runbotworks", self)
-            foundV.setMStats(rx_data)
-
 
 
     # msg in json format
@@ -4192,8 +4095,6 @@ class MainWindow:
                     self.platoonWin.show()
                 else:
                     self.showMsg("ERROR: platoon win not yet exists.......")
-
-                self.updateVMStats(msg)
 
                 # update mission status to the cloud and to local data structure and to chat？
                 # "mid": mid,
@@ -4452,7 +4353,7 @@ class MainWindow:
 
     def getAgentV(self, agent):
         if agent.get_vehicle():
-            return agentbot.get_vehicle()
+            return agent.get_vehicle()
         else:
             return ""
 
@@ -4460,12 +4361,12 @@ class MainWindow:
         thisAgents = [a for a in self.agents if self.machine_name in self.getAgentV(a) ]
         return thisAgents
 
-    def getBidsOnThisVehicle(self):
-        thisBots = self.getBotsOnThisVehicle()
-        thisBids = [b.getBid() for b in thisBots]
-        thisBidsString = json.dumps(thisBids)
-        self.showMsg("bids on this vehicle:"+thisBidsString)
-        return thisBidsString
+    def getAgentIdsOnThisVehicle(self):
+        thisAgents = self.getAgentsOnThisVehicle()
+        thisAgentIds = [a.card.id for a in thisAgents]
+        thisAgentIdsString = json.dumps(thisAgentIds)
+        self.showMsg("agent ids on this vehicle:"+thisAgentIdsString)
+        return thisAgentIdsString
 
     def prepFullVehicleReportData(self):
         print("prepFullVehicleReportData...")
@@ -4499,7 +4400,7 @@ class MainWindow:
                         "status": self.working_state,
                         "lastseen": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
                         "functions": self.functions,
-                        "bids": self.getBidsOnThisVehicle(),
+                        "bids": self.getAgentIdsOnThisVehicle(),
                         "hardware": self.processor,
                         "software": self.platform,
                         "ip": self.ip,
@@ -4577,7 +4478,7 @@ class MainWindow:
 
 
     # this is the interface to the chatting bots, taking message from the running bots and display them on GUI
-    async def runRPAMonitor(self, monitor_msg_queue):
+    async def runAgentsMonitor(self, monitor_msg_queue):
         running = True
         ticks = 0
         while running:
@@ -5315,19 +5216,6 @@ class MainWindow:
 
 
 
-    def generate_key_from_string(self, password: str) -> bytes:
-        """Generate a 32-byte key from the given string (password) using a key derivation function."""
-        password = password.encode()  # Convert string to bytes
-        salt = b'some_salt_value'  # You can generate this securely if you want, here it's fixed for simplicity
-        kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=salt,
-            iterations=100000,
-        )
-        key = base64.urlsafe_b64encode(kdf.derive(password))
-        return key
-
     def encrypt_string(self, key: bytes, plaintext: str) -> str:
         """Encrypt the given plaintext using the derived key."""
         fernet = Fernet(key)
@@ -5342,14 +5230,6 @@ class MainWindow:
 
 
 
-    def generateShortHash(self, text: str, length: int = 32) -> str:
-        """Generate a fixed-length hash for the input text."""
-        hash_obj = hashlib.sha256(text.encode())
-        hashed_bytes = hash_obj.digest()
-        # Encode in base64 to make it URL-safe and take the desired length
-        hashed = base64.urlsafe_b64encode(hashed_bytes).decode()[:length]
-        # logger.debug("hashed:"+hashed)
-        return hashed
 
 
     def isPlatoon(self):
@@ -5368,10 +5248,6 @@ class MainWindow:
 
     def vehiclePing(self, vehicle):
         self.sendToVehicleByVip(vehicle.getIP())
-
-
-
-
 
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui all finished...")
