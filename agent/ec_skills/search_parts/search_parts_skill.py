@@ -1,6 +1,5 @@
 from langgraph.constants import START, END
 from langgraph.prebuilt import create_react_agent
-from bot.Logger import *
 from agent.ec_skill import *
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback

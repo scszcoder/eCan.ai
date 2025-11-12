@@ -1,5 +1,4 @@
 from prompt_toolkit import prompt
-from bot.Logger import *
 from agent.ec_skill import *
 from bot.adsAPISkill import startADSWebDriver, queryAdspowerProfile
 from bot.seleniumSkill import execute_js_script

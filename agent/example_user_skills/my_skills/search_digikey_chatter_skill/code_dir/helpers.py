@@ -9,7 +9,7 @@ from langgraph.store.base import BaseStore
 from langgraph.errors import GraphInterrupt
 from langgraph.types import interrupt
 from utils.logger_helper import logger_helper as logger
-from bot.Logger import get_traceback
+from utils.logger_helper import get_traceback
 from agent.ec_skill import NodeState, WorkFlowContext
 from agent.agent_service import get_agent_by_id
 from agent.mcp.local_client import mcp_call_tool
