@@ -1,0 +1,21 @@
+{
+  "id": "win_chrome_01",
+  "description": "Windows 10 Chrome-like desktop profile",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36",
+  "viewport": { "width": 1920, "height": 1080 },
+  "deviceScaleFactor": 1,
+  "isMobile": false,
+  "timezone": "America/New_York",
+  "locale": "en-US",
+  "platform": "Win32",
+  "hardwareConcurrency": 8,
+  "deviceMemory": 8,
+  "canvasNoiseSeed": "winc_seed_001",
+  "webgl": {
+    "vendor": "Intel Inc.",
+    "renderer": "Intel(R) UHD Graphics"
+  },
+  "proxy": null,
+  "cookies_file": null,
+  "notes": "General desktop Chrome fingerprint for US users"
+}

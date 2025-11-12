@@ -1,0 +1,25 @@
+{
+  "id": "linux_chrome_01",
+  "description": "Linux Chrome headful profile (desktop)",
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+  "viewport": { "width": 1366, "height": 768 },
+  "deviceScaleFactor": 1,
+  "isMobile": false,
+  "timezone": "Europe/Amsterdam",
+  "locale": "nl-NL",
+  "platform": "Linux x86_64",
+  "hardwareConcurrency": 4,
+  "deviceMemory": 4,
+  "canvasNoiseSeed": "linux_seed_021",
+  "webgl": {
+    "vendor": "NVIDIA Corporation",
+    "renderer": "NVIDIA GeForce"
+  },
+  "proxy": {
+    "server": "http://proxy-eu.example:3128",
+    "username": "proxyuser",
+    "password": "proxypass"
+  },
+  "cookies_file": null,
+  "notes": "Use for EU-targeted runs (example includes proxy)"
+}
