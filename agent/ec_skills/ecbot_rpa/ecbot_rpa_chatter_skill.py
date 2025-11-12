@@ -1,7 +1,7 @@
 import traceback
 from mcp.client.session import ClientSession
 from langchain_core.messages import HumanMessage
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langgraph.prebuilt import create_react_agent
 from langgraph.graph import END, StateGraph, START
 from agent.ec_skill import *
