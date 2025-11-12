@@ -4,7 +4,7 @@ import shutil
 from config.constants import RESOURCE, FOLDER_SKILLS, FOLDER_SETTINGS, FOLDER_RUNLOGS, FOLDER_DATA, APP_NAME
 from config.app_info import app_info
 from pathlib import Path
-from bot.envi import getECBotDataHome
+from config.envi import getECBotDataHome
 
 # Define the data home path at the module level so it can be imported by other modules.
 ecb_data_homepath = getECBotDataHome()

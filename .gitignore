@@ -10,6 +10,7 @@ venv/
 /resource/testdata/
 /build
 /dist
+/bot
 *.spec
 test.py
 /resource/skills/public/*/*.psk

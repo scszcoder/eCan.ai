@@ -53,17 +53,9 @@ from agent.mcp.server.scrapers.selenium_search_component import (
 from agent.mcp.server.utils.print_utils import reformat_and_print_labels
 from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
 from app_context import AppContext
-from bot.adsAPISkill import queryAdspowerProfile, startADSWebDriver
-from bot.basicSkill import (
-    carveOutImage,
-    maskOutImage,
-    mousePressAndHold,
-    mousePressAndHoldOnScreenWord,
-    readRandomWindow8,
-    saveImageToFile,
-    takeScreenShot,
-)
-from bot.seleniumSkill import *
+from agent.mcp.server.ads_power.ads_power import queryAdspowerProfile, startADSWebDriver
+from agent.ec_skills.ocr.image_prep import carveOutImage, maskOutImage, saveImageToFile, takeScreenShot, readRandomWindow8
+from agent.ec_skills.ocr.post_ocr import  mousePressAndHoldOnScreenWord
 from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
 from .event_store import InMemoryEventStore

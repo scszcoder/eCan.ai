@@ -9,8 +9,8 @@ print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui start...")
 
 from auth.auth_manager import AuthManager
 from config.app_info import app_info
-from bot.envi import getECBotDataHome
-from bot.network import commanderIP
+from config.envi import getECBotDataHome
+from agent.network.network import commanderIP
 import asyncio
 
 
