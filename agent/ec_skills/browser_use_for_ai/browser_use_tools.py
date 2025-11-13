@@ -3,11 +3,11 @@ import asyncio
 from utils.logger_helper import logger_helper as logger
 from browser_use.agent.views import ActionModel, ActionResult
 from playwright.async_api import ElementHandle
-from browser_use.dom.views import DOMElementNode
+from browser_use.dom.views import DOMInteractedElement
 from pydantic import create_model
 import markdownify
 
-async def browser_use_locate_element(mainwin, element: DOMElementNode) -> ElementHandle | None:
+async def browser_use_locate_element(mainwin, element: DOMInteractedElement) -> ElementHandle | None:
     found = await mainwin.browser_session.get_locate_element(element)
     return found
 async def browser_use_wait_for_element(mainwin, element):
