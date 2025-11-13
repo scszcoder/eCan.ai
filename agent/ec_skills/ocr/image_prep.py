@@ -2,6 +2,272 @@
 from agent.cloud_api.cloud_api import send_query_chat_request_to_cloud8, upload_file, req_cloud_read_screen, \
     upload_file8, req_cloud_read_screen8, send_query_chat_request_to_cloud, download_file, send_reg_steps_to_cloud
 from agent.cloud_api.lan_api import req_lan_read_screen8
+from datetime import datetime
+import platform
+import os
+import subprocess
+import io
+import sys
+import json
+from utils.lazy_import import lazy
+from utils.path_manager import path_manager
+from agent.ec_skills.sys_utils.sys_utils import symTab
+
+from utils.logger_helper import logger_helper as logger
+
+_mac_screen_perm_prompted = False
+screen_loc = (0, 0)
+
+# ---- Minimal stubs for missing helpers (to be replaced with real implementations) ----
+def get_top_visible_window(win_title_keyword: str):
+    """
+    Return (window_title, [x, y, w, h]) for the top visible window matching the keyword.
+    Cross-platform with macOS/Windows specific implementations; fallback to full screen.
+    """
+    try:
+        min_w, min_h = 300, 200
+        if sys.platform == 'win32':
+            try:
+                import win32gui  # type: ignore
+            except Exception:
+                size = lazy.pyautogui.size()
+                return (win_title_keyword or "", [0, 0, size[0], size[1]])
+
+            candidates = []
+            def _enum_handler(hwnd, _):
+                if win32gui.IsWindowVisible(hwnd):
+                    t = win32gui.GetWindowText(hwnd)
+                    if t:
+                        try:
+                            l, tpy, r, b = win32gui.GetWindowRect(hwnd)
+                            w = max(0, r - l)
+                            h = max(0, b - tpy)
+                            candidates.append((t, hwnd, w * h, [l, tpy, w, h]))
+                        except Exception:
+                            pass
+
+            win32gui.EnumWindows(_enum_handler, None)
+
+            # If keyword provided, pick first match; else pick the largest window above threshold
+            if win_title_keyword:
+                low = win_title_keyword.lower()
+                for t, hwnd, area, rect in candidates:
+                    if low in t.lower():
+                        return (t, rect)
+            # filter out tiny windows and pick largest by area
+            large = [c for c in candidates if c[2] >= min_w * min_h]
+            chosen = max(large, key=lambda x: x[2]) if large else (candidates[0] if candidates else None)
+            if chosen:
+                return (chosen[0], chosen[3])
+
+            size = lazy.pyautogui.size()
+            return (win_title_keyword or "", [0, 0, size[0], size[1]])
+
+        elif sys.platform == 'darwin':
+            try:
+                from Quartz import CGWindowListCopyWindowInfo, kCGWindowListOptionOnScreenOnly, kCGNullWindowID  # type: ignore
+            except Exception:
+                size = lazy.pyautogui.size()
+                return (win_title_keyword or "", [0, 0, size[0], size[1]])
+
+            windows = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
+            candidates = []
+            for w in windows or []:
+                title = w.get('kCGWindowName') or ''
+                bounds = w.get('kCGWindowBounds') or {}
+                x = int(bounds.get('X', 0))
+                y = int(bounds.get('Y', 0))
+                width = int(bounds.get('Width', 0))
+                height = int(bounds.get('Height', 0))
+                area = max(0, width) * max(0, height)
+                owner = w.get('kCGWindowOwnerName') or ''
+                # Filter out likely utility/system windows by tiny size
+                candidates.append((title, owner, area, [x, y, width, height]))
+
+            if win_title_keyword:
+                kw = win_title_keyword.lower()
+                for t, owner, area, rect in candidates:
+                    if isinstance(t, str) and kw in t.lower():
+                        return (t, rect)
+
+            # pick the largest window above threshold
+            large = [c for c in candidates if c[2] >= min_w * min_h]
+            chosen = max(large, key=lambda x: x[2]) if large else (candidates[0] if candidates else None)
+            if chosen:
+                return (chosen[0], chosen[3])
+
+            size = lazy.pyautogui.size()
+            return (win_title_keyword or "", [0, 0, size[0], size[1]])
+
+        else:
+            size = lazy.pyautogui.size()
+            return (win_title_keyword or "", [0, 0, size[0], size[1]])
+    except Exception:
+        try:
+            size = lazy.pyautogui.size()
+            return (win_title_keyword or "", [0, 0, size[0], size[1]])
+        except Exception:
+            return (win_title_keyword or "", [0, 0, 0, 0])
+
+
+def findRef(ref_name, img_mark_up):
+    """
+    Find entries in img_mark_up whose name matches ref_name (or prefix match before '!').
+    Expected return: list of dicts. Stub: simple filter on 'name'.
+    """
+    if not img_mark_up:
+        return []
+    results = []
+    for item in img_mark_up:
+        try:
+            name = item.get("name", "")
+            base = name.split("!")[0]
+            if name == ref_name or base == ref_name:
+                results.append(item)
+        except Exception:
+            continue
+    return results
+
+
+def findBoundBox(boxes):
+    """
+    Merge multiple boxes into a bounding box.
+    Input boxes expected as [top, left, bottom, right] or [left, top, right, bottom].
+    Stub: tries to handle both by inferring min/max.
+    Returns [left, top, right, bottom].
+    """
+    if not boxes:
+        return [0, 0, 0, 0]
+    # Normalize and merge
+    lefts, tops, rights, bottoms = [], [], [], []
+    for b in boxes:
+        if not isinstance(b, (list, tuple)) or len(b) < 4:
+            continue
+        # Heuristic: if b[0] < b[2] and b[1] < b[3] it's [top,left,bottom,right], else try [left,top,right,bottom]
+        if b[0] <= b[2] and b[1] <= b[3]:
+            top, left, bottom, right = b[0], b[1], b[2], b[3]
+        else:
+            left, top, right, bottom = b[0], b[1], b[2], b[3]
+        lefts.append(int(left))
+        tops.append(int(top))
+        rights.append(int(right))
+        bottoms.append(int(bottom))
+    if not lefts:
+        return [0, 0, 0, 0]
+    return [min(lefts), min(tops), max(rights), max(bottoms)]
+
+
+def check_macos_screen_recording_permission():
+    """
+    Check macOS screen recording permission.
+    Returns: (has_permission: bool, app_name: Optional[str], python_path: str)
+    """
+    if platform.system() != "Darwin":
+        return True, None, sys.executable
+
+    python_path = sys.executable
+
+    # Method 1: Native API if available
+    try:
+        from Quartz import CGPreflightScreenCaptureAccess  # type: ignore
+        ok = CGPreflightScreenCaptureAccess()
+        if ok:
+            logger.info("macOS screen recording permission granted (native API)")
+            return True, None, python_path
+    except Exception as e:
+        logger.debug(f"Native permission check unavailable: {e}")
+
+    # Method 2: screencapture tiny region
+    try:
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            result = subprocess.run(
+                ['screencapture', '-x', '-R', '0,0,1,1', tmp_path],
+                capture_output=True,
+                timeout=2
+            )
+            if result.returncode == 0 and os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
+                logger.info("macOS screen recording permission granted (screencapture)")
+                os.unlink(tmp_path)
+                return True, None, python_path
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.debug(f"screencapture test failed: {e}")
+
+    # Method 3: pyautogui tiny screenshot
+    try:
+        test_img = lazy.pyautogui.screenshot(region=(0, 0, 1, 1))
+        if test_img and test_img.size[0] > 0 and test_img.size[1] > 0:
+            logger.info("macOS screen recording permission granted (pyautogui)")
+            return True, None, python_path
+    except Exception as e:
+        logger.debug(f"pyautogui permission test failed: {e}")
+
+    # Determine app name for guidance
+    app_name = "Python"
+    try:
+        if getattr(sys, 'frozen', False):
+            app_name = "eCan"
+        else:
+            if 'TERM_PROGRAM' in os.environ:
+                term_program = os.environ['TERM_PROGRAM']
+                tl = term_program.lower()
+                if 'cursor' in tl:
+                    app_name = "Cursor"
+                elif 'vscode' in tl:
+                    app_name = "Visual Studio Code"
+                elif 'pycharm' in tl:
+                    app_name = "PyCharm"
+            if 'Cursor' in python_path:
+                app_name = "Cursor"
+            elif 'Visual Studio Code' in python_path or 'VSCode' in python_path:
+                app_name = "Visual Studio Code"
+            elif 'PyCharm' in python_path:
+                app_name = "PyCharm"
+            elif '/Library/Frameworks/Python.framework' in python_path:
+                app_name = "Python (Official)"
+            else:
+                app_name = f"Python ({os.path.basename(python_path)})"
+    except Exception as e:
+        logger.debug(f"Failed to detect app name: {e}")
+
+    return False, app_name, python_path
+
+
+def show_macos_permission_guide(app_name: str, python_path: str):
+    """Show macOS screen recording permission setup guide."""
+    try:
+        logger.error("=" * 80)
+        logger.error("macOS Screen Recording Permission Not Granted!")
+        logger.error("=" * 80)
+        logger.error("")
+        logger.error("IMPORTANT: You need to authorize THIS executable:")
+        logger.error(f"   {python_path}")
+        logger.error("")
+        logger.error("Steps:")
+        logger.error("1) System Settings → Privacy & Security → Screen Recording")
+        logger.error(f"2) Find '{app_name}' and check the box")
+        logger.error("3) If not listed, click '+' and add the app or the Python executable above")
+        logger.error("4) Restart this process after granting permission")
+        logger.error("")
+        logger.error("which python3  # Should match the path above")
+        logger.error("")
+        try:
+            subprocess.run(['open', 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'],
+                           check=False, timeout=2)
+            logger.info("System Settings opened")
+        except Exception:
+            pass
+    except Exception:
+        # Best-effort logging only
+        pass
 
 # given a list anchor info in img_mark_up, and given area_spec which is list of anchors
 # carve out a subimage of the original "img" which is the boundbox formed the
