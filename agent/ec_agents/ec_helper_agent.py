@@ -48,8 +48,8 @@ def set_up_ec_helper_agent(mainwin):
         logger.info("agent card created:", agent_card.name, agent_card.url)
         chatter_task = create_ec_helper_chat_task(mainwin)
         worker_task = create_ec_helper_work_task(mainwin)
-        # Use mainwin's configuration for browser_use LLM
-        browser_use_llm = create_browser_use_llm(mainwin=mainwin)
+        # Use mainwin's unified browser_use_llm instance (shared across all agents)
+        browser_use_llm = mainwin.browser_use_llm
 
         # 尝试创建 EC_Agent，如果失败则使用备用方案
         try:

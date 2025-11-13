@@ -13,6 +13,7 @@ import traceback
 import requests
 import os
 import websockets
+import certifi
 from utils.logger_helper import logger_helper as logger
 
 # Wan Chat Logic
@@ -156,7 +157,10 @@ async def wanSendMessage8(msg_req, mainwin):
         }
         logger.debug("about to send wan msg: "+json.dumps(variables), "wanSendMessage", mainwin)
         # logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++", "wanSendMessage", mainwin)
-        async with aiohttp.ClientSession() as session8:
+        # Create SSL context with certifi certificates
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+        connector = aiohttp.TCPConnector(ssl=ssl_context)
+        async with aiohttp.ClientSession(connector=connector) as session8:
             async with session8.post(
                     url=APPSYNC_API_ENDPOINT_URL,
                     timeout=aiohttp.ClientTimeout(total=30),
