@@ -148,111 +148,155 @@ def get_country_by_ip() -> str | None:
     return None
 
 
+def needs_onboarding(llm_instance) -> bool:
+    """
+    Check if an LLM instance needs onboarding (API key configuration).
+    
+    Args:
+        llm_instance: LLM instance to check
+    
+    Returns:
+        bool: True if onboarding is needed, False otherwise
+    """
+    return hasattr(llm_instance, '_needs_onboarding') and llm_instance._needs_onboarding
+
+
+def get_onboarding_info(llm_instance) -> dict:
+    """
+    Get onboarding information from an LLM instance.
+    
+    Args:
+        llm_instance: LLM instance
+    
+    Returns:
+        dict: Onboarding information with provider, display_name, and model
+    """
+    if hasattr(llm_instance, '_onboarding_info'):
+        return llm_instance._onboarding_info
+    return {}
+
+
 def pick_llm(default_llm, llm_providers, config_manager=None, allow_fallback=True):
     """
     Return appropriate LLM instance with intelligent provider selection.
 
     Logic:
-    1. Check if default_llm is configured and has valid API key
-    2. If not and allow_fallback=True, select available provider by region (CN: DeepSeek/Qwen, US: OpenAI/Claude)
-    3. Update default_llm setting if a new provider is selected (only when allow_fallback=True)
-    4. Fallback to hardcoded defaults if no providers are available (only when allow_fallback=True)
+    1. First use (default_llm is None):
+       - Detect region: US -> OpenAI, CN -> Qwen
+       - Create LLM instance (API key can be None)
+       - Save selected provider as default_llm
+    
+    2. Subsequent uses (default_llm has value):
+       - Use the default_llm provider
+       - Check API key status:
+         * If not configured -> Return special marker to show onboarding guide
+         * If configured -> Create LLM instance normally
 
     Args:
-        default_llm: Current default LLM provider name
+        default_llm: Current default LLM provider name (None on first use)
         llm_providers: List of available LLM providers with configuration
         config_manager: Configuration manager instance (optional)
         allow_fallback: If False, only try the specified default_llm without auto-fallback (default: True)
 
     Returns:
-        LLM instance or None if all attempts fail
+        LLM instance, or dict with {'needs_onboarding': True, 'provider': provider_name} if API key not configured
     """
     from app_context import AppContext
     
     logger.info(f"Starting LLM selection process. Default LLM: {default_llm}, Allow fallback: {allow_fallback}")
     logger.debug(f"Available providers: {[p.get('name') for p in llm_providers]}")
     
-    # Step 1: Try to use the default LLM if configured
-    if default_llm:
-        logger.info(f"Checking default LLM provider: {default_llm}")
-        default_provider = _find_provider_by_name(default_llm, llm_providers)
+    # Case 1: First use - no default_llm specified
+    if not default_llm:
+        logger.info("First use detected (no default_llm), selecting provider by region")
+        country = get_country_by_ip()
+        logger.info(f"Detected country: {country}")
         
-        if default_provider:
-            logger.info(f"Found default provider: {default_provider.get('name')}")
-            
-            # For local providers like Ollama, check if base_url is configured
-            is_configured = False
-            if default_provider.get('is_local', False):
-                base_url = default_provider.get('base_url', '')
-                if base_url and base_url.strip() and (base_url.strip().startswith('http://') or base_url.strip().startswith('https://')):
-                    is_configured = True
-                    logger.info(f"Default local LLM provider {default_llm} has valid base_url: {base_url}")
-                else:
-                    logger.warning(f"Default local LLM provider {default_llm} has no valid base_url configured")
-            elif default_provider.get('api_key_configured', False):
-                is_configured = True
-                logger.info(f"Default LLM provider {default_llm} is configured and has API key")
-            
-            if is_configured:
-                llm_instance = _create_llm_instance(default_provider, config_manager=config_manager)
-                if llm_instance:
-                    provider_display = default_provider.get('display_name', default_llm)
-                    model_name = default_provider.get('default_model', 'default')
-                    llm_type = type(llm_instance).__name__
-                    
-                    # Verify the LLM instance is correct
-                    logger.info(f"Successfully created LLM instance - Provider: {provider_display} ({default_llm}), Model: {model_name}, Type: {llm_type}")
-                    
-                    # Test that the instance has required attributes
-                    if hasattr(llm_instance, 'model'):
-                        logger.debug(f"   LLM instance verified: model={getattr(llm_instance, 'model', 'N/A')}")
-                    
-                    return llm_instance
-                else:
-                    logger.warning(f"Failed to create LLM instance for {default_llm}")
-                    if not allow_fallback:
-                        logger.error(f"Fallback disabled, returning None")
-                        return None
-                    logger.warning(f"Trying alternatives")
-            else:
-                logger.warning(f"Default LLM provider {default_llm} found but API key not configured")
-                if not allow_fallback:
-                    logger.error(f"Fallback disabled, returning None")
-                    return None
-        else:
-            logger.warning(f"Default LLM provider {default_llm} not found in available providers")
-            if not allow_fallback:
-                logger.error(f"Fallback disabled, returning None")
-                return None
-    
-    # If allow_fallback is False, don't proceed to Step 2 and Step 3
-    if not allow_fallback:
-        logger.warning(f"Fallback is disabled, cannot create LLM for {default_llm}")
-        return None
-    
-    # Step 2: Select available provider by region
-    country = get_country_by_ip()
-    logger.info(f"Detected country: {country}, selecting regional provider")
-    
-    selected_provider = _select_regional_provider(country, llm_providers)
-    
-    if selected_provider:
-        logger.info(f"Selected regional provider: {selected_provider['name']}")
-        llm_instance = _create_llm_instance(selected_provider, config_manager=config_manager)
+        # Select regional default provider
+        selected_provider = _select_regional_default_provider(country, llm_providers)
+        
+        if not selected_provider:
+            logger.error("Failed to select regional provider")
+            return None
+        
+        logger.info(f"Selected regional provider: {selected_provider['name']} (Model: {selected_provider.get('default_model', 'N/A')})")
+        
+        # Create LLM instance (allow without API key on first use)
+        llm_instance = _create_llm_instance(selected_provider, config_manager=config_manager, allow_no_api_key=True)
         
         if llm_instance:
-            # Update default_llm setting through LLM manager
+            # Save this provider as default_llm for future use
             _update_default_llm_via_config_manager(selected_provider['name'], config_manager)
             provider_display = selected_provider.get('display_name', selected_provider['name'])
             model_name = selected_provider.get('default_model', 'default')
-            logger.info(f"Successfully created LLM instance and updated default - Provider: {provider_display} ({selected_provider['name']}), Model: {model_name}, Type: {type(llm_instance).__name__}")
+            
+            # Mark for onboarding since this is first use (no API key configured)
+            logger.info(f"⚠️ First use: API key not configured, marking for onboarding")
+            llm_instance._needs_onboarding = True
+            llm_instance._onboarding_info = {
+                'provider': selected_provider.get('name'),
+                'display_name': selected_provider.get('display_name', selected_provider.get('name')),
+                'model': selected_provider.get('default_model', 'N/A')
+            }
+            
+            logger.info(f"✅ First use: Created LLM instance and saved as default - Provider: {provider_display}, Model: {model_name}")
             return llm_instance
         else:
-            logger.error(f"Failed to create LLM instance for selected provider: {selected_provider['name']}")
+            logger.error(f"Failed to create LLM instance for {selected_provider['name']}")
+            return None
     
-    # Step 3: No fallback - return None if no configured providers available
-    logger.error("No configured providers available - cannot create LLM without mainwin configuration")
-    return None
+    # Case 2: Subsequent uses - default_llm has value
+    logger.info(f"Subsequent use detected (default_llm={default_llm})")
+    default_provider = _find_provider_by_name(default_llm, llm_providers)
+    
+    if not default_provider:
+        logger.error(f"Default LLM provider '{default_llm}' not found in available providers")
+        return None
+    
+    logger.info(f"Found default provider: {default_provider.get('name')}")
+    
+    # Check if API key is configured
+    is_configured = False
+    if default_provider.get('is_local', False):
+        # For local providers like Ollama, check base_url
+        base_url = default_provider.get('base_url', '')
+        if base_url and base_url.strip() and (base_url.strip().startswith('http://') or base_url.strip().startswith('https://')):
+            is_configured = True
+            logger.info(f"Local provider {default_llm} has valid base_url: {base_url}")
+        else:
+            logger.warning(f"Local provider {default_llm} has no valid base_url configured")
+    else:
+        # For cloud providers, check API key
+        if default_provider.get('api_key_configured', False):
+            is_configured = True
+            logger.info(f"Cloud provider {default_llm} has API key configured")
+        else:
+            logger.warning(f"Cloud provider {default_llm} has NO API key configured")
+    
+    # Always create LLM instance (use placeholder if API key not configured)
+    allow_no_key = not is_configured
+    llm_instance = _create_llm_instance(default_provider, config_manager=config_manager, allow_no_api_key=allow_no_key)
+    
+    if llm_instance:
+        provider_display = default_provider.get('display_name', default_llm)
+        model_name = default_provider.get('default_model', 'default')
+        
+        # Mark the instance if onboarding is needed
+        if not is_configured:
+            logger.warning(f"⚠️ API key not configured for '{default_llm}', marking for onboarding")
+            # Add metadata to the instance to indicate onboarding is needed
+            llm_instance._needs_onboarding = True
+            llm_instance._onboarding_info = {
+                'provider': default_provider.get('name'),
+                'display_name': default_provider.get('display_name', default_provider.get('name')),
+                'model': default_provider.get('default_model', 'N/A')
+            }
+        
+        logger.info(f"✅ Created LLM instance - Provider: {provider_display}, Model: {model_name}, Needs onboarding: {not is_configured}")
+        return llm_instance
+    else:
+        logger.error(f"Failed to create LLM instance for {default_llm}")
+        return None
 
 
 def _find_provider_by_name(provider_name, llm_providers):
@@ -291,8 +335,55 @@ def _find_provider_by_name(provider_name, llm_providers):
     return None
 
 
-def _select_regional_provider(country, llm_providers):
-    """Select best available provider based on region"""
+def _select_regional_default_provider(country, llm_providers):
+    """Select default provider based on region for first-time use.
+    
+    This function simply returns the regional default provider without checking API key.
+    Used only on first use when no default_llm is set.
+    
+    Args:
+        country: Country code (e.g., 'US', 'CN')
+        llm_providers: List of available LLM providers
+    
+    Returns:
+        Selected provider dict or None
+    """
+    # Define regional defaults (first-time use)
+    regional_defaults = {
+        'CN': 'qwen',      # China: Qwen (阿里云通义千问)
+        'US': 'openai',    # United States: OpenAI
+        'default': 'openai'  # Default: OpenAI
+    }
+    
+    default_provider_name = regional_defaults.get(country, regional_defaults['default'])
+    logger.info(f"Regional default for {country}: {default_provider_name}")
+    
+    # Find the provider in the list
+    for provider in llm_providers:
+        provider_name = provider.get('name', '').lower()
+        if default_provider_name.lower() in provider_name:
+            logger.info(f"Found regional default provider: {provider.get('name')}")
+            return provider
+    
+    logger.warning(f"Regional default provider '{default_provider_name}' not found, falling back to first available")
+    # Fallback: return first available provider
+    if llm_providers:
+        return llm_providers[0]
+    
+    return None
+
+
+def _select_regional_provider(country, llm_providers, exclude_local=False):
+    """Select best available provider based on region
+    
+    Args:
+        country: Country code (e.g., 'US', 'CN')
+        llm_providers: List of available LLM providers
+        exclude_local: If True, exclude local providers (like Ollama) from selection
+    
+    Returns:
+        Selected provider dict or None
+    """
     # Define regional preferences
     # Note: CN region excludes providers that are not accessible in China (OpenAI, Claude, Google)
     us_preferences = [
@@ -306,25 +397,32 @@ def _select_regional_provider(country, llm_providers):
         'qwq',           # Available globally
         'azure',         # Available globally
         'bedrock',       # AWS service, preferred in US
-        'ollama'         # Local deployment
     ]
     
+    # Only add local providers if not excluded
+    if not exclude_local:
+        us_preferences.append('ollama')  # Local deployment
+    
+    cn_preferences = [
+        'deepseek',      # Chinese provider, accessible in CN
+        'qwen',          # Chinese provider (Alibaba), accessible in CN
+        'qwq',           # Chinese provider (Alibaba DashScope), accessible in CN
+        'azure',         # Azure OpenAI (if configured), may be accessible depending on region
+        'bedrock',       # AWS Bedrock (if configured), may be accessible depending on region
+    ]
+    
+    # Only add local providers if not excluded
+    if not exclude_local:
+        cn_preferences.append('ollama')  # Local deployment, accessible anywhere
+    
     regional_preferences = {
-        'CN': [
-            'deepseek',      # Chinese provider, accessible in CN
-            'qwen',          # Chinese provider (Alibaba), accessible in CN
-            'qwq',           # Chinese provider (Alibaba DashScope), accessible in CN
-            'azure',         # Azure OpenAI (if configured), may be accessible depending on region
-            'bedrock',       # AWS Bedrock (if configured), may be accessible depending on region
-            'ollama'         # Local deployment, accessible anywhere
-            # Excluded: 'openai', 'claude', 'anthropic', 'google', 'gemini' (not accessible in CN)
-        ],
+        'CN': cn_preferences,
         'US': us_preferences,
         'default': us_preferences  # Same as US
     }
     
     preferences = regional_preferences.get(country, regional_preferences['default'])
-    logger.debug(f"Regional preferences for {country}: {preferences}")
+    logger.debug(f"Regional preferences for {country} (exclude_local={exclude_local}): {preferences}")
     
     # Find first available provider with API key
     for preferred_name in preferences:
@@ -355,20 +453,30 @@ def _select_regional_provider(country, llm_providers):
                     return provider
     
     # If no preferred providers found, try any available provider with API key or valid base_url
-    logger.debug("No preferred providers found, trying any available provider with API key or valid base_url")
-    for provider in llm_providers:
-        # For local providers, check base_url
-        if provider.get('is_local', False):
-            base_url = provider.get('base_url', '')
-            if base_url and base_url.strip() and (base_url.strip().startswith('http://') or base_url.strip().startswith('https://')):
-                logger.info(f"Found available local provider with valid base_url: {provider.get('name')}")
+    if exclude_local:
+        logger.debug("No preferred providers found, trying any available cloud provider with API key")
+        for provider in llm_providers:
+            # Skip local providers when exclude_local is True
+            if provider.get('is_local', False):
+                continue
+            if provider.get('api_key_configured', False):
+                logger.info(f"Found available cloud provider with API key: {provider.get('name')}")
                 return provider
-        elif provider.get('api_key_configured', False):
-            # Non-local provider with API key
-            logger.info(f"Found available provider with API key: {provider.get('name')}")
-            return provider
+    else:
+        logger.debug("No preferred providers found, trying any available provider with API key or valid base_url")
+        for provider in llm_providers:
+            # For local providers, check base_url
+            if provider.get('is_local', False):
+                base_url = provider.get('base_url', '')
+                if base_url and base_url.strip() and (base_url.strip().startswith('http://') or base_url.strip().startswith('https://')):
+                    logger.info(f"Found available local provider with valid base_url: {provider.get('name')}")
+                    return provider
+            elif provider.get('api_key_configured', False):
+                # Non-local provider with API key
+                logger.info(f"Found available provider with API key: {provider.get('name')}")
+                return provider
     
-    logger.warning("No providers found with configured API keys")
+    logger.warning(f"No providers found with configured API keys (exclude_local={exclude_local})")
     return None
 
 
@@ -639,11 +747,11 @@ def extract_provider_config(provider, config_manager=None):
             if api_key and api_key.strip():
                 break
         
-        # Log error if no API key found
+        # Log debug message if no API key found (this is expected on first use)
         if not api_key and api_key_env_vars:
-            logger.error(
+            logger.debug(
                 f"[extract_provider_config] No API key found for provider '{provider_name}' "
-                f"in secure store. Required env vars: {api_key_env_vars}"
+                f"in secure store. Required env vars: {api_key_env_vars} (this is expected on first use)"
             )
     except Exception as e:
         logger.error(
@@ -688,13 +796,14 @@ def extract_provider_config(provider, config_manager=None):
     }
 
 
-def _create_llm_instance(provider, config_manager=None):
+def _create_llm_instance(provider, config_manager=None, allow_no_api_key=False):
     """
     Create LLM instance based on provider configuration.
     
     Args:
         provider: Provider configuration (dict or LLMProvider object)
         config_manager: Optional ConfigManager to get user-selected model
+        allow_no_api_key: If True, create instance with placeholder API key when no API key is configured (for first-time use)
     """
     import os
     
@@ -835,8 +944,12 @@ def _create_llm_instance(provider, config_manager=None):
             # QwQ/DashScope requires DASHSCOPE_API_KEY in secure_store
             dashscope_api_key = get_api_key('DASHSCOPE_API_KEY')
             if not dashscope_api_key:
-                logger.error("QwQ requires DASHSCOPE_API_KEY in secure_store")
-                return None
+                if allow_no_api_key:
+                    logger.info("Qwen/DashScope API key not configured, using placeholder for first-time setup")
+                    dashscope_api_key = "sk-placeholder-key-for-first-time-setup"
+                else:
+                    logger.error("QwQ requires DASHSCOPE_API_KEY in secure_store")
+                    return None
             
             # DashScope OpenAI-compatible endpoint (Alibaba Cloud - China-based)
             base_url = base_url or 'https://dashscope.aliyuncs.com/compatible-mode/v1'
@@ -882,8 +995,12 @@ def _create_llm_instance(provider, config_manager=None):
             # OpenAI requires OPENAI_API_KEY in secure_store
             openai_api_key = get_api_key('OPENAI_API_KEY')
             if not openai_api_key:
-                logger.error("OpenAI requires OPENAI_API_KEY in secure_store")
-                return None
+                if allow_no_api_key:
+                    logger.info("OpenAI API key not configured, using placeholder for first-time setup")
+                    openai_api_key = "sk-placeholder-key-for-first-time-setup"
+                else:
+                    logger.error("OpenAI requires OPENAI_API_KEY in secure_store")
+                    return None
             return ChatOpenAI(
                 model=model_name,
                 api_key=openai_api_key,
@@ -1378,11 +1495,11 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                 # Use dummy API key if no API key is available (for initialization purposes)
                 # This allows browser_use to initialize even without API key
                 if not api_key:
-                    logger.warning(
+                    logger.debug(
                         f"[create_browser_use_llm] No API key for provider '{default_llm_name}', "
-                        f"using dummy key for initialization"
+                        f"using placeholder key for initialization (this is expected on first use)"
                     )
-                    api_key = 'dummy-key'
+                    api_key = 'sk-placeholder-key-for-first-time-setup'
                 
                 logger.info(
                     f"[create_browser_use_llm] Using default LLM: "
