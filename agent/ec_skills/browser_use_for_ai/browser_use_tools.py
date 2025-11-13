@@ -3,7 +3,7 @@ import asyncio
 from utils.logger_helper import logger_helper as logger
 from browser_use.agent.views import ActionModel, ActionResult
 from playwright.async_api import ElementHandle
-from browser_use.dom.views import EnhancedDOMTreeNode as DOMElementNode
+from browser_use.dom.views import DOMElementNode
 from pydantic import create_model
 import markdownify
 
