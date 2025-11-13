@@ -11,7 +11,7 @@ sse-starlette==2.2.1
 # AI & MACHINE LEARNING - LANGCHAIN ECOSYSTEM
 # ============================================================================
 langchain==0.3.27
-langchain-core==1.0.4
+langchain-core==0.3.75
 langchain-text-splitters==0.3.11
 langchain-openai==0.3.32
 langchain-community==0.3.29
@@ -138,12 +138,6 @@ s3transfer==0.13.1
 # ============================================================================
 # GOOGLE CLOUD & APIS
 # ============================================================================
-google-api-core==2.25.1
-google-auth==2.40.3
-google-auth-httplib2==0.2.0
-google-auth-oauthlib==1.2.2
-googleapis-common-protos==1.70.0
-grpcio==1.76.0
 
 # ============================================================================
 # AUTHENTICATION & SECURITY
@@ -168,24 +162,11 @@ PyPika==0.48.9
 # ============================================================================
 # MONITORING & TELEMETRY
 # ============================================================================
-opentelemetry-api==1.36.0
-opentelemetry-exporter-otlp-proto-common==1.36.0
-opentelemetry-exporter-otlp-proto-grpc==1.36.0
-opentelemetry-instrumentation==0.57b0
-opentelemetry-instrumentation-asgi==0.57b0
-opentelemetry-instrumentation-fastapi==0.57b0
-opentelemetry-proto==1.36.0
-opentelemetry-sdk==1.36.0
-opentelemetry-semantic-conventions==0.57b0
-opentelemetry-util-http==0.57b0
 posthog==3.20.0
 
 # ============================================================================
 # TESTING
 # ============================================================================
-pytest==8.2.2
-pytest-cov==7.0.0
-pytest-asyncio==1.0.0
 
 # ============================================================================
 # DEVELOPMENT & BUILD TOOLS
@@ -200,12 +181,6 @@ pipreqs==0.5.0
 # ============================================================================
 # JUPYTER & NOTEBOOKS
 # ============================================================================
-ipython==8.12.3
-nbclient==0.10.2
-nbconvert==7.16.6
-nbformat==5.10.4
-jedi==0.19.1
-prompt_toolkit==3.0.51
 
 # ============================================================================
 # DATA FORMATS & SERIALIZATION
@@ -225,24 +200,12 @@ flatbuffers==25.2.10
 # FILE PROCESSING & COMPRESSION
 # ============================================================================
 openpyxl==3.1.2
-xlrd==2.0.1
 PyPDF2==3.0.1
-rarfile==4.2
-zstandard==0.23.0
 lzstring==1.0.4
 
 # ============================================================================
 # TEXT PROCESSING & NLP
 # ============================================================================
-fuzzywuzzy==0.18.0
-python-Levenshtein==0.25.1
-rapidfuzz==3.9.4
-regex==2024.11.6
-bleach==6.2.0
-mistune==3.1.3
-mdurl==0.1.2
-tinycss2==1.4.0
-webencodings==0.5.1
 
 # ============================================================================
 # UTILITIES & HELPERS
@@ -253,10 +216,6 @@ rich==14.2.0
 tqdm==4.67.1
 tenacity==8.5.0
 backoff==2.2.1
-schedule==1.2.2
-crontab==1.0.1
-python-crontab==3.1.0
-durationpy==0.9
 
 # ============================================================================
 # SYSTEM & PROCESS MANAGEMENT
@@ -272,17 +231,12 @@ distro==1.9.0
 # CONFIGURATION & ENVIRONMENT
 # ============================================================================
 python-dotenv==1.2.1
-configobj==5.0.9
 configparser==7.2.0
-envs==1.4
 
 # ============================================================================
 # LOGGING & OUTPUT
 # ============================================================================
-colorama==0.4.6
-coloredlogs==15.0.1
 colorlog==6.8.2
-blinker==1.9.0
 
 # ============================================================================
 # CORE PYTHON UTILITIES
@@ -349,14 +303,7 @@ MarkupSafe==3.0.2
 # ============================================================================
 # SCIENTIFIC & SPECIALIZED
 # ============================================================================
-nibabel==5.3.2
-pyxnat==1.6.3
 networkx==3.4.2
-rdflib==6.3.2
-prov==2.0.1
-etelemetry==0.3.1
-traits==7.0.2
-transitions==0.9.1
 
 # ============================================================================
 # MISCELLANEOUS & LEGACY
