@@ -1,7 +1,10 @@
 from app_context import AppContext
+from typing import TYPE_CHECKING, Optional
 
+if TYPE_CHECKING:
+    from agent.ec_agent import EC_Agent
 
-def get_agent_by_id(agent_id):
+def get_agent_by_id(agent_id) -> Optional['EC_Agent']:
     """Safely fetch agent by id from the current main window.
     Returns None if main window or agents are not yet initialized.
     """

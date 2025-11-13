@@ -262,7 +262,7 @@ class SigningManager:
                 )
                 
                 if result.returncode == 0:
-                    print(f"[VERIFY] [OK] Signature valid: {file_path.name}")
+                    # print(f"[VERIFY] [OK] Signature valid: {file_path.name}")
                     verified_count += 1
                 else:
                     print(f"[VERIFY] [ERROR] Signature invalid: {file_path.name}")
@@ -293,7 +293,7 @@ class SigningManager:
                 )
                 
                 if result.returncode == 0:
-                    print(f"[VERIFY] [OK] Signature valid: {file_path.name}")
+                    # print(f"[VERIFY] [OK] Signature valid: {file_path.name}")
                     verified_count += 1
                 else:
                     print(f"[VERIFY] [ERROR] Signature invalid: {file_path.name}")

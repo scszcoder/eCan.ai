@@ -204,6 +204,9 @@ class MiniSpecBuilder:
         # Verify Playwright browsers were packaged correctly
         self._verify_packaged_playwright()
 
+        # Verify Python shared library was packaged correctly (macOS)
+        self._verify_python_shared_library()
+
         print(f"[MINIBUILD] {mode.upper()} build completed successfully with profile settings")
         return True
 
@@ -701,24 +704,108 @@ if sys.platform == 'darwin':
     elif target_arch == 'amd64' and current_arch in ['arm64', 'aarch64']:
         print('[SPEC] WARNING: Cross-compiling Intel on ARM64 - may cause runtime issues')
 
-# Initialize collections
-data_files = []
-binaries = []
-hiddenimports = {repr(hiddenimports)}
+    # Initialize collections
+    data_files = []
+    binaries = []
+    hiddenimports = {repr(hiddenimports)}
+
+    # PyInstaller automatically includes all required stdlib C-extensions
+    # No manual collection needed - let PyInstaller's dependency analysis work
+
+    # On macOS ensure Python shared library is bundled under Frameworks/
+    if sys.platform == 'darwin':
+        try:
+            import sys as _sys
+            import sysconfig as _sc
+            from pathlib import Path as _P
+            
+            # Get Python version
+            py_ver = str(_sys.version_info.major) + '.' + str(_sys.version_info.minor)
+            
+            # Primary: use sysconfig to locate the shared library
+            fw_prefix = _sc.get_config_var('PYTHONFRAMEWORKPREFIX') or '/Library/Frameworks'
+            fw_name = _sc.get_config_var('PYTHONFRAMEWORK') or 'Python'
+            python_lib = _P(fw_prefix) / f"{{fw_name}}.framework" / 'Versions' / f"{{py_ver}}" / 'Python'
+            
+            # Fallback candidates if primary not found
+            candidates = [
+                python_lib,
+                _P(f"/Library/Frameworks/Python.framework/Versions/{{py_ver}}/Python"),
+                _P(f"/opt/homebrew/opt/python@{{py_ver}}/Frameworks/Python.framework/Versions/{{py_ver}}/Python"),
+                _P(f"/usr/local/opt/python@{{py_ver}}/Frameworks/Python.framework/Versions/{{py_ver}}/Python"),
+            ]
+            
+            # Also check relative to sys.executable
+            try:
+                exe_path = _P(_sys.executable).resolve()
+                for parent in exe_path.parents:
+                    if parent.name == 'Versions' and parent.parent.name == 'Python.framework':
+                        candidates.insert(0, parent / py_ver / 'Python')
+                        break
+            except Exception:
+                pass
+            
+            # Find first existing Python shared library
+            found_lib = None
+            for candidate in candidates:
+                if candidate.exists():
+                    found_lib = candidate
+                    break
+            
+            if found_lib:
+                # Add as binary directly to Frameworks/ (use '.' to place in Contents/Frameworks/)
+                # This ensures it lands at Contents/Frameworks/Python, not Contents/Frameworks/Frameworks/Python
+                binaries.append((str(found_lib), '.'))
+                print(f"[SPEC] Bundled Python shared library: {{found_lib}} -> Frameworks/Python")
+            else:
+                print(f"[SPEC] Warning: Could not locate Python shared library; tried {{len(candidates)}} paths")
+                print(f"[SPEC]   Bootloader may fail if it expects Frameworks/Python")
+        except Exception as _e:
+            print(f"[SPEC] Warning: Failed to add Python shared library: {{_e}}")
 
 {data_files_code}
 
 {collect_packages_code}
 
-# Add third-party assets (Playwright browsers)
-# Use simple tuple to recursively add all Playwright files as DATA
-# This prevents PyInstaller from trying to process them as binaries
+# Add Playwright browsers - carefully handle symlinks to avoid conflicts
 playwright_third_party = project_root / "third_party" / "ms-playwright"
 if playwright_third_party.exists():
     print(f'[SPEC] Adding Playwright browsers from: {{playwright_third_party}}')
-    # Add as simple tuple - PyInstaller will recursively include all files
-    data_files.append((str(playwright_third_party), "third_party/ms-playwright"))
-    print('[SPEC] Playwright browsers added as data files (will not be processed as binaries)')
+    
+    # Manual walk to exclude ALL symlinks (files and directories)
+    # This prevents FileExistsError with Chromium Framework structures
+    import os
+    pw_files = []
+    skipped_symlinks = 0
+    
+    for root, dirs, files in os.walk(str(playwright_third_party), followlinks=False):
+        # Remove symlink directories from dirs list (modifies in-place)
+        # This prevents os.walk from descending into them
+        original_dirs = dirs[:]
+        dirs[:] = []
+        for d in original_dirs:
+            dir_path = os.path.join(root, d)
+            if os.path.islink(dir_path):
+                skipped_symlinks += 1
+                continue
+            dirs.append(d)
+        
+        # Process files, skip symlinks
+        for file in files:
+            src_path = os.path.join(root, file)
+            if os.path.islink(src_path):
+                skipped_symlinks += 1
+                continue
+            
+            # Add as data file
+            rel_path = os.path.relpath(src_path, str(playwright_third_party))
+            dest_path = os.path.join('third_party/ms-playwright', rel_path)
+            pw_files.append((src_path, dest_path))
+    
+    data_files.extend(pw_files)
+    print(f'[SPEC] Added {{len(pw_files)}} Playwright files, skipped {{skipped_symlinks}} symlinks')
+else:
+    print('[SPEC] Playwright browsers not found in third_party')
 
 # Icon detection with enhanced Windows support
 icon_path = None
@@ -772,10 +859,9 @@ a = Analysis(
     {target_arch_config}
 )
 
-# Simple deduplication
-print("[SPEC] Removing duplicates...")
-a.datas = list(dict.fromkeys(a.datas))
-a.binaries = list(dict.fromkeys(a.binaries))
+# PyInstaller handles deduplication automatically during TOC processing
+# Manual deduplication with dict.fromkeys() can cause issues with TOC tuples
+# Only drop unwanted paths explicitly
 
 # Drop heavy tests/examples/__pycache__ from datas to reduce size and avoid perms
 drop_tokens = ['/tests/', '/testing/', '/__pycache__/', '/examples/']
@@ -801,87 +887,46 @@ for item in a.datas:
 a.datas = new_datas
 print("[SPEC] Dropped %d test/example/cache data files" % dropped)
 
-# On macOS, deduplicate datas by destination path and skip framework 'Versions/Current' symlinks
+# On macOS, we already excluded symlinks when adding Playwright browsers
+# No additional filtering needed for datas since we used custom walk without followlinks
+# This preserves all actual files while avoiding symlink conflicts
 if sys.platform == 'darwin':
-    print("[SPEC] Deduplicating macOS datas by destination path...")
-    _seen_data_dest = set()
-    _deduped_datas = []
-    for _item in a.datas:
-        try:
-            _src_path, _dest_path = _item[0], _item[1]
-        except Exception:
-            _deduped_datas.append(_item)
-            continue
-        _dest_str = str(_dest_path)
-        _lower = _dest_str.lower()
-        # Skip explicit framework symlink targets to avoid collisions
-        if _lower.endswith('/versions/current'):
-            print("[SPEC] Skipping framework symlink in datas: " + _dest_str)
-            continue
-        if _dest_str in _seen_data_dest:
-            print("[SPEC] Skipping duplicate data destination: " + _dest_str)
-            continue
-        _seen_data_dest.add(_dest_str)
-        _deduped_datas.append(_item)
-    a.datas = _deduped_datas
+    print("[SPEC] macOS: Playwright browsers added without symlinks")
 
-# Filter out Playwright browser binaries to prevent processing errors
+# Filter out Playwright browser binaries and Chromium Framework to prevent processing errors
 # PyInstaller cannot process macOS Chromium.app binaries due to code signing
-print("[SPEC] Filtering Playwright binaries...")
+print("[SPEC] Filtering Playwright binaries and Chromium Framework...")
 filtered_binaries = []
 playwright_binary_count = 0
+chromium_binary_count = 0
 
 for item in a.binaries:
-    binary_path = str(item[0]).lower()
+    binary_path = str(item[0])
+    binary_path_lower = binary_path.lower()
+    
     # Check if this is a Playwright browser binary
-    if 'ms-playwright' in binary_path and ('chromium' in binary_path or 'firefox' in binary_path or 'webkit' in binary_path):
+    if 'ms-playwright' in binary_path_lower and ('chromium' in binary_path_lower or 'firefox' in binary_path_lower or 'webkit' in binary_path_lower):
         playwright_binary_count += 1
-        print(f"[SPEC] Skipping Playwright binary (will be included as data): {{item[0][:80]}}...")
+        print(f"[SPEC] Skipping Playwright binary (will be included as data): {{binary_path[:80]}}...")
         continue
+    
+    # Also skip Chromium Framework binaries - they cause symlink conflicts
+    if 'Chromium Framework.framework' in binary_path:
+        chromium_binary_count += 1
+        print(f"[SPEC] Skipping Chromium Framework binary: {{binary_path[:80]}}...")
+        continue
+        
     filtered_binaries.append(item)
 
 a.binaries = filtered_binaries
 if playwright_binary_count > 0:
     print(f"[SPEC] Filtered {{playwright_binary_count}} Playwright binaries (included as data files)")
+if chromium_binary_count > 0:
+    print(f"[SPEC] Filtered {{chromium_binary_count}} Chromium Framework binaries")
     
-if sys.platform == 'darwin':
-    print("[SPEC] Deduplicating macOS binaries by framework root...")
-    _seen_framework_roots = set()
-    _seen_dest_paths = set()
-    _deduped_binaries = []
-    for _entry in a.binaries:
-        # Preserve entry as-is (tuple length may vary)
-        _dest_path = None
-        try:
-            if isinstance(_entry, (list, tuple)) and len(_entry) >= 2:
-                _dest_path = str(_entry[1])
-        except Exception:
-            _dest_path = None
-
-        _framework_root = None
-        if _dest_path:
-            _lower = _dest_path.lower()
-            idx = _lower.find('.framework')
-            if idx != -1:
-                _framework_root = _dest_path[: idx + len('.framework')]
-
-        # Prefer framework-root level deduplication to avoid internal symlink collisions
-        if _framework_root:
-            if _framework_root in _seen_framework_roots:
-                print("[SPEC] Skipping duplicate framework root: " + _framework_root)
-                continue
-            _seen_framework_roots.add(_framework_root)
-        else:
-            # Fallback to full destination path deduplication
-            if _dest_path and _dest_path in _seen_dest_paths:
-                print("[SPEC] Skipping duplicate destination: " + _dest_path)
-                continue
-            if _dest_path:
-                _seen_dest_paths.add(_dest_path)
-
-        _deduped_binaries.append(_entry)
-
-    a.binaries = _deduped_binaries
+# Let PyInstaller handle binaries deduplication
+# macOS-specific deduplication was incorrectly using source paths
+# causing all lib-dynload .so files to be filtered except the first one
 
 print(f"[SPEC] Final counts - Data: {{len(a.datas)}}, Binaries: {{len(a.binaries)}}")
 
@@ -1210,6 +1255,127 @@ if sys.platform == 'darwin':
             
         except Exception as e:
             print(f"[MINIBUILD] Warning: Playwright verification failed: {e}")
+    
+    def _verify_python_shared_library(self) -> None:
+        """Verify that Python shared library was packaged correctly on macOS"""
+        if not platform_handler.is_macos:
+            return
+        
+        try:
+            print("[MINIBUILD] Verifying Python shared library...")
+            
+            # Find dist directory
+            dist_dir = self.project_root / "dist"
+            app_bundles = list(dist_dir.glob("*.app"))
+            
+            if not app_bundles:
+                print("[MINIBUILD] Warning: No .app bundle found in dist/")
+                return
+            
+            app_bundle = app_bundles[0]
+            frameworks_dir = app_bundle / "Contents" / "Frameworks"
+            python_lib = frameworks_dir / "Python"
+            
+            # Check if Python library exists and is valid
+            if python_lib.exists() and not python_lib.is_symlink():
+                size_mb = python_lib.stat().st_size / (1024 * 1024)
+                print(f"[MINIBUILD] ✓ Python shared library found: {python_lib}")
+                print(f"[MINIBUILD]   Size: {size_mb:.1f} MB")
+                return
+            
+            # Handle broken symlink or missing file
+            if python_lib.is_symlink():
+                target = python_lib.resolve(strict=False)
+                print(f"[MINIBUILD] Found broken symlink: {python_lib} -> {target}")
+                
+                # Try to fix broken symlink by copying the actual file
+                import sysconfig
+                fw_prefix = sysconfig.get_config_var('PYTHONFRAMEWORKPREFIX') or '/Library/Frameworks'
+                fw_name = sysconfig.get_config_var('PYTHONFRAMEWORK') or 'Python'
+                py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+                
+                # Find the actual Python shared library
+                source_candidates = [
+                    Path(fw_prefix) / f"{fw_name}.framework" / "Versions" / py_ver / "Python",
+                    Path(f"/Library/Frameworks/Python.framework/Versions/{py_ver}/Python"),
+                    Path(f"/opt/homebrew/opt/python@{py_ver}/Frameworks/Python.framework/Versions/{py_ver}/Python"),
+                    Path(f"/opt/homebrew/Cellar/python@{py_ver}") / "*" / "Frameworks" / "Python.framework" / "Versions" / py_ver / "Python"
+                ]
+                
+                # Also try to resolve from the symlink target path
+                if target.exists():
+                    source_candidates.insert(0, target)
+                
+                # Try glob pattern for Homebrew Cellar
+                import glob
+                cellar_pattern = f"/opt/homebrew/Cellar/python@{py_ver}/*/Frameworks/Python.framework/Versions/{py_ver}/Python"
+                cellar_matches = glob.glob(cellar_pattern)
+                if cellar_matches:
+                    source_candidates.insert(0, Path(cellar_matches[0]))
+                
+                source_lib = None
+                for candidate in source_candidates:
+                    if candidate.exists():
+                        source_lib = candidate
+                        break
+                
+                if source_lib:
+                    print(f"[MINIBUILD] Found source Python library: {source_lib}")
+                    # Remove broken symlink
+                    python_lib.unlink()
+                    print(f"[MINIBUILD] Removed broken symlink")
+                    
+                    # Copy actual file
+                    import shutil
+                    shutil.copy2(str(source_lib), str(python_lib))
+                    size_mb = python_lib.stat().st_size / (1024 * 1024)
+                    print(f"[MINIBUILD] ✓ Copied Python shared library: {python_lib} ({size_mb:.1f} MB)")
+                    return
+                else:
+                    print(f"[MINIBUILD] ✗ Could not find source Python library to fix broken symlink")
+            
+            # Check if file was placed in nested Frameworks directory
+            nested_python = frameworks_dir / "Frameworks" / "Python"
+            if nested_python.exists():
+                size_mb = nested_python.stat().st_size / (1024 * 1024)
+                print(f"[MINIBUILD] Found Python library in nested location: {nested_python} ({size_mb:.1f} MB)")
+                print(f"[MINIBUILD] Moving to correct location...")
+                
+                # Remove broken symlink if exists
+                if python_lib.is_symlink() or python_lib.exists():
+                    python_lib.unlink()
+                    print(f"[MINIBUILD] Removed broken symlink/file")
+                
+                # Move file to correct location
+                import shutil
+                shutil.move(str(nested_python), str(python_lib))
+                
+                # Clean up empty nested Frameworks directory
+                nested_frameworks = frameworks_dir / "Frameworks"
+                if nested_frameworks.exists() and not list(nested_frameworks.iterdir()):
+                    nested_frameworks.rmdir()
+                    print(f"[MINIBUILD] Removed empty nested Frameworks directory")
+                
+                print(f"[MINIBUILD] ✓ Python shared library fixed: {python_lib} ({size_mb:.1f} MB)")
+                return
+            
+            # Library not found anywhere
+            print(f"[MINIBUILD] ✗ ERROR: Python shared library NOT FOUND")
+            print(f"[MINIBUILD]   Expected at: {python_lib}")
+            print(f"[MINIBUILD]   Also checked: {nested_python}")
+            print(f"[MINIBUILD]   The app will fail to start with 'Failed to load Python shared library' error")
+            print(f"[MINIBUILD]   Frameworks directory contents:")
+            if frameworks_dir.exists():
+                for item in sorted(frameworks_dir.iterdir())[:20]:
+                    item_type = "symlink" if item.is_symlink() else "dir" if item.is_dir() else "file"
+                    print(f"[MINIBUILD]     - {item.name} ({item_type})")
+            else:
+                print(f"[MINIBUILD]     (Frameworks directory does not exist)")
+                
+        except Exception as e:
+            print(f"[MINIBUILD] Warning: Python library verification failed: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _verify_packaged_assets_old(self) -> None:
         """Verify that third-party assets were packaged correctly"""
