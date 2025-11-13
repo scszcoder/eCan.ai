@@ -137,6 +137,7 @@ class EC_Agent(Agent):
 
 
 
+
 	def to_dict(self, owner: str = None):
 		"""
 		Convert agent to dict for frontend/API consumption
@@ -213,6 +214,7 @@ class EC_Agent(Agent):
 		}
 		return cardJS
 
+
 	def add_tasks(self, tasks):
 		self.tasks += tasks  # or: self.tasks.extend(tasks)
 
@@ -260,6 +262,9 @@ class EC_Agent(Agent):
 	def get_a2a_server_port(self):
 		"""Get the A2A server port number"""
 		return int(self.a2a_server.agent_card.url.split(":")[-1])
+
+	def get_vehicle(self):
+		return self.vehicle
 
 	def is_busy(self):
 		busy = False
@@ -554,5 +559,7 @@ class EC_Agent(Agent):
 			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
 			logger.error(err_msg)
 
+
 	def set_checkpointer(self, checkpointer):
 		"""Sets the checkpointer for the agent's runner."""
+
