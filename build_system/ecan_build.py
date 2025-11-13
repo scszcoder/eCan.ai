@@ -376,6 +376,9 @@ CloseApplications=yes
 RestartApplications=no
 VersionInfoVersion={file_version}
 WizardStyle=modern
+; Ensure proper CJK rendering on Chinese systems
+DialogFontName=Microsoft YaHei
+TitleFontName=Microsoft YaHei Bold
 ; Language detection: automatically match system language, fallback to English if no match
 LanguageDetectionMethod=uilanguage
 UsePreviousLanguage=yes
@@ -492,7 +495,8 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
             iss_file = self.project_root / "build" / "setup.iss"
             iss_file.parent.mkdir(exist_ok=True)
 
-            with open(iss_file, 'w', encoding='utf-8') as f:
+            # Write script as UTF-8 with BOM so ISCC on CI treats it as Unicode, avoiding ANSI mojibake
+            with open(iss_file, 'w', encoding='utf-8-sig') as f:
                 f.write(iss_content)
 
             return iss_file
