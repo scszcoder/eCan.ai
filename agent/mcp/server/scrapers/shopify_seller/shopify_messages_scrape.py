@@ -9,47 +9,47 @@ from utils.logger_helper import get_traceback
 from mcp.types import CallToolResult, TextContent
 
 
-async def fetch_ebay_messages(mainwin, args):  # type: ignore
+async def fetch_shopify_messages(mainwin, args):  # type: ignore
     try:
-        logger.debug("fetch_ebay_messages started....")
+        logger.debug("fetch_shopify_messages started....")
         new_messages = []
         options = args["input"]["options"]
         web_driver = mainwin.getWebDriver()
 
-        msg = f"completed in fetching ebay messages: {len(new_messages)} messages fetched."
+        msg = f"completed in fetching shopify messages: {len(new_messages)} messages fetched."
         tool_result = TextContent(type="text", text=msg)
         tool_result.meta = {"new_messages": new_messages}
         return [tool_result]
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorFetchEbayMessages")
+        err_trace = get_traceback(e, "ErrorFetchShopifyMessages")
         logger.debug(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
 
-async def answer_ebay_messages(mainwin, args):  # type: ignore
+async def answer_shopify_messages(mainwin, args):  # type: ignore
     try:
-        logger.debug("answer_ebay_messages started....")
+        logger.debug("answer_shopify_messages started....")
         executed = []
         messages_todos = args["input"]["messages_todos"]
         web_driver = mainwin.getWebDriver()
 
-        msg = f"completed in answering ebay messages: {len(executed)} messages answered."
+        msg = f"completed in answering shopify messages: {len(executed)} messages answered."
         tool_result = TextContent(type="text", text=msg)
         tool_result.meta = {"executed": executed}
         return [tool_result]
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorAnswerEbayMessages")
+        err_trace = get_traceback(e, "ErrorAnswerShopifyMessages")
         logger.debug(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
-def add_fetch_ebay_messages_tool_schema(tool_schemas):
+def add_fetch_shopify_messages_tool_schema(tool_schemas):
     import mcp.types as types
 
     tool_schema = types.Tool(
-        name="fetch_ebay_messages",
-        description="fetch ebay newly received messages list.",
+        name="fetch_shopify_messages",
+        description="fetch shopify newly received messages list.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -71,12 +71,12 @@ def add_fetch_ebay_messages_tool_schema(tool_schemas):
     tool_schemas.append(tool_schema)
 
 
-def add_answer_ebay_messages_tool_schema(tool_schemas):
+def add_answer_shopify_messages_tool_schema(tool_schemas):
     import mcp.types as types
 
     tool_schema = types.Tool(
-        name="answer_ebay_messages",
-        description="Answer ebay messages with text, attachments, and related actions if any (for example, handle return, cancel, refund/partial refund, send replacement items, etc",
+        name="answer_shopify_messages",
+        description="Answer shopify messages with text, attachments, and related actions if any (for example, handle return, cancel, refund/partial refund, send replacement items, etc",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -106,11 +106,11 @@ def add_answer_ebay_messages_tool_schema(tool_schemas):
     tool_schemas.append(tool_schema)
 
 
-def add_ebay_handle_next_message_tool_schema(tool_schemas):
+def add_shopify_handle_next_message_tool_schema(tool_schemas):
     import mcp.types as types
 
     tool_schema = types.Tool(
-        name="ebay_handle_next_message",
+        name="shopify_handle_next_message",
         description="handle next message by clicking on the message, read it, summerarize it, reaspond to it, and return the handling details info in json format including ones that require human intervention.",
         inputSchema={
             "type": "object",

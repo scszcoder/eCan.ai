@@ -34,7 +34,7 @@ from agent.mcp.server.api.ecan_ai.ecan_ai_api import (
     ecan_ai_api_query_fom,
     ecan_ai_api_rerank_results,
 )
-from agent.mcp.server.scrapers.amazon_seller.amazon_fbs_orders_scrape import fullfill_amazon_fbs_orders
+from agent.mcp.server.scrapers.amazon_seller.amazon_orders_scrape import fullfill_amazon_fbs_orders
 from agent.mcp.server.scrapers.amazon_seller.amazon_messages_scrape import (
     answer_amazon_messages,
     fetch_amazon_messages,
