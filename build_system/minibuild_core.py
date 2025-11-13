@@ -677,6 +677,12 @@ try:
 except Exception:
     _pyi_osx = None
 
+# Initialize collections globally for all platforms
+# These will be extended later as needed (macOS-specific handling may add items)
+data_files = []
+binaries = []
+hiddenimports = {repr(hiddenimports)}
+
 # Architecture validation for macOS
 if sys.platform == 'darwin':
     if _pyi_build_utils is not None:
@@ -703,11 +709,6 @@ if sys.platform == 'darwin':
         print('[SPEC] WARNING: Cross-compiling ARM64 on Intel - may cause runtime issues')
     elif target_arch == 'amd64' and current_arch in ['arm64', 'aarch64']:
         print('[SPEC] WARNING: Cross-compiling Intel on ARM64 - may cause runtime issues')
-
-    # Initialize collections
-    data_files = []
-    binaries = []
-    hiddenimports = {repr(hiddenimports)}
 
     # PyInstaller automatically includes all required stdlib C-extensions
     # No manual collection needed - let PyInstaller's dependency analysis work
