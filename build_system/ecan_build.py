@@ -323,16 +323,17 @@ class InstallerBuilder:
                 dirs_section = ""
 
             # Choose file source: prefer onedir directory, otherwise use single file EXE
+            # Add 'replacesameversion' flag to allow overwriting existing files
             onedir_dir = self.project_root / 'dist' / 'eCan'
             onefile_exe = self.project_root / 'dist' / 'eCan.exe'
             if onedir_dir.exists():
-                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{app}\"; Flags: ignoreversion recursesubdirs createallsubdirs"
+                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{app}\"; Flags: ignoreversion replacesameversion recursesubdirs createallsubdirs"
                 run_target = "{app}\\eCan.exe"
             elif onefile_exe.exists():
-                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
+                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{app}\"; Flags: ignoreversion replacesameversion"
                 run_target = "{app}\\eCan.exe"
             else:
-                files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
+                files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{app}\"; Flags: ignoreversion replacesameversion"
                 run_target = "{app}\\eCan.exe"
 
             # Create standardized installer filename with platform and architecture
@@ -348,6 +349,33 @@ class InstallerBuilder:
             default_dir = windows_config.get('default_dir', installer_config.get('default_dir', '{pf}\\eCan'))
             default_group = windows_config.get('default_group', installer_config.get('default_group', 'eCan'))
             privileges_required = windows_config.get('privileges_required', installer_config.get('privileges_required', 'admin'))
+
+            # Build Registry section for URL scheme
+            registry_entries = windows_config.get('registry_entries', [])
+            registry_section = ""
+            if registry_entries:
+                registry_section = "[Registry]\n"
+                for entry in registry_entries:
+                    root = entry.get('root', 'HKCU')
+                    subkey = entry.get('subkey', '')
+                    value_name = entry.get('value_name', '')
+                    value_data = entry.get('value_data', '')
+                    value_type = entry.get('value_type', 'string')
+                    
+                    # Convert value_type to Inno Setup format
+                    if value_type == 'string':
+                        type_str = 'string'
+                    elif value_type == 'dword':
+                        type_str = 'dword'
+                    else:
+                        type_str = 'string'
+                    
+                    # Build registry line
+                    if value_name:
+                        registry_section += f'Root: {root}; Subkey: "{subkey}"; ValueType: {type_str}; ValueName: "{value_name}"; ValueData: "{value_data}"\n'
+                    else:
+                        registry_section += f'Root: {root}; Subkey: "{subkey}"; ValueType: {type_str}; ValueData: "{value_data}"\n'
+                registry_section += "\n"
 
             iss_content = f"""
 ; eCan Installer Script
@@ -406,7 +434,7 @@ Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: 
 Name: "{{group}}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target}"; IconIndex: 0
 Name: "{{userdesktop}}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target}"; IconIndex: 0; Tasks: desktopicon
 
-[UninstallDelete]
+{registry_section}[UninstallDelete]
 Type: filesandordirs; Name: "{{localappdata}}\eCan"
 
 [Code]
