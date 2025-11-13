@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any, Optional, Dict
 from app_context import AppContext
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
-from bot.vehicles import VEHICLE
+from agent.vehicles.vehicles import VEHICLE
 
 from utils.logger_helper import logger_helper as logger
 
