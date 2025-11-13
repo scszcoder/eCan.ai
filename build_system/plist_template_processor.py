@@ -107,11 +107,28 @@ class InfoPlistTemplateProcessor:
         for key, description in usage_descriptions.items():
             template_data[key] = description
         
-        # Update URL scheme configuration
-        if 'CFBundleURLTypes' in template_data:
-            for url_type in template_data['CFBundleURLTypes']:
-                if 'CFBundleURLName' in url_type:
-                    url_type['CFBundleURLName'] = f'{bundle_id}.oauth'
+        # Build CFBundleURLTypes from config
+        url_schemes = installer_config.get('url_schemes', [])
+        if url_schemes:
+            url_types = []
+            for scheme_config in url_schemes:
+                url_type = {
+                    'CFBundleURLName': scheme_config.get('name', f"{scheme_config['scheme']} URL"),
+                    'CFBundleURLSchemes': [scheme_config['scheme']],
+                }
+                if 'role' in scheme_config:
+                    url_type['CFBundleTypeRole'] = scheme_config['role']
+                if 'icon' in scheme_config:
+                    url_type['CFBundleURLIconFile'] = scheme_config['icon']
+                url_types.append(url_type)
+            template_data['CFBundleURLTypes'] = url_types
+        elif 'CFBundleURLTypes' not in template_data:
+            # Add default ecan:// scheme if not in template and not in config
+            template_data['CFBundleURLTypes'] = [{
+                'CFBundleURLName': 'eCan URL',
+                'CFBundleURLSchemes': ['ecan'],
+                'CFBundleTypeRole': 'Viewer'
+            }]
         
         # Mode-specific configurations
         if mode == 'dev':
@@ -157,12 +174,30 @@ class InfoPlistTemplateProcessor:
             'NSAccessibilityUsageDescription': f'{app_name} needs accessibility permission for automation tasks.',
             'LSUIElement': False,
             'LSBackgroundOnly': False,
-            'CFBundleURLTypes': [{
-                'CFBundleURLName': f'{bundle_id}.oauth',
-                'CFBundleURLSchemes': ['ecan'],
-                'CFBundleURLIconFile': 'eCan.icns'
-            }],
         }
+        
+        # Build CFBundleURLTypes from config
+        url_schemes = installer_config.get('url_schemes', [])
+        if url_schemes:
+            url_types = []
+            for scheme_config in url_schemes:
+                url_type = {
+                    'CFBundleURLName': scheme_config.get('name', f"{scheme_config['scheme']} URL"),
+                    'CFBundleURLSchemes': [scheme_config['scheme']],
+                }
+                if 'role' in scheme_config:
+                    url_type['CFBundleTypeRole'] = scheme_config['role']
+                if 'icon' in scheme_config:
+                    url_type['CFBundleURLIconFile'] = scheme_config['icon']
+                url_types.append(url_type)
+            fallback_data['CFBundleURLTypes'] = url_types
+        else:
+            # Fallback to default ecan:// scheme if not configured
+            fallback_data['CFBundleURLTypes'] = [{
+                'CFBundleURLName': 'eCan URL',
+                'CFBundleURLSchemes': ['ecan'],
+                'CFBundleTypeRole': 'Viewer'
+            }]
         
         # Create temporary fallback file
         temp_dir = self.project_root / 'build' / 'temp'

@@ -1503,8 +1503,8 @@ if sys.platform == 'darwin':
                 print(f"[MINIBUILD] Warning: Info.plist not found at {info_plist_path}")
                 return
             
-            # Get URL schemes from build config
-            url_schemes = self.config.get('installer', {}).get('macos', {}).get('url_schemes', [])
+            # Get URL schemes from build config (use self.cfg, not self.config)
+            url_schemes = self.cfg.get('installer', {}).get('macos', {}).get('url_schemes', [])
             
             if not url_schemes:
                 print("[MINIBUILD] No URL schemes configured in build_config.json")
