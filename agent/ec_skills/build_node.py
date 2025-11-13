@@ -15,7 +15,8 @@ from app_context import AppContext
 from utils.env.secure_store import secure_store, get_current_username
 from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
-from langchain_community.chat_models import ChatAnthropic, ChatOllama
+from langchain_community.chat_models import ChatAnthropic
+from langchain_ollama import ChatOllama
 from langchain_deepseek import ChatDeepSeek
 try:
     from langchain_google_genai import ChatGoogleGenerativeAI
