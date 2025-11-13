@@ -1,10 +1,16 @@
 import mcp.types as types
-from agent.mcp.server.scrapers.amazon_seller.amazon_fbs_orders_scrape import add_fullfill_amazon_fbs_orders_tool_schema
-from agent.mcp.server.scrapers.ebay_seller.ebay_orders_scrape import add_fullfill_ebay_orders_tool_schema
-from agent.mcp.server.scrapers.etsy_seller.etsy_orders_scrape import add_fullfill_etsy_orders_tool_schema
-from agent.mcp.server.scrapers.ebay_seller.ebay_messages_scrape import add_fetch_ebay_messages_tool_schema, add_answer_ebay_messages_tool_schema
-from agent.mcp.server.scrapers.etsy_seller.etsy_messages_scrape import add_fetch_etsy_messages_tool_schema, add_answer_etsy_messages_tool_schema
-from agent.mcp.server.scrapers.amazon_seller.amazon_messages_scrape import add_fetch_amazon_messages_tool_schema, add_answer_amazon_messages_tool_schema
+from agent.mcp.server.scrapers.amazon_seller.amazon_orders_scrape import add_get_amazon_summary_tool_schema, add_amazon_fullfill_next_order_tool_schema
+from agent.mcp.server.scrapers.amazon_seller.amazon_messages_scrape import add_amazon_handle_next_message_tool_schema
+
+from agent.mcp.server.scrapers.ebay_seller.ebay_orders_scrape import add_get_ebay_summary_tool_schema, add_ebay_fullfill_next_order_tool_schema
+from agent.mcp.server.scrapers.ebay_seller.ebay_messages_scrape import add_ebay_handle_next_message_tool_schema
+
+from agent.mcp.server.scrapers.etsy_seller.etsy_orders_scrape import add_get_etsy_summary_tool_schema, add_etsy_fullfill_next_order_tool_schema
+from agent.mcp.server.scrapers.etsy_seller.etsy_messages_scrape import add_etsy_handle_next_message_tool_schema
+
+from agent.mcp.server.scrapers.shopify_seller.shopify_orders_scrape import add_get_shopify_summary_tool_schema, add_shopify_fullfill_next_order_tool_schema
+from agent.mcp.server.scrapers.shopify_seller.shopify_messages_scrape import add_shopify_handle_next_message_tool_schema
+
 from agent.mcp.server.scrapers.pirate_shipping.purchase_label import add_pirate_shipping_purchase_labels_tool_schema
 from agent.mcp.server.utils.print_utils import add_reformat_and_print_labels_tool_schema
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import add_ecan_ai_api_get_agent_status_tool_schema
@@ -1681,17 +1687,42 @@ def build_agent_mcp_tools_schemas():
     )
 
     add_tool_schema(tool_schema)
-    add_fetch_etsy_messages_tool_schema(tool_schemas)
-    add_answer_etsy_messages_tool_schema(tool_schemas)
-    add_fetch_ebay_messages_tool_schema(tool_schemas)
-    add_answer_ebay_messages_tool_schema(tool_schemas)
-    add_fetch_amazon_messages_tool_schema(tool_schemas)
-    add_answer_amazon_messages_tool_schema(tool_schemas)
-    add_fullfill_ebay_orders_tool_schema(tool_schemas)
-    add_fullfill_etsy_orders_tool_schema(tool_schemas)
-    add_fullfill_amazon_fbs_orders_tool_schema(tool_schemas)
-    add_pirate_shipping_purchase_labels_tool_schema(tool_schemas)
+
+
+    add_get_ebay_summary_tool_schema(tool_schemas)
+    add_ebay_fullfill_next_order_tool_schema(tool_schemas)
+    add_ebay_handle_next_message_tool_schema(tool_schemas)
+
+    add_get_etsy_summary_tool_schema(tool_schemas)
+    add_etsy_fullfill_next_order_tool_schema(tool_schemas)
+    add_etsy_handle_next_message_tool_schema(tool_schemas)
+
+    add_get_amazon_summary_tool_schema(tool_schemas)
+    add_amazon_fullfill_next_order_tool_schema(tool_schemas)
+    add_amazon_handle_next_message_tool_schema(tool_schemas)
+
+    # add_get_walmart_summary_tool_schema(tool_schemas)
+    # add_walmart_fullfill_next_order_tool_schema(tool_schemas)
+    # add_walmart_handle_next_message_tool_schema(tool_schemas)
+    #
+    # add_get_wayfair_summary_tool_schema(tool_schemas)
+    # add_wayfair_fullfill_next_order_tool_schema(tool_schemas)
+    # add_wayfair_handle_next_message_tool_schema(tool_schemas)
+    #
+    # add_get_chewy_summary_tool_schema(tool_schemas)
+    # add_chewy_fullfill_next_order_tool_schema(tool_schemas)
+    # add_chewy_handle_next_message_tool_schema(tool_schemas)
+
+    add_get_shopify_summary_tool_schema(tool_schemas)
+    add_shopify_fullfill_next_order_tool_schema(tool_schemas)
+    add_shopify_handle_next_message_tool_schema(tool_schemas)
+
+    # add_amazon_mcf_tool_schema(tool_schemas)
+    # add_ebay_buy_shipping_tool_schema(tool_schemas)
+    # add_pirate_shipping_buy_tool_schema(tool_schemas)
+
     add_reformat_and_print_labels_tool_schema(tool_schemas)
+
     add_ecan_ai_api_get_agent_status_tool_schema(tool_schemas)
 
     return tool_schemas

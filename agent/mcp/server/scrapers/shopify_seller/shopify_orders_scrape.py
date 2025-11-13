@@ -419,3 +419,61 @@ async def fullfill_shopify_orders(mainwin, args):  # type: ignore
         err_trace = get_traceback(e, "ErrorFullfillEtsyOrders")
         logger.debug(err_trace)
         return [TextContent(type="text", text=err_trace)]
+
+
+
+def add_get_shopify_summary_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="get_shopify_summary",
+        description="get shopify numer of new orders and number of new messages.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["store_url", "options"],
+                    "properties": {
+                        "store_url": {
+                            "type": "string",
+                            "description": "shopify store url",
+                        },
+                        "options": {
+                            "type": "object",
+                            "description": "some options in json format",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)
+
+def add_shopify_fullfill_next_order_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="shopify_fullfill_next_order",
+        description="full fill next order by clicking on buy shipping to obtain the cheapest shipping label, reformat it, save it, send it to printer, and return the order details info in json format.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["options"],
+                    "properties": {
+                        "options": {
+                            "type": "object",
+                            "description": "some options in json format including printer name, label format, etc. will use default if these info are missing anyways.",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)

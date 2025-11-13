@@ -373,3 +373,60 @@ def add_fullfill_ebay_orders_tool_schema(tool_schemas):
     )
 
     tool_schemas.append(tool_schema)
+
+
+def add_get_ebay_summary_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="get_ebay_summary",
+        description="get ebay numer of new orders and number of new messages.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["store_url", "options"],
+                    "properties": {
+                        "store_url": {
+                            "type": "string",
+                            "description": "ebay store url",
+                        },
+                        "options": {
+                            "type": "object",
+                            "description": "some options in json format",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)
+
+def add_ebay_fullfill_next_order_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="ebay_fullfill_next_order",
+        description="full fill next order by clicking on buy shipping to obtain the cheapest shipping label, reformat it, save it, send it to printer, and return the order details info in json format.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["options"],
+                    "properties": {
+                        "options": {
+                            "type": "object",
+                            "description": "some options in json format including printer name, label format, etc. will use default if these info are missing anyways.",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)
