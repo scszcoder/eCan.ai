@@ -50,13 +50,22 @@ class MemoryManager:
 	def __init__(
         self,
         agent_id: str,
-        persist_dir: str = ".cache/chroma",
+        persist_dir: str | None = None,
         embedding_model: str = None,
         embedding_provider: str = None,
         collection_prefix: str = "ecan_mem_",
 		llm: BaseChatModel = None,
     ) -> None:
 		self.agent_id = agent_id
+		# Resolve persist directory to a user-writable location when not provided
+		if persist_dir is None:
+			try:
+				from config.app_info import app_info
+				persist_dir = os.path.join(app_info.appdata_path, "memory", "chroma")
+			except Exception as e:
+				# Do not fallback; provide clear error logging and stop initialization
+				logger.error(f"[MemoryManager] Failed to resolve persist_dir from app_info.appdata_path: {e}")
+				raise
 		self.persist_dir = persist_dir
 		os.makedirs(self.persist_dir, exist_ok=True)
 		self.llm = llm

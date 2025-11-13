@@ -72,8 +72,9 @@ def get_webdriver_dir() -> str:
     try:
         from config.app_info import app_info
 
-        # Use app_info.app_home_path for consistent path management
-        base_dir = os.path.join(app_info.app_home_path, "webdrivers")
+        # Use app_info.appdata_path (user-writable) for consistent path management
+        # This avoids permission issues when the app is installed under /Applications
+        base_dir = os.path.join(app_info.appdata_path, "webdrivers")
 
         # Ensure directory exists
         os.makedirs(base_dir, exist_ok=True)
