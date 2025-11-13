@@ -1,8 +1,8 @@
 from config.envi import getECBotDataHome
 
 from pynput.mouse import Controller
-import ctypes
-from config.app_info import app_info
+import sys
+from utils.logger_helper import logger_helper as logger
 
 symTab = globals()
 
@@ -197,7 +197,7 @@ def getScreenSize():
 
     except Exception as e:
         # Ultimate fallback - return a reasonable default
-        print(f"Warning: Could not determine screen size, using default. Error: {e}")
+        logger.error(f"Warning: Could not determine screen size, using default. Error: {e}")
         return (1920, 1080)
 
 

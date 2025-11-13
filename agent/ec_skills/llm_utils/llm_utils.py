@@ -1439,6 +1439,65 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
         return None
 
 
+def pick_browser_use_llm(mainwin=None, skip_playwright_check=False):
+    """
+    Create browser_use LLM instance based on mainwin's configuration.
+    
+    This is a companion function to pick_llm() that creates a browser_use-compatible
+    LLM instance. It should be called alongside pick_llm() during initialization
+    and when switching LLM providers.
+    
+    Args:
+        mainwin: MainWindow instance to get LLM configuration from
+        skip_playwright_check: Skip Playwright initialization check (default: False)
+        
+    Returns:
+        BrowserUseChatOpenAI instance or None
+        
+    Examples:
+        >>> # Initialize both LLMs together
+        >>> mainwin.llm = pick_llm(default_llm, providers, config_manager)
+        >>> mainwin.browser_use_llm = pick_browser_use_llm(mainwin=mainwin)
+        
+        >>> # Update both when switching providers
+        >>> mainwin.llm = pick_llm(new_provider, providers, config_manager, allow_fallback=False)
+        >>> mainwin.browser_use_llm = pick_browser_use_llm(mainwin=mainwin)
+    """
+    logger.info("[pick_browser_use_llm] Creating browser_use LLM instance")
+    
+    # Delegate to create_browser_use_llm which has all the logic
+    browser_use_llm = create_browser_use_llm(
+        mainwin=mainwin,
+        fallback_llm=None,
+        skip_playwright_check=skip_playwright_check
+    )
+    
+    if browser_use_llm:
+        # Get detailed info for logging
+        llm_type = type(browser_use_llm).__name__
+        details = []
+        
+        if hasattr(browser_use_llm, 'model_name'):
+            details.append(f"model={browser_use_llm.model_name}")
+        elif hasattr(browser_use_llm, 'model'):
+            details.append(f"model={browser_use_llm.model}")
+        
+        if mainwin and hasattr(mainwin, 'config_manager'):
+            default_llm = mainwin.config_manager.general_settings.default_llm
+            if default_llm:
+                provider = mainwin.config_manager.llm_manager.get_provider(default_llm)
+                if provider:
+                    provider_display = provider.get('display_name', default_llm)
+                    details.append(f"provider={provider_display}")
+        
+        detail_str = f" ({', '.join(details)})" if details else ""
+        logger.info(f"[pick_browser_use_llm] Successfully created browser_use LLM: {llm_type}{detail_str}")
+    else:
+        logger.warning("[pick_browser_use_llm] Failed to create browser_use LLM")
+    
+    return browser_use_llm
+
+
 def _update_default_llm_via_config_manager(provider_name, config_manager=None):
     """Update default_llm setting via config manager"""
     try:

@@ -282,7 +282,7 @@ class MainWindow:
 
     def update_all_llms(self, reason="unknown"):
         """
-        Update mainwin.llm and all agents' LLMs (skill_llm and browser_use LLM).
+        Update mainwin.llm, mainwin.browser_use_llm and all agents' LLMs (skill_llm and browser_use LLM).
         
         This method should be called when:
         - LLM provider is changed
@@ -294,7 +294,7 @@ class MainWindow:
         """
         try:
             logger.info(f"[MainWindow] 🔄 Updating all LLMs - Reason: {reason}")
-            from agent.ec_skills.llm_utils.llm_utils import pick_llm
+            from agent.ec_skills.llm_utils.llm_utils import pick_llm, pick_browser_use_llm
             
             # Recreate mainwin.llm
             # Important: Use allow_fallback=False to prevent overriding user's provider selection
@@ -314,42 +314,17 @@ class MainWindow:
             self.llm = new_llm
             logger.info(f"[MainWindow] ✅ LLM recreated successfully - {old_llm_type} → {new_llm_type}")
             
-            # Recreate browser_use LLM with new configuration
-            new_browser_use_llm = None
-            try:
-                from agent.playwright import create_browser_use_llm
-                new_browser_use_llm = create_browser_use_llm(mainwin=self)
-                if new_browser_use_llm:
-                    # Get detailed info for browser_use LLM
-                    browser_llm_type = type(new_browser_use_llm).__name__
-                    browser_llm_details = []
-                    
-                    # Extract model name
-                    if hasattr(new_browser_use_llm, 'model_name'):
-                        browser_llm_details.append(f"model={new_browser_use_llm.model_name}")
-                    elif hasattr(new_browser_use_llm, 'model'):
-                        browser_llm_details.append(f"model={new_browser_use_llm.model}")
-                    
-                    # Extract endpoint
-                    if hasattr(new_browser_use_llm, 'openai_api_base') and new_browser_use_llm.openai_api_base:
-                        browser_llm_details.append(f"endpoint={new_browser_use_llm.openai_api_base}")
-                    elif hasattr(new_browser_use_llm, 'base_url') and new_browser_use_llm.base_url:
-                        browser_llm_details.append(f"endpoint={new_browser_use_llm.base_url}")
-                    
-                    # Add provider info
-                    default_llm = self.config_manager.general_settings.default_llm
-                    if default_llm:
-                        provider = self.config_manager.llm_manager.get_provider(default_llm)
-                        if provider:
-                            provider_display = provider.get('display_name', default_llm)
-                            browser_llm_details.append(f"provider={provider_display}")
-                    
-                    detail_str = f" ({', '.join(browser_llm_details)})" if browser_llm_details else ""
-                    logger.info(f"[MainWindow] ✅ Browser-use LLM recreated: {browser_llm_type}{detail_str}")
-                else:
-                    logger.warning("[MainWindow] ⚠️ Failed to recreate browser-use LLM")
-            except Exception as e:
-                logger.warning(f"[MainWindow] ⚠️ Error recreating browser-use LLM: {e}")
+            # Recreate browser_use LLM with new configuration using pick_browser_use_llm
+            old_browser_llm_type = type(self.browser_use_llm).__name__ if hasattr(self, 'browser_use_llm') and self.browser_use_llm else "None"
+            new_browser_use_llm = pick_browser_use_llm(mainwin=self)
+            
+            if new_browser_use_llm:
+                self.browser_use_llm = new_browser_use_llm
+                new_browser_llm_type = type(new_browser_use_llm).__name__
+                logger.info(f"[MainWindow] ✅ Browser-use LLM recreated successfully - {old_browser_llm_type} → {new_browser_llm_type}")
+            else:
+                logger.warning("[MainWindow] ⚠️ Failed to recreate browser-use LLM")
+                self.browser_use_llm = None
             
             # Update all agents' skill_llm and llm (browser_use)
             updated_agents = 0
@@ -360,9 +335,9 @@ class MainWindow:
                     updated_agents += 1
                     logger.debug(f"[MainWindow] Updated skill_llm for agent: {agent.card.name}")
                 
-                # Update agent.llm (browser_use LLM)
-                if new_browser_use_llm and hasattr(agent, 'llm'):
-                    agent.llm = new_browser_use_llm
+                # Update agent.llm (browser_use LLM) - use unified mainwin.browser_use_llm
+                if self.browser_use_llm and hasattr(agent, 'llm'):
+                    agent.llm = self.browser_use_llm
                     logger.debug(f"[MainWindow] Updated browser-use LLM for agent: {agent.card.name}")
             
             logger.info(f"[MainWindow] ✅ Updated LLMs for {updated_agents} agents")
@@ -1293,7 +1268,7 @@ class MainWindow:
         
         # Initialize LLM with proper error handling
         try:
-            from agent.ec_skills.llm_utils.llm_utils import pick_llm
+            from agent.ec_skills.llm_utils.llm_utils import pick_llm, pick_browser_use_llm
             self.llm = pick_llm(
                 self.config_manager.general_settings.default_llm,
                 self.config_manager.llm_manager.get_all_providers(),
@@ -1311,9 +1286,18 @@ class MainWindow:
                         logger.info(f"[MainWindow] 📋 Current LLM: Provider={provider_display}, Name={default_llm}, Model={model_name}, Class={type(self.llm).__name__}")
             else:
                 logger.warning(f"[MainWindow] ⚠️ LLM initialization failed - LLM is None")
+            
+            # Initialize browser_use LLM (unified instance for all agents)
+            self.browser_use_llm = pick_browser_use_llm(mainwin=self)
+            if self.browser_use_llm:
+                logger.info(f"[MainWindow] ✅ Browser-use LLM initialized successfully - Type: {type(self.browser_use_llm).__name__}")
+            else:
+                logger.warning(f"[MainWindow] ⚠️ Browser-use LLM initialization failed - browser_use_llm is None")
+                
         except Exception as e:
             logger.error(f"[MainWindow] Failed to initialize LLM: {e}")
             self.llm = None
+            self.browser_use_llm = None
 
         # Initialize agent-related components
         self.agents = []

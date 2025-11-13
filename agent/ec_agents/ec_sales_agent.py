@@ -32,8 +32,8 @@ def set_up_ec_sales_agent(mainwin):
 
         chatter_task = create_ec_sales_chat_task(mainwin)
         worker_task = create_ec_sales_work_task(mainwin)
-        # Use mainwin's configuration for browser_use LLM
-        browser_use_llm = create_browser_use_llm(mainwin=mainwin)
+        # Use mainwin's unified browser_use_llm instance (shared across all agents)
+        browser_use_llm = mainwin.browser_use_llm
         sales = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
 
     except Exception as e:
