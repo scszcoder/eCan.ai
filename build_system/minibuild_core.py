@@ -207,6 +207,9 @@ class MiniSpecBuilder:
         # Verify Python shared library was packaged correctly (macOS)
         self._verify_python_shared_library()
 
+        # Update Info.plist with URL schemes (macOS)
+        self._update_info_plist_url_schemes()
+
         print(f"[MINIBUILD] {mode.upper()} build completed successfully with profile settings")
         return True
 
@@ -1476,6 +1479,68 @@ if sys.platform == 'darwin':
 
         except Exception as e:
             print(f"[MINIBUILD] Warning: Qt framework path fixes failed: {e}")
+
+    def _update_info_plist_url_schemes(self) -> None:
+        """Update Info.plist with URL schemes from build_config.json (macOS only)"""
+        if not platform_handler.is_macos:
+            return
+        
+        try:
+            print("[MINIBUILD] Updating Info.plist with URL schemes...")
+            
+            # Find dist directory and app bundle
+            dist_dir = self.project_root / "dist"
+            app_bundles = list(dist_dir.glob("*.app"))
+            
+            if not app_bundles:
+                print("[MINIBUILD] Warning: No .app bundle found, skipping URL scheme update")
+                return
+            
+            app_bundle = app_bundles[0]
+            info_plist_path = app_bundle / "Contents" / "Info.plist"
+            
+            if not info_plist_path.exists():
+                print(f"[MINIBUILD] Warning: Info.plist not found at {info_plist_path}")
+                return
+            
+            # Get URL schemes from build config
+            url_schemes = self.config.get('installer', {}).get('macos', {}).get('url_schemes', [])
+            
+            if not url_schemes:
+                print("[MINIBUILD] No URL schemes configured in build_config.json")
+                return
+            
+            # Load existing Info.plist
+            import plistlib
+            with open(info_plist_path, 'rb') as f:
+                plist_data = plistlib.load(f)
+            
+            # Build CFBundleURLTypes array
+            url_types = []
+            for scheme_config in url_schemes:
+                url_type = {
+                    'CFBundleURLName': scheme_config.get('name', f"{scheme_config['scheme']} URL"),
+                    'CFBundleURLSchemes': [scheme_config['scheme']],
+                }
+                if 'role' in scheme_config:
+                    url_type['CFBundleTypeRole'] = scheme_config['role']
+                url_types.append(url_type)
+            
+            # Update plist data
+            plist_data['CFBundleURLTypes'] = url_types
+            
+            # Write back to Info.plist
+            with open(info_plist_path, 'wb') as f:
+                plistlib.dump(plist_data, f)
+            
+            print(f"[MINIBUILD] ✓ Updated Info.plist with {len(url_types)} URL scheme(s):")
+            for scheme_config in url_schemes:
+                print(f"[MINIBUILD]   - {scheme_config['scheme']}:// → {scheme_config.get('name', 'URL')}")
+            
+        except Exception as e:
+            print(f"[MINIBUILD] Warning: Info.plist URL scheme update failed: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 __all__ = ["MiniSpecBuilder"]

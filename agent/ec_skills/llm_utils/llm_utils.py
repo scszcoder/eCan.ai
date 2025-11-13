@@ -12,7 +12,7 @@ from typing import Any, Dict, Tuple
 # Third-party library imports
 import requests
 from langchain_community.chat_models import ChatAnthropic
-from langchain_ollama.chat_models import ChatOllama
+from langchain_ollama import ChatOllama
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_deepseek import ChatDeepSeek
 from langchain_openai import AzureChatOpenAI, ChatOpenAI

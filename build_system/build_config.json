@@ -644,6 +644,13 @@
       "create_launchpad_shortcut": true,
       "create_dock_shortcut": false,
       "min_os_version": "11.0",
+      "url_schemes": [
+        {
+          "scheme": "ecan",
+          "name": "eCan URL",
+          "role": "Viewer"
+        }
+      ],
       "pkg": {
         "title": "eCan AI Assistant",
         "welcome_file": "",
