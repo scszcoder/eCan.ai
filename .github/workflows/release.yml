@@ -202,6 +202,28 @@ jobs:
             exit 1
         }
 
+    - name: Verify Inno Setup (Unicode) version
+      shell: pwsh
+      run: |
+        $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+        if (-not (Test-Path $innoPath)) { $innoPath = "${env:ProgramFiles}\Inno Setup 6\ISCC.exe" }
+        if (-not (Test-Path $innoPath)) {
+          Write-Host "ERROR: ISCC.exe not found" -ForegroundColor Red
+          exit 1
+        }
+        Write-Host "=== ISCC Version Output ===" -ForegroundColor Cyan
+        $help = & $innoPath '/?'
+        $help | ForEach-Object { "  $_" }
+        if ($help -notmatch 'Inno Setup [0-9]') {
+          Write-Host "ERROR: Failed to get ISCC version" -ForegroundColor Red
+          exit 1
+        }
+        if ($help -notmatch 'Unicode') {
+          Write-Host "ERROR: ISCC is not Unicode build. Unicode is required to avoid Chinese mojibake." -ForegroundColor Red
+          exit 1
+        }
+        Write-Host "OK: ISCC Unicode build detected" -ForegroundColor Green
+
     - name: Install Inno Setup Chinese Language Pack
       run: |
         echo "=== Installing Inno Setup Chinese Language Pack ==="
