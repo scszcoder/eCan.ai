@@ -205,6 +205,7 @@ jobs:
     - name: Verify Inno Setup (Unicode) version
       shell: pwsh
       run: |
+        $ErrorActionPreference = 'Continue'
         $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
         if (-not (Test-Path $innoPath)) { $innoPath = "${env:ProgramFiles}\Inno Setup 6\ISCC.exe" }
         if (-not (Test-Path $innoPath)) {
@@ -213,6 +214,7 @@ jobs:
         }
         Write-Host "=== ISCC Version Output ===" -ForegroundColor Cyan
         $help = & $innoPath '/?'
+        # Note: ISCC /? may return non-zero exit code even on success, so we don't check $LASTEXITCODE
         $help | ForEach-Object { "  $_" }
         # Join lines for reliable regex matching; avoids array -notmatch pitfalls
         $helpText = $help -join "`n"
@@ -220,13 +222,15 @@ jobs:
           Write-Host "ERROR: Failed to get ISCC version" -ForegroundColor Red
           exit 1
         }
-        # Inno Setup 6 compiler is Unicode-only; try to detect Unicode but don't fail hard if not present in help
+        # Inno Setup 6 compiler is Unicode-only; log as info if not explicitly present
         $unicodeHint = ($helpText -match 'Unicode') -or ((Get-Item $innoPath).VersionInfo.FileDescription -match 'Unicode')
         if (-not $unicodeHint) {
-          Write-Host "WARN: Could not confirm 'Unicode' from help text; Inno Setup 6 is Unicode-only." -ForegroundColor Yellow
+          Write-Host "INFO: Proceeding - Inno Setup 6 is Unicode-only; explicit 'Unicode' string not found in help." -ForegroundColor Yellow
         } else {
           Write-Host "OK: ISCC Unicode build detected" -ForegroundColor Green
         }
+        Write-Host "OK: ISCC check passed" -ForegroundColor Green
+        exit 0
 
     - name: Install Inno Setup Chinese Language Pack
       run: |
