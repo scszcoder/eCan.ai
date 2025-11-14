@@ -272,21 +272,26 @@ export const Save = ({ disabled }: SaveProps) => {
       const saveResult = await saveFile(updatedSkillInfo, username || undefined, effectivePath);
 
       if (saveResult && !saveResult.cancelled) {
-        // 需求4: IfBackend返回了新的 skillName，使用它Update skillInfo
-        let finalSkillInfo = updatedSkillInfo;
-        const savedSkillName = (saveResult as any).skillName;  // 使用 any 绕过TypeCheck
-        if (savedSkillName && savedSkillName !== updatedSkillInfo.skillName) {
-          console.log('[SKILL_IO][FRONTEND][UPDATE_SKILL_NAME]', {
-            old: updatedSkillInfo.skillName,
-            new: savedSkillName
-          });
-          finalSkillInfo = {
-            ...updatedSkillInfo,
-            skillName: savedSkillName
-          };
-        }
-        
-        // Update the skill info store
+        // Derive skillName from saved path (folder <name>_skill) to avoid backend mismatch
+        const finalPath = saveResult.filePath || effectivePath || '';
+        let derivedName = updatedSkillInfo.skillName;
+        try {
+          if (finalPath) {
+            const norm = String(finalPath).replace(/\\/g, '/');
+            const parts = norm.split('/');
+            const idx = parts.lastIndexOf('diagram_dir');
+            if (idx > 0) {
+              const folder = parts[idx - 1];
+              derivedName = (folder?.replace(/_skill$/i, '') || derivedName) as string;
+            } else {
+              const base = (parts.pop() || '').replace(/\.json$/i, '');
+              derivedName = base.replace(/_skill$/i, '') || derivedName;
+            }
+          }
+        } catch {}
+
+        // Update the skill info store with path-derived name
+        const finalSkillInfo = { ...updatedSkillInfo, skillName: derivedName } as any;
         setSkillInfo(finalSkillInfo);
         setHasUnsavedChanges(false);
 
@@ -298,7 +303,7 @@ export const Save = ({ disabled }: SaveProps) => {
         // Add to recent files when saving (update last opened time)
         const finalFilePath = saveResult.filePath || effectivePath;
         if (finalFilePath) {
-          addRecentFile(createRecentFile(finalFilePath, updatedSkillInfo.skillName));
+          addRecentFile(createRecentFile(finalFilePath, (finalSkillInfo as any).skillName));
         }
 
         console.log('[SKILL_IO][FRONTEND][MAIN_SAVE_DONE]');
@@ -363,8 +368,8 @@ export const Save = ({ disabled }: SaveProps) => {
             } else {
               bundleTarget = `${finalFilePath}_skill_bundle.json`;
             }
-          } else if (updatedSkillInfo.skillName) {
-            bundleTarget = `${updatedSkillInfo.skillName}_skill_bundle.json`;
+          } else if ((finalSkillInfo as any).skillName) {
+            bundleTarget = `${(finalSkillInfo as any).skillName}_skill_bundle.json`;
           }
           console.log('[SKILL_IO][FRONTEND][BUNDLE_SAVE_ATTEMPT]', { path: bundleTarget, sheetsCount: bundle.sheets.length });
           const bundleRes = await saveSheetsBundleToPath(bundleTarget, bundle);

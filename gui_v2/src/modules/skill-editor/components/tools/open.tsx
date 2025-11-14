@@ -68,7 +68,18 @@ export const Open = ({ disabled }: OpenProps) => {
               loadBundle(bundle);
               // 需求2: 使用Backend返回的 skillName（从文件夹Name提取）
               try {
-                const skillName = skillNameFromBackend || ((String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '').replace(/_skill$/i, ''));
+                const norm = String(filePath).replace(/\\/g, '/');
+                const parts = norm.split('/');
+                const idx = parts.lastIndexOf('diagram_dir');
+                let skillName = '';
+                if (idx > 0) {
+                  const folder = parts[idx - 1];
+                  skillName = folder?.replace(/_skill$/i, '') || '';
+                }
+                if (!skillName) {
+                  const base = (parts.pop() || '').replace(/\.json$/i, '');
+                  skillName = base.replace(/_skill$/i, '');
+                }
                 console.log('[SKILL_IO][FRONTEND][SET_SKILL_NAME]', skillName);
                 const current = skillInfoFromStore;
                 if (current?.skillName !== skillName) {
@@ -90,7 +101,18 @@ export const Open = ({ disabled }: OpenProps) => {
                 loadBundle(embedded as SheetsBundle);
                 // 需求2: 使用Backend返回的 skillName
                 try {
-                  const skillName = skillNameFromBackend || ((String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '').replace(/_skill$/i, ''));
+                  const norm = String(filePath).replace(/\\/g, '/');
+                  const parts = norm.split('/');
+                  const idx = parts.lastIndexOf('diagram_dir');
+                  let skillName = '';
+                  if (idx > 0) {
+                    const folder = parts[idx - 1];
+                    skillName = folder?.replace(/_skill$/i, '') || '';
+                  }
+                  if (!skillName) {
+                    const base = (parts.pop() || '').replace(/\.json$/i, '');
+                    skillName = base.replace(/_skill$/i, '');
+                  }
                   console.log('[SKILL_IO][FRONTEND][SET_SKILL_NAME]', skillName);
                   const current = skillInfoFromStore;
                   if (current?.skillName !== skillName) {
@@ -152,14 +174,26 @@ export const Open = ({ disabled }: OpenProps) => {
             }
 
             const data = raw as SkillInfo;
-            // 需求2: 使用Backend返回的 skillName 覆盖文件中的 skillName
-            if (skillNameFromBackend) {
-              console.log('[SKILL_IO][FRONTEND][OVERRIDE_SKILL_NAME]', {
-                fromFile: data.skillName,
-                fromBackend: skillNameFromBackend
-              });
-              data.skillName = skillNameFromBackend;
-            }
+            // Derive skillName from path to avoid backend mismatch
+            try {
+              const norm = String(filePath).replace(/\\/g, '/');
+              // Expect <...>/<name>_skill/diagram_dir/<name>_skill.json or fallback to filename
+              const parts = norm.split('/');
+              const idx = parts.lastIndexOf('diagram_dir');
+              let nameFromPath = '';
+              if (idx > 0) {
+                const folder = parts[idx - 1];
+                nameFromPath = folder?.replace(/_skill$/i, '') || '';
+              }
+              if (!nameFromPath) {
+                const base = (parts.pop() || '').replace(/\.json$/i, '');
+                nameFromPath = base.replace(/_skill$/i, '');
+              }
+              if (nameFromPath) {
+                data.skillName = nameFromPath;
+              }
+            } catch {}
+
             const diagram = data.workFlow;
             if (diagram) {
               console.log('[Open] Loading single-skill diagram. Nodes=', Array.isArray(diagram.nodes) ? diagram.nodes.length : 'n/a');
