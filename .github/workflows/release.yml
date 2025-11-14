@@ -144,7 +144,8 @@ jobs:
       (github.event.inputs.platform == 'windows' ||
        github.event.inputs.platform == 'all') &&
       (github.event.inputs.arch == 'amd64' ||
-       github.event.inputs.arch == 'all')
+       github.event.inputs.arch == 'all' ||
+       github.event.inputs.arch == '')
     runs-on: windows-latest
     env:
       # Expose secrets to env for conditional checks without referencing `secrets` in `if:`
@@ -592,21 +593,35 @@ jobs:
         # Create artifacts directory
         New-Item -ItemType Directory -Force -Path "artifacts" | Out-Null
 
+        $artifactCount = 0
+
         # Copy main installer
         $setupFile = "dist/eCan-${version}-windows-${arch}-Setup.exe"
         if (Test-Path $setupFile) {
           Copy-Item $setupFile "artifacts/" -Force
           $size = [math]::Round((Get-Item $setupFile).Length / 1MB, 2)
           Write-Host "Copied installer: ${size} MB"
+          $artifactCount++
+        } else {
+          Write-Host "WARNING: Setup file not found: $setupFile" -ForegroundColor Yellow
         }
 
         # Copy MSI files if exist
         Get-ChildItem "dist/*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
           Copy-Item $_.FullName "artifacts/" -Force
           Write-Host "Copied MSI: $($_.Name)"
+          $artifactCount++
         }
 
-        Write-Host "Artifacts prepared for upload"
+        # Verify artifacts were copied
+        if ($artifactCount -eq 0) {
+          Write-Host "ERROR: No artifacts were copied to artifacts/ directory" -ForegroundColor Red
+          Write-Host "Contents of dist/ directory:" -ForegroundColor Yellow
+          Get-ChildItem "dist" -Recurse | Select-Object FullName
+          exit 1
+        }
+
+        Write-Host "Artifacts prepared for upload ($artifactCount files)"
         Get-ChildItem "artifacts" | ForEach-Object {
           $sizeMB = [math]::Round($_.Length / 1MB, 2)
           Write-Host "  $($_.Name): ${sizeMB} MB"
@@ -636,7 +651,11 @@ jobs:
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'macos' ||
-       github.event.inputs.platform == 'all')
+       github.event.inputs.platform == 'all') &&
+      (github.event.inputs.arch == 'all' ||
+       github.event.inputs.arch == 'amd64' ||
+       github.event.inputs.arch == 'aarch64' ||
+       github.event.inputs.arch == '')
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -924,7 +943,11 @@ jobs:
         fi
 
     - name: Code sign macOS app (optional)
-      if: ${{ steps.should_build.outputs.should_build == 'true' && env.MAC_CERT_P12 != 'NOT_SET' && env.MAC_CERT_PASSWORD != 'NOT_SET' && env.MAC_CODESIGN_IDENTITY != 'NOT_SET' }}
+      if: |
+        steps.should_build.outputs.should_build == 'true' &&
+        env.MAC_CERT_P12 != 'NOT_SET' &&
+        env.MAC_CERT_PASSWORD != 'NOT_SET' &&
+        env.MAC_CODESIGN_IDENTITY != 'NOT_SET'
       env:
         MAC_CERT_P12: ${{ env.MAC_CERT_P12 }}
         MAC_CERT_PASSWORD: ${{ env.MAC_CERT_PASSWORD }}
@@ -956,7 +979,11 @@ jobs:
         fi
 
     - name: Notarize macOS PKG (optional)
-      if: ${{ steps.should_build.outputs.should_build == 'true' && env.APPLE_ID != 'NOT_SET' && env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' && env.TEAM_ID != 'NOT_SET' }}
+      if: |
+        steps.should_build.outputs.should_build == 'true' &&
+        env.APPLE_ID != 'NOT_SET' &&
+        env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' &&
+        env.TEAM_ID != 'NOT_SET'
       env:
         APPLE_ID: ${{ env.APPLE_ID }}
         APPLE_APP_SPECIFIC_PASSWORD: ${{ env.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -1076,7 +1103,7 @@ jobs:
         ls -lh artifacts/
 
     - name: Upload macOS artifacts for S3 transfer (always, short retention)
-      if: steps.should_build.outputs.should_build == 'true' && steps.compress_artifacts.outputs.has_artifacts == 'true'
+      if: steps.should_build.outputs.should_build == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: eCan-macOS-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
@@ -1086,7 +1113,7 @@ jobs:
         if-no-files-found: error
 
     - name: Upload macOS artifacts for users (optional, long retention)
-      if: steps.should_build.outputs.should_build == 'true' && steps.compress_artifacts.outputs.has_artifacts == 'true' && github.event.inputs.upload_artifacts == 'true'
+      if: steps.should_build.outputs.should_build == 'true' && github.event.inputs.upload_artifacts == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: eCan-macOS-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
@@ -1098,7 +1125,11 @@ jobs:
   # Upload artifacts to S3 and generate download links
   upload-to-s3:
     needs: [validate-tag, build-windows, build-macos]
-    if: always() && needs.validate-tag.outputs.tag-valid == 'true'
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped') &&
+      (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped')
     runs-on: ubuntu-latest
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || 'NOT_SET' }}
@@ -1107,6 +1138,8 @@ jobs:
       S3_BUCKET: ${{ secrets.S3_BUCKET || 'NOT_SET' }}
       S3_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'NOT_SET' }}
       AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
+      WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX || 'NOT_SET' }}
+      WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD || 'NOT_SET' }}
       # For appcast generation conditions
       # Note: IDE may warn about context access, but this is the correct pattern for conditional steps
       ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY || 'NOT_SET' }}
@@ -1137,12 +1170,16 @@ jobs:
           fi
 
       - name: Compute S3_BASE_URL for appcast generation
-        if: env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET' && env.AWS_REGION != 'NOT_SET'
         run: |
           echo "=== Computing S3_BASE_URL ==="
-          BASE_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}"
-          echo "S3_BASE_URL=$BASE_URL" >> $GITHUB_ENV
-          echo "Computed S3_BASE_URL=$BASE_URL"
+          if [ "${{ env.S3_BUCKET }}" != "NOT_SET" ] && [ "${{ env.S3_BASE_PATH }}" != "NOT_SET" ] && [ "${{ env.AWS_REGION }}" != "NOT_SET" ]; then
+            BASE_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}"
+            echo "S3_BASE_URL=$BASE_URL" >> $GITHUB_ENV
+            echo "Computed S3_BASE_URL=$BASE_URL"
+          else
+            echo "S3_BASE_URL=" >> $GITHUB_ENV
+            echo "S3 configuration incomplete, S3_BASE_URL not set"
+          fi
 
       - name: Verify AWS Identity
         if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET'
@@ -1163,7 +1200,7 @@ jobs:
           fi
 
       - name: Download Windows artifacts for S3 upload
-        if: always() && needs.build-windows.result == 'success'
+        if: always() && (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped')
         uses: actions/download-artifact@v4
         with:
           name: eCan-Windows-${{ needs.validate-tag.outputs.version }}-s3-transfer
@@ -1171,7 +1208,7 @@ jobs:
         continue-on-error: true
 
       - name: Download macOS amd64 artifacts for S3 upload
-        if: always()
+        if: always() && (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped')
         uses: actions/download-artifact@v4
         with:
           name: eCan-macOS-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
@@ -1179,7 +1216,7 @@ jobs:
         continue-on-error: true
 
       - name: Download macOS aarch64 artifacts for S3 upload
-        if: always()
+        if: always() && (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped')
         uses: actions/download-artifact@v4
         with:
           name: eCan-macOS-aarch64-${{ needs.validate-tag.outputs.version }}-s3-transfer
@@ -1214,6 +1251,7 @@ jobs:
             fi
 
             # Upload Windows installers to S3
+            echo "Uploading to: s3://${S3_BUCKET}/${S3_BASE_PATH}/windows/"
             aws s3 sync windows-artifacts/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/windows/" \
               --acl public-read \
               --exclude "*" \
@@ -1223,16 +1261,21 @@ jobs:
             echo "✅ Windows installers uploaded to S3"
 
             # List uploaded files
+            UPLOAD_COUNT=0
             for file in windows-artifacts/*.exe windows-artifacts/*.msi; do
               if [ -f "$file" ]; then
                 filename=$(basename "$file")
                 size=$(du -sh "$file" | cut -f1)
                 echo "  - ${filename} (${size})"
                 echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/windows/${filename}"
+                UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
               fi
             done
+            echo "Total Windows files uploaded: $UPLOAD_COUNT"
+            echo "upload_count=$UPLOAD_COUNT" >> $GITHUB_OUTPUT
           else
             echo "⚠️  No Windows artifacts found, skipping upload"
+            echo "upload_count=0" >> $GITHUB_OUTPUT
           fi
 
       - name: Upload macOS installers to S3
@@ -1244,22 +1287,30 @@ jobs:
 
           # Merge macOS artifacts from both architectures
           mkdir -p macos-artifacts
+          AMD64_COUNT=0
+          AARCH64_COUNT=0
 
           if [ -d "macos-amd64-artifacts" ] && [ "$(ls -A macos-amd64-artifacts 2>/dev/null)" ]; then
             echo "Found macOS amd64 artifacts:"
             ls -lh macos-amd64-artifacts/
             cp -v macos-amd64-artifacts/* macos-artifacts/ 2>/dev/null || true
+            AMD64_COUNT=$(ls -1 macos-amd64-artifacts/ | wc -l)
+          else
+            echo "ℹ️  No macOS amd64 artifacts found"
           fi
 
           if [ -d "macos-aarch64-artifacts" ] && [ "$(ls -A macos-aarch64-artifacts 2>/dev/null)" ]; then
             echo "Found macOS aarch64 artifacts:"
             ls -lh macos-aarch64-artifacts/
             cp -v macos-aarch64-artifacts/* macos-artifacts/ 2>/dev/null || true
+            AARCH64_COUNT=$(ls -1 macos-aarch64-artifacts/ | wc -l)
+          else
+            echo "ℹ️  No macOS aarch64 artifacts found"
           fi
 
           if [ -d "macos-artifacts" ] && [ "$(ls -A macos-artifacts 2>/dev/null)" ]; then
             echo ""
-            echo "Merged macOS artifacts:"
+            echo "Merged macOS artifacts (amd64: $AMD64_COUNT, aarch64: $AARCH64_COUNT):"
             ls -lh macos-artifacts/
 
             # Check S3 bucket access before upload
@@ -1269,6 +1320,7 @@ jobs:
             fi
 
             # Upload macOS installers to S3
+            echo "Uploading to: s3://${S3_BUCKET}/${S3_BASE_PATH}/macos/"
             aws s3 sync macos-artifacts/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/macos/" \
               --acl public-read \
               --exclude "*" \
@@ -1278,16 +1330,21 @@ jobs:
             echo "✅ macOS installers uploaded to S3"
 
             # List uploaded files
+            UPLOAD_COUNT=0
             for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
               if [ -f "$file" ]; then
                 filename=$(basename "$file")
                 size=$(du -sh "$file" | cut -f1)
                 echo "  - ${filename} (${size})"
                 echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/macos/${filename}"
+                UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
               fi
             done
+            echo "Total macOS files uploaded: $UPLOAD_COUNT"
+            echo "upload_count=$UPLOAD_COUNT" >> $GITHUB_OUTPUT
           else
             echo "⚠️  No macOS artifacts found, skipping upload"
+            echo "upload_count=0" >> $GITHUB_OUTPUT
           fi
 
       - name: Set S3 base URL output
@@ -1303,36 +1360,49 @@ jobs:
         continue-on-error: true
         run: |
           echo "=== Verifying S3 uploads ==="
-          VERSION="${{ needs.validate-tag.outputs.version }}"
           UPLOAD_FAILED=0
 
-          # Verify Windows installer
-          WIN_EXE="eCan-${VERSION}-windows-amd64-Setup.exe"
-          if [ -f "windows-artifacts/${WIN_EXE}" ]; then
-            if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/windows/${WIN_EXE}" >/dev/null 2>&1; then
-              echo "✅ Windows installer verified: ${WIN_EXE}"
-            else
-              echo "⚠️  Windows installer not found in S3: ${WIN_EXE}"
-              UPLOAD_FAILED=1
-            fi
+          # Verify Windows artifacts
+          if [ -d "windows-artifacts" ] && [ "$(ls -A windows-artifacts 2>/dev/null)" ]; then
+            echo "Verifying Windows artifacts in S3..."
+            WIN_COUNT=0
+            for file in windows-artifacts/*.exe windows-artifacts/*.msi; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/windows/${filename}" >/dev/null 2>&1; then
+                  echo "  ✅ ${filename}"
+                  WIN_COUNT=$((WIN_COUNT + 1))
+                else
+                  echo "  ⚠️  ${filename} not found in S3"
+                  UPLOAD_FAILED=1
+                fi
+              fi
+            done
+            echo "Windows files verified: $WIN_COUNT"
           else
-            echo "ℹ️  Windows installer not built"
+            echo "ℹ️  No Windows artifacts to verify"
           fi
 
-          # Verify macOS PKG files
-          for arch in amd64 aarch64; do
-            PKG="eCan-${VERSION}-macos-${arch}.pkg"
-            if [ -f "macos-artifacts/${PKG}" ]; then
-              if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/macos/${PKG}" >/dev/null 2>&1; then
-                echo "✅ macOS PKG verified: ${PKG}"
-              else
-                echo "⚠️  macOS PKG not found in S3: ${PKG}"
-                UPLOAD_FAILED=1
+          # Verify macOS artifacts
+          if [ -d "macos-artifacts" ] && [ "$(ls -A macos-artifacts 2>/dev/null)" ]; then
+            echo "Verifying macOS artifacts in S3..."
+            MACOS_COUNT=0
+            for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/macos/${filename}" >/dev/null 2>&1; then
+                  echo "  ✅ ${filename}"
+                  MACOS_COUNT=$((MACOS_COUNT + 1))
+                else
+                  echo "  ⚠️  ${filename} not found in S3"
+                  UPLOAD_FAILED=1
+                fi
               fi
-            else
-              echo "ℹ️  macOS PKG not built for ${arch}"
-            fi
-          done
+            done
+            echo "macOS files verified: $MACOS_COUNT"
+          else
+            echo "ℹ️  No macOS artifacts to verify"
+          fi
 
           if [ $UPLOAD_FAILED -eq 1 ]; then
             echo ""
@@ -1343,151 +1413,47 @@ jobs:
             echo "✅ All S3 uploads verified successfully"
           fi
 
-      - name: Generate macOS appcast (amd64)
+      - name: Generate all appcasts (unified)
         if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && env.S3_BASE_URL != '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
+          VERSION: ${{ needs.validate-tag.outputs.version }}
         run: |
-          python - <<'PY'
-          import os, glob
-          from build_system.generate_appcast import main
-          s3_base_url = os.environ.get('S3_BASE_URL', '')
-          if not s3_base_url:
-              print("[WARN] S3_BASE_URL is empty, skipping appcast generation")
-              exit(0)
-          assets = []
-          for pat in ('macos-artifacts/*amd64*.pkg','macos-artifacts/*amd64*.zip','macos-artifacts/*x86_64*.pkg','macos-artifacts/*x86_64*.zip','macos-artifacts/*x64*.pkg','macos-artifacts/*x64*.zip'):
-              for p in glob.glob(pat):
-                  name = os.path.basename(p)
-                  url = f"{s3_base_url}/macos/{name}"
-                  size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size, 'local_path': p})
-          release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
-          main(release, platform_filter='macos', arch_filter='amd64', output_path='dist/appcast/appcast-macos-amd64.xml')
-          PY
+          set -euo pipefail
+          echo "=== Generating all appcasts ==="
+          python build_system/generate_all_appcasts.py
+          echo "✅ All appcasts generated successfully"
 
-      - name: Generate macOS appcast (aarch64)
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && env.S3_BASE_URL != '' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
+      - name: Validate appcast XML files
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
         run: |
-          python - <<'PY'
-          import os, glob
-          from build_system.generate_appcast import main
-          s3_base_url = os.environ.get('S3_BASE_URL', '')
-          if not s3_base_url:
-              print("[WARN] S3_BASE_URL is empty, skipping appcast generation")
-              exit(0)
-          assets = []
-          for pat in ('macos-artifacts/*aarch64*.pkg','macos-artifacts/*aarch64*.zip','macos-artifacts/*arm64*.pkg','macos-artifacts/*arm64*.zip'):
-              for p in glob.glob(pat):
-                  name = os.path.basename(p)
-                  url = f"{s3_base_url}/macos/{name}"
-                  size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size, 'local_path': p})
-          release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
-          main(release, platform_filter='macos', arch_filter='aarch64', output_path='dist/appcast/appcast-macos-aarch64.xml')
-          PY
+          echo "=== Validating appcast XML files ==="
+          VALIDATION_FAILED=0
 
-      - name: Generate Windows appcast (amd64)
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && env.S3_BASE_URL != '' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
-        run: |
-          python - <<'PY'
-          import os, glob
-          from build_system.generate_appcast import main
-          s3_base_url = os.environ.get('S3_BASE_URL', '')
-          if not s3_base_url:
-              print("[WARN] S3_BASE_URL is empty, skipping appcast generation")
-              exit(0)
-          assets = []
-          for pat in (
-              'windows-artifacts/*amd64*.exe',
-              'windows-artifacts/*x86_64*.exe',
-              'windows-artifacts/*x64*.exe',
-              'windows-artifacts/*amd64*.msi',
-              'windows-artifacts/*x86_64*.msi',
-              'windows-artifacts/*x64*.msi',
-          ):
-              for p in glob.glob(pat):
-                  name = os.path.basename(p)
-                  url = f"{s3_base_url}/windows/{name}"
-                  size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size, 'local_path': p})
-          release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
-          main(release, platform_filter='windows', arch_filter='amd64', output_path='dist/appcast/appcast-windows-amd64.xml')
-          PY
+          for f in dist/appcast/*.xml; do
+            if [ -f "$f" ]; then
+              echo "Validating: $(basename $f)"
+              if python -c "import xml.etree.ElementTree as ET; ET.parse('$f')" 2>/dev/null; then
+                echo "  ✅ Valid XML"
+                # Check if file has enclosure elements
+                if grep -q '<enclosure' "$f"; then
+                  echo "  ✅ Contains enclosure elements"
+                else
+                  echo "  ⚠️  No enclosure elements found"
+                fi
+              else
+                echo "  ❌ Invalid XML format"
+                VALIDATION_FAILED=1
+              fi
+            fi
+          done
 
-
-
-
-      - name: Generate macOS aggregate appcast (all arches)
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && env.S3_BASE_URL != '' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
-        run: |
-          python - <<'PY'
-          import os, glob
-          from build_system.generate_appcast import main
-          s3_base_url = os.environ.get('S3_BASE_URL', '')
-          if not s3_base_url:
-              print("[WARN] S3_BASE_URL is empty, skipping appcast generation")
-              exit(0)
-          assets = []
-          for pat in (
-              'macos-artifacts/*.pkg',
-              'macos-artifacts/*.zip',
-          ):
-              for p in glob.glob(pat):
-                  name = os.path.basename(p)
-                  url = f"{s3_base_url}/macos/{name}"
-                  size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size, 'local_path': p})
-          release = {
-              'tag_name': f"v${{ needs.validate-tag.outputs.version }}",
-              'assets': assets,
-              'body': os.environ.get('RELEASE_BODY', ''),
-          }
-          # No arch_filter -> aggregate all macOS entries
-          main(release, platform_filter='macos', output_path='dist/appcast/appcast-macos.xml')
-          PY
-
-      - name: Generate Windows aggregate appcast (all arches)
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && env.S3_BASE_URL != '' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
-        run: |
-          python - <<'PY'
-          import os, glob
-          from build_system.generate_appcast import main
-          s3_base_url = os.environ.get('S3_BASE_URL', '')
-          if not s3_base_url:
-              print("[WARN] S3_BASE_URL is empty, skipping appcast generation")
-              exit(0)
-          assets = []
-          for pat in (
-              'windows-artifacts/*.exe',
-              'windows-artifacts/*.msi',
-          ):
-              for p in glob.glob(pat):
-                  name = os.path.basename(p)
-                  url = f"{s3_base_url}/windows/{name}"
-                  size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size, 'local_path': p})
-          release = {
-              'tag_name': f"v${{ needs.validate-tag.outputs.version }}",
-              'assets': assets,
-              'body': os.environ.get('RELEASE_BODY', ''),
-          }
-          # No arch_filter -> aggregate all Windows entries
-          main(release, platform_filter='windows', output_path='dist/appcast/appcast-windows.xml')
-          PY
+          if [ $VALIDATION_FAILED -eq 1 ]; then
+            echo ""
+            echo "⚠️  Some appcast files have validation errors"
+            exit 1
+          fi
 
       - name: Remove empty appcast files (if any)
         if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
@@ -1498,9 +1464,16 @@ jobs:
           done
 
       - name: Upload appcasts to S3
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && hashFiles('dist/appcast/*.xml') != '' }}
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' }}
         run: |
           echo "=== Uploading appcasts to S3 ==="
+
+          # Check if appcast files exist before uploading
+          if [ ! -d "dist/appcast" ] || [ -z "$(ls -A dist/appcast/*.xml 2>/dev/null)" ]; then
+            echo "⚠️  No appcast files found, skipping upload"
+            exit 0
+          fi
+
           aws s3 sync dist/appcast/ s3://${S3_BUCKET}/appcast/ \
             --acl public-read \
             --cache-control "max-age=300" \
@@ -1599,7 +1572,7 @@ jobs:
           echo "Configuration:"
           echo "  - S3 Upload: ${{ env.AWS_ACCESS_KEY_ID != 'NOT_SET' && 'Enabled' || 'Disabled' }}"
           echo "  - Appcast Generation: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && 'Enabled' || 'Disabled' }}"
-          echo "  - Code Signing: ${{ env.WIN_CERT_PFX != 'NOT_SET' && 'Enabled' || 'Disabled' }}"
+          echo "  - Code Signing: ${{ env.WIN_CERT_PFX != 'NOT_SET' && env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Enabled' || 'Disabled' }}"
           echo ""
           if [ -n "${S3_BASE_URL}" ]; then
             echo "Download URLs:"
