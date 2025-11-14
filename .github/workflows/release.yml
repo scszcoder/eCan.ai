@@ -214,15 +214,19 @@ jobs:
         Write-Host "=== ISCC Version Output ===" -ForegroundColor Cyan
         $help = & $innoPath '/?'
         $help | ForEach-Object { "  $_" }
-        if ($help -notmatch 'Inno Setup [0-9]') {
+        # Join lines for reliable regex matching; avoids array -notmatch pitfalls
+        $helpText = $help -join "`n"
+        if (-not ($helpText -match 'Inno Setup\s+\d')) {
           Write-Host "ERROR: Failed to get ISCC version" -ForegroundColor Red
           exit 1
         }
-        if ($help -notmatch 'Unicode') {
-          Write-Host "ERROR: ISCC is not Unicode build. Unicode is required to avoid Chinese mojibake." -ForegroundColor Red
-          exit 1
+        # Inno Setup 6 compiler is Unicode-only; try to detect Unicode but don't fail hard if not present in help
+        $unicodeHint = ($helpText -match 'Unicode') -or ((Get-Item $innoPath).VersionInfo.FileDescription -match 'Unicode')
+        if (-not $unicodeHint) {
+          Write-Host "WARN: Could not confirm 'Unicode' from help text; Inno Setup 6 is Unicode-only." -ForegroundColor Yellow
+        } else {
+          Write-Host "OK: ISCC Unicode build detected" -ForegroundColor Green
         }
-        Write-Host "OK: ISCC Unicode build detected" -ForegroundColor Green
 
     - name: Install Inno Setup Chinese Language Pack
       run: |
