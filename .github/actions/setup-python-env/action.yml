@@ -33,6 +33,13 @@ runs:
       with:
         python-version: ${{ inputs.python-version }}
 
+    - name: Cache virtual environment
+      id: cache-venv
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        key: ${{ inputs.platform }}-venv-py${{ inputs.python-version }}-${{ hashFiles(inputs.requirements-file) }}-${{ inputs.extra-packages }}
+
     - name: Cache pip dependencies
       uses: actions/cache@v3
       with:
@@ -45,7 +52,11 @@ runs:
       shell: bash
       run: |
         echo "=== Creating Virtual Environment ==="
-        python -m venv .venv
+        if [ -d ".venv" ]; then
+          echo "Existing virtual environment detected (possibly from cache); reusing .venv"
+        else
+          python -m venv .venv
+        fi
 
         if [ "${{ inputs.platform }}" = "windows" ]; then
           echo "$PWD/.venv/Scripts" >> $GITHUB_PATH
