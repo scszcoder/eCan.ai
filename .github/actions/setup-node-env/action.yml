@@ -52,10 +52,10 @@ runs:
           fi
         fi
         
-        # Perform clean install if needed
+        # Perform clean install if needed (preserve package-lock.json so cache key remains stable)
         if [ "$NEEDS_CLEAN_INSTALL" = true ]; then
-          echo "Cleaning node_modules and package-lock.json..."
-          rm -rf node_modules package-lock.json
+          echo "Cleaning node_modules (preserving package-lock.json)..."
+          rm -rf node_modules
           echo "Installing dependencies with optional dependencies support..."
           ${{ inputs.install-command }}
           

@@ -104,6 +104,11 @@ class FrontendBuilder:
         if not self.frontend_dir.exists():
             print("[WARNING] Frontend directory not found, skipping frontend build")
             return True
+        # Allow CI or callers to skip frontend build when there are no GUI changes
+        skip_env = os.environ.get("ECAN_SKIP_FRONTEND_BUILD", "0")
+        if skip_env == "1" and not force:
+            print("[FRONTEND] ECAN_SKIP_FRONTEND_BUILD=1 detected, skipping frontend build")
+            return True
         print("[FRONTEND] Building frontend...")
         try:
             ok = self._run_build(force)

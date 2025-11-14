@@ -48,6 +48,19 @@ on:
         default: 'master'
         type: string
 
+      upload_artifacts:
+        description: 'Also upload build artifacts to GitHub Artifacts (in addition to S3)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+concurrency:
+  group: ecan-release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Validate ref (tags produce semantic version; branches get fallback version)
   validate-tag:
@@ -143,6 +156,33 @@ jobs:
       with:
         ref: ${{ github.event.inputs.ref || github.ref }}
         fetch-depth: 0
+
+    - name: Detect frontend changes (Windows)
+      id: fe_changes
+      shell: bash
+      run: |
+        echo "=== Detecting frontend changes under gui_v2/ ==="
+        # If this is the first commit or history is shallow, default to building frontend
+        if ! git rev-parse HEAD^ >/dev/null 2>&1; then
+          echo "No previous commit found; forcing frontend build"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        if git diff --name-only HEAD^ HEAD | grep '^gui_v2/' >/dev/null 2>&1; then
+          echo "Frontend files changed; will build frontend"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "No frontend changes detected; frontend build can be skipped"
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements-windows.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
 
     - name: Setup Python Environment
       uses: ./.github/actions/setup-python-env
@@ -338,6 +378,8 @@ jobs:
 
     - name: Build Windows EXE
       shell: pwsh
+      env:
+        ECAN_SKIP_FRONTEND_BUILD: ${{ steps.fe_changes.outputs.changed == 'false' && '1' || '0' }}
       run: |
         Write-Host "=== Starting Windows Build ===" -ForegroundColor Cyan
         Write-Host "Command: python build.py prod" -ForegroundColor Gray
@@ -464,8 +506,8 @@ jobs:
         Write-Host "  WIN_CERT_PASSWORD: ${{ env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Available' || 'Not Available' }}" -ForegroundColor Gray
         Write-Host "  Status: ${{ env.WIN_CERT_PFX != 'NOT_SET' && env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Ready for signing' || 'Skipping signing' }}" -ForegroundColor Gray
         
-        Write-Host "Dist directory contents:" -ForegroundColor Yellow
-        Get-ChildItem -Path "dist" -Recurse | Format-Table -AutoSize
+        Write-Host "Dist directory contents (top-level only):" -ForegroundColor Yellow
+        Get-ChildItem -Path "dist" | Format-Table -AutoSize
 
         $exeFound = $false
         $setupFound = $false
@@ -504,6 +546,17 @@ jobs:
 
         Write-Host "Build validation passed" -ForegroundColor Green
 
+    - name: Dump dist tree on failure (Windows)
+      if: failure()
+      shell: pwsh
+      run: |
+        Write-Host "=== dist/ tree (failure only) ===" -ForegroundColor Cyan
+        if (Test-Path "dist") {
+          Get-ChildItem -Path "dist" -Recurse | Format-Table -AutoSize
+        } else {
+          Write-Host "dist directory not found" -ForegroundColor Yellow
+        }
+
     - name: Compress Windows artifacts for upload
       shell: pwsh
       run: |
@@ -535,6 +588,7 @@ jobs:
         }
 
     - name: Upload Windows artifacts
+      if: github.event.inputs.upload_artifacts == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
@@ -620,6 +674,34 @@ jobs:
       with:
         ref: ${{ github.event.inputs.ref || github.ref }}
         fetch-depth: 0
+
+    - name: Detect frontend changes (macOS)
+      if: steps.should_build.outputs.should_build == 'true'
+      id: fe_changes
+      shell: bash
+      run: |
+        echo "=== Detecting frontend changes under gui_v2/ ==="
+        if ! git rev-parse HEAD^ >/dev/null 2>&1; then
+          echo "No previous commit found; forcing frontend build"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        if git diff --name-only HEAD^ HEAD | grep '^gui_v2/' >/dev/null 2>&1; then
+          echo "Frontend files changed; will build frontend"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "No frontend changes detected; frontend build can be skipped"
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Cache pip dependencies
+      if: steps.should_build.outputs.should_build == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements-macos.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
 
     - name: Setup Python Environment
       if: steps.should_build.outputs.should_build == 'true'
@@ -709,6 +791,8 @@ jobs:
 
     - name: Build macOS App
       if: steps.should_build.outputs.should_build == 'true'
+      env:
+        ECAN_SKIP_FRONTEND_BUILD: ${{ steps.fe_changes.outputs.changed == 'false' && '1' || '0' }}
       run: |
         echo "=== Starting macOS Build ==="
         echo "Command: python build.py prod"
@@ -812,12 +896,6 @@ jobs:
             echo "[ERROR] Architecture verification failed"
             exit 1
         fi
-
-
-
-
-
-
 
     - name: Code sign macOS app (optional)
       if: ${{ steps.should_build.outputs.should_build == 'true' && env.MAC_CERT_P12 != 'NOT_SET' && env.MAC_CERT_PASSWORD != 'NOT_SET' && env.MAC_CODESIGN_IDENTITY != 'NOT_SET' }}
@@ -981,855 +1059,64 @@ jobs:
         compression-level: 6
         if-no-files-found: error
 
-
-
-
-
-
-  # Upload to AWS S3
+  # Upload artifacts to S3 and generate download links
   upload-to-s3:
     needs: [validate-tag, build-windows, build-macos]
-    if: |
-      always() &&
-      needs.validate-tag.outputs.tag-valid == 'true' &&
-      (
-        (github.event.inputs.platform == 'windows' && needs.build-windows.result == 'success') ||
-        (github.event.inputs.platform == 'macos' && needs.build-macos.result == 'success') ||
-        (github.event.inputs.platform == 'all' && needs.build-windows.result == 'success' && needs.build-macos.result == 'success') ||
-        (github.event.inputs.platform == null && (needs.build-windows.result == 'success' || needs.build-macos.result == 'success'))
-      )
+    if: always() && needs.validate-tag.outputs.tag-valid == 'true'
     runs-on: ubuntu-latest
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || 'NOT_SET' }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY || 'NOT_SET' }}
-      AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+      AWS_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
       S3_BUCKET: ${{ secrets.S3_BUCKET || 'NOT_SET' }}
-      S3_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'releases' }}
+      S3_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'NOT_SET' }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
     outputs:
       s3_base_url: ${{ steps.upload.outputs.s3_base_url }}
-
     steps:
-    - name: Check AWS credentials
-      if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET'
-      run: |
-        echo "=== Checking AWS S3 Configuration ==="
-        echo "AWS credentials: Available"
-        echo "S3 bucket: $S3_BUCKET"
-        echo "AWS region: $AWS_REGION"
-        echo "S3 base path: $S3_BASE_PATH"
-        echo "S3 upload: Enabled"
-        
-        # Verify credentials
-        echo ""
-        echo "=== Verifying AWS Identity ==="
-        if aws sts get-caller-identity; then
-          echo "AWS credentials are valid"
-        else
-          echo "ERROR: AWS credentials are invalid"
-          exit 1
-        fi
-        
-        # Test S3 access
-        echo ""
-        echo "=== Testing S3 Access ==="
-        if aws s3 ls s3://${S3_BUCKET}/ > /dev/null 2>&1; then
-          echo "S3 bucket access: OK"
-        else
-          echo "ERROR: Cannot access S3 bucket"
-          echo "This usually means the IAM user lacks s3:ListBucket permission"
-          exit 1
-        fi
-
-    - name: S3 upload disabled notice
-      if: env.AWS_ACCESS_KEY_ID == 'NOT_SET' || env.AWS_SECRET_ACCESS_KEY == 'NOT_SET' || env.S3_BUCKET == 'NOT_SET'
-      run: |
-        echo "=== S3 Upload Disabled ==="
-        echo "AWS credentials: Not available"
-        echo "S3 upload: Disabled"
-        echo "Note: Set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and S3_BUCKET secrets to enable S3 upload"
-
-    - name: Download Windows artifacts
-      if: |
-        github.event.inputs.platform == 'windows' ||
-        github.event.inputs.platform == 'all' ||
-        github.event.inputs.platform == null
-      uses: actions/download-artifact@v4
-      with:
-        name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
-        path: windows-artifacts
-
-    - name: Download macOS amd64 artifacts
-      if: |
-        (github.event.inputs.platform == 'macos' ||
-         github.event.inputs.platform == 'all' ||
-         github.event.inputs.platform == null) &&
-        (github.event.inputs.arch == 'amd64' ||
-         github.event.inputs.arch == 'all' ||
-         github.event.inputs.arch == null)
-      uses: actions/download-artifact@v4
-      with:
-        name: eCan-macOS-amd64-${{ needs.validate-tag.outputs.version }}
-        path: macos-artifacts
-      continue-on-error: true
-
-    - name: Download macOS aarch64 artifacts
-      if: |
-        (github.event.inputs.platform == 'macos' ||
-         github.event.inputs.platform == 'all' ||
-         github.event.inputs.platform == null) &&
-        (github.event.inputs.arch == 'aarch64' ||
-         github.event.inputs.arch == 'all' ||
-         github.event.inputs.arch == null)
-      uses: actions/download-artifact@v4
-      with:
-        name: eCan-macOS-aarch64-${{ needs.validate-tag.outputs.version }}
-        path: macos-artifacts
-      continue-on-error: true
-
-    - name: Configure AWS credentials
-      if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET'
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
-
-    - name: Upload artifacts to S3
-      if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET'
-      id: upload
-      run: |
-        VERSION="${{ needs.validate-tag.outputs.version }}"
-        S3_VERSION_PATH="${S3_BASE_PATH}/v${VERSION}"
-        
-        echo "=== Uploading artifacts to S3 ==="
-        echo "S3 bucket: $S3_BUCKET"
-        echo "S3 path: $S3_VERSION_PATH"
-        
-        # Create organized directory structure
-        mkdir -p upload/{windows,macos,checksums}
-        
-        # Copy Windows artifacts
-        if [ -d "windows-artifacts" ]; then
-          echo "Copying Windows artifacts..."
-          cp windows-artifacts/*.exe upload/windows/ 2>/dev/null || true
-          cp windows-artifacts/*.msi upload/windows/ 2>/dev/null || true
-        fi
-        
-        # Copy macOS artifacts
-        if [ -d "macos-artifacts" ]; then
-          echo "Copying macOS artifacts..."
-          cp macos-artifacts/*.pkg upload/macos/ 2>/dev/null || true
-          cp macos-artifacts/*.zip upload/macos/ 2>/dev/null || true
-        fi
-        
-        # Generate SHA256 checksums
-        echo "=== Generating checksums ==="
-        cd upload
-        find . -type f \( -name "*.exe" -o -name "*.msi" -o -name "*.pkg" -o -name "*.zip" \) -exec sha256sum {} \; > checksums/SHA256SUMS
-        cat checksums/SHA256SUMS
-        cd ..
-        
-        # Configure optional ACL flag (buckets with Object Ownership=BucketOwnerEnforced reject ACLs)
-        ACL_ARGS=()
-        if [ "${S3_USE_ACL:-}" = "true" ]; then
-          ACL_ARGS+=(--acl public-read)
-        fi
-
-        # Upload to S3 (version-specific path only)
-        echo "=== Uploading to S3 (version ${VERSION}) ==="
-        aws s3 sync upload/ s3://${S3_BUCKET}/${S3_VERSION_PATH}/ \
-          "${ACL_ARGS[@]}" \
-          --cache-control "max-age=31536000" \
-          --metadata "version=${VERSION}"
-        
-        # Create and upload 'latest' pointer only for tag/release builds
-        IS_BRANCH="${{ needs.validate-tag.outputs.is-branch }}"
-        
-        if [ "$IS_BRANCH" = "false" ]; then
-          echo "=== Creating 'latest' version pointer (tag/release build) ==="
-          RELEASE_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          DOWNLOAD_BASE="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_VERSION_PATH}"
-          WIN_INSTALLER="${S3_VERSION_PATH}/windows/eCan-${VERSION}-windows-amd64-Setup.exe"
-          WIN_PORTABLE="${S3_VERSION_PATH}/windows/eCan-${VERSION}-windows-amd64.exe"
-          MAC_AMD64="${S3_VERSION_PATH}/macos/eCan-${VERSION}-macos-amd64.pkg"
-          MAC_AARCH64="${S3_VERSION_PATH}/macos/eCan-${VERSION}-macos-aarch64.pkg"
-          CHECKSUMS="${S3_VERSION_PATH}/checksums/SHA256SUMS"
-          
-          jq -n \
-            --arg version "${VERSION}" \
-            --arg release_date "${RELEASE_DATE}" \
-            --arg download_base "${DOWNLOAD_BASE}" \
-            --arg redirect_to "${S3_VERSION_PATH}" \
-            --arg win_installer "${WIN_INSTALLER}" \
-            --arg win_portable "${WIN_PORTABLE}" \
-            --arg mac_amd64 "${MAC_AMD64}" \
-            --arg mac_aarch64 "${MAC_AARCH64}" \
-            --arg checksums "${CHECKSUMS}" \
-            '{
-              version: $version,
-              release_date: $release_date,
-              download_base: $download_base,
-              redirect_to: $redirect_to,
-              files: {
-                windows: {
-                  installer: $win_installer,
-                  portable: $win_portable
-                },
-                macos: {
-                  amd64: $mac_amd64,
-                  aarch64: $mac_aarch64
-                },
-                checksums: $checksums
-              }
-            }' > latest.json
-          
-          # Upload lightweight pointer file to 'latest' (only ~1KB vs 500MB+ of artifacts)
-          aws s3 cp latest.json s3://${S3_BUCKET}/${S3_BASE_PATH}/latest.json \
-            --content-type "application/json" \
-            --cache-control "max-age=300" \
-            --metadata "version=${VERSION}" \
-            "${ACL_ARGS[@]}"
-          
-          echo "[OK] Latest version pointer updated (${S3_BASE_PATH}/latest.json)"
-          echo "   Points to: ${S3_VERSION_PATH}"
-          echo "   This is a tag/release build, so 'latest' has been updated"
-        else
-          echo "[SKIP] Skipping 'latest' pointer update (branch build)"
-          echo "   This is a branch build (version: ${VERSION})"
-          echo "   Artifacts uploaded to: ${S3_VERSION_PATH}"
-          echo "   'latest' pointer remains unchanged (only updated for tag/release builds)"
-        fi
-        
-        # Set output for S3 base URL
-        S3_BASE_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_VERSION_PATH}"
-        S3_ACCELERATE_URL="https://${S3_BUCKET}.s3-accelerate.amazonaws.com/${S3_VERSION_PATH}"
-        echo "s3_base_url=${S3_BASE_URL}" >> $GITHUB_OUTPUT
-    - name: Display public download URLs in GitHub Actions Summary (visible to users)
-      if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET'
-      run: |
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "## Public Download URLs" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        VERSION="${{ needs.validate-tag.outputs.version }}"
-        S3_VERSION_PATH="${S3_BASE_PATH}/v${VERSION}"
-        S3_BASE_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_VERSION_PATH}"
-        S3_ACCELERATE_URL="https://${S3_BUCKET}.s3-accelerate.amazonaws.com/${S3_VERSION_PATH}"
-        IS_BRANCH="${{ needs.validate-tag.outputs.is-branch }}"
-        
-        # Display build type and latest pointer status
-        if [ "$IS_BRANCH" = "false" ]; then
-          echo "> **Release Build** - \`latest\` pointer has been updated to this version" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "> **Branch Build** - \`latest\` pointer remains unchanged (only release builds update \`latest\`)" >> $GITHUB_STEP_SUMMARY
-        fi
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Windows Downloads" >> $GITHUB_STEP_SUMMARY
-        if [ -d "upload/windows" ]; then
-          for file in upload/windows/*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              size=$(du -h "$file" | cut -f1)
-              echo "- \`${filename}\` (${size})" >> $GITHUB_STEP_SUMMARY
-              echo "  \`${S3_BASE_URL}/windows/${filename}\`" >> $GITHUB_STEP_SUMMARY
-            fi
-          done
-        fi
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### macOS Downloads" >> $GITHUB_STEP_SUMMARY
-        if [ -d "upload/macos" ]; then
-          for file in upload/macos/*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              size=$(du -h "$file" | cut -f1)
-              echo "- \`${filename}\` (${size})" >> $GITHUB_STEP_SUMMARY
-              echo "  \`${S3_BASE_URL}/macos/${filename}\`" >> $GITHUB_STEP_SUMMARY
-            fi
-          done
-        fi
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Checksums" >> $GITHUB_STEP_SUMMARY
-        echo "- SHA256SUMS" >> $GITHUB_STEP_SUMMARY
-        echo "  \`${S3_BASE_URL}/checksums/SHA256SUMS\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "---" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### S3 Transfer Acceleration" >> $GITHUB_STEP_SUMMARY
-        echo "Use accelerated URLs for faster downloads from remote regions (requires S3 Transfer Acceleration enabled on bucket):" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        if [ -d "upload/windows" ]; then
-          echo "#### Windows Accelerated Downloads" >> $GITHUB_STEP_SUMMARY
-          for file in upload/windows/*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              echo "- \`${S3_ACCELERATE_URL}/windows/${filename}\`" >> $GITHUB_STEP_SUMMARY
-            fi
-          done
-          echo "" >> $GITHUB_STEP_SUMMARY
-        fi
-        if [ -d "upload/macos" ]; then
-          echo "#### macOS Accelerated Downloads" >> $GITHUB_STEP_SUMMARY
-          for file in upload/macos/*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              echo "- \`${S3_ACCELERATE_URL}/macos/${filename}\`" >> $GITHUB_STEP_SUMMARY
-            fi
-          done
-          echo "" >> $GITHUB_STEP_SUMMARY
-        fi
-        echo "#### Checksums Accelerated Downloads" >> $GITHUB_STEP_SUMMARY
-        echo "- \`${S3_ACCELERATE_URL}/checksums/SHA256SUMS\`" >> $GITHUB_STEP_SUMMARY
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "---" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Complete Download Links List" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Get complete URLs without masking:**" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "1. **Download from S3**: [\`DOWNLOAD-LINKS.txt\`](${S3_BASE_URL}/DOWNLOAD-LINKS.txt)" >> $GITHUB_STEP_SUMMARY
-        echo "2. **Download from GitHub Artifacts**: Check the Artifacts list for this run, download \`download-links-${VERSION}\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "> NOTE: This file contains all download links with complete URLs (without \`***\` masking) that can be copied directly." >> $GITHUB_STEP_SUMMARY
-
-    - name: Display GitHub Artifacts Summary (no S3)
-      if: env.AWS_ACCESS_KEY_ID == 'NOT_SET' || env.AWS_SECRET_ACCESS_KEY == 'NOT_SET' || env.S3_BUCKET == 'NOT_SET'
-      run: |
-        VERSION="${{ needs.validate-tag.outputs.version }}"
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "## Build Artifacts (S3 upload disabled)" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Version: \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-
-        echo "### Windows Artifacts" >> $GITHUB_STEP_SUMMARY
-        if [ -d "windows-artifacts" ]; then
-          for file in windows-artifacts/*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              size=$(du -h "$file" | cut -f1)
-              echo "- \`${filename}\` (${size})" >> $GITHUB_STEP_SUMMARY
-            fi
-          done
-        else
-          echo "- (none)" >> $GITHUB_STEP_SUMMARY
-        fi
-
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### macOS Artifacts" >> $GITHUB_STEP_SUMMARY
-        if [ -d "macos-artifacts" ]; then
-          for file in macos-artifacts/*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              size=$(du -h "$file" | cut -f1)
-              echo "- \`${filename}\` (${size})" >> $GITHUB_STEP_SUMMARY
-            fi
-          done
-        else
-          echo "- (none)" >> $GITHUB_STEP_SUMMARY
-        fi
-
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "> S3 upload disabled: AWS credentials or S3_BUCKET not set. You can download build artifacts from the Artifacts list of this run." >> $GITHUB_STEP_SUMMARY
-        
-        echo ""
-        echo "================================================================"
-        echo "                S3 Upload Completed Successfully!"
-        echo "================================================================"
-        echo ""
-        echo "Version: ${VERSION}"
-        echo "S3 Path: s3://${S3_BUCKET}/${S3_VERSION_PATH}"
-        echo ""
-        if [ "$IS_BRANCH" = "false" ]; then
-          echo "Build Type: [Release] Tag/Release Build"
-          echo "Latest Pointer: Updated to this version"
-        else
-          echo "Build Type: [Branch] Branch Build"
-          echo "Latest Pointer: Not updated (remains at last release)"
-        fi
-        echo ""
-        
-        # List all uploaded files with their details
-        echo "Uploaded Files:"
-        echo "----------------------------------------------------------------"
-        
-        # Find and display all uploaded files with sizes
-        if [ -d "upload/windows" ]; then
-          echo ""
-          echo "Windows Artifacts:"
-          for file in upload/windows/*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              size=$(du -h "$file" | cut -f1)
-              echo "   $filename ($size)"
-            fi
-          done
-        fi
-        
-        if [ -d "upload/macos" ]; then
-          echo ""
-          echo "macOS Artifacts:"
-          for file in upload/macos/*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              size=$(du -h "$file" | cut -f1)
-              echo "   $filename ($size)"
-            fi
-          done
-        fi
-        
-        if [ -d "upload/checksums" ]; then
-          echo ""
-          echo "Checksums:"
-          for file in upload/checksums/*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              echo "   $filename"
-            fi
-          done
-        fi
-        
-        echo ""
-        echo "================================================================"
-        echo "                    Download URLs"
-        echo "================================================================"
-        echo ""
-        echo "Standard S3 URLs (Global):"
-        echo "----------------------------------------------------------------"
-        echo ""
-        
-        # Windows URLs
-        if [ -d "upload/windows" ]; then
-          echo "Windows:"
-          for file in upload/windows/*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              echo "   ${S3_BASE_URL}/windows/${filename}"
-            fi
-          done
-          echo ""
-        fi
-        
-        # macOS URLs
-        if [ -d "upload/macos" ]; then
-          echo "macOS:"
-          for file in upload/macos/*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              echo "   ${S3_BASE_URL}/macos/${filename}"
-            fi
-          done
-          echo ""
-        fi
-        
-        # Checksums
-        echo "Checksums:"
-        echo "   ${S3_BASE_URL}/checksums/SHA256SUMS"
-        echo ""
-        
-        echo "================================================================"
-        echo "S3 Transfer Acceleration URLs (Faster)"
-        echo "================================================================"
-        echo ""
-        echo "Use these URLs for faster downloads from distant regions"
-        echo "   (Requires S3 Transfer Acceleration enabled on bucket)"
-        echo ""
-        
-        # Windows Accelerated URLs
-        if [ -d "upload/windows" ]; then
-          echo "Windows:"
-          for file in upload/windows/*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              echo "   ${S3_ACCELERATE_URL}/windows/${filename}"
-            fi
-          done
-          echo ""
-        fi
-        
-        # macOS Accelerated URLs
-        if [ -d "upload/macos" ]; then
-          echo "macOS:"
-          for file in upload/macos/*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              echo "   ${S3_ACCELERATE_URL}/macos/${filename}"
-            fi
-          done
-          echo ""
-        fi
-        
-        # Checksums Accelerated
-        echo "Checksums:"
-        echo "   ${S3_ACCELERATE_URL}/checksums/SHA256SUMS"
-        echo ""
-        
-        echo "================================================================"
-        echo "                  Latest Version Pointer"
-        echo "================================================================"
-        echo ""
-        echo "Latest Version Info:"
-        echo "   https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/latest.json"
-        echo ""
-        if [ "$IS_BRANCH" = "false" ]; then
-          echo "   [OK] This file has been updated to point to v${VERSION}"
-        else
-          echo "   [SKIP] This file was NOT updated (branch build)"
-          echo "   [INFO] Latest still points to the last official release"
-        fi
-        echo ""
-        
-        echo "================================================================"
-        echo "Upload Summary"
-        echo "================================================================"
-        echo ""
-        echo "All artifacts uploaded successfully"
-        echo "Version: ${VERSION}"
-        echo "Total files: $(find upload -type f | wc -l)"
-        echo "Total size: $(du -sh upload | cut -f1)"
-        echo "S3 Path: s3://${S3_BUCKET}/${S3_VERSION_PATH}"
-        echo ""
-        echo "================================================================"
-        
-        # Create download links file (unmasked URLs for easy access)
-        echo "=== Creating download links file ==="
-        {
-          echo "eCan AI Assistant v${VERSION} - Download Links"
-          echo "================================================================"
-          echo ""
-          echo "Standard S3 URLs:"
-          echo "----------------------------------------------------------------"
-          echo "Windows Installer:"
-          echo "${S3_BASE_URL}/windows/eCan-${VERSION}-windows-amd64-Setup.exe"
-          echo ""
-          echo "macOS Intel (x86_64):"
-          echo "${S3_BASE_URL}/macos/eCan-${VERSION}-macos-amd64.pkg"
-          echo ""
-          echo "macOS Apple Silicon (ARM64):"
-          echo "${S3_BASE_URL}/macos/eCan-${VERSION}-macos-aarch64.pkg"
-          echo ""
-          echo "Checksums:"
-          echo "${S3_BASE_URL}/checksums/SHA256SUMS"
-          echo ""
-          echo "================================================================"
-          echo "S3 Transfer Acceleration URLs (Faster for remote regions):"
-          echo "----------------------------------------------------------------"
-          echo "Windows Installer:"
-          echo "${S3_ACCELERATE_URL}/windows/eCan-${VERSION}-windows-amd64-Setup.exe"
-          echo ""
-          echo "macOS Intel (x86_64):"
-          echo "${S3_ACCELERATE_URL}/macos/eCan-${VERSION}-macos-amd64.pkg"
-          echo ""
-          echo "macOS Apple Silicon (ARM64):"
-          echo "${S3_ACCELERATE_URL}/macos/eCan-${VERSION}-macos-aarch64.pkg"
-          echo ""
-          echo "Checksums:"
-          echo "${S3_ACCELERATE_URL}/checksums/SHA256SUMS"
-          echo ""
-          echo "================================================================"
-          echo "Latest Version Pointer:"
-          echo "https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/latest.json"
-          echo ""
-          echo "================================================================"
-          echo "Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
-          echo "Build Type: $([ "$IS_BRANCH" = "false" ] && echo "Release" || echo "Branch")"
-          echo "================================================================"
-        } > download-links.txt
-        
-        # Upload download links file to S3
-        aws s3 cp download-links.txt s3://${S3_BUCKET}/${S3_VERSION_PATH}/DOWNLOAD-LINKS.txt \
-          "${ACL_ARGS[@]}" \
-          --content-type "text/plain; charset=utf-8" \
-          --cache-control "max-age=31536000"
-        
-        echo ""
-        echo "[OK] Download links file created and uploaded"
-        echo "   Access at: ${S3_BASE_URL}/DOWNLOAD-LINKS.txt"
-        echo ""
-        
-        # Display download links in console (formatted to avoid secret masking)
-        echo "================================================================"
-        echo "COPY-PASTE DOWNLOAD LINKS (Unmasked)"
-        echo "================================================================"
-        cat download-links.txt
-        echo "================================================================"
-
-    - name: Upload download links as artifact
-      if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET'
-      uses: actions/upload-artifact@v4
-      with:
-        name: download-links-${{ needs.validate-tag.outputs.version }}
-        path: download-links.txt
-        retention-days: 90
-        if-no-files-found: error
-
-    - name: Create version metadata
-      run: |
-        VERSION="${{ needs.validate-tag.outputs.version }}"
-        S3_VERSION_PATH="${S3_BASE_PATH}/v${VERSION}"
-        
-        # Create metadata JSON using jq
-        RELEASE_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-        jq -n \
-          --arg version "${VERSION}" \
-          --arg release_date "${RELEASE_DATE}" \
-          --arg tag "v${VERSION}" \
-          --argjson is_branch ${{ needs.validate-tag.outputs.is-branch }} \
-          --arg ref_name "${{ needs.validate-tag.outputs.ref-name }}" \
-          --arg s3_base_url "${{ steps.upload.outputs.s3_base_url }}" \
-          '{
-            version: $version,
-            release_date: $release_date,
-            tag: $tag,
-            is_branch: $is_branch,
-            ref_name: $ref_name,
-            s3_base_url: $s3_base_url,
-            files: {
-              windows: [],
-              macos: []
-            }
-          }' > version-metadata.json
-        
-        # Add Windows files to metadata
-        if [ -d "upload/windows" ]; then
-          for file in upload/windows/*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file")
-              jq ".files.windows += [{\"name\": \"$filename\", \"size\": $size, \"url\": \"${{ steps.upload.outputs.s3_base_url }}/windows/$filename\"}]" version-metadata.json > tmp.json && mv tmp.json version-metadata.json
-            fi
-          done
-        fi
-        
-        # Add macOS files to metadata
-        if [ -d "upload/macos" ]; then
-          for file in upload/macos/*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file")
-              jq ".files.macos += [{\"name\": \"$filename\", \"size\": $size, \"url\": \"${{ steps.upload.outputs.s3_base_url }}/macos/$filename\"}]" version-metadata.json > tmp.json && mv tmp.json version-metadata.json
-            fi
-          done
-        fi
-        
-        # Upload metadata to S3
-        ACL_ARGS=()
-        if [ "${S3_USE_ACL:-}" = "true" ]; then
-          ACL_ARGS+=(--acl public-read)
-        fi
-
-        aws s3 cp version-metadata.json s3://${S3_BUCKET}/${S3_VERSION_PATH}/version-metadata.json \
-          "${ACL_ARGS[@]}" \
-          --content-type "application/json"
-        
-        echo "Version metadata uploaded to: ${{ steps.upload.outputs.s3_base_url }}/version-metadata.json"
-
-    - name: Clean up artifacts after successful S3 upload
-      run: |
-        echo "=== Cleaning up local artifacts after S3 upload ==="
-        
-        # Calculate total size before cleanup
-        TOTAL_SIZE=0
-        if [ -d "upload" ]; then
-          UPLOAD_SIZE=$(du -sh upload 2>/dev/null | cut -f1)
-          echo "Upload directory size: $UPLOAD_SIZE"
-        fi
-        if [ -d "windows-artifacts" ]; then
-          WIN_SIZE=$(du -sh windows-artifacts 2>/dev/null | cut -f1)
-          echo "Windows artifacts size: $WIN_SIZE"
-        fi
-        if [ -d "macos-artifacts" ]; then
-          MAC_SIZE=$(du -sh macos-artifacts 2>/dev/null | cut -f1)
-          echo "macOS artifacts size: $MAC_SIZE"
-        fi
-        
-        # Remove artifacts (they're now safely stored in S3)
-        echo ""
-        echo "Removing local artifacts..."
-        rm -rf upload/ windows-artifacts/ macos-artifacts/ version-metadata.json latest.json 2>/dev/null || true
-        
-        echo ""
-        echo "[OK] Cleanup completed - all artifacts are now in S3"
-        echo "   Local storage freed for GitHub Actions"
-        
-        # Display cleanup summary in GitHub Actions Summary
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "---" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Storage Cleanup" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "All build artifacts have been successfully uploaded to S3 and cleaned from GitHub Actions storage." >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "[OK] Local temporary files have been deleted, saving GitHub Actions storage space" >> $GITHUB_STEP_SUMMARY
-
-  # Create Release (optional, for GitHub releases)
-  create-release:
-    needs: [validate-tag, upload-to-s3]
-    if: |
-      needs.validate-tag.outputs.tag-valid == 'true' &&
-      startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Download Windows artifacts
-      if: |
-        github.event.inputs.platform == 'windows' ||
-        github.event.inputs.platform == 'all' ||
-        github.event.inputs.platform == null
-      uses: actions/download-artifact@v4
-      with:
-        name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
-        path: windows-artifacts
-
-    - name: Download macOS amd64 artifacts
-      if: |
-        (github.event.inputs.platform == 'macos' ||
-         github.event.inputs.platform == 'all' ||
-         github.event.inputs.platform == null) &&
-        (github.event.inputs.arch == 'amd64' ||
-         github.event.inputs.arch == 'all' ||
-         github.event.inputs.arch == null)
-      uses: actions/download-artifact@v4
-      with:
-        name: eCan-macOS-amd64-${{ needs.validate-tag.outputs.version }}
-        path: macos-artifacts
-      continue-on-error: true
-
-    - name: Download macOS aarch64 artifacts
-      if: |
-        (github.event.inputs.platform == 'macos' ||
-         github.event.inputs.platform == 'all' ||
-         github.event.inputs.platform == null) &&
-        (github.event.inputs.arch == 'aarch64' ||
-         github.event.inputs.arch == 'all' ||
-         github.event.inputs.arch == null)
-      uses: actions/download-artifact@v4
-      with:
-        name: eCan-macOS-aarch64-${{ needs.validate-tag.outputs.version }}
-        path: macos-artifacts
-      continue-on-error: true
-
-    - name: Prepare release files list
-      id: prep_files
-      run: |
-        echo "Listing downloaded artifacts..."
-        ls -la windows-artifacts || true
-        ls -la macos-artifacts || true
-        echo "files<<EOF" >> $GITHUB_OUTPUT
-        if ls windows-artifacts/*.exe 1> /dev/null 2>&1; then
-          for f in windows-artifacts/*.exe; do echo "$f" >> $GITHUB_OUTPUT; done
-        fi
-        if ls macos-artifacts/*.pkg 1> /dev/null 2>&1; then
-          for f in macos-artifacts/*.pkg; do echo "$f" >> $GITHUB_OUTPUT; done
-        fi
-        if ls macos-artifacts/*.zip 1> /dev/null 2>&1; then
-          for f in macos-artifacts/*.zip; do echo "$f" >> $GITHUB_OUTPUT; done
-        fi
-        echo "EOF" >> $GITHUB_OUTPUT
-
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: ${{ steps.prep_files.outputs.files }}
-        name: "eCan AI Assistant v${{ needs.validate-tag.outputs.version }}"
-        body: |
-          # eCan AI Assistant v${{ needs.validate-tag.outputs.version }}
-          
-          ##  New Release
-          
-          This is the latest version of eCan AI Assistant with new features and improvements.
-          
-          ##  Download Links (AWS S3)
-          
-          **Primary Download Location**: [AWS S3](${{ needs.upload-to-s3.outputs.s3_base_url }})
-          
-          ### Windows Users
-          - **Installer**: [${{ needs.upload-to-s3.outputs.s3_base_url }}/windows/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe](${{ needs.upload-to-s3.outputs.s3_base_url }}/windows/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe) (Recommended)
-          - **Portable**: [${{ needs.upload-to-s3.outputs.s3_base_url }}/windows/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe](${{ needs.upload-to-s3.outputs.s3_base_url }}/windows/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe)
-          
-          ### macOS Users
-          - **PKG Installer (Intel)**: [${{ needs.upload-to-s3.outputs.s3_base_url }}/macos/eCan-${{ needs.validate-tag.outputs.version }}-macos-amd64.pkg](${{ needs.upload-to-s3.outputs.s3_base_url }}/macos/eCan-${{ needs.validate-tag.outputs.version }}-macos-amd64.pkg)
-          - **PKG Installer (Apple Silicon)**: [${{ needs.upload-to-s3.outputs.s3_base_url }}/macos/eCan-${{ needs.validate-tag.outputs.version }}-macos-aarch64.pkg](${{ needs.upload-to-s3.outputs.s3_base_url }}/macos/eCan-${{ needs.validate-tag.outputs.version }}-macos-aarch64.pkg)
-          
-          ### Checksums
-          - **SHA256SUMS**: [${{ needs.upload-to-s3.outputs.s3_base_url }}/checksums/SHA256SUMS](${{ needs.upload-to-s3.outputs.s3_base_url }}/checksums/SHA256SUMS)
-          
-          ##  Installation Instructions
-          
-          ### Windows
-          1. Download the `eCan-*-Setup.exe` installer from S3
-          2. Run the installer and follow the prompts to complete installation
-          3. Launch the application from Start Menu or desktop shortcut
-          
-          ### macOS
-          1. Download the `.pkg` installer package from S3
-          2. Double-click the package and follow the prompts to complete installation
-          3. Launch eCan from the Applications folder
-          
-          ##  System Requirements
-          - **Windows**: Windows 10 or later
-          - **macOS**: macOS 11.0 or later
-          
-          ##  Changelog
-          Please see [CHANGELOG.md](CHANGELOG.md) for detailed update information.
-          
-          ##  Issue Reporting
-          If you encounter any issues, please submit feedback on the [Issues](https://github.com/scszcoder/ecbot/issues) page.
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Generate and publish appcast using S3 URLs (only for tag/release builds)
-  publish-appcast:
-    needs: [validate-tag, upload-to-s3]
-    # Only generate appcast for tag/release builds (branch builds don't need OTA updates)
-    # Run even if upload-to-s3 was skipped, as long as it's a tag/release build
-    if: |
-      always() &&
-      needs.validate-tag.outputs.tag-valid == 'true' &&
-      needs.validate-tag.outputs.is-branch == 'false' &&
-      (needs.upload-to-s3.result == 'success' || needs.upload-to-s3.result == 'skipped')
-    runs-on: ubuntu-latest
-    env:
-      ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY || 'NOT_SET' }}
-      S3_BASE_URL: ${{ needs.upload-to-s3.outputs.s3_base_url || '' }}
-    steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.ref || github.ref }}
           fetch-depth: 0
 
-      - name: Check environment variables
+      - name: Check AWS S3 Configuration
         run: |
-          echo "=== Checking Appcast Generation Environment ==="
-          echo ""
-          echo "NOTE: Appcast generation only runs for tag/release builds"
-          echo "   - Tag/Release builds: Generate appcast for OTA updates"
-          echo "   - Branch builds: Skip (development versions don't need OTA)"
-          echo "   - This ensures appcast and latest.json stay in sync"
-          echo ""
-          if [ "${ED25519_PRIVATE_KEY}" != "NOT_SET" ]; then
-            echo "ED25519_PRIVATE_KEY: Available - Appcast generation enabled"
+          echo "=== Checking AWS S3 Configuration ==="
+          echo "AWS credentials: ${{ env.AWS_ACCESS_KEY_ID != 'NOT_SET' && 'Available' || 'Not Available' }}"
+          echo "S3 bucket: ${{ env.S3_BUCKET != 'NOT_SET' && env.S3_BUCKET || 'Not configured' }}"
+          echo "AWS region: ${{ env.AWS_REGION != 'NOT_SET' && env.AWS_REGION || 'Not configured' }}"
+          echo "S3 base path: ${{ env.S3_BASE_PATH != 'NOT_SET' && env.S3_BASE_PATH || 'Not configured' }}"
+          
+          if [ "${{ env.AWS_ACCESS_KEY_ID }}" = "NOT_SET" ] || \
+             [ "${{ env.AWS_SECRET_ACCESS_KEY }}" = "NOT_SET" ] || \
+             [ "${{ env.S3_BUCKET }}" = "NOT_SET" ]; then
+            echo "S3 upload: Disabled (missing credentials or bucket configuration)"
+            echo "Artifacts will only be available as GitHub Artifacts"
           else
-            echo "ED25519_PRIVATE_KEY: Not available - Appcast generation disabled"
+            echo "S3 upload: Enabled"
           fi
-          echo ""
-          if [ -z "${S3_BASE_URL}" ] || [ "${S3_BASE_URL}" = "" ]; then
-            echo "[WARN] S3_BASE_URL: Not available (upload-to-s3 may have been skipped)"
-            echo "   Appcast generation will be skipped if S3_BASE_URL is required"
+
+      - name: Verify AWS Identity
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET'
+        run: |
+          echo "=== Verifying AWS Identity ==="
+          aws sts get-caller-identity
+          echo "AWS credentials are valid"
+
+      - name: Test S3 Access
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET'
+        run: |
+          echo "=== Testing S3 Access ==="
+          if aws s3 ls s3://${S3_BUCKET}/ --max-items 1 >/dev/null 2>&1; then
+            echo "S3 bucket access: OK"
           else
-            echo "[OK] S3_BASE_URL: ${S3_BASE_URL}"
+            echo "S3 bucket access: FAILED"
+            exit 1
           fi
-          echo ""
-          echo "Version: ${{ needs.validate-tag.outputs.version }}"
-          echo "Is Branch: ${{ needs.validate-tag.outputs.is-branch }}"
-          echo "Upload-to-S3 Result: ${{ needs.upload-to-s3.result }}"
 
       - name: Download Windows artifacts
+
         uses: actions/download-artifact@v4
         with:
           name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
