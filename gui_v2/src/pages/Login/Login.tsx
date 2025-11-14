@@ -94,18 +94,19 @@ const Login: React.FC = () => {
 				if (response?.data?.last_login) {
 					const { username, password, machine_role, language } = response.data.last_login;
 					console.log('last_login', response.data.last_login);
-					
+
 					// Apply saved language preference if available
 					if (language && i18n.language !== language) {
 						console.log('[Login] Applying saved language:', language);
 						await i18n.changeLanguage(language);
 						localStorage.setItem('i18nextLng', language);
 					}
-					
+
 					// TODO: Theme preference will be handled by ThemeContext
-					
+
 					// Update form with login credentials
-					updateFormWithRole(username, password, machine_role);
+					// Use default role 'Commander' if machine_role is not available
+					updateFormWithRole(username, password, machine_role || 'Commander');
 				}
 			} catch (error) {
 				console.warn('[Login] Failed to load last login info:', error);

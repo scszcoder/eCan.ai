@@ -262,6 +262,10 @@ class AuthManager:
             username = self._get_saved_username()
             self.machine_role = self._get_saved_machine_role()
 
+            # Ensure machine_role is never None (should have default from _get_saved_machine_role)
+            if not self.machine_role:
+                self.machine_role = "Platoon"
+
             password = ""
             if username:
                 success, result = self._get_credentials(username)
@@ -281,7 +285,7 @@ class AuthManager:
                         theme = data.get('theme')
                 except Exception as e:
                     logger.warning(f"Error reading preferences from {self.acct_file}: {e}")
-            
+
             return {
                 "machine_role": self.machine_role,
                 "username": username or "",
@@ -291,7 +295,8 @@ class AuthManager:
             }
         except Exception as e:
             logger.error(f"Error getting saved login info: {e}")
-            return {"machine_role": self.machine_role, "username": "", "password": ""}
+            # Ensure machine_role has a default value even on error
+            return {"machine_role": self.machine_role or "Platoon", "username": "", "password": ""}
 
     def _update_saved_login_info(self, username, password, role):
         """Update saved login information with new username and password."""
@@ -903,16 +908,20 @@ class AuthManager:
             logger.error(f"Failed to read saved username: {e}")
             return None
         
-    def _get_saved_machine_role(self) -> str | None:
+    def _get_saved_machine_role(self) -> str:
         try:
             if exists(self.acct_file):
                 with open(self.acct_file, 'r') as f:
                     data = json.load(f)
-                    return data.get("machine_role")
-            return None
+                    role = data.get("machine_role")
+                    # Return the saved role if it exists, otherwise return default
+                    return role if role else "Platoon"
+            # If uli.json doesn't exist, return default role
+            return "Platoon"
         except Exception as e:
             logger.error(f"Failed to read saved machine role: {e}")
-            return None
+            # Return default role on error
+            return "Platoon"
 
     def try_restore_session(self) -> bool:
         """Attempt to restore session from stored refresh token silently at startup."""

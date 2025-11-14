@@ -17,8 +17,11 @@ def set_up_ec_procurement_agent(mainwin):
         agent_skills = mainwin.agent_skills
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-        print("set_up_ec_procurement_agent", [sk.name for sk in agent_skills])
-        worker_skill = next((sk for sk in agent_skills if all_substrings(["search","digikey"], sk.name) and "chat" not in sk.name), None)
+        logger.debug("set_up_ec_procurement_agent", [sk.name for sk in agent_skills])
+        # Search for worker skill: must contain "search" and "digikey"
+        # Note: search_digikey_chatter can serve as both worker and chatter skill
+        worker_skill = next((sk for sk in agent_skills if all_substrings(["search","digikey"], sk.name)), None)
+        # Search for chatter skill: must contain "search", "digikey", and "chatter"
         chatter_skill = next((sk for sk in agent_skills if all_substrings(["search","digikey","chatter"], sk.name)),None)
 
 

@@ -562,14 +562,7 @@ class MainWindow:
             logger.error(f"[MainWindow] ❌ Agents initialization failed: {e}")
             logger.warning("[MainWindow] ⚠️ System marked as ready despite agents initialization failure")
 
-        # Start completely independent delayed task to copy example my_skills
-        # This runs after all critical initialization is complete and won't block anything
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._delayed_copy_example_my_skills())
-            logger.debug("[MainWindow] 📚 Scheduled delayed copy of example my_skills (non-blocking)")
-        except RuntimeError as e:
-            logger.debug(f"[MainWindow] No event loop for delayed my_skills copy: {e}")
+
 
         logger.info("[MainWindow] ✅ Async initialization finalized")
 
@@ -595,27 +588,6 @@ class MainWindow:
                     logger.error(f"[MainWindow] Failed to save vehicle {vehicle.getName()}: {e}")
         except Exception as e:
             logger.error(f"[MainWindow] Error in vehicle saving process: {e}")
-
-    async def _delayed_copy_example_my_skills(self):
-        """
-        Delayed async task to copy example skills after system is fully initialized
-        This runs completely independently and won't block any startup process
-        """
-        try:
-            # Wait 5 seconds after system is fully ready to ensure no impact on startup
-            logger.debug("[MainWindow] 📚 Waiting 5s before copying example my_skills...")
-            await asyncio.sleep(5.0)
-            
-            # Run the actual copy operation in executor to avoid blocking event loop
-            logger.debug("[MainWindow] 📚 Starting example my_skills copy in background thread...")
-            await asyncio.get_event_loop().run_in_executor(
-                None, self._copy_example_my_skills
-            )
-            logger.debug("[MainWindow] 📚 Example my_skills copy completed")
-            
-        except Exception as e:
-            logger.error(f"[MainWindow] ❌ Delayed my_skills copy failed: {e}")
-            # Silently fail - this is a nice-to-have feature, not critical
 
     def _copy_example_my_skills(self):
         """
@@ -1868,7 +1840,17 @@ class MainWindow:
                 self.agent_skills = []
             else:
                 logger.info(f"[MainWindow] ✅ All components ready - LLM: {type(self.llm)}, MCP Client: {self.mcp_client is not None}")
-                
+
+                # CRITICAL: Copy example skills BEFORE building agent skills
+                # This ensures skills like search_digikey_chatter are available when agents are initialized
+                logger.info("[MainWindow] 📚 Pre-copying example skills before agent initialization...")
+                try:
+                    await asyncio.get_event_loop().run_in_executor(None, self._copy_example_my_skills)
+                    logger.info("[MainWindow] ✅ Example skills pre-copied successfully")
+                except Exception as e:
+                    logger.warning(f"[MainWindow] ⚠️ Pre-copy of example skills failed: {e}")
+                    # Continue anyway - skills might already exist
+
                 # Start skill building task (asynchronous)
                 agent_skills_task = asyncio.create_task(self._build_agent_skills_async())
                 
