@@ -264,7 +264,7 @@ class AuthManager:
 
             # Ensure machine_role is never None (should have default from _get_saved_machine_role)
             if not self.machine_role:
-                self.machine_role = "Platoon"
+                self.machine_role = "Commander"
 
             password = ""
             if username:
@@ -296,7 +296,7 @@ class AuthManager:
         except Exception as e:
             logger.error(f"Error getting saved login info: {e}")
             # Ensure machine_role has a default value even on error
-            return {"machine_role": self.machine_role or "Platoon", "username": "", "password": ""}
+            return {"machine_role": self.machine_role or "Commander", "username": "", "password": ""}
 
     def _update_saved_login_info(self, username, password, role):
         """Update saved login information with new username and password."""
@@ -915,13 +915,13 @@ class AuthManager:
                     data = json.load(f)
                     role = data.get("machine_role")
                     # Return the saved role if it exists, otherwise return default
-                    return role if role else "Platoon"
+                    return role if role else "Commander"
             # If uli.json doesn't exist, return default role
-            return "Platoon"
+            return "Commander"
         except Exception as e:
             logger.error(f"Failed to read saved machine role: {e}")
             # Return default role on error
-            return "Platoon"
+            return "Commander"
 
     def try_restore_session(self) -> bool:
         """Attempt to restore session from stored refresh token silently at startup."""
