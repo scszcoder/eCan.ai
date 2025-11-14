@@ -92,7 +92,7 @@
     "data_type": "str",
     "data_name": "fdir",
     "key_name": "NA",
-    "key_value": "C:\\Users\\sctis\\PycharmProjects\\ecbot/runlogs/20250311/"
+    "key_value": "C:\\Users\\songc\\PycharmProjects\\eCan.ai/runlogs/20251110/"
 },
 "step 60":
 {
@@ -129,7 +129,7 @@
 "step 80":
 {
     "type": "Call Extern",
-    "file": "global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': 'C:\\Users\\sctis\\PycharmProjects\\ecbot/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority092320230919.xls'}]\nprint('GS ORDERS', gs_orders)",
+    "file": "global gs_orders\ngs_orders = [{'service': 'USPS Priority V4', 'price': 4.5, 'num_orders': 1, 'dir': 'C:\\Users\\songc\\PycharmProjects\\eCan.ai/runlogs/20230910/b3m3/win_chrome_etsy_orders/skills/fullfill_orders', 'file': 'etsyOrdersPriority092320230919.xls'}]\nprint('GS ORDERS', gs_orders)",
     "args": "",
     "entity": "in_line",
     "output": ""

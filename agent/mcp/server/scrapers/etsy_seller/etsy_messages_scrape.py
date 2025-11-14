@@ -106,3 +106,30 @@ def add_answer_etsy_messages_tool_schema(tool_schemas):
     )
 
     tool_schemas.append(tool_schema)
+
+
+def add_etsy_handle_next_message_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="etsy_handle_next_message",
+        description="handle next message by clicking on the message, read it, summerarize it, reaspond to it, and return the handling details info in json format including ones that require human intervention.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["options"],
+                    "properties": {
+                        "options": {
+                            "type": "object",
+                            "description": "some options in json format including policies, etc. will use default if these info are missing anyways.",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)

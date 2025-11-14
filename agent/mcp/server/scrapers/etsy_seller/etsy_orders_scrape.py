@@ -483,12 +483,44 @@ async def fullfill_one_etsy_orders(mainwin, args):  # type: ignore
 async def fullfill_etsy_orders(mainwin, args):  # type: ignore
     return await fullfill_one_etsy_orders(mainwin, args)
 
-def add_fullfill_etsy_orders_tool_schema(tool_schemas):
+
+
+def add_get_etsy_summary_tool_schema(tool_schemas):
     import mcp.types as types
 
     tool_schema = types.Tool(
-        name="fullfill_etsy_orders",
-        description="fullfill etsy orders by scraping orders list, for unshipped ones, click on buy shipping to obtain the cheapest shipping labels, save them and return the list of labels files fullpath.",
+        name="get_etsy_summary",
+        description="get etsy numer of new orders and number of new messages.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["store_url", "options"],
+                    "properties": {
+                        "store_url": {
+                            "type": "string",
+                            "description": "etsy store url",
+                        },
+                        "options": {
+                            "type": "object",
+                            "description": "some options in json format",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)
+
+def add_etsy_fullfill_next_order_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="etsy_fullfill_next_order",
+        description="full fill next order by clicking on buy shipping to obtain the cheapest shipping label, reformat it, save it, send it to printer, and return the order details info in json format.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -499,7 +531,7 @@ def add_fullfill_etsy_orders_tool_schema(tool_schemas):
                     "properties": {
                         "options": {
                             "type": "object",
-                            "description": "some options in json format",
+                            "description": "some options in json format including printer name, label format, etc. will use default if these info are missing anyways.",
                         }
                     },
                 }
