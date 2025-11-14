@@ -231,30 +231,44 @@ jobs:
     - name: Install Inno Setup Chinese Language Pack
       run: |
         echo "=== Installing Inno Setup Chinese Language Pack ==="
-        $LangDir = "${env:ProgramFiles(x86)}\Inno Setup 6\Languages"
-        $LangPath = "$LangDir\ChineseSimplified.isl"
+        # Detect actual Inno Setup installation path
+        $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+        if (-not (Test-Path $innoPath)) { $innoPath = "${env:ProgramFiles}\Inno Setup 6\ISCC.exe" }
+        if (-not (Test-Path $innoPath)) {
+            Write-Host "ERROR: ISCC.exe not found; cannot determine Languages directory" -ForegroundColor Red
+            exit 1
+        }
+
+        # Languages directory is two levels up from ISCC.exe, then \Languages
+        $installDir = Split-Path -Parent $innoPath         # e.g. ...\Inno Setup 6
+        $langDir = Join-Path $installDir 'Languages'
+        $langPath = Join-Path $langDir 'ChineseSimplified.isl'
         $SourcePath = "${{ github.workspace }}\build_system\inno_setup_languages\ChineseSimplified.isl"
 
         Write-Host "Installing from repository: $SourcePath"
-        
+        Write-Host "Target Languages directory: $langDir"
+
         # Verify source file exists
         if (-not (Test-Path $SourcePath)) {
             Write-Host "ERROR: Source language file not found: $SourcePath" -ForegroundColor Red
             exit 1
         }
 
-        # Copy with correct encoding preservation
-        Copy-Item -Path $SourcePath -Destination $LangPath -Force
+        # Ensure Languages directory exists
+        if (-not (Test-Path $langDir)) { New-Item -ItemType Directory -Path $langDir -Force | Out-Null }
+
+        # Copy with encoding preservation
+        Copy-Item -Path $SourcePath -Destination $langPath -Force
         Write-Host "✓ Chinese language pack installed from repository" -ForegroundColor Green
 
         # Verify installation
-        if (Test-Path $LangPath) {
-            $fileSize = (Get-Item $LangPath).Length
-            Write-Host "✓ File verified at: $LangPath" -ForegroundColor Green
+        if (Test-Path $langPath) {
+            $fileSize = (Get-Item $langPath).Length
+            Write-Host "✓ File verified at: $langPath" -ForegroundColor Green
             Write-Host "  File size: $fileSize bytes" -ForegroundColor Gray
             
             # Verify content
-            $content = Get-Content $LangPath -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+            $content = Get-Content $langPath -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
             if ($content -match "ChineseSimplified" -or $content -match "中文") {
                 Write-Host "✓ File content verified" -ForegroundColor Green
             } else {
@@ -977,7 +991,7 @@ jobs:
         (github.event.inputs.platform == 'windows' && needs.build-windows.result == 'success') ||
         (github.event.inputs.platform == 'macos' && needs.build-macos.result == 'success') ||
         (github.event.inputs.platform == 'all' && needs.build-windows.result == 'success' && needs.build-macos.result == 'success') ||
-        (github.event.inputs.platform == null && needs.build-windows.result == 'success' && needs.build-macos.result == 'success')
+        (github.event.inputs.platform == null && (needs.build-windows.result == 'success' || needs.build-macos.result == 'success'))
       )
     runs-on: ubuntu-latest
     env:
@@ -991,41 +1005,43 @@ jobs:
 
     steps:
     - name: Check AWS credentials
+      if: ${{ secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' && secrets.S3_BUCKET != '' }}
       run: |
         echo "=== Checking AWS S3 Configuration ==="
-        if [ "$AWS_ACCESS_KEY_ID" != "NOT_SET" ] && [ "$AWS_SECRET_ACCESS_KEY" != "NOT_SET" ] && [ "$S3_BUCKET" != "NOT_SET" ]; then
-          echo "AWS credentials: Available"
-          echo "S3 bucket: $S3_BUCKET"
-          echo "AWS region: $AWS_REGION"
-          echo "S3 base path: $S3_BASE_PATH"
-          echo "S3 upload: Enabled"
-          
-          # Verify credentials
-          echo ""
-          echo "=== Verifying AWS Identity ==="
-          if aws sts get-caller-identity; then
-            echo "AWS credentials are valid"
-          else
-            echo "ERROR: AWS credentials are invalid"
-            exit 1
-          fi
-          
-          # Test S3 access
-          echo ""
-          echo "=== Testing S3 Access ==="
-          if aws s3 ls s3://${S3_BUCKET}/ > /dev/null 2>&1; then
-            echo "S3 bucket access: OK"
-          else
-            echo "ERROR: Cannot access S3 bucket"
-            echo "This usually means the IAM user lacks s3:ListBucket permission"
-            exit 1
-          fi
+        echo "AWS credentials: Available"
+        echo "S3 bucket: $S3_BUCKET"
+        echo "AWS region: $AWS_REGION"
+        echo "S3 base path: $S3_BASE_PATH"
+        echo "S3 upload: Enabled"
+        
+        # Verify credentials
+        echo ""
+        echo "=== Verifying AWS Identity ==="
+        if aws sts get-caller-identity; then
+          echo "AWS credentials are valid"
         else
-          echo "AWS credentials: Not available"
-          echo "S3 upload: Disabled"
-          echo "Note: Set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and S3_BUCKET secrets to enable S3 upload"
+          echo "ERROR: AWS credentials are invalid"
           exit 1
         fi
+        
+        # Test S3 access
+        echo ""
+        echo "=== Testing S3 Access ==="
+        if aws s3 ls s3://${S3_BUCKET}/ > /dev/null 2>&1; then
+          echo "S3 bucket access: OK"
+        else
+          echo "ERROR: Cannot access S3 bucket"
+          echo "This usually means the IAM user lacks s3:ListBucket permission"
+          exit 1
+        fi
+
+    - name: S3 upload disabled notice
+      if: ${{ secrets.AWS_ACCESS_KEY_ID == '' || secrets.AWS_SECRET_ACCESS_KEY == '' || secrets.S3_BUCKET == '' }}
+      run: |
+        echo "=== S3 Upload Disabled ==="
+        echo "AWS credentials: Not available"
+        echo "S3 upload: Disabled"
+        echo "Note: Set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and S3_BUCKET secrets to enable S3 upload"
 
     - name: Download Windows artifacts
       if: |
@@ -1066,6 +1082,7 @@ jobs:
       continue-on-error: true
 
     - name: Configure AWS credentials
+      if: ${{ secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' && secrets.S3_BUCKET != '' }}
       uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -1073,6 +1090,7 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
 
     - name: Upload artifacts to S3
+      if: ${{ secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' && secrets.S3_BUCKET != '' }}
       id: upload
       run: |
         VERSION="${{ needs.validate-tag.outputs.version }}"
@@ -1181,13 +1199,17 @@ jobs:
         S3_BASE_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_VERSION_PATH}"
         S3_ACCELERATE_URL="https://${S3_BUCKET}.s3-accelerate.amazonaws.com/${S3_VERSION_PATH}"
         echo "s3_base_url=${S3_BASE_URL}" >> $GITHUB_OUTPUT
-        
-        # Display public download URLs in GitHub Actions Summary (visible to users)
+    - name: Display public download URLs in GitHub Actions Summary (visible to users)
+      if: ${{ secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' && secrets.S3_BUCKET != '' }}
+      run: |
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "## Public Download URLs" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Version: \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        S3_VERSION_PATH="${S3_BASE_PATH}/v${VERSION}"
+        S3_BASE_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_VERSION_PATH}"
+        S3_ACCELERATE_URL="https://${S3_BUCKET}.s3-accelerate.amazonaws.com/${S3_VERSION_PATH}"
+        IS_BRANCH="${{ needs.validate-tag.outputs.is-branch }}"
         
         # Display build type and latest pointer status
         if [ "$IS_BRANCH" = "false" ]; then
@@ -1195,7 +1217,6 @@ jobs:
         else
           echo "> **Branch Build** - \`latest\` pointer remains unchanged (only release builds update \`latest\`)" >> $GITHUB_STEP_SUMMARY
         fi
-        echo "" >> $GITHUB_STEP_SUMMARY
         
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Windows Downloads" >> $GITHUB_STEP_SUMMARY
@@ -1267,6 +1288,46 @@ jobs:
         echo "2. **Download from GitHub Artifacts**: Check the Artifacts list for this run, download \`download-links-${VERSION}\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "> NOTE: This file contains all download links with complete URLs (without \`***\` masking) that can be copied directly." >> $GITHUB_STEP_SUMMARY
+
+    - name: Display GitHub Artifacts Summary (no S3)
+      if: ${{ secrets.AWS_ACCESS_KEY_ID == '' || secrets.AWS_SECRET_ACCESS_KEY == '' || secrets.S3_BUCKET == '' }}
+      run: |
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Build Artifacts (S3 upload disabled)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Version: \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        echo "### Windows Artifacts" >> $GITHUB_STEP_SUMMARY
+        if [ -d "windows-artifacts" ]; then
+          for file in windows-artifacts/*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              size=$(du -h "$file" | cut -f1)
+              echo "- \`${filename}\` (${size})" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+        else
+          echo "- (none)" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### macOS Artifacts" >> $GITHUB_STEP_SUMMARY
+        if [ -d "macos-artifacts" ]; then
+          for file in macos-artifacts/*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              size=$(du -h "$file" | cut -f1)
+              echo "- \`${filename}\` (${size})" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+        else
+          echo "- (none)" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "> S3 上传未启用：未设置 AWS 凭证或 S3_BUCKET。可在本次运行的 Artifacts 列表直接下载构建产物。" >> $GITHUB_STEP_SUMMARY
         
         echo ""
         echo "================================================================"
