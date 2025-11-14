@@ -370,11 +370,25 @@ class InstallerBuilder:
                     else:
                         type_str = 'string'
                     
+                    # Escape double quotes in ValueData to satisfy Inno Setup syntax
+                    # Example: "{app}" "%1" -> ""{app}"" ""%1""
+                    if isinstance(value_data, str):
+                        safe_value_data = value_data.replace('"', '""')
+                    else:
+                        safe_value_data = str(value_data)
+
                     # Build registry line
                     if value_name:
-                        registry_section += f'Root: {root}; Subkey: "{subkey}"; ValueType: {type_str}; ValueName: "{value_name}"; ValueData: "{value_data}"\n'
+                        registry_section += (
+                            f'Root: {root}; Subkey: "{subkey}"; '
+                            f'ValueType: {type_str}; ValueName: "{value_name}"; '
+                            f'ValueData: "{safe_value_data}"\n'
+                        )
                     else:
-                        registry_section += f'Root: {root}; Subkey: "{subkey}"; ValueType: {type_str}; ValueData: "{value_data}"\n'
+                        registry_section += (
+                            f'Root: {root}; Subkey: "{subkey}"; '
+                            f'ValueType: {type_str}; ValueData: "{safe_value_data}"\n'
+                        )
                 registry_section += "\n"
 
             iss_content = f"""
