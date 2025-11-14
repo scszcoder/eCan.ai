@@ -53,6 +53,23 @@ export const RouteFileLoader = () => {
           const data = JSON.parse(fileResponse.data.content) as SkillInfo;
           const diagram = data.workFlow;
 
+          // Normalize skillName from folder when loading via route
+          // Expect path like: <...>/<name>_skill/diagram_dir/<name>_skill.json
+          try {
+            const norm = String(filePath).replace(/\\/g, '/');
+            const parts = norm.split('/');
+            const idx = parts.lastIndexOf('diagram_dir');
+            if (idx > 0) {
+              const folder = parts[idx - 1];
+              const nameFromFolder = folder?.replace(/_skill$/i, '');
+              if (nameFromFolder && data && typeof data === 'object') {
+                if (!data.skillName || data.skillName !== nameFromFolder) {
+                  (data as any).skillName = nameFromFolder;
+                }
+              }
+            }
+          } catch {}
+
           if (diagram) {
             // Set skill info with file path
             setSkillInfo(data);
