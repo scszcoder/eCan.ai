@@ -1557,6 +1557,7 @@ jobs:
         echo "================================================================"
 
     - name: Upload download links as artifact
+      if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET'
       uses: actions/upload-artifact@v4
       with:
         name: download-links-${{ needs.validate-tag.outputs.version }}
