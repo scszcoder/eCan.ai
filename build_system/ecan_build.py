@@ -246,21 +246,21 @@ class InstallerBuilder:
         return any(Path(path).exists() for path in inno_paths)
 
     def _ensure_windows_icon_quality(self) -> bool:
-        """确保Windows图标质量和配置"""
+        """Ensure Windows icon quality and configuration"""
         try:
             icon_file = self.project_root / "eCan.ico"
 
-            # 验证ICO文件
+            # Validate ICO file existence
             if not icon_file.exists():
                 print("[WARNING] eCan.ico not found")
                 return False
 
-            # 检查ICO文件质量
+            # Check ICO file size as a basic quality heuristic
             file_size = icon_file.stat().st_size
             if file_size < 1000:
                 print(f"[WARNING] ICO file seems too small: {file_size} bytes")
 
-            # 验证ICO文件头
+            # Validate ICO file header structure
             with open(icon_file, 'rb') as f:
                 header = f.read(6)
                 if header[:2] != b'\x00\x00' or header[2:4] != b'\x01\x00':
@@ -279,7 +279,7 @@ class InstallerBuilder:
     def _create_inno_script(self) -> Optional[Path]:
         """Create Inno Setup script"""
         try:
-            # 确保Windows图标质量
+            # Ensure Windows icon quality before building installer
             if not self._ensure_windows_icon_quality():
                 print("[WARNING] Windows icon quality check failed")
 
@@ -404,9 +404,6 @@ CloseApplications=yes
 RestartApplications=no
 VersionInfoVersion={file_version}
 WizardStyle=modern
-; Ensure proper CJK rendering on Chinese systems
-DialogFontName=Microsoft YaHei
-TitleFontName=Microsoft YaHei Bold
 ; Language detection: automatically match system language, fallback to English if no match
 LanguageDetectionMethod=uilanguage
 UsePreviousLanguage=yes
