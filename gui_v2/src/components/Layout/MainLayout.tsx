@@ -92,12 +92,13 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             // 使用新的LogoutManager进行统一的logoutProcess
             await logoutManager.logout();
 
-            // 跳转到LoginPage
-            window.location.replace('/login');
+            // 跳转到LoginPage - 使用navigate而不是window.location.replace
+            // 这样可以避免在本地文件模式下尝试加载file:///login的问题
+            navigate('/login', { replace: true });
         } catch (error) {
             console.error('Logout error:', error);
             // 即使logout过程中出现Error，也要跳转到LoginPage
-            window.location.replace('/login');
+            navigate('/login', { replace: true });
         }
     };
 

@@ -4909,6 +4909,33 @@ class MainWindow:
     async def wait_forever(self):
         await asyncio.Event().wait()  # This will wait indefinitely
 
+    # Serve as commander - listen for messages from platoons
+    async def serveCommander(self, msgQueue):
+        """Listen for messages from platoons when this instance is acting as commander"""
+        self.showMsg("starting serveCommander")
+
+        while True:
+            logger.trace("listening to platoons as commander" + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
+
+            if not msgQueue.empty():
+                try:
+                    # Process all available messages in the queue
+                    while not msgQueue.empty():
+                        net_message = await msgQueue.get()
+                        print("received net message from platoon:", type(net_message), net_message)
+                        if isinstance(net_message, str):
+                            if len(net_message) > 256:
+                                mlen = 256
+                            else:
+                                mlen = len(net_message)
+                            self.showMsg(
+                                "received queued msg from platoon..... [" + str(msgQueue.qsize()) + "]" + net_message[:mlen])
+                except Exception as e:
+                    logger.error(f"[serveCommander] Error processing message: {e}")
+                    self.showMsg(f"Error processing platoon message: {str(e)}")
+
+            await asyncio.sleep(0.1)  # Small delay to prevent busy waiting
+
     async def wan_ping(self):
         if self.host_role == "Staff Officer":
             commander_chat_id = self.user.replace("@", "_").replace(".", "_") + "_Commander"
