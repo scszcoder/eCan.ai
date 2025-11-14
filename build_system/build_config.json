@@ -110,12 +110,9 @@
       ]
     },
     "pyinstaller": {
-      "collect_all": [
-        "numpy",
-        "scipy",
-        "PIL"
-      ],
+      "collect_all": [],
       "collect_data_only": [
+        "PIL",
         "pandas",
         "sklearn",
         "cv2",
@@ -433,6 +430,10 @@
         "PySide6.QtSvgWidgets",
         "PySide6.QtTest",
         "PySide6.QtTextToSpeech",
+        "PySide6.QtMultimedia",
+        "PySide6.QtMultimediaWidgets",
+        "PySide6.QtMultimediaQuick",
+        "PySide6.QtCharts",
         "seaborn",
         "seaborn.*",
         "plotly",
