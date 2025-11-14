@@ -1,0 +1,253 @@
+name: Release Flow Smoke Test (Simulated)
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Build platform (windows, macos, all)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - windows
+          - macos
+      arch:
+        description: 'CPU architecture (all, amd64, aarch64)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - amd64
+          - aarch64
+      ref:
+        description: 'Git ref to build (not used in simulation)'
+        required: true
+        default: 'master'
+        type: string
+      upload_artifacts:
+        description: 'Upload artifacts to GitHub Artifacts (debug only)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+concurrency:
+  group: ecan-release-sim-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag-valid: ${{ steps.out.outputs.valid }}
+      version: ${{ steps.out.outputs.version }}
+    steps:
+      - id: out
+        run: |
+          echo "valid=true" >> $GITHUB_OUTPUT
+          echo "version=0.0.0-sim" >> $GITHUB_OUTPUT
+
+  build-windows:
+    needs: validate-tag
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'windows' ||
+       github.event.inputs.platform == 'all') &&
+      (github.event.inputs.arch == 'amd64' ||
+       github.event.inputs.arch == 'all')
+    runs-on: windows-latest
+    env:
+      BUILD_ARCH: amd64
+    steps:
+      - name: Create fake Windows artifact
+        shell: pwsh
+        run: |
+          $version = "${{ needs.validate-tag.outputs.version }}"
+          $arch = "$env:BUILD_ARCH"
+          New-Item -ItemType Directory -Force -Path "dist","artifacts" | Out-Null
+          $path = "dist/eCan-$version-windows-$arch-Setup.exe"
+          "fake windows setup" | Set-Content $path
+          Copy-Item $path "artifacts/"
+      - name: Upload Windows artifacts for S3 transfer
+        uses: actions/upload-artifact@v4
+        with:
+          name: eCan-Windows-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          path: artifacts/
+          retention-days: 1
+          if-no-files-found: error
+      - name: Upload Windows artifacts for users (optional)
+        if: github.event.inputs.upload_artifacts == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
+          path: artifacts/
+          retention-days: 7
+          if-no-files-found: error
+
+  build-macos:
+    needs: validate-tag
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'macos' ||
+       github.event.inputs.platform == 'all')
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: macos-14
+          - arch: aarch64
+            runner: macos-latest
+      fail-fast: false
+    steps:
+      - name: Decide if this architecture should be built
+        id: should_build
+        run: |
+          ARCH="${{ matrix.arch }}"
+          INPUT="${{ github.event.inputs.arch }}"
+          if [ "$INPUT" = "all" ] || [ -z "$INPUT" ] || [ "$INPUT" = "$ARCH" ]; then
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_build=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Create fake macOS artifact
+        if: steps.should_build.outputs.should_build == 'true'
+        run: |
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          ARCH="${{ matrix.arch }}"
+          mkdir -p dist artifacts
+          touch "dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+          cp "dist/eCan-${VERSION}-macos-${ARCH}.pkg" artifacts/
+      - name: Upload macOS artifacts for S3 transfer
+        if: steps.should_build.outputs.should_build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eCan-macOS-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          path: artifacts/
+          retention-days: 1
+          if-no-files-found: error
+      - name: Upload macOS artifacts for users (optional)
+        if: steps.should_build.outputs.should_build == 'true' && github.event.inputs.upload_artifacts == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eCan-macOS-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
+          path: artifacts/
+          retention-days: 7
+          if-no-files-found: error
+
+  upload-to-s3:
+    needs: [validate-tag, build-windows, build-macos]
+    if: always() && needs.validate-tag.outputs.tag-valid == 'true'
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || 'NOT_SET' }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY || 'NOT_SET' }}
+      AWS_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
+      S3_BUCKET: ${{ secrets.S3_BUCKET || 'NOT_SET' }}
+      S3_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'NOT_SET' }}
+    steps:
+      - name: Check S3 configuration
+        run: |
+          echo "AWS_ACCESS_KEY_ID set: $([[ "$AWS_ACCESS_KEY_ID" != 'NOT_SET' ]] && echo yes || echo no)"
+          echo "S3_BUCKET: ${S3_BUCKET}"
+          echo "AWS_REGION: ${AWS_REGION}"
+      - name: Compute S3_BASE_URL
+        if: env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET' && env.AWS_REGION != 'NOT_SET'
+        run: |
+          echo "S3_BASE_URL=https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}" >> $GITHUB_ENV
+      - name: Download Windows artifacts
+        if: always() && needs.build-windows.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: eCan-Windows-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          path: windows-artifacts
+        continue-on-error: true
+      - name: Download macOS amd64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: eCan-macOS-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          path: macos-amd64-artifacts
+        continue-on-error: true
+      - name: Download macOS aarch64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: eCan-macOS-aarch64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          path: macos-aarch64-artifacts
+        continue-on-error: true
+      - name: Merge macOS artifacts
+        run: |
+          mkdir -p macos-artifacts
+          for d in macos-amd64-artifacts macos-aarch64-artifacts; do
+            if [ -d "$d" ]; then cp "$d"/* macos-artifacts/ 2>/dev/null || true; fi
+          done
+      - name: Upload to S3 (simulated installers)
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET'
+        run: |
+          set -e
+          if [ -d windows-artifacts ]; then
+            aws s3 sync windows-artifacts/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/windows/" --acl public-read
+          fi
+          if [ -d macos-artifacts ]; then
+            aws s3 sync macos-artifacts/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/macos/" --acl public-read
+          fi
+      - name: Generate simulated appcast files
+        if: env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET' && env.AWS_REGION != 'NOT_SET'
+        run: |
+          set -e
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          mkdir -p dist/appcast
+
+          WINDOWS_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/windows/eCan-${VERSION}-windows-amd64-Setup.exe"
+          MACOS_AMD64_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/macos/eCan-${VERSION}-macos-amd64.pkg"
+          MACOS_AARCH64_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/macos/eCan-${VERSION}-macos-aarch64.pkg"
+
+          cat > dist/appcast/appcast-windows.xml <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>eCan Windows (simulated)</title>
+              <item>
+                <title>Version ${VERSION}</title>
+                <enclosure url="${WINDOWS_URL}" sparkle:version="${VERSION}" sparkle:os="windows" length="0" sparkle:edSignature="SIMULATED"/>
+              </item>
+            </channel>
+          </rss>
+          EOF
+
+          cat > dist/appcast/appcast-macos.xml <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>eCan macOS (simulated)</title>
+              <item>
+                <title>Version ${VERSION} (amd64)</title>
+                <enclosure url="${MACOS_AMD64_URL}" sparkle:version="${VERSION}" sparkle:os="macos" sparkle:arch="amd64" length="0" sparkle:edSignature="SIMULATED"/>
+              </item>
+              <item>
+                <title>Version ${VERSION} (aarch64)</title>
+                <enclosure url="${MACOS_AARCH64_URL}" sparkle:version="${VERSION}" sparkle:os="macos" sparkle:arch="aarch64" length="0" sparkle:edSignature="SIMULATED"/>
+              </item>
+            </channel>
+          </rss>
+          EOF
+      - name: Upload simulated appcasts to S3
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET'
+        run: |
+          if [ -d dist/appcast ]; then
+            aws s3 sync dist/appcast/ "s3://${S3_BUCKET}/appcast/" --acl public-read --content-type "application/xml" --exclude "*" --include "*.xml"
+          else
+            echo "No appcast directory; skipping upload"
+          fi
+      - name: Summary
+        run: |
+          echo "Simulation version: ${{ needs.validate-tag.outputs.version }}"
+          echo "Windows job: ${{ needs.build-windows.result }}"
+          echo "macOS job: ${{ needs.build-macos.result }}"
+          echo "S3_BASE_URL=${S3_BASE_URL:-<not set>}"
+          echo "Simulated appcast URLs (if S3 configured):"
+          echo "  Windows: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-windows.xml"
+          echo "  macOS:   https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos.xml"
