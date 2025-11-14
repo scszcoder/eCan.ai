@@ -31,7 +31,9 @@ export const PendEventNodeRegistry: FlowNodeRegistry = {
         title: `PendEvent_${++idx}`,
         inputsValues: {
           eventType: { type: 'constant', content: 'human_chat' },
+          // Backward compat: keep pendingSources but prefer pendingEvents for UI
           pendingSources: { type: 'constant', content: [] },
+          pendingEvents: { type: 'constant', content: [] },
           timeoutSec: { type: 'constant', content: 0 },
           resumePolicy: { type: 'constant', content: 'first' },
         },
@@ -41,6 +43,7 @@ export const PendEventNodeRegistry: FlowNodeRegistry = {
           properties: {
             eventType: { type: 'string' },
             pendingSources: { type: 'array' },
+            pendingEvents: { type: 'array' },
             timeoutSec: { type: 'number' },
             resumePolicy: { type: 'string' },
           },

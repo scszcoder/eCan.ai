@@ -2,7 +2,7 @@
  * Pend Event Node form
  */
 import { Field, FormMeta, FormRenderProps, FlowNodeJSON } from '@flowgram.ai/free-layout-editor';
-import { Divider, Select, InputNumber, Radio } from '@douyinfe/semi-ui';
+import { Divider, Select, InputNumber, Radio, Button } from '@douyinfe/semi-ui';
 import { FormHeader, FormContent, FormItem } from '../../form-components';
 import { defaultFormMeta } from '../default-form-meta';
 
@@ -24,6 +24,46 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                 optionList={EVENT_TYPES.map((t) => ({ label: t, value: t }))}
               />
             )}
+          </Field>
+        </FormItem>
+        <Divider />
+        <FormItem name="Pending Events" type="array" vertical>
+          <Field<any> name="inputsValues.pendingEvents">
+            {({ field }) => {
+              const arr: string[] = Array.isArray(field.value?.content) ? (field.value.content as string[]) : [];
+              const setArray = (next: string[]) => field.onChange({ type: 'constant', content: next });
+              const addOne = () => setArray([...(arr || []), 'human_chat']);
+              const removeAt = (idx: number) => {
+                const next = [...arr];
+                next.splice(idx, 1);
+                setArray(next);
+              };
+              const updateAt = (idx: number, val: string) => {
+                const next = [...arr];
+                next[idx] = val;
+                setArray(next);
+              };
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {(arr && arr.length > 0 ? arr : []).map((v, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <Select
+                        value={v}
+                        onChange={(val) => updateAt(i, String(val))}
+                        optionList={EVENT_TYPES.map((t) => ({ label: t, value: t }))}
+                        style={{ flex: 1 }}
+                      />
+                      <Button type="danger" theme="borderless" onClick={() => removeAt(i)}>
+                        Delete
+                      </Button>
+                    </div>
+                  ))}
+                  <div>
+                    <Button onClick={addOne}>Add</Button>
+                  </div>
+                </div>
+              );
+            }}
           </Field>
         </FormItem>
         <Divider />
