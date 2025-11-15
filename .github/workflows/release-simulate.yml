@@ -201,8 +201,11 @@ jobs:
       AWS_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
       S3_BUCKET: ${{ secrets.S3_BUCKET || 'NOT_SET' }}
       S3_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'NOT_SET' }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
       WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX || 'NOT_SET' }}
       WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD || 'NOT_SET' }}
+      # For appcast generation conditions
+      # Note: IDE may warn about context access, but this is the correct pattern for conditional steps
       ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY || 'NOT_SET' }}
     steps:
       - name: Checkout code
@@ -231,13 +234,59 @@ jobs:
       - name: Compute S3_BASE_URL for appcast generation
         run: |
           echo "=== Computing S3_BASE_URL ==="
-          if [ "${{ env.S3_BUCKET }}" != "NOT_SET" ] && [ "${{ env.S3_BASE_PATH }}" != "NOT_SET" ] && [ "${{ env.AWS_REGION }}" != "NOT_SET" ]; then
+          echo "Debug: S3_BUCKET=$S3_BUCKET"
+          echo "Debug: S3_BASE_PATH=$S3_BASE_PATH"
+          echo "Debug: AWS_REGION=$AWS_REGION"
+          
+          if [ "$S3_BUCKET" != "NOT_SET" ] && [ "$S3_BASE_PATH" != "NOT_SET" ] && [ "$AWS_REGION" != "NOT_SET" ]; then
             BASE_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}"
             echo "S3_BASE_URL=$BASE_URL" >> $GITHUB_ENV
             echo "Computed S3_BASE_URL=$BASE_URL"
           else
             echo "S3_BASE_URL=" >> $GITHUB_ENV
             echo "S3 configuration incomplete, S3_BASE_URL not set"
+            echo "  S3_BUCKET: $S3_BUCKET"
+            echo "  S3_BASE_PATH: $S3_BASE_PATH"
+            echo "  AWS_REGION: $AWS_REGION"
+          fi
+
+      - name: Verify AWS Identity
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET'
+        run: |
+          echo "=== Verifying AWS Identity ==="
+          aws sts get-caller-identity
+          echo "AWS credentials are valid"
+
+      - name: Test S3 Access
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET'
+        run: |
+          echo "=== Testing S3 Access ==="
+          echo "Debug: S3_BUCKET=$S3_BUCKET"
+          echo "Debug: S3_BASE_PATH=$S3_BASE_PATH"
+          echo "Debug: AWS_REGION=$AWS_REGION"
+          echo "Debug: AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION"
+          
+          # Test the actual path used for uploads (not bucket root)
+          # This matches the path used in actual upload steps
+          TEST_PATH="s3://${S3_BUCKET}/${S3_BASE_PATH}/"
+          echo "Testing S3 path (same as upload): $TEST_PATH"
+          
+          if aws s3 ls "$TEST_PATH" 2>&1 | tee /tmp/s3_test.log; then
+            echo "✅ S3 path access: OK"
+          else
+            echo "❌ S3 path access: FAILED"
+            echo ""
+            echo "Error output:"
+            cat /tmp/s3_test.log
+            echo ""
+            echo "Note: Testing the actual upload path, not bucket root"
+            echo "  Full path: $TEST_PATH"
+            echo "  S3_BUCKET: ${S3_BUCKET}"
+            echo "  S3_BASE_PATH: ${S3_BASE_PATH}"
+            echo "  AWS_REGION: ${AWS_REGION}"
+            echo ""
+            echo "If this fails but uploads work, check IAM permissions for the specific path"
+            exit 1
           fi
 
       - name: Download Windows artifacts
