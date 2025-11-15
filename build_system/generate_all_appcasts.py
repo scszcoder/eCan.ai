@@ -43,7 +43,7 @@ def find_artifacts(platform: str, arch: str = None):
     return artifacts
 
 
-def generate_appcast_for_platform(version: str, platform: str, arch: str = None):
+def generate_appcast_for_platform(version: str, platform: str, arch: str = None, channel: str = 'stable'):
     """Generate appcast for a specific platform and architecture."""
     s3_base_url = os.environ.get('S3_BASE_URL', '')
     
@@ -57,12 +57,13 @@ def generate_appcast_for_platform(version: str, platform: str, arch: str = None)
         print(f"[INFO] No artifacts found for {platform}/{arch or 'all'}")
         return False
     
-    # Build asset list
+    # Build asset list with new path structure: {base_url}/v{version}/{platform}/{filename}
+    # Note: S3_BASE_PATH already contains 'releases', so we don't add it again
     assets = []
     for artifact in artifacts:
         name = artifact['name']
         filepath = artifact['filepath']
-        url = f"{s3_base_url}/{platform}/{name}"
+        url = f"{s3_base_url}/v{version}/{platform}/{name}"
         size = os.path.getsize(filepath)
         
         assets.append({
@@ -79,14 +80,14 @@ def generate_appcast_for_platform(version: str, platform: str, arch: str = None)
         'body': os.environ.get('RELEASE_BODY', ''),
     }
     
-    # Determine output path
-    if arch:
-        output_path = f'dist/appcast/appcast-{platform}-{arch}.xml'
-    else:
-        output_path = f'dist/appcast/appcast-{platform}.xml'
+    # Determine output path: dist/channels/{channel}/appcast-{platform}-{arch}.xml
+    channel_dir = f'dist/channels/{channel}'
+    os.makedirs(channel_dir, exist_ok=True)
     
-    # Create output directory
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    if arch:
+        output_path = f'{channel_dir}/appcast-{platform}-{arch}.xml'
+    else:
+        output_path = f'{channel_dir}/appcast-{platform}.xml'
     
     # Generate appcast
     print(f"[INFO] Generating appcast for {platform}/{arch or 'all'} -> {output_path}")
@@ -107,7 +108,8 @@ def main():
         print("[WARN] ED25519_PRIVATE_KEY not set, skipping appcast generation")
         sys.exit(0)
     
-    print(f"[INFO] Generating appcasts for version {version}")
+    channel = os.environ.get('CHANNEL', 'stable')
+    print(f"[INFO] Generating appcasts for version {version}, channel: {channel}")
     
     # Generate appcasts for all platforms and architectures
     configs = [
@@ -120,7 +122,7 @@ def main():
     
     for platform, arch in configs:
         try:
-            generate_appcast_for_platform(version, platform, arch)
+            generate_appcast_for_platform(version, platform, arch, channel)
         except Exception as e:
             print(f"[ERROR] Failed to generate appcast for {platform}/{arch or 'all'}: {e}")
             sys.exit(1)

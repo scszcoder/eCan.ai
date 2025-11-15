@@ -1230,7 +1230,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
     tag = (config_metadata or {}).get("tag") or node_name
 
     main_event = config_metadata["inputsValues"]["eventType"]["content"]
-    additional_events = config_metadata["inputsValues"]["pendingEvents"]["content"]
+    additional_events = config_metadata["inputsValues"].get("pendingSources", {}).get("content", [])
 
 
     def _pend(state: dict, *, runtime=None, store=None, **kwargs):
