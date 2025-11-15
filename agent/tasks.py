@@ -1957,6 +1957,7 @@ class TaskRunner(Generic[Context]):
             ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
             logger.error(f"{ex_stat}")
 
+
     def launch_unified_run(self, task2run=None, trigger_type="queue"):
         """
         Unified task execution loop supporting all trigger types.
