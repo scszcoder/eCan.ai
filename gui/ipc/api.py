@@ -563,7 +563,7 @@ class IPCAPI:
         """
         send skill editor run log to the frontend
         Uses standard request format (method: 'skill_editor_log')
-        Frontend decides how to display based on onboarding_type
+        Frontend decides how to display based on level
 
         Interface Definition (Standard IPC Request):
         {
@@ -599,7 +599,7 @@ class IPCAPI:
 
             # Send via standard IPC channel (no response expected for this fire-and-forget request)
             self._ipc_wc_service.python_to_web.emit(json.dumps(request))
-            logger.info(f"[IPCAPI] Sent skill editor log request: {onboarding_type}")
+            logger.info(f"[IPCAPI] Sent skill editor log request: {level}")
 
         except Exception as e:
             logger.error(f"[IPCAPI] Error sending skill editor log request: {e}")

@@ -336,10 +336,11 @@ def _convert_db_skill_to_object(db_skill):
                 skill_obj.diagram = diagram
                 logger.debug(f"[build_agent_skills] Rebuilding workflow diagram: {diagram}")
 
-                # Convert flowgram diagram to LangGraph workflow with breakpoint support
+                # Convert flowgram diagram to LangGraph workflow with breakpoint support (v2 preprocessing)
                 from agent.ec_skills.dev_defs import BreakpointManager
+                from agent.ec_skills.flowgram2langgraph_v2 import flowgram2langgraph_v2
                 bp_mgr = BreakpointManager()
-                workflow, bp_list = flowgram2langgraph(diagram, bp_mgr=bp_mgr)
+                workflow, bp_list = flowgram2langgraph_v2(diagram, bundle_json=None, enable_subgraph=False, bp_mgr=bp_mgr)
                 try:
                     # Populate manager after construction; node wrappers hold the same reference
                     if isinstance(bp_list, (list, tuple)):

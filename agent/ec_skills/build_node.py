@@ -1229,13 +1229,33 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
     prompt = (config_metadata or {}).get("prompt") or "Action required to continue."
     tag = (config_metadata or {}).get("tag") or node_name
 
+    main_event = config_metadata["inputsValues"]["eventType"]["content"]
+    additional_events = config_metadata["inputsValues"]["pendingEvents"]["content"]
+
+    logger.debug("[search_digikey_chatter_skill] pend_for_human_fill_FOM_node run time:", runtime)
+
+
     def _pend(state: dict, *, runtime=None, store=None, **kwargs):
+
+        current_node_name = runtime.context["this_node"].get("name")
+
+        logger.debug("[search_digikey_chatter_skill] pend_for_human_fill_FOM_node:", current_node_name, state)
+        if state.get("metadata"):
+            qa_form = state.get("metadata").get("qa_form", None)
+            notification = state.get("metadata").get("notification", None)
+        else:
+            qa_form = None
+            notification = None
+
         info = {
             "i_tag": tag,
             "paused_at": node_name,
             "prompt_to_human": prompt,
+            "qa_form_to_human": qa_form,
+            "notification_to_human": notification,
         }
         resume_payload = interrupt(info)
+
         # If resumer supplied a state patch (e.g., via Command(resume={... "_state_patch": {...}})), merge it
         try:
             if isinstance(resume_payload, dict) and "_state_patch" in resume_payload:

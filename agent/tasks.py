@@ -36,7 +36,8 @@ from utils.logger_helper import get_traceback
 from langgraph.errors import NodeInterrupt
 from agent.tasks_resume import build_general_resume_payload, build_node_transfer_patch, normalize_event, _safe_get
 from enum import Enum
-
+from gui.ipc.api import IPCAPI
+ipc = IPCAPI.get_instance()
 # self.REPEAT_TYPES = ["none", "by seconds", "by minutes", "by hours", "by days", "by weeks", "by months", "by years"]
 # self.WEEK_DAY_TYPES = ["M", "Tu", "W", "Th", "F", "Sa", "Su"]
 # self.MONTH_TYPES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -2291,106 +2292,7 @@ class TaskRunner(Generic[Context]):
         logger.warning("[DEPRECATED] launch_reacted_run is deprecated. Use launch_unified_run(trigger_type='a2a_queue') instead.")
         self.launch_unified_run(task2run=task2run, trigger_type="a2a_queue")
         return  # Exit early after calling unified function
-        
-        # OLD CODE BELOW (kept for reference, not executed)
-        chatNotDone = True
-        justStarted = True
-        while False and not self._stop_event.is_set():
-            try:
-                logger.trace("checking a2a queue....", self.agent.card.name)
 
-                if task2run:
-                    try:
-                        if not task2run.queue.empty():
-                            msg = task2run.queue.get_nowait()
-                            logger.trace("A2A message...."+ str(msg))
-                            if justStarted:
-                                # a message could be handled by different task, so first find
-                                # a task that that's suitable to handle this message,
-
-                                logger.debug("task2run skill name" + task2run.skill.name)
-                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, task2run.id, None)
-
-                                logger.trace("task2run init state" + str(task2run.metadata["state"]))
-                                logger.trace("ready to run the right task" + task2run.name + str(msg))
-                                # response = await task2run.astream_run()
-                                response = task2run.stream_run()
-
-                                logger.debug("reacted task run response:", response)
-                                step = response.get('step') or {}
-                                if isinstance(step, dict) and '__interrupt__' in step:
-                                    logger.trace("sending interrupt prompt1")
-                                    logger.trace("sending interrupt prompt2")
-                                    interrupt_obj = step["__interrupt__"][0]  # [0] because it's a tuple with one item
-                                    prompt = interrupt_obj.value["prompt_to_human"]
-                                    # now return this prompt to GUI to display
-                                    chatId = msg.params.metadata['chatId']
-                                    self.sendChatMessageToGUI(self.agent, chatId, prompt)
-                                    justStarted = False
-                                else:
-                                    justStarted = True
-                            else:
-                                logger.debug("task2run skill name" + task2run.skill.name)
-                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, task2run.id, task2run.metadata["state"])
-
-                                logger.trace("task2run init state" + str(task2run.metadata["state"]))
-                                logger.trace("ready to run the right task" + task2run.name + str(msg))
-                                # response = await task2run.astream_run()
-                                response = task2run.stream_run()
-                                logger.debug("NI, resume tick", response)
-                                # Resume with the user's reply using Command(resume=...)
-                                resume_payload, cp = self._build_resume_payload(task2run, msg)
-                                if cp:
-                                    response = task2run.stream_run(Command(resume=resume_payload), checkpoint=cp, stream_mode="updates")
-                                else:
-                                    response = task2run.stream_run(Command(resume=resume_payload), stream_mode="updates")
-
-                                logger.debug("NI reacted task resume response:", response)
-
-                                step = response.get('step') or {}
-                                if isinstance(step, dict) and '__interrupt__' in step:
-                                    logger.trace("sending interrupt prompt2")
-                                    interrupt_obj = step["__interrupt__"][0]  # [0] because it's a tuple with one item
-                                    prompt = interrupt_obj.value["prompt_to_human"]
-                                    # now return this prompt to GUI to display
-                                    chatId = msg.params.metadata['chatId']
-                                    task_id = msg.params.metadata['msgId']
-                                    logger.debug("chatId in the message", chatId)
-
-                                    # hilData = sample_search_result0
-                                    # hilData = sample_parameters_0
-                                    # hilData = sample_metrics_0
-                                    # self.sendChatNotificationToGUI(self.agent, chatId, hilData)
-                                    # self.sendChatFormToGUI(self.agent, chatId, hilData)
-                                    # self.sendChatMessageToGUI(self.agent, chatId, hilData)
-                                    # self.agent.mainwin.top_gui.push_message_to_chat(chatId, hilData)
-                                    self.sendChatMessageToGUI(self.agent, chatId, prompt)
-
-                                    if interrupt_obj.value.get("qa_form_to_agent", None):
-                                        self.sendChatFormToGUI(self.agent, chatId, interrupt_obj.value.get["qa_form_to_human"])
-                                    elif interrupt_obj.value.get("notification_to_agent", None):
-                                        self.sendChatNotificationToGUI(self.agent, chatId, interrupt_obj.value.get["notification_to_human"])
-
-
-                                    justStarted = False
-                                else:
-                                    justStarted = True
-
-                            task_id = msg.params.id
-                            self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
-                            task2run.queue.task_done()
-
-                        # process msg here and the msg could be start a task run.
-                    except asyncio.QueueEmpty:
-                        logger.info("Queue unexpectedly empty when trying to get message.")
-                        pass
-
-            except Exception as e:
-                ex_stat = "ErrorLaunchReactedRun:" + traceback.format_exc() + " " + str(e)
-                logger.error(f"{ex_stat}")
-
-            # await asyncio.sleep(1)  # the loop goes on.....
-            time.sleep(1)
 
 
     # DEPRECATED: Use launch_unified_run(trigger_type="chat_queue") instead
@@ -2400,427 +2302,16 @@ class TaskRunner(Generic[Context]):
         self.launch_unified_run(task2run=task2run, trigger_type="chat_queue")
         return  # Exit early after calling unified function
         
-        # OLD CODE BELOW (kept for reference, not executed)
-        cached_human_responses = ["hi!", "rag prompt", "1 rag, 2 none, 3 no, 4 no", "red", "q"]
-        cached_response_index = 0
-        config = {"configurable": {"thread_id": str(uuid.uuid4())}}
-        justStarted = True
-        logger.debug("launch_interacted_run....", self.agent.card.name)
-        while False and not self._stop_event.is_set():
-            try:
-                logger.debug("checking chat queue...." + self.agent.card.name)
-                thread_config = {"configurable": {"thread_id": uuid.uuid4()}}
-                if task2run:
-                    if not task2run.queue.empty():
-                        try:
-                            msg = task2run.queue.get_nowait()
-                            logger.debug("chat queue message....", type(msg), msg)
-                            task2run = self.find_chatter_tasks()
-                            task2run_details = str(task2run.to_dict())
-                            logger.debug("matched chatter task.... %s", (task2run_details[:100] + '...') if len(task2run_details) > 100 else task2run_details)
 
-                            if justStarted:
-                                logger.debug("chatter task2run skill name", task2run.skill.name)
-                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, task2run.id, msg, None)
-                                logger.trace("interacted task2run init state", task2run.metadata["state"])
-                                logger.debug("ready to run the right task", task2run.name, type(msg), msg)
-                                response = task2run.stream_run()
-                                logger.debug("ineracted task run response:", response)
-                                logger.debug("sending interrupt prompt1")
-                                step = response.get('step') or {}
-                                if isinstance(step, dict) and '__interrupt__' in step:
-                                    logger.debug("sending interrupt prompt2")
-                                    interrupt_obj = step["__interrupt__"][0]
-
-                                    if "prompt_to_human" in interrupt_obj.value:
-                                        prompt = interrupt_obj.value["prompt_to_human"]
-                                        logger.debug("prompt to human:", prompt)
-                                        chatId = msg.params.metadata['chatId']
-                                        task_id = msg.params.metadata['msgId']
-                                        logger.debug("chatId in the message", chatId)
-                                        self.sendChatMessageToGUI(self.agent, chatId, prompt)
-                                        logger.debug("prompt sent to GUI<<<<<<<<<<<")
-                                    justStarted = False
-                                else:
-                                    justStarted = True
-                                if not isinstance(msg, dict):
-                                    task_id = msg.params.id
-                                else:
-                                    if "id" in msg['params']:
-                                        task_id = msg['params']['id']
-                                    elif "id" in msg:
-                                        task_id = msg['id']
-                                    else:
-                                        task_id = ""
-                                        logger.error("ERROR: lost track of task id....", msg)
-                                self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
-                            else:
-                                logger.debug(f"interacted {task2run.skill.name} no longer initial run", msg)
-                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, task2run.id, msg, task2run.metadata["state"])
-                                logger.debug("NI interacted task2run current state", task2run.metadata["state"])
-                                resume_payload, cp = self._build_resume_payload(task2run, msg)
-                                logger.debug("NI resume payload", resume_payload)
-
-                                if cp:
-                                    response = task2run.stream_run(Command(resume=resume_payload), checkpoint=cp, stream_mode="updates")
-                                else:
-                                    response = task2run.stream_run(Command(resume=resume_payload), stream_mode="updates")
-
-                                logger.debug("NI interacted  task resume response:", response)
-                                step = response.get('step') or {}
-                                if isinstance(step, dict) and '__interrupt__' in step:
-                                    logger.debug("NI sending interrupt prompt2")
-                                    interrupt_obj = step["__interrupt__"][0]
-
-                                    prompt = interrupt_obj.value["prompt_to_human"]
-                                    logger.debug("NI prompt to human:", prompt)
-                                    chatId = msg.params.metadata['chatId']
-                                    task_id = msg.params.metadata['msgId']
-                                    logger.debug("NI chatId in the message", chatId)
-                                    # hilData = sample_search_result0
-                                    # hilData = sample_parameters_0
-                                    self.sendChatMessageToGUI(self.agent, chatId, prompt)
-                                    if interrupt_obj.value.get("qa_form_to_human", None):
-                                        self.sendChatFormToGUI(self.agent, chatId, interrupt_obj.value.get["qa_form_to_human"])
-                                    elif interrupt_obj.value.get("notification_to_human", None):
-                                        self.sendChatNotificationToGUI(self.agent, chatId,  interrupt_obj.value.get["notification_to_human"])
-                                    logger.debug("NI prompt sent to GUI<<<<<<<<<<<")
-                                else:
-                                    justStarted = True
-
-                                print("msg is:", type(msg), msg)
-                                if not isinstance(msg, dict):
-                                    task_id = msg.params.id
-                                else:
-                                    if "id" in msg:
-                                        task_id = msg['id']
-                                    elif "id" in msg['params']:
-                                        task_id = msg['params']['id']
-                                    else:
-                                        logger.error("ERROR: lost track of task id....", msg)
-                                self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
-
-                            task2run.queue.task_done()
-                        except asyncio.QueueEmpty:
-                            logger.info("Queue unexpectedly empty when trying to get message.")
-                            pass
-
-                    else:
-                        logger.debug("no chat message")
-                        time.sleep(1)
-            except Exception as e:
-                ex_stat = "ErrorLaunchInteractedRun:" + traceback.format_exc() + " " + str(e)
-                logger.error(f"{ex_stat}")
-            time.sleep(1)
-
-    # def launch_dev_run(self, init_state, dev_task: ManagedTask = None):
-    #     """
-    #     Executes a controlled, interactive development run for a given task,
-    #     supporting multiple breakpoints and human/API interrupts.
-    #     """
-    #     web_gui = AppContext.get_web_gui()
-    #     ipc_api = web_gui.get_ipc_api()
-    #     if not dev_task:
-    #         logger.error("launch_dev_run called without a task.")
-    #         return
-    #
-    #     logger.info(f"Launching interactive dev run for task: {dev_task.name} with run_id: {dev_task.run_id}")
-    #
-    #     try:
-    #         context = {
-    #             "id": str(uuid.uuid4()),
-    #             "topic": "",
-    #             "summary": "",
-    #             "msg_thread_id": "",
-    #             "tot_context": {},
-    #             "app_context": {},
-    #             "this_node": {"name": ""},
-    #         }
-    #
-    #         # Create a unique thread_id for the checkpointer
-    #         thread_id = str(uuid.uuid4())
-    #         config = {
-    #             "configurable": {"thread_id": thread_id}
-    #         }
-    #
-    #         # Start the stream with the correct config, and initial state
-    #         controller = dev_task.skill.runnable.stream(init_state, context=context, config=config)
-    #         stream_iterator = iter(controller)
-    #
-    #         # Keep track of active checkpoints (tag -> checkpoint)
-    #         self.active_checkpoints = {}
-    #
-    #         run_status = "running"
-    #         current_node = "start"
-    #         event = None
-    #
-    #         while not dev_task.cancellation_event.is_set():
-    #             try:
-    #                 if run_status == "running":
-    #                     # Try to advance the graph
-    #                     try:
-    #                         event = next(stream_iterator, None)
-    #                     except GraphInterrupt as gi:
-    #                         # GraphInterrupt should have checkpoint information
-    #                         # Get the current state/checkpoint from LangGraph
-    #                         current_state = controller.get_state(config)
-    #
-    #                         # Create proper interrupt object with checkpoint
-    #                         interrupt_with_checkpoint = type('InterruptWithCheckpoint', (), {
-    #                             'value': gi.value,
-    #                             'id': getattr(gi, 'id', str(gi)),
-    #                             'checkpoint': current_state
-    #                         })()
-    #                         event = {"__interrupt__": [interrupt_with_checkpoint]}
-    #                     except Exception as e:
-    #                         logger.info(f"Non-interrupt exception: {e}")
-    #                         raise
-    #
-    #                     # Graph finished
-    #                     if event is None:
-    #                         logger.info(f"Dev run for {dev_task.name} has completed.")
-    #                         clean_state = self._get_serializable_state(dev_task, config)
-    #                         ipc_api.update_run_stat(
-    #                             agent_task_id=dev_task.run_id,
-    #                             current_node=None,
-    #                             status="completed",
-    #                             langgraph_state=clean_state,
-    #                             timestamp=int(time.time() * 1000)
-    #                         )
-    #                         break
-    #
-    #                     # Extract current node from event metadata
-    #                     previous_node = current_node
-    #                     node_extracted = False
-    #                     try:
-    #                         if isinstance(event, dict):
-    #                             # Log the event structure for debugging
-    #                             event_keys = list(event.keys())
-    #                             logger.info(f"[EventDebug] Event keys: {event_keys}, has_metadata: {'__metadata__' in event}")
-    #
-    #                             # LangGraph events can have metadata with node info
-    #                             metadata = event.get("__metadata__", {})
-    #                             if metadata:
-    #                                 node_name = metadata.get("langgraph_node") or metadata.get("node")
-    #                                 if node_name:
-    #                                     current_node = node_name
-    #                                     node_extracted = True
-    #                                     if current_node != previous_node:
-    #                                         logger.info(f"[NodeTransition] {previous_node} -> {current_node} (from metadata)")
-    #                             # Also check for node name in the event keys (some LangGraph versions)
-    #                             elif len(event) == 1 and not any(k.startswith("__") for k in event.keys()):
-    #                                 # Single key that's not a special key might be the node name
-    #                                 current_node = list(event.keys())[0]
-    #                                 node_extracted = True
-    #                                 if current_node != previous_node:
-    #                                     logger.info(f"[NodeTransition] {previous_node} -> {current_node} (from event key)")
-    #
-    #                             if not node_extracted:
-    #                                 logger.warning(f"[NodeExtraction] Failed to extract node from event. Keeping current_node='{current_node}'. Event keys: {event_keys}")
-    #                     except Exception as e:
-    #                         logger.debug(f"Could not extract current node from event: {e}")
-    #
-    #                     # Update GUI with current node during execution
-    #                     try:
-    #                         ipc_api.update_run_stat(
-    #                             agent_task_id=dev_task.run_id,
-    #                             current_node=current_node,
-    #                             status=run_status,
-    #                             langgraph_state=self._get_serializable_state(dev_task, config),
-    #                             timestamp=int(time.time() * 1000)
-    #                         )
-    #                     except Exception as e:
-    #                         logger.debug(f"Failed to update run stat during execution: {e}")
-    #
-    #                     # Handle interrupts
-    #                     if isinstance(event, dict) and "__interrupt__" in event:
-    #                         interrupt_obj = event["__interrupt__"][0]
-    #
-    #                         # Tag = business ID or fallback to node name
-    #                         tag = interrupt_obj.value.get("i_tag") or f"{thread_id}:interrupt_{getattr(interrupt_obj, 'id', 'unknown')}"
-    #
-    #                         # Get checkpoint - either from interrupt_obj or from controller state
-    #                         checkpoint = None
-    #                         try:
-    #                             # Try to get checkpoint from interrupt object (GraphInterrupt case)
-    #                             checkpoint = getattr(interrupt_obj, 'checkpoint', None)
-    #                         except Exception:
-    #                             pass
-    #
-    #                         # If no checkpoint on interrupt object, get current state from controller
-    #                         if checkpoint is None:
-    #                             try:
-    #                                 checkpoint = controller.get_state(config)
-    #                                 logger.debug(f"Retrieved checkpoint from controller for tag {tag}")
-    #                             except Exception as e:
-    #                                 logger.warning(f"Could not get checkpoint for tag {tag}: {e}")
-    #
-    #                         if checkpoint:
-    #                             self.active_checkpoints[tag] = checkpoint
-    #                         else:
-    #                             logger.warning(f"No checkpoint available for tag {tag}")
-    #
-    #                         current_node = interrupt_obj.value.get("paused_at", tag)
-    #                         run_status = "paused"
-    #
-    #                         logger.info(f"Execution paused at node/tag: {tag}")
-    #                         ipc_api.update_run_stat(
-    #                             agent_task_id=dev_task.run_id,
-    #                             current_node=current_node,
-    #                             status="paused",
-    #                             langgraph_state=self._get_serializable_state(dev_task, config),
-    #                             timestamp=int(time.time() * 1000)
-    #                         )
-    #                         continue  # wait for GUI
-    #
-    #                 # If paused, wait for GUI command
-    #                 if run_status == "paused":
-    #                     try:
-    #                         command = dev_task.queue.get(timeout=0.3)
-    #                         logger.debug(f"Dev run ({dev_task.run_id}) received queue command: {command}")
-    #                     except Empty:
-    #                         continue
-    #
-    #                     # Command handling
-    #                     if isinstance(command, dict):
-    #                         cmd_type = command.get("type")
-    #                         tag = command.get("tag")
-    #                         payload = command.get("payload", {})
-    #                     else:
-    #                         # Legacy string-only commands
-    #                         cmd_type = command
-    #                         tag = None
-    #                         payload = {}
-    #
-    #                     if cmd_type == "resume" or "chat" in cmd_type.lower() or "msg" in cmd_type.lower() or "event" in cmd_type.lower():
-    #                         if not tag:
-    #                             logger.warning("Resume requested but no tag specified.")
-    #                             continue
-    #                         checkpoint = self.active_checkpoints.pop(tag, None)
-    #                         if not checkpoint:
-    #                             logger.warning(f"No checkpoint found for tag {tag}")
-    #                             continue
-    #                         logger.info(f"Resuming execution from tag {tag}")
-    #                         # Build per-node transfer patch (optional)
-    #                         state_snapshot = {}
-    #                         try:
-    #                             state_snapshot = getattr(checkpoint, "values", {}) if checkpoint else {}
-    #                         except Exception:
-    #                             state_snapshot = {}
-    #                         try:
-    #                             node_rules = {}
-    #                             try:
-    #                                 node_rules = (dev_task.skill.mapping_rules or {}).get("node_transfers", {}) or {}
-    #                             except Exception:
-    #                                 node_rules = {}
-    #                             node_patch = build_node_transfer_patch(tag, state_snapshot, node_rules) or {}
-    #                             if node_patch:
-    #                                 payload = self._deep_merge(payload or {}, node_patch)
-    #                                 logger.info(f"Applied node transfer patch at {tag}: keys={list(node_patch.keys())}")
-    #                         except Exception as e:
-    #                             logger.debug(f"node transfer at resume failed: {e}")
-    #                         # Inject cloud_task_id into checkpoint values for node resume detection
-    #                         try:
-    #                             vals = getattr(checkpoint, "values", None)
-    #                             if isinstance(vals, dict):
-    #                                 attrs = vals.get("attributes")
-    #                                 if not isinstance(attrs, dict):
-    #                                     attrs = {}
-    #                                     vals["attributes"] = attrs
-    #                                 attrs["cloud_task_id"] = tag
-    #                         except Exception as e:
-    #                             logger.debug(f"launch_dev_run resume: could not inject cloud_task_id: {e}")
-    #                         # Use Command(resume=...) so interrupt() receives payload immediately
-    #                         controller = dev_task.skill.runnable.stream(Command(resume=payload), checkpoint=checkpoint, config=config,
-    #                                                                 context=context)
-    #                         stream_iterator = iter(controller)
-    #                         run_status = "running"
-    #
-    #                     elif cmd_type == "step":
-    #                         if not tag:
-    #                             logger.warning("Step requested but no tag specified.")
-    #                             continue
-    #                         checkpoint = self.active_checkpoints.pop(tag, None)
-    #                         if not checkpoint:
-    #                             logger.warning(f"No checkpoint found for tag {tag}")
-    #                             continue
-    #                         logger.info(f"Stepping execution from tag {tag}")
-    #                         # Build per-node transfer patch (optional)
-    #                         state_snapshot = {}
-    #                         try:
-    #                             state_snapshot = getattr(checkpoint, "values", {}) if checkpoint else {}
-    #                         except Exception:
-    #                             state_snapshot = {}
-    #                         try:
-    #                             node_rules = {}
-    #                             try:
-    #                                 node_rules = (dev_task.skill.mapping_rules or {}).get("node_transfers", {}) or {}
-    #                             except Exception:
-    #                                 node_rules = {}
-    #                             node_patch = build_node_transfer_patch(tag, state_snapshot, node_rules) or {}
-    #                             if node_patch:
-    #                                 payload = self._deep_merge(payload or {}, node_patch)
-    #                                 logger.info(f"Applied node transfer patch at {tag}: keys={list(node_patch.keys())}")
-    #                         except Exception as e:
-    #                             logger.debug(f"node transfer at step failed: {e}")
-    #                         # Inject cloud_task_id to ensure node detects resume
-    #                         try:
-    #                             vals = getattr(checkpoint, "values", None)
-    #                             if isinstance(vals, dict):
-    #                                 attrs = vals.get("attributes")
-    #                                 if not isinstance(attrs, dict):
-    #                                     attrs = {}
-    #                                     vals["attributes"] = attrs
-    #                                 attrs["cloud_task_id"] = tag
-    #                         except Exception as e:
-    #                             logger.debug(f"launch_dev_run step: could not inject cloud_task_id: {e}")
-    #                         controller = dev_task.skill.runnable.stream(Command(resume=payload), checkpoint=checkpoint, config=config,
-    #                                                                 context=context)
-    #                         stream_iterator = iter(controller)
-    #                         run_status = "running"
-    #
-    #                     elif cmd_type == "pause":
-    #                         logger.info("Pause command received — staying paused")
-    #                         run_status = "paused"
-    #
-    #                     elif cmd_type == "cancel":
-    #                         dev_task.cancel()
-    #                         logger.info("Dev run cancelled by user")
-    #                         break
-    #
-    #                 # Do not send a premature completion here. The proper completion
-    #                 # notifications are already sent when the graph finishes (event is None)
-    #                 # or in the StopIteration branch above. Keeping a mid-run completion
-    #                 # here causes the frontend to clear the running icon immediately.
-    #             except Exception as e:
-    #                 err_msg = get_traceback(e, "ErrorLaunchDevRun")
-    #                 logger.error(f"Exception during launch_dev_run for task {dev_task.name}: {err_msg}")
-    #                 ipc_api.update_run_stat(
-    #                     agent_task_id=dev_task.run_id,
-    #                     current_node=current_node,
-    #                     status="failed",
-    #                     langgraph_state={"error": str(e)},
-    #                     timestamp=int(time.time() * 1000)
-    #                 )
-    #                 raise
-    #
-    #         logger.info("Dev run ENDED.")
-    #
-    #     finally:
-    #         # Flush any remaining commands from the queue
-    #         logger.info(f"Flushing dev message queue for task {dev_task.run_id}.")
-    #         while not dev_task.queue.empty():
-    #             try:
-    #                 dev_task.queue.get_nowait()
-    #             except Empty:
-    #                 break
-    #         logger.info("Dev message queue flushed.")
 
     def launch_dev_run(self, init_state: dict, dev_task: "ManagedTask"):
         """Register and execute a dev run task so pause/resume/step/cancel work via EC_Agent.
         This method is invoked in a background thread from EC_Agent, so it's safe to run synchronously.
         """
         try:
+            log_msg = f"launch_dev_run..."
+            logger.info(log_msg)
+            ipc.send_skill_editor_log("log", log_msg)
             self._dev_task = dev_task
             # Merge provided initial state
             if isinstance(init_state, dict):
@@ -2843,17 +2334,24 @@ class TaskRunner(Generic[Context]):
             # Execute the dev run synchronously using the sync stream API
             try:
                 result = dev_task.stream_run(init_state)
-                logger.info("Dev run finished with result:", result)
+                log_msg = f"Dev run finished with result: {result}"
+                logger.info(log_msg)
+                ipc.send_skill_editor_log("log", log_msg)
+
                 return {"success": True, "result": result}
             except Exception as run_exc:
                 ex_stat = "ErrorDevRunExecute:" + traceback.format_exc() + " " + str(run_exc)
                 logger.error(ex_stat)
+                ipc.send_skill_editor_log("error", ex_stat)
                 return {"success": False, "error": ex_stat}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
     def resume_dev_run(self):
         try:
+            log_msg = f"resume_dev_run..."
+            logger.info(log_msg)
+            ipc.send_skill_editor_log("log", log_msg)
             if self._dev_task is None:
                 return {"success": False, "error": "No dev run task"}
             # Fetch last checkpoint recorded at interrupt
@@ -2906,14 +2404,23 @@ class TaskRunner(Generic[Context]):
             if tid:
                 saved_cfg["configurable"]["thread_id"] = tid
 
-            logger.info(f"[resume_dev_run] ctx={ctx}, resume_payload={resume_payload}, thread_id={saved_cfg.get('configurable', {}).get('thread_id')}")
+            log_msg = f"[resume_dev_run] ctx={ctx}, resume_payload={resume_payload}, thread_id={saved_cfg.get('configurable', {}).get('thread_id')}"
+            logger.info(log_msg)
+            ipc.send_skill_editor_log("log", log_msg)
+
             result = self._dev_task.stream_run(Command(resume=resume_payload), checkpoint=checkpoint, context=ctx, config=saved_cfg)
             return {"success": True, "result": result}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            err_msg = get_traceback(e, "ErrorResumeDevRun")
+            logger.error(err_msg)
+            ipc.send_skill_editor_log("error", err_msg)
+            return {"success": False, "error": err_msg}
 
     def pause_dev_run(self):
         try:
+            log_msg = f"pause_dev_run..."
+            logger.info(log_msg)
+            ipc.send_skill_editor_log("log", log_msg)
             if self._dev_task is None:
                 return {"success": False, "error": "No dev run task"}
             try:
@@ -2927,7 +2434,10 @@ class TaskRunner(Generic[Context]):
                     pass
             return {"success": True}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            err_msg = get_traceback(e, "ErrorPauseDevRun")
+            logger.error(err_msg)
+            ipc.send_skill_editor_log("error", err_msg)
+            return {"success": False, "error": err_msg}
 
     def step_dev_run(self):
         """Single-step: resume from last checkpoint and skip the paused node once."""
@@ -2945,6 +2455,9 @@ class TaskRunner(Generic[Context]):
 
             # Build resume payload carrying the state flag for a single-step past breakpoint
             resume_payload = {"_resuming_from": tag} if tag else {}
+            log_msg = f"resume tag: {tag}"
+            logger.info(log_msg)
+            ipc.send_skill_editor_log("log", log_msg)
             # Also set on checkpoint values for robustness
             try:
                 vals = getattr(checkpoint, "values", None)
@@ -2978,18 +2491,31 @@ class TaskRunner(Generic[Context]):
             saved_cfg.setdefault("configurable", {})
             if tid:
                 saved_cfg["configurable"]["thread_id"] = tid
-            
-            logger.info(f"[step_dev_run] ctx={ctx}, resume_payload={resume_payload}, thread_id={saved_cfg.get('configurable', {}).get('thread_id')}")
+
+            log_msg = f"[step_dev_run] ctx={ctx}, resume_payload={resume_payload}, thread_id={saved_cfg.get('configurable', {}).get('thread_id')}"
+            logger.info(log_msg)
+            ipc.send_skill_editor_log("log", log_msg)
+
             result = self._dev_task.stream_run(Command(resume=resume_payload), checkpoint=checkpoint, context=ctx, config=saved_cfg)
             return {"success": True, "result": result}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            err_msg = get_traceback(e, "ErrorStepDevRun")
+            logger.error(err_msg)
+            ipc.send_skill_editor_log("error", err_msg)
+            return {"success": False, "error": err_msg}
 
     def cancel_dev_run(self):
         try:
             if self._dev_task is None:
+                log_msg = "task already done!"
+                logger.debug(log_msg)
+                ipc.send_skill_editor_log("log", log_msg)
                 return {"success": True}
             try:
+                log_msg = "task to be cancelled."
+                logger.debug(log_msg)
+                ipc.send_skill_editor_log("log", log_msg)
+
                 if hasattr(self._dev_task, "cancel"):
                     self._dev_task.cancel()
                 if hasattr(self._dev_task, "exit"):
@@ -2999,15 +2525,24 @@ class TaskRunner(Generic[Context]):
             self._dev_task = None
             return {"success": True}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            err_msg = get_traceback(e, "ErrorCancelDevRun")
+            logger.error(err_msg)
+            ipc.send_skill_editor_log("error", err_msg)
+            return {"success": False, "error": err_msg}
 
     def _get_serializable_state(self, task, config):
         """Helper: safely extract JSON-serializable state"""
         try:
             clean_state = task.skill.runnable.get_state(config=config)
+            log_msg = f"_get_serializable_state: {clean_state}"
+            logger.info(log_msg)
+            ipc.send_skill_editor_log("log", log_msg)
+
             if hasattr(clean_state, "values") and isinstance(clean_state.values, dict):
                 return clean_state.values
             return {}
         except Exception as e:
-            logger.warning(f"Could not get clean state: {e}")
+            err_msg = get_traceback(e, "ErrorGetSerializableState Could not get clean state:")
+            logger.warning(err_msg)
+            ipc.send_skill_editor_log("warning", err_msg)
             return {}
