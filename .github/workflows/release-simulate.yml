@@ -330,11 +330,11 @@ jobs:
             echo "Found Windows artifacts:"
             ls -lh windows-artifacts/
 
-            # Upload Windows installers to S3
-            echo "Uploading to: s3://${S3_BUCKET}/${S3_BASE_PATH}/windows/"
+            # Upload Windows installers to S3 with versioned path
+            echo "Uploading to: s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/windows/"
             # Note: --acl removed because bucket does not allow ACLs
             # Use bucket policy to make files public instead
-            aws s3 sync windows-artifacts/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/windows/" \
+            aws s3 sync windows-artifacts/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/windows/" \
               --exclude "*" \
               --include "*.exe" \
               --include "*.msi"
@@ -348,7 +348,7 @@ jobs:
                 filename=$(basename "$file")
                 size=$(du -sh "$file" | cut -f1)
                 echo "  - ${filename} (${size})"
-                echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/windows/${filename}"
+                echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/v${VERSION}/windows/${filename}"
                 UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
               fi
             done
@@ -394,11 +394,11 @@ jobs:
             echo "Merged macOS artifacts (amd64: $AMD64_COUNT, aarch64: $AARCH64_COUNT):"
             ls -lh macos-artifacts/
 
-            # Upload macOS installers to S3
-            echo "Uploading to: s3://${S3_BUCKET}/${S3_BASE_PATH}/macos/"
+            # Upload macOS installers to S3 with versioned path
+            echo "Uploading to: s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/macos/"
             # Note: --acl removed because bucket does not allow ACLs
             # Use bucket policy to make files public instead
-            aws s3 sync macos-artifacts/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/macos/" \
+            aws s3 sync macos-artifacts/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/macos/" \
               --exclude "*" \
               --include "*.pkg" \
               --include "*.zip"
@@ -412,7 +412,7 @@ jobs:
                 filename=$(basename "$file")
                 size=$(du -sh "$file" | cut -f1)
                 echo "  - ${filename} (${size})"
-                echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/macos/${filename}"
+                echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/v${VERSION}/macos/${filename}"
                 UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
               fi
             done
@@ -436,7 +436,7 @@ jobs:
             for file in windows-artifacts/*.exe windows-artifacts/*.msi; do
               if [ -f "$file" ]; then
                 filename=$(basename "$file")
-                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/windows/${filename}" >/dev/null 2>&1; then
+                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/windows/${filename}" >/dev/null 2>&1; then
                   echo "  ✅ ${filename}"
                   WIN_COUNT=$((WIN_COUNT + 1))
                 else
@@ -457,7 +457,7 @@ jobs:
             for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
               if [ -f "$file" ]; then
                 filename=$(basename "$file")
-                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/macos/${filename}" >/dev/null 2>&1; then
+                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/macos/${filename}" >/dev/null 2>&1; then
                   echo "  ✅ ${filename}"
                   MACOS_COUNT=$((MACOS_COUNT + 1))
                 else
@@ -488,9 +488,9 @@ jobs:
           VERSION="${{ needs.validate-tag.outputs.version }}"
           mkdir -p dist/appcast
 
-          WINDOWS_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/windows/eCan-${VERSION}-windows-amd64-Setup.exe"
-          MACOS_AMD64_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/macos/eCan-${VERSION}-macos-amd64.pkg"
-          MACOS_AARCH64_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/macos/eCan-${VERSION}-macos-aarch64.pkg"
+          WINDOWS_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/v${VERSION}/windows/eCan-${VERSION}-windows-amd64-Setup.exe"
+          MACOS_AMD64_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/v${VERSION}/macos/eCan-${VERSION}-macos-amd64.pkg"
+          MACOS_AARCH64_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/v${VERSION}/macos/eCan-${VERSION}-macos-aarch64.pkg"
 
           cat > dist/appcast/appcast-windows.xml <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
