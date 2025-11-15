@@ -329,8 +329,9 @@ jobs:
 
             # Upload Windows installers to S3
             echo "Uploading to: s3://${S3_BUCKET}/${S3_BASE_PATH}/windows/"
+            # Note: --acl removed because bucket does not allow ACLs
+            # Use bucket policy to make files public instead
             aws s3 sync windows-artifacts/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/windows/" \
-              --acl public-read \
               --exclude "*" \
               --include "*.exe" \
               --include "*.msi"
@@ -392,8 +393,9 @@ jobs:
 
             # Upload macOS installers to S3
             echo "Uploading to: s3://${S3_BUCKET}/${S3_BASE_PATH}/macos/"
+            # Note: --acl removed because bucket does not allow ACLs
+            # Use bucket policy to make files public instead
             aws s3 sync macos-artifacts/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/macos/" \
-              --acl public-read \
               --exclude "*" \
               --include "*.pkg" \
               --include "*.zip"
@@ -552,7 +554,9 @@ jobs:
         run: |
           echo "=== Uploading simulated appcasts to S3 ==="
           if [ -d dist/appcast ]; then
-            aws s3 sync dist/appcast/ "s3://${S3_BUCKET}/appcast/" --acl public-read --content-type "application/xml" --exclude "*" --include "*.xml"
+            # Note: --acl removed because bucket does not allow ACLs
+            # Use bucket policy to make files public instead
+            aws s3 sync dist/appcast/ "s3://${S3_BUCKET}/appcast/" --content-type "application/xml" --exclude "*" --include "*.xml"
             echo "✅ Simulated appcasts uploaded to S3"
           else
             echo "No appcast directory; skipping upload"
