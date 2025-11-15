@@ -1,0 +1,27 @@
+name: Clean build artifacts
+
+inputs:
+  platform:
+    description: "Target platform (windows or macos)"
+    required: true
+    default: "windows"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Clean build artifacts on Windows
+      if: inputs.platform == 'windows'
+      shell: pwsh
+      run: |
+        Write-Host "=== Cleaning build artifacts (Windows) ===" -ForegroundColor Cyan
+        Remove-Item -Path dist, build -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path *.spec -Force -ErrorAction SilentlyContinue
+        Write-Host "Cleaned dist/, build/, and spec files" -ForegroundColor Green
+
+    - name: Clean build artifacts on macOS
+      if: inputs.platform == 'macos'
+      shell: bash
+      run: |
+        echo "=== Cleaning build artifacts (macOS) ==="
+        rm -rf dist/ build/ *.spec || true
+        echo "Cleaned dist/, build/, and spec files"

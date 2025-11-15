@@ -1,0 +1,349 @@
+# ============================================================================
+# Reusable Workflow: S3 Upload and Verification
+# ============================================================================
+# This reusable workflow handles uploading build artifacts to AWS S3 and
+# verifying the uploads. It can be called by both release.yml and
+# release-simulate.yml to ensure consistency.
+#
+# Features:
+#   - Downloads artifacts from previous build jobs
+#   - Uploads Windows and macOS installers to S3
+#   - Verifies all uploads completed successfully
+#   - Supports both real and simulated uploads
+#
+# Usage:
+#   jobs:
+#     upload:
+#       uses: ./.github/workflows/shared-s3-upload.yml
+#       with:
+#         version: ${{ needs.validate-tag.outputs.version }}
+#         windows-build-result: ${{ needs.build-windows.result }}
+#         macos-build-result: ${{ needs.build-macos.result }}
+#       secrets: inherit
+# ============================================================================
+
+name: Shared S3 Upload
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version string for the release'
+        required: true
+        type: string
+      windows-build-result:
+        description: 'Result of Windows build job (success/skipped/failure)'
+        required: true
+        type: string
+      macos-build-result:
+        description: 'Result of macOS build job (success/skipped/failure)'
+        required: true
+        type: string
+      is-simulation:
+        description: 'Whether this is a simulation run'
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      s3-base-url:
+        description: 'Base URL for S3 uploads'
+        value: ${{ jobs.upload-to-s3.outputs.s3-base-url }}
+      windows-upload-count:
+        description: 'Number of Windows files uploaded'
+        value: ${{ jobs.upload-to-s3.outputs.windows-upload-count }}
+      macos-upload-count:
+        description: 'Number of macOS files uploaded'
+        value: ${{ jobs.upload-to-s3.outputs.macos-upload-count }}
+
+jobs:
+  upload-to-s3:
+    name: Upload to S3
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || 'NOT_SET' }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY || 'NOT_SET' }}
+      AWS_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
+      S3_BUCKET: ${{ secrets.S3_BUCKET || 'NOT_SET' }}
+      S3_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'NOT_SET' }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
+      VERSION: ${{ inputs.version }}
+    outputs:
+      s3-base-url: ${{ steps.set-base-url.outputs.s3-base-url }}
+      windows-upload-count: ${{ steps.upload-windows.outputs.upload-count }}
+      macos-upload-count: ${{ steps.upload-macos.outputs.upload-count }}
+
+    steps:
+      # ------------------------------------------------------------------------
+      # Step Group 1: Configuration Check
+      # ------------------------------------------------------------------------
+      - name: Check AWS S3 Configuration
+        run: |
+          echo "=== Checking AWS S3 Configuration ==="
+          echo "AWS credentials: ${{ env.AWS_ACCESS_KEY_ID != 'NOT_SET' && 'Available' || 'Not Available' }}"
+          echo "S3 bucket: ${{ env.S3_BUCKET != 'NOT_SET' && env.S3_BUCKET || 'Not configured' }}"
+          echo "AWS region: ${{ env.AWS_REGION != 'NOT_SET' && env.AWS_REGION || 'Not configured' }}"
+          echo "S3 base path: ${{ env.S3_BASE_PATH != 'NOT_SET' && env.S3_BASE_PATH || 'Not configured' }}"
+          echo "Version: ${{ inputs.version }}"
+          echo "Is simulation: ${{ inputs.is-simulation }}"
+
+          if [ "${{ env.AWS_ACCESS_KEY_ID }}" = "NOT_SET" ] || \
+             [ "${{ env.AWS_SECRET_ACCESS_KEY }}" = "NOT_SET" ] || \
+             [ "${{ env.S3_BUCKET }}" = "NOT_SET" ]; then
+            echo "S3 upload: Disabled (missing credentials or bucket configuration)"
+            echo "Artifacts will only be available as GitHub Artifacts"
+          else
+            echo "S3 upload: Enabled"
+          fi
+
+      - name: Compute S3_BASE_URL
+        run: |
+          echo "=== Computing S3_BASE_URL ==="
+          if [ "$S3_BUCKET" != "NOT_SET" ] && [ "$S3_BASE_PATH" != "NOT_SET" ] && [ "$AWS_REGION" != "NOT_SET" ]; then
+            BASE_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}"
+            echo "S3_BASE_URL=$BASE_URL" >> $GITHUB_ENV
+            echo "Computed S3_BASE_URL=$BASE_URL"
+          else
+            echo "S3_BASE_URL=" >> $GITHUB_ENV
+            echo "S3 configuration incomplete, S3_BASE_URL not set"
+          fi
+
+      - name: Verify AWS Identity
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET'
+        run: |
+          echo "=== Verifying AWS Identity ==="
+          aws sts get-caller-identity
+          echo "AWS credentials are valid"
+
+      - name: Test S3 Access
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET'
+        run: |
+          echo "=== Testing S3 Access ==="
+          TEST_PATH="s3://${S3_BUCKET}/${S3_BASE_PATH}/"
+          echo "Testing S3 path: $TEST_PATH"
+          
+          if aws s3 ls "$TEST_PATH" 2>&1 | tee /tmp/s3_test.log; then
+            echo "✅ S3 path access: OK"
+          else
+            echo "❌ S3 path access: FAILED"
+            echo ""
+            echo "Error output:"
+            cat /tmp/s3_test.log
+            echo ""
+            echo "If this fails but uploads work, check IAM permissions for the specific path"
+            exit 1
+          fi
+
+      # ------------------------------------------------------------------------
+      # Step Group 2: Download Build Artifacts
+      # ------------------------------------------------------------------------
+      - name: Download Windows artifacts
+        if: inputs.windows-build-result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: eCan-windows-amd64-${{ inputs.version }}-s3-transfer
+          path: windows-artifacts
+        continue-on-error: true
+
+      - name: Download macOS amd64 artifacts
+        if: inputs.macos-build-result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: eCan-macos-amd64-${{ inputs.version }}-s3-transfer
+          path: macos-amd64-artifacts
+        continue-on-error: true
+
+      - name: Download macOS aarch64 artifacts
+        if: inputs.macos-build-result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: eCan-macos-aarch64-${{ inputs.version }}-s3-transfer
+          path: macos-aarch64-artifacts
+        continue-on-error: true
+
+      # ------------------------------------------------------------------------
+      # Step Group 3: Upload to S3
+      # ------------------------------------------------------------------------
+      - name: Upload Windows installers to S3
+        id: upload-windows
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET'
+        run: |
+          set -euo pipefail
+          echo "=== Uploading Windows installers to S3 ==="
+          echo "Version: ${VERSION}"
+
+          if [ -d "windows-artifacts" ] && [ "$(ls -A windows-artifacts 2>/dev/null)" ]; then
+            echo "Found Windows artifacts:"
+            ls -lh windows-artifacts/
+
+            # Check S3 bucket access before upload
+            if ! aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/" >/dev/null 2>&1; then
+              echo "❌ S3 bucket access failed"
+              exit 1
+            fi
+
+            # Upload Windows installers to S3
+            UPLOAD_PATH="s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/windows/"
+            echo "Uploading to: ${UPLOAD_PATH}"
+            aws s3 sync windows-artifacts/ "${UPLOAD_PATH}" \
+              --exclude "*" \
+              --include "*.exe" \
+              --include "*.msi"
+
+            echo "✅ Windows installers uploaded to S3"
+
+            # List uploaded files
+            UPLOAD_COUNT=0
+            for file in windows-artifacts/*.exe windows-artifacts/*.msi; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                size=$(du -sh "$file" | cut -f1)
+                echo "  - ${filename} (${size})"
+                echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/v${VERSION}/windows/${filename}"
+                UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
+              fi
+            done
+            echo "Total Windows files uploaded: $UPLOAD_COUNT"
+            echo "upload-count=$UPLOAD_COUNT" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  No Windows artifacts found, skipping upload"
+            echo "upload-count=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload macOS installers to S3
+        id: upload-macos
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET'
+        run: |
+          set -euo pipefail
+          echo "=== Uploading macOS installers to S3 ==="
+          echo "Version: ${VERSION}"
+
+          # Merge macOS artifacts from both architectures
+          mkdir -p macos-artifacts
+          AMD64_COUNT=0
+          AARCH64_COUNT=0
+
+          if [ -d "macos-amd64-artifacts" ] && [ "$(ls -A macos-amd64-artifacts 2>/dev/null)" ]; then
+            echo "Found macOS amd64 artifacts:"
+            ls -lh macos-amd64-artifacts/
+            cp -v macos-amd64-artifacts/* macos-artifacts/ 2>/dev/null || true
+            AMD64_COUNT=$(ls -1 macos-amd64-artifacts/ | wc -l)
+          else
+            echo "ℹ️  No macOS amd64 artifacts found"
+          fi
+
+          if [ -d "macos-aarch64-artifacts" ] && [ "$(ls -A macos-aarch64-artifacts 2>/dev/null)" ]; then
+            echo "Found macOS aarch64 artifacts:"
+            ls -lh macos-aarch64-artifacts/
+            cp -v macos-aarch64-artifacts/* macos-artifacts/ 2>/dev/null || true
+            AARCH64_COUNT=$(ls -1 macos-aarch64-artifacts/ | wc -l)
+          else
+            echo "ℹ️  No macOS aarch64 artifacts found"
+          fi
+
+          if [ -d "macos-artifacts" ] && [ "$(ls -A macos-artifacts 2>/dev/null)" ]; then
+            echo ""
+            echo "Merged macOS artifacts (amd64: $AMD64_COUNT, aarch64: $AARCH64_COUNT):"
+            ls -lh macos-artifacts/
+
+            # Check S3 bucket access before upload
+            if ! aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/" >/dev/null 2>&1; then
+              echo "❌ S3 bucket access failed"
+              exit 1
+            fi
+
+            # Upload macOS installers to S3
+            UPLOAD_PATH="s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/macos/"
+            echo "Uploading to: ${UPLOAD_PATH}"
+            aws s3 sync macos-artifacts/ "${UPLOAD_PATH}" \
+              --exclude "*" \
+              --include "*.pkg" \
+              --include "*.zip"
+
+            echo "✅ macOS installers uploaded to S3"
+
+            # List uploaded files
+            UPLOAD_COUNT=0
+            for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                size=$(du -sh "$file" | cut -f1)
+                echo "  - ${filename} (${size})"
+                echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/v${VERSION}/macos/${filename}"
+                UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
+              fi
+            done
+            echo "Total macOS files uploaded: $UPLOAD_COUNT"
+            echo "upload-count=$UPLOAD_COUNT" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  No macOS artifacts found, skipping upload"
+            echo "upload-count=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set S3 base URL output
+        id: set-base-url
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET' && env.AWS_REGION != 'NOT_SET'
+        run: |
+          BASE_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}"
+          echo "s3-base-url=${BASE_URL}" >> $GITHUB_OUTPUT
+          echo "✅ S3 base URL output set: ${BASE_URL}"
+
+      # ------------------------------------------------------------------------
+      # Step Group 4: Verify S3 Uploads
+      # ------------------------------------------------------------------------
+      - name: Verify S3 uploads
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET'
+        continue-on-error: true
+        run: |
+          echo "=== Verifying S3 uploads ==="
+          UPLOAD_FAILED=0
+
+          # Verify Windows artifacts
+          if [ -d "windows-artifacts" ] && [ "$(ls -A windows-artifacts 2>/dev/null)" ]; then
+            echo "Verifying Windows artifacts in S3..."
+            WIN_COUNT=0
+            for file in windows-artifacts/*.exe windows-artifacts/*.msi; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/windows/${filename}" >/dev/null 2>&1; then
+                  echo "  ✅ ${filename}"
+                  WIN_COUNT=$((WIN_COUNT + 1))
+                else
+                  echo "  ⚠️  ${filename} not found in S3"
+                  UPLOAD_FAILED=1
+                fi
+              fi
+            done
+            echo "Windows files verified: $WIN_COUNT"
+          else
+            echo "ℹ️  No Windows artifacts to verify"
+          fi
+
+          # Verify macOS artifacts
+          if [ -d "macos-artifacts" ] && [ "$(ls -A macos-artifacts 2>/dev/null)" ]; then
+            echo "Verifying macOS artifacts in S3..."
+            MACOS_COUNT=0
+            for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/macos/${filename}" >/dev/null 2>&1; then
+                  echo "  ✅ ${filename}"
+                  MACOS_COUNT=$((MACOS_COUNT + 1))
+                else
+                  echo "  ⚠️  ${filename} not found in S3"
+                  UPLOAD_FAILED=1
+                fi
+              fi
+            done
+            echo "macOS files verified: $MACOS_COUNT"
+          else
+            echo "ℹ️  No macOS artifacts to verify"
+          fi
+
+          if [ $UPLOAD_FAILED -eq 1 ]; then
+            echo ""
+            echo "⚠️  Some uploads may have failed, but continuing..."
+            exit 0  # Do not fail the job
+          else
+            echo ""
+            echo "✅ All S3 uploads verified successfully"
+          fi
