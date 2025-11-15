@@ -1317,7 +1317,7 @@ exit 0
 
         try:
             before_bytes = self._get_directory_size(app_bundle_dir)
-            prune_dirs = {"__pycache__", "tests", "test", "testing"}
+            prune_dirs = {"__pycache__", "test", "testing"}  # Removed "tests" - needed at runtime
             prune_suffixes = {".pyc", ".pyo", ".pyd", ".log", ".map", ".pdb", ".tmp"}
 
             removed_items = 0
