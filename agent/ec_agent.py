@@ -424,7 +424,13 @@ class EC_Agent(Agent):
 								uri = attachment['url'])
 					msg_parts.append(FilePart(type="file", file=fc))
 
-			chat_msg = Message(role="user", parts=msg_parts, metadata={"mtype": "send_chat"})
+
+			if msg_text.lstrip().startswith("dev>"):
+				mtype = "dev_send_chat"
+			else:
+				mtype = "send_chat"
+
+			chat_msg = Message(role="user", parts=msg_parts, metadata={"mtype": mtype})
 
 			if "id" in message:
 				sess_id = message["id"]
