@@ -1289,7 +1289,25 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         logger.debug(log_msg)
         web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
-        # data = try_parse_json(resume_payload.get("human_text"))
+        # Normalize human_text and parse
+        raw_ht = resume_payload.get("human_text")
+        if isinstance(raw_ht, list):
+            raw_ht = raw_ht[0] if raw_ht else None
+        if isinstance(raw_ht, dict):
+            data = raw_ht
+        else:
+            data = try_parse_json(raw_ht)
+        state.setdefault("metadata", {})
+        if isinstance(data, dict):
+            if data.get("type", "") == "normal":
+                state["metadata"]["filled_parametric_filter"] = data
+                logger.debug(f"[{node_name}] saving filled parametric filter form......",
+                             state["metadata"]["filled_parametric_filter"])
+            elif data.get("type", "") == "score":
+                state["metadata"]["filled_fom_form"] = data
+                logger.debug(f"[{node_name}] saving filled fom form......",
+                             state["metadata"]["filled_fom_form"])
+
         return state
 
     return node_builder(_pend, node_name, skill_name, owner, bp_manager)
