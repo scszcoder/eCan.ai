@@ -1,0 +1,323 @@
+# ============================================================================
+# Reusable Workflow: Appcast Generation
+# ============================================================================
+# This reusable workflow handles generating OTA (Over-The-Air) update feeds
+# for Sparkle (macOS) and WinSparkle (Windows). It creates appcast XML files
+# with EdDSA signatures for secure update distribution.
+#
+# Features:
+#   - Generates metadata.json with version and release information
+#   - Creates platform-specific appcast XML files
+#   - Generates latest.json for version checking
+#   - Validates all generated XML files
+#   - Uploads appcasts to S3
+#
+# Usage:
+#   jobs:
+#     appcast:
+#       uses: ./.github/workflows/shared-appcast-generation.yml
+#       with:
+#         version: ${{ needs.validate-tag.outputs.version }}
+#         s3-base-url: ${{ needs.upload.outputs.s3-base-url }}
+#       secrets: inherit
+# ============================================================================
+
+name: Shared Appcast Generation
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version string for the release'
+        required: true
+        type: string
+      s3-base-url:
+        description: 'Base URL for S3 uploads'
+        required: true
+        type: string
+      channel:
+        description: 'Release channel (stable, beta, etc.)'
+        required: false
+        type: string
+        default: 'stable'
+      release-body:
+        description: 'Release notes body'
+        required: false
+        type: string
+        default: ''
+      is-simulation:
+        description: 'Whether this is a simulation run'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  generate-appcast:
+    name: Generate Appcast
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || 'NOT_SET' }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY || 'NOT_SET' }}
+      AWS_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
+      S3_BUCKET: ${{ secrets.S3_BUCKET || 'NOT_SET' }}
+      S3_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'NOT_SET' }}
+      ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY || 'NOT_SET' }}
+      VERSION: ${{ inputs.version }}
+      S3_BASE_URL: ${{ inputs.s3-base-url }}
+      CHANNEL: ${{ inputs.channel }}
+      RELEASE_BODY: ${{ inputs.release-body }}
+
+    steps:
+      # ------------------------------------------------------------------------
+      # Step Group 1: Repository and Environment Setup
+      # ------------------------------------------------------------------------
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests cryptography
+
+      # ------------------------------------------------------------------------
+      # Step Group 2: Generate Metadata
+      # ------------------------------------------------------------------------
+      - name: Generate metadata.json
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BASE_URL != ''
+        run: |
+          echo "=== Generating metadata.json ==="
+          python build_system/generate_metadata.py
+          echo "✅ metadata.json generated"
+
+      - name: Upload metadata.json to S3
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET'
+        run: |
+          # Upload metadata.json
+          aws s3 cp dist/metadata/metadata.json \
+            "s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/metadata.json"
+          echo "✅ metadata.json uploaded"
+          
+          # Upload release-notes.md if exists
+          if [ -f "dist/metadata/release-notes.md" ]; then
+            aws s3 cp dist/metadata/release-notes.md \
+              "s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/release-notes.md"
+            echo "✅ release-notes.md uploaded"
+          fi
+
+      # ------------------------------------------------------------------------
+      # Step Group 3: Generate Appcasts
+      # ------------------------------------------------------------------------
+      - name: Generate all appcasts (unified)
+        if: env.ED25519_PRIVATE_KEY != 'NOT_SET' && env.S3_BASE_URL != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "=== Generating all appcasts ==="
+          
+          if [ "${{ inputs.is-simulation }}" = "true" ]; then
+            echo "Running in simulation mode - generating simulated appcasts"
+            # For simulation, create simple appcast files
+            mkdir -p dist/channels/stable
+            
+            cat > dist/channels/stable/appcast-windows.xml <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>eCan Windows (simulated)</title>
+              <item>
+                <title>Version ${VERSION}</title>
+                <enclosure url="${S3_BASE_URL}/v${VERSION}/windows/eCan-${VERSION}-windows-amd64-Setup.exe" 
+                           sparkle:version="${VERSION}" 
+                           sparkle:os="windows" 
+                           length="0" 
+                           sparkle:edSignature="SIMULATED"/>
+              </item>
+            </channel>
+          </rss>
+          EOF
+            
+            cat > dist/channels/stable/appcast-macos.xml <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>eCan macOS (simulated)</title>
+              <item>
+                <title>Version ${VERSION} (amd64)</title>
+                <enclosure url="${S3_BASE_URL}/v${VERSION}/macos/eCan-${VERSION}-macos-amd64.pkg" 
+                           sparkle:version="${VERSION}" 
+                           sparkle:os="macos" 
+                           sparkle:arch="amd64" 
+                           length="0" 
+                           sparkle:edSignature="SIMULATED"/>
+              </item>
+              <item>
+                <title>Version ${VERSION} (aarch64)</title>
+                <enclosure url="${S3_BASE_URL}/v${VERSION}/macos/eCan-${VERSION}-macos-aarch64.pkg" 
+                           sparkle:version="${VERSION}" 
+                           sparkle:os="macos" 
+                           sparkle:arch="aarch64" 
+                           length="0" 
+                           sparkle:edSignature="SIMULATED"/>
+              </item>
+            </channel>
+          </rss>
+          EOF
+            echo "✅ Simulated appcasts generated"
+          else
+            # Real appcast generation
+            python build_system/generate_all_appcasts.py
+            echo "✅ All appcasts generated successfully"
+          fi
+
+      - name: Generate latest.json
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BASE_URL != ''
+        run: |
+          echo "=== Generating latest.json ==="
+          python build_system/generate_latest_json.py
+          echo "✅ latest.json generated"
+
+      # ------------------------------------------------------------------------
+      # Step Group 4: Validate Appcasts
+      # ------------------------------------------------------------------------
+      - name: Validate appcast XML files
+        if: env.ED25519_PRIVATE_KEY != 'NOT_SET' || inputs.is-simulation == true
+        run: |
+          echo "=== Validating appcast XML files ==="
+          VALIDATION_FAILED=0
+
+          for f in dist/channels/stable/*.xml; do
+            if [ -f "$f" ]; then
+              echo "Validating: $(basename $f)"
+              if python -c "import xml.etree.ElementTree as ET; ET.parse('$f')" 2>/dev/null; then
+                echo "  ✅ Valid XML"
+                # Check if file has enclosure elements
+                if grep -q '<enclosure' "$f"; then
+                  echo "  ✅ Contains enclosure elements"
+                else
+                  echo "  ⚠️  No enclosure elements found"
+                fi
+              else
+                echo "  ❌ Invalid XML format"
+                VALIDATION_FAILED=1
+              fi
+            fi
+          done
+
+          if [ $VALIDATION_FAILED -eq 1 ]; then
+            echo ""
+            echo "⚠️  Some appcast files have validation errors"
+            exit 1
+          fi
+
+      - name: Remove empty appcast files (if any)
+        if: env.ED25519_PRIVATE_KEY != 'NOT_SET' || inputs.is-simulation == true
+        run: |
+          shopt -s nullglob || true
+          for f in dist/channels/stable/*.xml; do
+            if [ ! -s "$f" ]; then 
+              echo "Removing empty feed: $f"
+              rm -f "$f"
+            fi
+          done
+
+      # ------------------------------------------------------------------------
+      # Step Group 5: Upload Appcasts to S3
+      # ------------------------------------------------------------------------
+      - name: Upload appcasts to S3
+        if: (env.ED25519_PRIVATE_KEY != 'NOT_SET' || inputs.is-simulation == true) && env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET'
+        run: |
+          echo "=== Uploading appcasts to S3 ==="
+
+          # Check if appcast files exist before uploading
+          if [ ! -d "dist/channels/stable" ] || [ -z "$(ls -A dist/channels/stable/*.xml 2>/dev/null)" ]; then
+            echo "⚠️  No appcast files found, skipping upload"
+            exit 0
+          fi
+
+          # Upload appcasts and latest.json to channels/stable/
+          aws s3 sync dist/channels/stable/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/channels/stable/" \
+            --cache-control "max-age=300" \
+            --exclude "*" \
+            --include "*.xml" \
+            --include "latest.json"
+          
+          # Set content-type for XML files
+          for f in dist/channels/stable/*.xml; do
+            if [ -f "$f" ]; then
+              filename=$(basename "$f")
+              aws s3 cp "$f" "s3://${S3_BUCKET}/${S3_BASE_PATH}/channels/stable/${filename}" \
+                --content-type "application/xml" \
+                --cache-control "max-age=300"
+            fi
+          done
+          
+          echo "✅ Appcasts and latest.json uploaded to S3"
+
+          # List uploaded files
+          echo ""
+          echo "Files uploaded to channels/stable/:"
+          for f in dist/channels/stable/*.xml dist/channels/stable/latest.json; do
+            if [ -f "$f" ]; then
+              filename=$(basename "$f")
+              echo "  - ${filename}"
+              echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/stable/${filename}"
+            fi
+          done
+
+      # ------------------------------------------------------------------------
+      # Step Group 6: Display Appcast URLs
+      # ------------------------------------------------------------------------
+      - name: Show appcast URLs
+        if: env.ED25519_PRIVATE_KEY != 'NOT_SET' || inputs.is-simulation == true
+        run: |
+          # Display in GitHub Actions Summary
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## OTA Update Feed URLs (Appcast)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> **Note**: Appcast is only generated for release builds and stays in sync with \`latest.json\`" >> $GITHUB_STEP_SUMMARY
+          echo "> - **Appcast XML**: Used by Sparkle/WinSparkle for OTA automatic updates" >> $GITHUB_STEP_SUMMARY
+          echo "> - **latest.json**: Version metadata containing download links and version info" >> $GITHUB_STEP_SUMMARY
+          echo "> - Both are synchronized on each release, pointing to the same version" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -n "$S3_BUCKET" ] && [ "$S3_BUCKET" != "NOT_SET" ]; then
+            echo "### AWS S3 Appcast URLs (${CHANNEL} Channel)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **macOS (All Architectures)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/${CHANNEL}/appcast-macos.xml" >> $GITHUB_STEP_SUMMARY
+            echo "- **macOS (Intel x86_64)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/${CHANNEL}/appcast-macos-amd64.xml" >> $GITHUB_STEP_SUMMARY
+            echo "- **macOS (Apple Silicon)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/${CHANNEL}/appcast-macos-aarch64.xml" >> $GITHUB_STEP_SUMMARY
+            echo "- **Windows (x86_64)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/${CHANNEL}/appcast-windows-amd64.xml" >> $GITHUB_STEP_SUMMARY
+            echo "- **latest.json**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/${CHANNEL}/latest.json" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> **Note**: Windows only supports x86_64 (amd64) architecture" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ⚠️ S3 Not Configured" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "S3 credentials are not configured. Appcast files are generated but not uploaded." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Print appcast enclosure summary
+        if: env.ED25519_PRIVATE_KEY != 'NOT_SET' || inputs.is-simulation == true
+        run: |
+          set -e
+          for f in dist/channels/stable/*.xml; do
+            if [ -f "$f" ]; then
+              echo "--- $f ---"
+              # Print lines containing 'enclosure' with key attributes
+              awk 'BEGIN{FS="[<> ]"} /enclosure/ {for(i=1;i<=NF;i++){if($i ~ /url=|sparkle:version=|sparkle:os=|sparkle:arch=|length=|sparkle:edSignature=/) printf("%s ", $i)} print ""}' $f || true
+            fi
+          done
+
+      - name: List generated appcasts
+        if: env.ED25519_PRIVATE_KEY != 'NOT_SET' || inputs.is-simulation == true
+        run: |
+          echo "=== Appcast outputs ==="
+          ls -la dist/channels/stable/ || true
