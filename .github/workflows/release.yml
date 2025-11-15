@@ -64,11 +64,14 @@ on:
           - 'false'
 
 concurrency:
-  group: ecan-release-${{ github.ref }}
+  group: ecan-release-${{ github.ref }}-${{ github.event.inputs.platform }}-${{ github.event.inputs.arch }}
   cancel-in-progress: true
 
 jobs:
-  # Validate ref (tags produce semantic version; branches get fallback version)
+  # ============================================================================
+  # Validation Layer: Validate ref and compute version
+  # Tags produce semantic version; branches get fallback version
+  # ============================================================================
   validate-tag:
     runs-on: ubuntu-latest
     outputs:
@@ -125,7 +128,7 @@ jobs:
             BASE_VERSION="0.0.0"
             echo "VERSION file not found, using default: $BASE_VERSION"
           fi
-          
+
           SHORT_SHA=$(git rev-parse --short HEAD)
           SAFE_BRANCH=$(echo "$REF_NAME" | tr '/' '-')
           FALLBACK="${BASE_VERSION}-${SAFE_BRANCH}-${SHORT_SHA}"
@@ -135,17 +138,16 @@ jobs:
           echo "Branch detected: $REF_NAME -> version=$FALLBACK"
         fi
 
-  # Windows build
-  # Note: Windows only supports amd64 architecture
+  # ============================================================================
+  # Build Layer: Windows amd64
+  # ============================================================================
   build-windows:
+    name: Build Windows amd64
     needs: validate-tag
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
-      (github.event.inputs.platform == 'windows' ||
-       github.event.inputs.platform == 'all') &&
-      (github.event.inputs.arch == 'amd64' ||
-       github.event.inputs.arch == 'all' ||
-       github.event.inputs.arch == '')
+      (github.event.inputs.platform == 'windows' || github.event.inputs.platform == 'all') &&
+      (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all')
     runs-on: windows-latest
     env:
       # Expose secrets to env for conditional checks without referencing `secrets` in `if:`
@@ -309,7 +311,7 @@ jobs:
             $fileSize = (Get-Item $langPath).Length
             Write-Host "✓ File verified at: $langPath" -ForegroundColor Green
             Write-Host "  File size: $fileSize bytes" -ForegroundColor Gray
-            
+
             # Verify content
             $content = Get-Content $langPath -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
             # Use single-quoted strings to avoid PowerShell variable interpolation; check both markers
@@ -531,7 +533,7 @@ jobs:
         Write-Host "  WIN_CERT_PFX: ${{ env.WIN_CERT_PFX != 'NOT_SET' && 'Available' || 'Not Available' }}" -ForegroundColor Gray
         Write-Host "  WIN_CERT_PASSWORD: ${{ env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Available' || 'Not Available' }}" -ForegroundColor Gray
         Write-Host "  Status: ${{ env.WIN_CERT_PFX != 'NOT_SET' && env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Ready for signing' || 'Skipping signing' }}" -ForegroundColor Gray
-        
+
         Write-Host "Dist directory contents (top-level only):" -ForegroundColor Yellow
         Get-ChildItem -Path "dist" | Format-Table -AutoSize
 
@@ -630,7 +632,7 @@ jobs:
     - name: Upload Windows artifacts for S3 transfer (always, short retention)
       uses: actions/upload-artifact@v4
       with:
-        name: eCan-Windows-${{ needs.validate-tag.outputs.version }}-s3-transfer
+        name: eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
         path: artifacts/
         retention-days: 1
         compression-level: 6
@@ -645,32 +647,28 @@ jobs:
         retention-days: 30
         compression-level: 6
 
-  # macOS build - Matrix strategy for multiple architectures
+  # ============================================================================
+  # Build Layer: macOS amd64 + aarch64
+  # ============================================================================
   build-macos:
+    name: Build macOS
     needs: validate-tag
-    if: |
-      needs.validate-tag.outputs.tag-valid == 'true' &&
-      (github.event.inputs.platform == 'macos' ||
-       github.event.inputs.platform == 'all') &&
-      (github.event.inputs.arch == 'all' ||
-       github.event.inputs.arch == 'amd64' ||
-       github.event.inputs.arch == 'aarch64' ||
-       github.event.inputs.arch == '')
-    runs-on: ${{ matrix.runner }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: amd64
+            runner: macos-14-large  # Intel x86_64 runner (macos-13 deprecated, removed Dec 4, 2024)
             target_arch: x86_64
-            build_name: "amd64"
-            pyinstaller_arch: "x86_64"
-            runner: "macos-14"  # Intel x86_64 runner (macOS 14 Intel)
+            pyinstaller_arch: x86_64
           - arch: aarch64
+            runner: macos-latest  # Apple Silicon ARM64 runner
             target_arch: arm64
-            build_name: "aarch64"
-            pyinstaller_arch: "arm64"
-            runner: "macos-latest"  # Apple Silicon ARM64 runner (macOS 15 arm64)
-      fail-fast: false
+            pyinstaller_arch: arm64
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all')
+    runs-on: ${{ matrix.runner }}
     env:
       # Expose macOS signing/notarization secrets to env for conditional checks without referencing `secrets` in `if:`
       MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 || 'NOT_SET' }}
@@ -679,56 +677,20 @@ jobs:
       APPLE_ID: ${{ secrets.APPLE_ID || 'NOT_SET' }}
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || 'NOT_SET' }}
       TEAM_ID: ${{ secrets.TEAM_ID || 'NOT_SET' }}
-      # Set build architecture for the build process
+      # Set build architecture for the build process (per matrix)
       BUILD_ARCH: ${{ matrix.arch }}
       TARGET_ARCH: ${{ matrix.target_arch }}
       PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_arch }}
     timeout-minutes: 60
 
     steps:
-    - name: Check if this architecture should be built
-      id: should_build
-      run: |
-        ARCH="${{ matrix.arch }}"
-        INPUT_ARCH="${{ github.event.inputs.arch }}"
-        INPUT_PLATFORM="${{ github.event.inputs.platform }}"
-
-        echo "Matrix arch: $ARCH"
-        echo "Input arch: $INPUT_ARCH"
-        echo "Input platform: $INPUT_PLATFORM"
-
-        # Determine if this matrix job should run
-        SHOULD_BUILD="false"
-
-        # Logic for architecture selection
-        if [ "$INPUT_ARCH" = "all" ]; then
-          # Build all architectures when arch is 'all'
-          SHOULD_BUILD="true"
-          echo "Building $ARCH because arch=all"
-        elif [ "$INPUT_ARCH" = "$ARCH" ]; then
-          # Build only the specified architecture
-          SHOULD_BUILD="true"
-          echo "Building $ARCH because it matches input arch"
-        elif [ -z "$INPUT_ARCH" ] || [ "$INPUT_ARCH" = "null" ]; then
-          # Default to all architectures when no arch specified
-          SHOULD_BUILD="true"
-          echo "Building $ARCH because no arch specified (default to all)"
-        else
-          echo "Skipping $ARCH because it doesn't match input arch ($INPUT_ARCH)"
-        fi
-
-        echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
-        echo "Final decision: Should build $ARCH = $SHOULD_BUILD"
-
     - name: Checkout code
-      if: steps.should_build.outputs.should_build == 'true'
       uses: actions/checkout@v4
       with:
         ref: ${{ github.event.inputs.ref || github.ref }}
         fetch-depth: 0
 
     - name: Detect frontend changes (macOS)
-      if: steps.should_build.outputs.should_build == 'true'
       id: fe_changes
       shell: bash
       run: |
@@ -749,15 +711,13 @@ jobs:
     # Note: pip caching is handled by setup-python-env action
 
     - name: Setup Python Environment
-      if: steps.should_build.outputs.should_build == 'true'
       uses: ./.github/actions/setup-python-env
       with:
         platform: macos
         requirements-file: requirements-macos.txt
-        python-version: ${{ matrix.arch == 'aarch64' && '3.11' || '3.11' }}
+        python-version: '3.11'
 
     - name: Setup Playwright Browsers
-      if: steps.should_build.outputs.should_build == 'true'
       uses: ./.github/actions/setup-playwright
       with:
         platform: macos
@@ -765,7 +725,6 @@ jobs:
         browsers: chromium
 
     - name: Cache Node.js dependencies
-      if: steps.should_build.outputs.should_build == 'true'
       uses: actions/cache@v4
       with:
         path: gui_v2/node_modules
@@ -775,11 +734,9 @@ jobs:
           ${{ runner.os }}-${{ matrix.arch }}-node-
 
     - name: Setup Node.js Environment
-      if: steps.should_build.outputs.should_build == 'true'
       uses: ./.github/actions/setup-node-env
 
     - name: Check macOS package architectures
-      if: steps.should_build.outputs.should_build == 'true'
       run: |
         echo "=== Checking installed package architectures ==="
         python -c "
@@ -801,31 +758,42 @@ jobs:
         "
 
     - name: Setup OTA Dependencies
-      if: steps.should_build.outputs.should_build == 'true'
       uses: ./.github/actions/setup-ota-deps
       with:
         platform: macos
 
     - name: Setup Build Directories
-      if: steps.should_build.outputs.should_build == 'true'
       uses: ./.github/actions/setup-build-dirs
       with:
         platform: macos
 
     - name: Setup Xcode License
-      if: steps.should_build.outputs.should_build == 'true'
       uses: ./.github/actions/setup-xcode-license
       with:
         platform: macos
 
     - name: Check Build Environment
-      if: steps.should_build.outputs.should_build == 'true'
       uses: ./.github/actions/check-build-env
       with:
         platform: macos
         matrix-arch: ${{ matrix.arch }}
         matrix-target-arch: ${{ matrix.target_arch }}
         matrix-pyinstaller-arch: ${{ matrix.pyinstaller_arch }}
+    - name: Determine if this matrix combination should build
+      id: should_build
+      shell: bash
+      run: |
+        INPUT_ARCH="${{ github.event.inputs.arch }}"
+        MATRIX_ARCH="${{ matrix.arch }}"
+        echo "Requested arch: $INPUT_ARCH; current matrix arch: $MATRIX_ARCH"
+        if [ "$INPUT_ARCH" = "all" ] || [ "$INPUT_ARCH" = "$MATRIX_ARCH" ] || [ -z "$INPUT_ARCH" ]; then
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+          echo "Building for this matrix architecture"
+        else
+          echo "should_build=false" >> "$GITHUB_OUTPUT"
+          echo "Skipping build for this matrix architecture"
+        fi
+
 
     - name: Clean build artifacts
       if: steps.should_build.outputs.should_build == 'true'
@@ -930,9 +898,9 @@ jobs:
     - name: Verify architecture
       if: steps.should_build.outputs.should_build == 'true'
       env:
-        BUILD_ARCH: ${{ env.BUILD_ARCH }}
-        TARGET_ARCH: ${{ env.TARGET_ARCH }}
-        PYINSTALLER_TARGET_ARCH: ${{ env.PYINSTALLER_TARGET_ARCH }}
+        BUILD_ARCH: ${{ matrix.arch }}
+        TARGET_ARCH: ${{ matrix.target_arch }}
+        PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_arch }}
         VERSION: ${{ needs.validate-tag.outputs.version }}
       run: |
         echo "=== Verifying Build Architecture ==="
@@ -1021,13 +989,13 @@ jobs:
         echo "  MAC_CERT_PASSWORD: ${{ env.MAC_CERT_PASSWORD != 'NOT_SET' && 'Available' || 'Not Available' }}"
         echo "  MAC_CODESIGN_IDENTITY: ${{ env.MAC_CODESIGN_IDENTITY != 'NOT_SET' && 'Available' || 'Not Available' }}"
         echo "  Status: ${{ env.MAC_CERT_P12 != 'NOT_SET' && env.MAC_CERT_PASSWORD != 'NOT_SET' && env.MAC_CODESIGN_IDENTITY != 'NOT_SET' && 'Ready for signing' || 'Skipping signing' }}"
-        
+
         echo "macOS Notarization:"
         echo "  APPLE_ID: ${{ env.APPLE_ID != 'NOT_SET' && 'Available' || 'Not Available' }}"
         echo "  APPLE_APP_SPECIFIC_PASSWORD: ${{ env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' && 'Available' || 'Not Available' }}"
         echo "  TEAM_ID: ${{ env.TEAM_ID != 'NOT_SET' && 'Available' || 'Not Available' }}"
         echo "  Status: ${{ env.APPLE_ID != 'NOT_SET' && env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' && env.TEAM_ID != 'NOT_SET' && 'Ready for notarization' || 'Skipping notarization' }}"
-        
+
         echo "Dist directory contents:"
         ls -la dist/
 
@@ -1106,7 +1074,7 @@ jobs:
       if: steps.should_build.outputs.should_build == 'true'
       uses: actions/upload-artifact@v4
       with:
-        name: eCan-macOS-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
+        name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
         path: artifacts/
         retention-days: 1
         compression-level: 6
@@ -1116,7 +1084,7 @@ jobs:
       if: steps.should_build.outputs.should_build == 'true' && github.event.inputs.upload_artifacts == 'true'
       uses: actions/upload-artifact@v4
       with:
-        name: eCan-macOS-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
+        name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
         path: artifacts/
         retention-days: 30
         compression-level: 6
@@ -1159,7 +1127,7 @@ jobs:
           echo "S3 bucket: ${{ env.S3_BUCKET != 'NOT_SET' && env.S3_BUCKET || 'Not configured' }}"
           echo "AWS region: ${{ env.AWS_REGION != 'NOT_SET' && env.AWS_REGION || 'Not configured' }}"
           echo "S3 base path: ${{ env.S3_BASE_PATH != 'NOT_SET' && env.S3_BASE_PATH || 'Not configured' }}"
-          
+
           if [ "${{ env.AWS_ACCESS_KEY_ID }}" = "NOT_SET" ] || \
              [ "${{ env.AWS_SECRET_ACCESS_KEY }}" = "NOT_SET" ] || \
              [ "${{ env.S3_BUCKET }}" = "NOT_SET" ]; then
@@ -1200,26 +1168,25 @@ jobs:
           fi
 
       - name: Download Windows artifacts for S3 upload
-        if: always() && (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped')
+        if: needs.build-windows.result == 'success'
         uses: actions/download-artifact@v4
         with:
-          name: eCan-Windows-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: windows-artifacts
-        continue-on-error: true
 
       - name: Download macOS amd64 artifacts for S3 upload
-        if: always() && (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped')
+        if: needs.build-macos.result == 'success'
         uses: actions/download-artifact@v4
         with:
-          name: eCan-macOS-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: macos-amd64-artifacts
         continue-on-error: true
 
       - name: Download macOS aarch64 artifacts for S3 upload
-        if: always() && (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped')
+        if: needs.build-macos.result == 'success'
         uses: actions/download-artifact@v4
         with:
-          name: eCan-macOS-aarch64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-macos-aarch64-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: macos-aarch64-artifacts
         continue-on-error: true
 
@@ -1524,7 +1491,7 @@ jobs:
           echo "> - **latest.json**: Version metadata containing download links and version info" >> $GITHUB_STEP_SUMMARY
           echo "> - Both are synchronized on each release, pointing to the same version" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           if [ -n "$S3_BUCKET" ] && [ "$S3_BUCKET" != "NOT_SET" ]; then
             echo "### AWS S3 Appcast URLs" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
@@ -1539,7 +1506,7 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "S3 credentials are not configured. Appcast files are generated but not uploaded." >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           # Also display in console log
           echo "=== Appcast URLs ==="
           echo ""

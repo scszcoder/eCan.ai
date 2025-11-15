@@ -1,4 +1,27 @@
-name: Release Flow Smoke Test (Simulated)
+name: Release Flow Simulation (Current Architecture)
+#
+# This workflow is fully synced with release.yml for validating the current flow architecture
+#
+# Architecture features:
+#   - build-windows: Single job with platform and arch conditional checks
+#   - build-macos: Matrix strategy (amd64, aarch64), job-level platform check, step-level arch filtering
+#   - upload-to-s3: Single job downloading all platform artifacts
+#   - generate-appcast: Single job generating OTA configuration
+#
+# Purpose:
+#   - Quickly validate workflow flow logic (< 5 minutes)
+#   - Test conditional logic correctness
+#   - Verify artifact naming and passing
+#   - No actual build execution, only creates simulated artifacts
+#
+# Supported test scenarios:
+#   1. platform=windows, arch=amd64      - Build Windows only
+#   2. platform=macos, arch=amd64        - Build macOS Intel only
+#   3. platform=macos, arch=aarch64      - Build macOS ARM only
+#   4. platform=macos, arch=all          - Build all macOS
+#   5. platform=all, arch=amd64          - Build all Intel
+#   6. platform=all, arch=aarch64        - Build macOS ARM only (Windows doesn't support ARM)
+#   7. platform=all, arch=all            - Complete build
 
 on:
   workflow_dispatch:
@@ -36,7 +59,7 @@ on:
           - 'false'
 
 concurrency:
-  group: ecan-release-sim-${{ github.ref }}
+  group: ecan-release-sim-${{ github.ref }}-${{ github.event.inputs.platform }}-${{ github.event.inputs.arch }}
   cancel-in-progress: true
 
 jobs:
@@ -52,6 +75,7 @@ jobs:
           echo "version=0.0.0-sim" >> $GITHUB_OUTPUT
 
   build-windows:
+    name: Build Windows amd64
     needs: validate-tag
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
@@ -59,67 +83,25 @@ jobs:
        github.event.inputs.platform == 'all') &&
       (github.event.inputs.arch == 'amd64' ||
        github.event.inputs.arch == 'all')
-    runs-on: windows-latest
+    runs-on: ubuntu-latest  # Use ubuntu for faster simulation
     env:
       BUILD_ARCH: amd64
     steps:
-      - name: Create fake Windows artifact
-        shell: pwsh
+      - name: Simulate Windows build
         run: |
-          $version = "${{ needs.validate-tag.outputs.version }}"
-          $arch = "$env:BUILD_ARCH"
-          New-Item -ItemType Directory -Force -Path "dist","artifacts" | Out-Null
-          $path = "dist/eCan-$version-windows-$arch-Setup.exe"
-          "fake windows setup" | Set-Content $path
-          Copy-Item $path "artifacts/"
-      - name: Compress Windows artifacts for upload
-        shell: pwsh
-        run: |
-          Write-Host "=== Compressing Windows artifacts ===" -ForegroundColor Cyan
-          $version = "${{ needs.validate-tag.outputs.version }}"
-          $arch = "$env:BUILD_ARCH"
-
-          # Create artifacts directory
-          New-Item -ItemType Directory -Force -Path "artifacts" | Out-Null
-
-          $artifactCount = 0
-
-          # Copy main installer
-          $setupFile = "dist/eCan-${version}-windows-${arch}-Setup.exe"
-          if (Test-Path $setupFile) {
-            Copy-Item $setupFile "artifacts/" -Force
-            $size = [math]::Round((Get-Item $setupFile).Length / 1MB, 2)
-            Write-Host "Copied installer: ${size} MB"
-            $artifactCount++
-          } else {
-            Write-Host "WARNING: Setup file not found: $setupFile" -ForegroundColor Yellow
-          }
-
-          # Copy MSI files if exist
-          Get-ChildItem "dist/*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
-            Copy-Item $_.FullName "artifacts/" -Force
-            Write-Host "Copied MSI: $($_.Name)"
-            $artifactCount++
-          }
-
-          # Verify artifacts were copied
-          if ($artifactCount -eq 0) {
-            Write-Host "ERROR: No artifacts were copied to artifacts/ directory" -ForegroundColor Red
-            Write-Host "Contents of dist/ directory:" -ForegroundColor Yellow
-            Get-ChildItem "dist" -Recurse | Select-Object FullName
-            exit 1
-          }
-
-          Write-Host "Artifacts prepared for upload ($artifactCount files)"
-          Get-ChildItem "artifacts" | ForEach-Object {
-            $sizeMB = [math]::Round($_.Length / 1MB, 2)
-            Write-Host "  $($_.Name): ${sizeMB} MB"
-          }
+          echo "=== Simulating Windows amd64 Build ==="
+          echo "Platform: Windows"
+          echo "Architecture: $BUILD_ARCH"
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          mkdir -p dist artifacts
+          echo "fake windows installer" > "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe"
+          cp "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe" artifacts/
+          echo "✅ Windows build simulated"
 
       - name: Upload Windows artifacts for S3 transfer (always, short retention)
         uses: actions/upload-artifact@v4
         with:
-          name: eCan-Windows-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: artifacts/
           retention-days: 1
           compression-level: 6
@@ -135,20 +117,29 @@ jobs:
           compression-level: 6
 
   build-macos:
+    name: Build macOS
     needs: validate-tag
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'macos' ||
        github.event.inputs.platform == 'all')
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-latest  # Use ubuntu for faster simulation
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: amd64
-            runner: macos-14
+            runner: macos-14-large  # Would use Intel runner in real workflow (macos-13 deprecated)
+            target_arch: x86_64
+            pyinstaller_arch: x86_64
           - arch: aarch64
-            runner: macos-latest
-      fail-fast: false
+            runner: macos-latest  # Would use Apple Silicon runner in real workflow
+            target_arch: arm64
+            pyinstaller_arch: arm64
+    env:
+      BUILD_ARCH: ${{ matrix.arch }}
+      TARGET_ARCH: ${{ matrix.target_arch }}
+      PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_arch }}
     steps:
       - name: Decide if this architecture should be built
         id: should_build
@@ -160,19 +151,23 @@ jobs:
           else
             echo "should_build=false" >> $GITHUB_OUTPUT
           fi
-      - name: Create fake macOS artifact
+      - name: Simulate macOS build
         if: steps.should_build.outputs.should_build == 'true'
         run: |
+          echo "=== Simulating macOS ${{ matrix.arch }} Build ==="
+          echo "Platform: macOS"
+          echo "Architecture: ${{ matrix.arch }} (${{ matrix.target_arch }})"
           VERSION="${{ needs.validate-tag.outputs.version }}"
           ARCH="${{ matrix.arch }}"
           mkdir -p dist artifacts
-          touch "dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+          echo "fake macos installer" > "dist/eCan-${VERSION}-macos-${ARCH}.pkg"
           cp "dist/eCan-${VERSION}-macos-${ARCH}.pkg" artifacts/
+          echo "✅ macOS ${{ matrix.arch }} build simulated"
       - name: Upload macOS artifacts for S3 transfer (always, short retention)
         if: steps.should_build.outputs.should_build == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: eCan-macOS-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: artifacts/
           retention-days: 1
           compression-level: 6
@@ -181,7 +176,7 @@ jobs:
         if: steps.should_build.outputs.should_build == 'true' && github.event.inputs.upload_artifacts == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: eCan-macOS-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
+          name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
           path: artifacts/
           retention-days: 30
           compression-level: 6
@@ -240,24 +235,23 @@ jobs:
           fi
 
       - name: Download Windows artifacts
-        if: always() && (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped')
+        if: needs.build-windows.result == 'success'
         uses: actions/download-artifact@v4
         with:
-          name: eCan-Windows-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: windows-artifacts
-        continue-on-error: true
       - name: Download macOS amd64 artifacts
-        if: always() && (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped')
+        if: needs.build-macos.result == 'success'
         uses: actions/download-artifact@v4
         with:
-          name: eCan-macOS-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: macos-amd64-artifacts
         continue-on-error: true
       - name: Download macOS aarch64 artifacts
-        if: always() && (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped')
+        if: needs.build-macos.result == 'success'
         uses: actions/download-artifact@v4
         with:
-          name: eCan-macOS-aarch64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-macos-aarch64-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: macos-aarch64-artifacts
         continue-on-error: true
       - name: Merge macOS artifacts
@@ -508,20 +502,57 @@ jobs:
           else
             echo "No appcast directory; skipping upload"
           fi
-      - name: Summary
+      - name: Generate detailed summary
         run: |
-          echo "=== Release Simulation Summary ==="
-          echo "Simulation version: ${{ needs.validate-tag.outputs.version }}"
-          echo "Windows job: ${{ needs.build-windows.result }}"
-          echo "macOS job: ${{ needs.build-macos.result }}"
-          echo "Configuration:"
-          echo "  - S3 Upload: ${{ env.AWS_ACCESS_KEY_ID != 'NOT_SET' && 'Enabled' || 'Disabled' }}"
-          echo "  - Appcast Generation: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && 'Enabled' || 'Disabled' }}"
-          echo "  - Code Signing: ${{ env.WIN_CERT_PFX != 'NOT_SET' && env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Enabled' || 'Disabled' }}"
-          echo "S3_BASE_URL=${S3_BASE_URL:-<not set>}"
+          echo "## Release Flow Simulation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Input Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Platform**: ${{ github.event.inputs.platform }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Architecture**: ${{ github.event.inputs.arch }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ needs.validate-tag.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Job Execution Results" >> $GITHUB_STEP_SUMMARY
+          echo "- **validate-tag**: ${{ needs.validate-tag.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **build-windows**: ${{ needs.build-windows.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **build-macos**: ${{ needs.build-macos.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **upload-to-s3**: success" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Artifacts Generated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.build-windows.result }}" = "success" ]; then
+            echo "- ✅ Windows: \`eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ⏭️ Windows: skipped" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ needs.build-macos.result }}" = "success" ]; then
+            echo "- ✅ macOS amd64: \`eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer\`" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ macOS aarch64: \`eCan-macos-aarch64-${{ needs.validate-tag.outputs.version }}-s3-transfer\`" >> $GITHUB_STEP_SUMMARY
+            echo "  - Note: Some matrix items may be skipped based on arch input" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ⏭️ macOS: skipped" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **S3 Upload**: ${{ env.AWS_ACCESS_KEY_ID != 'NOT_SET' && 'Enabled' || 'Disabled (simulated)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Appcast Generation**: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && 'Enabled' || 'Disabled (simulated)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Simulation completed successfully**" >> $GITHUB_STEP_SUMMARY
+          
+          # Console output
           echo ""
-          echo "Simulated appcast URLs (if S3 configured):"
-          echo "  Windows: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-windows.xml"
-          echo "  macOS:   https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos.xml"
+          echo "=== Release Flow Simulation Summary ==="
+          echo "Version: ${{ needs.validate-tag.outputs.version }}"
+          echo "Platform: ${{ github.event.inputs.platform }}"
+          echo "Architecture: ${{ github.event.inputs.arch }}"
           echo ""
-          echo "✅ Release simulation completed successfully"
+          echo "Job Results:"
+          echo "  - build-windows: ${{ needs.build-windows.result }}"
+          echo "  - build-macos: ${{ needs.build-macos.result }}"
+          echo ""
+          echo "✅ Simulation completed successfully"
