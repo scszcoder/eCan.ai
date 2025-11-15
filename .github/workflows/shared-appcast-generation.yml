@@ -97,7 +97,7 @@ jobs:
           echo "✅ metadata.json generated"
 
       - name: Upload metadata.json to S3
-        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET'
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_URL != ''
         run: |
           # Upload metadata.json
           aws s3 cp dist/metadata/metadata.json \
