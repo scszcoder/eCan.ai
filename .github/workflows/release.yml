@@ -255,10 +255,11 @@ jobs:
         Write-Host "OK: ISCC check passed" -ForegroundColor Green
         exit 0
 
-    - name: Install Inno Setup Chinese Language Pack
+    - name: Install Inno Setup Language Packs
       run: |
-        echo "=== Installing Inno Setup Chinese Language Pack ==="
-        # Detect actual Inno Setup installation path
+        Write-Host "=== Installing Inno Setup Language Packs ===" -ForegroundColor Cyan
+        
+        # Detect Inno Setup installation path
         $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
         if (-not (Test-Path $innoPath)) { $innoPath = "${env:ProgramFiles}\Inno Setup 6\ISCC.exe" }
         if (-not (Test-Path $innoPath)) {
@@ -266,46 +267,55 @@ jobs:
             exit 1
         }
 
-        # Languages directory is two levels up from ISCC.exe, then \Languages
-        $installDir = Split-Path -Parent $innoPath         # e.g. ...\Inno Setup 6
-        $langDir = Join-Path $installDir 'Languages'
-        $langPath = Join-Path $langDir 'ChineseSimplified.isl'
-        $SourcePath = "${{ github.workspace }}\build_system\inno_setup_languages\ChineseSimplified.isl"
+        # Target Languages directory
+        $installDir = Split-Path -Parent $innoPath
+        $targetLangDir = Join-Path $installDir 'Languages'
+        $sourceLangDir = "${{ github.workspace }}\build_system\inno_setup_languages"
+        
+        Write-Host "Source: $sourceLangDir" -ForegroundColor Gray
+        Write-Host "Target: $targetLangDir" -ForegroundColor Gray
+        Write-Host ""
 
-        Write-Host "Installing from repository: $SourcePath"
-        Write-Host "Target Languages directory: $langDir"
-
-        # Verify source file exists
-        if (-not (Test-Path $SourcePath)) {
-            Write-Host "ERROR: Source language file not found: $SourcePath" -ForegroundColor Red
-            exit 1
+        # Ensure target directory exists
+        if (-not (Test-Path $targetLangDir)) { 
+            New-Item -ItemType Directory -Path $targetLangDir -Force | Out-Null 
         }
 
-        # Ensure Languages directory exists
-        if (-not (Test-Path $langDir)) { New-Item -ItemType Directory -Path $langDir -Force | Out-Null }
+        # Find all .isl files in source directory
+        $langFiles = Get-ChildItem -Path $sourceLangDir -Filter "*.isl" -ErrorAction SilentlyContinue
+        
+        if ($langFiles.Count -eq 0) {
+            Write-Host "WARNING: No language pack files found in $sourceLangDir" -ForegroundColor Yellow
+            Write-Host "Installer will use default English only" -ForegroundColor Yellow
+            exit 0
+        }
 
-        # Copy with encoding preservation
-        Copy-Item -Path $SourcePath -Destination $langPath -Force
-        Write-Host "✓ Chinese language pack installed from repository" -ForegroundColor Green
-
-        # Verify installation
-        if (Test-Path $langPath) {
-            $fileSize = (Get-Item $langPath).Length
-            Write-Host "✓ File verified at: $langPath" -ForegroundColor Green
-            Write-Host "  File size: $fileSize bytes" -ForegroundColor Gray
-
-            # Verify content
-            $content = Get-Content $langPath -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
-            # Use single-quoted strings to avoid PowerShell variable interpolation; check both markers
-            if (($content -match 'LanguageID=\$0804') -and ($content -match 'LanguageCodePage=936')) {
-                Write-Host "✓ Language file markers verified (LanguageID=$0804, CodePage=936)" -ForegroundColor Green
-            } else {
-                Write-Host "⚠ WARNING: Could not verify required markers (LanguageID=$0804 & LanguageCodePage=936)" -ForegroundColor Yellow
+        # Install each language pack
+        $installed = 0
+        foreach ($file in $langFiles) {
+            $targetPath = Join-Path $targetLangDir $file.Name
+            
+            try {
+                Copy-Item -Path $file.FullName -Destination $targetPath -Force -ErrorAction Stop
+                $fileSize = [math]::Round($file.Length / 1KB, 2)
+                Write-Host "✓ Installed: $($file.Name) ($fileSize KB)" -ForegroundColor Green
+                $installed++
+                
+                # Extract and display language info
+                $content = Get-Content $file.FullName -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+                if ($content -match 'LanguageName=([^\r\n]+)') {
+                    Write-Host "  Language: $($matches[1])" -ForegroundColor Gray
+                }
+            } catch {
+                Write-Host "✗ Failed to install: $($file.Name)" -ForegroundColor Red
+                Write-Host "  Error: $_" -ForegroundColor Red
             }
-        } else {
-            Write-Host "ERROR: Chinese language pack not found at expected location" -ForegroundColor Red
-            exit 1
         }
+        
+        Write-Host ""
+        Write-Host "=== Installation Summary ===" -ForegroundColor Cyan
+        Write-Host "Total language packs installed: $installed" -ForegroundColor Green
+        Write-Host "Languages directory: $targetLangDir" -ForegroundColor Gray
 
     - name: Setup OTA Dependencies
       uses: ./.github/actions/setup-ota-deps

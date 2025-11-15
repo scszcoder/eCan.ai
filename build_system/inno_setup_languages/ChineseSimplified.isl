@@ -25,8 +25,7 @@ LanguageName=简体中文
 LanguageID=$0804
 ; About CodePage, to reference link:
 ; https://docs.microsoft.com/en-us/windows/win32/intl/code-page-identifiers
-; Use 0 so Unicode Inno Setup treats this file as Unicode/UTF-8 to avoid mojibake
-LanguageCodePage=0
+LanguageCodePage=936
 ; If the language you are translating to requires special font faces or
 ; sizes, uncomment any of the following entries and change them accordingly.
 ;DialogFontName=
