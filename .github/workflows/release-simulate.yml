@@ -725,8 +725,8 @@ jobs:
               if [ -f "$file" ]; then
                 filename=$(basename "$file")
                 size=$(du -sh "$file" | cut -f1)
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/windows/${filename}"
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/windows/${filename}"
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/windows/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/windows/${filename}"
 
                 echo "${filename}" >> "$OUTPUT_FILE"
                 echo "  Size:       ${size}" >> "$OUTPUT_FILE"
@@ -759,8 +759,8 @@ jobs:
                   arch_label="Universal"
                 fi
 
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/macos/${filename}"
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/macos/${filename}"
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/macos/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/macos/${filename}"
 
                 echo "${filename}" >> "$OUTPUT_FILE"
                 echo "  Arch:       ${arch_label}" >> "$OUTPUT_FILE"

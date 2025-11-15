@@ -35,8 +35,9 @@ def get_file_info(filepath: str, base_url: str, version: str, platform: str) -> 
     size = os.path.getsize(filepath)
     sha256 = calculate_sha256(filepath)
     
-    # Construct S3 URL: {base_url}/releases/v{version}/{platform}/{filename}
-    url = f"{base_url}/releases/v{version}/{platform}/{filename}"
+    # Construct S3 URL: {base_url}/v{version}/{platform}/{filename}
+    # Note: S3_BASE_PATH already contains 'releases', so we don't add it again
+    url = f"{base_url}/v{version}/{platform}/{filename}"
     
     return {
         "url": url,
@@ -175,7 +176,7 @@ def generate_metadata(version: str, base_url: str, channel: str = 'stable',
         metadata["release_notes"] = release_notes
     else:
         # Default release notes URL
-        metadata["release_notes"] = f"{base_url}/releases/v{version}/release-notes.md"
+        metadata["release_notes"] = f"{base_url}/v{version}/release-notes.md"
     
     # Add minimum OS versions
     metadata["min_os_version"] = {
