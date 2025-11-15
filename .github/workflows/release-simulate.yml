@@ -14,6 +14,9 @@ name: Release Flow Simulation (Current Architecture)
 #   - Verify artifact naming and passing
 #   - No actual build execution, only creates simulated artifacts
 #
+# Note: This simulation does not include Inno Setup installation or language pack processing.
+#       The actual release.yml uses .islu (Unicode) language files exclusively.
+#
 # Supported test scenarios:
 #   1. platform=windows, arch=amd64      - Build Windows only
 #   2. platform=macos, arch=amd64        - Build macOS Intel only
@@ -697,7 +700,7 @@ jobs:
           echo "- 🧪 [Local Testing Guide](https://github.com/${{ github.repository }}/blob/main/docs/S3_LOCAL_TEST_GUIDE.md)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-      - name: Generate download links document artifact
+      - name: Generate download links text artifact
         if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET'
         env:
           VERSION: ${{ needs.validate-tag.outputs.version }}
@@ -706,43 +709,42 @@ jobs:
           BUCKET_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'NOT_SET' }}
         run: |
           set -euo pipefail
-          OUTPUT_FILE="download-links-${VERSION}.md"
+          OUTPUT_FILE="download-links-${VERSION}.txt"
 
-          echo "# eCan Download Links" > "$OUTPUT_FILE"
+          echo "eCan Download Links (Simulation)" > "$OUTPUT_FILE"
           echo "" >> "$OUTPUT_FILE"
-          echo "Version: \`${VERSION}\`" >> "$OUTPUT_FILE"
+          echo "Version: ${VERSION}" >> "$OUTPUT_FILE"
           echo "" >> "$OUTPUT_FILE"
 
           # Windows section
           if [ -d "windows-artifacts" ] && [ "$(ls -A windows-artifacts 2>/dev/null)" ]; then
-            echo "## Windows (x86_64)" >> "$OUTPUT_FILE"
+            echo "[Windows]" >> "$OUTPUT_FILE"
             echo "" >> "$OUTPUT_FILE"
 
             for file in windows-artifacts/*.exe windows-artifacts/*.msi; do
               if [ -f "$file" ]; then
                 filename=$(basename "$file")
                 size=$(du -sh "$file" | cut -f1)
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/windows/${filename}"
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/windows/${filename}"
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/windows/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/windows/${filename}"
 
-                echo "### ${filename}" >> "$OUTPUT_FILE"
-                echo "" >> "$OUTPUT_FILE"
-                echo "- Size: ${size}" >> "$OUTPUT_FILE"
-                echo "- Standard: ${standard_url}" >> "$OUTPUT_FILE"
-                echo "- Accelerated: ${accelerate_url}" >> "$OUTPUT_FILE"
+                echo "${filename}" >> "$OUTPUT_FILE"
+                echo "  Size:       ${size}" >> "$OUTPUT_FILE"
+                echo "  Standard:   ${standard_url}" >> "$OUTPUT_FILE"
+                echo "  Accelerate: ${accelerate_url}" >> "$OUTPUT_FILE"
                 echo "" >> "$OUTPUT_FILE"
               fi
             done
-          else
-            echo "## Windows" >> "$OUTPUT_FILE"
             echo "" >> "$OUTPUT_FILE"
-            echo "_No Windows installers available_" >> "$OUTPUT_FILE"
+          else
+            echo "[Windows]" >> "$OUTPUT_FILE"
+            echo "  No Windows installers available" >> "$OUTPUT_FILE"
             echo "" >> "$OUTPUT_FILE"
           fi
 
           # macOS section
           if [ -d "macos-artifacts" ] && [ "$(ls -A macos-artifacts 2>/dev/null)" ]; then
-            echo "## macOS" >> "$OUTPUT_FILE"
+            echo "[macOS]" >> "$OUTPUT_FILE"
             echo "" >> "$OUTPUT_FILE"
 
             for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
@@ -757,28 +759,26 @@ jobs:
                   arch_label="Universal"
                 fi
 
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/macos/${filename}"
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/macos/${filename}"
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/macos/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/macos/${filename}"
 
-                echo "### ${filename}" >> "$OUTPUT_FILE"
-                echo "" >> "$OUTPUT_FILE"
-                echo "- Architecture: ${arch_label}" >> "$OUTPUT_FILE"
-                echo "- Size: ${size}" >> "$OUTPUT_FILE"
-                echo "- Standard: ${standard_url}" >> "$OUTPUT_FILE"
-                echo "- Accelerated: ${accelerate_url}" >> "$OUTPUT_FILE"
+                echo "${filename}" >> "$OUTPUT_FILE"
+                echo "  Arch:       ${arch_label}" >> "$OUTPUT_FILE"
+                echo "  Size:       ${size}" >> "$OUTPUT_FILE"
+                echo "  Standard:   ${standard_url}" >> "$OUTPUT_FILE"
+                echo "  Accelerate: ${accelerate_url}" >> "$OUTPUT_FILE"
                 echo "" >> "$OUTPUT_FILE"
               fi
             done
-          else
-            echo "## macOS" >> "$OUTPUT_FILE"
             echo "" >> "$OUTPUT_FILE"
-            echo "_No macOS installers available_" >> "$OUTPUT_FILE"
+          else
+            echo "[macOS]" >> "$OUTPUT_FILE"
+            echo "  No macOS installers available" >> "$OUTPUT_FILE"
             echo "" >> "$OUTPUT_FILE"
           fi
 
           echo "---" >> "$OUTPUT_FILE"
-          echo "" >> "$OUTPUT_FILE"
-          echo "This file contains all download URLs for this build." >> "$OUTPUT_FILE"
+          echo "This file contains all download URLs for this simulated build." >> "$OUTPUT_FILE"
           echo "Generated by the release simulation workflow at $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$OUTPUT_FILE"
 
           echo "Download links document generated: ${OUTPUT_FILE}"
@@ -788,7 +788,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: download-links-${{ needs.validate-tag.outputs.version }}
-          path: download-links-${{ needs.validate-tag.outputs.version }}.md
+          path: download-links-${{ needs.validate-tag.outputs.version }}.txt
           if-no-files-found: warn
 
       - name: Generate detailed summary

@@ -131,21 +131,22 @@ def print_colored(message: str, color: str = ""):
 
 def download_language(language: str, is_unofficial: bool = False) -> Optional[Path]:
     """
-    Download a language pack from the official repository.
+    Download a language pack from the official repository and convert to .islu format.
     
     Args:
         language: Language name (e.g., 'ChineseSimplified')
         is_unofficial: Whether to download from unofficial languages
         
     Returns:
-        Path to downloaded file, or None if failed
+        Path to downloaded .islu file, or None if failed
     """
     base_url = UNOFFICIAL_LANGS_URL if is_unofficial else OFFICIAL_LANGS_URL
-    filename = f"{language}.isl"
-    url = f"{base_url}/{filename}"
-    output_path = LANGUAGES_DIR / filename
+    source_filename = f"{language}.isl"
+    url = f"{base_url}/{source_filename}"
+    # Always save as .islu (Unicode format)
+    output_path = LANGUAGES_DIR / f"{language}.islu"
     
-    print_colored(f"Downloading {filename}...", Colors.CYAN)
+    print_colored(f"Downloading {source_filename} (will convert to .islu)...", Colors.CYAN)
     print(f"  Source: {url}")
     
     try:
@@ -161,14 +162,17 @@ def download_language(language: str, is_unofficial: bool = False) -> Optional[Pa
         with urllib.request.urlopen(req, timeout=30) as response:
             content = response.read()
             
-        # Write to file
+        # Write to file as UTF-8 and convert to .islu format
         with open(output_path, 'wb') as f:
             f.write(content)
+        
+        # Convert to .islu format (set LanguageCodePage=0 for Unicode)
+        convert_to_islu(output_path)
             
         # Verify it's a valid language file
         if verify_language_file(output_path):
             size_kb = len(content) / 1024
-            print_colored(f"✓ Downloaded: {filename} ({size_kb:.1f} KB)", Colors.GREEN)
+            print_colored(f"✓ Downloaded and converted: {output_path.name} ({size_kb:.1f} KB)", Colors.GREEN)
             
             # Extract and display language info
             lang_info = extract_language_info(output_path)
@@ -179,7 +183,7 @@ def download_language(language: str, is_unofficial: bool = False) -> Optional[Pa
             
             return output_path
         else:
-            print_colored(f"✗ Invalid language file: {filename}", Colors.RED)
+            print_colored(f"✗ Invalid language file: {output_path.name}", Colors.RED)
             output_path.unlink()  # Delete invalid file
             return None
             
@@ -195,6 +199,29 @@ def download_language(language: str, is_unofficial: bool = False) -> Optional[Pa
     except Exception as e:
         print_colored(f"✗ Error: {e}", Colors.RED)
         return None
+
+
+def convert_to_islu(filepath: Path) -> None:
+    """
+    Convert language file to .islu format by setting LanguageCodePage=0.
+    This ensures Unicode Inno Setup treats it as a UTF-8 file.
+    """
+    try:
+        with open(filepath, 'r', encoding='utf-8-sig') as f:
+            content = f.read()
+        
+        # Replace LanguageCodePage=<any number> with LanguageCodePage=0
+        content = re.sub(
+            r'LanguageCodePage=\d+',
+            'LanguageCodePage=0',
+            content
+        )
+        
+        # Write back as UTF-8 (without BOM for .islu)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(content)
+    except Exception as e:
+        print_colored(f"Warning: Failed to convert to .islu format: {e}", Colors.YELLOW)
 
 
 def verify_language_file(filepath: Path) -> bool:

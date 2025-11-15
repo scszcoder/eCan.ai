@@ -281,8 +281,8 @@ jobs:
             New-Item -ItemType Directory -Path $targetLangDir -Force | Out-Null 
         }
 
-        # Find all .isl files in source directory
-        $langFiles = Get-ChildItem -Path $sourceLangDir -Filter "*.isl" -ErrorAction SilentlyContinue
+        # Find all .islu files in source directory (Unicode language packs only)
+        $langFiles = Get-ChildItem -Path $sourceLangDir -Filter "*.islu" -ErrorAction SilentlyContinue
         
         if ($langFiles.Count -eq 0) {
             Write-Host "WARNING: No language pack files found in $sourceLangDir" -ForegroundColor Yellow
@@ -1209,6 +1209,9 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Uploading Windows installers to S3 ==="
+          
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          echo "Version: ${VERSION}"
 
           if [ -d "windows-artifacts" ] && [ "$(ls -A windows-artifacts)" ]; then
             echo "Found Windows artifacts:"
@@ -1220,11 +1223,12 @@ jobs:
               exit 1
             fi
 
-            # Upload Windows installers to S3
-            echo "Uploading to: s3://${S3_BUCKET}/${S3_BASE_PATH}/windows/"
+            # Upload Windows installers to S3 with new path structure
+            UPLOAD_PATH="s3://${S3_BUCKET}/${S3_BASE_PATH}/releases/v${VERSION}/windows/"
+            echo "Uploading to: ${UPLOAD_PATH}"
             # Note: --acl removed because bucket does not allow ACLs
             # Use bucket policy to make files public instead
-            aws s3 sync windows-artifacts/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/windows/" \
+            aws s3 sync windows-artifacts/ "${UPLOAD_PATH}" \
               --exclude "*" \
               --include "*.exe" \
               --include "*.msi"
@@ -1238,7 +1242,7 @@ jobs:
                 filename=$(basename "$file")
                 size=$(du -sh "$file" | cut -f1)
                 echo "  - ${filename} (${size})"
-                echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/windows/${filename}"
+                echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/releases/v${VERSION}/windows/${filename}"
                 UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
               fi
             done
@@ -1255,6 +1259,9 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Uploading macOS installers to S3 ==="
+          
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          echo "Version: ${VERSION}"
 
           # Merge macOS artifacts from both architectures
           mkdir -p macos-artifacts
@@ -1290,11 +1297,12 @@ jobs:
               exit 1
             fi
 
-            # Upload macOS installers to S3
-            echo "Uploading to: s3://${S3_BUCKET}/${S3_BASE_PATH}/macos/"
+            # Upload macOS installers to S3 with new path structure
+            UPLOAD_PATH="s3://${S3_BUCKET}/${S3_BASE_PATH}/releases/v${VERSION}/macos/"
+            echo "Uploading to: ${UPLOAD_PATH}"
             # Note: --acl removed because bucket does not allow ACLs
             # Use bucket policy to make files public instead
-            aws s3 sync macos-artifacts/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/macos/" \
+            aws s3 sync macos-artifacts/ "${UPLOAD_PATH}" \
               --exclude "*" \
               --include "*.pkg" \
               --include "*.zip"
@@ -1308,7 +1316,7 @@ jobs:
                 filename=$(basename "$file")
                 size=$(du -sh "$file" | cut -f1)
                 echo "  - ${filename} (${size})"
-                echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/macos/${filename}"
+                echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/releases/v${VERSION}/macos/${filename}"
                 UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
               fi
             done
@@ -1332,6 +1340,7 @@ jobs:
         continue-on-error: true
         run: |
           echo "=== Verifying S3 uploads ==="
+          VERSION="${{ needs.validate-tag.outputs.version }}"
           UPLOAD_FAILED=0
 
           # Verify Windows artifacts
@@ -1341,7 +1350,7 @@ jobs:
             for file in windows-artifacts/*.exe windows-artifacts/*.msi; do
               if [ -f "$file" ]; then
                 filename=$(basename "$file")
-                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/windows/${filename}" >/dev/null 2>&1; then
+                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/releases/v${VERSION}/windows/${filename}" >/dev/null 2>&1; then
                   echo "  ✅ ${filename}"
                   WIN_COUNT=$((WIN_COUNT + 1))
                 else
@@ -1362,7 +1371,7 @@ jobs:
             for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
               if [ -f "$file" ]; then
                 filename=$(basename "$file")
-                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/macos/${filename}" >/dev/null 2>&1; then
+                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/releases/v${VERSION}/macos/${filename}" >/dev/null 2>&1; then
                   echo "  ✅ ${filename}"
                   MACOS_COUNT=$((MACOS_COUNT + 1))
                 else
@@ -1385,17 +1394,59 @@ jobs:
             echo "✅ All S3 uploads verified successfully"
           fi
 
+      - name: Generate metadata.json
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BASE_URL != ''
+        env:
+          VERSION: ${{ needs.validate-tag.outputs.version }}
+          S3_BASE_URL: ${{ env.S3_BASE_URL }}
+          CHANNEL: stable
+          RELEASE_BODY: ${{ github.event.release.body || '' }}
+        run: |
+          echo "=== Generating metadata.json ==="
+          python build_system/generate_metadata.py
+          echo "✅ metadata.json generated"
+
+      - name: Upload metadata.json to S3
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET'
+        run: |
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          
+          # Upload metadata.json
+          aws s3 cp dist/metadata/metadata.json \
+            "s3://${S3_BUCKET}/${S3_BASE_PATH}/releases/v${VERSION}/metadata.json"
+          echo "✅ metadata.json uploaded"
+          
+          # Upload release-notes.md if exists
+          if [ -f "dist/metadata/release-notes.md" ]; then
+            aws s3 cp dist/metadata/release-notes.md \
+              "s3://${S3_BUCKET}/${S3_BASE_PATH}/releases/v${VERSION}/release-notes.md"
+            echo "✅ release-notes.md uploaded"
+          fi
+
       - name: Generate all appcasts (unified)
         if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && env.S3_BASE_URL != '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
           VERSION: ${{ needs.validate-tag.outputs.version }}
+          S3_BASE_URL: ${{ env.S3_BASE_URL }}
+          CHANNEL: stable
         run: |
           set -euo pipefail
           echo "=== Generating all appcasts ==="
           python build_system/generate_all_appcasts.py
           echo "✅ All appcasts generated successfully"
+
+      - name: Generate latest.json
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BASE_URL != ''
+        env:
+          VERSION: ${{ needs.validate-tag.outputs.version }}
+          S3_BASE_URL: ${{ env.S3_BASE_URL }}
+          CHANNEL: stable
+        run: |
+          echo "=== Generating latest.json ==="
+          python build_system/generate_latest_json.py
+          echo "✅ latest.json generated"
 
       - name: Validate appcast XML files
         if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
@@ -1403,7 +1454,7 @@ jobs:
           echo "=== Validating appcast XML files ==="
           VALIDATION_FAILED=0
 
-          for f in dist/appcast/*.xml; do
+          for f in dist/channels/stable/*.xml; do
             if [ -f "$f" ]; then
               echo "Validating: $(basename $f)"
               if python -c "import xml.etree.ElementTree as ET; ET.parse('$f')" 2>/dev/null; then
@@ -1431,7 +1482,7 @@ jobs:
         if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
         run: |
           shopt -s nullglob || true
-          for f in dist/appcast/*.xml; do
+          for f in dist/channels/stable/*.xml; do
             if [ ! -s "$f" ]; then echo "Removing empty feed: $f"; rm -f "$f"; fi
           done
 
@@ -1441,28 +1492,40 @@ jobs:
           echo "=== Uploading appcasts to S3 ==="
 
           # Check if appcast files exist before uploading
-          if [ ! -d "dist/appcast" ] || [ -z "$(ls -A dist/appcast/*.xml 2>/dev/null)" ]; then
+          if [ ! -d "dist/channels/stable" ] || [ -z "$(ls -A dist/channels/stable/*.xml 2>/dev/null)" ]; then
             echo "⚠️  No appcast files found, skipping upload"
             exit 0
           fi
 
           # Note: --acl removed because bucket does not allow ACLs
           # Use bucket policy to make files public instead
-          aws s3 sync dist/appcast/ s3://${S3_BUCKET}/appcast/ \
+          # Upload appcasts and latest.json to channels/stable/
+          aws s3 sync dist/channels/stable/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/channels/stable/" \
             --cache-control "max-age=300" \
-            --content-type "application/xml" \
             --exclude "*" \
-            --include "*.xml"
-          echo "✅ Appcasts uploaded to S3"
+            --include "*.xml" \
+            --include "latest.json"
+          
+          # Set content-type for XML files
+          for f in dist/channels/stable/*.xml; do
+            if [ -f "$f" ]; then
+              filename=$(basename "$f")
+              aws s3 cp "$f" "s3://${S3_BUCKET}/${S3_BASE_PATH}/channels/stable/${filename}" \
+                --content-type "application/xml" \
+                --cache-control "max-age=300"
+            fi
+          done
+          
+          echo "✅ Appcasts and latest.json uploaded to S3"
 
           # List uploaded files
           echo ""
-          echo "Appcast files uploaded:"
-          for f in dist/appcast/*.xml; do
+          echo "Files uploaded to channels/stable/:"
+          for f in dist/channels/stable/*.xml dist/channels/stable/latest.json; do
             if [ -f "$f" ]; then
               filename=$(basename "$f")
               echo "  - ${filename}"
-              echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/${filename}"
+              echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/stable/${filename}"
             fi
           done
 
@@ -1470,7 +1533,7 @@ jobs:
         if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
         run: |
           set -e
-          for f in dist/appcast/*.xml; do
+          for f in dist/channels/stable/*.xml; do
             echo "--- $f ---"
             # Print lines containing 'enclosure' with key attributes
             awk 'BEGIN{FS="[<> ]"} /enclosure/ {for(i=1;i<=NF;i++){if($i ~ /url=|sparkle:version=|sparkle:os=|sparkle:arch=|length=|sparkle:edSignature=/) printf("%s ", $i)} print ""}' $f || true
@@ -1480,13 +1543,14 @@ jobs:
         if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
         run: |
           echo "=== Appcast outputs ==="
-          ls -la dist/appcast || true
+          ls -la dist/channels/stable/ || true
 
       - name: Show appcast URLs
         if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
         env:
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
           AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          S3_BASE_PATH: ${{ secrets.S3_BASE_PATH }}
         run: |
           # Display in GitHub Actions Summary
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -1499,12 +1563,13 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ -n "$S3_BUCKET" ] && [ "$S3_BUCKET" != "NOT_SET" ]; then
-            echo "### AWS S3 Appcast URLs" >> $GITHUB_STEP_SUMMARY
+            echo "### AWS S3 Appcast URLs (Stable Channel)" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "- **macOS (All Architectures)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos.xml" >> $GITHUB_STEP_SUMMARY
-            echo "- **macOS (Intel x86_64)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos-amd64.xml" >> $GITHUB_STEP_SUMMARY
-            echo "- **macOS (Apple Silicon)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos-aarch64.xml" >> $GITHUB_STEP_SUMMARY
-            echo "- **Windows (x86_64)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-windows-amd64.xml" >> $GITHUB_STEP_SUMMARY
+            echo "- **macOS (All Architectures)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/stable/appcast-macos.xml" >> $GITHUB_STEP_SUMMARY
+            echo "- **macOS (Intel x86_64)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/stable/appcast-macos-amd64.xml" >> $GITHUB_STEP_SUMMARY
+            echo "- **macOS (Apple Silicon)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/stable/appcast-macos-aarch64.xml" >> $GITHUB_STEP_SUMMARY
+            echo "- **Windows (x86_64)**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/stable/appcast-windows-amd64.xml" >> $GITHUB_STEP_SUMMARY
+            echo "- **latest.json**: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/stable/latest.json" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "> **Note**: Windows only supports x86_64 (amd64) architecture" >> $GITHUB_STEP_SUMMARY
           else
@@ -1517,12 +1582,13 @@ jobs:
           echo "=== Appcast URLs ==="
           echo ""
           if [ -n "$S3_BUCKET" ] && [ "$S3_BUCKET" != "NOT_SET" ]; then
-            echo "AWS S3:"
-            echo "  macOS (aggregate):  https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos.xml"
-            echo "  Windows (aggregate): https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-windows.xml"
-            echo "  macOS (amd64):      https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos-amd64.xml"
-            echo "  macOS (aarch64):    https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos-aarch64.xml"
-            echo "  Windows (amd64):    https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-windows-amd64.xml"
+            echo "AWS S3 (Stable Channel):"
+            echo "  macOS (aggregate):  https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/stable/appcast-macos.xml"
+            echo "  Windows (aggregate): https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/stable/appcast-windows.xml"
+            echo "  macOS (amd64):      https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/stable/appcast-macos-amd64.xml"
+            echo "  macOS (aarch64):    https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/stable/appcast-macos-aarch64.xml"
+            echo "  Windows (amd64):    https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/stable/appcast-windows-amd64.xml"
+            echo "  latest.json:        https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/stable/latest.json"
             echo ""
             echo "Note: Windows only supports amd64 architecture"
           else
@@ -1558,10 +1624,10 @@ jobs:
                 size=$(du -sh "$file" | cut -f1)
                 
                 # Standard S3 URL - use renamed variables to avoid masking
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/windows/${filename}"
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/windows/${filename}"
                 
                 # S3 Transfer Acceleration URL
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/windows/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/windows/${filename}"
                 
                 echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
                 echo "" >> $GITHUB_STEP_SUMMARY
@@ -1602,10 +1668,10 @@ jobs:
                 fi
                 
                 # Standard S3 URL - use renamed variables to avoid masking
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/macos/${filename}"
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/macos/${filename}"
                 
                 # S3 Transfer Acceleration URL
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/macos/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/macos/${filename}"
                 
                 echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
                 echo "" >> $GITHUB_STEP_SUMMARY
@@ -1665,7 +1731,7 @@ jobs:
           echo "- 🧪 [Local Testing Guide](https://github.com/${{ github.repository }}/blob/main/docs/S3_LOCAL_TEST_GUIDE.md)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-      - name: Generate download links document artifact
+      - name: Generate download links text artifact
         if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET'
         env:
           VERSION: ${{ needs.validate-tag.outputs.version }}
@@ -1674,43 +1740,42 @@ jobs:
           BUCKET_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'NOT_SET' }}
         run: |
           set -euo pipefail
-          OUTPUT_FILE="download-links-${VERSION}.md"
+          OUTPUT_FILE="download-links-${VERSION}.txt"
 
-          echo "# eCan Download Links" > "$OUTPUT_FILE"
+          echo "eCan Download Links" > "$OUTPUT_FILE"
           echo "" >> "$OUTPUT_FILE"
-          echo "Version: \`${VERSION}\`" >> "$OUTPUT_FILE"
+          echo "Version: ${VERSION}" >> "$OUTPUT_FILE"
           echo "" >> "$OUTPUT_FILE"
 
           # Windows section
           if [ -d "windows-artifacts" ] && [ "$(ls -A windows-artifacts 2>/dev/null)" ]; then
-            echo "## Windows (x86_64)" >> "$OUTPUT_FILE"
+            echo "[Windows]" >> "$OUTPUT_FILE"
             echo "" >> "$OUTPUT_FILE"
 
             for file in windows-artifacts/*.exe windows-artifacts/*.msi; do
               if [ -f "$file" ]; then
                 filename=$(basename "$file")
                 size=$(du -sh "$file" | cut -f1)
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/windows/${filename}"
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/windows/${filename}"
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/windows/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/windows/${filename}"
 
-                echo "### ${filename}" >> "$OUTPUT_FILE"
-                echo "" >> "$OUTPUT_FILE"
-                echo "- Size: ${size}" >> "$OUTPUT_FILE"
-                echo "- Standard: ${standard_url}" >> "$OUTPUT_FILE"
-                echo "- Accelerated: ${accelerate_url}" >> "$OUTPUT_FILE"
+                echo "${filename}" >> "$OUTPUT_FILE"
+                echo "  Size:       ${size}" >> "$OUTPUT_FILE"
+                echo "  Standard:   ${standard_url}" >> "$OUTPUT_FILE"
+                echo "  Accelerate: ${accelerate_url}" >> "$OUTPUT_FILE"
                 echo "" >> "$OUTPUT_FILE"
               fi
             done
-          else
-            echo "## Windows" >> "$OUTPUT_FILE"
             echo "" >> "$OUTPUT_FILE"
-            echo "_No Windows installers available_" >> "$OUTPUT_FILE"
+          else
+            echo "[Windows]" >> "$OUTPUT_FILE"
+            echo "  No Windows installers available" >> "$OUTPUT_FILE"
             echo "" >> "$OUTPUT_FILE"
           fi
 
           # macOS section
           if [ -d "macos-artifacts" ] && [ "$(ls -A macos-artifacts 2>/dev/null)" ]; then
-            echo "## macOS" >> "$OUTPUT_FILE"
+            echo "[macOS]" >> "$OUTPUT_FILE"
             echo "" >> "$OUTPUT_FILE"
 
             for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
@@ -1725,27 +1790,25 @@ jobs:
                   arch_label="Universal"
                 fi
 
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/macos/${filename}"
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/macos/${filename}"
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/macos/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/macos/${filename}"
 
-                echo "### ${filename}" >> "$OUTPUT_FILE"
-                echo "" >> "$OUTPUT_FILE"
-                echo "- Architecture: ${arch_label}" >> "$OUTPUT_FILE"
-                echo "- Size: ${size}" >> "$OUTPUT_FILE"
-                echo "- Standard: ${standard_url}" >> "$OUTPUT_FILE"
-                echo "- Accelerated: ${accelerate_url}" >> "$OUTPUT_FILE"
+                echo "${filename}" >> "$OUTPUT_FILE"
+                echo "  Arch:       ${arch_label}" >> "$OUTPUT_FILE"
+                echo "  Size:       ${size}" >> "$OUTPUT_FILE"
+                echo "  Standard:   ${standard_url}" >> "$OUTPUT_FILE"
+                echo "  Accelerate: ${accelerate_url}" >> "$OUTPUT_FILE"
                 echo "" >> "$OUTPUT_FILE"
               fi
             done
-          else
-            echo "## macOS" >> "$OUTPUT_FILE"
             echo "" >> "$OUTPUT_FILE"
-            echo "_No macOS installers available_" >> "$OUTPUT_FILE"
+          else
+            echo "[macOS]" >> "$OUTPUT_FILE"
+            echo "  No macOS installers available" >> "$OUTPUT_FILE"
             echo "" >> "$OUTPUT_FILE"
           fi
 
           echo "---" >> "$OUTPUT_FILE"
-          echo "" >> "$OUTPUT_FILE"
           echo "This file contains all download URLs for this build." >> "$OUTPUT_FILE"
           echo "Generated by the release workflow at $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$OUTPUT_FILE"
 
@@ -1756,7 +1819,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: download-links-${{ needs.validate-tag.outputs.version }}
-          path: download-links-${{ needs.validate-tag.outputs.version }}.md
+          path: download-links-${{ needs.validate-tag.outputs.version }}.txt
           if-no-files-found: warn
 
       - name: Final status summary
