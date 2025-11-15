@@ -245,21 +245,29 @@ export const Save = ({ disabled }: SaveProps) => {
         },
       } as any;
 
-      // 4. If user renamed the skill, and we have a current path, rename the underlying <name>_skill folder
+      // 4. If and only if user changed the base skill name, rename the underlying <name>_skill folder
       let effectivePath = currentFilePath || null;
       try {
         if (effectivePath) {
           // Expect path like .../<old>_skill/diagram_dir/<old>_skill.json
           const norm = effectivePath.replace(/\\/g, '/');
           const m = norm.match(/\/([^\/]+)_skill\/diagram_dir\//);
-          const oldName = m?.[1];
-          const newName = updatedSkillInfo.skillName;
-          if (oldName && newName && oldName !== newName) {
-            const resp: any = await IPCWCClient.getInstance().sendRequest('skills.rename', { oldName, newName });
+          const oldBase = m?.[1] || '';
+          // Derive proposed new base from updatedSkillInfo, stripping any _skill suffix
+          const proposedBase = String((updatedSkillInfo as any)?.skillName || '')
+            .replace(/_skill$/i, '')
+            .trim();
+
+          // Only attempt rename when we have both names and they differ
+          if (oldBase && proposedBase && oldBase !== proposedBase) {
+            const resp: any = await IPCWCClient.getInstance().sendRequest('skills.rename', {
+              oldName: oldBase,
+              newName: proposedBase,
+            });
             if (resp?.status === 'success' && resp.result?.skillRoot) {
               const newRoot: string = String(resp.result.skillRoot).replace(/\\/g, '/');
-              // point to new diagram json under renamed root
-              effectivePath = `${newRoot}/diagram_dir/${newName}_skill.json`;
+              // Point to new diagram json under renamed root (backend appends _skill)
+              effectivePath = `${newRoot}/diagram_dir/${proposedBase}_skill.json`;
               setCurrentFilePath(effectivePath);
             }
           }

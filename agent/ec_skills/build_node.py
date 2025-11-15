@@ -18,6 +18,9 @@ from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from langchain_community.chat_models import ChatAnthropic
 from langchain_community.chat_models import ChatOllama
 from langchain_deepseek import ChatDeepSeek
+from app_context import AppContext
+web_gui = AppContext.get_web_gui()
+
 try:
     from langchain_google_genai import ChatGoogleGenerativeAI
 except Exception:
@@ -107,8 +110,13 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         The runtime callable for the LLM node. It formats prompts, invokes the LLM,
         and updates the state with the response.
         """
-        logger.info(f"🤖 Executing LLM node: {node_name}")
-        logger.debug(f"State: {state}")
+        log_msg = f"🤖 Executing LLM node: {node_name}"
+        logger.info(log_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
+        log_msg = f"State: {state}"
+        logger.debug(log_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
         # Find all variable placeholders (e.g., {var_name}) in the prompts
         variables = re.findall(r'\{(\w+)\}', system_prompt_template + user_prompt_template)
@@ -130,9 +138,10 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             final_system_prompt = system_prompt_template.format(**format_context)
             final_user_prompt = user_prompt_template.format(**format_context)
         except KeyError as e:
-            error_message = f"Error formatting prompt: Missing key {e} in state prompt_refs."
-            logger.error(error_message)
-            state['error'] = error_message
+            err_msg = f"Error formatting prompt: Missing key {e} in state prompt_refs."
+            logger.error(err_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            state['error'] = err_msg
             return state
 
         # Build the message list for the LLM
@@ -284,12 +293,18 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         except Exception as e:
             err = f"Failed to create LLM from node config (provider={llm_provider}, model={model_name}): {e}"
             logger.error(f"[build_llm_node] {err}")
+            web_gui.get_ipc_api().send_skill_editor_log("error", f"[build_llm_node] {err}")
             state['error'] = err
             return state
 
         # Log LLM configuration for debugging
-        logger.info(f"🔧 LLM Config (node_config): provider={llm_provider}, model={model_name}, temperature={temperature}")
-        logger.debug(f"📝 Prompt length: system={len(final_system_prompt)}, user={len(final_user_prompt)}")
+        log_msg = f"🔧 LLM Config (node_config): provider={llm_provider}, model={model_name}, temperature={temperature}"
+        logger.info(log_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
+        log_msg = f"📝 Prompt length: system={len(final_system_prompt)}, user={len(final_user_prompt)}"
+        logger.debug(log_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
         # Invoke the LLM and update the state
         try:
@@ -303,12 +318,20 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
                 def invoke_llm():
                     try:
-                        logger.debug("🔄 LLM invocation thread started")
+                        log_msg = "🔄 LLM invocation thread started"
+                        logger.debug(log_msg)
+                        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
                         result = llm_to_use.invoke(messages)
                         result_queue.put(result)
-                        logger.debug("✅ LLM invocation thread completed")
-                    except Exception as exc:
-                        logger.debug(f"❌ LLM invocation thread error: {exc}")
+
+                        log_msg = "✅ LLM invocation thread completed"
+                        logger.debug(log_msg)
+                        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    except Exception as e:
+                        err_msg = get_traceback(e, "ErrorInvokeWithThread❌")
+                        logger.error(err_msg)
+                        web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
                         exception_queue.put(exc)
 
                 start_time = time.time()
@@ -320,18 +343,24 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 if th.is_alive():
                     err_msg = f"⏱️ LLM request timed out after {timeout_sec}s (thread still running)"
                     logger.error(err_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
                     raise TimeoutError(err_msg)
                 if not exception_queue.empty():
                     raise exception_queue.get()
                 if result_queue.empty():
                     raise RuntimeError("❌ LLM thread completed but no result available")
                 resp = result_queue.get()
-                logger.debug(f"⏱️ Request completed in {elapsed:.2f}s")
+                log_msg = f"⏱️ Request completed in {elapsed:.2f}s"
+                logger.debug(log_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
                 return resp
 
             # Single attempt (node-configured llm, no fallback)
             response = _invoke_with_thread(llm, 150.0)
-            logger.info(f"✅ LLM response received from {llm_provider}")
+
+            log_msg = f"✅ LLM response received from {llm_provider}"
+            logger.info(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
             # It's good practice to put results in specific keys
             if 'llm_responses' not in state:
@@ -348,39 +377,45 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
         except Exception as e:
             error_type = type(e).__name__
-            error_str = str(e)
+            error_str = get_traceback(e, "ErrorLLMNodeCallable")
 
             # Detect specific error types and provide helpful messages
             if "AuthenticationError" in error_type or "authentication" in error_str.lower():
-                error_message = (f"❌ LLM Authentication Failed: Invalid API key for {llm_provider}. "
+                err_msg = (f"❌ LLM Authentication Failed: Invalid API key for {llm_provider}. "
                                  "Please check your API key configuration.")
-                logger.error(f"{error_message} | Original error: {e}")
+                logger.error(f"{err_msg} | Original error: {error_str}")
+                web_gui.get_ipc_api().send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
             elif "RateLimitError" in error_type or "rate limit" in error_str.lower() or "quota" in error_str.lower():
-                error_message = (f"❌ LLM Rate Limit Exceeded: {llm_provider} quota exhausted or rate limit reached. "
+                err_msg = (f"❌ LLM Rate Limit Exceeded: {llm_provider} quota exhausted or rate limit reached. "
                                  "Please check your usage limits.")
-                logger.error(f"{error_message} | Original error: {e}")
+                logger.error(f"{err_msg} | Original error: {error_str}")
+                web_gui.get_ipc_api().send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
             elif "timeout" in error_str.lower() or "timed out" in error_str.lower():
-                error_message = (f"⏱️ LLM Request Timeout: Connection to {llm_provider} timed out. "
+                err_msg = (f"⏱️ LLM Request Timeout: Connection to {llm_provider} timed out. "
                                  "This may be due to network issues or API endpoint unreachable.")
-                logger.error(f"{error_message} | Original error: {e}")
+                logger.error(f"{err_msg} | Original error: {error_str}")
+                web_gui.get_ipc_api().send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
             elif "connection" in error_str.lower() or "network" in error_str.lower():
-                error_message = (f"🌐 LLM Connection Error: Cannot connect to {llm_provider} API. "
+                err_msg = (f"🌐 LLM Connection Error: Cannot connect to {llm_provider} API. "
                                  "Please check your network connection and API endpoint configuration.")
-                logger.error(f"{error_message} | Original error: {e}")
+                logger.error(f"{err_msg} | Original error: {error_str}")
+                web_gui.get_ipc_api().send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
             elif "InvalidRequestError" in error_type or "invalid" in error_str.lower() or "model" in error_str.lower():
-                error_message = (f"⚠️ LLM Invalid Request: The request to {llm_provider} was invalid. "
+                err_msg = (f"⚠️ LLM Invalid Request: The request to {llm_provider} was invalid. "
                                  f"Model: '{model_name}'. Error: {error_str}")
-                logger.error(f"{error_message} | Original error: {e}")
+                logger.error(f"{err_msg}")
+                web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
                 # Check if it's a model not found error
                 if "model" in error_str.lower() and ("not found" in error_str.lower() or "does not exist" in error_str.lower()):
-                    logger.error(f"💡 Hint: Model '{model_name}' does not exist. "
-                                 "Common OpenAI models: gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo")
+                    err_msg = f"💡 Hint: Model '{model_name}' does not exist. Common OpenAI models: gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo"
+                    logger.error(err_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
             else:
                 # Generic error with full details
-                error_message = f"❌ LLM Invocation Failed ({error_type}): {error_str}"
-                logger.error(f"LLM invocation error for {llm_provider}/{model_name}: {e}", exc_info=True)
-
-            state['error'] = error_message
+                err_msg = f"❌ LLM Invocation Failed  for {llm_provider}/{model_name}: ({error_type}): {error_str}"
+                logger.error(err_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            state['error'] = err_msg
 
             # Add detailed error info for debugging
             state['error_details'] = {
@@ -403,15 +438,24 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
     This function is responsible for dynamically loading or executing the code and returning
     a callable that can be used as a node in the graph.
     """
-    logger.debug("building basic node", config_metadata)
+    log_msg = f"building basic node: {config_metadata}"
+    logger.debug(log_msg)
+    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
     # Safely extract inline script content; tolerate missing keys and fall back to no-op
     try:
         code_source = (config_metadata or {}).get('script', {}).get('content')
     except Exception:
         code_source = None
-    logger.debug(f"code_source: {code_source}")
+
+    log_msg = f"code_source: {code_source}"
+    logger.debug(log_msg)
+    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
     if not code_source or not isinstance(code_source, str):
-        logger.error("Error: 'code' key is missing or invalid in config_metadata for basic_node.")
+        err_msg = "Error: 'code' key is missing or invalid in config_metadata for basic_node."
+        logger.error(err_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
         # Return a no-op function that just passes the state through
         return lambda state: state
 
@@ -431,10 +475,14 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
             if hasattr(module, 'run'):
                 node_callable = getattr(module, 'run')
             else:
-                logger.warning(f"Basic node file {code_source} is missing a 'run(state)' function.")
+                log_msg = f"Basic node file {code_source} is missing a 'run(state)' function."
+                logger.warning(log_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("warning", log_msg)
 
         except Exception as e:
-            logger.error(f"Error loading module from {code_source}: {e}")
+            err_msg = get_traceback(e, f"ErrorBuildBasicNode {code_source}")
+            logger.error(err_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
 
     # Scenario 2: Code is an inline script
     else:
@@ -447,20 +495,27 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
             main_func = local_scope.get('main')
             if callable(main_func):
                 node_callable = main_func
-                logger.debug("Callable obtained from inline basic node code")
+                log_msg = "Callable obtained from inline basic node code"
+                logger.debug(log_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("debug", log_msg)
             else:
-                logger.warning("No function definition found in inline code for basic node.")
+                log_msg = "No function definition found in inline code for basic node."
+                logger.warning(log_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("warning", log_msg)
 
         except Exception as e:
             err_msg = get_traceback(e, "ErrorExecutingInlineCodeForBasicNode")
             logger.error(err_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
             node_callable = None
 
     # If callable creation failed, return a no-op function
     if node_callable is None:
         return lambda state: state
 
-    logger.debug(f"done building basic node {node_name}")
+    log_msg = f"done building basic node {node_name}"
+    logger.debug(log_msg)
+    web_gui.get_ipc_api().send_skill_editor_log("debug", log_msg)
     full_node_callable = node_builder(node_callable, node_name, skill_name, owner, bp_manager)
 
     return full_node_callable
@@ -482,7 +537,9 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         A sync or async callable function that takes a state dictionary.
     """
     # Extract configuration (support legacy `{http: {...}}` and new flowgram schema)
-    logger.debug("building api node...", config_metadata)
+    log_msg = f"building api node... {config_metadata}"
+    logger.debug(log_msg)
+    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
     cfg_http = config_metadata.get("http") if isinstance(config_metadata, dict) else None
     if isinstance(cfg_http, dict):
         api_endpoint = cfg_http.get('apiUrl') or cfg_http.get('url') or ""
@@ -514,7 +571,9 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     is_sync = bool((config_metadata or {}).get('sync', True))
 
     if not api_endpoint:
-        logger.error("'api_endpoint' is missing in config_metadata for api_node.")
+        err_msg = "'api_endpoint' is missing in config_metadata for api_node."
+        logger.error(err_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
         return lambda state, runtime=None, store=None, **kwargs: {**state, 'error': 'API endpoint not configured'}
 
     def _format_from_state(template, attributes):
@@ -739,7 +798,9 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                                 body[name] = full_value
                                 request_args['json'] = body
         except Exception as e:
-            logger.debug(f"build_api_node api_key injection skipped due to error: {e}")
+            err_msg = get_traceback(e, "ErrorPrepareRequestArgs build_api_node api_key injection skipped")
+            logger.error(err_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
 
         # Handle file attachments for multipart/form-data
         opened_files = []
@@ -769,7 +830,10 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     request_args['data'] = body
         except Exception as e:
             # If attachments setup fails, close any opened files and continue without files
-            logger.debug(f"build_api_node attachments setup error: {e}")
+            err_msg = get_traceback(e, "ErrorPrepareRequestArgs build_api_node attachments setup")
+            logger.debug(err_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+
             for fh in opened_files:
                 try:
                     fh.close()
@@ -810,15 +874,19 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     'headers': dict(response.headers),
                     'body': payload,
                 })
-                logger.debug(f"received response payload: {payload}")
+                log_msg = f"received response payload: {payload}"
+                logger.debug(log_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
         except httpx.HTTPStatusError as e:
-            error_msg = f"API call failed with status {e.response.status_code}: {e.response.text}"
-            logger.error(error_msg)
-            state['error'] = error_msg
+            err_msg = f"API call failed with status {e.response.status_code}: {e.response.text}"
+            logger.error(err_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            state['error'] = err_msg
         except Exception as e:
-            error_msg = f"API call failed: {e}"
-            logger.error(error_msg)
-            state['error'] = error_msg
+            err_msg = get_traceback(e, "ErrorSyncAPICallable")
+            logger.error(err_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            state['error'] = err_msg
         finally:
             for fh in file_handles:
                 try:
@@ -840,13 +908,15 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 response.raise_for_status()
                 state.setdefault('results', []).append(response.json())
         except httpx.HTTPStatusError as e:
-            error_msg = f"API call failed with status {e.response.status_code}: {e.response.text}"
-            logger.error(error_msg)
-            state['error'] = error_msg
+            err_msg = f"API call failed with status {e.response.status_code}: {e.response.text}"
+            logger.error(err_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            state['error'] = err_msg
         except Exception as e:
-            error_msg = f"API call failed: {e}"
-            logger.error(error_msg)
-            state['error'] = error_msg
+            err_msg = get_traceback(e, "ErrorASyncAPICallable")
+            logger.error(err_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            state['error'] = err_msg
         finally:
             for fh in file_handles:
                 try:
@@ -878,7 +948,10 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         A callable function that takes a state dictionary.
     """
     # Accept multiple shapes from GUI/legacy formats
-    logger.debug("building mcp tool node", config_metadata)
+    log_msg = f"building mcp tool node: {config_metadata}"
+    logger.debug(log_msg)
+    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
     tool_name = None
     try:
         tool_name = (config_metadata.get('tool_name')
@@ -892,7 +965,10 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         tool_name = None
 
     if not tool_name:
-        logger.error("'tool_name' is missing in config_metadata for mcp_tool_calling_node.")
+        err_msg = "'tool_name' is missing in config_metadata for mcp_tool_calling_node."
+        logger.error(err_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+
         return lambda state: {**state, 'error': 'MCP tool_name not configured'}
 
     # --- MCP tool input helpers (schema-aware) ---
@@ -1052,7 +1128,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         return out
 
     def mcp_tool_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
-        logger.info(f"Executing MCP tool node for tool: {tool_name}")
+        log_msg = f"Executing MCP tool node for tool: {tool_name}"
+        logger.info(log_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
         # By convention, the input for the tool is expected in state['tool_input']
         tool_input = state.get('tool_input', {})
@@ -1065,30 +1143,44 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 compiled_input = _build_input_from_config(config_metadata, _root)
                 tool_input = _merge_inputs(tool_input if isinstance(tool_input, dict) else {}, compiled_input)
                 state['tool_input'] = tool_input
-                logger.debug(f"tool_input backfilled for {tool_name}: {state['tool_input']}")
 
-        except Exception as _e:
-            logger.debug(f"mcp_tool_callable backfill skipped due to error: {_e}")
+                log_msg = f"tool_input backfilled for {tool_name}: {state['tool_input']}"
+                logger.debug(log_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
+        except Exception as e:
+            err_msg = get_traceback(e, "ErrorMCPToolCallable")
+            logger.debug(err_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
 
 
         async def run_tool_call():
             """A local async function to perform the actual tool call."""
-            logger.info(f"Calling MCP tool '{tool_name}' with input: {tool_input}")
+            log_msg = f"Calling MCP tool '{tool_name}' with input: {tool_input}"
+            logger.info(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
             return await mcp_call_tool(tool_name, tool_input)
 
         try:
             # Use the utility to run the async function from a sync context
             tool_result = run_async_in_sync(run_tool_call())
-            logger.debug("mcp tool call results:", tool_result)
+            log_msg = f"mcp tool call results: {tool_result}"
+            logger.debug(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
             # Add the result to the state (result is a dict, not a list)
             state['tool_result'] = tool_result
 
             # Also update attributes for easier access by subsequent nodes
-            logger.debug("state tool_result:", state['tool_result'])
+            log_msg = f"state tool_result: {state['tool_result']}"
+            logger.debug(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
         except Exception as e:
-            error_msg = get_traceback(e, f"ErrorMCPToolCallable({tool_name})")
-            logger.error(error_msg)
-            state['error'] = error_msg
+            err_msg = get_traceback(e, f"ErrorMCPToolCallable({tool_name})")
+            logger.error(err_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            state['error'] = err_msg
 
         return state
 
@@ -1102,7 +1194,10 @@ def build_condition_node(config_metadata: dict, node_name: str, skill_name: str,
     """Conditions are handled by graph's conditional edges.
     Return a no-op callable to keep the graph executable when visited.
     """
-    logger.debug("building condition node", config_metadata)
+    log_msg = f"building condition node : {config_metadata}"
+    logger.debug(log_msg)
+    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
     def _noop(state: dict, *, runtime=None, store=None, **kwargs):
         return state
     # Wrap to inherit common context/retry behavior
@@ -1111,7 +1206,10 @@ def build_condition_node(config_metadata: dict, node_name: str, skill_name: str,
 
 def build_loop_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     """Loops are translated structurally by the compiler; runtime callable is a no-op."""
-    logger.debug("building loop node", config_metadata)
+    log_msg = f"building loop node : {config_metadata}"
+    logger.debug(log_msg)
+    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
     def _noop(state: dict, *, runtime=None, store=None, **kwargs):
         return state
     return node_builder(_noop, node_name, skill_name, owner, bp_manager)
@@ -1124,17 +1222,40 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
       - prompt: optional string to present to human/agent
       - tag: optional business tag; defaults to node_name
     """
-    logger.debug("building pend event node:", config_metadata)
+    log_msg = f"building pend event node : {config_metadata}"
+    logger.debug(log_msg)
+    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
     prompt = (config_metadata or {}).get("prompt") or "Action required to continue."
     tag = (config_metadata or {}).get("tag") or node_name
 
+    main_event = config_metadata["inputsValues"]["eventType"]["content"]
+    additional_events = config_metadata["inputsValues"]["pendingEvents"]["content"]
+
+    logger.debug("[search_digikey_chatter_skill] pend_for_human_fill_FOM_node run time:", runtime)
+
+
     def _pend(state: dict, *, runtime=None, store=None, **kwargs):
+
+        current_node_name = runtime.context["this_node"].get("name")
+
+        logger.debug("[search_digikey_chatter_skill] pend_for_human_fill_FOM_node:", current_node_name, state)
+        if state.get("metadata"):
+            qa_form = state.get("metadata").get("qa_form", None)
+            notification = state.get("metadata").get("notification", None)
+        else:
+            qa_form = None
+            notification = None
+
         info = {
             "i_tag": tag,
             "paused_at": node_name,
             "prompt_to_human": prompt,
+            "qa_form_to_human": qa_form,
+            "notification_to_human": notification,
         }
         resume_payload = interrupt(info)
+
         # If resumer supplied a state patch (e.g., via Command(resume={... "_state_patch": {...}})), merge it
         try:
             if isinstance(resume_payload, dict) and "_state_patch" in resume_payload:
@@ -1160,10 +1281,33 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         except Exception:
             pass
 
-        logger.debug("[pend_event_node] resume payload received:", resume_payload)
-        logger.debug("[pend_event_node] resumed, state:", state)
+        log_msg = f"[pend_event_node] resume payload received: {resume_payload}"
+        logger.debug(log_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
-        # data = try_parse_json(resume_payload.get("human_text"))
+        log_msg = f"[pend_event_node] resumed, state: {state}"
+        logger.debug(log_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
+        # Normalize human_text and parse
+        raw_ht = resume_payload.get("human_text")
+        if isinstance(raw_ht, list):
+            raw_ht = raw_ht[0] if raw_ht else None
+        if isinstance(raw_ht, dict):
+            data = raw_ht
+        else:
+            data = try_parse_json(raw_ht)
+        state.setdefault("metadata", {})
+        if isinstance(data, dict):
+            if data.get("type", "") == "normal":
+                state["metadata"]["filled_parametric_filter"] = data
+                logger.debug(f"[{node_name}] saving filled parametric filter form......",
+                             state["metadata"]["filled_parametric_filter"])
+            elif data.get("type", "") == "score":
+                state["metadata"]["filled_fom_form"] = data
+                logger.debug(f"[{node_name}] saving filled fom form......",
+                             state["metadata"]["filled_fom_form"])
+
         return state
 
     return node_builder(_pend, node_name, skill_name, owner, bp_manager)
@@ -1171,7 +1315,10 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
 
 def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     """Chat node sends messages via TaskRunner GUI methods."""
-    logger.debug("building chat node:", config_metadata)
+    log_msg = f"building chat node : {config_metadata}"
+    logger.debug(log_msg)
+    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
     role = ((config_metadata or {}).get("role") or "assistant").lower()
     msg_tpl = (config_metadata or {}).get("message") or ""
     wait_for_reply = bool((config_metadata or {}).get("wait_for_reply", False))
@@ -1213,7 +1360,9 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
 
                 runner and runner.sendChatMessageToGUI(agent, chat_id, message)
         except Exception as e:
-            logger.debug(f"chat_node GUI send failed: {e}")
+            err_msg = get_traceback(e, "ErrorBuildChatNode")
+            logger.error(err_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
 
         if wait_for_reply:
             interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": message})
@@ -1224,7 +1373,10 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
 
 def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     """RAG node with optional LIGHTRAG API."""
-    logger.debug("building rag node:", config_metadata)
+    log_msg = f"building rag node : {config_metadata}"
+    logger.debug(log_msg)
+    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
     query_path = (config_metadata or {}).get("query_path") or "attributes.query"
     def _rag(state: dict, *, runtime=None, store=None, **kwargs):
         # Resolve dotted path from state
@@ -1250,7 +1402,9 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
                         # best-effort normalize
                         results = data.get('documents') or data.get('results') or data.get('hits') or []
         except Exception as e:
-            logger.debug(f"RAG backend error: {e}")
+            err_msg = get_traceback(e, "ErrorBuildRagNode")
+            logger.error(err_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
         # Ensure tool_result is a dict; previous nodes may set non-dict objects here
         try:
             tr = state.get("tool_result") if isinstance(state, dict) else None
@@ -1262,9 +1416,12 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
             # Best-effort: record error without raising to keep the workflow moving
             try:
                 from utils.logger_helper import get_traceback as _gt
-                logger.debug(_gt(_e, "ErrorRAGNodeToolResult"))
+                err_msg = _gt(_e, "ErrorRAGNodeToolResult")
+                logger.error(err_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
             except Exception:
                 logger.debug(f"RAG node tool_result set failed: {_e}")
+                web_gui.get_ipc_api().send_skill_editor_log("error", f"RAG node tool_result set failed: {_e}")
             state["error"] = f"rag node failed to set tool_result: {_e}"
         return state
 
@@ -1280,7 +1437,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
       - wait_for_done: whether to interrupt when external completion is needed
       - model: optional LLM model for browser-use (env fallback supported)
     """
-    logger.debug("building browser automation node:", config_metadata)
+    log_msg = f"building browser automation node : {config_metadata}"
+    logger.debug(log_msg)
     provider = ((config_metadata or {}).get("provider") or "browser-use").lower()
     action = (config_metadata or {}).get("action") or "open_page"
     params = (config_metadata or {}).get("params") or {}
@@ -1312,7 +1470,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             final = history.final_result() if hasattr(history, 'final_result') else None
             return {"final": final, "history": str(history)}
         except Exception as e:
-            return {"error": str(e)}
+            err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode")
+            logger.error(err_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            return {"error": str(err_msg)}
 
     def _auto(state: dict, *, runtime=None, store=None, **kwargs):
         if provider == 'browser-use':
@@ -1326,13 +1487,16 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if agent and hasattr(agent, 'mainwin'):
                         mainwin = agent.mainwin
             except Exception as e:
-                logger.warning(f"[build_browser_automation_node] Failed to get mainwin: {e}")
-            
+                err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode brower-use")
+                logger.warning(err_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("warning", err_msg)
+
             if not mainwin:
-                error_msg = "Cannot create browser_use LLM: mainwin not available. Please ensure agent is properly initialized."
-                logger.error(f"[build_browser_automation_node] {error_msg}")
+                err_msg = "Cannot create browser_use LLM: mainwin not available. Please ensure agent is properly initialized."
+                logger.error(f"[build_browser_automation_node] {err_msg}")
+                web_gui.get_ipc_api().send_skill_editor_log("error", f"[build_browser_automation_node] {err_msg}")
                 state.setdefault("tool_result", {})
-                state["tool_result"][node_name] = {"provider": provider, "task": task_text, "error": error_msg}
+                state["tool_result"][node_name] = {"provider": provider, "task": task_text, "error": err_msg}
                 return state
             
             info = {}

@@ -553,3 +553,53 @@ class IPCAPI:
             
         except Exception as e:
             logger.error(f"[IPCAPI] Error sending onboarding request: {e}")
+
+
+    def send_skill_editor_log(
+            self,
+            level: str,
+            text: str
+    ) -> None:
+        """
+        send skill editor run log to the frontend
+        Uses standard request format (method: 'skill_editor_log')
+        Frontend decides how to display based on level
+
+        Interface Definition (Standard IPC Request):
+        {
+            'type': 'request',
+            'method': 'skill_editor_log',
+            'params': {
+                'level': str,  // e.g., 'llm_provider_config'
+                'text': str         // Optional context data
+            },
+            'id': str  // Unique request ID
+        }
+
+        Args:
+            level: Type of message (e.g., 'log/warning/error')
+            text: whatever log text message (e.g., )
+        """
+        try:
+            import json
+            import uuid
+            import time
+
+            # Create standard IPC request for onboarding
+            request = {
+                "id": f"log-{uuid.uuid4()}",
+                "type": "request",
+                "method": "skill_editor_log",
+                "params": {
+                    "type": level,  # "log", "warning", or "error"
+                    "text": text
+                },
+                "timestamp": int(time.time() * 1000)
+            }
+
+            # Send via standard IPC channel (no response expected for this fire-and-forget request)
+            self._ipc_wc_service.python_to_web.emit(json.dumps(request))
+            logger.info(f"[IPCAPI] Sent skill editor log request: {level}")
+
+        except Exception as e:
+            logger.error(f"[IPCAPI] Error sending skill editor log request: {e}")

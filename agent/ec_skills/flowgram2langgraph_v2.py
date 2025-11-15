@@ -382,6 +382,10 @@ def main(state, *, runtime, store):
     # Append new edges
     edges_out.extend(new_edges)
 
+    # Defensive sweep: drop edges whose endpoints are no longer present (e.g., loop containers)
+    valid_ids = {str(n.get('id')) for n in nodes_out}
+    edges_out = [e for e in edges_out if str(e.get('sourceNodeID')) in valid_ids and str(e.get('targetNodeID')) in valid_ids]
+
     out = {'nodes': nodes_out, 'edges': edges_out}
     _v2_debug_workflow('after_convert_loops', out)
     return out
@@ -564,6 +568,23 @@ def flowgram2langgraph_v2(flow: dict, bundle_json: Optional[dict] = None, enable
     stitched = {'nodes': nodes_no_struct, 'edges': rewired}
     _v2_debug_workflow('after_convert_loops', stitched, base_name)
     _v2_save_mermaid('after_convert_loops', stitched, base_name)
+
+    # 2) Remove groups
+    stitched = _v2_remove_groups(stitched)
+
+    # 3) Convert loops: iteratively rewrite loop containers to flat graphs (handles nested loops)
+    def _has_loops(wf: dict) -> bool:
+        try:
+            return any((n or {}).get('type') == 'loop' for n in (wf.get('nodes') or []))
+        except Exception:
+            return False
+    max_iters = 10
+    iters = 0
+    while _has_loops(stitched) and iters < max_iters:
+        stitched = _v2_convert_loops(stitched)
+        iters += 1
+    if _has_loops(stitched):
+        logger.debug('[v2] loop conversion reached iteration cap; residual loop nodes may remain')
 
     # 4) Convert conditions (deferred to v1 for now)
     stitched = _v2_convert_conditions_schema_level(stitched)
