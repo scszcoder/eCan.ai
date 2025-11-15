@@ -4,11 +4,15 @@ This directory contains language files for Inno Setup installer.
 
 ## Current Languages
 
-- **ChineseSimplified.isl** - Simplified Chinese (简体中文)
+- **ChineseSimplified.islu** - Simplified Chinese (简体中文)
+  - Format: Unicode (.islu) with LanguageCodePage=0
   - Source: [Inno Setup Official Unofficial Languages](https://github.com/jrsoftware/issrc/tree/main/Files/Languages/Unofficial)
   - Maintained by: Zhenghan Yang
-  - Version: Compatible with Inno Setup 6.5.0+
+  - Version: Compatible with Inno Setup 6.0+ (Unicode version)
   - Last Updated: 2024-11-15
+
+> **Note**: This project uses `.islu` (Unicode) format exclusively for all language packs.
+> This is the modern standard recommended by Inno Setup for Unicode support.
 
 ## Adding New Languages
 
@@ -35,6 +39,7 @@ python ../download_inno_languages.py --installed
 
 The script will:
 - ✅ Download from official Inno Setup repository
+- ✅ **Automatically convert to `.islu` format** (LanguageCodePage=0)
 - ✅ Verify file integrity
 - ✅ Display language information (name, ID, codepage)
 - ✅ Save to the correct directory automatically
@@ -47,29 +52,41 @@ The script will:
 
 2. Download the `.isl` file for your language
 
-3. Place it in this directory: `build_system/inno_setup_languages/`
+3. **Convert to `.islu` format:**
+   - Rename file extension from `.isl` to `.islu`
+   - Change `LanguageCodePage=<number>` to `LanguageCodePage=0`
+   - Ensure file is saved as UTF-8 encoding
 
-4. The build system will automatically detect and install it during CI/CD
+4. Place it in this directory: `build_system/inno_setup_languages/`
+
+5. The build system will automatically detect and install it during CI/CD
 
 ### Method 3: Custom Translation
 
-1. Copy `ChineseSimplified.isl` as a template
+1. Copy `ChineseSimplified.islu` as a template
 2. Translate all message strings
-3. Update `LanguageName`, `LanguageID`, and `LanguageCodePage` in `[LangOptions]` section
-4. Test locally before committing
+3. Update `LanguageName` and `LanguageID` in `[LangOptions]` section
+4. Keep `LanguageCodePage=0` (for Unicode support)
+5. Save as UTF-8 encoding with `.islu` extension
+6. Test locally before committing
 
-## Language Pack Structure
+## Language Pack Structure (.islu format)
 
 ```ini
 [LangOptions]
 LanguageName=简体中文           # Display name
 LanguageID=$0804               # Windows LCID
-LanguageCodePage=936           # Windows code page
+LanguageCodePage=0             # 0 = Unicode (required for .islu)
 
 [Messages]
 SetupAppTitle=安装              # Translated messages
 ...
 ```
+
+**Key Points:**
+- File extension: `.islu` (not `.isl`)
+- Encoding: UTF-8 (without BOM recommended)
+- LanguageCodePage: Must be `0` for Unicode support
 
 ## Updating Existing Languages
 
@@ -77,16 +94,19 @@ SetupAppTitle=安装              # Translated messages
 2. Download the latest version
 3. Review changes (use `git diff`)
 4. Test the build locally
-5. Commit with clear message: `chore: update ChineseSimplified.isl to v6.x.x`
+5. Commit with clear message: `chore: update ChineseSimplified.islu to v6.x.x`
 
 ## CI/CD Integration
 
 The GitHub Actions workflow automatically:
-1. Detects all `.isl` files in this directory
+1. Detects all `.islu` files in this directory
 2. Installs them to Inno Setup's Languages directory
 3. Includes them in the installer script
 
-No workflow changes needed when adding new languages!
+**No workflow changes needed when adding new languages!**
+
+> The workflow only processes `.islu` files (Unicode format).
+> Legacy `.isl` files are not supported.
 
 ## Best Practices
 
@@ -98,10 +118,11 @@ No workflow changes needed when adding new languages!
 - Keep terminology consistent with product UI
 
 ❌ **DON'T:**
-- Download during CI/CD (unreliable)
+- Use `.isl` files (legacy ANSI format, not supported)
 - Mix different Inno Setup versions
 - Modify without testing
 - Use machine translation without review
+- Save files with non-UTF-8 encoding
 
 ## Troubleshooting
 
