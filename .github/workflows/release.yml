@@ -1523,6 +1523,10 @@ jobs:
         if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET'
         env:
           VERSION: ${{ needs.validate-tag.outputs.version }}
+          # Use non-secret variables to avoid masking in output
+          BUCKET_NAME: ${{ secrets.S3_BUCKET || 'NOT_SET' }}
+          BUCKET_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
+          BUCKET_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'NOT_SET' }}
         run: |
           echo "=== Generating S3 Download Links ==="
           echo ""
@@ -1543,11 +1547,11 @@ jobs:
                 filename=$(basename "$file")
                 size=$(du -sh "$file" | cut -f1)
                 
-                # Standard S3 URL
-                standard_url="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/windows/${filename}"
+                # Standard S3 URL - use renamed variables to avoid masking
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/windows/${filename}"
                 
                 # S3 Transfer Acceleration URL
-                accelerate_url="https://${S3_BUCKET}.s3-accelerate.amazonaws.com/${S3_BASE_PATH}/windows/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/windows/${filename}"
                 
                 echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
                 echo "" >> $GITHUB_STEP_SUMMARY
@@ -1587,11 +1591,11 @@ jobs:
                   arch_label="Universal"
                 fi
                 
-                # Standard S3 URL
-                standard_url="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/macos/${filename}"
+                # Standard S3 URL - use renamed variables to avoid masking
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/macos/${filename}"
                 
                 # S3 Transfer Acceleration URL
-                accelerate_url="https://${S3_BUCKET}.s3-accelerate.amazonaws.com/${S3_BASE_PATH}/macos/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/macos/${filename}"
                 
                 echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
                 echo "" >> $GITHUB_STEP_SUMMARY
@@ -1666,8 +1670,8 @@ jobs:
               if [ -f "$file" ]; then
                 filename=$(basename "$file")
                 size=$(du -sh "$file" | cut -f1)
-                standard_url="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/windows/${filename}"
-                accelerate_url="https://${S3_BUCKET}.s3-accelerate.amazonaws.com/${S3_BASE_PATH}/windows/${filename}"
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/windows/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/windows/${filename}"
                 
                 echo ""
                 echo "📦 ${filename} (${size})"
@@ -1696,8 +1700,8 @@ jobs:
                   arch_label="Universal"
                 fi
                 
-                standard_url="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/macos/${filename}"
-                accelerate_url="https://${S3_BUCKET}.s3-accelerate.amazonaws.com/${S3_BASE_PATH}/macos/${filename}"
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/macos/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/macos/${filename}"
                 
                 echo ""
                 echo "📦 ${filename} (${size}) - ${arch_label}"
