@@ -61,8 +61,8 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
           }}
         </Field>
         <Divider />
-        <FormItem name="Pending Events" type="array" vertical>
-          <Field<any> name="inputsValues.pendingEvents">
+        <FormItem name="Pending Sources" type="array" vertical>
+          <Field<any> name="inputsValues.pendingSources">
             {({ field }) => {
               const raw = Array.isArray(field.value?.content) ? (field.value.content as any[]) : [];
               const toObj = (item: any) =>
