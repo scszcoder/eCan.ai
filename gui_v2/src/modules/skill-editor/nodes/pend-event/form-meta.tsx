@@ -31,7 +31,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
             const et = String(field.value?.content ?? 'human_chat');
             if (["websocket", "sse", "webhook"].includes(et)) {
               return (
-                <FormItem name="Message Type" type="string" vertical>
+                <FormItem key={`main-extra-${et}`} name="Message Type" type="string" vertical>
                   <Field<any> name="inputsValues.messageType">
                     {({ field: mtField }) => (
                       <Input
@@ -45,7 +45,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
             }
             if (et === 'a2a') {
               return (
-                <FormItem name="Agent Ids" type="string" vertical>
+                <FormItem key={`main-extra-${et}`} name="Agent Ids" type="string" vertical>
                   <Field<any> name="inputsValues.agentIds">
                     {({ field: aiField }) => (
                       <Input
@@ -105,7 +105,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                           </Button>
                         </div>
                         {['websocket', 'sse', 'webhook'].includes(et) && (
-                          <FormItem name="Message Type" type="string" vertical>
+                          <FormItem key={`list-extra-${i}-${et}`} name="Message Type" type="string" vertical>
                             <Input
                               value={item.messageType ?? ''}
                               onChange={(val) => updateExtraAt(i, 'messageType', String(val))}
@@ -113,7 +113,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                           </FormItem>
                         )}
                         {et === 'a2a' && (
-                          <FormItem name="Agent Ids" type="string" vertical>
+                          <FormItem key={`list-extra-${i}-${et}`} name="Agent Ids" type="string" vertical>
                             <Input
                               value={item.agentIds ?? ''}
                               onChange={(val) => updateExtraAt(i, 'agentIds', String(val))}
