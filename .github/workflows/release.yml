@@ -316,6 +316,44 @@ jobs:
             New-Item -ItemType Directory -Path $targetLangDir -Force | Out-Null 
         }
 
+        # DIAGNOSTIC: Show what Inno Setup installer included by default
+        Write-Host "=== Diagnostic: Inno Setup Default Language Files ===" -ForegroundColor Magenta
+        $defaultLangFiles = Get-ChildItem -Path $targetLangDir -Include "*.isl","*.islu" -ErrorAction SilentlyContinue
+        if ($defaultLangFiles.Count -gt 0) {
+            Write-Host "Found $($defaultLangFiles.Count) language files installed by Inno Setup:" -ForegroundColor Yellow
+            foreach ($file in $defaultLangFiles) {
+                $size = [math]::Round($file.Length / 1KB, 2)
+                # Check encoding by reading first few lines
+                $encoding = "Unknown"
+                try {
+                    $content = Get-Content $file.FullName -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+                    if ($content -match 'LanguageCodePage=0') {
+                        $encoding = "Unicode (CodePage=0)"
+                    } elseif ($content -match 'LanguageCodePage=(\d+)') {
+                        $encoding = "ANSI (CodePage=$($matches[1]))"
+                    }
+                } catch {}
+                Write-Host "  - $($file.Name) [$($file.Extension)] $size KB - $encoding" -ForegroundColor $(if ($file.Extension -eq ".islu") { "Green" } elseif ($file.Name -eq "Default.isl") { "Cyan" } else { "Red" })
+            }
+        } else {
+            Write-Host "No default language files found (unexpected)" -ForegroundColor Yellow
+        }
+        Write-Host ""
+
+        # CRITICAL FIX: Remove ALL existing language files to avoid conflicts
+        # Inno Setup installer may include default .isl files (ANSI encoding) that conflict with our Unicode .islu files
+        Write-Host "=== Cleaning existing language files ===" -ForegroundColor Yellow
+        $existingLangFiles = Get-ChildItem -Path $targetLangDir -Include "*.isl","*.islu" -Recurse -ErrorAction SilentlyContinue
+        foreach ($file in $existingLangFiles) {
+            # Keep only Default.isl (English) - remove all other language files
+            if ($file.Name -ne "Default.isl") {
+                Remove-Item $file.FullName -Force -ErrorAction SilentlyContinue
+                Write-Host "  Removed: $($file.Name)" -ForegroundColor Gray
+            }
+        }
+        Write-Host "✓ Cleaned $(($existingLangFiles | Where-Object { $_.Name -ne 'Default.isl' }).Count) language files" -ForegroundColor Green
+        Write-Host ""
+
         # Find all .islu files in source directory (Unicode language packs only)
         $langFiles = Get-ChildItem -Path $sourceLangDir -Filter "*.islu" -ErrorAction SilentlyContinue
         
@@ -351,6 +389,18 @@ jobs:
         Write-Host "=== Installation Summary ===" -ForegroundColor Cyan
         Write-Host "Total language packs installed: $installed" -ForegroundColor Green
         Write-Host "Languages directory: $targetLangDir" -ForegroundColor Gray
+        Write-Host ""
+        
+        # Verify: List all language files to confirm only our Unicode .islu files are present
+        Write-Host "=== Final Language Files Verification ===" -ForegroundColor Cyan
+        $finalLangFiles = Get-ChildItem -Path $targetLangDir -Include "*.isl","*.islu" -ErrorAction SilentlyContinue
+        foreach ($file in $finalLangFiles) {
+            $encoding = if ($file.Extension -eq ".islu") { "Unicode" } else { "ANSI" }
+            $status = if ($file.Name -eq "Default.isl") { "[System]" } elseif ($file.Extension -eq ".islu") { "[OK]" } else { "[WARNING]" }
+            Write-Host "  $status $($file.Name) ($encoding)" -ForegroundColor $(if ($file.Extension -eq ".islu" -or $file.Name -eq "Default.isl") { "Green" } else { "Yellow" })
+        }
+        Write-Host ""
+        Write-Host "✅ Language pack installation completed" -ForegroundColor Green
 
     # ------------------------------------------------------------------------
     # Step Group 5: Build Environment Preparation
