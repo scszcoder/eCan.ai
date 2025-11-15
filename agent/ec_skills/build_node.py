@@ -1232,14 +1232,13 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
     main_event = config_metadata["inputsValues"]["eventType"]["content"]
     additional_events = config_metadata["inputsValues"]["pendingEvents"]["content"]
 
-    logger.debug("[search_digikey_chatter_skill] pend_for_human_fill_FOM_node run time:", runtime)
-
 
     def _pend(state: dict, *, runtime=None, store=None, **kwargs):
 
         current_node_name = runtime.context["this_node"].get("name")
-
-        logger.debug("[search_digikey_chatter_skill] pend_for_human_fill_FOM_node:", current_node_name, state)
+        log_msg = f"[Pending For Event Node] pend_for_human_fill_FOM_node: {current_node_name}, {state}"
+        logger.debug(log_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
         if state.get("metadata"):
             qa_form = state.get("metadata").get("qa_form", None)
             notification = state.get("metadata").get("notification", None)
