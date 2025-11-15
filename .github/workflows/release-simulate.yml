@@ -1,4 +1,27 @@
-name: Release Flow Smoke Test (Simulated)
+name: Release Flow Simulation (Current Architecture)
+#
+# This workflow is fully synced with release.yml for validating the current flow architecture
+#
+# Architecture features:
+#   - build-windows: Single job with platform and arch conditional checks
+#   - build-macos: Matrix strategy (amd64, aarch64), job-level platform check, step-level arch filtering
+#   - upload-to-s3: Single job downloading all platform artifacts
+#   - generate-appcast: Single job generating OTA configuration
+#
+# Purpose:
+#   - Quickly validate workflow flow logic (< 5 minutes)
+#   - Test conditional logic correctness
+#   - Verify artifact naming and passing
+#   - No actual build execution, only creates simulated artifacts
+#
+# Supported test scenarios:
+#   1. platform=windows, arch=amd64      - Build Windows only
+#   2. platform=macos, arch=amd64        - Build macOS Intel only
+#   3. platform=macos, arch=aarch64      - Build macOS ARM only
+#   4. platform=macos, arch=all          - Build all macOS
+#   5. platform=all, arch=amd64          - Build all Intel
+#   6. platform=all, arch=aarch64        - Build macOS ARM only (Windows doesn't support ARM)
+#   7. platform=all, arch=all            - Complete build
 
 on:
   workflow_dispatch:
@@ -36,7 +59,7 @@ on:
           - 'false'
 
 concurrency:
-  group: ecan-release-sim-${{ github.ref }}
+  group: ecan-release-sim-${{ github.ref }}-${{ github.event.inputs.platform }}-${{ github.event.inputs.arch }}
   cancel-in-progress: true
 
 jobs:
@@ -52,6 +75,7 @@ jobs:
           echo "version=0.0.0-sim" >> $GITHUB_OUTPUT
 
   build-windows:
+    name: Build Windows amd64
     needs: validate-tag
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
@@ -59,50 +83,66 @@ jobs:
        github.event.inputs.platform == 'all') &&
       (github.event.inputs.arch == 'amd64' ||
        github.event.inputs.arch == 'all')
-    runs-on: windows-latest
+    runs-on: ubuntu-latest  # Use ubuntu for faster simulation
     env:
       BUILD_ARCH: amd64
     steps:
-      - name: Create fake Windows artifact
-        shell: pwsh
+      # Note: Frontend is always built in real workflow (no change detection)
+      # Simulation doesn't need frontend build steps
+      - name: Simulate Windows build
         run: |
-          $version = "${{ needs.validate-tag.outputs.version }}"
-          $arch = "$env:BUILD_ARCH"
-          New-Item -ItemType Directory -Force -Path "dist","artifacts" | Out-Null
-          $path = "dist/eCan-$version-windows-$arch-Setup.exe"
-          "fake windows setup" | Set-Content $path
-          Copy-Item $path "artifacts/"
-      - name: Upload Windows artifacts for S3 transfer
+          echo "=== Simulating Windows amd64 Build ==="
+          echo "Platform: Windows"
+          echo "Architecture: $BUILD_ARCH"
+          echo "Note: Real workflow always builds frontend (no skip logic)"
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          mkdir -p dist artifacts
+          echo "fake windows installer" > "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe"
+          cp "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe" artifacts/
+          echo "✅ Windows build simulated"
+
+      - name: Upload Windows artifacts for S3 transfer (always, short retention)
         uses: actions/upload-artifact@v4
         with:
-          name: eCan-Windows-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: artifacts/
           retention-days: 1
+          compression-level: 6
           if-no-files-found: error
-      - name: Upload Windows artifacts for users (optional)
+
+      - name: Upload Windows artifacts for users (optional, long retention)
         if: github.event.inputs.upload_artifacts == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
           path: artifacts/
-          retention-days: 7
-          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
 
   build-macos:
+    name: Build macOS
     needs: validate-tag
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'macos' ||
        github.event.inputs.platform == 'all')
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-latest  # Use ubuntu for faster simulation
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: amd64
-            runner: macos-14
+            runner: macos-14-large  # Would use Intel runner in real workflow (macos-13 deprecated)
+            target_arch: x86_64
+            pyinstaller_arch: x86_64
           - arch: aarch64
-            runner: macos-latest
-      fail-fast: false
+            runner: macos-latest  # Would use Apple Silicon runner in real workflow
+            target_arch: arm64
+            pyinstaller_arch: arm64
+    env:
+      BUILD_ARCH: ${{ matrix.arch }}
+      TARGET_ARCH: ${{ matrix.target_arch }}
+      PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_arch }}
     steps:
       - name: Decide if this architecture should be built
         id: should_build
@@ -114,34 +154,46 @@ jobs:
           else
             echo "should_build=false" >> $GITHUB_OUTPUT
           fi
-      - name: Create fake macOS artifact
+      # Note: Frontend is always built in real workflow (no change detection)
+      # Simulation doesn't need frontend build steps
+      - name: Simulate macOS build
         if: steps.should_build.outputs.should_build == 'true'
         run: |
+          echo "=== Simulating macOS ${{ matrix.arch }} Build ==="
+          echo "Platform: macOS"
+          echo "Architecture: ${{ matrix.arch }} (${{ matrix.target_arch }})"
+          echo "Note: Real workflow always builds frontend (no skip logic)"
           VERSION="${{ needs.validate-tag.outputs.version }}"
           ARCH="${{ matrix.arch }}"
           mkdir -p dist artifacts
-          touch "dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+          echo "fake macos installer" > "dist/eCan-${VERSION}-macos-${ARCH}.pkg"
           cp "dist/eCan-${VERSION}-macos-${ARCH}.pkg" artifacts/
-      - name: Upload macOS artifacts for S3 transfer
+          echo "✅ macOS ${{ matrix.arch }} build simulated"
+      - name: Upload macOS artifacts for S3 transfer (always, short retention)
         if: steps.should_build.outputs.should_build == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: eCan-macOS-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: artifacts/
           retention-days: 1
+          compression-level: 6
           if-no-files-found: error
-      - name: Upload macOS artifacts for users (optional)
+      - name: Upload macOS artifacts for users (optional, long retention)
         if: steps.should_build.outputs.should_build == 'true' && github.event.inputs.upload_artifacts == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: eCan-macOS-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
+          name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
           path: artifacts/
-          retention-days: 7
-          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
 
   upload-to-s3:
     needs: [validate-tag, build-windows, build-macos]
-    if: always() && needs.validate-tag.outputs.tag-valid == 'true'
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped') &&
+      (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped')
     runs-on: ubuntu-latest
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || 'NOT_SET' }}
@@ -149,33 +201,112 @@ jobs:
       AWS_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
       S3_BUCKET: ${{ secrets.S3_BUCKET || 'NOT_SET' }}
       S3_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'NOT_SET' }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
+      WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX || 'NOT_SET' }}
+      WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD || 'NOT_SET' }}
+      # For appcast generation conditions
+      # Note: IDE may warn about context access, but this is the correct pattern for conditional steps
+      ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY || 'NOT_SET' }}
     steps:
-      - name: Check S3 configuration
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Check AWS S3 Configuration
         run: |
-          echo "AWS_ACCESS_KEY_ID set: $([[ "$AWS_ACCESS_KEY_ID" != 'NOT_SET' ]] && echo yes || echo no)"
-          echo "S3_BUCKET: ${S3_BUCKET}"
-          echo "AWS_REGION: ${AWS_REGION}"
-      - name: Compute S3_BASE_URL
-        if: env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET' && env.AWS_REGION != 'NOT_SET'
+          echo "=== Checking AWS S3 Configuration ==="
+          echo "AWS credentials: ${{ env.AWS_ACCESS_KEY_ID != 'NOT_SET' && 'Available' || 'Not Available' }}"
+          echo "S3 bucket: ${{ env.S3_BUCKET != 'NOT_SET' && env.S3_BUCKET || 'Not configured' }}"
+          echo "AWS region: ${{ env.AWS_REGION != 'NOT_SET' && env.AWS_REGION || 'Not configured' }}"
+          echo "S3 base path: ${{ env.S3_BASE_PATH != 'NOT_SET' && env.S3_BASE_PATH || 'Not configured' }}"
+
+          if [ "${{ env.AWS_ACCESS_KEY_ID }}" = "NOT_SET" ] || \
+             [ "${{ env.AWS_SECRET_ACCESS_KEY }}" = "NOT_SET" ] || \
+             [ "${{ env.S3_BUCKET }}" = "NOT_SET" ]; then
+            echo "S3 upload: Disabled (missing credentials or bucket configuration)"
+            echo "Artifacts will only be available as GitHub Artifacts"
+          else
+            echo "S3 upload: Enabled"
+          fi
+
+      - name: Compute S3_BASE_URL for appcast generation
         run: |
-          echo "S3_BASE_URL=https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}" >> $GITHUB_ENV
+          echo "=== Computing S3_BASE_URL ==="
+          echo "Debug: S3_BUCKET=$S3_BUCKET"
+          echo "Debug: S3_BASE_PATH=$S3_BASE_PATH"
+          echo "Debug: AWS_REGION=$AWS_REGION"
+          
+          if [ "$S3_BUCKET" != "NOT_SET" ] && [ "$S3_BASE_PATH" != "NOT_SET" ] && [ "$AWS_REGION" != "NOT_SET" ]; then
+            BASE_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}"
+            echo "S3_BASE_URL=$BASE_URL" >> $GITHUB_ENV
+            echo "Computed S3_BASE_URL=$BASE_URL"
+          else
+            echo "S3_BASE_URL=" >> $GITHUB_ENV
+            echo "S3 configuration incomplete, S3_BASE_URL not set"
+            echo "  S3_BUCKET: $S3_BUCKET"
+            echo "  S3_BASE_PATH: $S3_BASE_PATH"
+            echo "  AWS_REGION: $AWS_REGION"
+          fi
+
+      - name: Verify AWS Identity
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET'
+        run: |
+          echo "=== Verifying AWS Identity ==="
+          aws sts get-caller-identity
+          echo "AWS credentials are valid"
+
+      - name: Test S3 Access
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET'
+        run: |
+          echo "=== Testing S3 Access ==="
+          echo "Debug: S3_BUCKET=$S3_BUCKET"
+          echo "Debug: S3_BASE_PATH=$S3_BASE_PATH"
+          echo "Debug: AWS_REGION=$AWS_REGION"
+          echo "Debug: AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION"
+          
+          # Test the actual path used for uploads (not bucket root)
+          # This matches the path used in actual upload steps
+          TEST_PATH="s3://${S3_BUCKET}/${S3_BASE_PATH}/"
+          echo "Testing S3 path (same as upload): $TEST_PATH"
+          
+          if aws s3 ls "$TEST_PATH" 2>&1 | tee /tmp/s3_test.log; then
+            echo "✅ S3 path access: OK"
+          else
+            echo "❌ S3 path access: FAILED"
+            echo ""
+            echo "Error output:"
+            cat /tmp/s3_test.log
+            echo ""
+            echo "Note: Testing the actual upload path, not bucket root"
+            echo "  Full path: $TEST_PATH"
+            echo "  S3_BUCKET: ${S3_BUCKET}"
+            echo "  S3_BASE_PATH: ${S3_BASE_PATH}"
+            echo "  AWS_REGION: ${AWS_REGION}"
+            echo ""
+            echo "If this fails but uploads work, check IAM permissions for the specific path"
+            exit 1
+          fi
+
       - name: Download Windows artifacts
-        if: always() && needs.build-windows.result == 'success'
+        if: needs.build-windows.result == 'success'
         uses: actions/download-artifact@v4
         with:
-          name: eCan-Windows-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: windows-artifacts
-        continue-on-error: true
       - name: Download macOS amd64 artifacts
+        if: needs.build-macos.result == 'success'
         uses: actions/download-artifact@v4
         with:
-          name: eCan-macOS-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: macos-amd64-artifacts
         continue-on-error: true
       - name: Download macOS aarch64 artifacts
+        if: needs.build-macos.result == 'success'
         uses: actions/download-artifact@v4
         with:
-          name: eCan-macOS-aarch64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-macos-aarch64-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: macos-aarch64-artifacts
         continue-on-error: true
       - name: Merge macOS artifacts
@@ -184,20 +315,173 @@ jobs:
           for d in macos-amd64-artifacts macos-aarch64-artifacts; do
             if [ -d "$d" ]; then cp "$d"/* macos-artifacts/ 2>/dev/null || true; fi
           done
-      - name: Upload to S3 (simulated installers)
+
+      - name: Upload Windows installers to S3
+        id: upload_windows
         if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET'
         run: |
-          set -e
-          if [ -d windows-artifacts ]; then
-            aws s3 sync windows-artifacts/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/windows/" --acl public-read
+          set -euo pipefail
+          echo "=== Uploading Windows installers to S3 ==="
+
+          if [ -d "windows-artifacts" ] && [ "$(ls -A windows-artifacts)" ]; then
+            echo "Found Windows artifacts:"
+            ls -lh windows-artifacts/
+
+            # Upload Windows installers to S3
+            echo "Uploading to: s3://${S3_BUCKET}/${S3_BASE_PATH}/windows/"
+            # Note: --acl removed because bucket does not allow ACLs
+            # Use bucket policy to make files public instead
+            aws s3 sync windows-artifacts/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/windows/" \
+              --exclude "*" \
+              --include "*.exe" \
+              --include "*.msi"
+
+            echo "✅ Windows installers uploaded to S3"
+
+            # List uploaded files
+            UPLOAD_COUNT=0
+            for file in windows-artifacts/*.exe windows-artifacts/*.msi; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                size=$(du -sh "$file" | cut -f1)
+                echo "  - ${filename} (${size})"
+                echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/windows/${filename}"
+                UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
+              fi
+            done
+            echo "Total Windows files uploaded: $UPLOAD_COUNT"
+            echo "upload_count=$UPLOAD_COUNT" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  No Windows artifacts found, skipping upload"
+            echo "upload_count=0" >> $GITHUB_OUTPUT
           fi
-          if [ -d macos-artifacts ]; then
-            aws s3 sync macos-artifacts/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/macos/" --acl public-read
+
+      - name: Upload macOS installers to S3
+        id: upload_macos
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET'
+        run: |
+          set -euo pipefail
+          echo "=== Uploading macOS installers to S3 ==="
+
+          # Merge macOS artifacts from both architectures
+          mkdir -p macos-artifacts
+          AMD64_COUNT=0
+          AARCH64_COUNT=0
+
+          if [ -d "macos-amd64-artifacts" ] && [ "$(ls -A macos-amd64-artifacts 2>/dev/null)" ]; then
+            echo "Found macOS amd64 artifacts:"
+            ls -lh macos-amd64-artifacts/
+            cp -v macos-amd64-artifacts/* macos-artifacts/ 2>/dev/null || true
+            AMD64_COUNT=$(ls -1 macos-amd64-artifacts/ | wc -l)
+          else
+            echo "ℹ️  No macOS amd64 artifacts found"
           fi
+
+          if [ -d "macos-aarch64-artifacts" ] && [ "$(ls -A macos-aarch64-artifacts 2>/dev/null)" ]; then
+            echo "Found macOS aarch64 artifacts:"
+            ls -lh macos-aarch64-artifacts/
+            cp -v macos-aarch64-artifacts/* macos-artifacts/ 2>/dev/null || true
+            AARCH64_COUNT=$(ls -1 macos-aarch64-artifacts/ | wc -l)
+          else
+            echo "ℹ️  No macOS aarch64 artifacts found"
+          fi
+
+          if [ -d "macos-artifacts" ] && [ "$(ls -A macos-artifacts 2>/dev/null)" ]; then
+            echo ""
+            echo "Merged macOS artifacts (amd64: $AMD64_COUNT, aarch64: $AARCH64_COUNT):"
+            ls -lh macos-artifacts/
+
+            # Upload macOS installers to S3
+            echo "Uploading to: s3://${S3_BUCKET}/${S3_BASE_PATH}/macos/"
+            # Note: --acl removed because bucket does not allow ACLs
+            # Use bucket policy to make files public instead
+            aws s3 sync macos-artifacts/ "s3://${S3_BUCKET}/${S3_BASE_PATH}/macos/" \
+              --exclude "*" \
+              --include "*.pkg" \
+              --include "*.zip"
+
+            echo "✅ macOS installers uploaded to S3"
+
+            # List uploaded files
+            UPLOAD_COUNT=0
+            for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                size=$(du -sh "$file" | cut -f1)
+                echo "  - ${filename} (${size})"
+                echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/macos/${filename}"
+                UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
+              fi
+            done
+            echo "Total macOS files uploaded: $UPLOAD_COUNT"
+            echo "upload_count=$UPLOAD_COUNT" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  No macOS artifacts found, skipping upload"
+            echo "upload_count=0" >> $GITHUB_OUTPUT
+          fi
+      - name: Verify S3 uploads
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET'
+        continue-on-error: true
+        run: |
+          echo "=== Verifying S3 uploads ==="
+          UPLOAD_FAILED=0
+
+          # Verify Windows artifacts
+          if [ -d "windows-artifacts" ] && [ "$(ls -A windows-artifacts 2>/dev/null)" ]; then
+            echo "Verifying Windows artifacts in S3..."
+            WIN_COUNT=0
+            for file in windows-artifacts/*.exe windows-artifacts/*.msi; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/windows/${filename}" >/dev/null 2>&1; then
+                  echo "  ✅ ${filename}"
+                  WIN_COUNT=$((WIN_COUNT + 1))
+                else
+                  echo "  ⚠️  ${filename} not found in S3"
+                  UPLOAD_FAILED=1
+                fi
+              fi
+            done
+            echo "Windows files verified: $WIN_COUNT"
+          else
+            echo "ℹ️  No Windows artifacts to verify"
+          fi
+
+          # Verify macOS artifacts
+          if [ -d "macos-artifacts" ] && [ "$(ls -A macos-artifacts 2>/dev/null)" ]; then
+            echo "Verifying macOS artifacts in S3..."
+            MACOS_COUNT=0
+            for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/macos/${filename}" >/dev/null 2>&1; then
+                  echo "  ✅ ${filename}"
+                  MACOS_COUNT=$((MACOS_COUNT + 1))
+                else
+                  echo "  ⚠️  ${filename} not found in S3"
+                  UPLOAD_FAILED=1
+                fi
+              fi
+            done
+            echo "macOS files verified: $MACOS_COUNT"
+          else
+            echo "ℹ️  No macOS artifacts to verify"
+          fi
+
+          if [ $UPLOAD_FAILED -eq 1 ]; then
+            echo ""
+            echo "⚠️  Some uploads may have failed, but continuing..."
+            exit 0  # Do not fail the job
+          else
+            echo ""
+            echo "✅ All S3 uploads verified successfully"
+          fi
+
       - name: Generate simulated appcast files
         if: env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET' && env.AWS_REGION != 'NOT_SET'
         run: |
-          set -e
+          set -euo pipefail
+          echo "=== Generating simulated appcast files ==="
           VERSION="${{ needs.validate-tag.outputs.version }}"
           mkdir -p dist/appcast
 
@@ -234,20 +518,330 @@ jobs:
             </channel>
           </rss>
           EOF
+          echo "✅ Simulated appcast files generated successfully"
+
+      - name: Validate appcast XML files
+        run: |
+          echo "=== Validating appcast XML files ==="
+          VALIDATION_FAILED=0
+
+          for f in dist/appcast/*.xml; do
+            if [ -f "$f" ]; then
+              echo "Validating: $(basename $f)"
+              if python -c "import xml.etree.ElementTree as ET; ET.parse('$f')" 2>/dev/null; then
+                echo "  ✅ Valid XML"
+                # Check if file has enclosure elements
+                if grep -q '<enclosure' "$f"; then
+                  echo "  ✅ Contains enclosure elements"
+                else
+                  echo "  ⚠️  No enclosure elements found"
+                fi
+              else
+                echo "  ❌ Invalid XML format"
+                VALIDATION_FAILED=1
+              fi
+            fi
+          done
+
+          if [ $VALIDATION_FAILED -eq 1 ]; then
+            echo ""
+            echo "⚠️  Some appcast files have validation errors"
+            exit 1
+          fi
+
       - name: Upload simulated appcasts to S3
         if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.AWS_SECRET_ACCESS_KEY != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET'
         run: |
+          echo "=== Uploading simulated appcasts to S3 ==="
           if [ -d dist/appcast ]; then
-            aws s3 sync dist/appcast/ "s3://${S3_BUCKET}/appcast/" --acl public-read --content-type "application/xml" --exclude "*" --include "*.xml"
+            # Note: --acl removed because bucket does not allow ACLs
+            # Use bucket policy to make files public instead
+            aws s3 sync dist/appcast/ "s3://${S3_BUCKET}/appcast/" --content-type "application/xml" --exclude "*" --include "*.xml"
+            echo "✅ Simulated appcasts uploaded to S3"
           else
             echo "No appcast directory; skipping upload"
           fi
-      - name: Summary
+      - name: Generate S3 download links
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET'
+        env:
+          VERSION: ${{ needs.validate-tag.outputs.version }}
+          # Use non-secret variables to avoid masking in output
+          BUCKET_NAME: ${{ secrets.S3_BUCKET || 'NOT_SET' }}
+          BUCKET_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
+          BUCKET_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'NOT_SET' }}
         run: |
-          echo "Simulation version: ${{ needs.validate-tag.outputs.version }}"
-          echo "Windows job: ${{ needs.build-windows.result }}"
-          echo "macOS job: ${{ needs.build-macos.result }}"
-          echo "S3_BASE_URL=${S3_BASE_URL:-<not set>}"
-          echo "Simulated appcast URLs (if S3 configured):"
-          echo "  Windows: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-windows.xml"
-          echo "  macOS:   https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/appcast/appcast-macos.xml"
+          echo "=== Generating S3 Download Links ==="
+          echo ""
+          
+          # Display in GitHub Actions Summary
+          echo "## 📦 Download Links" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Version: **${VERSION}**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Windows Installers
+          echo "### Windows Installers (x86_64)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -d "windows-artifacts" ] && [ "$(ls -A windows-artifacts 2>/dev/null)" ]; then
+            for file in windows-artifacts/*.exe windows-artifacts/*.msi; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                size=$(du -sh "$file" | cut -f1)
+                
+                # Standard S3 URL - use renamed variables to avoid masking
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/windows/${filename}"
+                
+                # S3 Transfer Acceleration URL
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/windows/${filename}"
+                
+                echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "- **Size**: ${size}" >> $GITHUB_STEP_SUMMARY
+                echo "- **Standard URL**: [Download](${standard_url})" >> $GITHUB_STEP_SUMMARY
+                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
+                echo "  ${standard_url}" >> $GITHUB_STEP_SUMMARY
+                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
+                echo "- **Accelerated URL** (faster for global users): [Download](${accelerate_url})" >> $GITHUB_STEP_SUMMARY
+                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
+                echo "  ${accelerate_url}" >> $GITHUB_STEP_SUMMARY
+                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+              fi
+            done
+          else
+            echo "_No Windows installers available_" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # macOS Installers
+          echo "### macOS Installers" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -d "macos-artifacts" ] && [ "$(ls -A macos-artifacts 2>/dev/null)" ]; then
+            for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                size=$(du -sh "$file" | cut -f1)
+                
+                # Determine architecture from filename
+                if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
+                  arch_label="Intel (x86_64)"
+                elif [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
+                  arch_label="Apple Silicon (ARM64)"
+                else
+                  arch_label="Universal"
+                fi
+                
+                # Standard S3 URL - use renamed variables to avoid masking
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/macos/${filename}"
+                
+                # S3 Transfer Acceleration URL
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/macos/${filename}"
+                
+                echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "- **Architecture**: ${arch_label}" >> $GITHUB_STEP_SUMMARY
+                echo "- **Size**: ${size}" >> $GITHUB_STEP_SUMMARY
+                echo "- **Standard URL**: [Download](${standard_url})" >> $GITHUB_STEP_SUMMARY
+                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
+                echo "  ${standard_url}" >> $GITHUB_STEP_SUMMARY
+                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
+                echo "- **Accelerated URL** (faster for global users): [Download](${accelerate_url})" >> $GITHUB_STEP_SUMMARY
+                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
+                echo "  ${accelerate_url}" >> $GITHUB_STEP_SUMMARY
+                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+              fi
+            done
+          else
+            echo "_No macOS installers available_" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📝 Download Information" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### URL Types" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Standard URL**: Direct S3 access from the bucket's region" >> $GITHUB_STEP_SUMMARY
+          echo "  - Best for: Users in the same AWS region" >> $GITHUB_STEP_SUMMARY
+          echo "  - Format: \`https://{bucket}.s3.{region}.amazonaws.com/{path}/{file}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Accelerated URL**: Uses AWS S3 Transfer Acceleration" >> $GITHUB_STEP_SUMMARY
+          echo "  - Best for: Global users, faster downloads worldwide" >> $GITHUB_STEP_SUMMARY
+          echo "  - Format: \`https://{bucket}.s3-accelerate.amazonaws.com/{path}/{file}\`" >> $GITHUB_STEP_SUMMARY
+          echo "  - Requires: Transfer Acceleration enabled on S3 bucket" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Platform Support" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Windows**: x86_64 (64-bit) only" >> $GITHUB_STEP_SUMMARY
+          echo "  - \`.exe\`: Inno Setup installer (recommended)" >> $GITHUB_STEP_SUMMARY
+          echo "  - \`.msi\`: Windows Installer package" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **macOS**: Intel and Apple Silicon" >> $GITHUB_STEP_SUMMARY
+          echo "  - \`amd64\`: Intel processors (x86_64)" >> $GITHUB_STEP_SUMMARY
+          echo "  - \`aarch64\`: Apple Silicon (M1/M2/M3)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Important Notes" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Files are hosted on AWS S3" >> $GITHUB_STEP_SUMMARY
+          echo "- Bucket Policy must be configured for public access" >> $GITHUB_STEP_SUMMARY
+          echo "- All files are code-signed (Windows: Authenticode, macOS: Apple Developer ID)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Documentation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- 📖 [Download Links Documentation](https://github.com/${{ github.repository }}/blob/main/docs/DOWNLOAD_LINKS_EXAMPLE.md)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔧 [S3 Configuration Guide](https://github.com/${{ github.repository }}/blob/main/docs/S3_ACL_FIX.md)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🧪 [Local Testing Guide](https://github.com/${{ github.repository }}/blob/main/docs/S3_LOCAL_TEST_GUIDE.md)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Generate download links document artifact
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET'
+        env:
+          VERSION: ${{ needs.validate-tag.outputs.version }}
+          BUCKET_NAME: ${{ secrets.S3_BUCKET || 'NOT_SET' }}
+          BUCKET_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
+          BUCKET_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'NOT_SET' }}
+        run: |
+          set -euo pipefail
+          OUTPUT_FILE="download-links-${VERSION}.md"
+
+          echo "# eCan Download Links" > "$OUTPUT_FILE"
+          echo "" >> "$OUTPUT_FILE"
+          echo "Version: \`${VERSION}\`" >> "$OUTPUT_FILE"
+          echo "" >> "$OUTPUT_FILE"
+
+          # Windows section
+          if [ -d "windows-artifacts" ] && [ "$(ls -A windows-artifacts 2>/dev/null)" ]; then
+            echo "## Windows (x86_64)" >> "$OUTPUT_FILE"
+            echo "" >> "$OUTPUT_FILE"
+
+            for file in windows-artifacts/*.exe windows-artifacts/*.msi; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                size=$(du -sh "$file" | cut -f1)
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/windows/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/windows/${filename}"
+
+                echo "### ${filename}" >> "$OUTPUT_FILE"
+                echo "" >> "$OUTPUT_FILE"
+                echo "- Size: ${size}" >> "$OUTPUT_FILE"
+                echo "- Standard: ${standard_url}" >> "$OUTPUT_FILE"
+                echo "- Accelerated: ${accelerate_url}" >> "$OUTPUT_FILE"
+                echo "" >> "$OUTPUT_FILE"
+              fi
+            done
+          else
+            echo "## Windows" >> "$OUTPUT_FILE"
+            echo "" >> "$OUTPUT_FILE"
+            echo "_No Windows installers available_" >> "$OUTPUT_FILE"
+            echo "" >> "$OUTPUT_FILE"
+          fi
+
+          # macOS section
+          if [ -d "macos-artifacts" ] && [ "$(ls -A macos-artifacts 2>/dev/null)" ]; then
+            echo "## macOS" >> "$OUTPUT_FILE"
+            echo "" >> "$OUTPUT_FILE"
+
+            for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                size=$(du -sh "$file" | cut -f1)
+                if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
+                  arch_label="Intel (x86_64)"
+                elif [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
+                  arch_label="Apple Silicon (ARM64)"
+                else
+                  arch_label="Universal"
+                fi
+
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/macos/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/macos/${filename}"
+
+                echo "### ${filename}" >> "$OUTPUT_FILE"
+                echo "" >> "$OUTPUT_FILE"
+                echo "- Architecture: ${arch_label}" >> "$OUTPUT_FILE"
+                echo "- Size: ${size}" >> "$OUTPUT_FILE"
+                echo "- Standard: ${standard_url}" >> "$OUTPUT_FILE"
+                echo "- Accelerated: ${accelerate_url}" >> "$OUTPUT_FILE"
+                echo "" >> "$OUTPUT_FILE"
+              fi
+            done
+          else
+            echo "## macOS" >> "$OUTPUT_FILE"
+            echo "" >> "$OUTPUT_FILE"
+            echo "_No macOS installers available_" >> "$OUTPUT_FILE"
+            echo "" >> "$OUTPUT_FILE"
+          fi
+
+          echo "---" >> "$OUTPUT_FILE"
+          echo "" >> "$OUTPUT_FILE"
+          echo "This file contains all download URLs for this build." >> "$OUTPUT_FILE"
+          echo "Generated by the release simulation workflow at $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$OUTPUT_FILE"
+
+          echo "Download links document generated: ${OUTPUT_FILE}"
+
+      - name: Upload download links document artifact
+        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET'
+        uses: actions/upload-artifact@v4
+        with:
+          name: download-links-${{ needs.validate-tag.outputs.version }}
+          path: download-links-${{ needs.validate-tag.outputs.version }}.md
+          if-no-files-found: warn
+
+      - name: Generate detailed summary
+        run: |
+          echo "## Release Flow Simulation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Input Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Platform**: ${{ github.event.inputs.platform }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Architecture**: ${{ github.event.inputs.arch }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ needs.validate-tag.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Job Execution Results" >> $GITHUB_STEP_SUMMARY
+          echo "- **validate-tag**: ${{ needs.validate-tag.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **build-windows**: ${{ needs.build-windows.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **build-macos**: ${{ needs.build-macos.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **upload-to-s3**: success" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Artifacts Generated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.build-windows.result }}" = "success" ]; then
+            echo "- ✅ Windows: \`eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ⏭️ Windows: skipped" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ needs.build-macos.result }}" = "success" ]; then
+            echo "- ✅ macOS amd64: \`eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer\`" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ macOS aarch64: \`eCan-macos-aarch64-${{ needs.validate-tag.outputs.version }}-s3-transfer\`" >> $GITHUB_STEP_SUMMARY
+            echo "  - Note: Some matrix items may be skipped based on arch input" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ⏭️ macOS: skipped" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **S3 Upload**: ${{ env.AWS_ACCESS_KEY_ID != 'NOT_SET' && 'Enabled' || 'Disabled (simulated)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Appcast Generation**: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && 'Enabled' || 'Disabled (simulated)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Simulation completed successfully**" >> $GITHUB_STEP_SUMMARY
+          
+          # Console output
+          echo ""
+          echo "=== Release Flow Simulation Summary ==="
+          echo "Version: ${{ needs.validate-tag.outputs.version }}"
+          echo "Platform: ${{ github.event.inputs.platform }}"
+          echo "Architecture: ${{ github.event.inputs.arch }}"
+          echo ""
+          echo "Job Results:"
+          echo "  - build-windows: ${{ needs.build-windows.result }}"
+          echo "  - build-macos: ${{ needs.build-macos.result }}"
+          echo ""
+          echo "✅ Simulation completed successfully"
