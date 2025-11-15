@@ -867,8 +867,28 @@ a = Analysis(
 # Manual deduplication with dict.fromkeys() can cause issues with TOC tuples
 # Only drop unwanted paths explicitly
 
-# Drop heavy tests/examples/__pycache__ from datas to reduce size and avoid perms
-drop_tokens = ['/tests/', '/testing/', '/__pycache__/', '/examples/']
+# Drop heavy tests/examples/__pycache__ and build-related files from datas to reduce size
+# Note: Do NOT include '/tests/' here as it would filter out the project's tests directory
+# which is needed at runtime (gui/ipc/handlers.py imports from tests.unittests)
+drop_tokens = [
+    '/testing/',      # Filter third-party testing modules (e.g., pandas.testing)
+    '/__pycache__/', 
+    '/examples/',
+    '/docs/', 
+    '/.github/', 
+    '/build_system/', 
+    'build.py', 
+    'requirements-', 
+    '.gitignore', 
+    '.git/',
+    '/.idea/', 
+    '/.vscode/', 
+    '/.pytest_cache/', 
+    '/.mypy_cache/',
+    '/node_modules/', 
+    '/.DS_Store', 
+    'Thumbs.db',
+]
 
 def _should_drop_path(p):
     try:
