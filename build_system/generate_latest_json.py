@@ -30,7 +30,7 @@ def generate_latest_json(version: str, base_url: str, channel: str = 'stable') -
         "latest_version": version,
         "latest_tag": f"v{version}",
         "release_date": datetime.now(timezone.utc).isoformat(),
-        "metadata_url": f"{base_url}/releases/v{version}/metadata.json",
+        "metadata_url": f"{base_url}/v{version}/metadata.json",
         "appcast": {
             "windows": f"{base_url}/channels/{channel}/appcast-windows.xml",
             "windows_amd64": f"{base_url}/channels/{channel}/appcast-windows-amd64.xml",
@@ -44,11 +44,11 @@ def generate_latest_json(version: str, base_url: str, channel: str = 'stable') -
     # Add quick download links based on common file patterns
     # These are best-effort URLs that may or may not exist
     quick_downloads = {
-        "windows_amd64_installer": f"{base_url}/releases/v{version}/windows/eCan-{version}-windows-amd64-Setup.exe",
-        "windows_amd64_msi": f"{base_url}/releases/v{version}/windows/eCan-{version}-windows-amd64.msi",
-        "macos_amd64_pkg": f"{base_url}/releases/v{version}/macos/eCan-{version}-macos-amd64.pkg",
-        "macos_aarch64_pkg": f"{base_url}/releases/v{version}/macos/eCan-{version}-macos-aarch64.pkg",
-        "macos_aarch64_zip": f"{base_url}/releases/v{version}/macos/eCan-{version}-macos-aarch64.zip"
+        "windows_amd64_installer": f"{base_url}/v{version}/windows/eCan-{version}-windows-amd64-Setup.exe",
+        "windows_amd64_msi": f"{base_url}/v{version}/windows/eCan-{version}-windows-amd64.msi",
+        "macos_amd64_pkg": f"{base_url}/v{version}/macos/eCan-{version}-macos-amd64.pkg",
+        "macos_aarch64_pkg": f"{base_url}/v{version}/macos/eCan-{version}-macos-aarch64.pkg",
+        "macos_aarch64_zip": f"{base_url}/v{version}/macos/eCan-{version}-macos-aarch64.zip"
     }
     
     latest["quick_download"] = quick_downloads

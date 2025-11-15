@@ -1224,7 +1224,7 @@ jobs:
             fi
 
             # Upload Windows installers to S3 with new path structure
-            UPLOAD_PATH="s3://${S3_BUCKET}/${S3_BASE_PATH}/releases/v${VERSION}/windows/"
+            UPLOAD_PATH="s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/windows/"
             echo "Uploading to: ${UPLOAD_PATH}"
             # Note: --acl removed because bucket does not allow ACLs
             # Use bucket policy to make files public instead
@@ -1242,7 +1242,7 @@ jobs:
                 filename=$(basename "$file")
                 size=$(du -sh "$file" | cut -f1)
                 echo "  - ${filename} (${size})"
-                echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/releases/v${VERSION}/windows/${filename}"
+                echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/v${VERSION}/windows/${filename}"
                 UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
               fi
             done
@@ -1298,7 +1298,7 @@ jobs:
             fi
 
             # Upload macOS installers to S3 with new path structure
-            UPLOAD_PATH="s3://${S3_BUCKET}/${S3_BASE_PATH}/releases/v${VERSION}/macos/"
+            UPLOAD_PATH="s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/macos/"
             echo "Uploading to: ${UPLOAD_PATH}"
             # Note: --acl removed because bucket does not allow ACLs
             # Use bucket policy to make files public instead
@@ -1316,7 +1316,7 @@ jobs:
                 filename=$(basename "$file")
                 size=$(du -sh "$file" | cut -f1)
                 echo "  - ${filename} (${size})"
-                echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/releases/v${VERSION}/macos/${filename}"
+                echo "    URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/v${VERSION}/macos/${filename}"
                 UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
               fi
             done
@@ -1350,7 +1350,7 @@ jobs:
             for file in windows-artifacts/*.exe windows-artifacts/*.msi; do
               if [ -f "$file" ]; then
                 filename=$(basename "$file")
-                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/releases/v${VERSION}/windows/${filename}" >/dev/null 2>&1; then
+                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/windows/${filename}" >/dev/null 2>&1; then
                   echo "  ✅ ${filename}"
                   WIN_COUNT=$((WIN_COUNT + 1))
                 else
@@ -1371,7 +1371,7 @@ jobs:
             for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
               if [ -f "$file" ]; then
                 filename=$(basename "$file")
-                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/releases/v${VERSION}/macos/${filename}" >/dev/null 2>&1; then
+                if aws s3 ls "s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/macos/${filename}" >/dev/null 2>&1; then
                   echo "  ✅ ${filename}"
                   MACOS_COUNT=$((MACOS_COUNT + 1))
                 else
@@ -1413,13 +1413,13 @@ jobs:
           
           # Upload metadata.json
           aws s3 cp dist/metadata/metadata.json \
-            "s3://${S3_BUCKET}/${S3_BASE_PATH}/releases/v${VERSION}/metadata.json"
+            "s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/metadata.json"
           echo "✅ metadata.json uploaded"
           
           # Upload release-notes.md if exists
           if [ -f "dist/metadata/release-notes.md" ]; then
             aws s3 cp dist/metadata/release-notes.md \
-              "s3://${S3_BUCKET}/${S3_BASE_PATH}/releases/v${VERSION}/release-notes.md"
+              "s3://${S3_BUCKET}/${S3_BASE_PATH}/v${VERSION}/release-notes.md"
             echo "✅ release-notes.md uploaded"
           fi
 
@@ -1624,10 +1624,10 @@ jobs:
                 size=$(du -sh "$file" | cut -f1)
                 
                 # Standard S3 URL - use renamed variables to avoid masking
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/windows/${filename}"
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/windows/${filename}"
                 
                 # S3 Transfer Acceleration URL
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/windows/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/windows/${filename}"
                 
                 echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
                 echo "" >> $GITHUB_STEP_SUMMARY
@@ -1668,10 +1668,10 @@ jobs:
                 fi
                 
                 # Standard S3 URL - use renamed variables to avoid masking
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/macos/${filename}"
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/macos/${filename}"
                 
                 # S3 Transfer Acceleration URL
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/macos/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/macos/${filename}"
                 
                 echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
                 echo "" >> $GITHUB_STEP_SUMMARY
@@ -1756,8 +1756,8 @@ jobs:
               if [ -f "$file" ]; then
                 filename=$(basename "$file")
                 size=$(du -sh "$file" | cut -f1)
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/windows/${filename}"
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/windows/${filename}"
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/windows/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/windows/${filename}"
 
                 echo "${filename}" >> "$OUTPUT_FILE"
                 echo "  Size:       ${size}" >> "$OUTPUT_FILE"
@@ -1790,8 +1790,8 @@ jobs:
                   arch_label="Universal"
                 fi
 
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/macos/${filename}"
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/releases/v${VERSION}/macos/${filename}"
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/macos/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/macos/${filename}"
 
                 echo "${filename}" >> "$OUTPUT_FILE"
                 echo "  Arch:       ${arch_label}" >> "$OUTPUT_FILE"

@@ -57,12 +57,13 @@ def generate_appcast_for_platform(version: str, platform: str, arch: str = None,
         print(f"[INFO] No artifacts found for {platform}/{arch or 'all'}")
         return False
     
-    # Build asset list with new path structure: {base_url}/releases/v{version}/{platform}/{filename}
+    # Build asset list with new path structure: {base_url}/v{version}/{platform}/{filename}
+    # Note: S3_BASE_PATH already contains 'releases', so we don't add it again
     assets = []
     for artifact in artifacts:
         name = artifact['name']
         filepath = artifact['filepath']
-        url = f"{s3_base_url}/releases/v{version}/{platform}/{name}"
+        url = f"{s3_base_url}/v{version}/{platform}/{name}"
         size = os.path.getsize(filepath)
         
         assets.append({
