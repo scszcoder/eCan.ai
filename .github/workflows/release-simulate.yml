@@ -87,11 +87,14 @@ jobs:
     env:
       BUILD_ARCH: amd64
     steps:
+      # Note: Frontend is always built in real workflow (no change detection)
+      # Simulation doesn't need frontend build steps
       - name: Simulate Windows build
         run: |
           echo "=== Simulating Windows amd64 Build ==="
           echo "Platform: Windows"
           echo "Architecture: $BUILD_ARCH"
+          echo "Note: Real workflow always builds frontend (no skip logic)"
           VERSION="${{ needs.validate-tag.outputs.version }}"
           mkdir -p dist artifacts
           echo "fake windows installer" > "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe"
@@ -151,12 +154,15 @@ jobs:
           else
             echo "should_build=false" >> $GITHUB_OUTPUT
           fi
+      # Note: Frontend is always built in real workflow (no change detection)
+      # Simulation doesn't need frontend build steps
       - name: Simulate macOS build
         if: steps.should_build.outputs.should_build == 'true'
         run: |
           echo "=== Simulating macOS ${{ matrix.arch }} Build ==="
           echo "Platform: macOS"
           echo "Architecture: ${{ matrix.arch }} (${{ matrix.target_arch }})"
+          echo "Note: Real workflow always builds frontend (no skip logic)"
           VERSION="${{ needs.validate-tag.outputs.version }}"
           ARCH="${{ matrix.arch }}"
           mkdir -p dist artifacts

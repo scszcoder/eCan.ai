@@ -164,26 +164,8 @@ jobs:
         ref: ${{ github.event.inputs.ref || github.ref }}
         fetch-depth: 0
 
-    - name: Detect frontend changes (Windows)
-      id: fe_changes
-      shell: bash
-      run: |
-        echo "=== Detecting frontend changes under gui_v2/ ==="
-        # If this is the first commit or history is shallow, default to building frontend
-        if ! git rev-parse HEAD^ >/dev/null 2>&1; then
-          echo "No previous commit found; forcing frontend build"
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-          exit 0
-        fi
-        if git diff --name-only HEAD^ HEAD | grep '^gui_v2/' >/dev/null 2>&1; then
-          echo "Frontend files changed; will build frontend"
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "No frontend changes detected; frontend build can be skipped"
-          echo "changed=false" >> "$GITHUB_OUTPUT"
-        fi
-
     # Note: pip caching is handled by setup-python-env action
+    # Frontend is always built (ECAN_SKIP_FRONTEND_BUILD=0)
 
     - name: Setup Python Environment
       uses: ./.github/actions/setup-python-env
@@ -380,7 +362,7 @@ jobs:
     - name: Build Windows EXE
       shell: pwsh
       env:
-        ECAN_SKIP_FRONTEND_BUILD: ${{ steps.fe_changes.outputs.changed == 'false' && '1' || '0' }}
+        ECAN_SKIP_FRONTEND_BUILD: '0'  # Always build frontend
       run: |
         Write-Host "=== Starting Windows Build ===" -ForegroundColor Cyan
         Write-Host "Command: python build.py prod" -ForegroundColor Gray
@@ -690,25 +672,8 @@ jobs:
         ref: ${{ github.event.inputs.ref || github.ref }}
         fetch-depth: 0
 
-    - name: Detect frontend changes (macOS)
-      id: fe_changes
-      shell: bash
-      run: |
-        echo "=== Detecting frontend changes under gui_v2/ ==="
-        if ! git rev-parse HEAD^ >/dev/null 2>&1; then
-          echo "No previous commit found; forcing frontend build"
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-          exit 0
-        fi
-        if git diff --name-only HEAD^ HEAD | grep '^gui_v2/' >/dev/null 2>&1; then
-          echo "Frontend files changed; will build frontend"
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "No frontend changes detected; frontend build can be skipped"
-          echo "changed=false" >> "$GITHUB_OUTPUT"
-        fi
-
     # Note: pip caching is handled by setup-python-env action
+    # Frontend is always built (ECAN_SKIP_FRONTEND_BUILD=0)
 
     - name: Setup Python Environment
       uses: ./.github/actions/setup-python-env
@@ -805,7 +770,7 @@ jobs:
     - name: Build macOS App
       if: steps.should_build.outputs.should_build == 'true'
       env:
-        ECAN_SKIP_FRONTEND_BUILD: ${{ steps.fe_changes.outputs.changed == 'false' && '1' || '0' }}
+        ECAN_SKIP_FRONTEND_BUILD: '0'  # Always build frontend
       run: |
         echo "=== Starting macOS Build ==="
         echo "Command: python build.py prod"
