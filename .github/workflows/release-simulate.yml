@@ -325,6 +325,9 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Uploading Windows installers to S3 ==="
+          
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          echo "Version: ${VERSION}"
 
           if [ -d "windows-artifacts" ] && [ "$(ls -A windows-artifacts)" ]; then
             echo "Found Windows artifacts:"
@@ -365,6 +368,9 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Uploading macOS installers to S3 ==="
+          
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          echo "Version: ${VERSION}"
 
           # Merge macOS artifacts from both architectures
           mkdir -p macos-artifacts
@@ -427,6 +433,10 @@ jobs:
         continue-on-error: true
         run: |
           echo "=== Verifying S3 uploads ==="
+          
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          echo "Version: ${VERSION}"
+          
           UPLOAD_FAILED=0
 
           # Verify Windows artifacts
