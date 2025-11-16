@@ -758,9 +758,24 @@ jobs:
 
     steps:
     # ------------------------------------------------------------------------
+    # Step 0: Architecture Filtering
+    # ------------------------------------------------------------------------
+    - name: Decide if this architecture should be built
+      id: should_build
+      run: |
+        ARCH="${{ matrix.arch }}"
+        INPUT="${{ github.event.inputs.arch }}"
+        if [ "$INPUT" = "all" ] || [ -z "$INPUT" ] || [ "$INPUT" = "$ARCH" ]; then
+          echo "should_build=true" >> $GITHUB_OUTPUT
+        else
+          echo "should_build=false" >> $GITHUB_OUTPUT
+        fi
+
+    # ------------------------------------------------------------------------
     # Step Group 1: Repository Setup
     # ------------------------------------------------------------------------
     - name: Checkout code
+      if: steps.should_build.outputs.should_build == 'true'
       uses: actions/checkout@v4
       with:
         ref: ${{ github.event.inputs.ref || github.ref }}
@@ -773,6 +788,7 @@ jobs:
     # Frontend is always built (ECAN_SKIP_FRONTEND_BUILD=0)
 
     - name: Setup Python Environment
+      if: steps.should_build.outputs.should_build == 'true'
       uses: ./.github/actions/setup-python-env
       with:
         platform: macos
@@ -780,6 +796,7 @@ jobs:
         python-version: '3.11'
 
     - name: Setup Playwright Browsers
+      if: steps.should_build.outputs.should_build == 'true'
       uses: ./.github/actions/setup-playwright
       with:
         platform: macos
@@ -787,6 +804,7 @@ jobs:
         browsers: chromium
 
     - name: Cache Node.js dependencies
+      if: steps.should_build.outputs.should_build == 'true'
       uses: actions/cache@v4
       with:
         path: gui_v2/node_modules
@@ -796,9 +814,11 @@ jobs:
           ${{ runner.os }}-${{ matrix.arch }}-node-
 
     - name: Setup Node.js Environment
+      if: steps.should_build.outputs.should_build == 'true'
       uses: ./.github/actions/setup-node-env
 
     - name: Check macOS package architectures
+      if: steps.should_build.outputs.should_build == 'true'
       run: |
         echo "=== Checking installed package architectures ==="
         python -c "
@@ -823,21 +843,25 @@ jobs:
     # Step Group 3: Build Environment Preparation
     # ------------------------------------------------------------------------
     - name: Setup OTA Dependencies
+      if: steps.should_build.outputs.should_build == 'true'
       uses: ./.github/actions/setup-ota-deps
       with:
         platform: macos
 
     - name: Setup Build Directories
+      if: steps.should_build.outputs.should_build == 'true'
       uses: ./.github/actions/setup-build-dirs
       with:
         platform: macos
 
     - name: Setup Xcode License
+      if: steps.should_build.outputs.should_build == 'true'
       uses: ./.github/actions/setup-xcode-license
       with:
         platform: macos
 
     - name: Check Build Environment
+      if: steps.should_build.outputs.should_build == 'true'
       uses: ./.github/actions/check-build-env
       with:
         platform: macos
@@ -846,26 +870,7 @@ jobs:
         matrix-pyinstaller-arch: ${{ matrix.pyinstaller_arch }}
 
     # ------------------------------------------------------------------------
-    # Step Group 4: Architecture Selection
-    # ------------------------------------------------------------------------
-    - name: Determine if this matrix combination should build
-      id: should_build
-      shell: bash
-      run: |
-        INPUT_ARCH="${{ github.event.inputs.arch }}"
-        MATRIX_ARCH="${{ matrix.arch }}"
-        echo "Requested arch: $INPUT_ARCH; current matrix arch: $MATRIX_ARCH"
-        if [ "$INPUT_ARCH" = "all" ] || [ "$INPUT_ARCH" = "$MATRIX_ARCH" ] || [ -z "$INPUT_ARCH" ]; then
-          echo "should_build=true" >> "$GITHUB_OUTPUT"
-          echo "Building for this matrix architecture"
-        else
-          echo "should_build=false" >> "$GITHUB_OUTPUT"
-          echo "Skipping build for this matrix architecture"
-        fi
-
-
-    # ------------------------------------------------------------------------
-    # Step Group 5: Build Process
+    # Step Group 4: Build Process
     # ------------------------------------------------------------------------
     - name: Clean build artifacts
       if: steps.should_build.outputs.should_build == 'true'
