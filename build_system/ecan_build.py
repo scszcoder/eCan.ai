@@ -296,8 +296,8 @@ class InstallerBuilder:
             raw_app_id = windows_config.get("app_id", "6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1")
             # Normalize: strip any braces and whitespace
             app_id = str(raw_app_id).strip().strip("{}").strip()
-            # Pre-wrap with FOUR braces for f-string ({{{{ → {{ in file → { in Inno Setup)
-            app_id_wrapped = "{{{{" + app_id + "}}}}"
+            # Pre-wrap with TWO braces for f-string ({{ → { in file)
+            app_id_wrapped = "{{" + app_id + "}}"
 
             # Get compression settings based on build mode
             compression_modes = installer_config.get("compression_modes", {})
@@ -417,7 +417,7 @@ UsePreviousAppDir=yes
 PrivilegesRequired={privileges_required}
 InternalCompressLevel={internal_compress_level}
 SetupIconFile=..\eCan.ico
-UninstallDisplayIcon={{{{app}}}}\eCan.exe
+UninstallDisplayIcon={{app}}\eCan.exe
 CreateUninstallRegKey=yes
 AllowNoIcons=yes
 DisableProgramGroupPage=no
@@ -447,17 +447,17 @@ english.CreateDesktopIcon=Create a &desktop icon
 chinesesimplified.CreateDesktopIcon=创建桌面图标(&D)
 
 [Tasks]
-Name: "desktopicon"; Description: "{{{{cm:CreateDesktopIcon}}}}"; GroupDescription: "{{{{cm:AdditionalIcons}}}}"; Flags: unchecked
+Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: "{{cm:AdditionalIcons}}"; Flags: unchecked
 
 {dirs_section}[Files]
 {files_section}
 
 [Icons]
-Name: "{{{{group}}}}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target}"; IconIndex: 0
-Name: "{{{{userdesktop}}}}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target}"; IconIndex: 0; Tasks: desktopicon
+Name: "{{group}}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target}"; IconIndex: 0
+Name: "{{userdesktop}}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target}"; IconIndex: 0; Tasks: desktopicon
 
 {registry_section}[UninstallDelete]
-Type: filesandordirs; Name: "{{{{localappdata}}}}\eCan"
+Type: filesandordirs; Name: "{{localappdata}}\eCan"
 
 [Code]
 var
@@ -479,7 +479,7 @@ begin
 
     SplashLabel := TNewStaticText.Create(SplashForm);
     SplashLabel.Parent := SplashForm;
-    SplashLabel.Caption := ExpandConstant('{{{{{{cm:InitializeCaption}}}}}}');
+    SplashLabel.Caption := ExpandConstant('{{cm:InitializeCaption}}');
     SplashLabel.AutoSize := True;
     SplashLabel.Left := (SplashForm.ClientWidth - SplashLabel.Width) div 2;
     SplashLabel.Top := (SplashForm.ClientHeight - SplashLabel.Height) div 2;
@@ -528,18 +528,18 @@ var
   ResultCode: Integer;
 begin
   Result := True;
-  if MsgBox(ExpandConstant('{{{{{{cm:RemoveUserDataPrompt}}}}}}'), mbConfirmation, MB_YESNO) = IDYES then
+  if MsgBox(ExpandConstant('{{cm:RemoveUserDataPrompt}}'), mbConfirmation, MB_YESNO) = IDYES then
   begin
-    if DirExists(ExpandConstant('{{{{{{localappdata}}}}}}\\eCan')) then
+    if DirExists(ExpandConstant('{{localappdata}}\\eCan')) then
     begin
-      if not DelTree(ExpandConstant('{{{{{{localappdata}}}}}}\\eCan'), True, True, True) then
+      if not DelTree(ExpandConstant('{{localappdata}}\\eCan'), True, True, True) then
         MsgBox('Could not remove user data directory. You may need to remove it manually.', mbInformation, MB_OK);
     end;
   end;
 end;
 
 [Run]
-Filename: "{run_target}"; Description: "{{{{cm:LaunchProgram,eCan}}}}"; Flags: nowait postinstall skipifsilent
+Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowait postinstall skipifsilent
 """
 
             iss_file = self.project_root / "build" / "setup.iss"
