@@ -441,6 +441,10 @@ english.InitializeCaption=Initializing installer...
 chinesesimplified.InitializeCaption=正在启动安装器...
 english.RemoveUserDataPrompt=Do you want to remove user data and settings?
 chinesesimplified.RemoveUserDataPrompt=是否删除用户数据和设置？
+english.AdditionalIcons=Additional icons:
+chinesesimplified.AdditionalIcons=附加图标：
+english.CreateDesktopIcon=Create a &desktop icon
+chinesesimplified.CreateDesktopIcon=创建桌面图标(&D)
 
 [Tasks]
 Name: "desktopicon"; Description: "{{{{cm:CreateDesktopIcon}}}}"; GroupDescription: "{{{{cm:AdditionalIcons}}}}"; Flags: unchecked
