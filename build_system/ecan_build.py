@@ -432,7 +432,7 @@ SetupMutex=eCanInstallerMutex
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\\ChineseSimplified.islu"
+Name: "chinesesimplified"; MessagesFile: "compiler:Languages\\ChineseSimplified.isl"
 
 [CustomMessages]
 english.InitializeCaption=Initializing installer...
