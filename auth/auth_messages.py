@@ -52,6 +52,11 @@ class AuthMessages:
             'oauth_success_app_prompt': 'Please open the ecan.ai application',
             'oauth_success_launching': 'Opening ecan.ai application in {countdown} seconds...',
             'oauth_manual_launch': 'Open ecan.ai Application',
+            'oauth_success_confirm_prompt': (
+                'Authentication successful!\\n\\n'
+                'Do you want to open the ecan.ai application to complete login?\\n\\n'
+                'If the app does not open automatically, you can click the "Open ecan.ai Application" button on this page.'
+            ),
             
             # OAuth error messages
             'oauth_error_title': 'Authentication Error',
@@ -100,6 +105,11 @@ class AuthMessages:
             'oauth_success_app_prompt': '请打开 ecan.ai 应用',
             'oauth_success_launching': '正在打开 ecan.ai 应用，{countdown} 秒后自动启动...',
             'oauth_manual_launch': '打开 ecan.ai 应用',
+            'oauth_success_confirm_prompt': (
+                '认证成功！\\n\\n'
+                '是否同意打开 ecan.ai 应用以完成登录？\\n\\n'
+                '如果应用没有自动打开，您可以点击页面上的“打开 ecan.ai 应用”按钮。'
+            ),
             
             # OAuth error messages
             'oauth_error_title': '认证错误',

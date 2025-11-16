@@ -190,23 +190,22 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
                 <script>
                     let countdown = {countdown_seconds};
                     let appLaunched = false;
-                    const currentLang = '{lang}';
-                    
+
                     function launchApplication() {{
                         if (appLaunched) return;
                         appLaunched = true;
-                        
-                        // Try multiple methods to ensure app launch
-                        // Method 1: Direct location change
+
+                        // 尝试多种方式拉起客户端
+                        // 方法 1: 直接跳转
                         window.location.href = '{app_scheme}';
-                        
-                        // Method 2: Create hidden iframe (for better compatibility)
+
+                        // 方法 2: 隐藏 iframe（兼容性更好）
                         const iframe = document.createElement('iframe');
                         iframe.style.display = 'none';
                         iframe.src = '{app_scheme}';
                         document.body.appendChild(iframe);
-                        
-                        // Method 3: Try window.open as fallback
+
+                        // 方法 3: 兜底 window.open
                         setTimeout(function() {{
                             try {{
                                 window.open('{app_scheme}', '_blank');
@@ -214,8 +213,8 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
                                 console.log('Window.open failed:', e);
                             }}
                         }}, 500);
-                        
-                        // Update message after attempting launch
+
+                        // 更新提示文案
                         setTimeout(function() {{
                             const launchMsg = document.getElementById('launch-message');
                             if (launchMsg) {{
@@ -224,74 +223,26 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
                             }}
                         }}, 1000);
                     }}
-                    
+
                     function updateCountdown() {{
                         if (countdown > 0) {{
                             countdown--;
                             setTimeout(updateCountdown, 1000);
                         }} else {{
-                            // Try to close the window after countdown
-                            setTimeout(function() {{
-                                window.close();
-                                // If window.close() doesn't work, show manual close instruction
-                                setTimeout(function() {{
-                                    const container = document.querySelector('.container');
-                                    if (container) {{
-                                        container.innerHTML = '<div class="message">Please close this browser window manually.</div>';
-                                    }}
-                                }}, 1000);
-                            }}, 500);
-                        }}
-                    }}
-                    
-                    // Show prompt dialog to open app
-                    function showOpenAppPrompt() {{
-                        // Detect language and show appropriate message
-                        const isChinese = currentLang.includes('zh') || navigator.language.includes('zh');
-                        let promptText;
-                        if (isChinese) {{
-                            promptText = '认证成功！\\n\\n点击"确定"打开 ecan.ai 应用。\\n\\n如果应用没有自动打开，请点击页面上的"打开 ecan.ai 应用"按钮。';
-                        }} else {{
-                            promptText = 'Authentication Successful!\\n\\nClick "OK" to open the ecan.ai application.\\n\\nIf the app doesn\\'t open automatically, please click the "Open ecan.ai Application" button on the page.';
-                        }}
-                        
-                        // Show confirm dialog
-                        const userConfirmed = confirm(promptText);
-                        
-                        // Launch app regardless of user choice (but immediately if confirmed)
-                        if (userConfirmed) {{
+                            // 倒计时结束后，直接尝试拉起客户端
                             launchApplication();
-                        }} else {{
-                            // User cancelled, but still try to launch after a short delay
-                            setTimeout(function() {{
-                                launchApplication();
-                            }}, 1000);
                         }}
                     }}
-                    
-                    // Start countdown and launch app immediately
+
                     document.addEventListener('DOMContentLoaded', function() {{
-                        // Show prompt dialog first
-                        showOpenAppPrompt();
-                        // Also launch automatically as fallback
-                        setTimeout(function() {{
-                            launchApplication();
-                        }}, 1000);
-                        // Start countdown
+                        // 页面加载后只显示成功信息和倒计时
                         updateCountdown();
                     }});
-                    
-                    // Handle manual launch link
+
+                    // 手动点击“打开应用”按钮时立即尝试拉起客户端
                     document.getElementById('manual-launch').addEventListener('click', function(e) {{
                         e.preventDefault();
                         launchApplication();
-                    }});
-                    
-                    // Also try to launch on page visibility change (when user switches back to tab)
-                    document.addEventListener('visibilitychange', function() {{
-                        if (!document.hidden && !appLaunched) {{
-                            launchApplication();
-                        }}
                     }});
                 </script>
             </div>
@@ -389,7 +340,34 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
                     <p><strong>{description_label}:</strong> {description}</p>
                 </div>
                 <p class="message">{close_instruction}</p>
+                <p class="message" id="countdown-message"></p>
             </div>
+            <script>
+                (function() {{
+                    // 错误页面倒计时自动关闭逻辑
+                    let countdown = 5;  // seconds
+                    const countdownEl = document.getElementById('countdown-message');
+
+                    function updateCountdown() {{
+                        if (!countdownEl) return;
+                        if (countdown > 0) {{
+                            countdownEl.textContent = countdown + 's...';
+                            countdown--;
+                            setTimeout(updateCountdown, 1000);
+                        }} else {{
+                            // 尝试关闭窗口
+                            window.close();
+                            // 如果浏览器阻止关闭，则在稍后提示用户手动关闭
+                            setTimeout(function() {{
+                                if (!countdownEl) return;
+                                countdownEl.textContent = '';
+                            }}, 2000);
+                        }}
+                    }}
+
+                    updateCountdown();
+                }})();
+            </script>
         </body>
         </html>
         """
