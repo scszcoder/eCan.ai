@@ -449,7 +449,10 @@
         "IPython.lib",
         "IPython.utils",
         "IPython.testing",
-        "IPython.extensions"
+        "IPython.extensions",
+        "sklearn.datasets.data",
+        "sklearn.datasets.descr",
+        "sklearn.datasets.images"
       ],
       "optimization": {
         "copy_metadata": true
