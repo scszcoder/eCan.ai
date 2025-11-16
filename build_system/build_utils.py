@@ -241,12 +241,6 @@ class URLSchemeBuildConfig:
                 "icon_file": "eCan.ico"
             }
             
-            # Save build configuration for PyInstaller
-            import json
-            config_path = Path("build_system/windows_url_scheme.json")
-            with open(config_path, 'w') as f:
-                json.dump(build_config, f, indent=2)
-            
             print("[URL_SCHEME] Windows URL scheme build configuration created")
             return True
             

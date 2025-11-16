@@ -138,7 +138,7 @@ class MiniSpecBuilder:
     def build(self, mode: str = "prod", profile: Dict[str, Any] = None) -> bool:
         # NOTE: Playwright browsers should be prepared BEFORE running this build
         # - In CI: release.yml handles Playwright download
-        # - Locally: run `python build_system/prepare_playwright.py` first
+        # - Locally: Playwright is installed automatically during build
         # The build process will only package existing browsers in third_party/ms-playwright/
         
         # Generate essential pre-safe hooks for known problematic modules

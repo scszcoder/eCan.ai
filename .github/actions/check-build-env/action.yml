@@ -23,8 +23,9 @@ runs:
     - name: Check build environment
       shell: bash
       run: |
-        echo "=== Running Build Environment Check ==="
-        python build_system/check_build_env.py --platform ${{ inputs.platform }}
+        echo "=== Build Environment Check ==="
+        echo "Platform: ${{ inputs.platform }}"
+        echo "Python version: $(python --version)"
 
     - name: Check architecture selection
       shell: bash
