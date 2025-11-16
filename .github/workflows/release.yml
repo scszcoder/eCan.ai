@@ -758,24 +758,41 @@ jobs:
 
     steps:
     # ------------------------------------------------------------------------
-    # Step 0: Architecture Filtering
+    # Step 0: Architecture Filtering (MUST BE FIRST - No dependencies)
     # ------------------------------------------------------------------------
-    - name: Decide if this architecture should be built
-      id: should_build
+    # This step runs immediately without any setup to decide if this matrix
+    # combination should proceed. If not needed, the job exits early without
+    # wasting resources on environment setup.
+    - name: Check if this architecture should be built
+      id: arch_check
       run: |
         ARCH="${{ matrix.arch }}"
         INPUT="${{ github.event.inputs.arch }}"
+        echo "Matrix architecture: $ARCH"
+        echo "Requested architecture: $INPUT"
+        
         if [ "$INPUT" = "all" ] || [ -z "$INPUT" ] || [ "$INPUT" = "$ARCH" ]; then
+          echo "✅ This architecture will be built"
           echo "should_build=true" >> $GITHUB_OUTPUT
         else
+          echo "⏭️  Skipping this architecture (not requested)"
           echo "should_build=false" >> $GITHUB_OUTPUT
+          exit 0
         fi
+
+    # Early exit if architecture not needed - saves all setup time
+    - name: Exit early if architecture not needed
+      if: steps.arch_check.outputs.should_build != 'true'
+      run: |
+        echo "Architecture ${{ matrix.arch }} not needed for this build"
+        echo "Exiting early to save resources"
+        exit 0
 
     # ------------------------------------------------------------------------
     # Step Group 1: Repository Setup
     # ------------------------------------------------------------------------
     - name: Checkout code
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: actions/checkout@v4
       with:
         ref: ${{ github.event.inputs.ref || github.ref }}
@@ -788,7 +805,7 @@ jobs:
     # Frontend is always built (ECAN_SKIP_FRONTEND_BUILD=0)
 
     - name: Setup Python Environment
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: ./.github/actions/setup-python-env
       with:
         platform: macos
@@ -796,7 +813,7 @@ jobs:
         python-version: '3.11'
 
     - name: Setup Playwright Browsers
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: ./.github/actions/setup-playwright
       with:
         platform: macos
@@ -804,7 +821,7 @@ jobs:
         browsers: chromium
 
     - name: Cache Node.js dependencies
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: actions/cache@v4
       with:
         path: gui_v2/node_modules
@@ -814,11 +831,11 @@ jobs:
           ${{ runner.os }}-${{ matrix.arch }}-node-
 
     - name: Setup Node.js Environment
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: ./.github/actions/setup-node-env
 
     - name: Check macOS package architectures
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       run: |
         echo "=== Checking installed package architectures ==="
         python -c "
@@ -843,25 +860,25 @@ jobs:
     # Step Group 3: Build Environment Preparation
     # ------------------------------------------------------------------------
     - name: Setup OTA Dependencies
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: ./.github/actions/setup-ota-deps
       with:
         platform: macos
 
     - name: Setup Build Directories
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: ./.github/actions/setup-build-dirs
       with:
         platform: macos
 
     - name: Setup Xcode License
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: ./.github/actions/setup-xcode-license
       with:
         platform: macos
 
     - name: Check Build Environment
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: ./.github/actions/check-build-env
       with:
         platform: macos
@@ -873,13 +890,13 @@ jobs:
     # Step Group 4: Build Process
     # ------------------------------------------------------------------------
     - name: Clean build artifacts
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: ./.github/actions/clean-build-artifacts
       with:
         platform: macos
 
     - name: Build macOS App
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       env:
         ECAN_SKIP_FRONTEND_BUILD: '0'  # Always build frontend
       run: |
@@ -962,7 +979,7 @@ jobs:
         echo "[OK] Build completed successfully"
 
     - name: Validate build artifacts
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       run: |
         echo "=== Validating Build Artifacts ==="
         python build_system/build_validator.py --artifacts --version ${{ needs.validate-tag.outputs.version }} --arch $BUILD_ARCH
@@ -972,7 +989,7 @@ jobs:
         fi
 
     - name: Verify architecture
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       env:
         BUILD_ARCH: ${{ matrix.arch }}
         TARGET_ARCH: ${{ matrix.target_arch }}
@@ -991,7 +1008,7 @@ jobs:
     # ------------------------------------------------------------------------
     - name: Code sign macOS app (optional)
       if: |
-        steps.should_build.outputs.should_build == 'true' &&
+        steps.arch_check.outputs.should_build == 'true' &&
         env.MAC_CERT_P12 != 'NOT_SET' &&
         env.MAC_CERT_PASSWORD != 'NOT_SET' &&
         env.MAC_CODESIGN_IDENTITY != 'NOT_SET'
@@ -1027,7 +1044,7 @@ jobs:
 
     - name: Notarize macOS PKG (optional)
       if: |
-        steps.should_build.outputs.should_build == 'true' &&
+        steps.arch_check.outputs.should_build == 'true' &&
         env.APPLE_ID != 'NOT_SET' &&
         env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' &&
         env.TEAM_ID != 'NOT_SET'
@@ -1059,7 +1076,7 @@ jobs:
         fi
 
     - name: Check build result
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       run: |
         echo "=== Build Result Check ==="
         echo "=== Environment Variables Summary ==="
@@ -1123,7 +1140,7 @@ jobs:
     # Step Group 7: Artifact Preparation and Upload
     # ------------------------------------------------------------------------
     - name: Compress macOS artifacts for upload
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       id: compress_artifacts
       run: |
         echo "=== Compressing macOS artifacts ==="
@@ -1153,7 +1170,7 @@ jobs:
         ls -lh artifacts/
 
     - name: Upload macOS artifacts for S3 transfer (always, short retention)
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
@@ -1163,7 +1180,7 @@ jobs:
         if-no-files-found: error
 
     - name: Upload macOS artifacts for users (optional, long retention)
-      if: steps.should_build.outputs.should_build == 'true' && github.event.inputs.upload_artifacts == 'true'
+      if: steps.arch_check.outputs.should_build == 'true' && github.event.inputs.upload_artifacts == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
