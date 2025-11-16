@@ -664,7 +664,7 @@ def _find_playwright_cache() -> Path:
     if env_path:
         env_path_obj = Path(env_path)
         if env_path_obj.exists():
-            # 检查浏览器目录
+            # Check for browser directories in the environment path
             browser_dirs = [d for d in env_path_obj.iterdir()
                            if d.is_dir() and any(browser in d.name.lower()
                            for browser in ['chromium', 'firefox', 'webkit'])]
@@ -683,7 +683,7 @@ def _find_playwright_cache() -> Path:
         possible_paths = [
             Path.home() / ".cache" / "ms-playwright",
             Path.home() / "Library" / "Caches" / "ms-playwright",
-            Path.home() / "Library" / "Application Support" / "eCan" / "ms-playwright",  # 自定义路径
+            Path.home() / "Library" / "Application Support" / "eCan" / "ms-playwright",  # Custom application-specific path
         ]
     else:  # Linux
         possible_paths = [
@@ -691,10 +691,10 @@ def _find_playwright_cache() -> Path:
             Path.home() / ".local" / "share" / "ms-playwright",
         ]
 
-    # Find first valid path by checking browser directories
+    # Find the first valid path by checking for browser directories
     for path in possible_paths:
         if path.exists():
-            # 检查浏览器目录
+            # Check for browser directories in each candidate path
             browser_dirs = [d for d in path.iterdir()
                            if d.is_dir() and any(browser in d.name.lower()
                            for browser in ['chromium', 'firefox', 'webkit'])]

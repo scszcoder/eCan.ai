@@ -313,35 +313,35 @@ class UnifiedBuildSystem:
 
     def sign_artifacts(self, mode: str = "prod", version: str = None) -> bool:
         """Sign build artifacts"""
-        print(f"\n[SIGN] 开始签名构建产物...")
+        print("\n[SIGN] Starting artifact code signing...")
         
         try:
-            # 创建代码签名管理器
+            # Create code signing manager
             signing_manager = create_signing_manager(self.project_root, self.config.config)
             
-            # 执行代码签名
+            # Perform code signing
             code_sign_success = signing_manager.sign_artifacts(mode)
             
-            # 验证签名
+            # Verify signatures
             if code_sign_success:
                 signing_manager.verify_signatures()
             
-            # 执行OTA签名
+            # Perform OTA signing if version is provided
             if version:
                 ota_signing_manager = create_ota_signing_manager(self.project_root)
                 ota_sign_success = ota_signing_manager.sign_for_ota(version)
                 
                 if ota_sign_success:
-                    print("[SIGN] [OK] OTA签名完成")
+                    print("[SIGN] [OK] OTA signing completed")
                 else:
-                    print("[SIGN] [WARNING] OTA签名失败，但继续构建")
+                    print("[SIGN] [WARNING] OTA signing failed, continuing build")
             
-            print("[SIGN] 签名流程完成")
+            print("[SIGN] Signing workflow completed")
             return True
             
         except Exception as e:
-            print(f"[SIGN] [WARNING] 签名过程出错: {e}")
-            # 签名失败不应该阻止构建
+            print(f"[SIGN] [WARNING] Error during signing process: {e}")
+            # Signing failures should not block the overall build
             return True
     
     def standardize_artifacts(self, version: str) -> None:
