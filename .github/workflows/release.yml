@@ -240,8 +240,8 @@ jobs:
     - name: Install Inno Setup
       run: |
         echo "=== Installing Inno Setup ==="
-        $DownloadUrl = "https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe"
-        $DownloadPath = "$env:TEMP\innosetup-6.2.2.exe"
+        $DownloadUrl = "https://files.jrsoftware.org/is/6/innosetup-6.6.0.exe"
+        $DownloadPath = "$env:TEMP\innosetup-6.6.0.exe"
 
         Write-Host "Downloading Inno Setup..."
         Invoke-WebRequest -Uri $DownloadUrl -OutFile $DownloadPath -UseBasicParsing
@@ -316,91 +316,66 @@ jobs:
             New-Item -ItemType Directory -Path $targetLangDir -Force | Out-Null 
         }
 
-        # DIAGNOSTIC: Show what Inno Setup installer included by default
-        Write-Host "=== Diagnostic: Inno Setup Default Language Files ===" -ForegroundColor Magenta
-        $defaultLangFiles = Get-ChildItem -Path $targetLangDir -Include "*.isl","*.islu" -ErrorAction SilentlyContinue
-        if ($defaultLangFiles.Count -gt 0) {
-            Write-Host "Found $($defaultLangFiles.Count) language files installed by Inno Setup:" -ForegroundColor Yellow
-            foreach ($file in $defaultLangFiles) {
-                $size = [math]::Round($file.Length / 1KB, 2)
-                # Check encoding by reading first few lines
-                $encoding = "Unknown"
-                try {
-                    $content = Get-Content $file.FullName -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
-                    if ($content -match 'LanguageCodePage=0') {
-                        $encoding = "Unicode (CodePage=0)"
-                    } elseif ($content -match 'LanguageCodePage=(\d+)') {
-                        $encoding = "ANSI (CodePage=$($matches[1]))"
-                    }
-                } catch {}
-                Write-Host "  - $($file.Name) [$($file.Extension)] $size KB - $encoding" -ForegroundColor $(if ($file.Extension -eq ".islu") { "Green" } elseif ($file.Name -eq "Default.isl") { "Cyan" } else { "Red" })
-            }
-        } else {
-            Write-Host "No default language files found (unexpected)" -ForegroundColor Yellow
-        }
-        Write-Host ""
-
-        # CRITICAL FIX: Remove ALL existing language files to avoid conflicts
-        # Inno Setup installer may include default .isl files (ANSI encoding) that conflict with our Unicode .islu files
-        Write-Host "=== Cleaning existing language files ===" -ForegroundColor Yellow
-        $existingLangFiles = Get-ChildItem -Path $targetLangDir -Include "*.isl","*.islu" -Recurse -ErrorAction SilentlyContinue
-        foreach ($file in $existingLangFiles) {
-            # Keep only Default.isl (English) - remove all other language files
-            if ($file.Name -ne "Default.isl") {
-                Remove-Item $file.FullName -Force -ErrorAction SilentlyContinue
-                Write-Host "  Removed: $($file.Name)" -ForegroundColor Gray
-            }
-        }
-        Write-Host "✓ Cleaned $(($existingLangFiles | Where-Object { $_.Name -ne 'Default.isl' }).Count) language files" -ForegroundColor Green
-        Write-Host ""
-
-        # Find all .islu files in source directory (Unicode language packs only)
-        $langFiles = Get-ChildItem -Path $sourceLangDir -Filter "*.islu" -ErrorAction SilentlyContinue
+        # AUTO-DOWNLOAD: Download required language packs from official repository if not present
+        Write-Host "=== Checking and downloading required language packs ===" -ForegroundColor Cyan
         
-        if ($langFiles.Count -eq 0) {
-            Write-Host "WARNING: No language pack files found in $sourceLangDir" -ForegroundColor Yellow
-            Write-Host "Installer will use default English only" -ForegroundColor Yellow
-            exit 0
+        # Define required language packs (can be extended)
+        $requiredLanguages = @{
+            "ChineseSimplified" = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl"
         }
-
-        # Install each language pack
-        $installed = 0
-        foreach ($file in $langFiles) {
-            $targetPath = Join-Path $targetLangDir $file.Name
+        
+        $downloadedCount = 0
+        $skippedCount = 0
+        
+        foreach ($langName in $requiredLanguages.Keys) {
+            $langUrl = $requiredLanguages[$langName]
+            $targetFile = Join-Path $targetLangDir "$langName.isl"
             
+            # Check if language pack already exists
+            if (Test-Path $targetFile) {
+                Write-Host "  ✓ $langName.isl already exists (skipped)" -ForegroundColor Gray
+                $skippedCount++
+                continue
+            }
+            
+            # Download from official repository
+            Write-Host "  Downloading $langName.isl from official repository..." -ForegroundColor Yellow
             try {
-                Copy-Item -Path $file.FullName -Destination $targetPath -Force -ErrorAction Stop
-                $fileSize = [math]::Round($file.Length / 1KB, 2)
-                Write-Host "✓ Installed: $($file.Name) ($fileSize KB)" -ForegroundColor Green
-                $installed++
+                Invoke-WebRequest -Uri $langUrl -OutFile $targetFile -UseBasicParsing -ErrorAction Stop
                 
-                # Extract and display language info
-                $content = Get-Content $file.FullName -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
-                if ($content -match 'LanguageName=([^\r\n]+)') {
-                    Write-Host "  Language: $($matches[1])" -ForegroundColor Gray
+                # Verify download
+                if (Test-Path $targetFile) {
+                    $size = [math]::Round((Get-Item $targetFile).Length / 1KB, 2)
+                    Write-Host "  ✓ Downloaded: $langName.isl ($size KB)" -ForegroundColor Green
+                    $downloadedCount++
+                } else {
+                    Write-Host "  ✗ Failed to download: $langName.isl" -ForegroundColor Red
                 }
             } catch {
-                Write-Host "✗ Failed to install: $($file.Name)" -ForegroundColor Red
-                Write-Host "  Error: $_" -ForegroundColor Red
+                Write-Host "  ✗ Error downloading $langName.isl: $_" -ForegroundColor Red
+                Write-Host "    Installer will use English for this language" -ForegroundColor Yellow
             }
         }
         
         Write-Host ""
-        Write-Host "=== Installation Summary ===" -ForegroundColor Cyan
-        Write-Host "Total language packs installed: $installed" -ForegroundColor Green
-        Write-Host "Languages directory: $targetLangDir" -ForegroundColor Gray
+        Write-Host "=== Download Summary ===" -ForegroundColor Cyan
+        Write-Host "  Downloaded: $downloadedCount" -ForegroundColor Green
+        Write-Host "  Already present: $skippedCount" -ForegroundColor Gray
+        Write-Host "✓ Language pack preparation completed" -ForegroundColor Green
         Write-Host ""
         
-        # Verify: List all language files to confirm only our Unicode .islu files are present
+        # Verify final language files
         Write-Host "=== Final Language Files Verification ===" -ForegroundColor Cyan
         $finalLangFiles = Get-ChildItem -Path $targetLangDir -Include "*.isl","*.islu" -ErrorAction SilentlyContinue
+        $langCount = 0
         foreach ($file in $finalLangFiles) {
-            $encoding = if ($file.Extension -eq ".islu") { "Unicode" } else { "ANSI" }
-            $status = if ($file.Name -eq "Default.isl") { "[System]" } elseif ($file.Extension -eq ".islu") { "[OK]" } else { "[WARNING]" }
-            Write-Host "  $status $($file.Name) ($encoding)" -ForegroundColor $(if ($file.Extension -eq ".islu" -or $file.Name -eq "Default.isl") { "Green" } else { "Yellow" })
+            $size = [math]::Round($file.Length / 1KB, 2)
+            $status = if ($file.Name -eq "Default.isl") { "[System]" } else { "[Available]" }
+            Write-Host "  $status $($file.Name) ($size KB)" -ForegroundColor $(if ($file.Name -eq "Default.isl") { "Cyan" } else { "Green" })
+            $langCount++
         }
         Write-Host ""
-        Write-Host "✅ Language pack installation completed" -ForegroundColor Green
+        Write-Host "✓ Total $langCount language packs available" -ForegroundColor Green
 
     # ------------------------------------------------------------------------
     # Step Group 5: Build Environment Preparation
