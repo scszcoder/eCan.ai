@@ -9,17 +9,25 @@ from agent.ec_skills.llm_utils.llm_utils import _deep_merge
 
 
 # just get the right prompt for this node
-def standard_pre_llm_hook(askid, full_node_name, agent, state):
+def standard_pre_llm_hook(askid, full_node_name, agent, state, prompt_src, prompt_data):
     try:
         agent_id = state["messages"][0]
         agent = get_agent_by_id(agent_id)
         mainwin = agent.mainwin
         node_info = {"askid": askid, "name": full_node_name}
-        nodes_prompts = api_ecan_ai_get_nodes_prompts(mainwin, [node_info])
-        # mm_content = prep_multi_modal_content(state, runtime)
 
-        state["prompts"] = nodes_prompts[0]
-        logger.debug(f"state prompts: {state['input']} {nodes_prompts}")
+        # obtain the right prompt for this node (fetch from cloud) but
+        # if this node name is not in the cloud, we use the default prompt
+        if prompt_src=="cloud":
+            nodes_prompts = api_ecan_ai_get_nodes_prompts(mainwin, [node_info])
+            state["prompts"] = nodes_prompts[0]
+            logger.debug(f"cloud state prompts: {state['input']} {nodes_prompts}")
+        # mm_content = prep_multi_modal_content(state, runtime)
+        else:
+            nodes_prompts = prompt_data
+            state["prompts"] = nodes_prompts
+            logger.debug(f"GUI state prompts: {state['input']} {nodes_prompts}")
+
         logger.debug(f"standard_pre_llm_hook current state: {state}")
         langchain_prompt = ChatPromptTemplate.from_messages(state["prompts"])
 
@@ -150,6 +158,7 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state):
         logger.debug("pre ll hook vars:", var_values)
 
         formatted_prompt = langchain_prompt.format_messages(**var_values)
+        logger.debug(f"formatted_prompt ready to use: {formatted_prompt}")
         logger.debug(f"state: {state}")
         # Ensure list exists
         if not isinstance(state.get("history"), list):
@@ -160,6 +169,8 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state):
         from langchain_core.messages import SystemMessage
 
         if formatted_prompt and len(formatted_prompt) > 0:
+            logger.debug(f"updating messages to history......")
+
             first_msg = formatted_prompt[0]
             # Check if first message is a SystemMessage
             if isinstance(first_msg, SystemMessage):
@@ -364,7 +375,7 @@ POST_LLM_HOOKS_TABLE = {
 }
 
 # pre llm is mostly about preparing the prompt
-def run_pre_llm_hook(node_name, agent, state):
+def run_pre_llm_hook(node_name, agent, state, prompt_src="cloud", prompt_data=None):
     try:
         mainwin = agent.mainwin
         logger.debug(f"node_name: {node_name} {agent.card.name}")
@@ -385,7 +396,7 @@ def run_pre_llm_hook(node_name, agent, state):
         # Not found: raise informative error listing available keys
 
         # just run standard pre llm hook
-        standard_pre_llm_hook(askid, node_name, agent, state)
+        standard_pre_llm_hook(askid, node_name, agent, state, prompt_src=prompt_src, prompt_data=prompt_data)
         # available = ", ".join(sorted(PRE_LLM_HOOKS_TABLE.keys()))
         # raise KeyError(f"pre llm hook not found for '{node_name}'. Available: {available}")
     except Exception as e:
