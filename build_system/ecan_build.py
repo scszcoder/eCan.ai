@@ -332,14 +332,14 @@ class InstallerBuilder:
             onedir_dir = self.project_root / 'dist' / 'eCan'
             onefile_exe = self.project_root / 'dist' / 'eCan.exe'
             if onedir_dir.exists():
-                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{{app}}\"; Flags: ignoreversion recursesubdirs createallsubdirs"
-                run_target = "{{app}}\\eCan.exe"
+                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{app}\"; Flags: ignoreversion recursesubdirs createallsubdirs"
+                run_target = "{app}\\eCan.exe"
             elif onefile_exe.exists():
-                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{{app}}\"; Flags: ignoreversion"
-                run_target = "{{app}}\\eCan.exe"
+                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
+                run_target = "{app}\\eCan.exe"
             else:
-                files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{{app}}\"; Flags: ignoreversion"
-                run_target = "{{app}}\\eCan.exe"
+                files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
+                run_target = "{app}\\eCan.exe"
 
             # Create standardized installer filename with platform and architecture
             arch = os.environ.get('BUILD_ARCH', 'amd64')
@@ -351,8 +351,7 @@ class InstallerBuilder:
             installer_filename = f"eCan-{app_version}-windows-{arch}-Setup"
 
             # Get Windows-specific installer settings
-            # Escape {pf} for f-string (will become single {pf} in output)
-            default_dir = windows_config.get('default_dir', installer_config.get('default_dir', '{{pf}}\\eCan'))
+            default_dir = windows_config.get('default_dir', installer_config.get('default_dir', '{pf}\\eCan'))
             default_group = windows_config.get('default_group', installer_config.get('default_group', 'eCan'))
             privileges_required = windows_config.get('privileges_required', installer_config.get('privileges_required', 'admin'))
 
@@ -378,11 +377,10 @@ class InstallerBuilder:
                     
                     # Escape double quotes in ValueData to satisfy Inno Setup syntax
                     # Example: "{app}" "%1" -> ""{app}"" ""%1""
-                    # Also escape curly braces for f-string: {app} -> {{app}}
+                    # NOTE: Do NOT escape curly braces! value_data is a variable value,
+                    # not a literal in f-string, so {app} won't be interpreted as a variable
                     if isinstance(value_data, str):
                         safe_value_data = value_data.replace('"', '""')
-                        # Escape { and } for f-string (will become single { } in output)
-                        safe_value_data = safe_value_data.replace('{', '{{').replace('}', '}}')
                     else:
                         safe_value_data = str(value_data)
 
@@ -477,7 +475,7 @@ begin
 
     SplashLabel := TNewStaticText.Create(SplashForm);
     SplashLabel.Parent := SplashForm;
-    SplashLabel.Caption := ExpandConstant('{{{cm:InitializeCaption}}}');
+    SplashLabel.Caption := ExpandConstant('{{{{{{cm:InitializeCaption}}}}}}');
     SplashLabel.AutoSize := True;
     SplashLabel.Left := (SplashForm.ClientWidth - SplashLabel.Width) div 2;
     SplashLabel.Top := (SplashForm.ClientHeight - SplashLabel.Height) div 2;
@@ -526,11 +524,11 @@ var
   ResultCode: Integer;
 begin
   Result := True;
-  if MsgBox(ExpandConstant('{{{cm:RemoveUserDataPrompt}}}'), mbConfirmation, MB_YESNO) = IDYES then
+  if MsgBox(ExpandConstant('{{{{{{cm:RemoveUserDataPrompt}}}}}}'), mbConfirmation, MB_YESNO) = IDYES then
   begin
-    if DirExists(ExpandConstant('{{{localappdata}}}\\eCan')) then
+    if DirExists(ExpandConstant('{{{{{{localappdata}}}}}}\\eCan')) then
     begin
-      if not DelTree(ExpandConstant('{{{localappdata}}}\\eCan'), True, True, True) then
+      if not DelTree(ExpandConstant('{{{{{{localappdata}}}}}}\\eCan'), True, True, True) then
         MsgBox('Could not remove user data directory. You may need to remove it manually.', mbInformation, MB_OK);
     end;
   end;
