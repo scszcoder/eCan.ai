@@ -465,7 +465,7 @@ function InitializeSetup(): Boolean;
 begin
   Result := True;
   try
-    SplashForm := CreateCustomForm();
+    SplashForm := CreateCustomForm(ScaleX(360), ScaleY(120), True, True);
     SplashForm.BorderStyle := bsNone;
     SplashForm.ClientWidth := ScaleX(360);
     SplashForm.ClientHeight := ScaleY(120);
