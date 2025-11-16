@@ -328,17 +328,17 @@ class InstallerBuilder:
                 dirs_section = ""
 
             # Choose file source: prefer onedir directory, otherwise use single file EXE
-            # Add 'replacesameversion' flag to allow overwriting existing files
+            # Use 'ignoreversion' flag to always overwrite files during installation
             onedir_dir = self.project_root / 'dist' / 'eCan'
             onefile_exe = self.project_root / 'dist' / 'eCan.exe'
             if onedir_dir.exists():
-                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{app}\"; Flags: ignoreversion replacesameversion recursesubdirs createallsubdirs"
+                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{app}\"; Flags: ignoreversion recursesubdirs createallsubdirs"
                 run_target = "{app}\\eCan.exe"
             elif onefile_exe.exists():
-                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{app}\"; Flags: ignoreversion replacesameversion"
+                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
                 run_target = "{app}\\eCan.exe"
             else:
-                files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{app}\"; Flags: ignoreversion replacesameversion"
+                files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
                 run_target = "{app}\\eCan.exe"
 
             # Create standardized installer filename with platform and architecture
