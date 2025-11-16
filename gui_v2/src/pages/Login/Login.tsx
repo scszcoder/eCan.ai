@@ -42,6 +42,7 @@ const Login: React.FC = () => {
 	const [codeSent, setCodeSent] = useState(false);
 	// LoginSuccessStatus，防止ButtonStatusReset
 	const [loginSuccessful, setLoginSuccessful] = useState(false);
+	const [hasNavigated, setHasNavigated] = useState(false);
 	// 忘记PasswordOperation的loadingStatus
 	const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
 	// Login进度Status
@@ -54,19 +55,18 @@ const Login: React.FC = () => {
 	// Poll backend initialization progress during login
 	const { progress: initProgress } = useInitializationProgress(loading || showInitProgress);
 
-	// Navigate when UI is ready
+	// 标准跳转逻辑：仅当系统初始化就绪且登录成功时才跳转到主页面
 	useEffect(() => {
-		if ((loading || showInitProgress) && initProgress?.ui_ready && !loginSuccessful) {
-			setLoginSuccessful(true);
-			console.log('[Login] UI ready, navigating to main page');
+		if (!initProgress?.ui_ready) return;
+		if (!loginSuccessful) return;
+		if (hasNavigated) return;
 
-			setTimeout(() => {
-				setLoading(false);
-				setShowInitProgress(false);
-				navigate('/agents');
-			}, 500);
-		}
-	}, [initProgress, loading, showInitProgress, navigate, loginSuccessful]);
+		setHasNavigated(true);
+		console.log('[Login] ui_ready && loginSuccessful, navigating to main page');
+		setLoading(false);
+		setShowInitProgress(false);
+		navigate('/agents');
+	}, [initProgress, loginSuccessful, hasNavigated, navigate]);
 
 	// Initialize IPC API and load login info and language preference
 	useEffect(() => {
@@ -169,6 +169,7 @@ const Login: React.FC = () => {
 		// Reset all loading states when switching modes
 		setLoading(false);
 		setLoginSuccessful(false);
+		setHasNavigated(false);
 		setForgotPasswordLoading(false);
 		setCodeSent(false);
 		setShowInitProgress(false);
@@ -335,6 +336,7 @@ const Login: React.FC = () => {
 			switch (mode) {
 				case 'login':
 					loginAttempted = true;
+					setHasNavigated(false); // Reset navigation flag for new login attempt
 					// 立即DisplayLogin进度UI
 					setShowInitProgress(true);
 					await handleLogin(values, api);
@@ -379,6 +381,7 @@ const Login: React.FC = () => {
 
     setLoading(true);
     setLoginSuccessful(false);
+    setHasNavigated(false); // Reset navigation flag for new login attempt
     setLastError(null); // Clear previous errors
     setGoogleLoginProgress('opening');
 
@@ -498,13 +501,9 @@ const Login: React.FC = () => {
 						: undefined
 				}
 				onComplete={() => {
+					// 只负责关闭进度UI，跳转由统一的 effect 处理
 					setLoading(false);
 					setShowInitProgress(false);
-					// Whenui_ready时就跳转到主Page，后台继续Initialize
-					if (loginSuccessful) {
-						console.log('[Login] UI ready, navigating to main page');
-						navigate('/agents');
-					}
 				}}
 			/>
 
