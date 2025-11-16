@@ -731,7 +731,7 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            runner: macos-14-large  # Intel x86_64 runner (macos-13 deprecated, removed Dec 4, 2024)
+            runner: macos-15-intel  # Intel x86_64 runner (free standard runner, newer than macos-13)
             target_arch: x86_64
             pyinstaller_arch: x86_64
           - arch: aarch64
