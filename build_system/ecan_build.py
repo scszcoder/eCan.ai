@@ -296,8 +296,8 @@ class InstallerBuilder:
             raw_app_id = windows_config.get("app_id", "6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1")
             # Normalize: strip any braces and whitespace
             app_id = str(raw_app_id).strip().strip("{}").strip()
-            # Pre-wrap with double braces for Inno Setup (to prevent constant expansion)
-            app_id_wrapped = "{{" + app_id + "}}"
+            # Pre-wrap with FOUR braces for f-string ({{{{ → {{ in file → { in Inno Setup)
+            app_id_wrapped = "{{{{" + app_id + "}}}}"
 
             # Get compression settings based on build mode
             compression_modes = installer_config.get("compression_modes", {})
@@ -332,14 +332,14 @@ class InstallerBuilder:
             onedir_dir = self.project_root / 'dist' / 'eCan'
             onefile_exe = self.project_root / 'dist' / 'eCan.exe'
             if onedir_dir.exists():
-                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{app}\"; Flags: ignoreversion recursesubdirs createallsubdirs"
-                run_target = "{app}\\eCan.exe"
+                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{{app}}\"; Flags: ignoreversion recursesubdirs createallsubdirs"
+                run_target = "{{app}}\\eCan.exe"
             elif onefile_exe.exists():
-                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
-                run_target = "{app}\\eCan.exe"
+                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{{app}}\"; Flags: ignoreversion"
+                run_target = "{{app}}\\eCan.exe"
             else:
-                files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
-                run_target = "{app}\\eCan.exe"
+                files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{{app}}\"; Flags: ignoreversion"
+                run_target = "{{app}}\\eCan.exe"
 
             # Create standardized installer filename with platform and architecture
             arch = os.environ.get('BUILD_ARCH', 'amd64')
@@ -351,7 +351,8 @@ class InstallerBuilder:
             installer_filename = f"eCan-{app_version}-windows-{arch}-Setup"
 
             # Get Windows-specific installer settings
-            default_dir = windows_config.get('default_dir', installer_config.get('default_dir', '{pf}\\eCan'))
+            # Escape {pf} for f-string (will become single {pf} in output)
+            default_dir = windows_config.get('default_dir', installer_config.get('default_dir', '{{pf}}\\eCan'))
             default_group = windows_config.get('default_group', installer_config.get('default_group', 'eCan'))
             privileges_required = windows_config.get('privileges_required', installer_config.get('privileges_required', 'admin'))
 
@@ -377,8 +378,11 @@ class InstallerBuilder:
                     
                     # Escape double quotes in ValueData to satisfy Inno Setup syntax
                     # Example: "{app}" "%1" -> ""{app}"" ""%1""
+                    # Also escape curly braces for f-string: {app} -> {{app}}
                     if isinstance(value_data, str):
                         safe_value_data = value_data.replace('"', '""')
+                        # Escape { and } for f-string (will become single { } in output)
+                        safe_value_data = safe_value_data.replace('{', '{{').replace('}', '}}')
                     else:
                         safe_value_data = str(value_data)
 
@@ -415,7 +419,7 @@ UsePreviousAppDir=yes
 PrivilegesRequired={privileges_required}
 InternalCompressLevel={internal_compress_level}
 SetupIconFile=..\eCan.ico
-UninstallDisplayIcon={{app}}\eCan.exe
+UninstallDisplayIcon={{{{app}}}}\eCan.exe
 CreateUninstallRegKey=yes
 AllowNoIcons=yes
 DisableProgramGroupPage=auto
@@ -441,17 +445,17 @@ english.RemoveUserDataPrompt=Do you want to remove user data and settings?
 chinesesimplified.RemoveUserDataPrompt=是否删除用户数据和设置？
 
 [Tasks]
-Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: "{{cm:AdditionalIcons}}"; Flags: unchecked
+Name: "desktopicon"; Description: "{{{{cm:CreateDesktopIcon}}}}"; GroupDescription: "{{{{cm:AdditionalIcons}}}}"; Flags: unchecked
 
 {dirs_section}[Files]
 {files_section}
 
 [Icons]
-Name: "{{group}}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target}"; IconIndex: 0
-Name: "{{userdesktop}}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target}"; IconIndex: 0; Tasks: desktopicon
+Name: "{{{{group}}}}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target}"; IconIndex: 0
+Name: "{{{{userdesktop}}}}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target}"; IconIndex: 0; Tasks: desktopicon
 
 {registry_section}[UninstallDelete]
-Type: filesandordirs; Name: "{{localappdata}}\eCan"
+Type: filesandordirs; Name: "{{{{localappdata}}}}\eCan"
 
 [Code]
 var
@@ -533,7 +537,7 @@ begin
 end;
 
 [Run]
-Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowait postinstall skipifsilent
+Filename: "{run_target}"; Description: "{{{{cm:LaunchProgram,eCan}}}}"; Flags: nowait postinstall skipifsilent
 """
 
             iss_file = self.project_root / "build" / "setup.iss"
