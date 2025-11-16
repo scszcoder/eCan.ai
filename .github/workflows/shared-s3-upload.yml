@@ -152,7 +152,6 @@ jobs:
         with:
           name: eCan-windows-amd64-${{ inputs.version }}-s3-transfer
           path: windows-artifacts
-          if-no-files-found: ignore
         continue-on-error: true
 
       - name: Download macOS amd64 artifacts
@@ -161,7 +160,6 @@ jobs:
         with:
           name: eCan-macos-amd64-${{ inputs.version }}-s3-transfer
           path: macos-amd64-artifacts
-          if-no-files-found: ignore
         continue-on-error: true
 
       - name: Download macOS aarch64 artifacts
@@ -170,7 +168,6 @@ jobs:
         with:
           name: eCan-macos-aarch64-${{ inputs.version }}-s3-transfer
           path: macos-aarch64-artifacts
-          if-no-files-found: ignore
         continue-on-error: true
 
       # ------------------------------------------------------------------------
