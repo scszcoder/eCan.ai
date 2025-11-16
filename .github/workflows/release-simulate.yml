@@ -153,7 +153,7 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            runner: macos-14-intel  # Would use Intel runner in real workflow (macos-13 deprecated)
+            runner: macos-15-intel  # Intel x86_64 runner (newer than macos-13)
             target_arch: x86_64
             pyinstaller_arch: x86_64
           - arch: aarch64
