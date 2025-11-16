@@ -165,20 +165,38 @@ jobs:
       TARGET_ARCH: ${{ matrix.target_arch }}
       PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_arch }}
     steps:
-      - name: Decide if this architecture should be built
-        id: should_build
+      # ------------------------------------------------------------------------
+      # Step 0: Architecture Filtering (MUST BE FIRST - No dependencies)
+      # ------------------------------------------------------------------------
+      - name: Check if this architecture should be built
+        id: arch_check
         run: |
           ARCH="${{ matrix.arch }}"
           INPUT="${{ github.event.inputs.arch }}"
+          echo "Matrix architecture: $ARCH"
+          echo "Requested architecture: $INPUT"
+          
           if [ "$INPUT" = "all" ] || [ -z "$INPUT" ] || [ "$INPUT" = "$ARCH" ]; then
+            echo "✅ This architecture will be built"
             echo "should_build=true" >> $GITHUB_OUTPUT
           else
+            echo "⏭️  Skipping this architecture (not requested)"
             echo "should_build=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
+
+      # Early exit if architecture not needed - saves all setup time
+      - name: Exit early if architecture not needed
+        if: steps.arch_check.outputs.should_build != 'true'
+        run: |
+          echo "Architecture ${{ matrix.arch }} not needed for this build"
+          echo "Exiting early to save resources"
+          exit 0
+
       # Note: Frontend is always built in real workflow (no change detection)
       # Simulation doesn't need frontend build steps
       - name: Simulate macOS build
-        if: steps.should_build.outputs.should_build == 'true'
+        if: steps.arch_check.outputs.should_build == 'true'
         run: |
           echo "=== Simulating macOS ${{ matrix.arch }} Build ==="
           echo "Platform: macOS"
@@ -191,7 +209,7 @@ jobs:
           cp "dist/eCan-${VERSION}-macos-${ARCH}.pkg" artifacts/
           echo "✅ macOS ${{ matrix.arch }} build simulated"
       - name: Upload macOS artifacts for S3 transfer (always, short retention)
-        if: steps.should_build.outputs.should_build == 'true'
+        if: steps.arch_check.outputs.should_build == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
@@ -200,7 +218,7 @@ jobs:
           compression-level: 6
           if-no-files-found: error
       - name: Upload macOS artifacts for users (optional, long retention)
-        if: steps.should_build.outputs.should_build == 'true' && github.event.inputs.upload_artifacts == 'true'
+        if: steps.arch_check.outputs.should_build == 'true' && github.event.inputs.upload_artifacts == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
