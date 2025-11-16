@@ -461,79 +461,23 @@ class LightragServer:
 
     def _get_virtual_env_python(self):
         """Get Python interpreter path in virtual environment"""
-        # In packaged environment, sys.executable is the exe file containing all dependencies
-        # LightRAG server should use the same exe to ensure environment consistency
-        if self.is_frozen:
-            logger.info(f"[LightragServer] Running in PyInstaller environment, using current executable: {sys.executable}")
-            return sys.executable
-
-        # Original logic for non-packaged environment
-        # Check if currently in virtual environment
-        if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
-            # On Windows, prefer pythonw.exe even if already in venv
-            import platform
-            if platform.system().lower() == 'windows' and sys.executable.endswith('python.exe'):
-                pythonw_path = sys.executable.replace('python.exe', 'pythonw.exe')
-                if os.path.exists(pythonw_path):
-                    logger.info(f"[LightragServer] Already in virtual environment, using pythonw: {pythonw_path}")
-                    return pythonw_path
-            
-            logger.info(f"[LightragServer] Already in virtual environment: {sys.executable}")
-            return sys.executable
-
-        # Try to find virtual environment in project root directory
-        project_root = os.path.dirname(os.path.dirname(__file__))
+        # Use unified VenvHelper to find Python interpreter
+        # This handles all cases: packaged environment, virtual environment, and development
+        from utils.venv_helper import VenvHelper
+        from pathlib import Path
         
-        # Platform-specific paths
-        import platform
-        is_windows = platform.system().lower() == 'windows'
+        # Get project root
+        project_root = Path(__file__).parent.parent
         
-        if is_windows:
-            # Windows: Use pythonw.exe to avoid console window
-            venv_paths = [
-                os.path.join(project_root, ".venv", "Scripts", "pythonw.exe"),
-                os.path.join(project_root, "venv", "Scripts", "pythonw.exe"),
-            ]
-            
-            for venv_python in venv_paths:
-                if os.path.exists(venv_python):
-                    logger.info(f"[LightragServer] Found virtual environment Python (pythonw): {venv_python}")
-                    return venv_python
-            
-            # Fallback to python.exe if pythonw.exe not found
-            venv_paths_fallback = [
-                os.path.join(project_root, ".venv", "Scripts", "python.exe"),
-                os.path.join(project_root, "venv", "Scripts", "python.exe"),
-            ]
-            
-            for venv_python in venv_paths_fallback:
-                if os.path.exists(venv_python):
-                    logger.warning(f"[LightragServer] Using python.exe (may show console window): {venv_python}")
-                    return venv_python
-            
-            # Try to use pythonw.exe from current interpreter path
-            if sys.executable.endswith('python.exe'):
-                pythonw_path = sys.executable.replace('python.exe', 'pythonw.exe')
-                if os.path.exists(pythonw_path):
-                    logger.info(f"[LightragServer] Using pythonw.exe from current interpreter: {pythonw_path}")
-                    return pythonw_path
-        else:
-            # macOS/Linux: Use python/python3 (no pythonw)
-            venv_paths = [
-                os.path.join(project_root, ".venv", "bin", "python"),
-                os.path.join(project_root, "venv", "bin", "python"),
-                os.path.join(project_root, ".venv", "bin", "python3"),
-                os.path.join(project_root, "venv", "bin", "python3"),
-            ]
-            
-            for venv_python in venv_paths:
-                if os.path.exists(venv_python):
-                    logger.info(f"[LightragServer] Found virtual environment Python: {venv_python}")
-                    return venv_python
-
-        # Last resort: return current interpreter
-        logger.warning(f"[LightragServer] No virtual environment found, using current Python: {sys.executable}")
-        return sys.executable
+        # Use VenvHelper to intelligently find Python interpreter
+        # On Windows, prefer pythonw.exe to avoid console window
+        python_exe = VenvHelper.find_python_interpreter(
+            project_root=project_root,
+            prefer_pythonw=True
+        )
+        
+        logger.info(f"[LightragServer] Using Python interpreter: {python_exe}")
+        return str(python_exe)
 
     def _validate_python_executable(self, python_path):
         """Validate if Python interpreter is available"""

@@ -532,27 +532,22 @@ class IPCAPI:
             context: Optional context data for frontend (e.g., suggested action paths)
                 Frontend will determine UI, text, and behavior based on onboarding_type
         """
-        try:
-            import json
-            import uuid
-            
-            # Create standard IPC request for onboarding
-            request = {
-                'type': 'request',
-                'method': 'onboarding_message',
-                'params': {
-                    'onboardingType': onboarding_type,
-                    'context': context or {}
-                },
-                'id': str(uuid.uuid4())
-            }
-            
-            # Send via standard IPC channel (no response expected for this fire-and-forget request)
-            self._ipc_wc_service.python_to_web.emit(json.dumps(request))
-            logger.info(f"[IPCAPI] Sent onboarding request: {onboarding_type}")
-            
-        except Exception as e:
-            logger.error(f"[IPCAPI] Error sending onboarding request: {e}")
+        def onboarding_callback(response: APIResponse) -> None:
+            """Callback for onboarding message request"""
+            if response.success:
+                logger.trace(f"[IPCAPI] Onboarding message sent successfully: {onboarding_type}")
+            else:
+                logger.debug(f"[IPCAPI] Onboarding message send failed: {response.error}")
+        
+        # Use standard send_request with callback
+        self._send_request(
+            'onboarding_message',
+            params={
+                'onboardingType': onboarding_type,
+                'context': context or {}
+            },
+            callback=onboarding_callback
+        )
 
 
     def send_skill_editor_log(
@@ -561,11 +556,9 @@ class IPCAPI:
             text: str
     ) -> None:
         """
-        send skill editor run log to the frontend
-        Uses standard request format (method: 'skill_editor_log')
-        Frontend decides how to display based on level
-
-        Interface Definition (Standard IPC Request):
+        Send skill editor log message to frontend
+        
+        Frontend expects message format:
         {
             'type': 'request',
             'method': 'skill_editor_log',
@@ -580,26 +573,19 @@ class IPCAPI:
             level: Type of message (e.g., 'log/warning/error')
             text: whatever log text message (e.g., )
         """
-        try:
-            import json
-            import uuid
-            import time
-
-            # Create standard IPC request for onboarding
-            request = {
-                "id": f"log-{uuid.uuid4()}",
-                "type": "request",
-                "method": "skill_editor_log",
-                "params": {
-                    "type": level,  # "log", "warning", or "error"
-                    "text": text
-                },
-                "timestamp": int(time.time() * 1000)
-            }
-
-            # Send via standard IPC channel (no response expected for this fire-and-forget request)
-            self._ipc_wc_service.python_to_web.emit(json.dumps(request))
-            logger.info(f"[IPCAPI] Sent skill editor log request: {level}")
-
-        except Exception as e:
-            logger.error(f"[IPCAPI] Error sending skill editor log request: {e}")
+        def log_callback(response: APIResponse) -> None:
+            """Callback for skill editor log request"""
+            if response.success:
+                logger.trace(f"[IPCAPI] Skill editor log sent successfully: {level}")
+            else:
+                logger.debug(f"[IPCAPI] Skill editor log send failed: {response.error}")
+        
+        # Use standard send_request with callback
+        self._send_request(
+            'skill_editor_log',
+            params={
+                'type': level,
+                'text': text
+            },
+            callback=log_callback
+        )
