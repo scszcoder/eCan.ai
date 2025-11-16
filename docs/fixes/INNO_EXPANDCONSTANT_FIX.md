@@ -1,23 +1,37 @@
-# Inno Setup ExpandConstant 语法修复
+# Inno Setup 大括号转义修复
 
 ## 🐛 问题
 
-**构建失败**：
+**构建失败 1**：
 ```
 Error on line 74 in setup.iss: Column 37:
 Invalid number of parameters.
 Compile aborted.
 ```
 
+**构建失败 2**：
+```
+Failed to create Inno Setup script: name 'cm' is not defined
+```
+
 ## 🔍 根本原因
 
-**Inno Setup Pascal Code 中的 ExpandConstant 语法错误**
-
-### 问题代码
+### 问题 1: Pascal Code 中的 ExpandConstant 语法错误
 
 ```pascal
 // 错误：在 [Code] 段中使用双大括号
 SplashLabel.Caption := ExpandConstant('{{cm:InitializeCaption}}');
+```
+
+### 问题 2: Python f-string 变量冲突
+
+```python
+# 错误：在 f-string 中，{cm:...} 被当作 Python 变量
+iss_content = f"""
+[Tasks]
+Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; ...
+"""
+# Python 尝试查找变量 'cm'，导致 NameError
 ```
 
 ### 语法规则
@@ -41,7 +55,7 @@ SplashLabel.Caption := ExpandConstant('{{cm:InitializeCaption}}');
 
 **文件**: `build_system/ecan_build.py`
 
-### 修复内容
+### 修复 1: Pascal Code 中的 ExpandConstant（三层大括号）
 
 ```diff
 # Line 476
@@ -61,38 +75,96 @@ SplashLabel.Caption := ExpandConstant('{{cm:InitializeCaption}}');
 + if not DelTree(ExpandConstant('{{{localappdata}}}\\eCan'), True, True, True) then
 ```
 
-## 📚 详细说明
+### 修复 2: 配置段中的常量（四层大括号）
 
-### Python 字符串转义
+```diff
+# Line 300 - AppId
+- app_id_wrapped = "{{" + app_id + "}}"
++ app_id_wrapped = "{{{{" + app_id + "}}}}"
 
-在 Python 中生成 Inno Setup 脚本时：
+# Line 418 - UninstallDisplayIcon
+- UninstallDisplayIcon={{app}}\eCan.exe
++ UninstallDisplayIcon={{{{app}}}}\eCan.exe
 
-```python
-# Python 代码
-f"SplashLabel.Caption := ExpandConstant('{{{{cm:InitializeCaption}}}}');"
+# Line 444 - Tasks
+- Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: "{{cm:AdditionalIcons}}"
++ Description: "{{{{cm:CreateDesktopIcon}}}}"; GroupDescription: "{{{{cm:AdditionalIcons}}}}"
 
-# 生成的字符串
-"SplashLabel.Caption := ExpandConstant('{{cm:InitializeCaption}}');"
+# Line 450-451 - Icons
+- Name: "{{group}}\eCan"
+- Name: "{{userdesktop}}\eCan"
++ Name: "{{{{group}}}}\eCan"
++ Name: "{{{{userdesktop}}}}\eCan"
 
-# 写入文件后
-SplashLabel.Caption := ExpandConstant('{{cm:InitializeCaption}}');
+# Line 454 - UninstallDelete
+- Name: "{{localappdata}}\eCan"
++ Name: "{{{{localappdata}}}}\eCan"
+
+# Line 536 - Run
+- Description: "{{cm:LaunchProgram,eCan}}"
++ Description: "{{{{cm:LaunchProgram,eCan}}}}"
 ```
 
-**问题**：
-- Python f-string 中 `{{` → `{`
-- 所以 `{{cm:...}}` 在文件中变成 `{cm:...}`
-- 但 Pascal Code 需要 `{{{cm:...}}}`
+## 📚 详细说明
 
-**正确做法**：
+### Python f-string 转义规则
+
+**关键点**: 使用 `f"""..."""` 时，所有 `{variable}` 都会被 Python 解析！
+
+#### 配置段（需要四层大括号）
+
 ```python
-# Python 代码（三层大括号）
-f"SplashLabel.Caption := ExpandConstant('{{{{{{cm:InitializeCaption}}}}}}');"
+# Python f-string 代码
+iss_content = f"""
+[Tasks]
+Name: "desktopicon"; Description: "{{{{cm:CreateDesktopIcon}}}}";
+"""
 
-# 生成的字符串
-"SplashLabel.Caption := ExpandConstant('{{{cm:InitializeCaption}}}');"
+# Python 处理后（f-string 转义）
+"""
+[Tasks]
+Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}";
+"""
 
-# 写入文件后
+# 写入文件 setup.iss
+[Tasks]
+Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}";
+
+# Inno Setup 解析（预处理器转义）
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}";
+
+# 最终结果
+Description: "创建桌面图标"
+```
+
+#### Pascal Code（需要六层大括号）
+
+```python
+# Python f-string 代码
+iss_content = f"""
+[Code]
+SplashLabel.Caption := ExpandConstant('{{{{{{cm:InitializeCaption}}}}}}');
+"""
+
+# Python 处理后（f-string 转义）
+"""
+[Code]
 SplashLabel.Caption := ExpandConstant('{{{cm:InitializeCaption}}}');
+"""
+
+# 写入文件 setup.iss
+[Code]
+SplashLabel.Caption := ExpandConstant('{{{cm:InitializeCaption}}}');
+
+# Inno Setup 预处理器（第一次转义）
+SplashLabel.Caption := ExpandConstant('{{cm:InitializeCaption}}');
+
+# Inno Setup 编译器（第二次转义）
+SplashLabel.Caption := ExpandConstant('{cm:InitializeCaption}');
+
+# 运行时展开
+Caption = "正在初始化 eCan..."
 ```
 
 ### Inno Setup 解析
@@ -134,6 +206,8 @@ ExpandConstant('{cm:InitializeCaption}')
 
 ## 📊 修复的所有位置
 
+### Pascal Code（三层 → 六层大括号）
+
 | 行号 | 函数 | 用途 | 状态 |
 |------|------|------|------|
 | 476 | `InitializeSetup()` | 启动画面标题 | ✅ 已修复 |
@@ -141,34 +215,57 @@ ExpandConstant('{cm:InitializeCaption}')
 | 527 | `InitializeUninstall()` | 检查用户数据目录 | ✅ 已修复 |
 | 529 | `InitializeUninstall()` | 删除用户数据目录 | ✅ 已修复 |
 
+### 配置段（双层 → 四层大括号）
+
+| 行号 | 段 | 用途 | 状态 |
+|------|------|------|------|
+| 300 | Python | AppId 包裹 | ✅ 已修复 |
+| 418 | [Setup] | 卸载图标 | ✅ 已修复 |
+| 444 | [Tasks] | 桌面图标任务 | ✅ 已修复 |
+| 450 | [Icons] | 开始菜单图标 | ✅ 已修复 |
+| 451 | [Icons] | 桌面图标 | ✅ 已修复 |
+| 454 | [UninstallDelete] | 删除用户数据 | ✅ 已修复 |
+| 536 | [Run] | 启动程序描述 | ✅ 已修复 |
+
 ## 🎓 经验总结
 
 ### 关键教训
 
 1. **理解转义层次**
-   - Python f-string: `{{` → `{`
-   - Inno Setup 预处理: `{{{` → `{`
-   - 需要计算好层数
+   - Python f-string: `{{{{` → `{{` (双层转义)
+   - Inno Setup 预处理: `{{` → `{` (单层转义)
+   - **配置段**: 需要 4 层大括号
+   - **Pascal Code**: 需要 6 层大括号
 
 2. **区分使用场景**
-   - 配置段（[Setup], [Files]）：`{constant}`
-   - Pascal 代码（[Code]）：`{{{constant}}}`
+   - 配置段（[Setup], [Files]）：`{{{{constant}}}}`（Python）→ `{constant}`（Inno）
+   - Pascal 代码（[Code]）：`{{{{{{constant}}}}}}`（Python）→ `{{{constant}}}`（Inno）
 
-3. **测试不同版本**
-   - Inno Setup 6.6.0 更严格
-   - 旧版本可能容忍错误语法
+3. **f-string 陷阱**
+   - 使用 `f"""..."""` 时，所有 `{...}` 都会被解析
+   - 如果忘记转义，会导致 `NameError: name 'cm' is not defined`
+   - 必须使用足够的大括号层数
 
 ### 最佳实践
 
 ✅ **DO:**
-- 在 Pascal Code 中使用 `{{{constant}}}`
-- 在配置段中使用 `{constant}`
-- 仔细检查大括号数量
+- Python f-string 中配置段使用 `{{{{constant}}}}`
+- Python f-string 中 Pascal Code 使用 `{{{{{{constant}}}}}}`
+- 仔细计算大括号层数
+- 测试生成的 setup.iss 文件
 
 ❌ **DON'T:**
-- 不要在 Pascal Code 中使用 `{{constant}}`
-- 不要混淆不同段的语法
-- 不要忽略编译器警告
+- 不要在 f-string 中使用不足的大括号
+- 不要混淆配置段和 Pascal Code 的层数
+- 不要忽略 Python NameError
+
+### 快速检查表
+
+| 错误信息 | 原因 | 解决方案 |
+|---------|------|---------|
+| `name 'cm' is not defined` | f-string 中大括号不足 | 配置段用 4 层 |
+| `Invalid number of parameters` | Pascal Code 大括号不足 | Pascal Code 用 6 层 |
+| 中文显示乱码 | 编码或语言包问题 | 检查 UTF-8 BOM 和 .isl |
 
 ## 🔗 参考资料
 
@@ -181,4 +278,4 @@ ExpandConstant('{cm:InitializeCaption}')
 **问题发现**: 2024-11-16  
 **修复完成**: 2024-11-16  
 **状态**: ✅ 已修复  
-**影响**: 修复 4 处 ExpandConstant 调用
+**影响**: 修复 11 处大括号转义（4 处 Pascal Code + 7 处配置段）

@@ -16,6 +16,7 @@ import os
 import sys
 import platform
 import urllib.request
+import ssl
 import zipfile
 import tarfile
 import shutil
@@ -25,27 +26,32 @@ from pathlib import Path
 
 
 class CIOTAInstaller:
-    """CI/CD OTA依赖安装器"""
+    """CI/CD OTA dependencies installer"""
 
     def __init__(self):
         self.project_root = Path(__file__).parent.parent
         self.third_party_dir = self.project_root / "third_party"
         self.platform = self._detect_platform()
+        
+        # Create SSL context that doesn't verify certificates (for CI/CD environments)
+        self.ssl_context = ssl.create_default_context()
+        self.ssl_context.check_hostname = False
+        self.ssl_context.verify_mode = ssl.CERT_NONE
 
         # 依赖配置
         self.dependencies = {
             "sparkle": {
                 "platform": "darwin",
-                "version": "2.6.4",
-                "url": "https://github.com/sparkle-project/Sparkle/releases/download/2.6.4/Sparkle-2.6.4.tar.xz",
+                "version": "2.8.0",
+                "url": "https://github.com/sparkle-project/Sparkle/releases/download/2.8.0/Sparkle-2.8.0.tar.xz",
                 "target_dir": "sparkle",
                 "target_path": "Sparkle.framework",
                 "archive_type": "tar.xz"
             },
             "winsparkle": {
                 "platform": "windows",
-                "version": "0.8.1",
-                "url": "https://github.com/vslavik/winsparkle/releases/download/v0.8.1/WinSparkle-0.8.1.zip",
+                "version": "0.9.2",
+                "url": "https://github.com/vslavik/winsparkle/releases/download/v0.9.2/WinSparkle-0.9.2.zip",
                 "target_dir": "winsparkle",
                 "target_path": "winsparkle.dll",
                 "archive_type": "zip"
@@ -53,7 +59,7 @@ class CIOTAInstaller:
         }
 
     def _detect_platform(self) -> str:
-        """检测当前平台"""
+        """Detect current platform"""
         system = platform.system().lower()
         if system == "darwin":
             return "darwin"
@@ -65,13 +71,13 @@ class CIOTAInstaller:
             raise RuntimeError(f"Unsupported platform: {system}")
 
     def install_dependencies(self, force: bool = False) -> bool:
-        """安装OTA依赖"""
+        """Install OTA dependencies"""
         print(f"[CI-OTA] Installing OTA dependencies for {self.platform}...")
 
-        # 创建third_party目录
+        # Create third_party directory
         self.third_party_dir.mkdir(parents=True, exist_ok=True)
 
-        # 获取当前平台的依赖配置
+        # Get dependency configuration for current platform
         platform_deps = {
             name: config for name, config in self.dependencies.items()
             if config.get("platform") == self.platform
@@ -91,44 +97,66 @@ class CIOTAInstaller:
                 success = False
 
         if success:
-            # 创建CLI包装器
+            # Create platform-specific CLI wrapper
             if self.platform == "darwin":
                 self._create_sparkle_cli()
             elif self.platform == "windows":
                 self._create_winsparkle_cli()
 
-            # 创建安装信息文件
+            # Create installation info file
             self._create_install_info()
 
         return success
 
     def _install_dependency(self, name: str, config: dict, force: bool) -> bool:
-        """安装单个依赖"""
+        """Install a single dependency"""
         target_dir = self.third_party_dir / config["target_dir"]
         target_path = target_dir / config["target_path"]
 
-        # 检查是否已安装
+        # Check if dependency is already installed
         if target_path.exists() and not force:
             print(f"[CI-OTA] {name} already installed at: {target_path}")
             return True
 
         print(f"[CI-OTA] Installing {name} {config['version']}...")
 
-        # 创建目标目录
+        # Create target directory
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        # 下载文件
+        # Download archive file
         download_path = target_dir / f"{name}.{config['archive_type']}"
         print(f"[CI-OTA] Downloading from: {config['url']}")
 
         try:
-            urllib.request.urlretrieve(config['url'], download_path)
-            print(f"[CI-OTA] Downloaded to: {download_path}")
+            # Try using requests library first (better SSL handling)
+            try:
+                import requests
+                import warnings
+                from urllib3.exceptions import InsecureRequestWarning
+                
+                print(f"[CI-OTA] Using requests library for download...")
+                # Suppress SSL warnings in CI/CD environment
+                warnings.simplefilter('ignore', InsecureRequestWarning)
+                
+                response = requests.get(config['url'], verify=False, timeout=300)
+                response.raise_for_status()
+                with open(download_path, 'wb') as f:
+                    f.write(response.content)
+                print(f"[CI-OTA] Downloaded to: {download_path}")
+            except ImportError:
+                # Fallback to urllib with custom SSL context
+                print(f"[CI-OTA] Using urllib for download (requests not available)...")
+                opener = urllib.request.build_opener(
+                    urllib.request.HTTPSHandler(context=self.ssl_context)
+                )
+                urllib.request.install_opener(opener)
+                urllib.request.urlretrieve(config['url'], download_path)
+                print(f"[CI-OTA] Downloaded to: {download_path}")
         except Exception as e:
             print(f"[CI-OTA] Download failed: {e}")
             return False
 
-        # 解压文件
+        # Extract archive
         try:
             if config['archive_type'] == 'zip':
                 self._extract_zip(download_path, target_dir)
@@ -143,11 +171,11 @@ class CIOTAInstaller:
             print(f"[CI-OTA] Extraction failed: {e}")
             return False
         finally:
-            # 清理下载文件
+            # Clean up downloaded archive
             if download_path.exists():
                 download_path.unlink()
 
-        # 验证安装
+        # Verify that the target path exists after extraction
         if not target_path.exists():
             return False
 
@@ -155,7 +183,7 @@ class CIOTAInstaller:
         return True
 
     def _extract_tar(self, archive_path: Path, target_dir: Path) -> None:
-        """Extract TAR file"""
+        """Extract TAR archive to target directory"""
         import tempfile
         
         # Create a temporary directory for extraction
@@ -171,7 +199,7 @@ class CIOTAInstaller:
                 with tarfile.open(archive_path) as tar:
                     tar.extractall(path=temp_dir_path)
             
-            # Find the Sparkle.framework in the extracted files
+            # Find Sparkle.framework inside the extracted files
             sparkle_framework = None
             for path in temp_dir_path.rglob('Sparkle.framework'):
                 if path.is_dir() and 'Sparkle.framework' in str(path):
@@ -186,10 +214,10 @@ class CIOTAInstaller:
             if target_framework.exists():
                 shutil.rmtree(target_framework)
             
-            # Move the framework to the target directory
+            # Move the framework to the final target directory
             shutil.move(str(sparkle_framework), str(target_dir))
             
-            # Ensure proper permissions
+            # Ensure proper permissions for framework binary
             sparkle_binary = target_framework / 'Versions' / 'Current' / 'Sparkle'
             if sparkle_binary.exists():
                 os.chmod(sparkle_binary, 0o755)
@@ -202,7 +230,7 @@ class CIOTAInstaller:
             print(f"[CI-OTA] Successfully extracted Sparkle.framework to {target_framework}")
             
     def _extract_zip(self, archive_path: Path, target_dir: Path) -> None:
-        """Extract ZIP file for Windows OTA dependencies"""
+        """Extract ZIP archive for Windows OTA dependencies"""
         from zipfile import ZipFile
         import tempfile
         
@@ -229,12 +257,12 @@ class CIOTAInstaller:
                 if item.is_file():
                     print(f"[CI-OTA]   - {item.relative_to(temp_dir_path)}")
             
-            # Find the winsparkle files in the extracted files
+            # Find WinSparkle files in the extracted files
             winsparkle_files = list(temp_dir_path.rglob('winsparkle.dll'))
             print(f"[CI-OTA] Found {len(winsparkle_files)} winsparkle.dll files")
             
             if not winsparkle_files:
-                # Check if the dll is in a subdirectory
+                # Check if the DLL is in a subdirectory
                 print("[CI-OTA] Searching for winsparkle.dll in subdirectories...")
                 for path in temp_dir_path.rglob('*'):
                     if path.is_dir():
@@ -257,7 +285,7 @@ class CIOTAInstaller:
             # Create target directory if it doesn't exist
             target_dir.mkdir(parents=True, exist_ok=True)
             
-            # Copy all files from the winsparkle directory to the target directory
+            # Copy all files from the WinSparkle directory to the target directory
             winsparkle_dir = winsparkle_files[0].parent
             print(f"[CI-OTA] Copying files from {winsparkle_dir.relative_to(temp_dir_path)} to {target_dir}")
             
@@ -284,7 +312,7 @@ class CIOTAInstaller:
             print(f"[CI-OTA] Successfully extracted WinSparkle files to {target_dir}")
 
     def _create_sparkle_cli(self):
-        """创建Sparkle CLI包装器"""
+        """Create Sparkle CLI wrapper script"""
         cli_script = self.third_party_dir / "sparkle" / "sparkle-cli"
         script_content = '''#!/bin/bash
 # Sparkle CLI wrapper for eCan OTA (CI-installed)
@@ -437,7 +465,7 @@ exit /b 1
         print(f"[CI-OTA] Created winSparkle CLI wrapper: {cli_script}")
 
     def _create_install_info(self):
-        """创建安装信息文件"""
+        """Create installation info JSON file"""
         info = {
             "platform": self.platform,
             "install_method": "ci",
@@ -458,7 +486,7 @@ exit /b 1
                         "installed": True
                     }
 
-        # 为每个平台的依赖创建安装信息文件
+        # Create installation info file for each platform-specific dependency
         for name, config in self.dependencies.items():
             if config.get("platform") == self.platform:
                 target_dir = self.third_party_dir / config["target_dir"]
@@ -469,9 +497,9 @@ exit /b 1
                     print(f"[CI-OTA] Created install info: {info_file}")
 
     def clean_dependencies(self):
-        """清理依赖文件"""
+        """Clean up OTA dependency files"""
         if self.third_party_dir.exists():
-            # 只清理OTA相关的目录
+            # Only clean OTA-related directories
             for name, config in self.dependencies.items():
                 target_dir = self.third_party_dir / config["target_dir"]
                 if target_dir.exists():
@@ -479,10 +507,10 @@ exit /b 1
                     print(f"[CI-OTA] Cleaned {name} directory: {target_dir}")
 
     def verify_installation(self) -> bool:
-        """验证安装"""
+        """Verify that all OTA dependencies are installed correctly"""
         print(f"[CI-OTA] Verifying OTA dependencies installation...")
 
-        # 直接检查每个平台的依赖文件
+        # Directly check dependency files for each platform
         all_verified = True
         for name, config in self.dependencies.items():
             if config.get("platform") == self.platform:
@@ -506,7 +534,7 @@ exit /b 1
                     print(f"[CI-OTA] [ERROR] {name} not found at: {target_path}")
                     all_verified = False
 
-        # 检查install_info.json文件（如果存在）
+        # Check install_info.json file (if it exists)
         info_file = None
         for name, config in self.dependencies.items():
             if config.get("platform") == self.platform:
@@ -531,8 +559,8 @@ exit /b 1
 
 
 def main():
-    """主函数"""
-    parser = argparse.ArgumentParser(description="CI/CD OTA Dependencies Installer")
+    """Main entry point"""
+    parser = argparse.ArgumentParser(description="CI/CD OTA dependencies installer")
     parser.add_argument("action", choices=["install", "clean", "verify"], help="Action to perform")
     parser.add_argument("--force", action="store_true", help="Force reinstall")
     parser.add_argument("--platform", choices=["windows", "darwin", "linux"], help="Target platform")
@@ -541,7 +569,7 @@ def main():
 
     installer = CIOTAInstaller()
 
-    # 覆盖平台检测（如果指定）
+    # Override platform detection if explicitly specified
     if args.platform:
         installer.platform = args.platform
 
