@@ -62,7 +62,7 @@
 "step 20":
 {
     "type": "Call Extern",
-    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 0.5],'attention_targets':['Search', 'EN']}\nprint('scrn_options', scrn_options)",
+    "file": "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 0.5],'attention_targets':['Search', 'EN']}\nprint('scrn_options', scrn_options)",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -689,7 +689,7 @@
 "step 370":
 {
     "type": "Call Extern",
-    "file": "global dyn_options\ndyn_options = {'attention_area':[0, 0, 1, 1], 'attention_targets':['Result']}",
+    "file": "global dyn_options\ndyn_options = {'txt_attention_area':[0, 0, 1, 1], 'attention_targets':['Result']}",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -723,7 +723,7 @@
 "step 385":
 {
     "type": "Call Extern",
-    "file": "global dyn_options\ndyn_options = {'attention_area':[0, 0, 1, 1], 'attention_targets':['Result']}",
+    "file": "global dyn_options\ndyn_options = {'txt_attention_area':[0, 0, 1, 1], 'attention_targets':['Result']}",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -1030,7 +1030,7 @@
 "step 535":
 {
     "type": "Call Extern",
-    "file": "global dyn_options\ndyn_options = {'attention_area':[0, 0, 1, 1], 'attention_targets':['Add to cart', 'options', 'Sponsored']}",
+    "file": "global dyn_options\ndyn_options = {'txt_attention_area':[0, 0, 1, 1], 'attention_targets':['Add to cart', 'options', 'Sponsored']}",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -3591,7 +3591,7 @@
     "data_type": "expr",
     "data_name": "hf_name",
     "key_name": "NA",
-    "key_value": "'check_shipping1741743332'+'_'+'1770'+'.html'"
+    "key_value": "'check_shipping1762810940'+'_'+'1770'+'.html'"
 },
 "step 1795":
 {
@@ -4478,7 +4478,7 @@
 "step 2215":
 {
     "type": "Call Extern",
-    "file": "global dyn_options\ndyn_options = {'attention_area':[0, 0, 1, 1], 'attention_targets':['Result']}",
+    "file": "global dyn_options\ndyn_options = {'txt_attention_area':[0, 0, 1, 1], 'attention_targets':['Result']}",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -4785,7 +4785,7 @@
 "step 2365":
 {
     "type": "Call Extern",
-    "file": "global dyn_options\ndyn_options = {'attention_area':[0, 0, 1, 1], 'attention_targets':['Add to cart', 'options', 'Sponsored']}",
+    "file": "global dyn_options\ndyn_options = {'txt_attention_area':[0, 0, 1, 1], 'attention_targets':['Add to cart', 'options', 'Sponsored']}",
     "args": "",
     "entity": "in_line",
     "output": ""
@@ -7435,7 +7435,7 @@
     "data_type": "expr",
     "data_name": "hf_name",
     "key_name": "NA",
-    "key_value": "'check_shipping1741743332'+'_'+'3645'+'.html'"
+    "key_value": "'check_shipping1762810940'+'_'+'3645'+'.html'"
 },
 "step 3670":
 {
