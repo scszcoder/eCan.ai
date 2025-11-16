@@ -251,12 +251,23 @@ def ensure_skill_venv(skill_dir: Path, *, reuse_host_libs: bool = True):
     if not venv_dir.exists():
         logger.info(f"[ExternSkills] Creating venv at: {venv_dir}")
         try:
-            # Lazy import venv only when actually needed
-            import venv
-            venv.EnvBuilder(with_pip=True, system_site_packages=reuse_host_libs).create(str(venv_dir))
-            logger.info(f"[ExternSkills]  Venv created successfully")
+            # Use unified VenvHelper to create virtual environment
+            # This uses subprocess method which works in all environments
+            from utils.venv_helper import VenvHelper
+            
+            success, error = VenvHelper.create_venv(
+                venv_path=venv_dir,
+                system_site_packages=reuse_host_libs,
+                with_pip=True
+            )
+            
+            if not success:
+                logger.error(f"[ExternSkills] Failed to create venv: {error}")
+                raise RuntimeError(f"Failed to create virtual environment: {error}")
+            
+            logger.info(f"[ExternSkills] Venv created successfully")
         except Exception as e:
-            logger.error(f"[ExternSkills]  Failed to create venv: {e}")
+            logger.error(f"[ExternSkills] Failed to create venv: {e}")
             raise
     else:
         logger.info(f"[ExternSkills] Venv already exists at: {venv_dir}")
