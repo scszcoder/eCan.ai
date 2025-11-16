@@ -38,6 +38,18 @@ def get_default_node_schemas():
     }
     return schemas
 
+
+def add_to_history(state, messages):
+    if not isinstance(state.get("history"), list):
+        state["history"] = []
+
+    if isinstance(messages, list):
+        state["history"].extend(messages)
+    else:
+        state["history"].append(messages)
+
+
+STANDARD_SYS_PROMPT = "You are a helpful AI assistant."
 def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manager):
     """
     Builds a callable function for a LangGraph node that interacts with an LLM.
@@ -69,9 +81,9 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     except Exception:
         temperature = 0.5
     system_prompt_template = ((inputs.get("systemPrompt") or {}).get("content")
-                              or "You are an AI assistant.")
+                              or STANDARD_SYS_PROMPT)
     user_prompt_template = ((inputs.get("prompt") or {}).get("content")
-                            or "You are an AI assistant.")
+                            or STANDARD_SYS_PROMPT)
     # Infer provider when not explicitly set
     def _infer_provider(host: str, model: str) -> str:
         try:
@@ -118,6 +130,17 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         logger.debug(log_msg)
         web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
+        # obtain code from code based workflow.
+        current_node_name = runtime.context["this_node"].get("name")
+        skill_name = runtime.context["this_node"].get("skill_name")
+        owner = runtime.context["this_node"].get("owner")
+        full_node_name = f"{owner}:{skill_name}:{current_node_name}"
+
+        log_msg = f"full_node_name: {full_node_name}"
+        logger.debug(log_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
+
         # Find all variable placeholders (e.g., {var_name}) in the prompts
         variables = re.findall(r'\{(\w+)\}', system_prompt_template + user_prompt_template)
 
@@ -149,6 +172,16 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         if final_system_prompt:
             messages.append(SystemMessage(content=final_system_prompt))
         messages.append(HumanMessage(content=final_user_prompt))
+
+
+        run_pre_llm_hook(full_node_name, agent, state, prompt_src="local", prompt_data=messages)
+
+        logger.debug(f"Forming contexgt......")
+        recent_context = get_recent_context(state.get("history", []))
+
+        log_msg = f"recent_context: [{len(recent_context)} messages] {recent_context}"
+        logger.debug(log_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
         # Build LLM from node config (do NOT depend on mainwin.llm)
         llm = None
@@ -297,6 +330,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             state['error'] = err
             return state
 
+        # so far we have get API key, LLM model setup among difference possible choices.
+
         # Log LLM configuration for debugging
         log_msg = f"🔧 LLM Config (node_config): provider={llm_provider}, model={model_name}, temperature={temperature}"
         logger.info(log_msg)
@@ -322,7 +357,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         logger.debug(log_msg)
                         web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
-                        result = llm_to_use.invoke(messages)
+                        result = llm_to_use.invoke(recent_context)
                         result_queue.put(result)
 
                         log_msg = "✅ LLM invocation thread completed"
@@ -363,17 +398,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
             # It's good practice to put results in specific keys
-            if 'llm_responses' not in state:
-                state['llm_responses'] = []
-            state['llm_responses'].append({
-                'provider': llm_provider,
-                'model': model_name,
-                'content': response.content
-            })
-            # Ensure messages list exists before appending
-            if 'messages' not in state or not isinstance(state.get('messages'), list):
-                state['messages'] = []
-            state['messages'].append(response.content)
+            run_post_llm_hook(full_node_name, agent, state, response)
+            logger.debug(f"llm_node finished..... {state}")
 
         except Exception as e:
             error_type = type(e).__name__
