@@ -1,14 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-ECBot OTA 安装器模块
-处理安装包的安装和应用重启逻辑
-
-支持的格式:
-- Windows: EXE, MSI
-- macOS: PKG, DMG
-- Linux: AppImage, DEB, RPM (计划中)
-"""
+"""\nECBot OTA Installer Module\nHandles installation of update packages and application restart logic\n\nSupported formats:\n- Windows: EXE, MSI\n- macOS: PKG, DMG\n- Linux: AppImage, DEB, RPM (planned)\n"""
 
 import os
 import sys
@@ -24,26 +16,26 @@ from .config import ota_config
 
 
 class InstallationManager:
-    """安装管理器"""
+    """Installation Manager"""
     
     def __init__(self):
         self.platform = sys.platform
         self.backup_dir = None
         
     def install_package(self, package_path: Path, install_options: Dict[str, Any] = None) -> bool:
-        """安装更新包"""
+        """Install update package"""
         if not install_options:
             install_options = {}
             
         try:
             logger.info(f"Starting installation: {package_path}")
             
-            # 创建备份
+            # Create backup
             if install_options.get('create_backup', True):
                 if not self._create_backup():
                     logger.warning("Failed to create backup, continuing installation...")
             
-            # 根据文件类型选择安装方法
+            # Select installation method based on file type
             if package_path.suffix.lower() == '.exe':
                 return self._install_exe(package_path, install_options)
             elif package_path.suffix.lower() == '.msi':
@@ -61,17 +53,17 @@ class InstallationManager:
             return False
     
     def _create_backup(self) -> bool:
-        """创建当前应用的备份"""
+        """Create backup of current application"""
         try:
-            # 获取当前应用路径
+            # Get current application path
             if getattr(sys, 'frozen', False):
-                # 打包后的应用
+                # Packaged application
                 app_path = Path(sys.executable).parent
             else:
-                # 开发环境
+                # Development environment
                 app_path = Path(__file__).parent.parent.parent
             
-            # 创建备份目录
+            # Create backup directory
             backup_root = Path(tempfile.gettempdir()) / "ecbot_backup"
             backup_root.mkdir(exist_ok=True)
             
@@ -80,7 +72,7 @@ class InstallationManager:
             
             logger.info(f"Creating backup: {app_path} -> {self.backup_dir}")
             
-            # 复制应用文件
+            # Copy application files
             shutil.copytree(app_path, self.backup_dir, ignore=shutil.ignore_patterns('*.log', '__pycache__'))
             
             logger.info(f"Backup created successfully: {self.backup_dir}")
@@ -91,20 +83,20 @@ class InstallationManager:
             return False
     
     def _install_exe(self, package_path: Path, install_options: Dict[str, Any]) -> bool:
-        """安装Windows EXE包"""
+        """Install Windows EXE package"""
         try:
             logger.info(f"Installing Windows EXE: {package_path}")
             
-            # 构建安装命令
+            # Build installation command
             cmd = [str(package_path)]
             
-            # 添加静默安装参数
+            # Add silent installation parameters
             if install_options.get('silent', True):
-                # 尝试常见的静默安装参数
+                # Try common silent installation parameters
                 silent_args = ['/S', '/SILENT', '/VERYSILENT', '/quiet', '/q']
-                cmd.extend(silent_args[:1])  # 使用第一个参数
+                cmd.extend(silent_args[:1])  # Use first parameter
             
-            # 执行安装
+            # Execute installation
             logger.info(f"Executing: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
@@ -123,17 +115,17 @@ class InstallationManager:
             return False
     
     def _install_msi(self, package_path: Path, install_options: Dict[str, Any]) -> bool:
-        """安装Windows MSI包"""
+        """Install Windows MSI package"""
         try:
             logger.info(f"Installing Windows MSI: {package_path}")
             
-            # 构建msiexec命令
+            # Build msiexec command
             cmd = ["msiexec", "/i", str(package_path)]
             
             if install_options.get('silent', True):
                 cmd.extend(["/quiet", "/norestart"])
             
-            # 执行安装
+            # Execute installation
             logger.info(f"Executing: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
@@ -152,24 +144,24 @@ class InstallationManager:
             return False
     
     def _install_pkg(self, package_path: Path, install_options: Dict[str, Any]) -> bool:
-        """安装macOS PKG包"""
+        """Install macOS PKG package"""
         try:
             logger.info(f"Installing macOS PKG: {package_path}")
             
-            # PKG 需要管理员权限
-            # 构建安装命令
+            # PKG requires administrator privileges
+            # Build installation command
             cmd = ["sudo", "installer", "-pkg", str(package_path), "-target", "/"]
             
-            # 添加详细日志选项
+            # Add verbose logging option
             if install_options.get('verbose', False):
                 cmd.extend(["-verbose"])
             
-            # 检查是否在交互式环境中
+            # Check if in interactive environment
             if install_options.get('silent', False) or not sys.stdin.isatty():
-                # 非交互式环境，尝试使用 osascript 提示用户输入密码
+                # Non-interactive environment, try using osascript to prompt for password
                 logger.info("Requesting administrator privileges...")
                 
-                # 使用 AppleScript 请求管理员权限
+                # Use AppleScript to request administrator privileges
                 applescript = f'''
                 do shell script "installer -pkg {package_path} -target /" with administrator privileges
                 '''
@@ -191,7 +183,7 @@ class InstallationManager:
                     logger.error("Installation timeout")
                     return False
             else:
-                # 交互式环境，直接使用 sudo
+                # Interactive environment, use sudo directly
                 logger.info(f"Executing: {' '.join(cmd)}")
                 logger.info("You may be prompted for your administrator password...")
                 
@@ -212,11 +204,11 @@ class InstallationManager:
             return False
     
     def _install_dmg(self, package_path: Path, install_options: Dict[str, Any]) -> bool:
-        """安装macOS DMG包"""
+        """Install macOS DMG package"""
         try:
             logger.info(f"Installing macOS DMG: {package_path}")
             
-            # 挂载DMG
+            # Mount DMG
             mount_result = subprocess.run(
                 ["hdiutil", "attach", str(package_path), "-nobrowse", "-quiet"],
                 capture_output=True, text=True
@@ -227,35 +219,35 @@ class InstallationManager:
                 return False
             
             try:
-                # 查找挂载点
+                # Find mount point
                 mount_point = self._find_dmg_mount_point(package_path)
                 if not mount_point:
                     logger.error("Could not find DMG mount point")
                     return False
                 
-                # 查找.app文件
+                # Find .app file
                 app_files = list(Path(mount_point).glob("*.app"))
                 if not app_files:
                     logger.error("No .app file found in DMG")
                     return False
                 
-                # 复制到Applications目录
+                # Copy to Applications directory
                 target_dir = Path("/Applications")
                 for app_file in app_files:
                     target_path = target_dir / app_file.name
                     
-                    # 如果目标已存在，先删除
+                    # If target exists, delete it first
                     if target_path.exists():
                         shutil.rmtree(target_path)
                     
-                    # 复制应用
+                    # Copy application
                     shutil.copytree(app_file, target_path)
                     logger.info(f"Copied {app_file.name} to {target_path}")
                 
                 return True
                 
             finally:
-                # 卸载DMG
+                # Unmount DMG
                 subprocess.run(
                     ["hdiutil", "detach", mount_point or ""],
                     capture_output=True
@@ -266,7 +258,7 @@ class InstallationManager:
             return False
     
     def _find_dmg_mount_point(self, dmg_path: Path) -> Optional[str]:
-        """查找DMG挂载点"""
+        """Find DMG mount point"""
         try:
             result = subprocess.run(
                 ["hdiutil", "info", "-plist"],
@@ -294,23 +286,23 @@ class InstallationManager:
             return None
     
     def restart_application(self, delay_seconds: int = 3) -> bool:
-        """重启应用程序"""
+        """Restart application"""
         try:
             logger.info(f"Restarting application in {delay_seconds} seconds...")
             
             if getattr(sys, 'frozen', False):
-                # 打包后的应用
+                # Packaged application
                 app_executable = sys.executable
             else:
-                # 开发环境
+                # Development environment
                 app_executable = sys.executable
                 app_args = [sys.argv[0]]
             
-            # 创建重启脚本
+            # Create restart script
             restart_script = self._create_restart_script(app_executable, delay_seconds)
             
             if restart_script:
-                # 执行重启脚本
+                # Execute restart script
                 if self.platform.startswith('win'):
                     subprocess.Popen([restart_script], shell=True)
                 else:
@@ -318,7 +310,7 @@ class InstallationManager:
                 
                 logger.info("Restart script launched")
                 
-                # 退出当前应用
+                # Exit current application
                 time.sleep(1)
                 os._exit(0)
                 
@@ -329,13 +321,13 @@ class InstallationManager:
             return False
     
     def _create_restart_script(self, app_executable: str, delay_seconds: int) -> Optional[str]:
-        """创建重启脚本"""
+        """Create restart script"""
         try:
             script_dir = Path(tempfile.gettempdir()) / "ecbot_restart"
             script_dir.mkdir(exist_ok=True)
             
             if self.platform.startswith('win'):
-                # Windows批处理脚本
+                # Windows batch script
                 script_path = script_dir / "restart.bat"
                 script_content = f"""@echo off
 echo Waiting {delay_seconds} seconds before restart...
@@ -345,7 +337,7 @@ start "" "{app_executable}"
 del "%~f0"
 """
             else:
-                # Unix shell脚本
+                # Unix shell script
                 script_path = script_dir / "restart.sh"
                 script_content = f"""#!/bin/bash
 echo "Waiting {delay_seconds} seconds before restart..."
@@ -358,7 +350,7 @@ rm "$0"
             with open(script_path, 'w') as f:
                 f.write(script_content)
             
-            # 设置执行权限 (Unix)
+            # Set execute permission (Unix)
             if not self.platform.startswith('win'):
                 os.chmod(script_path, 0o755)
             

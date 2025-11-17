@@ -16,6 +16,7 @@ from urllib.parse import quote
 import traceback
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
+from app_context import AppContext
 
 
 class MenuMessages:
@@ -312,6 +313,205 @@ class MenuManager:
             main_window: Main window instance
         """
         self.main_window = main_window
+        self.check_update_action = None  # Store reference to update menu item
+        self.has_update = False  # Track if update is available
+        self.update_version = None  # Store available version
+        self.app_menu = None  # Store reference to app menu (for macOS)
+        self.help_menu = None  # Store reference to help menu (for Windows/Linux)
+        self.update_notice_action = None  # Store reference to update notice item (macOS only)
+    
+    def set_update_available(self, has_update: bool, version: str = None):
+        """Set update available status and update menu text with prominent visual indicators
+        
+        Args:
+            has_update: Whether update is available
+            version: Version string if available
+        """
+        self.has_update = has_update
+        self.update_version = version
+        
+        # Update menu item text
+        if self.check_update_action:
+            if has_update:
+                # Add prominent visual indicators for update availability
+                base_text = _get_menu_messages().get('check_updates')
+                
+                # Use a small, elegant indicator
+                # • (U+2022 BULLET) is small and elegant, used by macOS Mail and Messages
+                indicator = "● "  # U+25CF Medium Black Circle - smaller than 🔴
+                
+                if version:
+                    # Show version with indicator
+                    if _get_menu_messages().current_lang == 'zh-CN':
+                        text = f"{indicator}{base_text} (v{version} 可用)"
+                    else:
+                        text = f"{indicator}{base_text} (v{version} available)"
+                else:
+                    # Just indicate update available
+                    if _get_menu_messages().current_lang == 'zh-CN':
+                        text = f"{indicator}{base_text} (有新版本)"
+                    else:
+                        text = f"{indicator}{base_text} (update available)"
+                
+                self.check_update_action.setText(text)
+                
+                # Add update icon to make it more prominent
+                try:
+                    from PySide6.QtGui import QIcon, QFont
+                    from PySide6.QtWidgets import QStyle
+                    
+                    # Use system icon for download/update
+                    # On macOS, use a download arrow icon
+                    style = self.main_window.style()
+                    if style:
+                        # Try to use a download or sync icon
+                        icon = style.standardIcon(QStyle.StandardPixmap.SP_ArrowDown)
+                        if icon and not icon.isNull():
+                            self.check_update_action.setIcon(icon)
+                            logger.info("[OTA] Update icon set successfully")
+                except Exception as e:
+                    logger.warning(f"[OTA] Failed to set update icon: {e}")
+                
+                # Make the menu item more prominent with font styling
+                # Use bold font like macOS system apps do for important items
+                try:
+                    from PySide6.QtGui import QFont
+                    font = self.check_update_action.font()
+                    font.setBold(True)
+                    self.check_update_action.setFont(font)
+                except Exception as e:
+                    logger.warning(f"[OTA] Failed to set bold font: {e}")
+                
+                logger.info(f"[OTA] Menu updated with indicator: {text}")
+            else:
+                # Reset to original text and font
+                self.check_update_action.setText(_get_menu_messages().get('check_updates'))
+                
+                # Remove icon
+                try:
+                    from PySide6.QtGui import QIcon
+                    self.check_update_action.setIcon(QIcon())  # Empty icon
+                except Exception as e:
+                    logger.warning(f"[OTA] Failed to remove icon: {e}")
+                
+                # Reset font
+                try:
+                    from PySide6.QtGui import QFont
+                    font = self.check_update_action.font()
+                    font.setBold(False)
+                    self.check_update_action.setFont(font)
+                except Exception as e:
+                    logger.warning(f"[OTA] Failed to reset font: {e}")
+        
+        # Update menu title to make it more prominent
+        self._update_menu_title(has_update)
+        
+        # For macOS: Add/remove update notice at top of menu
+        self._update_menu_notice(has_update, version)
+    
+    def _update_menu_notice(self, has_update: bool, version: str = None):
+        """Add/remove update notice at top of menu (macOS only)
+        
+        Args:
+            has_update: Whether update is available
+            version: Version string if available
+        """
+        try:
+            # Only for macOS where menu title can't be changed
+            if sys.platform != 'darwin' or not self.app_menu:
+                return
+            
+            if has_update and version:
+                # Add or update notice at top of menu
+                if self.update_notice_action is None:
+                    # Create new notice action
+                    from PySide6.QtGui import QAction, QFont
+                    
+                    # Use smaller indicator for elegance
+                    indicator = "● "  # U+25CF Medium Black Circle
+                    
+                    if _get_menu_messages().current_lang == 'zh-CN':
+                        notice_text = f"{indicator}新版本 v{version} 可用"
+                    else:
+                        notice_text = f"{indicator}New Version v{version} Available"
+                    
+                    self.update_notice_action = QAction(notice_text, self.main_window)
+                    self.update_notice_action.setEnabled(False)  # Make it non-clickable (just a notice)
+                    
+                    # Make it bold and prominent
+                    font = self.update_notice_action.font()
+                    font.setBold(True)
+                    font.setPointSize(font.pointSize() + 1)  # Slightly larger
+                    self.update_notice_action.setFont(font)
+                    
+                    # Insert at the top of the menu (position 0)
+                    actions = self.app_menu.actions()
+                    if actions:
+                        self.app_menu.insertAction(actions[0], self.update_notice_action)
+                        self.app_menu.insertSeparator(actions[0])  # Add separator after notice
+                    else:
+                        self.app_menu.addAction(self.update_notice_action)
+                        self.app_menu.addSeparator()
+                    
+                    logger.info(f"[OTA] Added update notice to menu: {notice_text}")
+                else:
+                    # Update existing notice
+                    indicator = "● "  # U+25CF Medium Black Circle
+                    
+                    if _get_menu_messages().current_lang == 'zh-CN':
+                        notice_text = f"{indicator}新版本 v{version} 可用"
+                    else:
+                        notice_text = f"{indicator}New Version v{version} Available"
+                    self.update_notice_action.setText(notice_text)
+                    logger.info(f"[OTA] Updated menu notice: {notice_text}")
+            else:
+                # Remove notice if it exists
+                if self.update_notice_action is not None:
+                    self.app_menu.removeAction(self.update_notice_action)
+                    self.update_notice_action = None
+                    logger.info("[OTA] Removed update notice from menu")
+        except Exception as e:
+            logger.warning(f"[OTA] Failed to update menu notice: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+    
+    def _update_menu_title(self, has_update: bool):
+        """Update menu title to show update indicator
+        
+        Args:
+            has_update: Whether update is available
+        """
+        try:
+            # For macOS: Try to update app menu title
+            # Note: macOS usually manages this, but we can try to set it
+            if sys.platform == 'darwin' and self.app_menu:
+                indicator = "● "  # U+25CF Medium Black Circle
+                if has_update:
+                    # Try to set app menu title with indicator
+                    app_text = _get_menu_messages().get('menu_ecan')
+                    self.app_menu.setTitle(f"{indicator}{app_text}")
+                    logger.info(f"[OTA] macOS app menu title set to: {indicator}{app_text}")
+                else:
+                    self.app_menu.setTitle(_get_menu_messages().get('menu_ecan'))
+                    logger.info("[OTA] macOS app menu title restored to normal")
+            
+            # For Windows/Linux: Update Help menu title with small indicator
+            elif self.help_menu and sys.platform != 'darwin':
+                # Use the same small indicator for consistency
+                indicator = "● "  # U+25CF Medium Black Circle
+                if has_update:
+                    help_text = _get_menu_messages().get('menu_help')
+                    self.help_menu.setTitle(f"{indicator}{help_text}")
+                    logger.info(f"[OTA] Help menu title updated: {indicator}{help_text}")
+                else:
+                    self.help_menu.setTitle(_get_menu_messages().get('menu_help'))
+                    logger.info("[OTA] Help menu title restored to normal")
+            
+            logger.debug(f"[OTA] Menu title update completed: has_update={has_update}")
+        except Exception as e:
+            logger.warning(f"[OTA] Failed to update menu title: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
         
     def setup_menu(self):
         """Set up eCan menu bar - cross-platform support"""
@@ -360,26 +560,54 @@ class MenuManager:
                 logger.info(f"Found {len(existing_menus)} existing menus, skipping duplicate setup")
                 return
 
-            # On macOS, the first menu automatically becomes the application menu
-            # Use empty string to let system auto-set application menu name
-            app_menu = menubar.addMenu('')  # Empty string lets system auto-set application menu
-            self._setup_macos_app_menu(app_menu)  # Use specialized macOS app menu setup
-
-            logger.info("macOS application menu setup complete")
+            # CRITICAL: On macOS, we must add actions BEFORE the menu is shown
+            # The application menu (first menu) is special and managed by macOS
+            # We need to add our custom items to it explicitly
+            
+            # Create application menu (empty string makes it the app menu)
+            self.app_menu = menubar.addMenu('')
+            
+            # Add About action at the very top
+            about_action = QAction(_get_menu_messages().get('about_ecan'), self.main_window)
+            about_action.triggered.connect(self.show_about_dialog)
+            about_action.setMenuRole(QAction.MenuRole.AboutRole)  # Tell macOS this is About
+            self.app_menu.addAction(about_action)
+            
+            self.app_menu.addSeparator()
+            
+            # Add Check for Updates action
+            self.check_update_action = QAction(_get_menu_messages().get('check_updates'), self.main_window)
+            self.check_update_action.triggered.connect(lambda: self.show_update_dialog(manual=True))
+            self.check_update_action.setMenuRole(QAction.MenuRole.ApplicationSpecificRole)  # Custom action
+            self.app_menu.addAction(self.check_update_action)
+            
+            # Add a separator before Check for Updates to make it more prominent
+            # This will be removed later, just marking the position
+            self.update_separator = None
+            
+            self.app_menu.addSeparator()
+            
+            # Add Preferences action
+            preferences_action = QAction(_get_menu_messages().get('preferences'), self.main_window)
+            preferences_action.setShortcut('Cmd+,')
+            preferences_action.triggered.connect(self.show_settings)
+            preferences_action.setMenuRole(QAction.MenuRole.PreferencesRole)  # Tell macOS this is Preferences
+            self.app_menu.addAction(preferences_action)
+            
+            # Note: macOS will automatically add Services, Hide, Show All, Quit
+            # We don't need to add them manually
+            
+            logger.info("macOS application menu setup complete with custom actions")
 
         except Exception as e:
-            logger.warning(f"macOS menu setup failed, using default method: {e}")
-            # If failed, try to add basic menu
-            try:
-                app_menu = menubar.addMenu('')  # Use empty string even if failed
-                self._setup_app_menu(app_menu)
-            except Exception as e2:
-                logger.error(f"Fallback menu setup also failed: {e2}")
-                return
+            logger.error(f"macOS menu setup failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return
 
-        # Only keep Help menu in addition to application menu
-        help_menu = menubar.addMenu(_get_menu_messages().get('menu_help'))
-        self._setup_help_menu(help_menu)
+        # Add Help menu
+        self.help_menu = menubar.addMenu(_get_menu_messages().get('menu_help'))
+        self._setup_help_menu(self.help_menu)
 
         logger.info("macOS menu bar setup complete (eCan + Help only)")
     
@@ -402,8 +630,8 @@ class MenuManager:
         self._setup_app_menu(app_menu)
 
         # Only keep Help menu
-        help_menu = menubar.addMenu(_get_menu_messages().get('menu_help'))
-        self._setup_help_menu(help_menu)
+        self.help_menu = menubar.addMenu(_get_menu_messages().get('menu_help'))
+        self._setup_help_menu(self.help_menu)
     
     def _setup_linux_menus(self, menubar):
         """Set up simplified Linux menu (eCan + Help only)"""
@@ -423,8 +651,8 @@ class MenuManager:
         app_menu = menubar.addMenu(_get_menu_messages().get('menu_ecan'))
         self._setup_app_menu(app_menu)
 
-        help_menu = menubar.addMenu(_get_menu_messages().get('menu_help'))
-        self._setup_help_menu(help_menu)
+        self.help_menu = menubar.addMenu(_get_menu_messages().get('menu_help'))
+        self._setup_help_menu(self.help_menu)
 
     def _setup_titlebar_menu_style(self, menubar):
         """Set menu bar style to integrate with title bar"""
@@ -534,11 +762,6 @@ class MenuManager:
         about_action.triggered.connect(self.show_about_dialog)
         app_menu.addAction(about_action)
         
-        # Check for updates
-        check_update_action = QAction(_get_menu_messages().get('check_updates'), self.main_window)
-        check_update_action.triggered.connect(self.show_update_dialog)
-        app_menu.addAction(check_update_action)
-        
         app_menu.addSeparator()
         
         # Preferences/Settings
@@ -585,6 +808,18 @@ class MenuManager:
     def _setup_help_menu(self, help_menu):
         """Set up Help menu"""
         try:
+            # Check for updates (for Windows/Linux only)
+            if sys.platform != 'darwin':
+                self.check_update_action = QAction(_get_menu_messages().get('check_updates'), self.main_window)
+                self.check_update_action.triggered.connect(lambda: self.show_update_dialog(manual=True))
+                help_menu.addAction(self.check_update_action)
+
+                about_action = QAction(_get_menu_messages().get('about_ecan'), self.main_window)
+                about_action.triggered.connect(self.show_about_dialog)
+                help_menu.addAction(about_action)
+
+                help_menu.addSeparator()
+
             # User manual
             user_manual_action = QAction(_get_menu_messages().get('ecan_help'), self.main_window)
             user_manual_action.setShortcut('F1')
@@ -648,10 +883,10 @@ class MenuManager:
         
         app_menu.addSeparator()
         
-        # Check for updates (OTA functionality)
-        check_update_action = QAction(_get_menu_messages().get('check_updates'), self.main_window)
-        check_update_action.triggered.connect(self.show_update_dialog)
-        app_menu.addAction(check_update_action)
+        # Check for updates (OTA functionality) - macOS only
+        self.check_update_action = QAction(_get_menu_messages().get('check_updates'), self.main_window)
+        self.check_update_action.triggered.connect(lambda: self.show_update_dialog(manual=True))
+        app_menu.addAction(self.check_update_action)
         
         app_menu.addSeparator()
         
@@ -754,24 +989,75 @@ class MenuManager:
         except Exception as e:
             logger.error(f"Failed to show about dialog: {e}")
     
-    def show_update_dialog(self):
-        """Show update dialog"""
+    def show_update_dialog(self, manual=False):
+        """Show update dialog
+        
+        Args:
+            manual: True if triggered by user manually, False if auto-check
+        """
         try:
             # Import and initialize OTA components on demand
             from ota.core.updater import OTAUpdater
-            from ota.gui.dialog import UpdateDialog
             
-            # Create OTA updater instance (only when needed)
-            ota_updater = OTAUpdater()
-            
-            # Create and show update dialog, pass OTA updater instance
-            dialog = UpdateDialog(parent=self.main_window, ota_updater=ota_updater)
-            dialog.exec()
+            # Prefer reusing global OTA updater instance from AppContext
+            ota_updater = None
+            try:
+                ctx = AppContext.get_instance()
+                ota_updater = getattr(ctx, "ota_updater", None)
+                if ota_updater is not None:
+                    logger.info("[OTA] Reusing global ota_updater for update dialog")
+            except Exception:
+                logger.debug("[OTA] Failed to get ota_updater from AppContext", exc_info=True)
+
+            # Fallback: create OTA updater instance (only when needed)
+            if ota_updater is None:
+                logger.info("[OTA] Creating new OTAUpdater instance for update dialog")
+                ota_updater = OTAUpdater()
+
+            # Manual check: Always check for updates and show result
+            if manual:
+                logger.info("[OTA] Manual update check initiated")
+                
+                # Temporarily disable callback to avoid duplicate dialogs
+                original_callback = ota_updater.update_callback
+                ota_updater.update_callback = None
+                
+                try:
+                    # Perform update check
+                    has_update, update_info = ota_updater.check_for_updates(return_info=True)
+                    
+                    if has_update and update_info:
+                        version = update_info.get('latest_version') or update_info.get('version')
+                        logger.info(f"[OTA] Manual check found update: {version}")
+                        
+                        # For manual check, show confirmation dialog (ignore "don't remind" setting)
+                        try:
+                            web_gui = getattr(ctx, "web_gui", None) if 'ctx' in locals() else None
+                            if web_gui and hasattr(web_gui, '_show_update_confirmation'):
+                                web_gui._show_update_confirmation(version, update_info, is_manual=True)
+                            else:
+                                # Fallback: show update dialog directly
+                                from ota.gui.dialog import UpdateDialog
+                                dialog = UpdateDialog(parent=self.main_window, ota_updater=ota_updater)
+                                dialog.exec()
+                        except Exception as e:
+                            logger.error(f"[OTA] Failed to show update confirmation: {e}")
+                    else:
+                        # No update available
+                        QMessageBox.information(
+                            self.main_window,
+                            _get_menu_messages().get('check_updates'),
+                            "您已经在使用最新版本。" if _get_menu_messages().current_lang == 'zh-CN' 
+                            else "You are already running the latest version."
+                        )
+                finally:
+                    # Restore original callback
+                    ota_updater.update_callback = original_callback
         except Exception as e:
             logger.error(f"Failed to show update dialog: {e}")
-            QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'), 
+            QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'),
                               _get_menu_messages().get('update_error', error=str(e)))
-    
+
     def show_settings(self):
         """Show settings dialog"""
         try:

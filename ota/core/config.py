@@ -14,20 +14,20 @@ from utils.logger_helper import logger_helper as logger
 class OTAConfig:
     """OTA configuration manager"""
     
-    # 常量定义
+    # Constant definitions
     DEFAULT_LOCAL_SERVER_URL = "http://127.0.0.1:8080"
     DEFAULT_REMOTE_SERVER_URL = "https://updates.ecbot.com"
-    # S3 配置 - 需要在 GitHub Secrets 中设置 S3_BUCKET
-    DEFAULT_S3_BUCKET = "ecbot-updates"  # 默认 bucket 名称，可以通过环境变量覆盖
+    # S3 configuration - S3_BUCKET needs to be set in GitHub Secrets
+    DEFAULT_S3_BUCKET = "ecan-releases"  # Default bucket name, can be overridden by environment variable
     DEFAULT_S3_REGION = "us-east-1"
     
     def __init__(self):
         self.config_file = self._get_config_path()
         self.default_config = {
-            "use_local_server": False,  # 是否使用本地服务器
-            "local_server_url": self.DEFAULT_LOCAL_SERVER_URL,  # 本地服务器地址
-            "remote_server_url": self.DEFAULT_REMOTE_SERVER_URL,  # 远程服务器地址
-            "check_interval": 3600,  # 1 hour
+            "use_local_server": True,  # Whether to use local server
+            "local_server_url": self.DEFAULT_LOCAL_SERVER_URL,  # Local server address
+            "remote_server_url": self.DEFAULT_REMOTE_SERVER_URL,  # Remote server address
+            "check_interval": 300,  # 5 minutes
             "auto_check": True,
             "silent_mode": False,
             "download_path": None,
@@ -38,6 +38,7 @@ class OTAConfig:
             "allow_http_in_dev": True,  # Allow HTTP in dev mode
             "force_generic_updater_in_dev": True,  # Force generic updater in dev mode
             "public_key_path": None,  # Digital signature verification public key path
+            "ui_update_behavior": "notification", # Options: "notification"(notification only), "dialog"(popup dialog), "badge"(badge only), "notification+badge"(notification+badge)
             # Dev mode installer switch and parameters (disabled by default to avoid accidental execution)
             "dev_installer_enabled": False,
             "dev_installer_quiet": True,
@@ -45,7 +46,7 @@ class OTAConfig:
             "platforms": {
                 "darwin": {
                     "framework_path": "/Applications/ECBot.app/Contents/Frameworks/Sparkle.framework",
-                    # S3 作为更新源
+                    # S3 as update source
                     "appcast_url": f"https://{self.DEFAULT_S3_BUCKET}.s3.{self.DEFAULT_S3_REGION}.amazonaws.com/appcast/appcast-macos.xml",
                     "appcast_urls": {
                         "amd64": f"https://{self.DEFAULT_S3_BUCKET}.s3.{self.DEFAULT_S3_REGION}.amazonaws.com/appcast/appcast-macos-amd64.xml",
@@ -59,7 +60,7 @@ class OTAConfig:
                 },
                 "windows": {
                     "dll_path": "winsparkle.dll",
-                    # S3 作为更新源
+                    # S3 as update source
                     "appcast_url": f"https://{self.DEFAULT_S3_BUCKET}.s3.{self.DEFAULT_S3_REGION}.amazonaws.com/appcast/appcast-windows.xml",
                     "appcast_urls": {
                         "amd64": f"https://{self.DEFAULT_S3_BUCKET}.s3.{self.DEFAULT_S3_REGION}.amazonaws.com/appcast/appcast-windows-amd64.xml",
@@ -74,7 +75,7 @@ class OTAConfig:
                 "linux": {
                     "api_url": "https://updates.ecbot.com/api",
                     "download_dir": "/tmp/ecbot_updates",
-                    # S3 作为更新源
+                    # S3 as update source
                     "appcast_url": f"https://{self.DEFAULT_S3_BUCKET}.s3.{self.DEFAULT_S3_REGION}.amazonaws.com/appcast/appcast-linux.xml",
                     "appcast_urls": {
                         "amd64": f"https://{self.DEFAULT_S3_BUCKET}.s3.{self.DEFAULT_S3_REGION}.amazonaws.com/appcast/appcast-linux-amd64.xml",
@@ -89,9 +90,9 @@ class OTAConfig:
             }
         }
         self.config = self._load_config()
-        # 自动清理过时的配置项
+        # Automatically clean up deprecated configuration items
         self.cleanup_deprecated_config()
-    
+
     def _get_config_path(self) -> Path:
         """Get configuration file path"""
         if platform.system() == "Darwin":
@@ -165,14 +166,30 @@ class OTAConfig:
         return self.config.get("platforms", {}).get(platform_name, {})
     
     def get_update_server(self) -> str:
-        """Get update server URL. Support local/remote server switching"""
-        # 检查是否使用本地服务器或开发模式
+        """Get update server URL.
+
+        Supports both the new local/remote server switching and legacy keys
+        like ``update_server`` / ``dev_update_server`` for backward
+        compatibility (tests and existing configs).
+        """
+        # 1) Explicit legacy override takes highest precedence
+        direct_url = self.config.get("update_server")
+        if direct_url:
+            return direct_url
+
+        # 2) Dev-specific override
+        if self.is_dev_mode():
+            dev_url = self.config.get("dev_update_server")
+            if dev_url:
+                return dev_url
+
+        # 3) Local server or dev mode uses local_server_url
         if self.config.get("use_local_server", False) or self.is_dev_mode():
             return self.config.get("local_server_url", self.DEFAULT_LOCAL_SERVER_URL)
-        
-        # 默认使用远程服务器
+
+        # 4) Default to remote server URL
         return self.config.get("remote_server_url", self.DEFAULT_REMOTE_SERVER_URL)
-    
+
     def get_check_interval(self) -> int:
         """Get check interval (seconds)"""
         return self.config.get("check_interval", 3600)
@@ -229,41 +246,41 @@ class OTAConfig:
         """Get appcast URL based on current server configuration"""
         platform_config = self.get_platform_config()
         
-        # 如果使用本地服务器
+        # If using local server
         if self.config.get("use_local_server", False):
             if arch and "local_appcast_urls" in platform_config:
                 return platform_config["local_appcast_urls"].get(arch, platform_config.get("local_appcast_url", f"{self.DEFAULT_LOCAL_SERVER_URL}/appcast.xml"))
             return platform_config.get("local_appcast_url", f"{self.DEFAULT_LOCAL_SERVER_URL}/appcast.xml")
         
-        # 使用远程服务器
+        # Use remote server
         if arch and "appcast_urls" in platform_config:
             return platform_config["appcast_urls"].get(arch, platform_config.get("appcast_url", ""))
         return platform_config.get("appcast_url", "")
     
     def set_use_local_server(self, use_local: bool):
-        """设置是否使用本地服务器"""
+        """Set whether to use local server"""
         self.config["use_local_server"] = use_local
         self.save_config()
         logger.info(f"Update server switched to: {'local' if use_local else 'remote'}")
     
     def is_using_local_server(self) -> bool:
-        """检查是否正在使用本地服务器"""
+        """Check if using local server"""
         return self.config.get("use_local_server", False)
     
     def set_local_server_url(self, url: str):
-        """设置本地服务器地址"""
+        """Set local server URL"""
         self.config["local_server_url"] = url
         self.save_config()
         logger.info(f"Local server URL set to: {url}")
     
     def set_remote_server_url(self, url: str):
-        """设置远程服务器地址"""
+        """Set remote server URL"""
         self.config["remote_server_url"] = url
         self.save_config()
         logger.info(f"Remote server URL set to: {url}")
     
     def cleanup_deprecated_config(self):
-        """清理过时的配置项"""
+        """Clean up deprecated configuration items"""
         deprecated_keys = ["update_server", "dev_update_server"]
         cleaned = False
         

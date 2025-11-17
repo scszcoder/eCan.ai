@@ -1,6 +1,6 @@
 """
-OTA平台特定集成
-包含Sparkle和winSparkle的原生集成代码
+OTA Platform-Specific Integration
+Contains native integration code for Sparkle and winSparkle
 """
 
 __all__ = [

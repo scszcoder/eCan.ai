@@ -6,9 +6,16 @@
 
 import logging
 import os
+import sys
 from flask import Flask, jsonify, request, send_file, Response
 from pathlib import Path
-from .appcast_generator import AppcastGenerator
+
+# Add project root to Python path to resolve imports when run as a script
+project_root = Path(__file__).resolve().parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+from ota.server.appcast_generator import AppcastGenerator
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -18,7 +25,7 @@ app = Flask(__name__)
 
 # 初始化 appcast 生成器
 server_dir = Path(__file__).parent
-appcast_gen = AppcastGenerator(server_dir)
+appcast_gen = AppcastGenerator(server_dir, server_dir)
 
 # 服务器配置
 SERVER_CONFIG = {

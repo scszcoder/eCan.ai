@@ -27,9 +27,9 @@ if sys.platform == 'darwin':
 # Internationalization for WebGUI
 class WebGUIMessages:
     """Simple i18n support for WebGUI status and error messages."""
-    
+
     DEFAULT_LANG = 'zh-CN'
-    
+
     MESSAGES = {
         'en-US': {
             'initializing_webgui': 'Initializing WebGUI...',
@@ -76,7 +76,7 @@ class WebGUIMessages:
             'button_no': '否',
         }
     }
-    
+
     def __init__(self):
         from utils.i18n_helper import detect_language
         self.language = detect_language(
@@ -84,7 +84,7 @@ class WebGUIMessages:
             supported_languages=list(self.MESSAGES.keys())
         )
         logger.info(f"[WebGUI] Language: {self.language}")
-    
+
     def get(self, key: str, **kwargs) -> str:
         """Get localized message with optional formatting."""
         lang = self.language if self.language in self.MESSAGES else self.DEFAULT_LANG
@@ -193,14 +193,14 @@ class WebGUI(QMainWindow):
             import traceback
             logger.error(traceback.format_exc())
             self._show_error_page(_get_webgui_messages().get('init_error', error=str(e)))
-        
+
         # Add web engine to layout
         layout.addWidget(self.web_engine_view)
         layout.setSpacing(0)
 
         # Set up shortcuts (after all components initialized)
         self._setup_shortcuts()
-        
+
         # Create custom title bar menu on Windows and Linux
         if sys.platform in ['win32', 'linux']:
             self._setup_custom_titlebar_with_menu()
@@ -222,7 +222,7 @@ class WebGUI(QMainWindow):
                 self._setup_taskbar_icon_via_manager()
             except Exception:
                 pass
-        
+
         # Start async preload in background after event loop is ready
         # 100ms delay ensures Qt event loop is running before creating async task
         # Preload will run during user login, making MainWindow startup instant
@@ -248,9 +248,9 @@ class WebGUI(QMainWindow):
                 self._bring_to_front()
         except Exception:
             pass
-        
+
         super().showEvent(event)
-        
+
         # Always ensure cursors are sane
         try:
             self.setCursor(Qt.ArrowCursor)
@@ -271,9 +271,9 @@ class WebGUI(QMainWindow):
             import asyncio
             import threading
             from gui.async_preloader import start_async_preload
-            
+
             logger.info(" [WebGUI] Starting async preload in background...")
-            
+
             # Run async preload in a separate thread with its own event loop
             # This is necessary because Qt has its own event loop and doesn't run asyncio
             def _run_async_preload():
@@ -282,17 +282,17 @@ class WebGUI(QMainWindow):
                     # Create new event loop for this thread
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
-                    
+
                     # Run the preload coroutine (wait for completion)
                     loop.run_until_complete(start_async_preload(wait_for_completion=True))
-                    
+
                     # Get preload summary
                     from gui.async_preloader import get_preload_summary
                     summary = get_preload_summary()
                     success_count = summary.get('success_count', 0)
                     total_tasks = summary.get('total_tasks', 0)
                     total_time = summary.get('total_time', 0)
-                    
+
                     logger.info(f"✅ [WebGUI] Async preload completed: {success_count}/{total_tasks} tasks in {total_time:.2f}s")
                 except Exception as e:
                     logger.warning(f"⚠️ [WebGUI] Async preload thread error: {e}")
@@ -313,12 +313,12 @@ class WebGUI(QMainWindow):
                             pass
                         finally:
                             loop.close()
-            
+
             # Start preload in daemon thread (won't block app exit)
             preload_thread = threading.Thread(target=_run_async_preload, daemon=True, name="AsyncPreloadThread")
             preload_thread.start()
             logger.info("✅ [WebGUI] Async preload thread started")
-            
+
         except Exception as e:
             logger.warning(f"⚠️ [WebGUI] Failed to start preload: {e}")
             import traceback
@@ -337,34 +337,34 @@ class WebGUI(QMainWindow):
                 x, y = args[0], args[1]
             else:
                 return super().move(*args)
-            
+
             # Skip guard while maximized or fullscreen
             if self.isMaximized() or self.isFullScreen():
                 return super().move(*args)
-            
+
             # Block moves to (0,0) unless window is being initialized
             if x < 5 and y < 5 and hasattr(self, '_centered_once') and self._centered_once:
                 # Debug log
                 logger.warning(f"[WebGUI] 🛡️ BLOCKED move to ({x},{y}), staying at current position")
-                
+
                 # Ignore this move request - stay at current position
                 if self._last_center_pos is not None:
                     return super().move(self._last_center_pos)
                 return  # Don't move at all
-            
+
             # Allow valid moves
             return super().move(*args)
         except Exception as e:
             logger.debug(f"[WebGUI] move() exception: {e}")
             return super().move(*args)
-    
+
     def moveEvent(self, event):
         """Guard against unintended jumps to (0,0) by immediately restoring position."""
         try:
             # Skip guard while maximized or fullscreen so window can align to (0,0)
             if self.isMaximized() or self.isFullScreen():
                 return super().moveEvent(event)
-            
+
             # Skip if we're currently restoring position (prevent recursion)
             if self._restoring_position:
                 return super().moveEvent(event)
@@ -372,7 +372,7 @@ class WebGUI(QMainWindow):
             # Only guard if window is visible and initialized
             if self.isVisible() and hasattr(self, '_centered_once') and self._centered_once:
                 pos = event.pos()
-                
+
                 # If moved to (0,0), immediately restore to saved position
                 if pos.x() < 5 and pos.y() < 5 and self._last_center_pos is not None:
                     logger.warning(f"[WebGUI] Detected move to ({pos.x()}, {pos.y()}), restoring immediately")
@@ -391,7 +391,7 @@ class WebGUI(QMainWindow):
             logger.debug(f"[WebGUI] moveEvent exception: {e}")
             self._restoring_position = False
         return super().moveEvent(event)
-    
+
     def _center_on_screen(self):
         """Center the window on the PRIMARY screen with proper handling for frameless windows"""
         try:
@@ -399,20 +399,20 @@ class WebGUI(QMainWindow):
             if not screen:
                 logger.debug("No primary screen found for centering")
                 return
-            
+
             sg = screen.availableGeometry()
             window_width = self.width()
             window_height = self.height()
-            
+
             x = sg.center().x() - window_width // 2
             y = sg.center().y() - window_height // 2
-            
+
             # Keep within available area
             x = max(sg.left(), min(x, sg.right() - window_width))
             y = max(sg.top(), min(y, sg.bottom() - window_height))
-            
+
             logger.debug(f"Centering (primary) window: size=({window_width}, {window_height}), target=({x}, {y})")
-            
+
             if sys.platform == 'win32' and self.windowFlags() & Qt.FramelessWindowHint:
                 try:
                     import ctypes
@@ -430,7 +430,7 @@ class WebGUI(QMainWindow):
                     self.move(x, y)
             else:
                 self.move(x, y)
-            
+
             # Record final position
             QApplication.processEvents()
             final_pos = self.pos()
@@ -442,7 +442,7 @@ class WebGUI(QMainWindow):
             logger.info(f"[WebGUI] ✅ Centered at ({final_pos.x()}, {final_pos.y()}), saved as guard position")
         except Exception as e:
             logger.debug(f"Failed to center window: {e}")
-    
+
     # --- Splash handlers ---
     def _on_load_progress(self, progress: int):
         try:
@@ -757,13 +757,13 @@ class WebGUI(QMainWindow):
         """Load local HTML file"""
         index_path = app_settings.dist_dir / "index.html"
         logger.info(f"Looking for index.html at: {index_path}")
-        
+
         if index_path.exists():
             try:
                 # Load local file directly
                 self.web_engine_view.load_local_file(index_path)
                 logger.info(f"Production mode: Loading from {index_path}")
-                
+
             except Exception as e:
                 logger.error(f"Error loading HTML file: {str(e)}")
                 import traceback
@@ -777,10 +777,10 @@ class WebGUI(QMainWindow):
                     logger.info(f"  - {item.name}")
             else:
                 logger.error(f"Directory {app_settings.dist_dir} does not exist")
-    
-    def get_ipc_api(self):        
+
+    def get_ipc_api(self):
         return self.web_engine_view.get_ipc_api()
-    
+
     def _setup_shortcuts(self):
         """Set up shortcuts"""
         # Developer tools shortcut
@@ -827,7 +827,7 @@ class WebGUI(QMainWindow):
             self.web_engine_view.reload_page()
         else:
             self.load_local_html()
-    
+
     def closeEvent(self, event):
         """Window close event - debug version"""
         logger.info("closeEvent triggered")
@@ -839,7 +839,7 @@ class WebGUI(QMainWindow):
             msg_box.setText(_get_webgui_messages().get('confirm_exit_message'))
             msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             msg_box.setDefaultButton(QMessageBox.No)
-            
+
             # Set button text with i18n
             yes_button = msg_box.button(QMessageBox.Yes)
             no_button = msg_box.button(QMessageBox.No)
@@ -847,7 +847,7 @@ class WebGUI(QMainWindow):
                 yes_button.setText(_get_webgui_messages().get('button_yes'))
             if no_button:
                 no_button.setText(_get_webgui_messages().get('button_no'))
-            
+
             # Set window flags to ensure proper rendering on macOS
             if sys.platform == 'darwin':
                 # On macOS, ensure the dialog is opaque and has proper background
@@ -1159,7 +1159,7 @@ class WebGUI(QMainWindow):
             from utils.icon_manager import get_icon_manager
             icon_manager = get_icon_manager()
             icon_manager.set_logger(logger)
-            
+
             if icon_manager.icon_path:
                 window_icon = QIcon(icon_manager.icon_path)
                 self.setWindowIcon(window_icon)
@@ -1219,45 +1219,45 @@ class WebGUI(QMainWindow):
     def _setup_taskbar_icon_via_manager(self):
         """
         Set Windows taskbar icon using IconManager (Windows-only, delayed setup).
-        
+
         Why delayed?
         - Windows taskbar icon requires valid window handle (HWND)
         - In frozen/packaged builds, icon extraction from EXE resources needs time
         - Immediate setup may fail, causing default Python icon to show
-        
+
         Timing: 1-second delay ensures window is fully visible and stable.
         """
         if sys.platform != 'win32':
             return
-        
+
         from PySide6.QtCore import QTimer
-        
+
         def setup_via_manager():
             try:
                 from utils.icon_manager import get_icon_manager
                 icon_mgr = get_icon_manager()
-                
+
                 # Check if already set (prevent duplicate operations)
                 if icon_mgr.is_taskbar_icon_set():
                     logger.debug("[IconManager] Taskbar icon already set, skipping")
                     return
-                
+
                 # Ensure window is ready (has valid handle)
                 if not self.isVisible() or not self.winId():
                     logger.warning("[IconManager] Window not ready for taskbar icon setup")
                     return
-                
+
                 # Set taskbar icon (will extract from EXE in frozen builds)
                 from PySide6.QtWidgets import QApplication
                 app = QApplication.instance()
                 success = icon_mgr.set_window_taskbar_icon(self, app)
-                
+
                 if not success:
                     logger.warning("[IconManager] ⚠️ Taskbar icon setup failed")
-                    
+
             except Exception as e:
                 logger.error(f"[IconManager] ❌ Failed to set taskbar icon: {e}")
-        
+
         # Delay 1 second to ensure window is fully visible and stable
         QTimer.singleShot(1000, setup_via_manager)
 
@@ -1337,16 +1337,16 @@ class WebGUI(QMainWindow):
         self.custom_titlebar.mouseMoveEvent = self._titlebar_mouse_move
         self.custom_titlebar.mouseDoubleClickEvent = self._titlebar_double_click
         self._drag_position = None
-        
+
         # Disable custom resize cursor handling - rely on nativeEvent for Windows resize
         # This prevents cursor getting stuck in resize mode
         self._resize_margin = 8  # Larger margin for easier resizing
         self._resizing = False
         self._resize_direction = None
-        
+
         # DO NOT install event filter or enable mouse tracking
         # The nativeEvent handler will take care of resize detection
-        
+
         # Force cursor to arrow on window
         self.setCursor(Qt.ArrowCursor)
         self.centralWidget().setCursor(Qt.ArrowCursor)
@@ -1377,12 +1377,12 @@ class WebGUI(QMainWindow):
         """Determine resize direction based on mouse position"""
         rect = self.rect()
         margin = self._resize_margin
-        
+
         left = pos.x() <= margin
         right = pos.x() >= rect.width() - margin
         top = pos.y() <= margin
         bottom = pos.y() >= rect.height() - margin
-        
+
         direction = None
         if top and left:
             direction = 'top-left'
@@ -1400,7 +1400,7 @@ class WebGUI(QMainWindow):
             direction = 'top'
         elif bottom:
             direction = 'bottom'
-        
+
         return direction
 
     def _update_cursor(self, direction):
@@ -1420,9 +1420,9 @@ class WebGUI(QMainWindow):
         """Perform window resize based on mouse movement"""
         delta = global_pos - self._resize_start_pos
         geo = self._resize_start_geometry
-        
+
         new_geo = geo
-        
+
         if 'left' in self._resize_direction:
             new_geo.setLeft(geo.left() + delta.x())
         if 'right' in self._resize_direction:
@@ -1431,7 +1431,7 @@ class WebGUI(QMainWindow):
             new_geo.setTop(geo.top() + delta.y())
         if 'bottom' in self._resize_direction:
             new_geo.setBottom(geo.bottom() + delta.y())
-        
+
         # Enforce minimum size
         min_width = 400
         min_height = 300
@@ -1453,7 +1453,7 @@ class WebGUI(QMainWindow):
             try:
                 from PySide6.QtGui import QCursor
                 msg = ctypes.wintypes.MSG.from_address(int(message))
-                
+
                 # WM_NCLBUTTONDBLCLK = 0x00A3 - Handle double-click on non-client area (title bar)
                 if msg.message == 0x00A3:
                     # wParam contains hit test code
@@ -1463,7 +1463,7 @@ class WebGUI(QMainWindow):
                         # Toggle maximize/restore on title bar double-click
                         self._toggle_maximize()
                         return True, 0  # Message handled
-                
+
                 # WM_NCHITTEST = 0x0084
                 if msg.message == 0x0084:
                     rect = self.rect()
@@ -1541,7 +1541,7 @@ class WebGUI(QMainWindow):
                             return True, 15  # HTBOTTOM
             except Exception as e:
                 logger.error(f"Error in nativeEvent: {e}")
-        
+
         return super().nativeEvent(eventType, message)
 
     def _toggle_fullscreen(self):
@@ -1550,23 +1550,23 @@ class WebGUI(QMainWindow):
             self.showNormal()
         else:
             self.showFullScreen()
-    
+
     def handle_oauth_error(self, error: str):
         """Handle OAuth authentication error"""
         try:
             logger.error(f"OAuth authentication error: {error}")
-            
+
             # Bring window to foreground
             self.activateWindow()
             self.raise_()
             self.show()
-            
+
             # Show error notification
             self._show_notification(f"Authentication failed: {error}", "error")
-            
+
         except Exception as e:
             logger.error(f"Error handling OAuth error: {e}")
-    
+
     def _remove_stay_on_top(self):
         """Remove stay on top flag"""
         try:
@@ -1574,7 +1574,7 @@ class WebGUI(QMainWindow):
             self.show()
         except Exception as e:
             logger.error(f"Error removing stay on top: {e}")
-    
+
     def _show_notification(self, message: str, notification_type: str = "info"):
         """Show notification to user"""
         try:
@@ -1589,12 +1589,159 @@ class WebGUI(QMainWindow):
                     }}
                 """
                 self.web_engine_view.page().runJavaScript(js_code)
-            
+
             # Fallback: log the notification
             if notification_type == "error":
                 logger.error(f"Notification: {message}")
             else:
                 logger.info(f"Notification: {message}")
-                
+
         except Exception as e:
             logger.error(f"Error showing notification: {e}")
+
+    def _set_update_badge(self, has_update: bool, version: str = ""):
+        """Update menu to show update availability indicator.
+        
+        This updates the menu item text to show an indicator when update is available.
+        No longer uses frontend badge - all OTA UI is in native menu.
+        
+        Args:
+            has_update: Whether an update is available
+            version: Version string of the available update
+        """
+        try:
+            # Update menu manager to show indicator
+            if hasattr(self, 'menu_manager') and self.menu_manager:
+                self.menu_manager.set_update_available(has_update, version)
+                logger.info(f"[OTA] Menu indicator updated: has_update={has_update}, version={version}")
+            else:
+                logger.warning("[OTA] menu_manager not available, cannot update menu indicator")
+                
+        except Exception as e:
+            logger.error(f"[OTA] Error updating menu indicator: {e}")
+    
+    def _show_update_confirmation(self, version: str, update_info: dict, is_manual: bool = False):
+        """Show update confirmation dialog with "Don't remind again" option.
+        
+        Args:
+            version: Available version string
+            update_info: Update information dictionary
+            is_manual: True if triggered by manual check, False if auto-check
+        """
+        try:
+            from PySide6.QtWidgets import QMessageBox, QCheckBox
+            from PySide6.QtCore import Qt
+            from ota.core.version_ignore import get_version_ignore_manager
+            
+            # Create message box
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("软件更新" if self._is_chinese() else "Software Update")
+            
+            # Set icon
+            msg_box.setIcon(QMessageBox.Icon.Information)
+            
+            # Set text
+            if self._is_chinese():
+                text = f"<h3>发现新版本 {version}</h3>"
+                text += f"<p>当前版本: {self._get_current_version()}</p>"
+                if update_info.get('description'):
+                    text += f"<p>{update_info['description']}</p>"
+                text += "<p>是否现在更新？</p>"
+                msg_box.setText(text)
+            else:
+                text = f"<h3>New Version {version} Available</h3>"
+                text += f"<p>Current version: {self._get_current_version()}</p>"
+                if update_info.get('description'):
+                    text += f"<p>{update_info['description']}</p>"
+                text += "<p>Would you like to update now?</p>"
+                msg_box.setText(text)
+            
+            # Add buttons
+            update_btn = msg_box.addButton(
+                "立即更新" if self._is_chinese() else "Update Now",
+                QMessageBox.ButtonRole.AcceptRole
+            )
+            later_btn = msg_box.addButton(
+                "稍后提醒" if self._is_chinese() else "Remind Later",
+                QMessageBox.ButtonRole.RejectRole
+            )
+            
+            # Add "Don't remind again" checkbox (only for auto-check)
+            dont_remind_checkbox = None
+            if not is_manual:
+                dont_remind_checkbox = QCheckBox(
+                    "不再提示此版本" if self._is_chinese() else "Don't remind me about this version",
+                    msg_box
+                )
+                msg_box.setCheckBox(dont_remind_checkbox)
+            
+            # Show dialog
+            msg_box.exec()
+            clicked_button = msg_box.clickedButton()
+            
+            # Handle user choice
+            if clicked_button == update_btn:
+                # User chose to update
+                logger.info(f"[OTA] User confirmed update to version {version}")
+                self._start_ota_update(version, update_info)
+            else:
+                # User chose "Remind Later"
+                logger.info(f"[OTA] User postponed update to version {version}")
+                
+                # Check if "Don't remind again" was selected
+                if dont_remind_checkbox and dont_remind_checkbox.isChecked():
+                    ignore_mgr = get_version_ignore_manager()
+                    ignore_mgr.ignore_version(version)
+                    logger.info(f"[OTA] Version {version} added to ignore list")
+                    
+        except Exception as e:
+            logger.error(f"[OTA] Error showing update confirmation: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+    
+    def _start_ota_update(self, version: str, update_info: dict):
+        """Start OTA update process and show progress dialog.
+        
+        Args:
+            version: Version to update to
+            update_info: Update information dictionary
+        """
+        try:
+            from ota.gui.dialog import UpdateDialog
+            from ota.core.updater import OTAUpdater
+            from app_context import AppContext
+            
+            # Get or create OTA updater
+            ctx = AppContext.get_instance()
+            ota_updater = getattr(ctx, "ota_updater", None)
+            if ota_updater is None:
+                ota_updater = OTAUpdater()
+                setattr(ctx, "ota_updater", ota_updater)
+            
+            # Show update dialog
+            dialog = UpdateDialog(parent=self, ota_updater=ota_updater)
+            dialog.show()  # Use show() instead of exec() to allow background operation
+            
+            logger.info(f"[OTA] Update dialog shown for version {version}")
+            
+        except Exception as e:
+            logger.error(f"[OTA] Error starting OTA update: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+    
+    def _is_chinese(self) -> bool:
+        """Check if current language is Chinese."""
+        try:
+            from utils.i18n_helper import detect_language
+            lang = detect_language(default_lang='zh-CN', supported_languages=['zh-CN', 'en-US'])
+            return lang == 'zh-CN'
+        except:
+            return True  # Default to Chinese
+    
+    def _get_current_version(self) -> str:
+        """Get current application version."""
+        try:
+            from config.app_info import app_info
+            return app_info.version
+        except:
+            return "Unknown"

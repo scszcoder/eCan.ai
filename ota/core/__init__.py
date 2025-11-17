@@ -1,6 +1,6 @@
 """
-OTA核心功能模块
-包含更新管理器、平台适配器等核心组件
+OTA Core Module
+Contains update manager, platform adapters and other core components
 """
 
 from .updater import OTAUpdater
