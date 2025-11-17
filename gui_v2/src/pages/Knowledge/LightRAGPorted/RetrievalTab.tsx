@@ -61,15 +61,52 @@ const RetrievalTab: React.FC = () => {
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setLoading(true);
+    
+    const assistantId = crypto.randomUUID?.() || String(Date.now() + 1);
+    const assistantMsg: ChatMessage = { id: assistantId, role: 'assistant', content: '' };
+    setMessages(prev => [...prev, assistantMsg]);
+    
+    const options = buildOptions();
+    
     try {
-      const res = await lightragIpc.query({ text: userMsg.content, options: buildOptions() });
-      const content = typeof res === 'object' && res && 'response' in res ? String((res as any).response) : JSON.stringify(res);
-      const assistantMsg: ChatMessage = { id: crypto.randomUUID?.() || String(Date.now()+1), role: 'assistant', content };
-      setMessages(prev => [...prev, assistantMsg]);
+      if (stream) {
+        // Use streaming query
+        const res = await lightragIpc.queryStream({ text: userMsg.content, options });
+        
+        // Handle streaming response
+        if (res && res.chunks && Array.isArray(res.chunks)) {
+          // Simulate typing effect with chunks
+          let currentContent = '';
+          for (const chunk of res.chunks) {
+            currentContent += chunk;
+            setMessages(prev => prev.map(m => 
+              m.id === assistantId ? { ...m, content: currentContent } : m
+            ));
+            scrollToEnd();
+            // Small delay for typing effect
+            await new Promise(resolve => setTimeout(resolve, 20));
+          }
+        } else if (res && res.response) {
+          // Fallback to full response
+          setMessages(prev => prev.map(m => 
+            m.id === assistantId ? { ...m, content: String(res.response) } : m
+          ));
+        }
+      } else {
+        // Use normal query
+        const res = await lightragIpc.query({ text: userMsg.content, options });
+        const content = typeof res === 'object' && res && 'response' in res 
+          ? String((res as any).response) 
+          : JSON.stringify(res);
+        setMessages(prev => prev.map(m => 
+          m.id === assistantId ? { ...m, content } : m
+        ));
+      }
       scrollToEnd();
     } catch (e: any) {
-      const assistantMsg: ChatMessage = { id: crypto.randomUUID?.() || String(Date.now()+1), role: 'assistant', content: `Error: ${e?.message || String(e)}` };
-      setMessages(prev => [...prev, assistantMsg]);
+      setMessages(prev => prev.map(m => 
+        m.id === assistantId ? { ...m, content: `Error: ${e?.message || String(e)}` } : m
+      ));
     } finally {
       setLoading(false);
     }

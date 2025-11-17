@@ -2,13 +2,25 @@ import React, { useState } from 'react';
 import { theme } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { lightragIpc } from '@/services/ipc/lightrag';
+import { get_ipc_api } from '@/services/ipc_api';
 import { ScanOutlined, UnorderedListOutlined, ClearOutlined, FolderOpenOutlined, UploadOutlined } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
 
+interface Document {
+  file_path: string;
+  status: string;
+  content_length?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
 const DocumentsTab: React.FC = () => {
-  const [files, setFiles] = useState<FileList | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [dirPath, setDirPath] = useState('');
   const [log, setLog] = useState<string>('');
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [statusCounts, setStatusCounts] = useState({ all: 0, PROCESSED: 0, PROCESSING: 0, PENDING: 0, FAILED: 0 });
+  const [loading, setLoading] = useState(false);
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const { theme: currentTheme } = useTheme();
@@ -16,33 +28,153 @@ const DocumentsTab: React.FC = () => {
 
   const appendLog = (line: string) => setLog(prev => prev ? prev + '\n' + line : line);
 
-  const handleFilesChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
-    setFiles(e.target.files);
+  // Load documents on mount
+  React.useEffect(() => {
+    loadDocuments();
+  }, []);
+
+  const handleSelectFiles = async () => {
+    try {
+      const api: any = get_ipc_api();
+      const result: any = await api.fs?.selectFiles?.({ multiple: true });
+      if (result && result.paths && result.paths.length > 0) {
+        setSelectedFiles(result.paths);
+        appendLog(`Selected ${result.paths.length} file(s)`);
+      }
+    } catch (e: any) {
+      appendLog('Error selecting files: ' + (e?.message || String(e)));
+    }
+  };
+
+  const handleSelectDirectory = async () => {
+    try {
+      const api: any = get_ipc_api();
+      const result: any = await api.fs?.selectDirectory?.({});
+      if (result && result.path) {
+        setDirPath(result.path);
+      }
+    } catch (e: any) {
+      appendLog('Error selecting directory: ' + (e?.message || String(e)));
+    }
   };
 
   const handleIngestFiles = async () => {
-    if (!files || files.length === 0) {
+    if (!selectedFiles || selectedFiles.length === 0) {
       appendLog(t('pages.knowledge.documents.noFilesSelected'));
       return;
     }
-    const paths: string[] = [];
-    for (let i = 0; i < files.length; i++) {
-      paths.push(files[i].name);
-    }
     try {
-      const res = await lightragIpc.ingestFiles({ paths });
+      appendLog(`Ingesting ${selectedFiles.length} file(s)...`);
+      const res = await lightragIpc.ingestFiles({ paths: selectedFiles });
       appendLog(t('pages.knowledge.documents.ingestSuccess') + ': ' + JSON.stringify(res));
+      // Reload documents after ingestion
+      setTimeout(() => loadDocuments(), 2000);
     } catch (e: any) {
       appendLog(t('pages.knowledge.documents.ingestError') + ': ' + (e?.message || String(e)));
     }
   };
 
   const handleIngestDir = async () => {
+    if (!dirPath) {
+      appendLog('Please select a directory first');
+      return;
+    }
     try {
+      appendLog(`Ingesting directory: ${dirPath}...`);
       const res = await lightragIpc.ingestDirectory({ dirPath });
       appendLog(t('pages.knowledge.documents.ingestSuccess') + ': ' + JSON.stringify(res));
+      // Reload documents after ingestion
+      setTimeout(() => loadDocuments(), 2000);
     } catch (e: any) {
       appendLog(t('pages.knowledge.documents.ingestError') + ': ' + (e?.message || String(e)));
+    }
+  };
+
+  const loadDocuments = async () => {
+    try {
+      setLoading(true);
+      const res = await lightragIpc.listDocuments();
+      if (res && res.data && res.data.statuses) {
+        // Flatten all documents from different statuses
+        const allDocs: Document[] = [];
+        const counts = { all: 0, PROCESSED: 0, PROCESSING: 0, PENDING: 0, FAILED: 0 };
+        
+        Object.keys(res.data.statuses).forEach((status: string) => {
+          const docs = res.data.statuses[status] || [];
+          docs.forEach((doc: any) => {
+            allDocs.push({ ...doc, status });
+          });
+          counts[status as keyof typeof counts] = docs.length;
+          counts.all += docs.length;
+        });
+        
+        setDocuments(allDocs);
+        setStatusCounts(counts);
+        appendLog(`Loaded ${counts.all} documents`);
+      }
+    } catch (e: any) {
+      appendLog('Error loading documents: ' + (e?.message || String(e)));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleScan = async () => {
+    try {
+      appendLog('Starting scan for new documents...');
+      const res = await lightragIpc.scan();
+      appendLog('Scan started: ' + JSON.stringify(res));
+      // Reload documents after scan
+      setTimeout(() => loadDocuments(), 2000);
+    } catch (e: any) {
+      appendLog('Error scanning: ' + (e?.message || String(e)));
+    }
+  };
+
+  const handleRefreshStatus = async () => {
+    appendLog('Refreshing document status...');
+    await loadDocuments();
+  };
+
+  const handleClearCache = async () => {
+    if (!confirm('Clear all cache? This will remove processed data from the knowledge base.')) return;
+    
+    try {
+      appendLog('Clearing cache...');
+      await lightragIpc.clearCache();
+      appendLog('Cache cleared successfully');
+      // Reload documents after clearing cache
+      await loadDocuments();
+    } catch (e: any) {
+      appendLog('Error clearing cache: ' + (e?.message || String(e)));
+    }
+  };
+  
+  const handleClearLog = () => {
+    setLog('');
+  };
+
+  const handleDeleteDocument = async (filePath: string) => {
+    if (!confirm(`Delete document: ${filePath}?`)) return;
+    
+    try {
+      appendLog(`Deleting document: ${filePath}...`);
+      await lightragIpc.deleteDocument({ filePath });
+      appendLog('Document deleted successfully');
+      // Reload documents
+      await loadDocuments();
+    } catch (e: any) {
+      appendLog('Error deleting document: ' + (e?.message || String(e)));
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'PROCESSED': return token.colorSuccess;
+      case 'PROCESSING': return token.colorWarning;
+      case 'PENDING': return token.colorTextTertiary;
+      case 'FAILED': return token.colorError;
+      default: return token.colorText;
     }
   };
 
@@ -86,14 +218,17 @@ const DocumentsTab: React.FC = () => {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="ec-btn" title={t('pages.knowledge.documents.scan')}>
+          <button className="ec-btn" onClick={handleScan} title={t('pages.knowledge.documents.scan')}>
             <ScanOutlined /> {t('pages.knowledge.documents.scan')}
           </button>
-          <button className="ec-btn" title={t('pages.knowledge.documents.status')}>
+          <button className="ec-btn" onClick={handleRefreshStatus} title={t('pages.knowledge.documents.status')}>
             <UnorderedListOutlined /> {t('pages.knowledge.documents.status')}
           </button>
-          <button className="ec-btn" title={t('pages.knowledge.documents.clear')}>
-            <ClearOutlined /> {t('pages.knowledge.documents.clear')}
+          <button className="ec-btn" onClick={handleClearCache} title="Clear Cache">
+            <ClearOutlined /> Clear Cache
+          </button>
+          <button className="ec-btn" onClick={handleClearLog} title="Clear Log">
+            Clear Log
           </button>
         </div>
       </div>
@@ -113,31 +248,35 @@ const DocumentsTab: React.FC = () => {
           <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <label style={{ fontSize: 13, fontWeight: 600, color: token.colorTextSecondary }}>{t('pages.knowledge.documents.uploadFiles')}</label>
-              <input 
-                type="file" 
-                multiple 
-                onChange={handleFilesChange}
-                id="file-upload"
-                className="ec-file-input"
-              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="ec-btn" onClick={handleSelectFiles} style={{ flex: 1 }}>
+                  <FolderOpenOutlined /> Select Files ({selectedFiles.length} selected)
+                </button>
+                <button className="ec-btn ec-btn-primary" onClick={handleIngestFiles} disabled={selectedFiles.length === 0}>
+                  <UploadOutlined /> {t('pages.knowledge.documents.ingest')}
+                </button>
+              </div>
             </div>
-            <button className="ec-btn ec-btn-primary" onClick={handleIngestFiles} style={{ marginTop: 26 }}>
-              <UploadOutlined /> {t('pages.knowledge.documents.ingest')}
-            </button>
           </div>
           <div style={{ height: 1, background: token.colorBorderSecondary }} />
           <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <label style={{ fontSize: 13, fontWeight: 600, color: token.colorTextSecondary }}>{t('pages.knowledge.documents.importDirectory')}</label>
-              <input 
-                className="ec-input" 
-                placeholder={t('pages.knowledge.documents.enterDirectoryPath')}
-                value={dirPath} 
-                onChange={e => setDirPath(e.target.value)}
-              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input 
+                  className="ec-input" 
+                  placeholder={t('pages.knowledge.documents.enterDirectoryPath')}
+                  value={dirPath} 
+                  onChange={e => setDirPath(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <button className="ec-btn" onClick={handleSelectDirectory}>
+                  <FolderOpenOutlined /> Browse
+                </button>
+              </div>
             </div>
-            <button className="ec-btn ec-btn-primary" onClick={handleIngestDir}>
-              <FolderOpenOutlined /> {t('pages.knowledge.documents.ingest')}
+            <button className="ec-btn ec-btn-primary" onClick={handleIngestDir} disabled={!dirPath}>
+              <UploadOutlined /> {t('pages.knowledge.documents.ingest')}
             </button>
           </div>
         </div>
@@ -155,11 +294,11 @@ const DocumentsTab: React.FC = () => {
         }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: token.colorText }}>{t('pages.knowledge.documents.uploadedDocuments')}</h4>
           <div style={{ display: 'flex', gap: 16, fontSize: 12, color: token.colorTextSecondary }}>
-            <span><strong>{t('pages.knowledge.documents.all')}:</strong> 0</span>
-            <span style={{ color: token.colorSuccess }}><strong>{t('pages.knowledge.documents.completed')}:</strong> 0</span>
-            <span style={{ color: token.colorWarning }}><strong>{t('pages.knowledge.documents.processing')}:</strong> 0</span>
-            <span style={{ color: token.colorTextTertiary }}><strong>{t('pages.knowledge.documents.pending')}:</strong> 0</span>
-            <span style={{ color: token.colorError }}><strong>{t('pages.knowledge.documents.failed')}:</strong> 0</span>
+            <span><strong>{t('pages.knowledge.documents.all')}:</strong> {statusCounts.all}</span>
+            <span style={{ color: token.colorSuccess }}><strong>{t('pages.knowledge.documents.completed')}:</strong> {statusCounts.PROCESSED}</span>
+            <span style={{ color: token.colorWarning }}><strong>{t('pages.knowledge.documents.processing')}:</strong> {statusCounts.PROCESSING}</span>
+            <span style={{ color: token.colorTextTertiary }}><strong>{t('pages.knowledge.documents.pending')}:</strong> {statusCounts.PENDING}</span>
+            <span style={{ color: token.colorError }}><strong>{t('pages.knowledge.documents.failed')}:</strong> {statusCounts.FAILED}</span>
           </div>
         </div>
 
@@ -176,7 +315,7 @@ const DocumentsTab: React.FC = () => {
         }}>
           <div style={{ 
             display: 'grid', 
-            gridTemplateColumns: '1fr 100px', 
+            gridTemplateColumns: '1fr 120px 120px 100px', 
             gap: 8, 
             padding: '12px 16px',
             background: isDark ? token.colorBgTextHover : token.colorBgLayout,
@@ -186,23 +325,94 @@ const DocumentsTab: React.FC = () => {
             color: token.colorText
           }}>
             <div>{t('pages.knowledge.documents.fileName')}</div>
+            <div style={{ textAlign: 'center' }}>Status</div>
+            <div style={{ textAlign: 'center' }}>Updated</div>
             <div style={{ textAlign: 'center' }}>{t('pages.knowledge.documents.actions')}</div>
           </div>
-          {/* Empty state */}
-          <div style={{ 
-            flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '48px 24px',
-            color: token.colorTextTertiary,
-            flexDirection: 'column',
-            gap: 8
-          }}>
-            <div style={{ fontSize: 48, opacity: 0.3 }}>📄</div>
-            <div style={{ fontWeight: 600, fontSize: 15 }}>{t('pages.knowledge.documents.noDocuments')}</div>
-            <div style={{ fontSize: 13 }}>{t('pages.knowledge.documents.noDocumentsDesc')}</div>
-          </div>
+          
+          {loading ? (
+            <div style={{ 
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '48px 24px',
+              color: token.colorTextTertiary
+            }}>
+              Loading...
+            </div>
+          ) : documents.length === 0 ? (
+            <div style={{ 
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '48px 24px',
+              color: token.colorTextTertiary,
+              flexDirection: 'column',
+              gap: 8
+            }}>
+              <div style={{ fontSize: 48, opacity: 0.3 }}>📄</div>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>{t('pages.knowledge.documents.noDocuments')}</div>
+              <div style={{ fontSize: 13 }}>{t('pages.knowledge.documents.noDocumentsDesc')}</div>
+            </div>
+          ) : (
+            <div style={{ flex: 1, overflow: 'auto' }}>
+              {documents.map((doc, idx) => (
+                <div key={idx} style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: '1fr 120px 120px 100px', 
+                  gap: 8, 
+                  padding: '12px 16px',
+                  borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                  fontSize: 13,
+                  alignItems: 'center',
+                  transition: 'background 0.2s'
+                }}>
+                  <div style={{ 
+                    overflow: 'hidden', 
+                    textOverflow: 'ellipsis', 
+                    whiteSpace: 'nowrap',
+                    color: token.colorText
+                  }} title={doc.file_path}>
+                    {doc.file_path}
+                  </div>
+                  <div style={{ 
+                    textAlign: 'center',
+                    color: getStatusColor(doc.status),
+                    fontWeight: 600
+                  }}>
+                    {doc.status}
+                  </div>
+                  <div style={{ 
+                    textAlign: 'center',
+                    color: token.colorTextSecondary,
+                    fontSize: 12
+                  }}>
+                    {doc.updated_at ? new Date(doc.updated_at).toLocaleString() : '-'}
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <button 
+                      className="ec-btn-small"
+                      onClick={() => handleDeleteDocument(doc.file_path)}
+                      style={{
+                        padding: '4px 12px',
+                        fontSize: 12,
+                        background: token.colorErrorBg,
+                        color: token.colorError,
+                        border: `1px solid ${token.colorErrorBorder}`,
+                        borderRadius: 6,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
