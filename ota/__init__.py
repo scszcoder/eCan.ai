@@ -1,10 +1,10 @@
 """
 ECBot OTA (Over-The-Air) Update Package
 
-提供跨平台的自动更新功能，支持：
+Provides cross-platform automatic update functionality, supporting:
 - macOS (Sparkle)
 - Windows (winSparkle) 
-- Linux (通用HTTP API)
+- Linux (Generic HTTP API)
 """
 
 from .core.updater import OTAUpdater

@@ -307,21 +307,22 @@ class PackageManager:
         try:
             # Check if file size is reasonable
             file_size = file_path.stat().st_size
-            max_size = 1024 * 1024 * 1024  # 1GB (increased for large installers)
+            # Use a conservative upper bound to avoid accidentally accepting huge binaries
+            max_size = 1024 * 1024 * 1024  # 1G
             if file_size > max_size:
                 logger.warning(f"Package size {file_size} exceeds maximum {max_size}")
                 return False
-            
+
             # Check file extension
             allowed_extensions = {'.zip', '.tar', '.gz', '.bz2', '.dmg', '.exe', '.msi'}
             if file_path.suffix not in allowed_extensions:
                 logger.error(f"Disallowed file extension: {file_path.suffix}")
                 return False
-            
+
             # Basic security scan completed
-            
+
             return True
-            
+
         except Exception as e:
             logger.error(f"Malware scan failed: {e}")
             return False

@@ -1,36 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
     <channel>
-        <title>eCan Updates</title>
+        <title>eCan.ai Updates</title>
         <link>http://127.0.0.1:8080/appcast.xml</link>
-        <description>eCan application updates</description>
+        <description>Most recent updates for eCan.ai</description>
         <language>en</language>
-        <lastBuildDate>Tue, 23 Sep 2025 09:36:31 +0000</lastBuildDate>
-        
+        <pubDate>Mon, 17 Nov 2025 23:15:36 +0000</pubDate>
         
         <item>
-            <title>eCan 1.0.0-test</title>
-            <description>
-                <![CDATA[
-                
-        <h2>What's New in eCan 1.0.0-test</h2>
-        <ul>
-            <li>Performance improvements and bug fixes</li>
-            <li>Enhanced user interface</li>
-            <li>Security updates</li>
-        </ul>
-        
-                ]]>
-            </description>
-            <pubDate>Tue, 23 Sep 2025 09:36:31 +0000</pubDate>
-            <enclosure url="http://127.0.0.1:8080/downloads/test_app.exe"
-                       sparkle:version="1.0.0-test"
-                       sparkle:os="windows"
-                       length="29"
+            <title>Version 1.1.0</title>
+            <description><![CDATA[<h2>What's New in eCan 1.1.0</h2><ul><li>Bug fixes and performance improvements.</li></ul>]]></description>
+            <pubDate>Mon, 17 Nov 2025 23:15:36 +0000</pubDate>
+            <enclosure url="http://127.0.0.1:8080/downloads/eCan-1.1.0-darwin-amd64.dmg"
+                       sparkle:version="1.1.0"
+                       sparkle:os="macos"
+                       length="2097152"
                        type="application/octet-stream"
-                       sparkle:edSignature="LTx5zkI5eJ5j7yPYZvitBwIgpXkxQdzTeRWM6lDCvgzmiYrgpoZlE84Yx2lNZD9zrLrjMvajdDiyq6g+IqTICg==" />
+                       sparkle:signature="SIGNATURE_FOR_MAC_HERE" />
         </item>
         
+        <item>
+            <title>Version 1.1.0</title>
+            <description><![CDATA[<h2>What's New in eCan 1.1.0</h2><ul><li>Bug fixes and performance improvements.</li></ul>]]></description>
+            <pubDate>Mon, 17 Nov 2025 23:15:36 +0000</pubDate>
+            <enclosure url="http://127.0.0.1:8080/downloads/eCan-1.1.0-windows-amd64-Setup.exe"
+                       sparkle:version="1.1.0"
+                       sparkle:os="windows"
+                       length="1048576"
+                       type="application/octet-stream"
+                       sparkle:signature="SIGNATURE_FOR_WINDOWS_HERE" />
+        </item>
+        
+        <item>
+            <title>Version 1.1.0</title>
+            <description><![CDATA[<h2>What's New in eCan 1.1.0</h2><ul><li>Bug fixes and performance improvements.</li></ul>]]></description>
+            <pubDate>Mon, 17 Nov 2025 23:15:36 +0000</pubDate>
+            <enclosure url="http://127.0.0.1:8080/downloads/eCan-1.1.0-linux-amd64.tar.gz"
+                       sparkle:version="1.1.0"
+                       sparkle:os="linux"
+                       length="102400"
+                       type="application/octet-stream"
+                       sparkle:signature="SIGNATURE_FOR_LINUX_HERE" />
+        </item>
         
     </channel>
 </rss>
