@@ -401,7 +401,8 @@ class InstallerBuilder:
             iss_content = f"""
 ; eCan Installer Script
 ; Compression: LZMA2 + Non-Solid + Normal level (with splash screen, 4-6s startup)
-; Supports Silent Installation for OTA Updates: /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="C:\\Path"
+; OTA Update Installation: /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /DIR="C:\\Path"
+; Note: /SILENT shows progress bar, /VERYSILENT is completely silent (no progress)
 [Setup]
 AppId={app_id_wrapped}
 AppName={installer_config.get('app_name', app_info.get('name', 'eCan'))}

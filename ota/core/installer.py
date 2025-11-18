@@ -99,23 +99,23 @@ class InstallationManager:
                     install_dir = Path(sys.executable).parent
                     logger.info(f"Target installation directory: {install_dir}")
                     
-                    # Use Inno Setup silent installation parameters
-                    # /VERYSILENT = Completely silent (no UI, no progress)
+                    # Use Inno Setup silent installation parameters with progress
+                    # /SILENT = Silent with progress bar (not /VERYSILENT)
                     # /SUPPRESSMSGBOXES = Suppress message boxes
                     # /NORESTART = Don't restart computer
                     # /CLOSEAPPLICATIONS = Close running applications
                     # /DIR= = Installation directory (must use quotes if path has spaces)
                     cmd = [
                         str(package_path),
-                        '/VERYSILENT',
+                        '/SILENT',              # ✅ Shows progress bar
                         '/SUPPRESSMSGBOXES',
                         '/NORESTART',
                         '/CLOSEAPPLICATIONS',
                         f'/DIR={install_dir}'
                     ]
                     
-                    logger.info(f"Executing silent OTA update: {' '.join(cmd)}")
-                    logger.info("Using Inno Setup silent parameters: /VERYSILENT /SUPPRESSMSGBOXES /NORESTART")
+                    logger.info(f"Executing OTA update with progress: {' '.join(cmd)}")
+                    logger.info("Using Inno Setup parameters: /SILENT (with progress) /SUPPRESSMSGBOXES /NORESTART")
                     
                     # Launch installer without waiting
                     try:
@@ -167,11 +167,10 @@ class InstallationManager:
             cmd = ["msiexec", "/i", str(package_path)]
             
             if install_options.get('silent', True):
-                # Silent installation parameters:
-                # /quiet = No user interaction
+                # Silent installation parameters with progress:
+                # /qb = Basic UI with progress bar (not /qn which is completely silent)
                 # /norestart = Don't restart automatically
-                # /qn = Completely silent (no UI)
-                cmd.extend(["/qn", "/norestart"])
+                cmd.extend(["/qb", "/norestart"])
                 
                 # If in packaged environment, specify installation directory
                 if getattr(sys, 'frozen', False):
@@ -209,44 +208,77 @@ class InstallationManager:
             return False
     
     def _install_pkg(self, package_path: Path, install_options: Dict[str, Any]) -> bool:
-        """Install macOS PKG package - OTA silent update"""
+        """Install macOS PKG package - OTA update with progress
+        
+        Note: macOS PKG installation requires administrator privileges.
+        
+        Installation modes:
+        1. GUI mode (default): Shows installer UI with progress
+        2. Command-line mode: Requires password, shows progress in terminal
+        
+        For OTA updates, we use GUI mode to show progress to user.
+        """
         try:
             logger.info(f"Installing macOS PKG: {package_path}")
             
-            # For OTA updates, use silent installation with administrator privileges
+            # For OTA updates, launch installer with GUI to show progress
             if install_options.get('silent', True):
-                logger.info("Starting silent PKG installation...")
+                logger.info("Starting PKG installation with progress UI...")
                 
-                # Use osascript to run installer with admin privileges
-                # This will prompt for password once, then install silently
-                applescript = f'''
-                do shell script "installer -pkg '{package_path}' -target / -verboseR" with administrator privileges
-                '''
-                
+                # Use 'open' to launch the installer with GUI
+                # This shows:
+                # 1. Password prompt (required by macOS)
+                # 2. Installation progress bar
+                # 3. Completion notification
                 try:
-                    logger.info("Requesting administrator privileges for silent installation...")
-                    result = subprocess.run(
-                        ["osascript", "-e", applescript],
-                        capture_output=True, text=True, timeout=600
+                    logger.info("⚠️  macOS security requires administrator password for PKG installation")
+                    logger.info("User will see:")
+                    logger.info("  1. Password prompt")
+                    logger.info("  2. Installation progress bar")
+                    logger.info("  3. Completion notification")
+                    
+                    # Launch installer with GUI
+                    # -W flag waits for installer to complete
+                    process = subprocess.Popen(
+                        ["open", "-W", str(package_path)],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
                     )
                     
-                    if result.returncode == 0:
-                        logger.info("PKG installation completed successfully")
-                        logger.info("Installation output: " + result.stdout)
+                    logger.info(f"PKG installer launched with GUI (PID: {process.pid})")
+                    logger.info("Waiting for installation to complete...")
+                    
+                    # Wait for installation to complete (with timeout)
+                    try:
+                        stdout, stderr = process.communicate(timeout=600)  # 10 minutes
                         
-                        # Auto-restart application
-                        if install_options.get('auto_restart', True):
-                            logger.info("Installation complete, restarting application in 3 seconds...")
-                            time.sleep(3)
-                            self._restart_application()
-                        
-                        return True
-                    else:
-                        logger.error(f"PKG installation failed: {result.stderr}")
+                        if process.returncode == 0:
+                            logger.info("✅ PKG installation completed successfully")
+                            
+                            # Schedule application exit for file replacement
+                            logger.info("Installation complete, application will exit in 3 seconds...")
+                            
+                            import threading
+                            def delayed_exit():
+                                time.sleep(3)
+                                logger.info("Exiting for installer to complete...")
+                                os._exit(0)
+                            
+                            threading.Thread(target=delayed_exit, daemon=True).start()
+                            
+                            return True
+                        else:
+                            logger.error(f"❌ PKG installation failed: {stderr}")
+                            return False
+                            
+                    except subprocess.TimeoutExpired:
+                        logger.error("Installation timeout (10 minutes)")
+                        process.kill()
                         return False
                         
-                except subprocess.TimeoutExpired:
-                    logger.error("Installation timeout (10 minutes)")
+                except Exception as e:
+                    logger.error(f"Failed to launch PKG installer: {e}")
                     return False
             else:
                 # Non-silent mode - launch installer with UI
