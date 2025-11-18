@@ -5,6 +5,7 @@ import sys
 import os
 import traceback
 import subprocess
+import time
 
 # ============================================================================
 # CRITICAL: Patch platform._syscmd_ver BEFORE any imports that use it
@@ -13,12 +14,12 @@ import subprocess
 if sys.platform == 'win32':
     try:
         import platform
-        
+
         def _syscmd_ver_no_console(system='', release='', version='', csd='', ptype=''):
             """Replacement for platform._syscmd_ver that doesn't call 'ver' command."""
             try:
                 import winreg
-                key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 
+                key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
                                     r'SOFTWARE\Microsoft\Windows NT\CurrentVersion')
                 try:
                     major = winreg.QueryValueEx(key, 'CurrentMajorVersionNumber')[0]
@@ -34,7 +35,7 @@ if sys.platform == 'win32':
                 return system, release, version, csd, ptype
             except Exception:
                 return system, release, version, csd, ptype
-        
+
         platform._syscmd_ver = _syscmd_ver_no_console
     except Exception:
         pass
@@ -67,7 +68,7 @@ if __name__ == '__main__' and os.getenv('ECAN_RUN_SCRIPT'):
     run_script = os.getenv('ECAN_RUN_SCRIPT')
     print(f"[Worker Process] Executing script: {run_script}")
     print("[Worker Process] Skipping main application imports to save memory...")
-    
+
     try:
         with open(run_script, 'r', encoding='utf-8') as f:
             code = f.read()
@@ -103,7 +104,7 @@ if EC_DIAG:
         import time
         import ctypes
         from ctypes import wintypes
-        
+
         _diag_write('[DIAG] enabled')
 
         CREATE_NO_WINDOW = 0x08000000
@@ -320,7 +321,7 @@ try:
             initialize_runtime_environment()
         except Exception as e:
             print(f"Warning: Runtime initialization failed: {e}")
-        
+
         # Proxy initialization will be done after splash screen (to avoid blocking startup)
 
         # Ensure Windows uses SelectorEventLoop to support subprocesses (e.g., Playwright)
@@ -364,16 +365,16 @@ try:
             is_frozen = getattr(sys, 'frozen', False)
             build_mode = 'Production' if is_frozen else 'Development'
             startup_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            
+
             # Format platform info
             platform_info = f"{platform_name} {platform_release}"
-            
+
             # Calculate padding for centered text (box width is 78 chars)
             box_width = 78
             app_name_padding = (box_width - len(app_name)) // 2
             version_text = f"Version {version}"
             version_padding = (box_width - len(version_text)) // 2
-            
+
             banner = f"""
 ╔{'═' * box_width}╗
 ║{' ' * box_width}║
@@ -414,13 +415,13 @@ try:
     try:
         from utils.icon_manager import get_icon_manager
         icon_mgr = get_icon_manager()
-        
+
         # Set QApplication icon (works for all platforms)
         if icon_mgr.set_application_icon(_global_app):
             print(TimeUtil.formatted_now_with_ms() + " application icon set successfully")
         else:
             print(TimeUtil.formatted_now_with_ms() + " application icon setup warning")
-            
+
         # Note: Windows taskbar icon requires window handle and will be set later in main()
         # when the main window is visible (especially important for frozen/packaged builds)
     except Exception as e:
@@ -430,7 +431,7 @@ try:
     print(TimeUtil.formatted_now_with_ms() + " processing Qt events...")
     _global_app.processEvents()
 
-    
+
 
     # Show minimal splash IMMEDIATELY - this gives instant visual feedback
     # Import only the minimal splash function (lightweight, doesn't load full splash)
@@ -454,13 +455,13 @@ try:
     # Process events to keep minimal splash responsive during import
     if minimal_splash:
         _global_app.processEvents()
-    
+
     try:
         from gui.splash import init_startup_splash, create_startup_progress_manager
 
         startup_splash = init_startup_splash()
         print(TimeUtil.formatted_now_with_ms() + " full splash initialized")
-        
+
         # Smoothly transition from minimal to full splash
         if minimal_splash and startup_splash:
             try:
@@ -509,10 +510,10 @@ try:
     from utils.logger_helper import logger_helper as logger
     from app_context import AppContext
     progress_manager.update_progress(15, "Loading configuration...")
-    
+
     # Print startup banner
     _print_startup_banner(logger, app_info)
-    
+
     # Configure third-party package loggers to use unified logger
     try:
         from utils.thirdparty_logger_config import configure_all_thirdparty_loggers
@@ -551,6 +552,8 @@ try:
     from gui.LoginoutGUI import Login
     progress_manager.update_progress(32, "Loading WebGUI components...")
     from gui.WebGUI import WebGUI
+
+
 
 
     def main():
@@ -596,7 +599,7 @@ try:
         from utils.icon_manager import get_icon_manager
         icon_mgr = get_icon_manager()
         icon_mgr.set_logger(logger)
-        
+
         if icon_mgr.is_icon_set():
             logger.info("[IconManager] ✅ Application icon set (early startup)")
         else:
@@ -606,7 +609,7 @@ try:
                 logger.info("[IconManager] ✅ Application icon set successfully (fallback)")
             else:
                 logger.warning("[IconManager] ⚠️ Application icon setup failed")
-        
+
         # Windows taskbar icon will be set by WebGUI after window is visible
         # (requires window handle, especially important for frozen/packaged builds)
 
@@ -657,15 +660,35 @@ try:
 
         progress_manager.update_progress(85, "Finalizing setup...")
         ctx.set_web_gui(web_gui)
-        
+
         # Set UI references for login controller (WebGUI is the "login window")
         login.set_ui_references(login_window=web_gui, login_progress_dialog=None)
         logger.info("WebGUI setup completed")
 
+        # Start OTA auto-check in a fully non-blocking way (double background threads)
+        try:
+            from ota.core.updater import OTAUpdater
+
+            OTAUpdater.start_auto_check_in_background(ctx=ctx, logger_instance=logger)
+        except Exception as e:
+            logger.warning(f"[OTA] Failed to schedule auto check: {e}")
+
+        # Setup cleanup for OTA updater on application exit
+        def _cleanup_on_quit():
+            logger.info("Application is about to quit. Cleaning up resources...")
+            if hasattr(ctx, 'ota_updater') and ctx.ota_updater:
+                logger.info("Stopping OTA auto check thread...")
+                ctx.ota_updater.stop_auto_check()
+            else:
+                logger.info("No active OTA updater found to stop.")
+
+        app.aboutToQuit.connect(_cleanup_on_quit)
+        logger.info("Registered OTA updater cleanup on application quit.")
+
         # Finish splash screen
         progress_manager.update_progress(100, "Ready to launch!")
         progress_manager.finish(web_gui)
-        
+
         # Initialize proxy environment after splash (non-blocking, in background)
         # This avoids blocking startup UI and allows splash to complete smoothly
         def init_proxy_after_splash():
@@ -673,13 +696,13 @@ try:
             try:
                 logger.info("🌐 Initializing proxy environment (after splash)...")
                 from agent.ec_skills.system_proxy import initialize_proxy_environment
-                
+
                 # Check if proxy management is explicitly disabled
                 import os
                 if os.getenv('ECAN_PROXY_ENABLED', 'true').lower() in ['false', '0', 'no']:
                     logger.info("⏭️  Proxy management disabled via ECAN_PROXY_ENABLED env var")
                     return
-                
+
                 initialize_proxy_environment()
                 logger.info("✅ Proxy environment initialized")
             except Exception as e:
@@ -690,7 +713,7 @@ try:
                     if proxy_var in os.environ:
                         logger.warning(f"   Clearing broken proxy: {proxy_var}={os.environ[proxy_var]}")
                         del os.environ[proxy_var]
-        
+
         # Schedule proxy initialization in background thread
         import threading
         proxy_init_thread = threading.Thread(

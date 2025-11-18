@@ -17,35 +17,136 @@ if str(project_root) not in sys.path:
 
 from ota.server.appcast_generator import AppcastGenerator
 
-# 配置日志
+# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# 初始化 appcast 生成器
+# Initialize appcast generator
 server_dir = Path(__file__).parent
 appcast_gen = AppcastGenerator(server_dir, server_dir)
 
-# 服务器配置
+# Server configuration
 SERVER_CONFIG = {
     "host": "0.0.0.0",
     "port": 8080,
     "debug": False
 }
 
-# 更新信息配置
+def _find_installation_package(requested_filename: str, dist_dir: Path) -> Path:
+    """
+    智能查找安装包文件
+    
+    策略：
+    1. 直接匹配文件名
+    2. 模糊匹配（忽略版本号）
+    3. 匹配平台和架构
+    
+    Args:
+        requested_filename: 请求的文件名
+        dist_dir: dist 目录路径
+    
+    Returns:
+        Path: 找到的文件路径，如果未找到返回 None
+    """
+    if not dist_dir.exists():
+        logger.warning(f"Dist directory not found: {dist_dir}")
+        return None
+    
+    # 1. 直接匹配
+    direct_path = dist_dir / requested_filename
+    if direct_path.exists():
+        logger.info(f"Found exact match: {direct_path}")
+        return direct_path
+    
+    # 2. 提取请求文件的关键信息
+    import re
+    
+    # 提取平台和架构信息
+    platform_patterns = {
+        'macos': r'(macos|darwin)',
+        'windows': r'windows',
+        'linux': r'linux'
+    }
+    
+    arch_patterns = {
+        'aarch64': r'(aarch64|arm64)',
+        'amd64': r'(amd64|x86_64|x64)',
+        'x86': r'(x86|i386)'
+    }
+    
+    # 提取扩展名
+    ext = Path(requested_filename).suffix
+    
+    # 检测平台
+    detected_platform = None
+    for platform, pattern in platform_patterns.items():
+        if re.search(pattern, requested_filename, re.IGNORECASE):
+            detected_platform = platform
+            break
+    
+    # 检测架构
+    detected_arch = None
+    for arch, pattern in arch_patterns.items():
+        if re.search(pattern, requested_filename, re.IGNORECASE):
+            detected_arch = arch
+            break
+    
+    logger.info(f"Searching for: platform={detected_platform}, arch={detected_arch}, ext={ext}")
+    
+    # 3. 在 dist 目录中查找匹配的文件
+    candidates = []
+    
+    for file_path in dist_dir.glob(f"*{ext}"):
+        if not file_path.is_file():
+            continue
+        
+        filename = file_path.name
+        score = 0
+        
+        # 匹配平台
+        if detected_platform:
+            for pattern in platform_patterns[detected_platform].split('|'):
+                if pattern.strip('()') in filename.lower():
+                    score += 10
+                    break
+        
+        # 匹配架构
+        if detected_arch:
+            for pattern in arch_patterns[detected_arch].split('|'):
+                if pattern.strip('()') in filename.lower():
+                    score += 5
+                    break
+        
+        # 匹配扩展名（已经通过 glob 过滤）
+        score += 1
+        
+        if score > 0:
+            candidates.append((score, file_path))
+    
+    # 按分数排序，返回最佳匹配
+    if candidates:
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        best_match = candidates[0][1]
+        logger.info(f"Found best match (score={candidates[0][0]}): {best_match}")
+        return best_match
+    
+    logger.warning(f"No matching file found for: {requested_filename}")
+    return None
+
+# Update information configuration
 UPDATE_CONFIG = {
     "latest_version": "1.1.0",
     "min_version": "1.0.0",
     "updates": {
         "1.1.0": {
             "version": "1.1.0",
-            "description": "Added OTA update functionality and bug fixes",
+            "description": "<h2>What's New in eCan 1.1.0</h2><ul><li>Added OTA update functionality</li><li>Bug fixes and performance improvements</li><li>Enhanced UI/UX</li></ul>",
             "release_date": "2024-01-01",
             "download_urls": {
-                "windows": f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-1.1.0-windows-amd64-Setup.exe",
-                "darwin": f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-1.1.0-darwin-amd64.dmg",
+                "windows": f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-1.0.0-windows-amd64-Setup.exe",
+                "darwin": f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-1.0.0-macos-aarch64.pkg",
                 "linux": f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-1.1.0-linux-amd64.tar.gz"
             },
             "file_sizes": {
@@ -54,9 +155,9 @@ UPDATE_CONFIG = {
                 "linux": 0
             },
             "signatures": {
-                "windows": "SHA256:...",
-                "darwin": "SHA256:...",
-                "linux": "SHA256:..."
+                "windows": "",
+                "darwin": "",
+                "linux": ""
             }
         }
     }
@@ -65,9 +166,9 @@ UPDATE_CONFIG = {
 @app.route('/api/check', methods=['GET'])
 @app.route('/api/check-update', methods=['GET'])
 def check_update():
-    """检查更新API"""
+    """Check update API"""
     try:
-        # 获取客户端信息
+        # Get client information
         app_name = request.args.get('app', 'ecbot')
         current_version = request.args.get('version', '1.0.0')
         platform = request.args.get('platform', 'windows')
@@ -75,9 +176,9 @@ def check_update():
         
         logger.info(f"Update check: {app_name} v{current_version} on {platform}-{arch}")
         
-        # 检查是否有更新
+        # Check if update is available
         latest_version = UPDATE_CONFIG['latest_version']
-        # 语义化版本比较（无第三方依赖的简化实现）
+        # Semantic version comparison (simplified implementation without third-party dependencies)
         def _to_version_tuple(v: str):
             import re
             parts = re.split(r'[.+-]', v)
@@ -86,9 +187,9 @@ def check_update():
                 if p.isdigit():
                     nums.append(int(p))
                 else:
-                    # 非数字段停止，以避免把预发布标签纳入比较
+                    # Stop at non-numeric segment to avoid including pre-release tags in comparison
                     break
-            # 统一长度，避免 1.2 与 1.2.0 比较不一致
+            # Normalize length to avoid inconsistent comparison between 1.2 and 1.2.0
             while len(nums) < 3:
                 nums.append(0)
             return tuple(nums[:3])
@@ -102,12 +203,41 @@ def check_update():
         
         if has_update:
             update_info = UPDATE_CONFIG['updates'].get(latest_version, {})
+            
+            # ✅ 从 signatures 文件中读取签名
+            import json
+            signatures_file = server_dir / f"signatures_{latest_version}.json"
+            signature = ""
+            file_size = 0
+            
+            if signatures_file.exists():
+                try:
+                    with open(signatures_file, 'r') as f:
+                        signatures_data = json.load(f)
+                    
+                    # 根据平台查找对应的文件
+                    for filename, data in signatures_data.items():
+                        if platform == "darwin" and ("macos" in filename or "darwin" in filename):
+                            signature = data.get('signature', '')
+                            file_size = data.get('file_size', 0)
+                            break
+                        elif platform == "windows" and "windows" in filename:
+                            signature = data.get('signature', '')
+                            file_size = data.get('file_size', 0)
+                            break
+                        elif platform == "linux" and "linux" in filename:
+                            signature = data.get('signature', '')
+                            file_size = data.get('file_size', 0)
+                            break
+                except Exception as e:
+                    logger.warning(f"Failed to load signatures: {e}")
+            
             response.update({
                 "description": update_info.get('description', ''),
                 "release_date": update_info.get('release_date', ''),
                 "download_url": update_info.get('download_urls', {}).get(platform, ''),
-                "file_size": update_info.get('file_sizes', {}).get(platform, 0),
-                "signature": update_info.get('signatures', {}).get(platform, '')
+                "file_size": file_size or update_info.get('file_sizes', {}).get(platform, 0),
+                "signature": signature
             })
         
         return jsonify(response)
@@ -118,13 +248,13 @@ def check_update():
 @app.route('/api/download', methods=['GET'])
 @app.route('/api/download-latest', methods=['GET'])
 def download_latest():
-    """下载最新版本API"""
+    """Download latest version API"""
     try:
         platform = request.args.get('platform', 'windows')
         arch = request.args.get('arch', 'x64')
         
-        # 这里应该返回实际的更新文件
-        # 为了演示，我们返回一个示例响应
+        # This should return the actual update file
+        # For demonstration, we return a sample response
         return jsonify({
             "error": "Download not implemented in demo server",
             "message": "In production, this would return the actual update file"
@@ -135,13 +265,13 @@ def download_latest():
 
 @app.route('/appcast.xml', methods=['GET'])
 def appcast():
-    """动态生成 Sparkle/winSparkle appcast文件"""
+    """Dynamically generate Sparkle/winSparkle appcast file"""
     try:
-        # 获取请求参数
-        version = request.args.get('version')  # 指定版本
+        # Get request parameters
+        version = request.args.get('version')  # Specified version
         base_url = request.args.get('base_url', f"http://{request.host}")
         
-        # 如果指定了版本，使用指定版本；否则使用最新版本
+        # If version is specified, use it; otherwise use latest version
         if version:
             success = appcast_gen.generate_appcast(version, base_url, "appcast_temp.xml")
             appcast_file = "appcast_temp.xml"
@@ -150,29 +280,29 @@ def appcast():
             appcast_file = "appcast.xml"
         
         if not success:
-            # 如果动态生成失败，尝试返回静态文件
+            # If dynamic generation fails, try to return static file
             static_appcast = server_dir / "appcast.xml"
             if static_appcast.exists():
-                logger.warning("动态生成失败，使用静态 appcast.xml")
+                logger.warning("Dynamic generation failed, using static appcast.xml")
                 return send_file(str(static_appcast), mimetype='application/rss+xml')
             else:
                 return "Appcast generation failed and no static file found", 404
         
-        # 返回生成的文件
+        # Return generated file
         appcast_path = server_dir / appcast_file
         if appcast_path.exists():
-            logger.info(f"提供动态生成的 appcast: {appcast_file}")
+            logger.info(f"Serving dynamically generated appcast: {appcast_file}")
             return send_file(str(appcast_path), mimetype='application/rss+xml')
         else:
             return "Generated appcast not found", 404
             
     except Exception as e:
-        logger.error(f"Appcast 生成错误: {e}")
+        logger.error(f"Appcast generation error: {e}")
         return f"Error serving appcast: {str(e)}", 500
 
 @app.route('/admin/generate-appcast', methods=['POST'])
 def generate_appcast_admin():
-    """管理接口：手动生成 appcast"""
+    """Admin API: manually generate appcast"""
     try:
         data = request.get_json() or {}
         version = data.get('version')
@@ -180,10 +310,10 @@ def generate_appcast_admin():
         
         if version:
             success = appcast_gen.generate_appcast(version, base_url)
-            message = f"为版本 {version} 生成 appcast"
+            message = f"Generate appcast for version {version}"
         else:
             success = appcast_gen.generate_from_latest_signatures(base_url)
-            message = "从最新签名文件生成 appcast"
+            message = "Generate appcast from latest signature file"
         
         if success:
             return jsonify({
@@ -205,7 +335,7 @@ def generate_appcast_admin():
 
 @app.route('/admin/signatures', methods=['GET'])
 def list_signatures():
-    """管理接口：列出所有签名文件"""
+    """Admin API: list all signature files"""
     try:
         signature_files = list(server_dir.glob("signatures_*.json"))
         signatures_info = []
@@ -221,7 +351,7 @@ def list_signatures():
                 "modified": stat.st_mtime
             })
         
-        # 按修改时间排序
+        # Sort by modification time
         signatures_info.sort(key=lambda x: x['modified'], reverse=True)
         
         return jsonify({
@@ -234,87 +364,24 @@ def list_signatures():
 
 @app.route('/downloads/<filename>', methods=['GET'])
 def download_file(filename):
-    """提供真实的安装包下载"""
+    """Provide real installation package download - dynamically finds files"""
     try:
-        # 获取项目根目录
+        # Get project root directory
         project_root = Path(__file__).parent.parent.parent
         dist_dir = project_root / "dist"
         
-        # 查找匹配的安装包文件
-        actual_file = None
+        # ✅ 智能查找文件
+        actual_file = _find_installation_package(filename, dist_dir)
         
-        # 定义文件映射规则
-        file_mapping = {
-            "eCan-1.1.0-windows-amd64-Setup.exe": [
-                "eCan-1.0.0-windows-amd64-Setup.exe",
-                "eCan-1.0.0-windows-amd64.exe"
-            ],
-            "eCan-1.1.0-darwin-amd64.dmg": [
-                "eCan-1.0.0-darwin-amd64.dmg"
-            ],
-            "eCan-1.1.0-linux-amd64.tar.gz": [
-                "eCan-1.0.0-linux-amd64.tar.gz"
-            ]
-        }
-        
-        # 查找实际文件
-        if filename in file_mapping:
-            for candidate in file_mapping[filename]:
-                candidate_path = dist_dir / candidate
-                if candidate_path.exists():
-                    actual_file = candidate_path
-                    break
-        
-        # 直接查找文件名
         if not actual_file:
-            direct_path = dist_dir / filename
-            if direct_path.exists():
-                actual_file = direct_path
+            logger.warning(f"File not found: {filename}")
+            return jsonify({"error": f"File not found: {filename}"}), 404
         
-        # 如果找到真实文件，提供下载
-        if actual_file and actual_file.exists():
-            file_size = actual_file.stat().st_size
-            logger.info(f"Serving real file: {actual_file} ({file_size} bytes)")
-            
-            # 更新配置中的文件大小
-            if filename.endswith('.exe'):
-                UPDATE_CONFIG['updates']['1.1.0']['file_sizes']['windows'] = file_size
-            elif filename.endswith('.dmg'):
-                UPDATE_CONFIG['updates']['1.1.0']['file_sizes']['darwin'] = file_size
-            elif filename.endswith('.tar.gz'):
-                UPDATE_CONFIG['updates']['1.1.0']['file_sizes']['linux'] = file_size
-            
-            return send_file(str(actual_file), as_attachment=True, download_name=filename)
+        # 提供文件下载
+        file_size = actual_file.stat().st_size
+        logger.info(f"✅ Serving file: {actual_file.name} ({file_size / 1024 / 1024:.2f} MB)")
         
-        # 如果没有找到真实文件，创建模拟文件
-        import tempfile
-        temp_dir = Path(tempfile.gettempdir()) / "ecbot_ota_test"
-        temp_dir.mkdir(exist_ok=True)
-        
-        file_path = temp_dir / filename
-        
-        if not file_path.exists():
-            with open(file_path, 'wb') as f:
-                if filename.endswith('.exe'):
-                    # 创建一个小的模拟exe文件
-                    f.write(b'MZ' + b'\x00' * (1024 * 1024 - 2))  # 1MB模拟文件
-                elif filename.endswith('.dmg'):
-                    f.write(b'\x00' * (2 * 1024 * 1024))  # 2MB模拟文件
-                else:
-                    f.write(b'ECBot Update Package\n' * 1000)
-        
-        file_size = file_path.stat().st_size
-        logger.info(f"Serving simulated file: {filename} ({file_size} bytes)")
-        
-        # 更新配置中的文件大小
-        if filename.endswith('.exe'):
-            UPDATE_CONFIG['updates']['1.1.0']['file_sizes']['windows'] = file_size
-        elif filename.endswith('.dmg'):
-            UPDATE_CONFIG['updates']['1.1.0']['file_sizes']['darwin'] = file_size
-        elif filename.endswith('.tar.gz'):
-            UPDATE_CONFIG['updates']['1.1.0']['file_sizes']['linux'] = file_size
-        
-        return send_file(str(file_path), as_attachment=True, download_name=filename)
+        return send_file(str(actual_file), as_attachment=True, download_name=filename)
         
     except Exception as e:
         logger.error(f"Download error: {e}")

@@ -27,7 +27,7 @@ except ImportError:
     APP_NAME = 'ecbot'
 from utils.logger_helper import logger_helper as logger
 
-from .config import ota_config
+from ota.config.loader import ota_config
 from .package_manager import package_manager, UpdatePackage
 from .platforms import SparkleUpdater, WinSparkleUpdater, GenericUpdater
 from .errors import UpdateError, UpdateErrorCode, get_user_friendly_message

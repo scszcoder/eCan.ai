@@ -1,7 +1,7 @@
 {
-    "eCan-1.1.0-darwin-amd64.dmg": {
-        "file_size": 2097152,
-        "signature": "SIGNATURE_FOR_MAC_HERE"
+    "eCan-1.0.0-macos-aarch64.pkg": {
+        "file_size": 789003111,
+        "signature": "0d5490c1d91b00284839a1c80b02c43e03be6002f650c06c3fb7fe11df90c9dd"
     },
     "eCan-1.1.0-windows-amd64-Setup.exe": {
         "file_size": 1048576,

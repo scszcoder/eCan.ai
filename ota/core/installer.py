@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 from utils.logger_helper import logger_helper as logger
-from .config import ota_config
+from ota.config.loader import ota_config
 
 
 class InstallationManager:
@@ -55,13 +55,13 @@ class InstallationManager:
     def _create_backup(self) -> bool:
         """Create backup of current application"""
         try:
-            # Get current application path
-            if getattr(sys, 'frozen', False):
-                # Packaged application
-                app_path = Path(sys.executable).parent
-            else:
-                # Development environment
-                app_path = Path(__file__).parent.parent.parent
+            # ✅ Skip backup in development environment
+            if not getattr(sys, 'frozen', False):
+                logger.info("Running in development environment, skipping backup")
+                return True
+            
+            # Get current application path (packaged application only)
+            app_path = Path(sys.executable).parent
             
             # Create backup directory
             backup_root = Path(tempfile.gettempdir()) / "ecbot_backup"
@@ -73,7 +73,12 @@ class InstallationManager:
             logger.info(f"Creating backup: {app_path} -> {self.backup_dir}")
             
             # Copy application files
-            shutil.copytree(app_path, self.backup_dir, ignore=shutil.ignore_patterns('*.log', '__pycache__'))
+            shutil.copytree(
+                app_path, 
+                self.backup_dir, 
+                ignore=shutil.ignore_patterns('*.log', '__pycache__'),
+                symlinks=True  # ✅ Copy symlinks as symlinks, don't follow them
+            )
             
             logger.info(f"Backup created successfully: {self.backup_dir}")
             return True
@@ -158,29 +163,55 @@ class InstallationManager:
             
             # Check if in interactive environment
             if install_options.get('silent', False) or not sys.stdin.isatty():
-                # Non-interactive environment, try using osascript to prompt for password
-                logger.info("Requesting administrator privileges...")
-                
-                # Use AppleScript to request administrator privileges
-                applescript = f'''
-                do shell script "installer -pkg {package_path} -target /" with administrator privileges
-                '''
+                # Non-interactive environment, use open command to launch installer
+                logger.info("Launching macOS Installer...")
                 
                 try:
+                    # ✅ Use 'open -W' to wait for installer to complete
+                    # -W flag waits until the application quits before returning
                     result = subprocess.run(
-                        ["osascript", "-e", applescript],
-                        capture_output=True, text=True, timeout=300
+                        ["open", "-W", str(package_path)],
+                        capture_output=True, text=True, timeout=600  # 10 minutes timeout
                     )
                     
                     if result.returncode == 0:
-                        logger.info("PKG installation completed successfully")
+                        logger.info("PKG installer completed successfully")
+                        
+                        # ✅ Auto-restart application if requested
+                        if install_options.get('auto_restart', True):
+                            logger.info("Installation complete, restarting application...")
+                            self._restart_application()
+                        
                         return True
                     else:
-                        logger.error(f"PKG installation failed: {result.stderr}")
-                        return False
+                        logger.error(f"Failed to launch PKG installer: {result.stderr}")
+                        
+                        # Fallback: Try using osascript
+                        logger.info("Trying alternative method with administrator privileges...")
+                        applescript = f'''
+                        do shell script "installer -pkg {package_path} -target /" with administrator privileges
+                        '''
+                        
+                        result = subprocess.run(
+                            ["osascript", "-e", applescript],
+                            capture_output=True, text=True, timeout=300
+                        )
+                        
+                        if result.returncode == 0:
+                            logger.info("PKG installation completed successfully")
+                            
+                            # ✅ Auto-restart application if requested
+                            if install_options.get('auto_restart', True):
+                                logger.info("Installation complete, restarting application...")
+                                self._restart_application()
+                            
+                            return True
+                        else:
+                            logger.error(f"PKG installation failed: {result.stderr}")
+                            return False
                         
                 except subprocess.TimeoutExpired:
-                    logger.error("Installation timeout")
+                    logger.error("Installation timeout (10 minutes)")
                     return False
             else:
                 # Interactive environment, use sudo directly
@@ -398,6 +429,59 @@ rm "$0"
                 logger.info(f"Backup cleaned up: {self.backup_dir}")
             except Exception as e:
                 logger.warning(f"Failed to cleanup backup: {e}")
+    
+    def _restart_application(self):
+        """
+        Restart the application after installation
+        
+        This method will:
+        1. Get the application executable path
+        2. Launch a new instance
+        3. Exit the current instance
+        """
+        try:
+            if getattr(sys, 'frozen', False):
+                # ✅ Packaged application
+                if self.platform == 'darwin':
+                    # macOS: Get .app bundle path
+                    exe_path = Path(sys.executable)
+                    # Navigate up to find .app bundle
+                    app_bundle = exe_path
+                    while app_bundle.suffix != '.app' and app_bundle.parent != app_bundle:
+                        app_bundle = app_bundle.parent
+                    
+                    if app_bundle.suffix == '.app':
+                        logger.info(f"Restarting application: {app_bundle}")
+                        # Use 'open' command to launch the app
+                        subprocess.Popen(['open', '-n', str(app_bundle)])
+                    else:
+                        logger.error("Could not find .app bundle")
+                        return
+                        
+                elif self.platform.startswith('win'):
+                    # Windows: Restart exe
+                    exe_path = sys.executable
+                    logger.info(f"Restarting application: {exe_path}")
+                    subprocess.Popen([exe_path])
+                    
+                else:
+                    # Linux: Restart executable
+                    exe_path = sys.executable
+                    logger.info(f"Restarting application: {exe_path}")
+                    subprocess.Popen([exe_path])
+                
+                # ✅ Exit current instance after a short delay
+                logger.info("Exiting current instance in 2 seconds...")
+                time.sleep(2)
+                os._exit(0)
+                
+            else:
+                # ✅ Development environment - don't restart
+                logger.info("Running in development environment, skipping auto-restart")
+                logger.info("Please manually restart the application to use the new version")
+                
+        except Exception as e:
+            logger.error(f"Failed to restart application: {e}")
 
 
 # 全局安装管理器实例

@@ -1,0 +1,176 @@
+# ============================================
+# eCan OTA Configuration
+# ============================================
+
+# ============================================
+# OTA 功能开关
+# 设置为 false 可以完全禁用 OTA 功能
+# ============================================
+ota_enabled: false
+
+# ============================================
+# 当前环境
+# 可选值: development, test, staging, production
+# 注意: 这个值应该在构建时设置，不要手动修改
+# ============================================
+environment: development
+
+# ============================================
+# 通用配置
+# ============================================
+common:
+  app_name: "eCan"
+  s3_region: "us-east-1"
+  
+  # 支持的平台
+  platforms:
+    - macos
+    - windows
+  
+  # 支持的架构
+  architectures:
+    macos:
+      - aarch64
+      - amd64
+    windows:
+      - amd64
+
+# ============================================
+# 环境配置
+# ============================================
+environments:
+  # ------------------------------------------
+  # 开发环境
+  # ------------------------------------------
+  development:
+    # OTA 服务器地址
+    ota_server: "http://127.0.0.1:8080"
+    
+    # S3 存储桶
+    s3_bucket: "ecan-updates-dev"
+    
+    # Appcast 基础 URL
+    appcast_base: "http://127.0.0.1:8080"
+    
+    # 签名验证
+    signature_required: true
+    signature_verification: true
+    
+    # 自动更新
+    auto_check: true
+    check_interval: 300  # 5 分钟（秒）
+    silent_mode: false
+    
+    # 安全设置
+    allow_http: true
+    
+    # 开发模式
+    dev_mode: true
+  
+  # ------------------------------------------
+  # 测试环境
+  # ------------------------------------------
+  test:
+    # OTA 服务器地址
+    ota_server: "https://updates-test.ecbot.com"
+    
+    # S3 存储桶
+    s3_bucket: "ecan-updates-test"
+    
+    # Appcast 基础 URL（从 S3 读取）
+    appcast_base: "https://ecan-updates-test.s3.us-east-1.amazonaws.com"
+    
+    # 签名验证（测试环境可选）
+    signature_required: false
+    signature_verification: true
+    
+    # 自动更新
+    auto_check: true
+    check_interval: 1800  # 30 分钟（秒）
+    silent_mode: false
+    
+    # 安全设置
+    allow_http: true
+    
+    # 开发模式
+    dev_mode: false
+  
+  # ------------------------------------------
+  # 预发布环境
+  # ------------------------------------------
+  staging:
+    # OTA 服务器地址
+    ota_server: "https://updates-staging.ecbot.com"
+    
+    # S3 存储桶
+    s3_bucket: "ecan-updates-staging"
+    
+    # Appcast 基础 URL（从 S3 读取）
+    appcast_base: "https://ecan-updates-staging.s3.us-east-1.amazonaws.com"
+    
+    # 签名验证（预发布必须）
+    signature_required: true
+    signature_verification: true
+    
+    # 自动更新
+    auto_check: true
+    check_interval: 3600  # 1 小时（秒）
+    silent_mode: false
+    
+    # 安全设置
+    allow_http: false
+    
+    # 开发模式
+    dev_mode: false
+  
+  # ------------------------------------------
+  # 生产环境
+  # ------------------------------------------
+  production:
+    # OTA 服务器地址
+    ota_server: "https://updates.ecbot.com"
+    
+    # S3 存储桶
+    s3_bucket: "ecan-updates"
+    
+    # Appcast 基础 URL（从 S3 读取）
+    appcast_base: "https://ecan-updates.s3.us-east-1.amazonaws.com"
+    
+    # 签名验证（生产必须）
+    signature_required: true
+    signature_verification: true
+    
+    # 自动更新
+    auto_check: true
+    check_interval: 14400  # 4 小时（秒）
+    silent_mode: true
+    
+    # 安全设置
+    allow_http: false
+    
+    # 开发模式
+    dev_mode: false
+
+# ============================================
+# 高级配置（可选）
+# ============================================
+advanced:
+  # 下载路径（留空使用默认）
+  download_path: null
+  
+  # 备份设置
+  backup_enabled: true
+  
+  # 公钥路径（用于签名验证）
+  public_key_path: null
+  
+  # UI 更新行为
+  # 可选值: notification, dialog, badge, notification+badge
+  ui_update_behavior: "notification"
+  
+  # macOS DMG 安装目标目录
+  dmg_target_dir: "/Applications"
+  
+  # 开发环境安装器设置
+  dev_installer_enabled: false
+  dev_installer_quiet: true

@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 import requests
 from utils.logger_helper import logger_helper as logger
-from .config import ota_config
+from ota.config.loader import ota_config
 
 # Try to import cryptography library
 try:
@@ -59,6 +59,9 @@ class PackageManager:
         self._downloaded_files = []  # Track downloaded files
         
         logger.info(f"Package manager initialized with download dir: {self.download_dir}")
+        
+        # Clean up old downloaded packages on startup
+        self._cleanup_old_packages()
     
     def download_package(self, package: UpdatePackage, progress_callback=None, max_retries=3) -> bool:
         """Download update package"""
@@ -102,6 +105,9 @@ class PackageManager:
                         logger.info("Retrying download...")
                         continue
                     return False
+                
+                # Set as current package for installation
+                self.current_package = package
                 
                 logger.info(f"Package downloaded successfully: {download_path}")
                 return True
@@ -314,7 +320,7 @@ class PackageManager:
                 return False
 
             # Check file extension
-            allowed_extensions = {'.zip', '.tar', '.gz', '.bz2', '.dmg', '.exe', '.msi'}
+            allowed_extensions = {'.zip', '.tar', '.gz', '.bz2', '.dmg', '.exe', '.msi', '.pkg'}
             if file_path.suffix not in allowed_extensions:
                 logger.error(f"Disallowed file extension: {file_path.suffix}")
                 return False
@@ -469,7 +475,6 @@ class PackageManager:
         """Extract and install package; provides minimal placeholder installer support for .dmg/.exe/.msi in dev mode (disabled by default)."""
         try:
             # Dev mode placeholder installer path
-            from .config import ota_config
             if package_path.suffix.lower() in ['.dmg', '.exe', '.msi']:
                 if not ota_config.is_dev_mode() or not ota_config.get("dev_installer_enabled", False):
                     logger.error(f"Installer format not implemented yet: {package_path.suffix}")
@@ -521,7 +526,6 @@ class PackageManager:
         - Windows .exe/.msi: direct call, silent mode controlled by config
         """
         try:
-            from .config import ota_config
             suffix = package_path.suffix.lower()
             if suffix == '.dmg' and sys.platform == 'darwin':
                 target_dir = Path(ota_config.get("dmg_target_dir", "/Applications"))
@@ -572,6 +576,52 @@ class PackageManager:
         except Exception as e:
             logger.error(f"Dev installer failed: {e}")
             return False
+    
+    def _cleanup_old_packages(self, max_age_days: int = 7):
+        """Clean up old downloaded packages on startup
+        
+        Args:
+            max_age_days: Delete packages older than this many days (default: 7)
+        """
+        try:
+            if not self.download_dir.exists():
+                return
+            
+            import time
+            current_time = time.time()
+            max_age_seconds = max_age_days * 24 * 60 * 60
+            
+            cleaned_count = 0
+            cleaned_size = 0
+            
+            # Iterate through all files in download directory
+            for file_path in self.download_dir.iterdir():
+                if not file_path.is_file():
+                    continue
+                
+                try:
+                    # Get file age
+                    file_age = current_time - file_path.stat().st_mtime
+                    
+                    # Delete if older than max_age_days
+                    if file_age > max_age_seconds:
+                        file_size = file_path.stat().st_size
+                        file_path.unlink()
+                        cleaned_count += 1
+                        cleaned_size += file_size
+                        logger.info(f"[Cleanup] Deleted old package: {file_path.name} (age: {file_age / 86400:.1f} days)")
+                    
+                except Exception as e:
+                    logger.warning(f"[Cleanup] Failed to delete {file_path.name}: {e}")
+            
+            if cleaned_count > 0:
+                size_mb = cleaned_size / (1024 * 1024)
+                logger.info(f"[Cleanup] Cleaned up {cleaned_count} old package(s), freed {size_mb:.2f} MB")
+            else:
+                logger.info("[Cleanup] No old packages to clean up")
+                
+        except Exception as e:
+            logger.error(f"[Cleanup] Failed to clean up old packages: {e}")
 
 
 # Global package manager instance
