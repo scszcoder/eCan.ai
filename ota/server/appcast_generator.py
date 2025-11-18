@@ -36,7 +36,7 @@ class AppcastGenerator:
 
         items = []
         for filename, data in signatures_data.items():
-            os_type = "macos" if "darwin" in filename else "windows" if "windows" in filename else "linux"
+            os_type = "macos" if ("darwin" in filename or "macos" in filename) else "windows" if "windows" in filename else "linux"
             
             item = {
                 'title': f'Version {version}',
@@ -85,7 +85,7 @@ class AppcastGenerator:
 
             items = []
             for filename, data in signatures_data.items():
-                os_type = "macos" if "darwin" in filename else "windows" if "windows" in filename else "linux"
+                os_type = "macos" if ("darwin" in filename or "macos" in filename) else "windows" if "windows" in filename else "linux"
                 
                 item = {
                     'title': f'Version {version}',

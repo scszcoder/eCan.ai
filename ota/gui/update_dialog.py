@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-ECBot OTA更新对话框 - 标准UI版本
-遵循ECBot的标准UI设计规范
+"""ECBot OTA Update Dialog - Standard UI Version
+Follows ECBot standard UI design guidelines
 """
 
 import os
@@ -21,15 +20,57 @@ from PySide6.QtCore import Qt, QTimer, Signal, QThread
 from PySide6.QtGui import QFont
 
 from utils.logger_helper import logger_helper as logger
+from .i18n import get_translator
+
+
+# Get translator instance
+_tr = get_translator()
+
+
+class InstallWorker(QThread):
+    """Installation worker thread"""
+    
+    # Signals
+    status_updated = Signal(str)  # Status message
+    install_completed = Signal(bool, str)  # Success, message
+    
+    def __init__(self, package_path: Path, install_options: Dict[str, Any]):
+        super().__init__()
+        self.package_path = package_path
+        self.install_options = install_options
+    
+    def run(self):
+        """Execute installation in background thread"""
+        try:
+            from ota.core.installer import installation_manager
+            
+            # Update status
+            if self.install_options.get('create_backup', False):
+                self.status_updated.emit(_tr.tr("creating_backup"))
+            
+            self.status_updated.emit(_tr.tr("installing_update"))
+            
+            # Execute installation
+            success = installation_manager.install_package(self.package_path, self.install_options)
+            
+            if success:
+                self.install_completed.emit(True, _tr.tr("installer_launched_status"))
+            else:
+                self.install_completed.emit(False, _tr.tr("failed_to_launch_installer"))
+                
+        except Exception as e:
+            logger.error(f"Install worker error: {e}")
+            self.install_completed.emit(False, f"{_tr.tr('installation_failed')}: {str(e)}")
+
 
 
 class DownloadWorker(QThread):
-    """下载工作线程"""
+    """Download worker thread"""
     
-    # 信号定义
-    progress_updated = Signal(int, str, str)  # 进度, 速度, 剩余时间
-    download_completed = Signal(bool, str)    # 成功/失败, 消息
-    status_updated = Signal(str)              # 状态更新
+    # Signal definitions
+    progress_updated = Signal(int, str, str)  # progress, speed, remaining time
+    download_completed = Signal(bool, str)    # success/failure, message
+    status_updated = Signal(str)              # status update
     
     def __init__(self, ota_updater, update_info):
         super().__init__()
@@ -41,13 +82,13 @@ class DownloadWorker(QThread):
         self.last_downloaded = 0
         
     def run(self):
-        """执行下载"""
+        """Execute download"""
         try:
-            self.status_updated.emit("准备下载...")
+            self.status_updated.emit(_tr.tr("preparing_download"))
             self.start_time = time.time()
             self.last_update_time = self.start_time
             
-            # 创建更新包
+            # Create update package
             from ota.core.package_manager import UpdatePackage, package_manager
             
             package = UpdatePackage(
@@ -58,44 +99,44 @@ class DownloadWorker(QThread):
                 description=self.update_info.get('description', '')
             )
             
-            self.status_updated.emit("正在下载更新...")
+            self.status_updated.emit(_tr.tr("downloading"))
             
-            # 开始下载，传入进度回调
+            # Start download with progress callback
             success = package_manager.download_package(
                 package, 
                 progress_callback=self._progress_callback
             )
             
             if success and not self.is_cancelled:
-                self.status_updated.emit("下载完成，正在验证...")
+                self.status_updated.emit(_tr.tr("download_complete"))
                 
-                # 验证包
+                # Verify package
                 verify_success = package_manager.verify_package(package)
                 if verify_success:
-                    self.download_completed.emit(True, "下载并验证成功！")
+                    self.download_completed.emit(True, _tr.tr("download_success"))
                 else:
-                    self.download_completed.emit(False, "文件验证失败！")
+                    self.download_completed.emit(False, _tr.tr("verification_failed"))
             elif self.is_cancelled:
-                self.download_completed.emit(False, "下载已取消")
+                self.download_completed.emit(False, _tr.tr("download_cancelled"))
             else:
-                self.download_completed.emit(False, "下载失败")
+                self.download_completed.emit(False, _tr.tr("download_failed"))
                 
         except Exception as e:
             logger.error(f"Download worker error: {e}")
-            self.download_completed.emit(False, f"下载错误: {str(e)}")
+            self.download_completed.emit(False, f"{_tr.tr('download_error')}: {str(e)}")
     
     def _progress_callback(self, progress):
-        """下载进度回调"""
+        """Download progress callback"""
         if self.is_cancelled:
             return
             
         current_time = time.time()
         
-        # 计算下载速度
+        # Calculate download speed
         if self.last_update_time and current_time > self.last_update_time:
             time_diff = current_time - self.last_update_time
-            if time_diff >= 0.5:  # 每0.5秒更新一次
-                # 估算当前下载的字节数（简化计算）
+            if time_diff >= 0.5:  # Update every 0.5 seconds
+                # Estimate current downloaded bytes (simplified calculation)
                 total_size = self.update_info.get('file_size', 0)
                 current_downloaded = int((progress / 100) * total_size)
                 
@@ -104,23 +145,23 @@ class DownloadWorker(QThread):
                     speed_bps = bytes_diff / time_diff
                     speed_text = self._format_speed(speed_bps)
                     
-                    # 计算剩余时间
+                    # Calculate remaining time
                     remaining_bytes = total_size - current_downloaded
                     if speed_bps > 0:
                         remaining_seconds = remaining_bytes / speed_bps
                         remaining_text = self._format_time(remaining_seconds)
                     else:
-                        remaining_text = "计算中..."
+                        remaining_text = _tr.tr("calculating")
                 else:
-                    speed_text = "计算中..."
-                    remaining_text = "计算中..."
+                    speed_text = _tr.tr("calculating")
+                    remaining_text = _tr.tr("calculating")
                 
                 self.progress_updated.emit(progress, speed_text, remaining_text)
                 self.last_update_time = current_time
                 self.last_downloaded = current_downloaded
     
     def _format_speed(self, bytes_per_second):
-        """格式化速度显示"""
+        """Format speed display"""
         if bytes_per_second < 1024:
             return f"{bytes_per_second:.1f} B/s"
         elif bytes_per_second < 1024 * 1024:
@@ -129,23 +170,23 @@ class DownloadWorker(QThread):
             return f"{bytes_per_second / (1024 * 1024):.1f} MB/s"
     
     def _format_time(self, seconds):
-        """格式化时间显示"""
+        """Format time display"""
         if seconds < 60:
-            return f"{int(seconds)}秒"
+            return f"{int(seconds)} {_tr.tr('seconds')}"
         elif seconds < 3600:
-            return f"{int(seconds // 60)}分{int(seconds % 60)}秒"
+            return f"{int(seconds // 60)} {_tr.tr('minutes')} {int(seconds % 60)} {_tr.tr('seconds')}"
         else:
             hours = int(seconds // 3600)
             minutes = int((seconds % 3600) // 60)
-            return f"{hours}时{minutes}分"
+            return f"{hours} {_tr.tr('hours')} {minutes} {_tr.tr('minutes')}"
     
     def cancel(self):
-        """取消下载"""
+        """Cancel download"""
         self.is_cancelled = True
 
 
 class InstallConfirmDialog(QDialog):
-    """安装确认对话框 - ECBot标准UI"""
+    """Install confirmation dialog - ECBot standard UI"""
     
     def __init__(self, update_info, parent=None):
         super().__init__(parent)
@@ -153,8 +194,8 @@ class InstallConfirmDialog(QDialog):
         self.setup_ui()
         
     def setup_ui(self):
-        """设置UI - 遵循ECBot标准"""
-        self.setWindowTitle("确认安装更新")
+        """Setup UI - Follow ECBot standard"""
+        self.setWindowTitle(_tr.tr("confirm_install_title"))
         self.setModal(True)
         self.setFixedSize(500, 400)
         
@@ -162,8 +203,8 @@ class InstallConfirmDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
         
-        # 标题
-        title_label = QLabel("准备安装更新")
+        # Title
+        title_label = QLabel(_tr.tr("preparing_install"))
         title_font = QFont()
         title_font.setPointSize(14)
         title_font.setBold(True)
@@ -171,38 +212,39 @@ class InstallConfirmDialog(QDialog):
         title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(title_label)
         
-        # 更新信息组
-        info_group = QGroupBox("更新信息")
+        # Update information group
+        info_group = QGroupBox(_tr.tr("update_info"))
         info_layout = QGridLayout()
         info_layout.setSpacing(10)
         
-        # 版本信息
-        info_layout.addWidget(QLabel("新版本:"), 0, 0)
+        # Version information
+        info_layout.addWidget(QLabel(f"{_tr.tr('new_version')}:"), 0, 0)
         version_label = QLabel(self.update_info.get('latest_version', 'Unknown'))
         version_label.setStyleSheet("font-weight: bold;")
         info_layout.addWidget(version_label, 0, 1)
         
-        # 文件大小
+        # File size
         file_size = self.update_info.get('file_size', 0)
         size_text = self._format_file_size(file_size)
-        info_layout.addWidget(QLabel("文件大小:"), 1, 0)
+        info_layout.addWidget(QLabel(f"{_tr.tr('file_size')}:"), 1, 0)
         info_layout.addWidget(QLabel(size_text), 1, 1)
         
-        # 发布日期
+        # Release date
         release_date = self.update_info.get('release_date', 'Unknown')
-        info_layout.addWidget(QLabel("发布日期:"), 2, 0)
+        info_layout.addWidget(QLabel(f"{_tr.tr('release_date')}:"), 2, 0)
         info_layout.addWidget(QLabel(release_date), 2, 1)
         
         info_group.setLayout(info_layout)
         layout.addWidget(info_group)
         
-        # 更新说明
-        desc_group = QGroupBox("更新说明")
+        # Release notes
+        desc_group = QGroupBox(_tr.tr("update_notes"))
         desc_layout = QVBoxLayout()
         
-        description = self.update_info.get('description', '无更新说明')
+        description = self.update_info.get('description', _tr.tr('no_update_notes'))
         desc_text = QTextEdit()
-        desc_text.setPlainText(description)
+        # Use setHtml to properly render HTML content
+        desc_text.setHtml(description)
         desc_text.setMaximumHeight(120)
         desc_text.setReadOnly(True)
         desc_layout.addWidget(desc_text)
@@ -210,40 +252,40 @@ class InstallConfirmDialog(QDialog):
         desc_group.setLayout(desc_layout)
         layout.addWidget(desc_group)
         
-        # 安装选项
-        options_group = QGroupBox("安装选项")
+        # Installation options
+        options_group = QGroupBox(_tr.tr("install_options"))
         options_layout = QVBoxLayout()
         
-        self.backup_checkbox = QCheckBox("安装前创建备份")
+        self.backup_checkbox = QCheckBox(_tr.tr("create_backup"))
         self.backup_checkbox.setChecked(True)
         options_layout.addWidget(self.backup_checkbox)
         
-        self.auto_restart_checkbox = QCheckBox("安装完成后自动重启应用")
+        self.auto_restart_checkbox = QCheckBox(_tr.tr("auto_restart"))
         self.auto_restart_checkbox.setChecked(True)
         options_layout.addWidget(self.auto_restart_checkbox)
         
         options_group.setLayout(options_layout)
         layout.addWidget(options_group)
         
-        # 警告信息
-        warning_label = QLabel("⚠️ 安装过程中请不要关闭应用程序")
+        # Warning message
+        warning_label = QLabel(_tr.tr("install_warning"))
         warning_label.setStyleSheet("color: #FF6B35; font-weight: bold;")
         warning_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(warning_label)
         
-        # 添加弹性空间
+        # Add flexible space
         layout.addItem(QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Expanding))
         
         # 按钮
         button_layout = QHBoxLayout()
         
-        self.cancel_button = QPushButton("取消")
+        self.cancel_button = QPushButton(_tr.tr("cancel"))
         self.cancel_button.clicked.connect(self.reject)
         button_layout.addWidget(self.cancel_button)
         
         button_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
         
-        self.install_button = QPushButton("立即安装")
+        self.install_button = QPushButton(_tr.tr("install_now"))
         self.install_button.clicked.connect(self.accept)
         self.install_button.setDefault(True)
         button_layout.addWidget(self.install_button)
@@ -252,9 +294,9 @@ class InstallConfirmDialog(QDialog):
         self.setLayout(layout)
     
     def _format_file_size(self, size_bytes):
-        """格式化文件大小"""
+        """Format file size"""
         if size_bytes == 0:
-            return "未知"
+            return _tr.tr("unknown")
         elif size_bytes < 1024:
             return f"{size_bytes} B"
         elif size_bytes < 1024 * 1024:
@@ -265,7 +307,7 @@ class InstallConfirmDialog(QDialog):
             return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
     
     def get_install_options(self):
-        """获取安装选项"""
+        """Get installation options"""
         return {
             'create_backup': self.backup_checkbox.isChecked(),
             'auto_restart': self.auto_restart_checkbox.isChecked()
@@ -273,30 +315,31 @@ class InstallConfirmDialog(QDialog):
 
 
 class UpdateDialog(QDialog):
-    """ECBot OTA更新对话框 - 标准UI版本"""
+    """ECBot OTA Update Dialog - Standard UI Version"""
     
     def __init__(self, parent=None, ota_updater=None):
         super().__init__(parent)
         self.ota_updater = ota_updater
         self.update_info = None
         self.download_worker = None
+        self.install_worker = None  # Add install worker
         
         self.setup_ui()
         self.setup_connections()
         
         # 设置窗口属性 - 遵循ECBot标准
-        self.setWindowTitle("ECBot 软件更新")
+        self.setWindowTitle(_tr.tr("window_title"))
         self.setModal(True)
         self.setFixedSize(600, 450)
         
     def setup_ui(self):
-        """设置用户界面 - ECBot标准UI"""
+        """Setup user interface - ECBot standard UI"""
         layout = QVBoxLayout()
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
         
-        # 标题区域
-        title_label = QLabel("ECBot 软件更新")
+        # Title区域
+        title_label = QLabel(_tr.tr("window_title"))
         title_font = QFont()
         title_font.setPointSize(16)
         title_font.setBold(True)
@@ -304,42 +347,42 @@ class UpdateDialog(QDialog):
         title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(title_label)
         
-        # 当前版本信息
+        # Current version information
         if self.ota_updater:
-            version_label = QLabel(f"当前版本: {self.ota_updater.app_version}")
+            version_label = QLabel(f"{_tr.tr('current_version')}: {self.ota_updater.app_version}")
             version_label.setAlignment(Qt.AlignCenter)
             layout.addWidget(version_label)
         
-        # 状态区域
-        status_group = QGroupBox("状态")
+        # Status area
+        status_group = QGroupBox(_tr.tr("status"))
         status_layout = QVBoxLayout()
         
-        self.status_label = QLabel("准备检查更新...")
+        self.status_label = QLabel(_tr.tr("ready_to_check"))
         self.status_label.setStyleSheet("padding: 10px;")
         status_layout.addWidget(self.status_label)
         
         status_group.setLayout(status_layout)
         layout.addWidget(status_group)
         
-        # 进度区域
-        progress_group = QGroupBox("下载进度")
+        # Progress area
+        progress_group = QGroupBox(_tr.tr("download_progress"))
         progress_layout = QVBoxLayout()
         
-        # 主进度条
+        # Main progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         progress_layout.addWidget(self.progress_bar)
         
-        # 详细信息布局
+        # Details layout
         details_layout = QHBoxLayout()
         
-        self.speed_label = QLabel("速度: --")
+        self.speed_label = QLabel(f"{_tr.tr('speed')}: --")
         self.speed_label.setVisible(False)
         details_layout.addWidget(self.speed_label)
         
         details_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
         
-        self.remaining_label = QLabel("剩余时间: --")
+        self.remaining_label = QLabel(f"{_tr.tr('remaining_time')}: --")
         self.remaining_label.setVisible(False)
         details_layout.addWidget(self.remaining_label)
         
@@ -347,8 +390,8 @@ class UpdateDialog(QDialog):
         progress_group.setLayout(progress_layout)
         layout.addWidget(progress_group)
         
-        # 更新信息区域
-        self.info_group = QGroupBox("更新信息")
+        # Update information area
+        self.info_group = QGroupBox(_tr.tr("update_info"))
         self.info_group.setVisible(False)
         info_layout = QVBoxLayout()
         
@@ -360,24 +403,24 @@ class UpdateDialog(QDialog):
         self.info_group.setLayout(info_layout)
         layout.addWidget(self.info_group)
         
-        # 添加弹性空间
+        # Add flexible space
         layout.addItem(QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Expanding))
         
-        # 按钮区域
+        # Button area
         button_layout = QHBoxLayout()
         
-        self.check_button = QPushButton("检查更新")
+        self.check_button = QPushButton(_tr.tr("check_update"))
         
-        self.download_button = QPushButton("下载更新")
+        self.download_button = QPushButton(_tr.tr("download_update"))
         self.download_button.setEnabled(False)
         
-        self.install_button = QPushButton("安装更新")
+        self.install_button = QPushButton(_tr.tr("install_update"))
         self.install_button.setEnabled(False)
         
-        self.cancel_button = QPushButton("取消")
+        self.cancel_button = QPushButton(_tr.tr("cancel"))
         self.cancel_button.setVisible(False)
         
-        self.close_button = QPushButton("关闭")
+        self.close_button = QPushButton(_tr.tr("close"))
         
         button_layout.addWidget(self.check_button)
         button_layout.addWidget(self.download_button)
@@ -390,7 +433,7 @@ class UpdateDialog(QDialog):
         self.setLayout(layout)
     
     def setup_connections(self):
-        """设置信号连接"""
+        """Setup signal connections"""
         self.check_button.clicked.connect(self.check_for_updates)
         self.download_button.clicked.connect(self.download_update)
         self.install_button.clicked.connect(self.install_update)
@@ -398,42 +441,51 @@ class UpdateDialog(QDialog):
         self.close_button.clicked.connect(self.close)
     
     def check_for_updates(self):
-        """检查更新"""
+        """Check for updates"""
+        logger.info("[UpdateDialog] Check for updates button clicked")
+        
         if not self.ota_updater:
-            self.status_label.setText("更新器未初始化")
+            error_msg = "Updater not initialized"
+            self.status_label.setText(error_msg)
+            logger.error(f"[UpdateDialog] {error_msg}")
             return
         
+        logger.info(f"[UpdateDialog] OTA Updater: {self.ota_updater}")
         self.check_button.setEnabled(False)
-        self.status_label.setText("正在检查更新...")
+        self.status_label.setText(_tr.tr("checking_updates"))
         
         try:
+            logger.info("[UpdateDialog] Calling check_for_updates...")
             has_update, info = self.ota_updater.check_for_updates(silent=True, return_info=True)
+            logger.info(f"[UpdateDialog] Result: has_update={has_update}, info={info}")
             
             if has_update:
-                self.status_label.setText("发现新版本！")
+                self.status_label.setText(_tr.tr("update_available"))
                 self.update_info = info
                 
                 if isinstance(info, dict):
                     version = info.get('latest_version', 'Unknown')
-                    description = info.get('description', '无更新说明')
-                    self.info_text.setText(f"最新版本: {version}\n\n{description}")
+                    description = info.get('description', _tr.tr('no_update_notes'))
+                    # Use setHtml to properly render HTML content
+                    html_content = f"<p><b>{_tr.tr('latest_version')}: {version}</b></p>{description}"
+                    self.info_text.setHtml(html_content)
                 else:
                     self.info_text.setText(str(info))
                 
                 self.info_group.setVisible(True)
                 self.download_button.setEnabled(True)
             else:
-                self.status_label.setText("已是最新版本")
+                self.status_label.setText(_tr.tr("no_updates"))
                 
         except Exception as e:
-            self.status_label.setText(f"检查失败: {str(e)}")
+            self.status_label.setText(f"{_tr.tr('check_failed')}: {str(e)}")
             logger.error(f"Update check failed: {e}")
         
         finally:
             self.check_button.setEnabled(True)
     
     def download_update(self):
-        """下载更新"""
+        """Download update"""
         if not self.update_info:
             return
         
@@ -452,148 +504,352 @@ class UpdateDialog(QDialog):
         self.download_worker.start()
     
     def update_progress(self, progress, speed, remaining):
-        """更新下载进度"""
+        """Update download progress"""
         self.progress_bar.setValue(progress)
-        self.speed_label.setText(f"速度: {speed}")
-        self.remaining_label.setText(f"剩余时间: {remaining}")
+        self.speed_label.setText(f"{_tr.tr('speed')}: {speed}")
+        self.remaining_label.setText(f"{_tr.tr('remaining_time')}: {remaining}")
     
     def update_status(self, status):
-        """更新状态"""
+        """Update status"""
         self.status_label.setText(status)
     
     def download_finished(self, success, message):
-        """下载完成"""
+        """Download finished"""
         self.download_worker = None
         self.cancel_button.setVisible(False)
         
         if success:
+            # ✅ Update progress to 100%
+            self.progress_bar.setValue(100)
+            self.speed_label.setText(_tr.tr("speed") + ": -")
+            self.remaining_label.setText(_tr.tr("remaining_time") + ": -")
+            
             self.status_label.setText(message)
             self.install_button.setEnabled(True)
             
-            # 显示下载完成通知
-            QMessageBox.information(
-                self, 
-                "下载完成", 
-                "更新文件下载完成！\n点击'安装更新'按钮开始安装。"
-            )
+            # Show beautiful download complete dialog
+            self._show_download_complete_dialog()
         else:
             self.status_label.setText(message)
             self.download_button.setEnabled(True)
             
-            # 隐藏进度相关控件
+            # Hide progress related controls
             self.progress_bar.setVisible(False)
             self.speed_label.setVisible(False)
             self.remaining_label.setVisible(False)
     
+    def _show_download_complete_dialog(self):
+        """Show beautiful download complete dialog with app icon"""
+        try:
+            from PySide6.QtGui import QPixmap, QIcon
+            from PySide6.QtCore import Qt
+            
+            # Create custom dialog
+            dialog = QDialog(self)
+            dialog.setWindowTitle(_tr.tr("download_complete"))
+            dialog.setModal(True)
+            dialog.setFixedSize(450, 300)
+            
+            # Main layout
+            layout = QVBoxLayout()
+            layout.setSpacing(20)
+            layout.setContentsMargins(30, 30, 30, 30)
+            
+            # App icon
+            icon_label = QLabel()
+            icon_label.setAlignment(Qt.AlignCenter)
+            
+            # Try to load app icon
+            icon_paths = [
+                "resource/images/icons/app_icon.png",
+                "resource/images/logos/logo.png",
+                "eCan.icns",
+                "eCan.ico"
+            ]
+            
+            icon_loaded = False
+            for icon_path in icon_paths:
+                if os.path.exists(icon_path):
+                    pixmap = QPixmap(icon_path)
+                    if not pixmap.isNull():
+                        # Scale to 80x80
+                        scaled_pixmap = pixmap.scaled(80, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        icon_label.setPixmap(scaled_pixmap)
+                        icon_loaded = True
+                        break
+            
+            if not icon_loaded:
+                # Use default icon from QMessageBox
+                icon_label.setPixmap(QMessageBox.standardIcon(QMessageBox.Icon.Information).pixmap(80, 80))
+            
+            layout.addWidget(icon_label)
+            
+            # Success title
+            title_label = QLabel("✅ " + _tr.tr("download_complete"))
+            title_font = QFont()
+            title_font.setPointSize(18)
+            title_font.setBold(True)
+            title_label.setFont(title_font)
+            title_label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(title_label)
+            
+            # Message
+            message_label = QLabel(_tr.tr('download_success') + "\n\n" + _tr.tr('install_update'))
+            message_label.setAlignment(Qt.AlignCenter)
+            message_label.setWordWrap(True)
+            message_font = QFont()
+            message_font.setPointSize(12)
+            message_label.setFont(message_font)
+            layout.addWidget(message_label)
+            
+            # Spacer
+            layout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding))
+            
+            # OK button - changed to "Install Now"
+            ok_button = QPushButton(_tr.tr("install_now") if hasattr(_tr, 'tr') else "Install Now")
+            ok_button.setFixedHeight(40)
+            ok_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #007AFF;
+                    color: white;
+                    border: none;
+                    border-radius: 8px;
+                    font-size: 14px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #0051D5;
+                }
+                QPushButton:pressed {
+                    background-color: #004DB8;
+                }
+            """)
+            ok_button.clicked.connect(dialog.accept)
+            layout.addWidget(ok_button)
+            
+            dialog.setLayout(layout)
+            
+            # Set dialog style
+            dialog.setStyleSheet("""
+                QDialog {
+                    background-color: #2C2C2E;
+                    color: white;
+                }
+                QLabel {
+                    color: white;
+                }
+            """)
+            
+            # Show dialog and auto-install if user clicks OK
+            if dialog.exec() == QDialog.Accepted:
+                # User clicked "Install Now" - start installation
+                logger.info("[UpdateDialog] User confirmed installation, starting auto-install")
+                # Use QTimer to start installation after dialog closes
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(100, self.install_update)
+            
+        except Exception as e:
+            logger.error(f"Error showing download complete dialog: {e}")
+            # Fallback to simple message box
+            QMessageBox.information(
+                self, 
+                _tr.tr("download_complete"), 
+                f"{_tr.tr('download_success')}\n{_tr.tr('install_update')}"
+            )
+    
     def cancel_download(self):
-        """取消下载"""
+        """Cancel download"""
         if self.download_worker:
             self.download_worker.cancel()
-            self.download_worker.wait()  # 等待线程结束
+            self.download_worker.wait()  # Wait for thread to finish
             self.download_worker = None
         
-        self.status_label.setText("下载已取消")
+        self.status_label.setText(_tr.tr("download_cancelled"))
         self.download_button.setEnabled(True)
         self.cancel_button.setVisible(False)
         
-        # 隐藏进度相关控件
+        # Hide progress related controls
         self.progress_bar.setVisible(False)
         self.speed_label.setVisible(False)
         self.remaining_label.setVisible(False)
     
     def install_update(self):
-        """安装更新"""
+        """Install update - directly start installation without confirmation dialog"""
         if not self.update_info:
             return
         
-        # 显示安装确认对话框
-        confirm_dialog = InstallConfirmDialog(self.update_info, self)
-        if confirm_dialog.exec() != QDialog.Accepted:
+        # Check if already installing
+        if self.install_worker and self.install_worker.isRunning():
+            logger.warning("Installation already in progress")
             return
         
-        install_options = confirm_dialog.get_install_options()
+        # Get downloaded package path
+        from ota.core.package_manager import package_manager
         
-        # 开始安装
+        if not package_manager.current_package or not package_manager.current_package.download_path:
+            self.status_label.setText(_tr.tr("package_not_found"))
+            QMessageBox.warning(self, _tr.tr("installation_failed"), _tr.tr("package_not_found_message"))
+            return
+        
+        package_path = package_manager.current_package.download_path
+        
+        # ✅ Use default installation options - no confirmation dialog needed
+        install_opts = {
+            'create_backup': True,  # Always create backup for safety
+            'silent': True
+        }
+        
+        # Disable install button
         self.install_button.setEnabled(False)
-        self.status_label.setText("正在准备安装...")
+        self.status_label.setText(_tr.tr("preparing_install"))
         
+        # Create and start install worker thread
+        self.install_worker = InstallWorker(package_path, install_opts)
+        self.install_worker.status_updated.connect(self.install_status_updated)
+        self.install_worker.install_completed.connect(self.install_finished)
+        self.install_worker.start()
+        
+        logger.info("[UpdateDialog] Installation started in background thread (auto-install, no confirmation)")
+    
+    def install_status_updated(self, status: str):
+        """Installation status updated"""
+        self.status_label.setText(status)
+    
+    def install_finished(self, success: bool, message: str):
+        """Installation finished"""
+        self.install_worker = None
+        self.install_button.setEnabled(True)
+        
+        if success:
+            # ✅ Update status but don't show dialog
+            # The system installer will show its own window
+            self.status_label.setText(_tr.tr("installer_launched_status"))
+            
+            # ✅ Hide the update dialog since installation is in progress
+            logger.info("[UpdateDialog] Installation launched successfully, hiding update dialog")
+            self.hide()
+        else:
+            self.status_label.setText(_tr.tr("installation_failed_status"))
+            QMessageBox.warning(self, _tr.tr("installation_failed"), message)
+    
+    def _show_installation_launched_dialog(self):
+        """Show beautiful installation launched dialog"""
         try:
-            # 导入安装管理器
-            from ota.core.installer import installation_manager
-            from ota.core.package_manager import package_manager
+            from PySide6.QtGui import QPixmap
+            from PySide6.QtCore import Qt
             
-            # 获取下载的包路径
-            if not package_manager.current_package or not package_manager.current_package.download_path:
-                self.status_label.setText("未找到下载的安装包")
-                QMessageBox.warning(self, "安装失败", "未找到下载的安装包，请重新下载。")
-                return
+            # Create custom dialog
+            dialog = QDialog(self)
+            dialog.setWindowTitle(_tr.tr("installer_launched"))
+            dialog.setModal(True)
+            dialog.setFixedSize(500, 350)
             
-            package_path = package_manager.current_package.download_path
+            # Main layout
+            layout = QVBoxLayout()
+            layout.setSpacing(20)
+            layout.setContentsMargins(30, 30, 30, 30)
             
-            # 准备安装选项
-            install_opts = {
-                'create_backup': install_options['create_backup'],
-                'silent': True
-            }
+            # App icon
+            icon_label = QLabel()
+            icon_label.setAlignment(Qt.AlignCenter)
             
-            if install_options['create_backup']:
-                self.status_label.setText("正在创建备份...")
-                QApplication.processEvents()  # 更新UI
+            # Try to load app icon
+            icon_paths = [
+                "resource/images/icons/app_icon.png",
+                "resource/images/logos/logo.png",
+                "eCan.icns",
+                "eCan.ico"
+            ]
             
-            self.status_label.setText("正在安装更新...")
-            QApplication.processEvents()
+            icon_loaded = False
+            for icon_path in icon_paths:
+                if os.path.exists(icon_path):
+                    pixmap = QPixmap(icon_path)
+                    if not pixmap.isNull():
+                        scaled_pixmap = pixmap.scaled(80, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        icon_label.setPixmap(scaled_pixmap)
+                        icon_loaded = True
+                        break
             
-            # 执行安装
-            success = installation_manager.install_package(package_path, install_opts)
+            if not icon_loaded:
+                icon_label.setPixmap(QMessageBox.standardIcon(QMessageBox.Icon.Information).pixmap(80, 80))
             
-            if success:
-                self.status_label.setText("安装成功！")
-                
-                if install_options['auto_restart']:
-                    reply = QMessageBox.question(
-                        self, 
-                        "安装完成", 
-                        "更新安装成功！\n是否立即重启应用程序？",
-                        QMessageBox.Yes | QMessageBox.No,
-                        QMessageBox.Yes
-                    )
-                    
-                    if reply == QMessageBox.Yes:
-                        self.status_label.setText("正在重启应用程序...")
-                        QApplication.processEvents()
-                        
-                        # 延迟重启，给用户时间看到消息
-                        QTimer.singleShot(2000, lambda: installation_manager.restart_application(3))
-                    else:
-                        QMessageBox.information(
-                            self, 
-                            "安装完成", 
-                            "更新安装成功！\n请手动重启应用程序以使用新版本。"
-                        )
-                else:
-                    QMessageBox.information(
-                        self, 
-                        "安装完成", 
-                        "更新安装成功！\n请手动重启应用程序以使用新版本。"
-                    )
-            else:
-                self.status_label.setText("安装失败")
-                QMessageBox.warning(self, "安装失败", "更新安装失败，请稍后重试。")
-                
+            layout.addWidget(icon_label)
+            
+            # Title
+            title_label = QLabel(_tr.tr("installer_launched_title"))
+            title_font = QFont()
+            title_font.setPointSize(18)
+            title_font.setBold(True)
+            title_label.setFont(title_font)
+            title_label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(title_label)
+            
+            # Message
+            message_label = QLabel(_tr.tr("installer_launched_message"))
+            message_label.setAlignment(Qt.AlignCenter)
+            message_label.setWordWrap(True)
+            message_font = QFont()
+            message_font.setPointSize(12)
+            message_label.setFont(message_font)
+            layout.addWidget(message_label)
+            
+            # Spacer
+            layout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding))
+            
+            # OK button
+            ok_button = QPushButton(_tr.tr("ok"))
+            ok_button.setFixedHeight(40)
+            ok_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #007AFF;
+                    color: white;
+                    border: none;
+                    border-radius: 8px;
+                    font-size: 14px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #0051D5;
+                }
+                QPushButton:pressed {
+                    background-color: #004DB8;
+                }
+            """)
+            ok_button.clicked.connect(dialog.accept)
+            layout.addWidget(ok_button)
+            
+            dialog.setLayout(layout)
+            
+            # Set dialog style
+            dialog.setStyleSheet("""
+                QDialog {
+                    background-color: #2C2C2E;
+                    color: white;
+                }
+                QLabel {
+                    color: white;
+                }
+            """)
+            
+            dialog.exec()
+            
         except Exception as e:
-            error_msg = f"安装错误: {str(e)}"
-            self.status_label.setText(error_msg)
-            QMessageBox.critical(self, "安装错误", error_msg)
-        finally:
-            self.install_button.setEnabled(True)
+            logger.error(f"Error showing installation launched dialog: {e}")
+            # Fallback to simple message box
+            QMessageBox.information(
+                self,
+                "Installer Launched",
+                "The installer has been launched.\n\nPlease follow the on-screen instructions to complete the installation."
+            )
     
     def closeEvent(self, event):
-        """关闭事件"""
+        """Close event"""
         if self.download_worker and self.download_worker.isRunning():
             reply = QMessageBox.question(
                 self, 
-                "确认关闭", 
-                "下载正在进行中，确定要关闭吗？",
+                "Confirm Close", 
+                "Download in progress, are you sure you want to close?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
@@ -608,13 +864,13 @@ class UpdateDialog(QDialog):
             event.accept()
 
 
-# 简单的通知对话框
+# Simple notification dialog
 class UpdateNotificationDialog(QDialog):
-    """简单的更新通知对话框"""
+    """Simple update notification dialog"""
     
-    def __init__(self, update_info="发现新版本", parent=None):
+    def __init__(self, update_info="New version available", parent=None):
         super().__init__(parent)
-        self.setWindowTitle("更新通知")
+        self.setWindowTitle("Update Notification")
         self.setModal(True)
         self.setFixedSize(300, 150)
         
@@ -622,22 +878,22 @@ class UpdateNotificationDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
         
-        # 信息
+        # Information
         info_label = QLabel(update_info)
         info_label.setWordWrap(True)
         info_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(info_label)
         
-        # 按钮
+        # Buttons
         button_layout = QHBoxLayout()
         
-        later_button = QPushButton("稍后")
+        later_button = QPushButton("Later")
         later_button.clicked.connect(self.reject)
         button_layout.addWidget(later_button)
         
         button_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
         
-        install_button = QPushButton("立即更新")
+        install_button = QPushButton("Update Now")
         install_button.clicked.connect(self.accept)
         install_button.setDefault(True)
         button_layout.addWidget(install_button)

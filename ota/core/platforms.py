@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 from utils.logger_helper import logger_helper as logger
 from .package_manager import UpdatePackage, package_manager
-from .config import ota_config
+from ota.config.loader import ota_config
 from .errors import (
     UpdateError, UpdateErrorCode, NetworkError, PlatformError,
     VerificationError, create_error_from_exception

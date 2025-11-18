@@ -1632,72 +1632,82 @@ class WebGUI(QMainWindow):
             from PySide6.QtWidgets import QMessageBox, QCheckBox
             from PySide6.QtCore import Qt
             from ota.core.version_ignore import get_version_ignore_manager
+            from ota.gui.i18n import get_translator
             
-            # Create message box
-            msg_box = QMessageBox(self)
-            msg_box.setWindowTitle("软件更新" if self._is_chinese() else "Software Update")
+            # Get translator
+            _tr = get_translator()
             
-            # Set icon
-            msg_box.setIcon(QMessageBox.Icon.Information)
+            # ✅ Prevent duplicate dialogs - check if dialog is already showing
+            if hasattr(self, '_update_dialog_showing') and self._update_dialog_showing:
+                logger.info(f"[OTA] Update confirmation dialog already showing, skipping duplicate")
+                return
             
-            # Set text
-            if self._is_chinese():
-                text = f"<h3>发现新版本 {version}</h3>"
-                text += f"<p>当前版本: {self._get_current_version()}</p>"
-                if update_info.get('description'):
-                    text += f"<p>{update_info['description']}</p>"
-                text += "<p>是否现在更新？</p>"
-                msg_box.setText(text)
-            else:
-                text = f"<h3>New Version {version} Available</h3>"
-                text += f"<p>Current version: {self._get_current_version()}</p>"
-                if update_info.get('description'):
-                    text += f"<p>{update_info['description']}</p>"
-                text += "<p>Would you like to update now?</p>"
-                msg_box.setText(text)
+            # Mark dialog as showing
+            self._update_dialog_showing = True
             
-            # Add buttons
-            update_btn = msg_box.addButton(
-                "立即更新" if self._is_chinese() else "Update Now",
-                QMessageBox.ButtonRole.AcceptRole
-            )
-            later_btn = msg_box.addButton(
-                "稍后提醒" if self._is_chinese() else "Remind Later",
-                QMessageBox.ButtonRole.RejectRole
-            )
-            
-            # Add "Don't remind again" checkbox (only for auto-check)
-            dont_remind_checkbox = None
-            if not is_manual:
-                dont_remind_checkbox = QCheckBox(
-                    "不再提示此版本" if self._is_chinese() else "Don't remind me about this version",
-                    msg_box
-                )
-                msg_box.setCheckBox(dont_remind_checkbox)
-            
-            # Show dialog
-            msg_box.exec()
-            clicked_button = msg_box.clickedButton()
-            
-            # Handle user choice
-            if clicked_button == update_btn:
-                # User chose to update
-                logger.info(f"[OTA] User confirmed update to version {version}")
-                self._start_ota_update(version, update_info)
-            else:
-                # User chose "Remind Later"
-                logger.info(f"[OTA] User postponed update to version {version}")
+            try:
+                # Create message box
+                msg_box = QMessageBox(self)
+                msg_box.setWindowTitle(_tr.tr("software_update"))
                 
-                # Check if "Don't remind again" was selected
-                if dont_remind_checkbox and dont_remind_checkbox.isChecked():
-                    ignore_mgr = get_version_ignore_manager()
-                    ignore_mgr.ignore_version(version)
-                    logger.info(f"[OTA] Version {version} added to ignore list")
+                # Set icon
+                msg_box.setIcon(QMessageBox.Icon.Information)
+                
+                # Set text
+                text = f"<h3>{_tr.tr('new_version_available').format(version=version)}</h3>"
+                text += f"<p>{_tr.tr('current_version_label').format(version=self._get_current_version())}</p>"
+                if update_info.get('description'):
+                    text += f"<p>{update_info['description']}</p>"
+                text += f"<p>{_tr.tr('would_you_like_to_update')}</p>"
+                msg_box.setText(text)
+                
+                # Add buttons
+                update_btn = msg_box.addButton(
+                    _tr.tr("update_now"),
+                    QMessageBox.ButtonRole.AcceptRole
+                )
+                later_btn = msg_box.addButton(
+                    _tr.tr("remind_later"),
+                    QMessageBox.ButtonRole.RejectRole
+                )
+                
+                # Add "Don't remind again" checkbox (only for auto-check)
+                dont_remind_checkbox = None
+                if not is_manual:
+                    dont_remind_checkbox = QCheckBox(
+                        _tr.tr("dont_remind_this_version"),
+                        msg_box
+                    )
+                    msg_box.setCheckBox(dont_remind_checkbox)
+                
+                # Show dialog
+                msg_box.exec()
+                clicked_button = msg_box.clickedButton()
+                
+                # Handle user choice
+                if clicked_button == update_btn:
+                    # User chose to update
+                    logger.info(f"[OTA] User confirmed update to version {version}")
+                    self._start_ota_update(version, update_info)
+                else:
+                    # User chose "Remind Later"
+                    logger.info(f"[OTA] User postponed update to version {version}")
+                    
+                    # Check if "Don't remind again" was selected
+                    if dont_remind_checkbox and dont_remind_checkbox.isChecked():
+                        ignore_mgr = get_version_ignore_manager()
+                        ignore_mgr.ignore_version(version)
+                        logger.info(f"[OTA] Version {version} added to ignore list")
+            finally:
+                # ✅ Reset flag when dialog closes
+                self._update_dialog_showing = False
                     
         except Exception as e:
             logger.error(f"[OTA] Error showing update confirmation: {e}")
             import traceback
             logger.error(traceback.format_exc())
+            # ✅ Reset flag on error
+            self._update_dialog_showing = False
     
     def _start_ota_update(self, version: str, update_info: dict):
         """Start OTA update process and show progress dialog.
@@ -1710,6 +1720,7 @@ class WebGUI(QMainWindow):
             from ota.gui.dialog import UpdateDialog
             from ota.core.updater import OTAUpdater
             from app_context import AppContext
+            from PySide6.QtCore import QTimer
             
             # Get or create OTA updater
             ctx = AppContext.get_instance()
@@ -1722,12 +1733,40 @@ class WebGUI(QMainWindow):
             dialog = UpdateDialog(parent=self, ota_updater=ota_updater)
             dialog.show()  # Use show() instead of exec() to allow background operation
             
-            logger.info(f"[OTA] Update dialog shown for version {version}")
+            # Auto-start download after dialog is shown
+            # Set update_info first so download can start
+            dialog.update_info = update_info
+            
+            # Use QTimer to start download after dialog is fully shown
+            QTimer.singleShot(500, lambda: self._auto_start_download(dialog, update_info))
+            
+            logger.info(f"[OTA] Update dialog shown for version {version}, auto-starting download")
             
         except Exception as e:
             logger.error(f"[OTA] Error starting OTA update: {e}")
             import traceback
             logger.error(traceback.format_exc())
+    
+    def _auto_start_download(self, dialog, update_info: dict):
+        """Auto-start download in the update dialog"""
+        try:
+            if dialog and hasattr(dialog, 'download_update'):
+                # Update UI to show update is available
+                dialog.status_label.setText("发现新版本，准备下载..." if self._is_chinese() else "New version found, preparing download...")
+                dialog.info_group.setVisible(True)
+                
+                # Set update info and start download
+                if isinstance(update_info, dict):
+                    version = update_info.get('latest_version', 'Unknown')
+                    description = update_info.get('description', '')
+                    html_content = f"<p><b>{'最新版本' if self._is_chinese() else 'Latest Version'}: {version}</b></p>{description}"
+                    dialog.info_text.setHtml(html_content)
+                
+                # Start download
+                dialog.download_update()
+                logger.info("[OTA] Auto-started download")
+        except Exception as e:
+            logger.error(f"[OTA] Error auto-starting download: {e}")
     
     def _is_chinese(self) -> bool:
         """Check if current language is Chinese."""

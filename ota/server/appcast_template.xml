@@ -16,7 +16,7 @@
                        sparkle:os="{{ item.os }}"
                        length="{{ item.file_size }}"
                        type="application/octet-stream"
-                       sparkle:signature="{{ item.signature }}" />
+                       sparkle:edSignature="{{ item.signature }}" />
         </item>
         {% endfor %}
     </channel>
