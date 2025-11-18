@@ -1088,7 +1088,7 @@ class MenuManager:
             
             # Load current configuration
             try:
-                from ota.core.config import ota_config
+                from ota.config.loader import ota_config
                 if ota_config.is_using_local_server():
                     self.local_server_radio.setChecked(True)
                 else:
@@ -1106,7 +1106,7 @@ class MenuManager:
 
             # Get default URL from config
             try:
-                from ota.core.config import ota_config
+                from ota.config.loader import ota_config
                 default_url = ota_config.config.get("local_server_url", "http://127.0.0.1:8080")
             except:
                 default_url = "http://127.0.0.1:8080"
@@ -1164,7 +1164,7 @@ class MenuManager:
     def save_ota_settings(self, dialog=None):
         """Save OTA settings"""
         try:
-            from ota.core.config import ota_config
+            from ota.config.loader import ota_config
 
             # Save server selection
             use_local = self.local_server_radio.isChecked()
@@ -1219,7 +1219,7 @@ class MenuManager:
 
             # Get local server URL for display
             try:
-                from ota.core.config import ota_config
+                from ota.config.loader import ota_config
                 server_url = ota_config.config.get("local_server_url", "http://127.0.0.1:8080")
             except:
                 server_url = "http://127.0.0.1:8080"
