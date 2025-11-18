@@ -401,6 +401,7 @@ class InstallerBuilder:
             iss_content = f"""
 ; eCan Installer Script
 ; Compression: LZMA2 + Non-Solid + Normal level (with splash screen, 4-6s startup)
+; Supports Silent Installation for OTA Updates: /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="C:\\Path"
 [Setup]
 AppId={app_id_wrapped}
 AppName={installer_config.get('app_name', app_info.get('name', 'eCan'))}
@@ -431,6 +432,10 @@ UsePreviousLanguage=yes
 ShowLanguageDialog=auto
 ; Prevent multiple installer instances when user double-clicks repeatedly
 SetupMutex=eCanInstallerMutex
+; Silent install support for OTA updates
+CloseApplicationsFilter=eCan.exe
+; Allow silent install to overwrite files in use
+AlwaysRestart=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

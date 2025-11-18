@@ -55,12 +55,12 @@ class OTATranslations:
             'calculating': 'Calculating...',
             
             # Buttons
-            'check_update': 'Check for Updates',
-            'download_update': 'Download Update',
-            'install_update': 'Install Update',
+            'check_update': 'Check Update',
+            'download_update': 'Download',
+            'install_update': 'Install',
             'install_now': 'Install Now',
             'update_now': 'Update Now',
-            'remind_later': 'Remind Later',
+            'remind_later': 'Later',
             'cancel': 'Cancel',
             'close': 'Close',
             'ok': 'OK',
@@ -141,11 +141,11 @@ class OTATranslations:
             
             # Buttons
             'check_update': '检查更新',
-            'download_update': '下载更新',
-            'install_update': '安装更新',
+            'download_update': '下载',
+            'install_update': '安装',
             'install_now': '立即安装',
             'update_now': '立即更新',
-            'remind_later': '稍后提醒',
+            'remind_later': '稍后',
             'cancel': '取消',
             'close': '关闭',
             'ok': '确定',
