@@ -21,6 +21,7 @@ from PySide6.QtGui import QFont
 
 from utils.logger_helper import logger_helper as logger
 from .i18n import get_translator
+from ota.core.download_manager import download_manager, DownloadState
 
 
 # Get translator instance
@@ -317,20 +318,28 @@ class InstallConfirmDialog(QDialog):
 class UpdateDialog(QDialog):
     """ECBot OTA Update Dialog - Standard UI Version"""
     
-    def __init__(self, parent=None, ota_updater=None):
+    def __init__(self, parent=None, ota_updater=None, show_current_download=False):
         super().__init__(parent)
         self.ota_updater = ota_updater
         self.update_info = None
         self.download_worker = None
         self.install_worker = None  # Add install worker
+        self.show_current_download = show_current_download  # Flag to show ongoing download
         
         self.setup_ui()
         self.setup_connections()
         
         # 设置窗口属性 - 遵循ECBot标准
         self.setWindowTitle(_tr.tr("window_title"))
-        self.setModal(True)
+        self.setModal(False)  # Changed to non-modal to allow background operation
         self.setFixedSize(600, 450)
+        
+        # Connect to global download manager
+        self._connect_download_manager()
+        
+        # If showing current download, restore download state
+        if show_current_download and download_manager.is_downloading():
+            self._restore_download_state()
         
     def setup_ui(self):
         """Setup user interface - ECBot standard UI"""
@@ -406,25 +415,16 @@ class UpdateDialog(QDialog):
         # Add flexible space
         layout.addItem(QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Expanding))
         
-        # Button area
+        # Button area - minimal layout (only control buttons)
         button_layout = QHBoxLayout()
         
-        self.check_button = QPushButton(_tr.tr("check_update"))
-        
-        self.download_button = QPushButton(_tr.tr("download_update"))
-        self.download_button.setEnabled(False)
-        
-        self.install_button = QPushButton(_tr.tr("install_update"))
-        self.install_button.setEnabled(False)
-        
-        self.cancel_button = QPushButton(_tr.tr("cancel"))
+        # Only show cancel button during download
+        self.cancel_button = QPushButton("停止下载" if _tr.current_lang == 'zh-CN' else "Stop Download")
         self.cancel_button.setVisible(False)
         
+        # Close button - smart behavior (hide when downloading, close otherwise)
         self.close_button = QPushButton(_tr.tr("close"))
         
-        button_layout.addWidget(self.check_button)
-        button_layout.addWidget(self.download_button)
-        button_layout.addWidget(self.install_button)
         button_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
         button_layout.addWidget(self.cancel_button)
         button_layout.addWidget(self.close_button)
@@ -434,11 +434,8 @@ class UpdateDialog(QDialog):
     
     def setup_connections(self):
         """Setup signal connections"""
-        self.check_button.clicked.connect(self.check_for_updates)
-        self.download_button.clicked.connect(self.download_update)
-        self.install_button.clicked.connect(self.install_update)
         self.cancel_button.clicked.connect(self.cancel_download)
-        self.close_button.clicked.connect(self.close)
+        self.close_button.clicked.connect(self.handle_close_button)
     
     def check_for_updates(self):
         """Check for updates"""
@@ -451,7 +448,6 @@ class UpdateDialog(QDialog):
             return
         
         logger.info(f"[UpdateDialog] OTA Updater: {self.ota_updater}")
-        self.check_button.setEnabled(False)
         self.status_label.setText(_tr.tr("checking_updates"))
         
         try:
@@ -473,23 +469,18 @@ class UpdateDialog(QDialog):
                     self.info_text.setText(str(info))
                 
                 self.info_group.setVisible(True)
-                self.download_button.setEnabled(True)
             else:
                 self.status_label.setText(_tr.tr("no_updates"))
                 
         except Exception as e:
             self.status_label.setText(f"{_tr.tr('check_failed')}: {str(e)}")
             logger.error(f"Update check failed: {e}")
-        
-        finally:
-            self.check_button.setEnabled(True)
     
     def download_update(self):
-        """Download update"""
+        """Download update - called automatically"""
         if not self.update_info:
             return
         
-        self.download_button.setEnabled(False)
         self.cancel_button.setVisible(True)
         self.progress_bar.setVisible(True)
         self.speed_label.setVisible(True)
@@ -501,6 +492,10 @@ class UpdateDialog(QDialog):
         self.download_worker.download_completed.connect(self.download_finished)
         self.download_worker.status_updated.connect(self.update_status)
         
+        # Register with global download manager
+        version = self.update_info.get('latest_version', '1.1.0')
+        download_manager.start_download(version, self.update_info, self.download_worker)
+        
         self.download_worker.start()
     
     def update_progress(self, progress, speed, remaining):
@@ -508,6 +503,10 @@ class UpdateDialog(QDialog):
         self.progress_bar.setValue(progress)
         self.speed_label.setText(f"{_tr.tr('speed')}: {speed}")
         self.remaining_label.setText(f"{_tr.tr('remaining_time')}: {remaining}")
+        
+        # Update global download manager (only if this is from download worker, not from global manager)
+        if not hasattr(self, '_updating_from_global'):
+            download_manager.update_progress(progress, speed, remaining)
     
     def update_status(self, status):
         """Update status"""
@@ -518,6 +517,9 @@ class UpdateDialog(QDialog):
         self.download_worker = None
         self.cancel_button.setVisible(False)
         
+        # Update global download manager
+        download_manager.complete_download(success, message)
+        
         if success:
             # ✅ Update progress to 100%
             self.progress_bar.setValue(100)
@@ -525,13 +527,13 @@ class UpdateDialog(QDialog):
             self.remaining_label.setText(_tr.tr("remaining_time") + ": -")
             
             self.status_label.setText(message)
-            self.install_button.setEnabled(True)
             
-            # Show beautiful download complete dialog
-            self._show_download_complete_dialog()
+            # Auto-start installation after download completes
+            logger.info("[UpdateDialog] Download complete, auto-starting installation...")
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(1000, self.install_update)  # Wait 1 second then install
         else:
             self.status_label.setText(message)
-            self.download_button.setEnabled(True)
             
             # Hide progress related controls
             self.progress_bar.setVisible(False)
@@ -664,8 +666,10 @@ class UpdateDialog(QDialog):
             self.download_worker.wait()  # Wait for thread to finish
             self.download_worker = None
         
+        # Update global download manager
+        download_manager.cancel_download()
+        
         self.status_label.setText(_tr.tr("download_cancelled"))
-        self.download_button.setEnabled(True)
         self.cancel_button.setVisible(False)
         
         # Hide progress related controls
@@ -674,7 +678,7 @@ class UpdateDialog(QDialog):
         self.remaining_label.setVisible(False)
     
     def install_update(self):
-        """Install update - directly start installation without confirmation dialog"""
+        """Install update - called automatically after download"""
         if not self.update_info:
             return
         
@@ -693,14 +697,16 @@ class UpdateDialog(QDialog):
         
         package_path = package_manager.current_package.download_path
         
-        # ✅ Use default installation options - no confirmation dialog needed
+        # ✅ OTA update installation options - silent mode
         install_opts = {
-            'create_backup': True,  # Always create backup for safety
-            'silent': True
+            'create_backup': True,      # Always create backup for safety
+            'silent': True,              # Silent installation (no installer UI)
+            'auto_restart': False        # Don't auto-restart (let installer handle it)
         }
         
-        # Disable install button
-        self.install_button.setEnabled(False)
+        logger.info(f"[UpdateDialog] Starting OTA silent installation: {package_path}")
+        logger.info(f"[UpdateDialog] Installation options: {install_opts}")
+        
         self.status_label.setText(_tr.tr("preparing_install"))
         
         # Create and start install worker thread
@@ -718,7 +724,6 @@ class UpdateDialog(QDialog):
     def install_finished(self, success: bool, message: str):
         """Installation finished"""
         self.install_worker = None
-        self.install_button.setEnabled(True)
         
         if success:
             # ✅ Update status but don't show dialog
@@ -843,23 +848,56 @@ class UpdateDialog(QDialog):
                 "The installer has been launched.\n\nPlease follow the on-screen instructions to complete the installation."
             )
     
-    def closeEvent(self, event):
-        """Close event"""
+    def handle_close_button(self):
+        """Handle close button - hide if downloading, close otherwise"""
         if self.download_worker and self.download_worker.isRunning():
-            reply = QMessageBox.question(
-                self, 
-                "Confirm Close", 
-                "Download in progress, are you sure you want to close?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            
-            if reply == QMessageBox.Yes:
-                self.download_worker.cancel()
-                self.download_worker.wait()
-                event.accept()
-            else:
-                event.ignore()
+            # Downloading - hide to background
+            logger.info("[UpdateDialog] Hiding to background, download continues")
+            self.hide()
+        else:
+            # Not downloading - close dialog
+            self.close()
+    
+    def _connect_download_manager(self):
+        """Connect to global download manager signals"""
+        download_manager.progress_updated.connect(self._on_global_progress_update)
+        download_manager.download_completed.connect(self._on_global_download_complete)
+    
+    def _on_global_progress_update(self, progress, speed, remaining):
+        """Handle global progress update"""
+        if self.isVisible():
+            # Set flag to prevent recursion
+            self._updating_from_global = True
+            self.progress_bar.setValue(progress)
+            self.speed_label.setText(f"{_tr.tr('speed')}: {speed}")
+            self.remaining_label.setText(f"{_tr.tr('remaining_time')}: {remaining}")
+            self._updating_from_global = False
+    
+    def _on_global_download_complete(self, success, message):
+        """Handle global download complete"""
+        if self.isVisible() and success:
+            self._show_download_complete_dialog()
+    
+    def _restore_download_state(self):
+        """Restore download state from global manager"""
+        self.update_info = download_manager.update_info
+        self.progress_bar.setVisible(True)
+        self.speed_label.setVisible(True)
+        self.remaining_label.setVisible(True)
+        self.cancel_button.setVisible(True)
+        
+        self.progress_bar.setValue(download_manager.progress)
+        self.speed_label.setText(f"Speed: {download_manager.speed}")
+        self.remaining_label.setText(f"Remaining: {download_manager.remaining_time}")
+        self.status_label.setText("Downloading...")
+    
+    def closeEvent(self, event):
+        """Close event - hide if downloading, close otherwise"""
+        if self.download_worker and self.download_worker.isRunning():
+            # Downloading - hide to background
+            logger.info("[UpdateDialog] Hiding to background, download continues")
+            self.hide()
+            event.ignore()
         else:
             event.accept()
 

@@ -319,6 +319,9 @@ class MenuManager:
         self.app_menu = None  # Store reference to app menu (for macOS)
         self.help_menu = None  # Store reference to help menu (for Windows/Linux)
         self.update_notice_action = None  # Store reference to update notice item (macOS only)
+        
+        # Connect to global download manager
+        self._connect_download_manager()
     
     def set_update_available(self, has_update: bool, version: str = None):
         """Set update available status and update menu text with prominent visual indicators
@@ -512,6 +515,60 @@ class MenuManager:
             logger.warning(f"[OTA] Failed to update menu title: {e}")
             import traceback
             logger.debug(traceback.format_exc())
+    
+    def _connect_download_manager(self):
+        """Connect to global download manager for real-time updates"""
+        try:
+            from ota.core.download_manager import download_manager
+            
+            # Connect to download manager signals
+            download_manager.state_changed.connect(self._on_download_state_changed)
+            download_manager.progress_updated.connect(self._on_download_progress)
+            
+            logger.info("[MenuManager] Connected to global download manager")
+        except Exception as e:
+            logger.warning(f"[MenuManager] Failed to connect to download manager: {e}")
+    
+    def _on_download_state_changed(self, state):
+        """Handle download state changes"""
+        try:
+            from ota.core.download_manager import download_manager, DownloadState
+            
+            if not self.check_update_action:
+                return
+            
+            # Get current language
+            lang = _get_menu_messages().current_lang
+            
+            # Update menu text based on download state
+            status_text = download_manager.get_status_text(lang)
+            self.check_update_action.setText(status_text)
+            
+            logger.debug(f"[MenuManager] Download state changed: {state}, menu text: {status_text}")
+        except Exception as e:
+            logger.warning(f"[MenuManager] Failed to handle download state change: {e}")
+    
+    def _on_download_progress(self, progress, speed, remaining):
+        """Handle download progress updates"""
+        try:
+            from ota.core.download_manager import download_manager
+            
+            if not self.check_update_action:
+                return
+            
+            # Get current language
+            lang = _get_menu_messages().current_lang
+            
+            # Update menu text with progress
+            if progress > 0:
+                if lang == 'zh-CN':
+                    text = f"● 下载中... {progress}%"
+                else:
+                    text = f"● Downloading... {progress}%"
+                
+                self.check_update_action.setText(text)
+        except Exception as e:
+            logger.warning(f"[MenuManager] Failed to update download progress: {e}")
         
     def setup_menu(self):
         """Set up eCan menu bar - cross-platform support"""
@@ -996,6 +1053,23 @@ class MenuManager:
             manual: True if triggered by user manually, False if auto-check
         """
         try:
+            # Check if download is in progress
+            from ota.core.download_manager import download_manager, DownloadState
+            
+            # If download is in progress, show current download status
+            if download_manager.is_downloading():
+                logger.info("[MenuManager] Download in progress, showing download status")
+                from ota.gui.dialog import UpdateDialog
+                
+                # Get OTA updater
+                ctx = AppContext.get_instance()
+                ota_updater = getattr(ctx, "ota_updater", None)
+                
+                # Show dialog with current download state
+                dialog = UpdateDialog(parent=self.main_window, ota_updater=ota_updater, show_current_download=True)
+                dialog.show()  # Use show() instead of exec() for non-modal
+                return
+            
             # Import and initialize OTA components on demand
             from ota.core.updater import OTAUpdater
             

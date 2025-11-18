@@ -147,7 +147,7 @@ UPDATE_CONFIG = {
             "download_urls": {
                 "windows": f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-1.0.0-windows-amd64-Setup.exe",
                 "darwin": f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-1.0.0-macos-aarch64.pkg",
-                "linux": f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-1.1.0-linux-amd64.tar.gz"
+                "linux": f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-1.0.0-linux-amd64.tar.gz"
             },
             "file_sizes": {
                 "windows": 0,  # Will be calculated dynamically
