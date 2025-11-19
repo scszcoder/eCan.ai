@@ -126,12 +126,69 @@ class PlaywrightCoreUtils:
         return possible_roots
     
     @staticmethod
+    def get_browser_version(path: Path) -> Optional[str]:
+        """Get browser version from browsers.json or directory name"""
+        try:
+            # Try to read version from browsers.json
+            browsers_json = path / "browsers.json"
+            if browsers_json.exists():
+                import json
+                with open(browsers_json, 'r') as f:
+                    data = json.load(f)
+                    # browsers.json may contain version info
+                    if isinstance(data, dict) and 'browsers' in data:
+                        for browser in data.get('browsers', []):
+                            if 'revision' in browser:
+                                return browser['revision']
+            
+            # Fallback: extract version from chromium directory name
+            chromium_dirs = list(path.glob("chromium-*"))
+            if chromium_dirs:
+                # Extract version number from directory name like "chromium-1181"
+                dir_name = chromium_dirs[0].name
+                version = dir_name.split('-')[-1] if '-' in dir_name else None
+                return version
+            
+            return None
+        except Exception as e:
+            logger.debug(f"Failed to get browser version from {path}: {e}")
+            return None
+    
+    @staticmethod
+    def compare_browser_versions(src_path: Path, dst_path: Path) -> bool:
+        """Compare browser versions, return True if source is newer or different
+        
+        Returns:
+            True if source should replace destination (newer or different)
+            False if destination is same or newer
+        """
+        src_version = PlaywrightCoreUtils.get_browser_version(src_path)
+        dst_version = PlaywrightCoreUtils.get_browser_version(dst_path)
+        
+        # If can't determine versions, assume update needed
+        if src_version is None:
+            logger.debug(f"Cannot determine source version, assuming update needed")
+            return True
+        
+        if dst_version is None:
+            logger.debug(f"Cannot determine destination version, assuming update needed")
+            return True
+        
+        # Compare versions
+        if src_version != dst_version:
+            logger.info(f"Browser version changed: {dst_version} -> {src_version}")
+            return True
+        
+        logger.debug(f"Browser versions match: {src_version}")
+        return False
+    
+    @staticmethod
     def validate_browser_installation(path: Path) -> bool:
         """Validate if browser installation is valid"""
-        logger.info(f"Starting installation validation: {path}")
+        logger.debug(f"Starting installation validation: {path}")
 
         if not path or not path.exists():
-            logger.error(f"Installation validation failed: {path} - path does not exist")
+            logger.debug(f"Installation validation failed: {path} - path does not exist")
             return False
 
         # Check key files - more practical validation method
@@ -144,14 +201,14 @@ class PlaywrightCoreUtils:
                     with open(browsers_json, 'r') as f:
                         browsers_data = json.load(f)
                     if isinstance(browsers_data, dict):
-                        logger.info(f"Found valid browsers.json: {path}")
+                        logger.debug(f"✅ Found valid browsers.json: {path}")
                         return True
                     else:
-                        logger.warning(f"browsers.json format invalid, trying other validation methods")
+                        logger.debug(f"browsers.json format invalid, trying other validation methods")
                 except Exception as e:
-                    logger.warning(f"Failed to read browsers.json: {e}，trying other validation methods")
+                    logger.debug(f"Failed to read browsers.json: {e}，trying other validation methods")
             else:
-                logger.info(f"browsers.json not found, using directory check method")
+                logger.debug(f"browsers.json not found, using directory check method")
 
             # Method 2: Check browser directories
             chromium_dirs = list(path.glob("chromium*"))
@@ -166,11 +223,11 @@ class PlaywrightCoreUtils:
                               if d.is_dir() and not d.name.startswith('.') and
                               any(browser in d.name.lower() for browser in ['chrome', 'firefox', 'safari', 'edge'])]
                 if not browser_dirs:
-                    logger.error(f"Installation validation failed: {path} - No browser directories found")
+                    logger.debug(f"Installation validation failed: {path} - No browser directories found")
                     return False
                 all_browser_dirs = browser_dirs
 
-            logger.info(f"Found browser directories: {[d.name for d in all_browser_dirs]}")
+            logger.debug(f"Found browser directories: {[d.name for d in all_browser_dirs]}")
 
             # Check if directory contains actual files (not empty directory)
             valid_browser_found = False
@@ -181,7 +238,7 @@ class PlaywrightCoreUtils:
 
                     # More intelligent validation logic
                     if file_count < 10:
-                        logger.warning(f"Browser directory {browser_dir.name} has fewer files: {file_count}")
+                        logger.debug(f"Browser directory {browser_dir.name} has fewer files: {file_count}")
                         # Check if there are key executable files
                         executables = [f for f in files if f.is_file() and (
                             f.name.lower().startswith('chrome') or
@@ -190,25 +247,25 @@ class PlaywrightCoreUtils:
                             f.suffix.lower() in ['.exe', '.app', '']
                         )]
                         if not executables:
-                            logger.warning(f"in {browser_dir.name} no executable files found")
+                            logger.debug(f"in {browser_dir.name} no executable files found")
                             continue
                         else:
-                            logger.info(f"in {browser_dir.name} found {len(executables)} executable files")
+                            logger.debug(f"in {browser_dir.name} found {len(executables)} executable files")
                     else:
-                        logger.info(f"Browser directory {browser_dir.name} contains {file_count} files")
+                        logger.debug(f"Browser directory {browser_dir.name} contains {file_count} files")
 
                     valid_browser_found = True
                     break
 
             if not valid_browser_found:
-                logger.error(f"Installation validation failed: {path} - no valid browser installation found")
+                logger.debug(f"Installation validation failed: {path} - no valid browser installation found")
                 return False
 
-            logger.info(f"Installation validation successful: {path}")
+            logger.debug(f"✅ Installation validation successful: {path}")
             return True
 
         except Exception as e:
-            logger.error(f"Installation validation failed: {path} - validation process error: {e}")
+            logger.debug(f"Installation validation failed: {path} - validation process error: {e}")
             return False
     
     @staticmethod
@@ -410,9 +467,18 @@ class PlaywrightCoreUtils:
 
     @staticmethod
     def copy_playwright_browsers(src_path: Path, dst_path: Path) -> None:
-        """Copy Playwright browser files"""
+        """Copy Playwright browser files with version checking"""
+        # Check if destination exists and is valid
+        if dst_path.exists() and PlaywrightCoreUtils.validate_browser_installation(dst_path):
+            # Compare versions to decide if update is needed
+            if not PlaywrightCoreUtils.compare_browser_versions(src_path, dst_path):
+                logger.info(f"[PLAYWRIGHT] ✅ Destination has same or newer version, skipping copy: {dst_path}")
+                return
+            else:
+                logger.info(f"[PLAYWRIGHT] 🔄 Updating browsers to newer version")
+        
         if dst_path.exists():
-            logger.warning(f"[PLAYWRIGHT] Cleaning existing {dst_path}")
+            logger.info(f"[PLAYWRIGHT] Cleaning existing installation: {dst_path}")
             shutil.rmtree(dst_path, ignore_errors=True)
 
         logger.info(f"[PLAYWRIGHT] Copying {src_path} -> {dst_path}")
