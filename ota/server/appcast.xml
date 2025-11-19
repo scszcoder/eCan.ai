@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+    <channel>
+        <title>eCan.ai Updates</title>
+        <link>http://localhost:8080/appcast.xml</link>
+        <description>Most recent updates for eCan.ai</description>
+        <language>en</language>
+        <pubDate>Wed, 19 Nov 2025 16:34:49 +0000</pubDate>
+        
+        <item>
+            <title>Version 1.0.0-macos</title>
+            <description><![CDATA[<h2>What's New in eCan 1.0.0-macos</h2><ul><li>Bug fixes and performance improvements.</li></ul>]]></description>
+            <pubDate>Wed, 19 Nov 2025 16:34:49 +0000</pubDate>
+            <enclosure url="http://localhost:8080/downloads/eCan-1.0.0-macos-aarch64.pkg"
+                       sparkle:version="1.0.0-macos"
+                       sparkle:os="macos"
+                       length="789035353"
+                       type="application/octet-stream"
+                       sparkle:edSignature="51e1cfd23197d4ab79140a91a3c439abce0cb094a3e3a88dc617bf7b558ec106" />
+        </item>
+        
+    </channel>
+</rss>

@@ -204,33 +204,41 @@ def check_update():
         if has_update:
             update_info = UPDATE_CONFIG['updates'].get(latest_version, {})
             
-            # ✅ 从 signatures 文件中读取签名
-            import json
-            signatures_file = server_dir / f"signatures_{latest_version}.json"
+            # ✅ 动态扫描 dist 目录获取文件信息
             signature = ""
             file_size = 0
             
-            if signatures_file.exists():
-                try:
-                    with open(signatures_file, 'r') as f:
-                        signatures_data = json.load(f)
-                    
-                    # 根据平台查找对应的文件
-                    for filename, data in signatures_data.items():
-                        if platform == "darwin" and ("macos" in filename or "darwin" in filename):
-                            signature = data.get('signature', '')
-                            file_size = data.get('file_size', 0)
+            try:
+                project_root = Path(__file__).parent.parent.parent
+                dist_dir = project_root / "dist"
+                
+                # 根据平台查找对应的文件
+                patterns = {
+                    'darwin': ["eCan-*-macos-*.pkg", "eCan-*-macos-*.dmg"],
+                    'windows': ["eCan-*-windows-*-Setup.exe", "eCan-*-windows-*.msi"],
+                    'linux': ["eCan-*-linux-*.tar.gz", "eCan-*-linux-*.AppImage"]
+                }
+                
+                if platform in patterns:
+                    for pattern in patterns[platform]:
+                        for pkg_file in dist_dir.glob(pattern):
+                            # 计算文件大小
+                            file_size = pkg_file.stat().st_size
+                            
+                            # 计算 SHA256
+                            import hashlib
+                            sha256_hash = hashlib.sha256()
+                            with open(pkg_file, "rb") as f:
+                                for byte_block in iter(lambda: f.read(4096), b""):
+                                    sha256_hash.update(byte_block)
+                            signature = sha256_hash.hexdigest()
+                            
+                            logger.info(f"[CHECK] Found package: {pkg_file.name}, size: {file_size}, sha256: {signature[:16]}...")
                             break
-                        elif platform == "windows" and "windows" in filename:
-                            signature = data.get('signature', '')
-                            file_size = data.get('file_size', 0)
+                        if file_size > 0:
                             break
-                        elif platform == "linux" and "linux" in filename:
-                            signature = data.get('signature', '')
-                            file_size = data.get('file_size', 0)
-                            break
-                except Exception as e:
-                    logger.warning(f"Failed to load signatures: {e}")
+            except Exception as e:
+                logger.warning(f"Failed to scan dist directory: {e}")
             
             response.update({
                 "description": update_info.get('description', ''),
@@ -265,66 +273,73 @@ def download_latest():
 
 @app.route('/appcast.xml', methods=['GET'])
 def appcast():
-    """Dynamically generate Sparkle/winSparkle appcast file"""
+    """Dynamically generate Sparkle/winSparkle appcast file by scanning dist directory"""
     try:
         # Get request parameters
         version = request.args.get('version')  # Specified version
         base_url = request.args.get('base_url', f"http://{request.host}")
         
-        # If version is specified, use it; otherwise use latest version
-        if version:
-            success = appcast_gen.generate_appcast(version, base_url, "appcast_temp.xml")
-            appcast_file = "appcast_temp.xml"
-        else:
-            success = appcast_gen.generate_from_latest_signatures(base_url)
-            appcast_file = "appcast.xml"
+        logger.info(f"[APPCAST] Request received: version={version}, base_url={base_url}")
         
-        if not success:
-            # If dynamic generation fails, try to return static file
-            static_appcast = server_dir / "appcast.xml"
-            if static_appcast.exists():
-                logger.warning("Dynamic generation failed, using static appcast.xml")
-                return send_file(str(static_appcast), mimetype='application/rss+xml')
-            else:
-                return "Appcast generation failed and no static file found", 404
+        # Get dist directory
+        project_root = Path(__file__).parent.parent.parent
+        dist_dir = project_root / "dist"
+        
+        # ✅ Use dynamic generation - scans dist directory and calculates signatures
+        logger.info("[APPCAST] 🚀 Using dynamic generation (no signature files needed)")
+        xml_content = appcast_gen.generate_dynamic(
+            base_url=base_url,
+            dist_dir=dist_dir,
+            version=version
+        )
+        
+        if not xml_content:
+            logger.error("[APPCAST] ❌ Dynamic generation failed")
+            return "Appcast generation failed - no packages found in dist directory", 404
         
         # Return generated file
-        appcast_path = server_dir / appcast_file
+        appcast_path = server_dir / "appcast.xml"
         if appcast_path.exists():
-            logger.info(f"Serving dynamically generated appcast: {appcast_file}")
+            logger.info(f"[APPCAST] ✅ Serving dynamically generated appcast")
             return send_file(str(appcast_path), mimetype='application/rss+xml')
         else:
             return "Generated appcast not found", 404
             
     except Exception as e:
-        logger.error(f"Appcast generation error: {e}")
+        logger.error(f"[APPCAST] ❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
         return f"Error serving appcast: {str(e)}", 500
 
 @app.route('/admin/generate-appcast', methods=['POST'])
 def generate_appcast_admin():
-    """Admin API: manually generate appcast"""
+    """Admin API: manually trigger dynamic appcast generation"""
     try:
         data = request.get_json() or {}
         version = data.get('version')
         base_url = data.get('base_url', 'http://127.0.0.1:8080')
         
-        if version:
-            success = appcast_gen.generate_appcast(version, base_url)
-            message = f"Generate appcast for version {version}"
-        else:
-            success = appcast_gen.generate_from_latest_signatures(base_url)
-            message = "Generate appcast from latest signature file"
+        # Get dist directory
+        project_root = Path(__file__).parent.parent.parent
+        dist_dir = project_root / "dist"
         
-        if success:
+        # Use dynamic generation
+        xml_content = appcast_gen.generate_dynamic(
+            base_url=base_url,
+            dist_dir=dist_dir,
+            version=version
+        )
+        
+        if xml_content:
             return jsonify({
                 "success": True,
-                "message": f"{message} 成功",
+                "message": "Dynamic appcast generated successfully",
                 "appcast_url": f"{base_url}/appcast.xml"
             })
         else:
             return jsonify({
                 "success": False,
-                "message": f"{message} 失败"
+                "message": "Dynamic appcast generation failed - no packages found"
             }), 500
             
     except Exception as e:
@@ -333,34 +348,7 @@ def generate_appcast_admin():
             "error": str(e)
         }), 500
 
-@app.route('/admin/signatures', methods=['GET'])
-def list_signatures():
-    """Admin API: list all signature files"""
-    try:
-        signature_files = list(server_dir.glob("signatures_*.json"))
-        signatures_info = []
-        
-        for sig_file in signature_files:
-            version = sig_file.stem.replace('signatures_', '')
-            stat = sig_file.stat()
-            
-            signatures_info.append({
-                "version": version,
-                "filename": sig_file.name,
-                "size": stat.st_size,
-                "modified": stat.st_mtime
-            })
-        
-        # Sort by modification time
-        signatures_info.sort(key=lambda x: x['modified'], reverse=True)
-        
-        return jsonify({
-            "signatures": signatures_info,
-            "count": len(signatures_info)
-        })
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    # /admin/signatures route removed - no longer using signature files
 
 @app.route('/downloads/<filename>', methods=['GET'])
 def download_file(filename):
