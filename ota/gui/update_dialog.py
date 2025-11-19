@@ -117,6 +117,8 @@ class DownloadWorker(QThread):
             )
             
             if success and not self.is_cancelled:
+                # Force emit 100% progress to ensure progress bar reaches completion
+                self.progress_updated.emit(100, "", "")
                 self.status_updated.emit(_tr.tr("download_complete"))
                 
                 # Verify package
@@ -141,10 +143,14 @@ class DownloadWorker(QThread):
             
         current_time = time.time()
         
+        # For progress >= 95% or 100%, always update immediately to ensure completion visibility
+        force_update = progress >= 95
+        
         # Calculate download speed
         if self.last_update_time and current_time > self.last_update_time:
             time_diff = current_time - self.last_update_time
-            if time_diff >= 0.5:  # Update every 0.5 seconds
+            # Update every 0.5 seconds, or immediately if near completion
+            if time_diff >= 0.5 or force_update:
                 # Estimate current downloaded bytes (simplified calculation)
                 total_size = self.update_info.get('file_size', 0)
                 current_downloaded = int((progress / 100) * total_size)
@@ -168,6 +174,10 @@ class DownloadWorker(QThread):
                 self.progress_updated.emit(progress, speed_text, remaining_text)
                 self.last_update_time = current_time
                 self.last_downloaded = current_downloaded
+        elif not self.last_update_time:
+            # First update, initialize timing
+            self.last_update_time = current_time
+            self.progress_updated.emit(progress, _tr.tr("calculating"), _tr.tr("calculating"))
     
     def _format_speed(self, bytes_per_second):
         """Format speed display"""
