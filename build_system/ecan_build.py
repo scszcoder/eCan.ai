@@ -422,11 +422,12 @@ SetupIconFile=..\eCan.ico
 UninstallDisplayIcon={{app}}\eCan.exe
 CreateUninstallRegKey=yes
 AllowNoIcons=yes
-DisableProgramGroupPage=no
 CloseApplications=yes
 RestartApplications=no
 VersionInfoVersion={file_version}
 WizardStyle=modern
+; Normal installation: show standard wizard pages
+; OTA installation (/SILENT): skip wizard pages via ShouldSkipPage function
 ; Language detection: automatically match system language, fallback to English if no match
 LanguageDetectionMethod=uilanguage
 UsePreviousLanguage=yes
@@ -505,7 +506,8 @@ end;
 // Close splash and bring main window to front
 procedure CurPageChanged(CurPageID: Integer);
 begin
-  if Assigned(SplashForm) and (CurPageID = wpWelcome) then
+  // Since Welcome page is disabled, close splash when reaching install progress page
+  if Assigned(SplashForm) and (CurPageID = wpInstalling) then
   begin
     SplashForm.Close;
     SplashForm.Free;
@@ -528,6 +530,33 @@ begin
   end;
 end;
 
+// Skip wizard pages in silent mode (OTA updates)
+// Normal installation: show all wizard pages
+// Silent installation (/SILENT): skip all wizard pages for streamlined experience
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := False;
+  
+  // In silent mode (OTA updates), skip all wizard pages
+  if WizardSilent() then
+  begin
+    case PageID of
+      wpWelcome: Result := True;           // Skip welcome page
+      wpLicense: Result := True;           // Skip license page
+      wpPassword: Result := True;          // Skip password page
+      wpInfoBefore: Result := True;        // Skip info before page
+      wpUserInfo: Result := True;          // Skip user info page
+      wpSelectDir: Result := True;         // Skip directory selection
+      wpSelectComponents: Result := True;  // Skip component selection
+      wpSelectProgramGroup: Result := True; // Skip program group
+      wpSelectTasks: Result := True;       // Skip tasks selection
+      wpReady: Result := True;             // Skip ready page
+      wpInfoAfter: Result := True;         // Skip info after page
+      wpFinished: Result := True;          // Skip finished page
+    end;
+  end;
+end;
+
 // Optional: ask to remove user data on uninstall
 function InitializeUninstall(): Boolean;
 var
@@ -545,7 +574,7 @@ begin
 end;
 
 [Run]
-Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowait postinstall skipifsilent
+Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowait postinstall
 """
 
             iss_file = self.project_root / "build" / "setup.iss"

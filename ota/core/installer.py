@@ -125,6 +125,10 @@ class InstallationManager:
                     logger.info(f"Executing OTA update with progress: {' '.join(cmd)}")
                     logger.info("Using Inno Setup parameters: /SILENT (with progress) /SUPPRESSMSGBOXES /NORESTART")
                     
+                    # Set OTA installation flag to skip exit confirmation dialog
+                    from ota.core.download_manager import download_manager
+                    download_manager.set_installing(True)
+                    
                     # Launch installer without waiting
                     try:
                         process = subprocess.Popen(
@@ -152,9 +156,16 @@ class InstallationManager:
                         logger.error(f"Failed to launch installer: {e}")
                         return False
                 else:
-                    # Development environment - just launch installer normally
-                    logger.warning("Running in development mode, launching installer normally")
-                    subprocess.Popen([str(package_path)])
+                    # Development environment - use /SILENT for OTA testing
+                    logger.warning("Running in development mode, using /SILENT for OTA testing")
+                    cmd = [
+                        str(package_path),
+                        '/SILENT',              # Shows progress bar, skips wizard pages
+                        '/SUPPRESSMSGBOXES',
+                        '/NORESTART',
+                    ]
+                    logger.info(f"Development OTA command: {' '.join(cmd)}")
+                    subprocess.Popen(cmd)
                     return True
             else:
                 # Non-silent mode - launch installer with UI

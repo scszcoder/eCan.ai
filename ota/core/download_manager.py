@@ -56,6 +56,9 @@ class DownloadManager(QObject):
         # Download worker reference
         self.download_worker = None
         
+        # OTA installation flag - set to True when installer is about to launch
+        self._ota_installing = False
+        
         logger.info("[DownloadManager] Initialized")
     
     @classmethod
@@ -124,6 +127,15 @@ class DownloadManager(QObject):
         self.update_info = None
         self.error_message = None
         self.download_worker = None
+        self._ota_installing = False
+    
+    def set_installing(self, installing: bool = True):
+        """Set OTA installation flag"""
+        self._ota_installing = installing
+        if installing:
+            logger.info("[DownloadManager] OTA installation flag set - app will exit without confirmation")
+        else:
+            logger.info("[DownloadManager] OTA installation flag cleared")
     
     def is_downloading(self) -> bool:
         """Check if currently downloading"""

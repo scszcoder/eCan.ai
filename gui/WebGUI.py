@@ -833,6 +833,25 @@ class WebGUI(QMainWindow):
         logger.info("closeEvent triggered")
 
         try:
+            # Check if OTA update is in progress - skip confirmation dialog
+            from ota.core.download_manager import download_manager
+            if hasattr(download_manager, '_ota_installing') and download_manager._ota_installing:
+                logger.info("OTA update in progress - skipping exit confirmation")
+                event.accept()
+                
+                # Stop LightragServer
+                try:
+                    mainwin = AppContext.get_main_window()
+                    if mainwin and hasattr(mainwin, 'lightrag_server') and mainwin.lightrag_server:
+                        mainwin.lightrag_server.stop()
+                except Exception as e:
+                    logger.warning(f"Error stopping LightragServer: {e}")
+                
+                # Force exit for OTA update
+                logger.info("Force exiting for OTA update with os._exit(0)")
+                os._exit(0)
+                return
+            
             # Create custom dialog with i18n support
             msg_box = QMessageBox(self)
             msg_box.setWindowTitle(_get_webgui_messages().get('confirm_exit_title'))
