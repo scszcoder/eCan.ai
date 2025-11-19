@@ -92,6 +92,12 @@ class OTAUpdater:
             bool or tuple: If return_info is False, returns bool indicating if update is available.
                           If return_info is True, returns (has_update, update_info) tuple.
         """
+        # ✅ Check if OTA is enabled
+        if not ota_config.enabled:
+            if not silent:
+                logger.info("[OTA] OTA is disabled (ota_enabled=false)")
+            return (False, None) if return_info else False
+        
         with self._check_lock:
             if self.is_checking:
                 if not silent:
@@ -181,6 +187,11 @@ class OTAUpdater:
 
     def start_auto_check(self):
         """Start automatic checking"""
+        # ✅ Check if OTA is enabled
+        if not ota_config.enabled:
+            logger.info("[OTA] Auto check not started - OTA is disabled (ota_enabled=false)")
+            return
+        
         if self._auto_check_thread and self._auto_check_thread.is_alive():
             logger.info("Auto check already running")
             return
@@ -264,6 +275,11 @@ class OTAUpdater:
 
         def _bootstrap():
             try:
+                # ✅ First check if OTA is enabled
+                if not ota_config.enabled:
+                    log.info("[OTA] OTA is disabled (ota_enabled=false)")
+                    return
+                
                 if not ota_config.get("auto_check", True):
                     log.info("[OTA] Auto check disabled by config")
                     return

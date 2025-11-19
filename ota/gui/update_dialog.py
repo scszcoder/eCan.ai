@@ -34,16 +34,24 @@ class InstallWorker(QThread):
     # Signals
     status_updated = Signal(str)  # Status message
     install_completed = Signal(bool, str)  # Success, message
+    installation_progress = Signal(int, str)  # Progress percentage, phase
     
     def __init__(self, package_path: Path, install_options: Dict[str, Any]):
         super().__init__()
         self.package_path = package_path
         self.install_options = install_options
     
+    def _on_progress(self, progress: int, phase: str):
+        """Progress callback from installer"""
+        self.installation_progress.emit(progress, phase)
+    
     def run(self):
         """Execute installation in background thread"""
         try:
-            from ota.core.installer import installation_manager
+            from ota.core.installer import InstallationManager
+            
+            # Create installation manager with progress callback
+            installer = InstallationManager(progress_callback=self._on_progress)
             
             # Update status
             if self.install_options.get('create_backup', False):
@@ -52,7 +60,7 @@ class InstallWorker(QThread):
             self.status_updated.emit(_tr.tr("installing_update"))
             
             # Execute installation
-            success = installation_manager.install_package(self.package_path, self.install_options)
+            success = installer.install_package(self.package_path, self.install_options)
             
             if success:
                 self.install_completed.emit(True, _tr.tr("installer_launched_status"))
@@ -332,7 +340,7 @@ class UpdateDialog(QDialog):
         # 设置窗口属性 - 遵循ECBot标准
         self.setWindowTitle(_tr.tr("window_title"))
         self.setModal(False)  # Changed to non-modal to allow background operation
-        self.setFixedSize(600, 450)
+        self.setFixedSize(600, 600)
         
         # Connect to global download manager
         self._connect_download_manager()
@@ -377,7 +385,7 @@ class UpdateDialog(QDialog):
         progress_group = QGroupBox(_tr.tr("download_progress"))
         progress_layout = QVBoxLayout()
         
-        # Main progress bar
+        # Download progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         progress_layout.addWidget(self.progress_bar)
@@ -396,6 +404,19 @@ class UpdateDialog(QDialog):
         details_layout.addWidget(self.remaining_label)
         
         progress_layout.addLayout(details_layout)
+        
+        # Installation progress bar (separate from download)
+        self.install_progress_bar = QProgressBar()
+        self.install_progress_bar.setVisible(False)
+        self.install_progress_bar.setFormat("安装进度: %p%")
+        progress_layout.addWidget(self.install_progress_bar)
+        
+        # Installation phase label
+        self.install_phase_label = QLabel("")
+        self.install_phase_label.setVisible(False)
+        self.install_phase_label.setStyleSheet("color: #666; font-size: 11px; padding: 2px;")
+        progress_layout.addWidget(self.install_phase_label)
+        
         progress_group.setLayout(progress_layout)
         layout.addWidget(progress_group)
         
@@ -405,21 +426,22 @@ class UpdateDialog(QDialog):
         info_layout = QVBoxLayout()
         
         self.info_text = QTextEdit()
-        self.info_text.setMaximumHeight(100)
+        self.info_text.setMinimumHeight(200)
+        self.info_text.setMaximumHeight(300)
         self.info_text.setReadOnly(True)
         info_layout.addWidget(self.info_text)
         
         self.info_group.setLayout(info_layout)
         layout.addWidget(self.info_group)
         
-        # Add flexible space
-        layout.addItem(QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Expanding))
+        # Add small fixed space
+        layout.addItem(QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed))
         
         # Button area - minimal layout (only control buttons)
         button_layout = QHBoxLayout()
         
         # Only show cancel button during download
-        self.cancel_button = QPushButton("停止下载" if _tr.current_lang == 'zh-CN' else "Stop Download")
+        self.cancel_button = QPushButton(_tr.tr("cancel"))
         self.cancel_button.setVisible(False)
         
         # Close button - smart behavior (hide when downloading, close otherwise)
@@ -713,6 +735,7 @@ class UpdateDialog(QDialog):
         self.install_worker = InstallWorker(package_path, install_opts)
         self.install_worker.status_updated.connect(self.install_status_updated)
         self.install_worker.install_completed.connect(self.install_finished)
+        self.install_worker.installation_progress.connect(self.installation_progress_updated)
         self.install_worker.start()
         
         logger.info("[UpdateDialog] Installation started in background thread (auto-install, no confirmation)")
@@ -720,6 +743,23 @@ class UpdateDialog(QDialog):
     def install_status_updated(self, status: str):
         """Installation status updated"""
         self.status_label.setText(status)
+    
+    def installation_progress_updated(self, progress: int, phase: str):
+        """Installation progress updated - show progress bar and phase"""
+        # Show installation progress bar
+        if not self.install_progress_bar.isVisible():
+            self.install_progress_bar.setVisible(True)
+            self.install_phase_label.setVisible(True)
+            logger.info("[UpdateDialog] Installation progress bar shown")
+        
+        # Update progress
+        self.install_progress_bar.setValue(progress)
+        
+        # Update phase text
+        if phase:
+            self.install_phase_label.setText(f"📦 {phase}")
+        
+        logger.debug(f"[UpdateDialog] Installation progress: {progress}% - {phase}")
     
     def install_finished(self, success: bool, message: str):
         """Installation finished"""
