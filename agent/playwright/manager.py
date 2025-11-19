@@ -55,38 +55,19 @@ class PlaywrightManager:
                 return False
             
             try:
-                logger.info("🚀 Initializing Playwright browsers...")
-
-                # Print environment information
-                self._print_environment_info()
-
                 # Setup Playwright browser environment
                 browsers_path = setup_playwright()
-
-                if browsers_path and browsers_path.exists():
-                    self._browsers_path = str(browsers_path)
-
-                    # Set environment variables
-                    core_utils.set_environment_variables(browsers_path)
-                    log_with_emoji("success", f"Environment variables set successfully: {browsers_path}")
-
-                    # Save Playwright path to AppContext
-                    self.ctx.set_playwright_browsers_path(self._browsers_path)
-
-                    self._initialized = True
-                    logger.info(f"✅ Playwright browsers initialized successfully at: {browsers_path}")
-                    return True
-                else:
-                    error_msg = "Invalid Playwright browsers path"
-                    self._initialization_error = error_msg
-                    logger.error(f"❌ {error_msg}")
-                    return False
+                
+                self._browsers_path = str(browsers_path)
+                self.ctx.set_playwright_browsers_path(self._browsers_path)
+                self._initialized = True
+                
+                logger.info(f"✅ Playwright browsers initialized successfully at: {browsers_path}")
+                return True
 
             except Exception as e:
-                # Use simplified error handling
-                error_msg = friendly_error_message(e, "manager_initialization")
                 self._initialization_error = str(e)
-                logger.error(f"❌ Playwright initialization failed: {error_msg}")
+                logger.error(f"❌ Playwright initialization failed: {e}")
                 return False
     
     def get_browsers_path(self) -> Optional[str]:
@@ -163,27 +144,6 @@ class PlaywrightManager:
         self._lazy_init_done = True
         return self._ensure_initialized()
     
-    def _print_environment_info(self) -> None:
-        """Print Playwright environment information"""
-        env_info = self.get_environment_info()
-
-        logger.info("📋 Playwright Environment Information:")
-        logger.info(f"  Platform: {env_info['platform']}")
-        logger.info(f"  Frozen (PyInstaller): {env_info['frozen']}")
-
-        if env_info['meipass']:
-            logger.info(f"  MEI Pass: {env_info['meipass']}")
-
-        logger.info(f"  Bundled Path: {env_info['bundled_path'] or 'None'}")
-        logger.info(f"  Default Path: {env_info['default_path']}")
-        logger.info(f"  App Data Path: {env_info['app_data_path']}")
-
-        logger.info("  Environment Variables:")
-        for var_name, var_value in env_info['env_variables'].items():
-            if var_value:
-                logger.info(f"    {var_name}: {var_value}")
-            else:
-                logger.info(f"    {var_name}: <not set>")
 
     def get_environment_info(self) -> Dict[str, Any]:
         """

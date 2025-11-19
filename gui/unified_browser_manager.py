@@ -87,11 +87,11 @@ class UnifiedBrowserManager:
             self._playwright_manager = get_playwright_manager()
 
             if not self._playwright_manager.is_initialized():
-                logger.debug("Initializing Playwright environment...")
+                logger.info("🔧 Initializing Playwright environment...")
                 if not self._playwright_manager.lazy_init():
                     raise RuntimeError("Playwright environment initialization failed")
 
-            logger.debug("✅ Playwright manager ready")
+            logger.info("✅ Playwright manager ready")
             return True
 
         except Exception as e:
