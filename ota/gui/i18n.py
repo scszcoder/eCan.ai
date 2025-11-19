@@ -13,7 +13,7 @@ class OTATranslations:
     
     # Translation dictionary
     TRANSLATIONS = {
-        'en': {
+        'en-US': {
             # Window titles
             'window_title': 'ECBot Software Update',
             'confirm_install_title': 'Confirm Update Installation',
@@ -98,7 +98,7 @@ class OTATranslations:
             'installer_launched_status': 'Installer launched!',
             'installation_failed_status': 'Installation failed',
         },
-        'zh': {
+        'zh-CN': {
             # Window titles
             'window_title': 'ECBot 软件更新',
             'confirm_install_title': '确认安装更新',
@@ -190,20 +190,43 @@ class OTATranslations:
         Initialize translator
         
         Args:
-            language: Language code ('en' or 'zh'). If None, auto-detect
+            language: Language code ('en-US' or 'zh-CN'). If None, auto-detect
         """
         if language is None:
             language = self._detect_language()
         
-        self.language = language if language in self.TRANSLATIONS else 'en'
+        # Normalize language code to standard format
+        self.language = self._normalize_language(language)
         logger.info(f"[OTA i18n] Language set to: {self.language}")
+    
+    def _normalize_language(self, language):
+        """
+        Normalize language code to standard format
+        
+        Args:
+            language: Language code (can be 'zh', 'zh-CN', 'en', 'en-US', etc.)
+            
+        Returns:
+            str: Normalized language code ('zh-CN' or 'en-US')
+        """
+        if not language:
+            return 'en-US'
+        
+        lang_lower = language.lower()
+        
+        # Chinese variants
+        if 'zh' in lang_lower or 'cn' in lang_lower or 'chinese' in lang_lower:
+            return 'zh-CN'
+        
+        # English variants (default)
+        return 'en-US'
     
     def _detect_language(self):
         """
         Auto-detect system language using unified i18n helper
         
         Returns:
-            str: Language code ('en' or 'zh')
+            str: Language code ('zh-CN' or 'en-US')
         """
         try:
             # Use unified language detection from utils.i18n_helper
@@ -215,15 +238,12 @@ class OTATranslations:
                 supported_languages=['zh-CN', 'en-US']
             )
             
-            # Convert to OTA format ('zh-CN' -> 'zh', 'en-US' -> 'en')
-            if 'zh' in detected.lower() or 'cn' in detected.lower():
-                return 'zh'
-            else:
-                return 'en'
+            # Normalize to standard format
+            return self._normalize_language(detected)
                 
         except Exception as e:
-            logger.warning(f"[OTA i18n] Language detection failed: {e}, using default 'en'")
-            return 'en'  # Default to English
+            logger.warning(f"[OTA i18n] Language detection failed: {e}, using default 'en-US'")
+            return 'en-US'  # Default to English
     
     def tr(self, key):
         """

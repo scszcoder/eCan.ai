@@ -18,9 +18,17 @@ from ota.config.loader import ota_config
 class InstallationManager:
     """Installation Manager"""
     
-    def __init__(self):
+    def __init__(self, progress_callback=None):
+        """
+        Initialize Installation Manager
+        
+        Args:
+            progress_callback: Optional callback function(progress: int, phase: str)
+                              Called when installation progress updates
+        """
         self.platform = sys.platform
         self.backup_dir = None
+        self.progress_callback = progress_callback
         
     def install_package(self, package_path: Path, install_options: Dict[str, Any] = None) -> bool:
         """Install update package"""
@@ -212,60 +220,178 @@ class InstallationManager:
         
         Note: macOS PKG installation requires administrator privileges.
         
-        Installation modes:
-        1. GUI mode (default): Shows installer UI with progress
-        2. Command-line mode: Requires password, shows progress in terminal
-        
-        For OTA updates, we use GUI mode to show progress to user.
+        Installation approach:
+        - Use AppleScript with 'installer' command for silent installation with progress
+        - Shows: Password prompt + Progress in terminal/notification
+        - No installation wizard UI
         """
         try:
             logger.info(f"Installing macOS PKG: {package_path}")
             
-            # For OTA updates, launch installer with GUI to show progress
+            # For OTA updates, use installer command with admin privileges
             if install_options.get('silent', True):
-                logger.info("Starting PKG installation with progress UI...")
+                logger.info("Starting PKG installation (no wizard, with progress)...")
                 
-                # Use 'open' to launch the installer with GUI
-                # This shows:
-                # 1. Password prompt (required by macOS)
-                # 2. Installation progress bar
-                # 3. Completion notification
+                # Use osascript with a different approach for real-time output
+                # We'll use a shell script that runs installer and outputs progress
                 try:
                     logger.info("⚠️  macOS security requires administrator password for PKG installation")
-                    logger.info("User will see:")
-                    logger.info("  1. Password prompt")
-                    logger.info("  2. Installation progress bar")
-                    logger.info("  3. Completion notification")
+                    logger.info("Installation mode:")
+                    logger.info("  • Password prompt: YES (required)")
+                    logger.info("  • Installation wizard: NO")
+                    logger.info("  • Progress logging: YES")
                     
-                    # Launch installer with GUI
-                    # -W flag waits for installer to complete
+                    # Create a temporary script for installation with real-time output
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
+                        script_path = f.name
+                        f.write(f'''#!/bin/bash
+installer -pkg "{package_path}" -target / -verboseR 2>&1
+''')
+                    
+                    # Make script executable
+                    os.chmod(script_path, 0o755)
+                    
+                    # Launch installer with osascript for password prompt
+                    # Use a different approach: run with sudo through osascript
+                    applescript = f'''
+                    do shell script "{script_path}" with administrator privileges
+                    '''
+                    
+                    # Launch installer in background
                     process = subprocess.Popen(
-                        ["open", "-W", str(package_path)],
+                        ["osascript", "-e", applescript],
                         stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True
+                        stderr=subprocess.STDOUT,  # Merge stderr to stdout
+                        text=True,
+                        bufsize=0,  # Unbuffered for real-time output
+                        universal_newlines=True
                     )
                     
-                    logger.info(f"PKG installer launched with GUI (PID: {process.pid})")
-                    logger.info("Waiting for installation to complete...")
+                    logger.info(f"PKG installer launched (PID: {process.pid})")
+                    logger.info("Waiting for user to enter password and installation to complete...")
                     
-                    # Wait for installation to complete (with timeout)
+                    # Show initial notification
                     try:
-                        stdout, stderr = process.communicate(timeout=600)  # 10 minutes
+                        subprocess.run([
+                            "osascript", "-e",
+                            'display notification "正在安装更新，请稍候..." with title "eCan 更新"'
+                        ], check=False)
+                    except Exception:
+                        pass
+                    
+                    # Since AppleScript doesn't support real-time output streaming,
+                    # we'll simulate progress based on time estimation
+                    try:
+                        import time as time_module
+                        import threading
+                        
+                        start_time = time_module.time()
+                        timeout = 600  # 10 minutes
+                        
+                        # Estimated installation phases and durations (in seconds)
+                        phases = [
+                            (0, 5, "正在准备安装..."),
+                            (5, 10, "正在验证软件包..."),
+                            (10, 50, "正在写文件..."),
+                            (50, 55, "正在运行软件包脚本..."),
+                            (55, 58, "正在写软件包回执..."),
+                            (58, 60, "正在验证软件包..."),
+                        ]
+                        
+                        # Start a thread to simulate progress
+                        def simulate_progress():
+                            elapsed = 0
+                            while process.poll() is None and elapsed < timeout:
+                                elapsed = time_module.time() - start_time
+                                
+                                # Find current phase
+                                current_phase = "正在安装..."
+                                progress = 0
+                                
+                                for start_sec, end_sec, phase_name in phases:
+                                    if start_sec <= elapsed < end_sec:
+                                        # Calculate progress within this phase
+                                        phase_progress = (elapsed - start_sec) / (end_sec - start_sec)
+                                        # Map to overall progress (0-100)
+                                        overall_start = (start_sec / 60) * 100
+                                        overall_end = (end_sec / 60) * 100
+                                        progress = overall_start + (overall_end - overall_start) * phase_progress
+                                        current_phase = phase_name
+                                        break
+                                
+                                # Cap at 95% until actually complete
+                                progress = min(95, progress)
+                                
+                                # Call progress callback
+                                if self.progress_callback:
+                                    try:
+                                        self.progress_callback(int(progress), current_phase)
+                                    except Exception as e:
+                                        logger.debug(f"Progress callback error: {e}")
+                                
+                                time_module.sleep(0.5)  # Update every 0.5 seconds
+                        
+                        # Start progress simulation thread
+                        progress_thread = threading.Thread(target=simulate_progress, daemon=True)
+                        progress_thread.start()
+                        
+                        # Wait for installation to complete
+                        stdout, stderr = process.communicate(timeout=timeout)
+                        
+                        # Stop progress thread
+                        progress_thread.join(timeout=1)
+                        
+                        # Send 100% progress
+                        if self.progress_callback:
+                            try:
+                                self.progress_callback(100, "软件已成功安装")
+                            except Exception as e:
+                                logger.debug(f"Progress callback error: {e}")
+                        
+                        # Clean up temporary script
+                        try:
+                            os.unlink(script_path)
+                        except Exception:
+                            pass
+                    
+                    except subprocess.TimeoutExpired:
+                        logger.error("Installation timeout (10 minutes)")
+                        process.kill()
+                        # Clean up temporary script
+                        try:
+                            os.unlink(script_path)
+                        except Exception:
+                            pass
+                        return False
+                    
+                    # Check result
+                    try:
                         
                         if process.returncode == 0:
                             logger.info("✅ PKG installation completed successfully")
+                            if stdout:
+                                logger.info(f"Installation output: {stdout}")
                             
-                            # Schedule application exit for file replacement
-                            logger.info("Installation complete, application will exit in 3 seconds...")
+                            # Show completion notification
+                            try:
+                                subprocess.run([
+                                    "osascript", "-e",
+                                    'display notification "安装完成，应用将在 3 秒后重启" with title "eCan 更新"'
+                                ])
+                            except Exception as e:
+                                logger.warning(f"Failed to show notification: {e}")
+                            
+                            # Schedule application restart
+                            logger.info("Installation complete, application will restart in 3 seconds...")
                             
                             import threading
-                            def delayed_exit():
+                            def delayed_restart():
                                 time.sleep(3)
-                                logger.info("Exiting for installer to complete...")
-                                os._exit(0)
+                                logger.info("Restarting application...")
+                                self._restart_application()
                             
-                            threading.Thread(target=delayed_exit, daemon=True).start()
+                            threading.Thread(target=delayed_restart, daemon=True).start()
                             
                             return True
                         else:
@@ -281,8 +407,8 @@ class InstallationManager:
                     logger.error(f"Failed to launch PKG installer: {e}")
                     return False
             else:
-                # Non-silent mode - launch installer with UI
-                logger.info("Launching PKG installer with UI...")
+                # Non-silent mode - launch installer with full UI
+                logger.info("Launching PKG installer with full UI...")
                 subprocess.Popen(["open", str(package_path)])
                 return True
                     
@@ -532,12 +658,142 @@ rm "$0"
                 os._exit(0)
                 
             else:
-                # ✅ Development environment - don't restart
-                logger.info("Running in development environment, skipping auto-restart")
-                logger.info("Please manually restart the application to use the new version")
+                # ✅ Development environment - restart using python
+                logger.info("Running in development environment")
+                logger.info("Attempting to restart application...")
+                
+                # Get the main script path
+                import __main__
+                if hasattr(__main__, '__file__'):
+                    main_script = Path(__main__.__file__).resolve()
+                    logger.info(f"Restarting: python3 {main_script}")
+                    
+                    # Launch new instance
+                    subprocess.Popen(['python3', str(main_script)], 
+                                   cwd=str(main_script.parent))
+                    
+                    # Exit current instance
+                    logger.info("Exiting current instance in 2 seconds...")
+                    time.sleep(2)
+                    os._exit(0)
+                else:
+                    logger.warning("Could not determine main script path")
+                    logger.info("Please manually restart the application")
                 
         except Exception as e:
             logger.error(f"Failed to restart application: {e}")
+    
+    def _parse_installer_progress(self, line: str) -> float:
+        """
+        Parse progress percentage from installer output
+        
+        Args:
+            line: Output line from installer command
+            
+        Returns:
+            Progress percentage (0-100) or None if not found
+        """
+        try:
+            # installer output format: "installer:%12.345678"
+            if 'installer:%' in line:
+                # Extract percentage
+                parts = line.split('installer:%')
+                if len(parts) > 1:
+                    percent_str = parts[1].strip()
+                    # Get first number (may have more text after)
+                    percent = float(percent_str.split()[0])
+                    return min(100.0, max(0.0, percent))
+        except Exception as e:
+            logger.debug(f"Failed to parse progress from line: {line[:50]}... Error: {e}")
+        
+        return None
+    
+    def _show_installation_progress_dialog(self):
+        """
+        Show Qt progress dialog for installation
+        
+        Returns:
+            Progress dialog object or None if Qt is not available
+        """
+        try:
+            from PyQt5.QtWidgets import QProgressDialog, QApplication
+            from PyQt5.QtCore import Qt
+            
+            # Get or create QApplication instance
+            app = QApplication.instance()
+            if app is None:
+                logger.warning("No QApplication instance, cannot show progress dialog")
+                return None
+            
+            # Create progress dialog
+            dialog = QProgressDialog(
+                "正在安装更新，请稍候...",
+                None,  # No cancel button
+                0,
+                100
+            )
+            dialog.setWindowTitle("eCan 更新")
+            dialog.setWindowModality(Qt.WindowModal)
+            dialog.setMinimumDuration(0)  # Show immediately
+            dialog.setValue(0)
+            dialog.show()
+            
+            # Process events to show dialog
+            app.processEvents()
+            
+            logger.info("Installation progress dialog shown")
+            return dialog
+            
+        except Exception as e:
+            logger.warning(f"Failed to show progress dialog: {e}")
+            return None
+    
+    def _update_progress_dialog(self, dialog, progress: float, status_line: str = ""):
+        """
+        Update progress dialog with current progress
+        
+        Args:
+            dialog: Qt progress dialog
+            progress: Progress percentage (0-100)
+            status_line: Current status line from installer
+        """
+        try:
+            from PyQt5.QtWidgets import QApplication
+            
+            # Update progress value
+            dialog.setValue(int(progress))
+            
+            # Update label text with phase information
+            if 'PHASE:' in status_line:
+                phase = status_line.split('PHASE:')[-1].strip()
+                if phase:
+                    dialog.setLabelText(f"正在安装更新... {int(progress)}%\n{phase}")
+            else:
+                dialog.setLabelText(f"正在安装更新... {int(progress)}%")
+            
+            # Process events to update UI
+            app = QApplication.instance()
+            if app:
+                app.processEvents()
+            
+            logger.debug(f"Progress updated: {progress:.1f}%")
+            
+        except Exception as e:
+            logger.debug(f"Failed to update progress dialog: {e}")
+    
+    def _close_progress_dialog(self, dialog):
+        """
+        Close progress dialog
+        
+        Args:
+            dialog: Qt progress dialog
+        """
+        try:
+            if dialog:
+                dialog.close()
+                logger.info("Installation progress dialog closed")
+        except Exception as e:
+            logger.warning(f"Failed to close progress dialog: {e}")
 
 
 # 全局安装管理器实例
