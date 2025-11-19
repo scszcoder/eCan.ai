@@ -468,6 +468,11 @@ class UpdateDialog(QDialog):
         """Setup signal connections"""
         self.cancel_button.clicked.connect(self.cancel_download)
         self.close_button.clicked.connect(self.handle_close_button)
+        
+        # Connect progress updates to update UI
+        # This ensures progress bar updates even when dialog is hidden
+        if hasattr(self, 'download_worker') and self.download_worker:
+            self.download_worker.progress_updated.connect(self.update_progress)
     
     def check_for_updates(self):
         """Check for updates"""
@@ -582,7 +587,7 @@ class UpdateDialog(QDialog):
             dialog = QDialog(self)
             dialog.setWindowTitle(_tr.tr("download_complete"))
             dialog.setModal(True)
-            dialog.setFixedSize(450, 300)
+            dialog.setFixedSize(550, 350)  # Increased width from 450 to 550
             
             # Main layout
             layout = QVBoxLayout()
@@ -930,25 +935,99 @@ class UpdateDialog(QDialog):
     
     def _restore_download_state(self):
         """Restore download state from global manager"""
-        self.update_info = download_manager.update_info
-        self.progress_bar.setVisible(True)
-        self.speed_label.setVisible(True)
-        self.remaining_label.setVisible(True)
-        self.cancel_button.setVisible(True)
+        logger.info(f"[UpdateDialog] Restoring download state: {download_manager.state}")
         
-        self.progress_bar.setValue(download_manager.progress)
-        self.speed_label.setText(f"Speed: {download_manager.speed}")
-        self.remaining_label.setText(f"Remaining: {download_manager.remaining_time}")
-        self.status_label.setText("Downloading...")
+        self.update_info = download_manager.update_info
+        
+        # Check current state
+        if download_manager.state == DownloadState.DOWNLOADING:
+            # Still downloading
+            self.progress_bar.setVisible(True)
+            self.speed_label.setVisible(True)
+            self.remaining_label.setVisible(True)
+            self.cancel_button.setVisible(True)
+            
+            self.progress_bar.setValue(download_manager.progress)
+            self.speed_label.setText(f"{_tr.tr('speed')}: {download_manager.speed}")
+            self.remaining_label.setText(f"{_tr.tr('remaining_time')}: {download_manager.remaining_time}")
+            self.status_label.setText(_tr.tr("downloading"))
+            
+            # Reconnect to existing download worker if available
+            if download_manager.download_worker:
+                self.download_worker = download_manager.download_worker
+                # Reconnect signals to this dialog
+                try:
+                    self.download_worker.progress_updated.disconnect()
+                except:
+                    pass
+                try:
+                    self.download_worker.download_completed.disconnect()
+                except:
+                    pass
+                try:
+                    self.download_worker.status_updated.disconnect()
+                except:
+                    pass
+                
+                # Connect to this dialog
+                self.download_worker.progress_updated.connect(self.update_progress)
+                self.download_worker.download_completed.connect(self.download_finished)
+                self.download_worker.status_updated.connect(self.update_status)
+                logger.info("[UpdateDialog] Reconnected to existing download worker")
+            
+        elif download_manager.state == DownloadState.COMPLETED:
+            # Download completed
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setValue(100)
+            self.speed_label.setVisible(False)
+            self.remaining_label.setVisible(False)
+            self.cancel_button.setVisible(False)
+            self.status_label.setText(_tr.tr("download_complete"))
+            
+            # Show install confirmation dialog
+            self._show_download_complete_dialog()
+            
+        elif download_manager.state == DownloadState.INSTALLING:
+            # Installing
+            self.progress_bar.setVisible(False)
+            self.install_progress_bar.setVisible(True)
+            self.install_phase_label.setVisible(True)
+            self.cancel_button.setVisible(False)
+            self.status_label.setText(_tr.tr("installing"))
+            
+        else:
+            # Other states (idle, failed, etc.)
+            logger.warning(f"[UpdateDialog] Unexpected state when restoring: {download_manager.state}")
+    
+    def showEvent(self, event):
+        """Show event - restore state when dialog is shown again"""
+        super().showEvent(event)
+        
+        # If download manager has an active state, restore it
+        if download_manager.state in [DownloadState.DOWNLOADING, DownloadState.COMPLETED, DownloadState.INSTALLING]:
+            logger.info(f"[UpdateDialog] Dialog shown, restoring state: {download_manager.state}")
+            self._restore_download_state()
     
     def closeEvent(self, event):
-        """Close event - hide if downloading, close otherwise"""
+        """Close event - hide if downloading/installing, close otherwise"""
+        # Check if download or installation is in progress
+        is_busy = False
+        
         if self.download_worker and self.download_worker.isRunning():
-            # Downloading - hide to background
-            logger.info("[UpdateDialog] Hiding to background, download continues")
+            is_busy = True
+            logger.info("[UpdateDialog] Download in progress, hiding to background")
+            
+        if self.install_worker and self.install_worker.isRunning():
+            is_busy = True
+            logger.info("[UpdateDialog] Installation in progress, hiding to background")
+        
+        if is_busy:
+            # Hide to background, don't close
             self.hide()
             event.ignore()
         else:
+            # Safe to close
+            logger.info("[UpdateDialog] Closing dialog")
             event.accept()
 
 

@@ -158,6 +158,11 @@ class InstallationManager:
                 else:
                     # Development environment - use /SILENT for OTA testing
                     logger.warning("Running in development mode, using /SILENT for OTA testing")
+                    
+                    # Set OTA installation flag to skip exit confirmation dialog
+                    from ota.core.download_manager import download_manager
+                    download_manager.set_installing(True)
+                    
                     cmd = [
                         str(package_path),
                         '/SILENT',              # Shows progress bar, skips wizard pages
@@ -166,6 +171,17 @@ class InstallationManager:
                     ]
                     logger.info(f"Development OTA command: {' '.join(cmd)}")
                     subprocess.Popen(cmd)
+                    
+                    # Schedule application exit for development environment
+                    import threading
+                    def delayed_exit():
+                        time.sleep(3)
+                        logger.info("Development mode: Exiting for installer to replace files...")
+                        os._exit(0)
+                    
+                    threading.Thread(target=delayed_exit, daemon=True).start()
+                    logger.info("Development mode: Application will exit in 3 seconds...")
+                    
                     return True
             else:
                 # Non-silent mode - launch installer with UI

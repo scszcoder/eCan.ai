@@ -50,6 +50,8 @@ class BuildConfig:
     def __init__(self, config_file: Path):
         self.config_file = config_file
         self.config = self._load_config()
+        # Sync version from VERSION file
+        self._sync_version_from_file()
 
     def _load_config(self) -> Dict[str, Any]:
         """Load configuration file"""
@@ -59,6 +61,22 @@ class BuildConfig:
         except Exception as e:
             print(f"[ERROR] Failed to load config file: {e}")
             sys.exit(1)
+    
+    def _sync_version_from_file(self):
+        """Sync version from VERSION file to config"""
+        version_file = Path(__file__).parent.parent / "VERSION"
+        try:
+            if version_file.exists():
+                version = version_file.read_text(encoding='utf-8').strip()
+                if version:
+                    # Update in-memory config
+                    if "app" in self.config:
+                        self.config["app"]["version"] = version
+                    if "installer" in self.config:
+                        self.config["installer"]["app_version"] = version
+                    print(f"[INFO] Synced version from VERSION file: {version}")
+        except Exception as e:
+            print(f"[WARN] Failed to sync version from VERSION file: {e}")
 
     def get_app_info(self) -> Dict[str, Any]:
         """Get application information"""
