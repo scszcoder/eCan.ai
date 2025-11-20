@@ -52,7 +52,7 @@ choco install visualstudio2022buildtools --package-parameters "--add Microsoft.V
 创建 `.github/workflows/build-and-sign.yml`：
 
 ```yaml
-name: Build and Sign ECBot
+name: Build and Sign eCan.ai
 
 on:
   push:
@@ -139,7 +139,7 @@ jobs:
           python build_system/create_test_certificate.py
         }
         
-    - name: Build and sign ECBot
+    - name: Build and sign eCan.ai
       env:
         CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
       run: |
@@ -160,7 +160,7 @@ jobs:
     - name: Upload build artifacts
       uses: actions/upload-artifact@v3
       with:
-        name: ecbot-windows-signed
+        name: ecan-windows-signed
         path: |
           dist/*.exe
           dist/*.msi

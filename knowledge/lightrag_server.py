@@ -1075,7 +1075,7 @@ class LightragServer:
 
             if platform.system().lower().startswith('win'):
                 # Hide console window in production by default; enable via env for debugging
-                show_console = os.getenv("ECBOT_CHILD_SHOW_CONSOLE") == "1"
+                show_console = os.getenv("ECAN_CHILD_SHOW_CONSOLE") == "1"
                 creation_flags = 0
                 
                 # Always create new process group for better process management

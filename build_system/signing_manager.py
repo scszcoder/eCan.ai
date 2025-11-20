@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ECBot Build System Signing Manager
+eCan.ai Build System Signing Manager
 Integrates code signing and OTA signing into the build process
 """
 

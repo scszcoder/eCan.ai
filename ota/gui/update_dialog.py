@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""ECBot OTA Update Dialog - Standard UI Version
-Follows ECBot standard UI design guidelines
+"""eCan.ai OTA Update Dialog - Standard UI Version
+Follows eCan.ai standard UI design guidelines
 """
 
 import os
@@ -205,7 +205,7 @@ class DownloadWorker(QThread):
 
 
 class InstallConfirmDialog(QDialog):
-    """Install confirmation dialog - ECBot standard UI"""
+    """Install confirmation dialog - eCan.ai standard UI"""
     
     def __init__(self, update_info, parent=None):
         super().__init__(parent)
@@ -213,7 +213,7 @@ class InstallConfirmDialog(QDialog):
         self.setup_ui()
         
     def setup_ui(self):
-        """Setup UI - Follow ECBot standard"""
+        """Setup UI - Follow eCan.ai standard"""
         self.setWindowTitle(_tr.tr("confirm_install_title"))
         self.setModal(True)
         self.setFixedSize(500, 400)
@@ -334,7 +334,7 @@ class InstallConfirmDialog(QDialog):
 
 
 class UpdateDialog(QDialog):
-    """ECBot OTA Update Dialog - Standard UI Version"""
+    """eCan.ai OTA Update Dialog - Standard UI Version"""
     
     def __init__(self, parent=None, ota_updater=None, show_current_download=False):
         super().__init__(parent)
@@ -347,7 +347,7 @@ class UpdateDialog(QDialog):
         self.setup_ui()
         self.setup_connections()
         
-        # Set window properties - Follow ECBot standard
+        # Set window properties - Follow eCan.ai standard
         self.setWindowTitle(_tr.tr("window_title"))
         self.setModal(False)  # Changed to non-modal to allow background operation
         self.setFixedSize(600, 600)
@@ -360,19 +360,10 @@ class UpdateDialog(QDialog):
             self._restore_download_state()
         
     def setup_ui(self):
-        """Setup user interface - ECBot standard UI"""
+        """Setup user interface - eCan.ai standard UI"""
         layout = QVBoxLayout()
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
-        
-        # Title area
-        title_label = QLabel(_tr.tr("window_title"))
-        title_font = QFont()
-        title_font.setPointSize(16)
-        title_font.setBold(True)
-        title_label.setFont(title_font)
-        title_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title_label)
         
         # Current version information
         if self.ota_updater:

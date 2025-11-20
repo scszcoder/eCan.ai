@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""\nECBot OTA Installer Module\nHandles installation of update packages and application restart logic\n\nSupported formats:\n- Windows: EXE, MSI\n- macOS: PKG, DMG\n- Linux: AppImage, DEB, RPM (planned)\n"""
+"""\neCan.ai OTA Installer Module\nHandles installation of update packages and application restart logic\n\nSupported formats:\n- Windows: EXE, MSI\n- macOS: PKG, DMG\n- Linux: AppImage, DEB, RPM (planned)\n"""
 
 import os
 import sys
@@ -76,7 +76,7 @@ class InstallationManager:
             app_path = Path(sys.executable).parent
             
             # Create backup directory
-            backup_root = Path(tempfile.gettempdir()) / "ecbot_backup"
+            backup_root = Path(tempfile.gettempdir()) / "ecan_backup"
             backup_root.mkdir(exist_ok=True)
             
             timestamp = int(time.time())
@@ -567,7 +567,7 @@ installer -pkg "{package_path}" -target / -verboseR 2>&1
     def _create_restart_script(self, app_executable: str, delay_seconds: int) -> Optional[str]:
         """Create restart script"""
         try:
-            script_dir = Path(tempfile.gettempdir()) / "ecbot_restart"
+            script_dir = Path(tempfile.gettempdir()) / "ecan_restart"
             script_dir.mkdir(exist_ok=True)
             
             if self.platform.startswith('win'):
@@ -587,7 +587,7 @@ del "%~f0"
 echo "Waiting {delay_seconds} seconds before restart..."
 sleep {delay_seconds}
 echo "Restarting eCan..."
-"{app_executable}" &
+{app_executable} &
 rm "$0"
 """
             
@@ -667,26 +667,42 @@ rm "$0"
                         logger.info(f"Restarting application: {app_bundle}")
                         # Use 'open' command to launch the app
                         subprocess.Popen(['open', '-n', str(app_bundle)])
+                        
+                        # Exit current instance to release lock
+                        logger.info("Exiting current instance in 1 second...")
+                        time.sleep(1)
+                        os._exit(0)
                     else:
                         logger.error("Could not find .app bundle")
                         return
                         
                 elif self.platform.startswith('win'):
-                    # Windows: Restart exe
+                    # Windows: Use delayed restart script to avoid single instance lock conflict
                     exe_path = sys.executable
                     logger.info(f"Restarting application: {exe_path}")
-                    subprocess.Popen([exe_path])
+                    
+                    restart_script = self._create_restart_script(exe_path, delay_seconds=3)
+                    if restart_script:
+                        subprocess.Popen([restart_script], shell=True)
+                        logger.info("Restart script launched, exiting current instance...")
+                        time.sleep(1)
+                        os._exit(0)
+                    else:
+                        logger.warning("Failed to create restart script, manual restart required")
                     
                 else:
-                    # Linux: Restart executable
+                    # Linux: Use delayed restart script to avoid single instance lock conflict
                     exe_path = sys.executable
                     logger.info(f"Restarting application: {exe_path}")
-                    subprocess.Popen([exe_path])
-                
-                # ✅ Exit current instance after a short delay
-                logger.info("Exiting current instance in 2 seconds...")
-                time.sleep(2)
-                os._exit(0)
+                    
+                    restart_script = self._create_restart_script(exe_path, delay_seconds=3)
+                    if restart_script:
+                        subprocess.Popen(['sh', restart_script])
+                        logger.info("Restart script launched, exiting current instance...")
+                        time.sleep(1)
+                        os._exit(0)
+                    else:
+                        logger.warning("Failed to create restart script, manual restart required")
                 
             else:
                 # ✅ Development environment - restart using python
@@ -699,14 +715,24 @@ rm "$0"
                     main_script = Path(__main__.__file__).resolve()
                     logger.info(f"Restarting: python3 {main_script}")
                     
-                    # Launch new instance
-                    subprocess.Popen(['python3', str(main_script)], 
-                                   cwd=str(main_script.parent))
+                    # Create a delayed restart script to avoid single instance lock conflict
+                    restart_script = self._create_restart_script(
+                        f"python3 {main_script}",
+                        delay_seconds=3
+                    )
                     
-                    # Exit current instance
-                    logger.info("Exiting current instance in 2 seconds...")
-                    time.sleep(2)
-                    os._exit(0)
+                    if restart_script:
+                        # Launch restart script
+                        if self.platform == 'darwin':
+                            subprocess.Popen(['sh', restart_script])
+                        else:
+                            subprocess.Popen([restart_script])
+                        
+                        logger.info("Restart script launched, exiting current instance...")
+                        time.sleep(1)
+                        os._exit(0)
+                    else:
+                        logger.warning("Failed to create restart script, manual restart required")
                 else:
                     logger.warning("Could not determine main script path")
                     logger.info("Please manually restart the application")

@@ -2,8 +2,8 @@
 Centralized configuration for local MCP endpoints.
 
 - Prefer host 127.0.0.1 by default
-- Port defaults to 4668, can be overridden per call or via env ECBOT_LOCAL_SERVER_PORT
-- Also support env ECBOT_LOCAL_SERVER_HOST to override host
+- Port defaults to 4668, can be overridden per call or via env ECAN_LOCAL_SERVER_PORT
+- Also support env ECAN_LOCAL_SERVER_HOST to override host
 
 All returned URLs avoid trailing slashes for endpoint roots.
 """
@@ -16,11 +16,11 @@ DEFAULT_PORT = 4668
 
 
 def get_local_host(default: str = DEFAULT_HOST) -> str:
-    return os.getenv("ECBOT_LOCAL_SERVER_HOST", default)
+    return os.getenv("ECAN_LOCAL_SERVER_HOST", default)
 
 
 def get_local_port(default: int = DEFAULT_PORT) -> int:
-    val = os.getenv("ECBOT_LOCAL_SERVER_PORT")
+    val = os.getenv("ECAN_LOCAL_SERVER_PORT")
     if val and val.isdigit():
         try:
             return int(val)

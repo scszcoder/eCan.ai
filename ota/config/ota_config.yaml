@@ -87,7 +87,7 @@ environments:
     channel: "beta"
     
     # OTA 服务器地址
-    ota_server: "https://updates-test.ecbot.com"
+    ota_server: "https://updates-test.ecan.ai"
     
     # Appcast 基础 URL（从 S3 读取）
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/test"
@@ -118,7 +118,7 @@ environments:
     channel: "stable"
     
     # OTA 服务器地址
-    ota_server: "https://updates-staging.ecbot.com"
+    ota_server: "https://updates-staging.ecan.ai"
     
     # Appcast 基础 URL（从 S3 读取）
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/staging"
@@ -149,7 +149,7 @@ environments:
     channel: "stable"
     
     # OTA 服务器地址
-    ota_server: "https://updates.ecbot.com"
+    ota_server: "https://updates.ecan.ai"
     
     # Appcast 基础 URL（从 S3 读取）
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/production"

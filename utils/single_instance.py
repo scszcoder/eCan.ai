@@ -154,7 +154,7 @@ def install_single_instance():
     # Create a fixed per-user unique identifier (same for dev/frozen and different paths)
     app_id = 'eCan.AI'
     unique_id = hashlib.md5(f"{username}_{app_id}".encode()).hexdigest()[:16]
-    lock_file_path = os.path.join(tempfile.gettempdir(), f'ecbot_main_{unique_id}.lock')
+    lock_file_path = os.path.join(tempfile.gettempdir(), f'ecan_main_{unique_id}.lock')
 
     print(f"[SINGLE_INSTANCE] Using lock file: {lock_file_path}")
     print(f"[SINGLE_INSTANCE] User: {username}")
@@ -191,9 +191,9 @@ def install_single_instance():
 
     # Write error to a log file for debugging packaged EXE
     try:
-        log_path = os.path.join(tempfile.gettempdir(), f'ecbot_startup_error_{unique_id}.log')
+        log_path = os.path.join(tempfile.gettempdir(), f'ecan_startup_error_{unique_id}.log')
         with open(log_path, 'w') as f:
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ECBot startup failed\n")
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] eCan.ai startup failed\n")
             f.write(f"Reason: Another instance is already running\n")
             f.write(f"Lock file: {lock_file_path}\n")
             f.write(f"User: {username}\n")
@@ -206,7 +206,7 @@ def install_single_instance():
     except Exception:
         pass
     
-    print("[SINGLE_INSTANCE] [ERROR] ECBot main process already running, exiting...")
+    print("[SINGLE_INSTANCE] [ERROR] eCan.ai main process already running, exiting...")
     print(f"[SINGLE_INSTANCE] If you believe this is an error, please delete: {lock_file_path}")
     sys.exit(0)
 

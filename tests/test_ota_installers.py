@@ -61,8 +61,8 @@ class TestGenericUpdaterPrecheck(unittest.TestCase):
 class TestPackageManagerDevGating(unittest.TestCase):
     def test_installer_formats_return_false_when_dev_disabled(self):
         # Ensure dev mode is off for this test
-        if "ECBOT_DEV_MODE" in os.environ:
-            del os.environ["ECBOT_DEV_MODE"]
+        if "ECAN_DEV_MODE" in os.environ:
+            del os.environ["ECAN_DEV_MODE"]
         from ota.core.package_manager import PackageManager
 
         pm = PackageManager()
