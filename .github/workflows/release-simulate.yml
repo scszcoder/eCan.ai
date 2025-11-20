@@ -113,10 +113,21 @@ jobs:
       environment: ${{ steps.detect-env.outputs.environment }}
       channel: ${{ steps.detect-env.outputs.channel }}
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
       - id: out
         run: |
           echo "valid=true" >> $GITHUB_OUTPUT
-          echo "version=0.0.0-sim" >> $GITHUB_OUTPUT
+          # Read version from VERSION file
+          if [ -f VERSION ]; then
+            VERSION=$(cat VERSION | tr -d '[:space:]')
+            echo "version=${VERSION}-sim" >> $GITHUB_OUTPUT
+            echo "Version from VERSION file: ${VERSION}-sim"
+          else
+            echo "version=0.0.0-sim" >> $GITHUB_OUTPUT
+            echo "VERSION file not found, using default: 0.0.0-sim"
+          fi
       
       - name: Detect environment and channel
         id: detect-env
