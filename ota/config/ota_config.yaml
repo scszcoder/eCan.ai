@@ -68,7 +68,12 @@ environments:
     # 自动更新
     auto_check: true
     check_interval: 300  # 5 分钟（秒）
+    auto_check_initial_delay: 5  # 启动后延迟检查（秒）- 开发环境快速检查
     silent_mode: false
+    
+    # 开发环境 OTA 检查开关
+    # 即使 ota_enabled 为 true，也可以通过此开关单独控制开发环境的 OTA 检查
+    dev_ota_check_enabled: false
     
     # 安全设置
     allow_http: true
@@ -99,6 +104,7 @@ environments:
     # 自动更新
     auto_check: true
     check_interval: 1800  # 30 分钟（秒）
+    auto_check_initial_delay: 120  # 启动后延迟检查（秒）- 2 分钟
     silent_mode: false
     
     # 安全设置
@@ -130,6 +136,7 @@ environments:
     # 自动更新
     auto_check: true
     check_interval: 3600  # 1 小时（秒）
+    auto_check_initial_delay: 120  # 启动后延迟检查（秒）- 2 分钟
     silent_mode: false
     
     # 安全设置
@@ -161,6 +168,7 @@ environments:
     # 自动更新
     auto_check: true
     check_interval: 14400  # 4 小时（秒）
+    auto_check_initial_delay: 120  # 启动后延迟检查（秒）- 2 分钟
     silent_mode: true
     
     # 安全设置
