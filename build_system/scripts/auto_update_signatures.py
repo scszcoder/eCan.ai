@@ -49,24 +49,24 @@ def auto_update_signatures(dist_dir=None, version=None):
         if version_file.exists():
             version = version_file.read_text().strip()
         else:
-            print("❌ VERSION file not found, please specify version")
+            print("[ERROR] VERSION file not found, please specify version")
             return False
     
     print("=" * 60)
-    print("🚀 Automatic Signature Update")
+    print("[INFO] Automatic Signature Update")
     print("=" * 60)
-    print(f"📦 Version: {version}")
-    print(f"📁 Distribution directory: {dist_dir}")
-    print(f"🕐 Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"[INFO] Version: {version}")
+    print(f"[INFO] Distribution directory: {dist_dir}")
+    print(f"[INFO] Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print()
     
     if not dist_dir.exists():
-        print(f"❌ Distribution directory not found: {dist_dir}")
+        print(f"[ERROR] Distribution directory not found: {dist_dir}")
         return False
     
     # Signature file path
     sig_file = script_dir / f"signatures_{version}.json"
-    print(f"📄 Signature file: {sig_file}")
+    print(f"[INFO] Signature file: {sig_file}")
     print()
     
     # Package patterns to search for
@@ -84,7 +84,7 @@ def auto_update_signatures(dist_dir=None, version=None):
     
     for pattern in patterns:
         for pkg_file in dist_dir.glob(pattern):
-            print(f"🔍 Processing: {pkg_file.name}")
+            print(f"[INFO] Processing: {pkg_file.name}")
             
             # Calculate file size
             file_size = pkg_file.stat().st_size
@@ -96,12 +96,12 @@ def auto_update_signatures(dist_dir=None, version=None):
             else:
                 size_str = f"{size_mb:.2f} MB"
             
-            print(f"   📏 Size: {file_size:,} bytes ({size_str})")
+            print(f"   [INFO] Size: {file_size:,} bytes ({size_str})")
             
             # Calculate SHA256
-            print(f"   🔐 Calculating SHA256...")
+            print(f"   [INFO] Calculating SHA256...")
             signature = calculate_sha256(pkg_file)
-            print(f"   ✅ SHA256: {signature}")
+            print(f"   [OK] SHA256: {signature}")
             
             # Update signatures
             signatures[pkg_file.name] = {
@@ -112,7 +112,7 @@ def auto_update_signatures(dist_dir=None, version=None):
             print()
     
     if updated_count == 0:
-        print("⚠️  No package files found in dist directory")
+        print("[WARN] No package files found in dist directory")
         print(f"   Please ensure packages are built and placed in: {dist_dir}")
         print()
         print("   Expected file patterns:")
@@ -125,13 +125,13 @@ def auto_update_signatures(dist_dir=None, version=None):
         json.dump(signatures, f, indent=4)
     
     print("=" * 60)
-    print(f"✅ Updated {updated_count} package signature(s)")
-    print(f"💾 Saved to: {sig_file}")
+    print(f"[OK] Updated {updated_count} package signature(s)")
+    print(f"[INFO] Saved to: {sig_file}")
     print("=" * 60)
     print()
     
     # Display summary
-    print("📋 Summary:")
+    print("[INFO] Summary:")
     print()
     for pkg_name, info in signatures.items():
         size_mb = info['file_size'] / (1024 * 1024)
@@ -142,7 +142,7 @@ def auto_update_signatures(dist_dir=None, version=None):
         else:
             size_str = f"{size_mb:.2f} MB"
         
-        print(f"   📦 {pkg_name}")
+        print(f"   [INFO] {pkg_name}")
         print(f"      Size: {info['file_size']:,} bytes ({size_str})")
         print(f"      SHA256: {info['signature']}")
         print()
@@ -173,14 +173,14 @@ def generate_appcast(version=None, base_url="http://localhost:8000"):
             if version_file.exists():
                 version = version_file.read_text().strip()
             else:
-                print("❌ VERSION file not found")
+                print("[ERROR] VERSION file not found")
                 return False
         
         print("=" * 60)
-        print("📡 Generating Appcast")
+        print("[INFO] Generating Appcast")
         print("=" * 60)
-        print(f"📦 Version: {version}")
-        print(f"🌐 Base URL: {base_url}")
+        print(f"[INFO] Version: {version}")
+        print(f"[INFO] Base URL: {base_url}")
         print()
         
         generator = AppcastGenerator(
@@ -191,10 +191,10 @@ def generate_appcast(version=None, base_url="http://localhost:8000"):
         success = generator.generate_appcast(version, base_url)
         
         if success:
-            print("✅ Appcast generated successfully")
-            print(f"📄 Location: {script_dir / 'appcast.xml'}")
+            print("[OK] Appcast generated successfully")
+            print(f"[INFO] Location: {script_dir / 'appcast.xml'}")
         else:
-            print("❌ Failed to generate appcast")
+            print("[ERROR] Failed to generate appcast")
         
         print("=" * 60)
         print()
@@ -202,7 +202,7 @@ def generate_appcast(version=None, base_url="http://localhost:8000"):
         return success
         
     except Exception as e:
-        print(f"❌ Error generating appcast: {e}")
+        print(f"[ERROR] Error generating appcast: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -244,7 +244,7 @@ def main():
     )
     
     if not success:
-        print("❌ Failed to update signatures")
+        print("[ERROR] Failed to update signatures")
         sys.exit(1)
     
     # Step 2: Generate appcast (unless skipped)
@@ -256,11 +256,11 @@ def main():
         )
         
         if not success:
-            print("⚠️  Warning: Failed to generate appcast")
+            print("[WARN] Failed to generate appcast")
             print("   Signatures were updated successfully")
     
     print()
-    print("🎉 All done!")
+    print("[OK] All done!")
     print()
 
 

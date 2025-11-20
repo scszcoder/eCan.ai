@@ -25,13 +25,13 @@ try:
     import boto3
     from botocore.exceptions import ClientError, NoCredentialsError
 except ImportError:
-    print("❌ Error: boto3 is required. Install it with: pip install boto3")
+    print("[ERROR] boto3 is required. Install it with: pip install boto3")
     sys.exit(1)
 
 try:
     import yaml
 except ImportError:
-    print("❌ Error: PyYAML is required. Install it with: pip install PyYAML")
+    print("[ERROR] PyYAML is required. Install it with: pip install PyYAML")
     sys.exit(1)
 
 
@@ -72,7 +72,7 @@ class S3Uploader:
         try:
             self.s3 = boto3.client('s3', region_name=self.region)
         except NoCredentialsError:
-            print("❌ Error: AWS credentials not found")
+            print("[ERROR] AWS credentials not found")
             print("   Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables")
             sys.exit(1)
         
@@ -89,7 +89,7 @@ class S3Uploader:
         config_file = project_root / 'ota' / 'config' / 'ota_config.yaml'
         
         if not config_file.exists():
-            print(f"❌ Error: Configuration file not found: {config_file}")
+            print(f"[ERROR] Configuration file not found: {config_file}")
             sys.exit(1)
         
         try:
@@ -97,7 +97,7 @@ class S3Uploader:
                 config = yaml.safe_load(f)
             return config
         except Exception as e:
-            print(f"❌ Error loading configuration: {e}")
+            print(f"[ERROR] Error loading configuration: {e}")
             sys.exit(1)
     
     def calculate_sha256(self, file_path: Path) -> str:
@@ -143,7 +143,7 @@ class S3Uploader:
             return True
             
         except ClientError as e:
-            print(f"  ❌ Failed to upload {local_path.name}: {e}")
+            print(f"  [ERROR] Failed to upload {local_path.name}: {e}")
             return False
     
     def upload_windows_artifacts(self, platform_filter: Optional[str] = None) -> int:
@@ -159,7 +159,7 @@ class S3Uploader:
         if platform_filter and platform_filter != 'windows':
             return 0
         
-        print("\n📦 Uploading Windows artifacts...")
+        print("\n[INFO] Uploading Windows artifacts...")
         count = 0
         
         # Find Windows installers
@@ -183,7 +183,7 @@ class S3Uploader:
                     if sig_file.exists():
                         sig_key = f"{s3_key}.sig"
                         if self.upload_file(sig_file, sig_key, 'text/plain'):
-                            print(f"  ✓ Uploaded signature: {sig_file.name}")
+                            print(f"  [OK] Uploaded signature: {sig_file.name}")
                     
                     # Upload SHA256 checksum
                     sha256 = self.calculate_sha256(pkg)
@@ -196,9 +196,9 @@ class S3Uploader:
                             Body=sha256,
                             ContentType='text/plain'
                         )
-                        print(f"  ✓ SHA256: {sha256}")
+                        print(f"  [OK] SHA256: {sha256}")
                     except ClientError as e:
-                        print(f"  ⚠️  Failed to upload SHA256: {e}")
+                        print(f"  [WARN] Failed to upload SHA256: {e}")
         
         return count
     
@@ -216,7 +216,7 @@ class S3Uploader:
         if platform_filter and platform_filter != 'macos':
             return 0
         
-        print("\n📦 Uploading macOS artifacts...")
+        print("\n[INFO] Uploading macOS artifacts...")
         count = 0
         
         # Find macOS installers
@@ -251,9 +251,9 @@ class S3Uploader:
                         Body=sha256,
                         ContentType='text/plain'
                     )
-                    print(f"  ✓ SHA256: {sha256}")
+                    print(f"  [OK] SHA256: {sha256}")
                 except ClientError as e:
-                    print(f"  ⚠️  Failed to upload SHA256: {e}")
+                    print(f"  [WARN] Failed to upload SHA256: {e}")
         
         return count
     
@@ -272,7 +272,7 @@ class S3Uploader:
     
     def upload_metadata(self) -> bool:
         """Upload version metadata to S3"""
-        print("\n📄 Uploading metadata...")
+        print("\n[INFO] Uploading metadata...")
         
         metadata = self.generate_metadata()
         if self.base_path:
@@ -287,15 +287,15 @@ class S3Uploader:
                 Body=json.dumps(metadata, indent=2),
                 ContentType='application/json'
             )
-            print(f"  ✓ Metadata: s3://{self.bucket}/{metadata_key}")
+            print(f"  [OK] Metadata: s3://{self.bucket}/{metadata_key}")
             return True
         except ClientError as e:
-            print(f"  ❌ Failed to upload metadata: {e}")
+            print(f"  [ERROR] Failed to upload metadata: {e}")
             return False
     
     def update_latest_pointer(self) -> bool:
         """Update 'latest' pointer to current version"""
-        print("\n🔗 Updating latest pointer...")
+        print("\n[INFO] Updating latest pointer...")
         
         latest_metadata = {
             'version': self.version,
@@ -315,10 +315,10 @@ class S3Uploader:
                 Body=json.dumps(latest_metadata, indent=2),
                 ContentType='application/json'
             )
-            print(f"  ✓ Latest: s3://{self.bucket}/{latest_key}")
+            print(f"  [OK] Latest: s3://{self.bucket}/{latest_key}")
             return True
         except ClientError as e:
-            print(f"  ❌ Failed to update latest pointer: {e}")
+            print(f"  [ERROR] Failed to update latest pointer: {e}")
             return False
     
     def verify_s3_access(self) -> bool:
@@ -329,11 +329,11 @@ class S3Uploader:
         except ClientError as e:
             error_code = e.response['Error']['Code']
             if error_code == '404':
-                print(f"❌ Error: Bucket '{self.bucket}' does not exist")
+                print(f"[ERROR] Bucket '{self.bucket}' does not exist")
             elif error_code == '403':
-                print(f"❌ Error: Access denied to bucket '{self.bucket}'")
+                print(f"[ERROR] Access denied to bucket '{self.bucket}'")
             else:
-                print(f"❌ Error: {e}")
+                print(f"[ERROR] {e}")
             return False
     
     def run(self, platform_filter: Optional[str] = None, arch_filter: Optional[str] = None) -> bool:
@@ -348,7 +348,7 @@ class S3Uploader:
             True if successful, False otherwise
         """
         print("=" * 60)
-        print("📤 S3 Upload - Single Bucket Design")
+        print("[INFO] S3 Upload - Single Bucket Design")
         print("=" * 60)
         print(f"Version:     {self.version}")
         print(f"Environment: {self.environment}")
@@ -366,14 +366,14 @@ class S3Uploader:
         
         # Verify dist directory exists
         if not self.dist_dir.exists():
-            print(f"❌ Error: Dist directory not found: {self.dist_dir}")
+            print(f"[ERROR] Dist directory not found: {self.dist_dir}")
             return False
         
         # Verify S3 access
-        print("\n🔍 Verifying S3 access...")
+        print("\n[INFO] Verifying S3 access...")
         if not self.verify_s3_access():
             return False
-        print("  ✓ S3 access verified")
+        print("  [OK] S3 access verified")
         
         # Upload artifacts
         windows_count = self.upload_windows_artifacts(platform_filter)
@@ -382,7 +382,7 @@ class S3Uploader:
         total_count = windows_count + macos_count
         
         if total_count == 0:
-            print("\n⚠️  No artifacts found to upload")
+            print("\n[WARN] No artifacts found to upload")
             return False
         
         # Upload metadata
@@ -395,7 +395,7 @@ class S3Uploader:
         
         # Summary
         print("\n" + "=" * 60)
-        print("✅ Upload Complete!")
+        print("[OK] Upload Complete!")
         print("=" * 60)
         print(f"Total files uploaded: {total_count}")
         print(f"Total size: {sum(f['size'] for f in self.uploaded_files) / (1024*1024):.2f} MB")

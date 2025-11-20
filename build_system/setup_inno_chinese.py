@@ -28,17 +28,17 @@ def print_step(message: str):
 
 def print_success(message: str):
     """Print success information"""
-    print(f"✓ {message}")
+    print(f"[OK] {message}")
 
 
 def print_error(message: str):
     """Print error information"""
-    print(f"✗ {message}", file=sys.stderr)
+    print(f"[ERROR] {message}", file=sys.stderr)
 
 
 def print_warning(message: str):
     """Print warning information"""
-    print(f"⚠ {message}")
+    print(f"[WARN] {message}")
 
 
 def find_inno_setup_dir() -> Path:
