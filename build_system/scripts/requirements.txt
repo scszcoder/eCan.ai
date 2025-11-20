@@ -1,0 +1,8 @@
+# Build system script dependencies
+# Used by GitHub Actions workflows for S3 upload and appcast generation
+
+# AWS SDK for Python
+boto3>=1.34.0
+
+# YAML parser
+pyyaml>=6.0.1
