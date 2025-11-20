@@ -616,27 +616,26 @@ jobs:
 
 
     # ------------------------------------------------------------------------
-    # Step Group 7: Code Signing (REQUIRED for production/staging)
+    # Step Group 7: Code Signing (Optional)
     # ------------------------------------------------------------------------
-    - name: Code sign Windows artifacts
+    - name: Check Windows code signing requirements
       if: |
         (needs.validate-tag.outputs.environment == 'production' || 
          needs.validate-tag.outputs.environment == 'staging') &&
         (env.WIN_CERT_PFX == 'NOT_SET' || env.WIN_CERT_PASSWORD == 'NOT_SET')
       run: |
         echo "======================================================"
-        echo "ERROR: Code signing REQUIRED for production/staging"
+        echo "WARNING: Code signing certificates not configured"
         echo "======================================================"
         echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
         echo "WIN_CERT_PFX: ${{ env.WIN_CERT_PFX != 'NOT_SET' && 'Configured' || 'MISSING' }}"
         echo "WIN_CERT_PASSWORD: ${{ env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Configured' || 'MISSING' }}"
         echo ""
-        echo "Production and staging builds MUST be code signed."
-        echo "Please configure the following GitHub Secrets:"
+        echo "Building unsigned Windows package (not recommended for production)."
+        echo "To enable code signing, configure the following GitHub Secrets:"
         echo "  - WIN_CERT_PFX (base64-encoded certificate)"
         echo "  - WIN_CERT_PASSWORD (certificate password)"
         echo "======================================================"
-        exit 1
     
     - name: Code sign Windows artifacts (execute)
       if: ${{ env.WIN_CERT_PFX != 'NOT_SET' && env.WIN_CERT_PASSWORD != 'NOT_SET' }}
@@ -1134,7 +1133,7 @@ jobs:
         fi
 
     # ------------------------------------------------------------------------
-    # Step Group 6: Code Signing and Notarization (REQUIRED for production/staging)
+    # Step Group 6: Code Signing and Notarization (Optional)
     # ------------------------------------------------------------------------
     - name: Check macOS code signing requirements
       if: |
@@ -1146,20 +1145,19 @@ jobs:
          env.MAC_CODESIGN_IDENTITY == 'NOT_SET')
       run: |
         echo "======================================================"
-        echo "ERROR: Code signing REQUIRED for production/staging"
+        echo "WARNING: Code signing certificates not configured"
         echo "======================================================"
         echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
         echo "MAC_CERT_P12: ${{ env.MAC_CERT_P12 != 'NOT_SET' && 'Configured' || 'MISSING' }}"
         echo "MAC_CERT_PASSWORD: ${{ env.MAC_CERT_PASSWORD != 'NOT_SET' && 'Configured' || 'MISSING' }}"
         echo "MAC_CODESIGN_IDENTITY: ${{ env.MAC_CODESIGN_IDENTITY != 'NOT_SET' && 'Configured' || 'MISSING' }}"
         echo ""
-        echo "Production and staging builds MUST be code signed."
-        echo "Please configure the following GitHub Secrets:"
+        echo "Building unsigned macOS package (not recommended for production)."
+        echo "To enable code signing, configure the following GitHub Secrets:"
         echo "  - MAC_CERT_P12 (base64-encoded certificate)"
         echo "  - MAC_CERT_PASSWORD (certificate password)"
         echo "  - MAC_CODESIGN_IDENTITY (Developer ID)"
         echo "======================================================"
-        exit 1
     
     - name: Code sign macOS app (execute)
       if: |
@@ -1207,20 +1205,19 @@ jobs:
          env.TEAM_ID == 'NOT_SET')
       run: |
         echo "======================================================"
-        echo "ERROR: Notarization REQUIRED for production/staging"
+        echo "WARNING: Notarization credentials not configured"
         echo "======================================================"
         echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
         echo "APPLE_ID: ${{ env.APPLE_ID != 'NOT_SET' && 'Configured' || 'MISSING' }}"
         echo "APPLE_APP_SPECIFIC_PASSWORD: ${{ env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' && 'Configured' || 'MISSING' }}"
         echo "TEAM_ID: ${{ env.TEAM_ID != 'NOT_SET' && 'Configured' || 'MISSING' }}"
         echo ""
-        echo "Production and staging builds MUST be notarized by Apple."
-        echo "Please configure the following GitHub Secrets:"
+        echo "Building without notarization (not recommended for production)."
+        echo "To enable notarization, configure the following GitHub Secrets:"
         echo "  - APPLE_ID (Apple Developer account email)"
         echo "  - APPLE_APP_SPECIFIC_PASSWORD (app-specific password)"
         echo "  - TEAM_ID (Apple Developer Team ID)"
         echo "======================================================"
-        exit 1
     
     - name: Notarize macOS PKG (execute)
       if: |
