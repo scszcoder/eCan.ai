@@ -70,6 +70,26 @@ on:
         required: true
         default: 'master'
         type: string
+      
+      environment:
+        description: 'Target environment'
+        required: false
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+          - test
+          - development
+      
+      channel:
+        description: 'Release channel'
+        required: false
+        default: 'stable'
+        type: choice
+        options:
+          - stable
+          - beta
 
       upload_artifacts:
         description: 'Upload build artifacts to GitHub Artifacts (for debugging only, costs extra storage). S3 upload always happens regardless of this setting.'
@@ -96,6 +116,8 @@ jobs:
       version: ${{ steps.validate.outputs.version }}
       is-branch: ${{ steps.validate.outputs.is_branch }}
       ref-name: ${{ steps.validate.outputs.ref_name }}
+      environment: ${{ steps.detect-env.outputs.environment }}
+      channel: ${{ steps.detect-env.outputs.channel }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -154,6 +176,83 @@ jobs:
           echo "version=$FALLBACK" >> $GITHUB_OUTPUT
           echo "Branch detected: $REF_NAME -> version=$FALLBACK"
         fi
+    
+    - name: Detect environment and channel
+      id: detect-env
+      shell: bash
+      run: |
+        REF_NAME="${{ steps.validate.outputs.ref_name }}"
+        VERSION="${{ steps.validate.outputs.version }}"
+        INPUT_ENV="${{ github.event.inputs.environment }}"
+        INPUT_CHANNEL="${{ github.event.inputs.channel }}"
+        
+        echo "=== Detecting Environment ==="
+        echo "Ref: $REF_NAME"
+        echo "Version: $VERSION"
+        echo "Input Environment: $INPUT_ENV"
+        echo "Input Channel: $INPUT_CHANNEL"
+        
+        # Use manual selection if provided
+        if [[ -n "$INPUT_ENV" ]]; then
+          ENV="$INPUT_ENV"
+          echo "Using manual environment: $ENV"
+        else
+          # Auto-detect environment based on ref and version
+          if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # Production: Clean version tag (e.g., v1.0.0)
+            ENV="production"
+          elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\. ]]; then
+            # Staging: Release candidate (e.g., v1.0.0-rc.1)
+            ENV="staging"
+          elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta ]]; then
+            # Test: Beta version (e.g., v1.0.0-beta.1)
+            ENV="test"
+          elif [[ "$REF_NAME" == "develop" || "$REF_NAME" == "dev" ]]; then
+            # Development: develop branch
+            ENV="development"
+          elif [[ "$REF_NAME" == "staging" ]]; then
+            # Staging: staging branch
+            ENV="staging"
+          elif [[ "$REF_NAME" == "main" || "$REF_NAME" == "master" ]]; then
+            # Production: main/master branch
+            ENV="production"
+          else
+            # Default: development for other branches
+            ENV="development"
+          fi
+          echo "Auto-detected environment: $ENV"
+        fi
+        
+        # Use manual channel if provided
+        if [[ -n "$INPUT_CHANNEL" ]]; then
+          CHANNEL="$INPUT_CHANNEL"
+          echo "Using manual channel: $CHANNEL"
+        else
+          # Auto-detect channel based on environment
+          case "$ENV" in
+            production)
+              CHANNEL="stable"
+              ;;
+            staging)
+              CHANNEL="stable"
+              ;;
+            test)
+              CHANNEL="beta"
+              ;;
+            development)
+              CHANNEL="beta"
+              ;;
+            *)
+              CHANNEL="stable"
+              ;;
+          esac
+          echo "Auto-detected channel: $CHANNEL"
+        fi
+        
+        echo "environment=$ENV" >> $GITHUB_OUTPUT
+        echo "channel=$CHANNEL" >> $GITHUB_OUTPUT
+        echo "Final environment: $ENV"
+        echo "Final channel: $CHANNEL"
 
   # ============================================================================
   # BUILD LAYER: Windows amd64
@@ -380,11 +479,6 @@ jobs:
     # ------------------------------------------------------------------------
     # Step Group 5: Build Environment Preparation
     # ------------------------------------------------------------------------
-    - name: Setup OTA Dependencies
-      uses: ./.github/actions/setup-ota-deps
-      with:
-        platform: windows
-
     - name: Setup Build Directories
       uses: ./.github/actions/setup-build-dirs
       with:
@@ -432,6 +526,11 @@ jobs:
       with:
         platform: windows
 
+    - name: Inject Build Info
+      run: |
+        echo "=== Injecting Build Info ==="
+        python build_system/scripts/inject_build_info.py --version ${{ needs.validate-tag.outputs.version }} --environment ${{ needs.validate-tag.outputs.environment }}
+
     - name: Build Windows EXE
       shell: pwsh
       env:
@@ -468,7 +567,11 @@ jobs:
                 print(f'[ERROR] {pkg} not found: {e}')
         "
 
-        # Run build with detailed output (Sparkle support is automatic on macOS)
+        # Set environment variable for OTA signing requirement check
+        $env:ECAN_ENVIRONMENT = "${{ needs.validate-tag.outputs.environment }}"
+        Write-Host "Build environment: $env:ECAN_ENVIRONMENT" -ForegroundColor Cyan
+
+        # Run build with detailed output (self-contained OTA system)
         python build.py prod --version ${{ needs.validate-tag.outputs.version }} 2>&1 | Tee-Object -FilePath "build.log"
 
         # Check if build succeeded by verifying key files exist
@@ -509,24 +612,33 @@ jobs:
             exit 1
         }
 
-        Write-Host "=== Verifying OTA artifacts in dist ===" -ForegroundColor Cyan
-        # Only check app bundle directory (dist/eCan/third_party/)
-        # This is what gets packaged into the installer
-        $winSparklePath = "dist/eCan/third_party/winsparkle/winsparkle.dll"
-        if (Test-Path $winSparklePath) {
-          Write-Host "[OK] winSparkle DLL packaged at: $winSparklePath"
-          $dll = Get-Item $winSparklePath
-          Write-Host "   Size: $([math]::Round($dll.Length / 1KB, 2)) KB"
-        } else {
-          Write-Host "[WARN] winSparkle DLL not found at: $winSparklePath"
-          Write-Host "[WARN] OTA (Windows) may be disabled"
-        }
+        Write-Host "=== Build artifacts verification completed ===" -ForegroundColor Cyan
 
 
     # ------------------------------------------------------------------------
-    # Step Group 7: Code Signing (Optional)
+    # Step Group 7: Code Signing (REQUIRED for production/staging)
     # ------------------------------------------------------------------------
-    - name: Code sign Windows artifacts (optional)
+    - name: Code sign Windows artifacts
+      if: |
+        (needs.validate-tag.outputs.environment == 'production' || 
+         needs.validate-tag.outputs.environment == 'staging') &&
+        (env.WIN_CERT_PFX == 'NOT_SET' || env.WIN_CERT_PASSWORD == 'NOT_SET')
+      run: |
+        echo "======================================================"
+        echo "ERROR: Code signing REQUIRED for production/staging"
+        echo "======================================================"
+        echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+        echo "WIN_CERT_PFX: ${{ env.WIN_CERT_PFX != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo "WIN_CERT_PASSWORD: ${{ env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo ""
+        echo "Production and staging builds MUST be code signed."
+        echo "Please configure the following GitHub Secrets:"
+        echo "  - WIN_CERT_PFX (base64-encoded certificate)"
+        echo "  - WIN_CERT_PASSWORD (certificate password)"
+        echo "======================================================"
+        exit 1
+    
+    - name: Code sign Windows artifacts (execute)
       if: ${{ env.WIN_CERT_PFX != 'NOT_SET' && env.WIN_CERT_PASSWORD != 'NOT_SET' }}
       env:
         WIN_CERT_PFX: ${{ env.WIN_CERT_PFX }}
@@ -859,12 +971,6 @@ jobs:
     # ------------------------------------------------------------------------
     # Step Group 3: Build Environment Preparation
     # ------------------------------------------------------------------------
-    - name: Setup OTA Dependencies
-      if: steps.arch_check.outputs.should_build == 'true'
-      uses: ./.github/actions/setup-ota-deps
-      with:
-        platform: macos
-
     - name: Setup Build Directories
       if: steps.arch_check.outputs.should_build == 'true'
       uses: ./.github/actions/setup-build-dirs
@@ -894,6 +1000,12 @@ jobs:
       uses: ./.github/actions/clean-build-artifacts
       with:
         platform: macos
+
+    - name: Inject Build Info
+      if: steps.arch_check.outputs.should_build == 'true'
+      run: |
+        echo "=== Injecting Build Info ==="
+        python build_system/scripts/inject_build_info.py --version ${{ needs.validate-tag.outputs.version }} --environment ${{ needs.validate-tag.outputs.environment }}
 
     - name: Build macOS App
       if: steps.arch_check.outputs.should_build == 'true'
@@ -942,7 +1054,11 @@ jobs:
         echo "[INFO] Python architecture check:"
         python -c "import platform; print(f'Python platform: {platform.platform()}'); print(f'Python machine: {platform.machine()}'); print(f'Python architecture: {platform.architecture()}')"
 
-        # Run build with detailed output (Sparkle support is automatic on macOS)
+        # Set environment variable for OTA signing requirement check
+        export ECAN_ENVIRONMENT="${{ needs.validate-tag.outputs.environment }}"
+        echo "Build environment: $ECAN_ENVIRONMENT"
+
+        # Run build with detailed output (self-contained OTA system)
         python build.py prod --version ${{ needs.validate-tag.outputs.version }} 2>&1 | tee build.log
 
         # Check if build succeeded by verifying key files exist
@@ -1004,9 +1120,34 @@ jobs:
         fi
 
     # ------------------------------------------------------------------------
-    # Step Group 6: Code Signing and Notarization (Optional)
+    # Step Group 6: Code Signing and Notarization (REQUIRED for production/staging)
     # ------------------------------------------------------------------------
-    - name: Code sign macOS app (optional)
+    - name: Check macOS code signing requirements
+      if: |
+        steps.arch_check.outputs.should_build == 'true' &&
+        (needs.validate-tag.outputs.environment == 'production' || 
+         needs.validate-tag.outputs.environment == 'staging') &&
+        (env.MAC_CERT_P12 == 'NOT_SET' || 
+         env.MAC_CERT_PASSWORD == 'NOT_SET' || 
+         env.MAC_CODESIGN_IDENTITY == 'NOT_SET')
+      run: |
+        echo "======================================================"
+        echo "ERROR: Code signing REQUIRED for production/staging"
+        echo "======================================================"
+        echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+        echo "MAC_CERT_P12: ${{ env.MAC_CERT_P12 != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo "MAC_CERT_PASSWORD: ${{ env.MAC_CERT_PASSWORD != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo "MAC_CODESIGN_IDENTITY: ${{ env.MAC_CODESIGN_IDENTITY != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo ""
+        echo "Production and staging builds MUST be code signed."
+        echo "Please configure the following GitHub Secrets:"
+        echo "  - MAC_CERT_P12 (base64-encoded certificate)"
+        echo "  - MAC_CERT_PASSWORD (certificate password)"
+        echo "  - MAC_CODESIGN_IDENTITY (Developer ID)"
+        echo "======================================================"
+        exit 1
+    
+    - name: Code sign macOS app (execute)
       if: |
         steps.arch_check.outputs.should_build == 'true' &&
         env.MAC_CERT_P12 != 'NOT_SET' &&
@@ -1042,7 +1183,32 @@ jobs:
           echo "dist/eCan.app not found; skip codesign"
         fi
 
-    - name: Notarize macOS PKG (optional)
+    - name: Check macOS notarization requirements
+      if: |
+        steps.arch_check.outputs.should_build == 'true' &&
+        (needs.validate-tag.outputs.environment == 'production' || 
+         needs.validate-tag.outputs.environment == 'staging') &&
+        (env.APPLE_ID == 'NOT_SET' || 
+         env.APPLE_APP_SPECIFIC_PASSWORD == 'NOT_SET' || 
+         env.TEAM_ID == 'NOT_SET')
+      run: |
+        echo "======================================================"
+        echo "ERROR: Notarization REQUIRED for production/staging"
+        echo "======================================================"
+        echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+        echo "APPLE_ID: ${{ env.APPLE_ID != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo "APPLE_APP_SPECIFIC_PASSWORD: ${{ env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo "TEAM_ID: ${{ env.TEAM_ID != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo ""
+        echo "Production and staging builds MUST be notarized by Apple."
+        echo "Please configure the following GitHub Secrets:"
+        echo "  - APPLE_ID (Apple Developer account email)"
+        echo "  - APPLE_APP_SPECIFIC_PASSWORD (app-specific password)"
+        echo "  - TEAM_ID (Apple Developer Team ID)"
+        echo "======================================================"
+        exit 1
+    
+    - name: Notarize macOS PKG (execute)
       if: |
         steps.arch_check.outputs.should_build == 'true' &&
         env.APPLE_ID != 'NOT_SET' &&
@@ -1064,15 +1230,38 @@ jobs:
         if [ -f "$PKG_PATH" ]; then
           echo "Submitting $PKG_PATH for notarization..."
           xcrun notarytool submit "$PKG_PATH" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$TEAM_ID" --wait
-          if [ $? -eq 0 ]; then
+          
+          NOTARIZE_EXIT_CODE=$?
+          if [ $NOTARIZE_EXIT_CODE -eq 0 ]; then
             echo "Stapling notarization to PKG..."
             xcrun stapler staple "$PKG_PATH"
-            echo "[OK] Notarization and stapling completed"
+            STAPLE_EXIT_CODE=$?
+            
+            if [ $STAPLE_EXIT_CODE -eq 0 ]; then
+              echo "[OK] Notarization and stapling completed successfully"
+            else
+              echo "[ERROR] Stapling failed with exit code: $STAPLE_EXIT_CODE"
+              # In production/staging, stapling failure should block release
+              if [ "${{ needs.validate-tag.outputs.environment }}" = "production" ] || [ "${{ needs.validate-tag.outputs.environment }}" = "staging" ]; then
+                exit 1
+              fi
+            fi
           else
-            echo "[WARN] Notarization failed"
+            echo "[ERROR] Notarization failed with exit code: $NOTARIZE_EXIT_CODE"
+            # In production/staging, notarization failure should block release
+            if [ "${{ needs.validate-tag.outputs.environment }}" = "production" ] || [ "${{ needs.validate-tag.outputs.environment }}" = "staging" ]; then
+              echo "======================================================"
+              echo "Notarization FAILED - blocking release"
+              echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+              echo "======================================================"
+              exit 1
+            fi
           fi
         else
-          echo "PKG not found, skip notarization"
+          echo "[ERROR] PKG not found at: $PKG_PATH"
+          if [ "${{ needs.validate-tag.outputs.environment }}" = "production" ] || [ "${{ needs.validate-tag.outputs.environment }}" = "staging" ]; then
+            exit 1
+          fi
         fi
 
     - name: Check build result
@@ -1157,6 +1346,13 @@ jobs:
           SIZE=$(du -sh "$PKG_FILE" | cut -f1)
           echo "Copied PKG: ${SIZE}"
           echo "has_artifacts=true" >> $GITHUB_OUTPUT
+          
+          # Copy signature file if exists
+          SIG_FILE="${PKG_FILE}.sig"
+          if [ -f "$SIG_FILE" ]; then
+            cp "$SIG_FILE" artifacts/
+            echo "Copied signature: $(basename $SIG_FILE)"
+          fi
         else
           echo "[ERROR] PKG file not found: $PKG_FILE"
           echo "[ERROR] Build may have failed or PKG was not created"
@@ -1217,11 +1413,9 @@ jobs:
     uses: ./.github/workflows/shared-s3-upload.yml
     with:
       version: ${{ needs.validate-tag.outputs.version }}
+      environment: ${{ needs.validate-tag.outputs.environment }}
       windows-build-result: ${{ needs.build-windows.result }}
       macos-build-result: ${{ needs.build-macos.result }}
-      macos-built-amd64: ${{ (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') && (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all') }}
-      macos-built-aarch64: ${{ (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') && (github.event.inputs.arch == 'aarch64' || github.event.inputs.arch == 'all') }}
-      is-simulation: false
     secrets: inherit
 
   # ----------------------------------------------------------------------------
@@ -1236,11 +1430,8 @@ jobs:
       needs.upload-to-s3.result == 'success'
     uses: ./.github/workflows/shared-appcast-generation.yml
     with:
-      version: ${{ needs.validate-tag.outputs.version }}
-      s3-base-url: ${{ needs.upload-to-s3.outputs.s3-base-url }}
-      channel: stable
-      release-body: ${{ github.event.release.body || '' }}
-      is-simulation: false
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
     secrets: inherit
 
   # ----------------------------------------------------------------------------

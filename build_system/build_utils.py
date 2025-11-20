@@ -491,7 +491,7 @@ def clean_macos_build_artifacts(build_path: Path) -> None:
 
 
 def prepare_third_party_assets() -> None:
-    """Prepare third-party assets (Playwright, Sparkle, winSparkle)"""
+    """Prepare third-party assets (Playwright browsers)"""
     print("[THIRD-PARTY] Preparing third-party assets...")
 
     try:
@@ -502,16 +502,6 @@ def prepare_third_party_assets() -> None:
     except Exception as e:
         print(f"[THIRD-PARTY] Playwright preparation failed: {e}")
         print("[THIRD-PARTY] This may cause issues with browser automation features")
-        # Don't fail the build, just warn
-
-    try:
-        # Prepare OTA dependencies (Sparkle/winSparkle)
-        _prepare_ota_dependencies()
-        print("[THIRD-PARTY] OTA dependencies prepared successfully")
-
-    except Exception as e:
-        print(f"[THIRD-PARTY] OTA dependencies preparation failed: {e}")
-        print("[THIRD-PARTY] This may cause issues with OTA update features")
         # Don't fail the build, just warn
 
 
@@ -554,102 +544,6 @@ def _prepare_playwright_simple() -> None:
     except Exception as e:
         print(f"[PLAYWRIGHT] Copy failed: {e}")
         raise
-
-
-def _prepare_ota_dependencies() -> None:
-    """Prepare OTA dependencies (Sparkle/winSparkle)"""
-    import platform
-    import subprocess
-    import sys
-    import urllib.request
-    import tarfile
-    import zipfile
-    from pathlib import Path
-
-    current_platform = platform.system()
-    third_party_dir = Path.cwd() / "third_party"
-
-    if current_platform == "Darwin":
-        # Prepare Sparkle for macOS
-        sparkle_dir = third_party_dir / "sparkle"
-        sparkle_framework = sparkle_dir / "Sparkle.framework"
-
-        if not sparkle_framework.exists():
-            print("[BUILD] Downloading Sparkle framework...")
-            sparkle_dir.mkdir(parents=True, exist_ok=True)
-
-            # Download Sparkle
-            sparkle_url = "https://github.com/sparkle-project/Sparkle/releases/download/2.6.4/Sparkle-2.6.4.tar.xz"
-            sparkle_archive = sparkle_dir / "Sparkle-2.6.4.tar.xz"
-
-            urllib.request.urlretrieve(sparkle_url, sparkle_archive)
-
-            # Extract Sparkle
-            with tarfile.open(sparkle_archive, 'r:xz') as tar:
-                tar.extractall(sparkle_dir)
-
-
-            # Create install info
-            install_info = {
-                "platform": "darwin",
-                "install_method": "build_system",
-                "installed_dependencies": {
-                    "sparkle": {
-                        "version": "2.6.4",
-                        "url": sparkle_url,
-                        "target_path": str(sparkle_framework),
-                        "installed": True
-                    }
-                },
-                "install_timestamp": str(time.time()),
-                "installer_version": "1.0.0"
-            }
-
-            import json
-            with open(sparkle_dir / "install_info.json", 'w') as f:
-                json.dump(install_info, f, indent=2)
-
-            print(f"[BUILD] Sparkle framework prepared at: {sparkle_framework}")
-        else:
-            print(f"[BUILD] Sparkle framework already exists at: {sparkle_framework}")
-
-    elif current_platform == "Windows":
-        # Prepare winSparkle for Windows
-        winsparkle_dir = third_party_dir / "winsparkle"
-        winsparkle_dll = winsparkle_dir / "winsparkle.dll"
-
-        if not winsparkle_dll.exists():
-            print("[BUILD] Downloading winSparkle...")
-            winsparkle_dir.mkdir(parents=True, exist_ok=True)
-
-            # Download winSparkle
-            winsparkle_url = "https://github.com/vslavik/winsparkle/releases/download/v0.8.0/winsparkle-0.8.0.zip"
-            winsparkle_archive = winsparkle_dir / "winsparkle-0.8.0.zip"
-
-            urllib.request.urlretrieve(winsparkle_url, winsparkle_archive)
-
-            # Extract winSparkle
-            with zipfile.ZipFile(winsparkle_archive, 'r') as zip_ref:
-                zip_ref.extractall(winsparkle_dir / "temp")
-
-            # Find and copy DLL
-            temp_dir = winsparkle_dir / "temp"
-            dll_files = list(temp_dir.glob("**/winsparkle.dll"))
-
-            if dll_files:
-                shutil.copy2(dll_files[0], winsparkle_dll)
-                print(f"[BUILD] winSparkle DLL prepared at: {winsparkle_dll}")
-            else:
-                raise RuntimeError("winSparkle DLL not found in downloaded archive")
-
-            # Cleanup
-            shutil.rmtree(temp_dir)
-            winsparkle_archive.unlink()
-        else:
-            print(f"[BUILD] winSparkle DLL already exists at: {winsparkle_dll}")
-
-    else:
-        print(f"[BUILD] OTA dependencies not needed for platform: {current_platform}")
 
 
 def _find_playwright_cache() -> Path:

@@ -8,8 +8,8 @@ name: Release Flow Simulation (Current Architecture)
 #
 # Architecture:
 #   - validate-tag: Validates git ref and computes version
-#   - build-windows: Simulates Windows amd64 build
-#   - build-macos: Matrix simulation for macOS (amd64 + aarch64)
+#   - build-windows: Simulates Windows amd64 build + code signing check
+#   - build-macos: Matrix simulation for macOS (amd64 + aarch64) + signing/notarization checks
 #   - upload-to-s3: Simulates S3 upload and OTA feed generation
 #
 # ============================================================================
@@ -18,11 +18,17 @@ name: Release Flow Simulation (Current Architecture)
 #   - Quickly validate workflow flow logic (< 5 minutes)
 #   - Test conditional logic correctness
 #   - Verify artifact naming and passing
+#   - Simulate code signing and notarization requirements
 #   - No actual build execution, only creates simulated artifacts
 #
-# Note: This simulation does not include Inno Setup installation or
-#       language pack processing. The actual release.yml uses .islu
-#       (Unicode) language files exclusively.
+# Note: This simulation does not include:
+#   - Inno Setup installation or language pack processing
+#   - Actual code signing (certificates not required)
+#   - Actual Apple notarization (credentials not required)
+#   - External OTA frameworks (using self-contained OTA system)
+#
+# The actual release.yml uses .islu (Unicode) language files exclusively
+# and ENFORCES code signing and notarization for production/staging builds.
 #
 # ============================================================================
 # Supported Test Scenarios
@@ -61,6 +67,27 @@ on:
         required: true
         default: 'master'
         type: string
+      
+      environment:
+        description: 'Target environment'
+        required: false
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+          - test
+          - development
+      
+      channel:
+        description: 'Release channel'
+        required: false
+        default: 'stable'
+        type: choice
+        options:
+          - stable
+          - beta
+      
       upload_artifacts:
         description: 'Upload artifacts to GitHub Artifacts (debug only)'
         required: false
@@ -83,11 +110,38 @@ jobs:
     outputs:
       tag-valid: ${{ steps.out.outputs.valid }}
       version: ${{ steps.out.outputs.version }}
+      environment: ${{ steps.detect-env.outputs.environment }}
+      channel: ${{ steps.detect-env.outputs.channel }}
     steps:
       - id: out
         run: |
           echo "valid=true" >> $GITHUB_OUTPUT
           echo "version=0.0.0-sim" >> $GITHUB_OUTPUT
+      
+      - name: Detect environment and channel
+        id: detect-env
+        shell: bash
+        run: |
+          INPUT_ENV="${{ github.event.inputs.environment }}"
+          INPUT_CHANNEL="${{ github.event.inputs.channel }}"
+          
+          # Use manual selection or default
+          if [[ -n "$INPUT_ENV" ]]; then
+            ENV="$INPUT_ENV"
+          else
+            ENV="production"
+          fi
+          
+          if [[ -n "$INPUT_CHANNEL" ]]; then
+            CHANNEL="$INPUT_CHANNEL"
+          else
+            CHANNEL="stable"
+          fi
+          
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "channel=$CHANNEL" >> $GITHUB_OUTPUT
+          echo "Simulation environment: $ENV"
+          echo "Simulation channel: $CHANNEL"
 
   # ============================================================================
   # BUILD LAYER: Windows amd64 (Simulation)
@@ -118,6 +172,52 @@ jobs:
           echo "fake windows installer" > "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe"
           cp "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe" artifacts/
           echo "✅ Windows build simulated"
+      
+      # ------------------------------------------------------------------------
+      # OTA Signing Simulation
+      # In real workflow, OTA signing is REQUIRED for test/staging/production
+      # ------------------------------------------------------------------------
+      - name: Simulate OTA signing check (test/staging/production requirement)
+        if: |
+          needs.validate-tag.outputs.environment == 'test' ||
+          needs.validate-tag.outputs.environment == 'staging' ||
+          needs.validate-tag.outputs.environment == 'production'
+        run: |
+          echo "=== Simulating OTA Signing Requirement Check ==="
+          echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+          echo "In real workflow: Ed25519 private key REQUIRED"
+          echo "  - build_system/certificates/ed25519_private_key.pem"
+          echo "✅ Simulation: Skipping actual OTA signing check"
+      
+      - name: Simulate OTA signing execution
+        run: |
+          echo "=== Simulating OTA Signing ==="
+          echo "In real workflow: Ed25519 signature generation"
+          echo "  - Creates .sig files for installers"
+          echo "  - Generates signatures.json"
+          echo "✅ Simulation: OTA signing skipped"
+
+      # ------------------------------------------------------------------------
+      # Code Signing Simulation
+      # In real workflow, Authenticode signing is REQUIRED for production/staging
+      # ------------------------------------------------------------------------
+      - name: Simulate code signing check (production/staging requirement)
+        if: |
+          needs.validate-tag.outputs.environment == 'production' || 
+          needs.validate-tag.outputs.environment == 'staging'
+        run: |
+          echo "=== Simulating Code Signing Requirement Check ==="
+          echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+          echo "In real workflow: Authenticode certificate REQUIRED"
+          echo "  - WIN_CERT_PFX"
+          echo "  - WIN_CERT_PASSWORD"
+          echo "✅ Simulation: Skipping actual certificate check"
+      
+      - name: Simulate code signing execution
+        run: |
+          echo "=== Simulating Code Signing ==="
+          echo "In real workflow: signtool sign /f certificate.pfx /fd SHA256"
+          echo "✅ Simulation: Code signing skipped"
 
       - name: Upload Windows artifacts for S3 transfer (always, short retention)
         uses: actions/upload-artifact@v4
@@ -208,6 +308,79 @@ jobs:
           echo "fake macos installer" > "dist/eCan-${VERSION}-macos-${ARCH}.pkg"
           cp "dist/eCan-${VERSION}-macos-${ARCH}.pkg" artifacts/
           echo "✅ macOS ${{ matrix.arch }} build simulated"
+      
+      # ------------------------------------------------------------------------
+      # OTA Signing Simulation
+      # In real workflow, OTA signing is REQUIRED for test/staging/production
+      # ------------------------------------------------------------------------
+      - name: Simulate OTA signing check (test/staging/production requirement)
+        if: |
+          steps.arch_check.outputs.should_build == 'true' &&
+          (needs.validate-tag.outputs.environment == 'test' ||
+           needs.validate-tag.outputs.environment == 'staging' ||
+           needs.validate-tag.outputs.environment == 'production')
+        run: |
+          echo "=== Simulating OTA Signing Requirement Check ==="
+          echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+          echo "In real workflow: Ed25519 private key REQUIRED"
+          echo "  - build_system/certificates/ed25519_private_key.pem"
+          echo "✅ Simulation: Skipping actual OTA signing check"
+      
+      - name: Simulate OTA signing execution
+        if: steps.arch_check.outputs.should_build == 'true'
+        run: |
+          echo "=== Simulating OTA Signing ==="
+          echo "In real workflow: Ed25519 signature generation"
+          echo "  - Creates .sig files for installers"
+          echo "  - Generates signatures.json"
+          echo "✅ Simulation: OTA signing skipped"
+
+      # ------------------------------------------------------------------------
+      # Code Signing and Notarization Simulation
+      # In real workflow, these are REQUIRED for production/staging
+      # ------------------------------------------------------------------------
+      - name: Simulate code signing check (production/staging requirement)
+        if: |
+          steps.arch_check.outputs.should_build == 'true' &&
+          (needs.validate-tag.outputs.environment == 'production' || 
+           needs.validate-tag.outputs.environment == 'staging')
+        run: |
+          echo "=== Simulating Code Signing Requirement Check ==="
+          echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+          echo "In real workflow: Code signing certificates REQUIRED"
+          echo "  - MAC_CERT_P12"
+          echo "  - MAC_CERT_PASSWORD"
+          echo "  - MAC_CODESIGN_IDENTITY"
+          echo "✅ Simulation: Skipping actual certificate check"
+      
+      - name: Simulate code signing execution
+        if: steps.arch_check.outputs.should_build == 'true'
+        run: |
+          echo "=== Simulating Code Signing ==="
+          echo "In real workflow: codesign --deep --force --options runtime"
+          echo "✅ Simulation: Code signing skipped"
+      
+      - name: Simulate notarization check (production/staging requirement)
+        if: |
+          steps.arch_check.outputs.should_build == 'true' &&
+          (needs.validate-tag.outputs.environment == 'production' || 
+           needs.validate-tag.outputs.environment == 'staging')
+        run: |
+          echo "=== Simulating Notarization Requirement Check ==="
+          echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+          echo "In real workflow: Notarization REQUIRED"
+          echo "  - APPLE_ID"
+          echo "  - APPLE_APP_SPECIFIC_PASSWORD"
+          echo "  - TEAM_ID"
+          echo "✅ Simulation: Skipping actual notarization check"
+      
+      - name: Simulate notarization execution
+        if: steps.arch_check.outputs.should_build == 'true'
+        run: |
+          echo "=== Simulating Notarization ==="
+          echo "In real workflow: xcrun notarytool submit --wait"
+          echo "In real workflow: xcrun stapler staple"
+          echo "✅ Simulation: Notarization skipped"
       - name: Upload macOS artifacts for S3 transfer (always, short retention)
         if: steps.arch_check.outputs.should_build == 'true'
         uses: actions/upload-artifact@v4
@@ -249,11 +422,9 @@ jobs:
     uses: ./.github/workflows/shared-s3-upload.yml
     with:
       version: ${{ needs.validate-tag.outputs.version }}
+      environment: ${{ needs.validate-tag.outputs.environment }}
       windows-build-result: ${{ needs.build-windows.result }}
       macos-build-result: ${{ needs.build-macos.result }}
-      macos-built-amd64: ${{ (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') && (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all') }}
-      macos-built-aarch64: ${{ (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') && (github.event.inputs.arch == 'aarch64' || github.event.inputs.arch == 'all') }}
-      is-simulation: true
     secrets: inherit
 
   # ----------------------------------------------------------------------------
@@ -268,11 +439,8 @@ jobs:
       needs.upload-to-s3.result == 'success'
     uses: ./.github/workflows/shared-appcast-generation.yml
     with:
-      version: ${{ needs.validate-tag.outputs.version }}
-      s3-base-url: ${{ needs.upload-to-s3.outputs.s3-base-url }}
-      channel: stable
-      release-body: ''
-      is-simulation: true
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
     secrets: inherit
 
   # ----------------------------------------------------------------------------

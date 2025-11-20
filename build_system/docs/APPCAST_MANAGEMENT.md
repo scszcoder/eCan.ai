@@ -2,7 +2,9 @@
 
 ## 概述
 
-Appcast (应用更新订阅源) 是 Sparkle/WinSparkle OTA 更新系统的核心组件，包含应用的版本信息、下载链接和签名数据。
+Appcast (应用更新订阅源) 是 OTA 更新系统的核心组件，包含应用的版本信息、下载链接和签名数据。
+
+**注意：** eCan 使用自包含的 OTA 系统，采用业界标准的 Sparkle-format appcast.xml，但不依赖 Sparkle/WinSparkle 框架。所有更新逻辑由独立实现的 Python 代码处理。
 
 ## Appcast 文件管理
 
@@ -70,45 +72,41 @@ Appcast 文件同时发布到两个位置，提供冗余和灵活性：
 
 ## 应用配置
 
-### macOS (Sparkle)
+### Python OTA 客户端配置
 
-在应用中配置 Appcast URL：
+eCan 使用自包含的 Python OTA 客户端，配置在 `ota/config/ota_config.yaml`：
 
-```swift
-// Info.plist
-<key>SUFeedURL</key>
-<string>https://scszcoder.github.io/ecbot/appcast-macos.xml</string>
-
-// 或使用 S3
-<string>https://ecan-releases.s3.us-east-1.amazonaws.com/appcast/appcast-macos.xml</string>
-
-// 公钥（用于验证签名）
-<key>SUPublicEDKey</key>
-<string>your_public_key_here</string>
+```yaml
+environments:
+  production:
+    appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/production"
+    channel: "stable"
+    signature_required: true
 ```
 
-**架构特定配置：**
-```swift
-// Intel Mac
-<string>https://scszcoder.github.io/ecbot/appcast-macos-amd64.xml</string>
-
-// Apple Silicon
-<string>https://scszcoder.github.io/ecbot/appcast-macos-aarch64.xml</string>
+**架构特定 Appcast URL 自动生成：**
+```python
+# ota/config/loader.py
+def get_appcast_url(self, arch: str) -> str:
+    """
+    返回格式: {appcast_base}/channels/{channel}/appcast-{platform}-{arch}.xml
+    
+    Examples:
+    - macOS Intel: .../production/channels/stable/appcast-macos-amd64.xml
+    - macOS ARM:   .../production/channels/stable/appcast-macos-aarch64.xml
+    - Windows:     .../production/channels/stable/appcast-windows-amd64.xml
+    """
 ```
 
-### Windows (WinSparkle)
+**客户端集成：**
+```python
+from ota.core.updater import OTAUpdater
 
-```cpp
-// 初始化 WinSparkle
-win_sparkle_set_appcast_url("https://scszcoder.github.io/ecbot/appcast-windows.xml");
-
-// 或使用 S3
-win_sparkle_set_appcast_url("https://ecan-releases.s3.us-east-1.amazonaws.com/appcast/appcast-windows.xml");
-
-// 设置公钥
-win_sparkle_set_dsa_pub_pem("-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----");
-
-win_sparkle_init();
+# 启动自动更新检查
+OTAUpdater.start_auto_check_in_background(
+    ctx=AppContext,
+    logger_instance=logger
+)
 ```
 
 ## 签名管理
@@ -319,8 +317,8 @@ curl -O https://bucket.s3.region.amazonaws.com/releases/v0.0.1/macos/eCan-0.0.1-
 SIGNATURE=$(curl -s https://scszcoder.github.io/ecbot/appcast-macos.xml | \
   grep -o 'sparkle:edSignature="[^"]*"' | cut -d'"' -f2)
 
-# 验证签名（需要 Sparkle 工具）
-# sign_update --verify eCan-0.0.1-macos-amd64.pkg -f public_key.pem
+# 验证签名：可使用自定义的 Ed25519 校验脚本（参见 OTA_SYSTEM.md / signing_manager.py）
+# 此处不再依赖 Sparkle/WinSparkle 提供的工具
 ```
 
 ### 4. 测试更新流程
@@ -330,8 +328,8 @@ SIGNATURE=$(curl -s https://scszcoder.github.io/ecbot/appcast-macos.xml | \
 defaults write com.yourcompany.ecan SUScheduledCheckInterval 0
 open /Applications/eCan.app
 
-# Windows - 命令行触发更新检查
-# 在应用中实现 win_sparkle_check_update_with_ui()
+# Windows - 通过应用内 OTA 菜单触发检查更新（例如“检查更新...”按钮）
+# 具体触发方式由 eCan 客户端的 OTA 集成逻辑决定
 ```
 
 ## 故障排除
@@ -347,9 +345,6 @@ open /Applications/eCan.app
 
 **调试：**
 ```bash
-# 检查 Sparkle 日志 (macOS)
-log show --predicate 'subsystem == "org.sparkle-project.Sparkle"' --last 1h
-
 # 检查应用日志
 tail -f ~/Library/Logs/eCan/update.log
 ```
@@ -428,5 +423,4 @@ aws cloudfront create-invalidation \
 
 - [AWS_S3_RELEASE_SETUP.md](./AWS_S3_RELEASE_SETUP.md) - S3 配置指南
 - [RELEASE_S3_MIGRATION.md](./RELEASE_S3_MIGRATION.md) - S3 迁移总结
-- [Sparkle Documentation](https://sparkle-project.org/documentation/)
-- [WinSparkle Documentation](https://winsparkle.org/documentation/)
+- Sparkle Appcast XML Format（仅作为协议格式参考，不使用 Sparkle/WinSparkle 二进制框架）

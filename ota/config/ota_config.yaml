@@ -6,7 +6,7 @@
 # OTA 功能开关
 # 设置为 false 可以完全禁用 OTA 功能
 # ============================================
-ota_enabled: false
+ota_enabled: true
 
 # ============================================
 # 当前环境
@@ -20,7 +20,13 @@ environment: development
 # ============================================
 common:
   app_name: "eCan"
+  
+  # 单一 S3 Bucket（所有环境共用）
+  s3_bucket: "ecan-releases"
   s3_region: "us-east-1"
+  
+  # S3 基础路径（可选，默认为空）
+  s3_base_path: ""
   
   # 支持的平台
   platforms:
@@ -43,18 +49,21 @@ environments:
   # 开发环境
   # ------------------------------------------
   development:
-    # OTA 服务器地址
+    # S3 路径前缀
+    s3_prefix: "dev"
+    
+    # 发布渠道
+    channel: "dev"
+    
+    # OTA 服务器地址（本地开发）
     ota_server: "http://127.0.0.1:8080"
     
-    # S3 存储桶
-    s3_bucket: "ecan-updates-dev"
-    
-    # Appcast 基础 URL
+    # Appcast 基础 URL（开发环境使用本地服务器）
     appcast_base: "http://127.0.0.1:8080"
     
     # 签名验证
-    signature_required: true
-    signature_verification: true
+    signature_required: false
+    signature_verification: false
     
     # 自动更新
     auto_check: true
@@ -71,14 +80,17 @@ environments:
   # 测试环境
   # ------------------------------------------
   test:
+    # S3 路径前缀
+    s3_prefix: "test"
+    
+    # 发布渠道
+    channel: "beta"
+    
     # OTA 服务器地址
     ota_server: "https://updates-test.ecbot.com"
     
-    # S3 存储桶
-    s3_bucket: "ecan-updates-test"
-    
     # Appcast 基础 URL（从 S3 读取）
-    appcast_base: "https://ecan-updates-test.s3.us-east-1.amazonaws.com"
+    appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/test"
     
     # 签名验证（测试环境可选）
     signature_required: false
@@ -99,14 +111,17 @@ environments:
   # 预发布环境
   # ------------------------------------------
   staging:
+    # S3 路径前缀
+    s3_prefix: "staging"
+    
+    # 发布渠道
+    channel: "stable"
+    
     # OTA 服务器地址
     ota_server: "https://updates-staging.ecbot.com"
     
-    # S3 存储桶
-    s3_bucket: "ecan-updates-staging"
-    
     # Appcast 基础 URL（从 S3 读取）
-    appcast_base: "https://ecan-updates-staging.s3.us-east-1.amazonaws.com"
+    appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/staging"
     
     # 签名验证（预发布必须）
     signature_required: true
@@ -127,14 +142,17 @@ environments:
   # 生产环境
   # ------------------------------------------
   production:
+    # S3 路径前缀
+    s3_prefix: "production"
+    
+    # 发布渠道
+    channel: "stable"
+    
     # OTA 服务器地址
     ota_server: "https://updates.ecbot.com"
     
-    # S3 存储桶
-    s3_bucket: "ecan-updates"
-    
     # Appcast 基础 URL（从 S3 读取）
-    appcast_base: "https://ecan-updates.s3.us-east-1.amazonaws.com"
+    appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/production"
     
     # 签名验证（生产必须）
     signature_required: true

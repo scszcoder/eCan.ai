@@ -108,7 +108,7 @@ class UnifiedBuildSystem:
             print(f"[CLEAN] Warning: Cleanup failed: {e}")
     
     def prepare_third_party_assets(self) -> None:
-        """Prepare third-party assets (Playwright browsers, Sparkle, etc.)"""
+        """Prepare third-party assets (Playwright browsers)"""
         print("[THIRD-PARTY] Preparing third-party assets...")
         
         # Check if Playwright browsers already exist (from CI cache or previous install)
@@ -131,41 +131,6 @@ class UnifiedBuildSystem:
             print(f"[THIRD-PARTY] Warning: Failed to prepare third-party assets: {e}")
             print("[THIRD-PARTY]   This may cause issues with browser automation features")
             # Don't fail the build, just warn
-    
-    def verify_sparkle_framework(self) -> None:
-        """Verify Sparkle framework installation for macOS OTA updates"""
-        print("[SPARKLE] Verifying Sparkle framework installation...")
-        
-        if platform.system() != 'Darwin':
-            print("[SPARKLE] Skipping Sparkle verification (not on macOS)")
-            return
-        
-        try:
-            # Check if Sparkle framework exists in third_party
-            sparkle_path = self.project_root / "third_party" / "sparkle" / "Sparkle.framework"
-            if sparkle_path.exists():
-                print(f"[SPARKLE]  Found Sparkle framework at: {sparkle_path}")
-                
-                # Verify framework structure
-                versions_path = sparkle_path / "Versions" / "Current"
-                if versions_path.exists():
-                    print("[SPARKLE]  Framework structure is valid")
-                else:
-                    print("[SPARKLE]   Framework structure incomplete")
-                
-                # Check for CLI tools
-                cli_path = versions_path / "Resources" / "sparkle-cli"
-                if cli_path.exists():
-                    print("[SPARKLE]  Sparkle CLI tools found")
-                else:
-                    print("[SPARKLE]   Sparkle CLI tools not found")
-                    
-            else:
-                print("[SPARKLE]   Sparkle framework not found in third_party")
-                print("[SPARKLE] Run 'python build_system/install_ota_dependencies.py install' to install OTA dependencies")
-                
-        except Exception as e:
-            print(f"[SPARKLE] Warning: Verification failed: {e}")
     
     def build_frontend(self, skip_frontend: bool = False) -> bool:
         """Build frontend with caching optimization"""
@@ -334,15 +299,38 @@ class UnifiedBuildSystem:
                 if ota_sign_success:
                     print("[SIGN] [OK] OTA signing completed")
                 else:
-                    print("[SIGN] [WARNING] OTA signing failed, continuing build")
+                    # OTA signing is REQUIRED for test/staging/production environments
+                    # Only dev/development environment can skip OTA signing
+                    # Read environment from env var (set by GitHub Actions) or default to dev
+                    environment = os.getenv('ECAN_ENVIRONMENT', 'dev').lower()
+                    # Normalize environment names
+                    if environment == 'development':
+                        environment = 'dev'
+                    
+                    if environment in ['test', 'staging', 'production']:
+                        print("[SIGN] [ERROR] ========================================")
+                        print("[SIGN] [ERROR] OTA signing REQUIRED for test/staging/production environments")
+                        print(f"[SIGN] [ERROR] Current environment: {environment}")
+                        print("[SIGN] [ERROR] Please ensure Ed25519 private key exists at:")
+                        print(f"[SIGN] [ERROR]   build_system/certificates/ed25519_private_key.pem")
+                        print("[SIGN] [ERROR] ========================================")
+                        raise Exception("OTA signing failed in non-dev environment")
+                    else:
+                        print(f"[SIGN] [WARNING] OTA signing failed in {environment} environment, continuing build")
             
             print("[SIGN] Signing workflow completed")
             return True
             
         except Exception as e:
-            print(f"[SIGN] [WARNING] Error during signing process: {e}")
-            # Signing failures should not block the overall build
-            return True
+            error_msg = str(e)
+            # Check if this is an OTA signing failure in non-dev environment
+            if "OTA signing failed in non-dev environment" in error_msg:
+                print(f"[SIGN] [ERROR] {error_msg}")
+                return False  # Block build for OTA signing failures in test/staging/production
+            else:
+                print(f"[SIGN] [WARNING] Error during signing process: {e}")
+                # Other signing failures should not block the overall build
+                return True
     
     def standardize_artifacts(self, version: str) -> None:
         """Standardize artifact names"""
@@ -408,12 +396,6 @@ class UnifiedBuildSystem:
             stage_start = time.perf_counter()
             self.validate_environment(kwargs.get('skip_precheck', False))
             build_times['validation'] = time.perf_counter() - stage_start
-            
-            # Verify Sparkle framework on macOS (automatic)
-            if platform.system() == 'Darwin':
-                stage_start = time.perf_counter()
-                self.verify_sparkle_framework()
-                build_times['sparkle_verification'] = time.perf_counter() - stage_start
             
             # Clean environment
             stage_start = time.perf_counter()
