@@ -219,8 +219,13 @@ class AppcastGenerator:
                 except:
                     pass
                 
-                # Build download URL
+                # Build download URLs
+                # Standard URL (regional endpoint)
                 download_url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{key}"
+                
+                # Accelerated URL (S3 Transfer Acceleration endpoint)
+                # This provides faster downloads globally, especially useful for China and other regions
+                accelerated_url = f"https://{self.bucket}.s3-accelerate.amazonaws.com/{key}"
                 
                 return {
                     'version': version,
@@ -229,6 +234,7 @@ class AppcastGenerator:
                     'filename': filename,
                     's3_key': key,
                     'download_url': download_url,
+                    'accelerated_url': accelerated_url,
                     'file_size': obj['Size'],
                     'last_modified': obj['LastModified'],
                     'sha256': sha256,
@@ -318,6 +324,11 @@ class AppcastGenerator:
             
             if arch:
                 enclosure_attrs['sparkle:arch'] = arch
+            
+            # Add accelerated download URL as alternate
+            # Client can use this if primary URL fails or is slow
+            if pkg.get('accelerated_url'):
+                enclosure_attrs['sparkle:alternateUrl'] = pkg['accelerated_url']
             
             # Sparkle 2.x uses edSignature for Ed25519 signatures
             if pkg.get('signature'):

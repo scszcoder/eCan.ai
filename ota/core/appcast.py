@@ -28,6 +28,7 @@ class AppcastItem:
     length: Optional[int] = None
     content_type: Optional[str] = None
     ed_signature: Optional[str] = None  # Sparkle 2: edSignature (Ed25519, base64)
+    alternate_url: Optional[str] = None  # Accelerated/alternate download URL
     description_html: Optional[str] = None
     pub_date: Optional[str] = None
 
@@ -43,6 +44,7 @@ def parse_appcast(xml_text: str) -> List[AppcastItem]:
       - enclosure/@length (size)
       - enclosure/@type (content-type)
       - enclosure/@sparkle:edSignature (Ed25519 signature)
+      - enclosure/@sparkle:alternateUrl (accelerated/alternate download URL)
       - item/description (release notes HTML)
       - item/pubDate
     """
@@ -64,6 +66,7 @@ def parse_appcast(xml_text: str) -> List[AppcastItem]:
         length_val = enclosure.get('length')
         content_type = enclosure.get('type')
         ed_sig = enclosure.get(f"{{{ns['sparkle']}}}edSignature") or None
+        alternate_url = enclosure.get(f"{{{ns['sparkle']}}}alternateUrl") or None
 
         # Description may be CDATA/HTML
         desc_el = item.find('description')
@@ -87,6 +90,7 @@ def parse_appcast(xml_text: str) -> List[AppcastItem]:
             length=length,
             content_type=content_type,
             ed_signature=ed_sig,
+            alternate_url=alternate_url,
             description_html=desc_html,
             pub_date=pub_date,
         ))
