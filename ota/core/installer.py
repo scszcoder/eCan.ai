@@ -306,7 +306,7 @@ installer -pkg "{package_path}" -target / -verboseR 2>&1
                     try:
                         subprocess.run([
                             "osascript", "-e",
-                            'display notification "正在安装更新，请稍候..." with title "eCan 更新"'
+                            f'display notification "{_tr.tr("installing_update")}" with title "{_tr.tr("app_update")}"'
                         ], check=False)
                     except Exception:
                         pass
@@ -322,12 +322,12 @@ installer -pkg "{package_path}" -target / -verboseR 2>&1
                         
                         # Estimated installation phases and durations (in seconds)
                         phases = [
-                            (0, 5, "正在准备安装..."),
-                            (5, 10, "正在验证软件包..."),
-                            (10, 50, "正在写文件..."),
-                            (50, 55, "正在运行软件包脚本..."),
-                            (55, 58, "正在写软件包回执..."),
-                            (58, 60, "正在验证软件包..."),
+                            (0, 5, _tr.tr("preparing_install")),
+                            (5, 10, _tr.tr("verifying_package")),
+                            (10, 50, _tr.tr("writing_files")),
+                            (50, 55, _tr.tr("running_scripts")),
+                            (55, 58, _tr.tr("writing_receipt")),
+                            (58, 60, _tr.tr("verifying_package")),
                         ]
                         
                         # Start a thread to simulate progress
@@ -337,7 +337,7 @@ installer -pkg "{package_path}" -target / -verboseR 2>&1
                                 elapsed = time_module.time() - start_time
                                 
                                 # Find current phase
-                                current_phase = "正在安装..."
+                                current_phase = _tr.tr("installing")
                                 progress = 0
                                 
                                 for start_sec, end_sec, phase_name in phases:
@@ -376,7 +376,7 @@ installer -pkg "{package_path}" -target / -verboseR 2>&1
                         # Send 100% progress
                         if self.progress_callback:
                             try:
-                                self.progress_callback(100, "软件已成功安装")
+                                self.progress_callback(100, _tr.tr("install_complete"))
                             except Exception as e:
                                 logger.debug(f"Progress callback error: {e}")
                         
@@ -408,7 +408,7 @@ installer -pkg "{package_path}" -target / -verboseR 2>&1
                             try:
                                 subprocess.run([
                                     "osascript", "-e",
-                                    'display notification "安装完成，应用将在 3 秒后重启" with title "eCan 更新"'
+                                    f'display notification "{_tr.tr("install_complete_restart")}" with title "{_tr.tr("app_update")}"'
                                 ])
                             except Exception as e:
                                 logger.warning(f"Failed to show notification: {e}")
@@ -606,13 +606,13 @@ rm "$0"
             return None
     
     def restore_backup(self) -> bool:
-        """恢复备份"""
+        """Restore backup"""
         if not self.backup_dir or not self.backup_dir.exists():
             logger.error("No backup available to restore")
             return False
         
         try:
-            # 获取当前应用路径
+            # Get current application path
             if getattr(sys, 'frozen', False):
                 app_path = Path(sys.executable).parent
             else:
@@ -620,11 +620,11 @@ rm "$0"
             
             logger.info(f"Restoring backup: {self.backup_dir} -> {app_path}")
             
-            # 删除当前应用
+            # Delete current application
             if app_path.exists():
                 shutil.rmtree(app_path)
             
-            # 恢复备份
+            # Restore backup
             shutil.copytree(self.backup_dir, app_path)
             
             logger.info("Backup restored successfully")
@@ -635,7 +635,7 @@ rm "$0"
             return False
     
     def cleanup_backup(self):
-        """清理备份文件"""
+        """Clean up backup files"""
         if self.backup_dir and self.backup_dir.exists():
             try:
                 shutil.rmtree(self.backup_dir)
@@ -784,12 +784,12 @@ rm "$0"
             
             # Create progress dialog
             dialog = QProgressDialog(
-                "正在安装更新，请稍候...",
+                _tr.tr("installing_update"),
                 None,  # No cancel button
                 0,
                 100
             )
-            dialog.setWindowTitle("eCan 更新")
+            dialog.setWindowTitle(_tr.tr("app_update"))
             dialog.setWindowModality(Qt.WindowModal)
             dialog.setMinimumDuration(0)  # Show immediately
             dialog.setValue(0)
@@ -855,5 +855,5 @@ rm "$0"
             logger.warning(f"Failed to close progress dialog: {e}")
 
 
-# 全局安装管理器实例
+# Global installation manager instance
 installation_manager = InstallationManager()

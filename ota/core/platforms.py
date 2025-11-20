@@ -34,6 +34,26 @@ class MacOSUpdater:
         except ImportError:
             logger.warning("Appcast parser not available, falling back to generic updater")
             self.appcast_parser = False
+    
+    def _get_user_language(self) -> str:
+        """
+        Get user's language preference for localized appcast
+        
+        Returns:
+            Language code (e.g., 'en-US', 'zh-CN')
+        """
+        try:
+            from ota.gui.i18n import _tr
+            # Get language from translator (already normalized)
+            lang = _tr.language  # e.g., 'zh-CN' or 'en-US'
+            # Convert to appcast language format
+            if lang.startswith('zh'):
+                return 'zh-CN'
+            else:
+                return 'en-US'
+        except Exception as e:
+            logger.debug(f"[OTA] Could not get user language: {e}, using 'en-US'")
+            return 'en-US'
 
     def check_for_updates(self, silent: bool = False, return_info: bool = False):
         """Check for updates by parsing the appcast file."""
@@ -49,8 +69,12 @@ class MacOSUpdater:
             plat_config = ota_config.get_platform_config()
             arch = normalize_arch_tag(platform.machine())
 
-            # Get appcast URL using new configuration method
-            appcast_url = ota_config.get_appcast_url(arch)
+            # Get user language for localized appcast
+            language = self._get_user_language()
+            logger.info(f"[OTA] Requesting appcast for language: {language}")
+            
+            # Get appcast URL using new configuration method (with language support)
+            appcast_url = ota_config.get_appcast_url(arch, language=language)
 
             if not appcast_url:
                 raise PlatformError(
@@ -59,9 +83,28 @@ class MacOSUpdater:
                     {"platform_config": plat_config}
                 )
 
-            # Get appcast content
-            response = requests.get(appcast_url, timeout=10)
-            response.raise_for_status()
+            # Get appcast content with fallback to English
+            response = None
+            try:
+                response = requests.get(appcast_url, timeout=10)
+                response.raise_for_status()
+                logger.info(f"[OTA] Successfully fetched appcast for language: {language}")
+            except Exception as e:
+                # Fallback to English if localized version not found
+                if language != 'en-US':
+                    logger.warning(f"[OTA] Failed to fetch localized appcast ({language}): {e}")
+                    logger.info(f"[OTA] Falling back to English appcast")
+                    fallback_url = ota_config.get_appcast_url(arch, language='en-US')
+                    try:
+                        response = requests.get(fallback_url, timeout=10)
+                        response.raise_for_status()
+                        logger.info(f"[OTA] Successfully fetched fallback English appcast")
+                    except Exception as fallback_error:
+                        logger.error(f"[OTA] Failed to fetch fallback appcast: {fallback_error}")
+                        raise
+                else:
+                    # Already trying English, no fallback available
+                    raise
 
             # Parse appcast
             items = parse_appcast(response.text)
@@ -180,6 +223,26 @@ class WindowsUpdater:
         except ImportError:
             logger.warning("Appcast parser not available, falling back to generic updater")
             self.appcast_parser = False
+    
+    def _get_user_language(self) -> str:
+        """
+        Get user's language preference for localized appcast
+        
+        Returns:
+            Language code (e.g., 'en-US', 'zh-CN')
+        """
+        try:
+            from ota.gui.i18n import _tr
+            # Get language from translator (already normalized)
+            lang = _tr.language  # e.g., 'zh-CN' or 'en-US'
+            # Convert to appcast language format
+            if lang.startswith('zh'):
+                return 'zh-CN'
+            else:
+                return 'en-US'
+        except Exception as e:
+            logger.debug(f"[OTA] Could not get user language: {e}, using 'en-US'")
+            return 'en-US'
 
     def check_for_updates(self, silent: bool = False, return_info: bool = False):
         """Check for updates by parsing the appcast file."""
@@ -195,8 +258,12 @@ class WindowsUpdater:
             plat_config = ota_config.get_platform_config()
             arch = normalize_arch_tag(platform.machine())
 
-            # Get appcast URL using new configuration method
-            appcast_url = ota_config.get_appcast_url(arch)
+            # Get user language for localized appcast
+            language = self._get_user_language()
+            logger.info(f"[OTA] Requesting appcast for language: {language}")
+            
+            # Get appcast URL using new configuration method (with language support)
+            appcast_url = ota_config.get_appcast_url(arch, language=language)
 
             if not appcast_url:
                 raise PlatformError(
@@ -205,9 +272,28 @@ class WindowsUpdater:
                     {"platform_config": plat_config}
                 )
 
-            # Get appcast content
-            response = requests.get(appcast_url, timeout=10)
-            response.raise_for_status()
+            # Get appcast content with fallback to English
+            response = None
+            try:
+                response = requests.get(appcast_url, timeout=10)
+                response.raise_for_status()
+                logger.info(f"[OTA] Successfully fetched appcast for language: {language}")
+            except Exception as e:
+                # Fallback to English if localized version not found
+                if language != 'en-US':
+                    logger.warning(f"[OTA] Failed to fetch localized appcast ({language}): {e}")
+                    logger.info(f"[OTA] Falling back to English appcast")
+                    fallback_url = ota_config.get_appcast_url(arch, language='en-US')
+                    try:
+                        response = requests.get(fallback_url, timeout=10)
+                        response.raise_for_status()
+                        logger.info(f"[OTA] Successfully fetched fallback English appcast")
+                    except Exception as fallback_error:
+                        logger.error(f"[OTA] Failed to fetch fallback appcast: {fallback_error}")
+                        raise
+                else:
+                    # Already trying English, no fallback available
+                    raise
 
             # Parse appcast
             items = parse_appcast(response.text)

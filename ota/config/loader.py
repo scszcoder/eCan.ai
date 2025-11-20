@@ -145,13 +145,14 @@ class OTAConfig:
         """
         return self._config.get('advanced', {}).get(key, default)
     
-    def get_appcast_url(self, platform: str, arch: Optional[str] = None) -> str:
+    def get_appcast_url(self, platform: str, arch: Optional[str] = None, language: Optional[str] = None) -> str:
         """
-        Get appcast URL for platform and architecture
+        Get appcast URL for platform and architecture (with i18n support)
         
         Args:
             platform: Platform name (macos, windows, linux)
             arch: Architecture (aarch64, amd64), optional
+            language: Language code (e.g., 'en-US', 'zh-CN'), optional
             
         Returns:
             Appcast URL
@@ -159,6 +160,9 @@ class OTAConfig:
         Example:
             get_appcast_url('macos', 'aarch64')
             → https://ecan-updates.s3.us-east-1.amazonaws.com/production/channels/stable/appcast-macos-aarch64.xml
+            
+            get_appcast_url('macos', 'aarch64', 'zh-CN')
+            → https://ecan-updates.s3.us-east-1.amazonaws.com/production/channels/stable/appcast-macos-aarch64.zh-CN.xml
         """
         if not self.enabled:
             return ""
@@ -166,11 +170,17 @@ class OTAConfig:
         # Get channel for current environment
         channel = self.get_channel()
         
-        # Build appcast filename
+        # Build appcast filename with language support
         if arch:
-            filename = f"appcast-{platform}-{arch}.xml"
+            base_filename = f"appcast-{platform}-{arch}"
         else:
-            filename = f"appcast-{platform}.xml"
+            base_filename = f"appcast-{platform}"
+        
+        # Add language suffix if not English
+        if language and language != 'en-US':
+            filename = f"{base_filename}.{language}.xml"
+        else:
+            filename = f"{base_filename}.xml"
         
         # Use S3 URL with channel path
         return self.get_s3_url(f"channels/{channel}/{filename}")

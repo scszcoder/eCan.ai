@@ -36,6 +36,124 @@ except ImportError:
     sys.exit(1)
 
 
+def get_release_notes_from_changelog(version: str, changelog_path: Optional[Path] = None, language: str = 'en-US') -> str:
+    """
+    Read release notes from CHANGELOG.md for specified version (with i18n support)
+    
+    Args:
+        version: Version number (e.g., "1.0.1")
+        changelog_path: Path to CHANGELOG.md file, defaults to project root
+        language: Language code (e.g., 'en-US', 'zh-CN')
+    
+    Returns:
+        HTML formatted release notes
+    """
+    if changelog_path is None:
+        # Prefer localized CHANGELOG for specified language
+        if language != 'en-US':
+            localized_changelog = project_root / f"CHANGELOG.{language}.md"
+            if localized_changelog.exists():
+                changelog_path = localized_changelog
+            else:
+                # Fallback to English version
+                changelog_path = project_root / "CHANGELOG.md"
+        else:
+            changelog_path = project_root / "CHANGELOG.md"
+    
+    try:
+        if not changelog_path.exists():
+            return f"<h2>eCan.ai {version}</h2><p>Release notes not available.</p>"
+        
+        with open(changelog_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Parse Markdown and extract content for the specified version
+        # Match format: ## [1.0.1] - 2025-11-21
+        pattern = rf'## \[{re.escape(version)}\].*?\n(.*?)(?=\n## \[|\Z)'
+        match = re.search(pattern, content, re.DOTALL)
+        
+        if not match:
+            return f"<h2>eCan.ai {version}</h2><p>Release notes not available.</p>"
+        
+        notes_markdown = match.group(1).strip()
+        
+        # Simple Markdown to HTML conversion
+        html = markdown_to_html(notes_markdown)
+        
+        return f"<h2>eCan.ai {version}</h2>{html}"
+    
+    except Exception as e:
+        print(f"⚠️  Warning: Could not read release notes from CHANGELOG: {e}")
+        return f"<h2>eCan.ai {version}</h2><p>Release notes not available.</p>"
+
+
+def markdown_to_html(markdown_text: str) -> str:
+    """
+    Simple Markdown to HTML conversion
+    Supports: ### headings, - lists, **bold**
+    
+    Args:
+        markdown_text: Markdown text
+    
+    Returns:
+        HTML text
+    """
+    html_lines = []
+    current_list = []
+    
+    for line in markdown_text.split('\n'):
+        line = line.strip()
+        
+        if not line:
+            # Empty line: end current list
+            if current_list:
+                html_lines.append('<ul>')
+                html_lines.extend(current_list)
+                html_lines.append('</ul>')
+                current_list = []
+            continue
+        
+        # ### heading
+        if line.startswith('### '):
+            if current_list:
+                html_lines.append('<ul>')
+                html_lines.extend(current_list)
+                html_lines.append('</ul>')
+                current_list = []
+            title = line[4:].strip()
+            html_lines.append(f'<h3>{title}</h3>')
+        
+        # - list item
+        elif line.startswith('- '):
+            item = line[2:].strip()
+            # Handle **bold**
+            item = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', item)
+            # Handle `code`
+            item = re.sub(r'`(.*?)`', r'<code>\1</code>', item)
+            current_list.append(f'  <li>{item}</li>')
+        
+        # Regular paragraph
+        else:
+            if current_list:
+                html_lines.append('<ul>')
+                html_lines.extend(current_list)
+                html_lines.append('</ul>')
+                current_list = []
+            # Handle **bold**
+            line = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', line)
+            # Handle `code`
+            line = re.sub(r'`(.*?)`', r'<code>\1</code>', line)
+            html_lines.append(f'<p>{line}</p>')
+    
+    # Handle final list
+    if current_list:
+        html_lines.append('<ul>')
+        html_lines.extend(current_list)
+        html_lines.append('</ul>')
+    
+    return '\n'.join(html_lines)
+
+
 class AppcastGenerator:
     """Generate Sparkle-compatible appcast XML from S3 artifacts for self-contained OTA system"""
     
@@ -247,17 +365,18 @@ class AppcastGenerator:
             print(f"  ⚠️  Failed to get package info for {version}/{platform}/{arch}: {e}")
             return None
     
-    def generate_appcast_xml(self, platform: str, arch: str, max_versions: int = 10) -> str:
+    def generate_appcast_xml(self, platform: str, arch: str, max_versions: int = 10, language: str = 'en-US') -> str:
         """
-        Generate appcast XML for platform and architecture
+        Generate appcast XML for platform and architecture (with i18n support)
         
         Args:
             platform: Platform (macos/windows)
             arch: Architecture (amd64/aarch64)
             max_versions: Maximum number of versions to include
-            
+            language: Language code (e.g., 'en-US', 'zh-CN')
+        
         Returns:
-            Appcast XML string
+            XML string
         """
         print(f"\n📝 Generating appcast for {platform}-{arch}...")
         
@@ -295,7 +414,7 @@ class AppcastGenerator:
         ET.SubElement(channel, 'link').text = appcast_url
         
         ET.SubElement(channel, 'description').text = f"Updates for eCan.ai ({platform} {arch}) - {self.channel} channel"
-        ET.SubElement(channel, 'language').text = 'en'
+        ET.SubElement(channel, 'language').text = language
         
         # Add items
         for pkg in items:
@@ -304,12 +423,28 @@ class AppcastGenerator:
             ET.SubElement(item, 'title').text = f"Version {pkg['version']}"
             ET.SubElement(item, 'pubDate').text = pkg['last_modified'].strftime('%a, %d %b %Y %H:%M:%S +0000')
             
-            # Description (can be enhanced with release notes)
-            description = f"<h2>eCan.ai {pkg['version']}</h2>"
+            # Description: Read from CHANGELOG.md (with i18n support)
+            description = get_release_notes_from_changelog(pkg['version'], language=language)
+            
+            # Add environment-specific warnings (localized)
             if self.environment == 'development':
-                description += "<p>Development build - for testing only</p>"
+                description += "<div style='background-color: #fff3cd; border: 1px solid #ffc107; padding: 10px; margin-top: 10px;'>"
+                if language == 'zh-CN':
+                    description += "<p><strong>⚠️ 开发版本</strong></p>"
+                    description += "<p>这是一个开发版本，仅供测试使用。可能包含错误和未完成的功能。</p>"
+                else:
+                    description += "<p><strong>⚠️ Development Build</strong></p>"
+                    description += "<p>This is a development build for testing purposes only. It may contain bugs and incomplete features.</p>"
+                description += "</div>"
             elif self.environment == 'test':
-                description += "<p>Beta release - please report any issues</p>"
+                description += "<div style='background-color: #d1ecf1; border: 1px solid #0c5460; padding: 10px; margin-top: 10px;'>"
+                if language == 'zh-CN':
+                    description += "<p><strong>ℹ️ 测试版本</strong></p>"
+                    description += "<p>这是一个测试版本，如遇到问题请及时反馈。</p>"
+                else:
+                    description += "<p><strong>ℹ️ Beta Release</strong></p>"
+                    description += "<p>This is a beta release. Please report any issues you encounter.</p>"
+                description += "</div>"
             
             ET.SubElement(item, 'description').text = f"<![CDATA[{description}]]>"
             
@@ -351,19 +486,25 @@ class AppcastGenerator:
         
         return xml_str
     
-    def upload_appcast(self, platform: str, arch: str, xml_content: str) -> bool:
+    def upload_appcast(self, platform: str, arch: str, xml_content: str, language: str = 'en-US') -> bool:
         """
-        Upload appcast XML to S3
+        Upload appcast XML to S3 (with i18n support)
         
         Args:
             platform: Platform (macos/windows)
             arch: Architecture (amd64/aarch64)
             xml_content: Appcast XML content
+            language: Language code (e.g., 'en-US', 'zh-CN')
             
         Returns:
             True if successful
         """
-        filename = f"appcast-{platform}-{arch}.xml"
+        # Generate filename with language suffix (except for default 'en-US')
+        if language == 'en-US':
+            filename = f"appcast-{platform}-{arch}.xml"
+        else:
+            filename = f"appcast-{platform}-{arch}.{language}.xml"
+        
         if self.base_path:
             s3_key = f"{self.base_path}/{self.prefix}/channels/{self.channel}/{filename}"
         else:
@@ -457,20 +598,24 @@ class AppcastGenerator:
         success_count = 0
         total_count = 0
         
-        # Generate appcasts for each platform/arch combination
+        # Generate appcasts for each platform/arch/language combination
         combinations = [
             ('macos', 'amd64'),
             ('macos', 'aarch64'),
             ('windows', 'amd64')
         ]
         
+        # Supported languages
+        languages = ['en-US', 'zh-CN']
+        
         for platform, arch in combinations:
-            total_count += 1
-            xml_content = self.generate_appcast_xml(platform, arch)
-            
-            if xml_content:
-                if self.upload_appcast(platform, arch, xml_content):
-                    success_count += 1
+            for language in languages:
+                total_count += 1
+                xml_content = self.generate_appcast_xml(platform, arch, language=language)
+                
+                if xml_content:
+                    if self.upload_appcast(platform, arch, xml_content, language=language):
+                        success_count += 1
         
         # Generate latest.json
         self.generate_latest_json()
