@@ -287,7 +287,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         ref: ${{ github.event.inputs.ref || github.ref }}
-        fetch-depth: 0
+        fetch-depth: 1  # Shallow clone: build only needs current code
 
     # ------------------------------------------------------------------------
     # Step Group 2: Environment Setup
@@ -922,7 +922,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         ref: ${{ github.event.inputs.ref || github.ref }}
-        fetch-depth: 0
+        fetch-depth: 1  # Shallow clone: build only needs current code
 
     # ------------------------------------------------------------------------
     # Step Group 2: Environment Setup
