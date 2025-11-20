@@ -18,16 +18,15 @@ from .errors import (
 )
 
 
-class SparkleUpdater:
-    """macOS Sparkle updater
+class MacOSUpdater:
+    """macOS OTA updater using self-contained appcast parser
 
-    Note: Real Sparkle framework doesn't provide CLI tools, using appcast parsing as alternative
-    Should use Sparkle's native Objective-C API in production environment
+    Uses industry-standard Sparkle-format appcast.xml but with independent implementation.
+    No dependency on Sparkle framework - fully self-contained OTA system.
     """
 
     def __init__(self, ota_manager):
         self.ota_manager = ota_manager
-        self.sparkle_framework_path = self._find_sparkle_framework()
         # Import appcast parsing functionality
         try:
             from .appcast import parse_appcast, select_latest_for_platform, normalize_arch_tag
@@ -36,39 +35,8 @@ class SparkleUpdater:
             logger.warning("Appcast parser not available, falling back to generic updater")
             self.appcast_parser = False
 
-    def _find_sparkle_framework(self) -> Optional[str]:
-        """Find Sparkle framework path"""
-        # First check bundled dependency location
-        if hasattr(sys, '_MEIPASS'):
-            # PyInstaller bundled environment
-            bundled_path = os.path.join(sys._MEIPASS, "third_party", "sparkle", "Sparkle.framework")
-            if os.path.exists(bundled_path):
-                logger.info(f"Found bundled Sparkle framework at: {bundled_path}")
-                return bundled_path
-
-        # Development environment or manually installed locations
-        possible_paths = [
-            # Project bundled dependencies
-            os.path.join(self.ota_manager.app_home_path, "third_party", "sparkle", "Sparkle.framework"),
-            # Standard installation locations
-            "/Applications/ECBot.app/Contents/Frameworks/Sparkle.framework",
-            os.path.join(self.ota_manager.app_home_path, "Frameworks", "Sparkle.framework"),
-            "/Library/Frameworks/Sparkle.framework",
-            "/opt/homebrew/Frameworks/Sparkle.framework",  # Apple Silicon Homebrew
-            "/usr/local/Frameworks/Sparkle.framework",     # Intel Homebrew
-        ]
-
-        for path in possible_paths:
-            if os.path.exists(path):
-                logger.info(f"Found Sparkle framework at: {path}")
-                return path
-
-        logger.warning("Sparkle framework not found in any expected location")
-        return None
-
     def check_for_updates(self, silent: bool = False, return_info: bool = False):
         """Check for updates by parsing the appcast file."""
-        # For unified testing and behavior, we directly use the appcast check method.
         return self._check_via_appcast(silent, return_info)
 
     def _check_via_appcast(self, silent: bool = False, return_info: bool = False):
@@ -112,14 +80,14 @@ class SparkleUpdater:
                     "file_size": selected.length or 0,
                     "signature": selected.ed_signature or "",
                     "description": selected.description_html or "",
-                    "source": "sparkle_appcast"
+                    "source": "macos_appcast"
                 }
                 return (True, update_info) if return_info else True
             else:
                 return (False, None) if return_info else False
 
         except Exception as e:
-            error = create_error_from_exception(e, "Sparkle appcast check")
+            error = create_error_from_exception(e, "macOS appcast check")
             logger.error(str(error))
             if return_info:
                 return False, error
@@ -142,33 +110,68 @@ class SparkleUpdater:
             return self._install_dmg(package.download_path)
 
         except Exception as e:
-            logger.error(f"Sparkle install failed: {e}")
+            logger.error(f"macOS install failed: {e}")
             return False
 
     def _install_dmg(self, dmg_path) -> bool:
-        """Basic logic for installing DMG files"""
+        """Install DMG package (or PKG if it's a PKG file)"""
         try:
-            logger.info(f"Installing DMG: {dmg_path}")
-
             # In dev mode, only log without actual installation
             if ota_config.is_dev_mode():
-                logger.info("Development mode: DMG installation simulated")
+                logger.info("Development mode: Installation simulated")
                 return True
 
-            logger.warning("DMG installation not fully implemented - manual installation required")
-            return False
+            # Check if it's a PKG file
+            if dmg_path.endswith('.pkg'):
+                logger.info(f"Installing PKG: {dmg_path}")
+                # Use AppleScript (osascript) to run installer with administrator privileges
+                # Pass the package path via argv to avoid quoting issues in the script body
+                osa_cmd = [
+                    '/usr/bin/osascript',
+                    '-e',
+                    'on run argv',
+                    '-e',
+                    'set pkgPath to item 1 of argv',
+                    '-e',
+                    'do shell script "installer -pkg " & quoted form of pkgPath & " -target /" with administrator privileges',
+                    '-e',
+                    'end run',
+                    dmg_path,
+                ]
+
+                logger.info("Requesting admin privileges for installation...")
+                result = subprocess.run(osa_cmd, capture_output=True, text=True)
+
+                if result.returncode == 0:
+                    logger.info("PKG installation started successfully")
+                    return True
+                else:
+                    if "User canceled" in result.stderr:
+                        logger.warning("Installation canceled by user")
+                    else:
+                        logger.error(f"PKG installation failed: {result.stderr}")
+                    return False
+            else:
+                logger.info(f"Installing DMG: {dmg_path}")
+                logger.warning("DMG installation not fully implemented - manual installation required")
+                # For DMG, we typically just open it
+                subprocess.run(['open', dmg_path])
+                return False
 
         except Exception as e:
-            logger.error(f"DMG installation failed: {e}")
+            logger.error(f"Installation failed: {e}")
             return False
 
 
-class WinSparkleUpdater:
-    """Windows winSparkle updater"""
+class WindowsUpdater:
+    """Windows OTA updater using self-contained appcast parser
+
+    Uses industry-standard Sparkle-format appcast.xml but with independent implementation.
+    No dependency on WinSparkle - fully self-contained OTA system.
+    """
 
     def __init__(self, ota_manager):
         self.ota_manager = ota_manager
-        self.winsparkle_dll_path = self._find_winsparkle_dll()
         # Import appcast parsing functionality
         try:
             from .appcast import parse_appcast, select_latest_for_platform, normalize_arch_tag
@@ -177,39 +180,8 @@ class WinSparkleUpdater:
             logger.warning("Appcast parser not available, falling back to generic updater")
             self.appcast_parser = False
 
-    def _find_winsparkle_dll(self) -> Optional[str]:
-        """Find winSparkle DLL path"""
-        # First check bundled dependency location
-        if hasattr(sys, '_MEIPASS'):
-            # PyInstaller bundled environment
-            bundled_path = os.path.join(sys._MEIPASS, "third_party", "winsparkle", "winsparkle.dll")
-            if os.path.exists(bundled_path):
-                logger.info(f"Found bundled winSparkle DLL at: {bundled_path}")
-                return bundled_path
-
-        # Development environment or manually installed locations
-        possible_paths = [
-            # Project bundled dependencies
-            os.path.join(self.ota_manager.app_home_path, "third_party", "winsparkle", "winsparkle.dll"),
-            # Standard locations
-            os.path.join(self.ota_manager.app_home_path, "winsparkle.dll"),
-            os.path.join(self.ota_manager.app_home_path, "lib", "winsparkle.dll"),
-            os.path.join(self.ota_manager.app_home_path, "bin", "winsparkle.dll"),
-            "C:\\Program Files\\ECBot\\winsparkle.dll",
-            "C:\\Program Files (x86)\\ECBot\\winsparkle.dll"
-        ]
-
-        for path in possible_paths:
-            if os.path.exists(path):
-                logger.info(f"Found winSparkle DLL at: {path}")
-                return path
-
-        logger.warning("winSparkle DLL not found in any expected location")
-        return None
-
     def check_for_updates(self, silent: bool = False, return_info: bool = False):
         """Check for updates by parsing the appcast file."""
-        # For unified testing and behavior, we directly use the appcast check method.
         return self._check_via_appcast(silent, return_info)
 
     def _check_via_appcast(self, silent: bool = False, return_info: bool = False):
@@ -253,14 +225,14 @@ class WinSparkleUpdater:
                     "file_size": selected.length or 0,
                     "signature": selected.ed_signature or "",
                     "description": selected.description_html or "",
-                    "source": "winsparkle_appcast"
+                    "source": "windows_appcast"
                 }
                 return (True, update_info) if return_info else True
             else:
                 return (False, None) if return_info else False
 
         except Exception as e:
-            error = create_error_from_exception(e, "WinSparkle appcast check")
+            error = create_error_from_exception(e, "Windows appcast check")
             logger.error(str(error))
             if return_info:
                 return False, error
@@ -283,21 +255,40 @@ class WinSparkleUpdater:
             return self._install_windows_package(package.download_path)
 
         except Exception as e:
-            logger.error(f"WinSparkle install failed: {e}")
+            logger.error(f"Windows install failed: {e}")
             return False
 
     def _install_windows_package(self, package_path) -> bool:
-        """Basic logic for installing Windows update packages"""
+        """Install Windows EXE/MSI package"""
         try:
-            logger.info(f"Installing Windows package: {package_path}")
-
             # In dev mode, only log without actual installation
             if ota_config.is_dev_mode():
-                logger.info("Development mode: Windows package installation simulated")
+                logger.info("Development mode: Installation simulated")
                 return True
 
-            logger.warning("Windows package installation not fully implemented - manual installation required")
-            return False
+            logger.info(f"Installing Windows package: {package_path}")
+            
+            # Determine package type and install
+            if package_path.endswith('.msi'):
+                # MSI package: use msiexec with quiet mode
+                cmd = ['msiexec', '/i', package_path, '/quiet', '/norestart']
+            elif package_path.endswith('.exe'):
+                # EXE package: try silent install flag
+                cmd = [package_path, '/S', '/SILENT']  # Common silent flags
+            else:
+                logger.error(f"Unsupported package type: {package_path}")
+                return False
+            
+            # Start installation process
+            subprocess.Popen(cmd)
+            logger.info("Installation started successfully")
+            
+            # IMPORTANT: Exit the application immediately to allow the installer 
+            # to overwrite files. The installer should handle the restart.
+            logger.info("Exiting application to allow update...")
+            sys.exit(0)
+            
+            return True
 
         except Exception as e:
             logger.error(f"Windows package installation failed: {e}")
@@ -375,8 +366,8 @@ def get_platform_updater(ota_manager):
     system = platform.system().lower()
 
     if system == 'darwin':  # macOS
-        return SparkleUpdater(ota_manager)
+        return MacOSUpdater(ota_manager)
     elif system == 'windows':
-        return WinSparkleUpdater(ota_manager)
+        return WindowsUpdater(ota_manager)
     else:  # Linux and other platforms
         return GenericUpdater(ota_manager)

@@ -29,7 +29,7 @@ from utils.logger_helper import logger_helper as logger
 
 from ota.config.loader import ota_config
 from .package_manager import package_manager, UpdatePackage
-from .platforms import SparkleUpdater, WinSparkleUpdater, GenericUpdater
+from .platforms import MacOSUpdater, WindowsUpdater, GenericUpdater
 from .errors import UpdateError, UpdateErrorCode, get_user_friendly_message
 
 
@@ -75,9 +75,9 @@ class OTAUpdater:
         except Exception:
             pass
         if self.platform == "Darwin":
-            return SparkleUpdater(self)
+            return MacOSUpdater(self)
         elif self.platform == "Windows":
-            return WinSparkleUpdater(self)
+            return WindowsUpdater(self)
         else:
             return GenericUpdater(self)
 

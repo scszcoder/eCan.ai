@@ -155,11 +155,16 @@ class OTAConfig:
             
         Returns:
             Appcast URL
+            
+        Example:
+            get_appcast_url('macos', 'aarch64')
+            → https://ecan-updates.s3.us-east-1.amazonaws.com/production/channels/stable/appcast-macos-aarch64.xml
         """
         if not self.enabled:
             return ""
         
-        appcast_base = self.get('appcast_base', '')
+        # Get channel for current environment
+        channel = self.get_channel()
         
         # Build appcast filename
         if arch:
@@ -167,25 +172,57 @@ class OTAConfig:
         else:
             filename = f"appcast-{platform}.xml"
         
-        return f"{appcast_base}/appcast/{filename}"
+        # Use S3 URL with channel path
+        return self.get_s3_url(f"channels/{channel}/{filename}")
+    
+    def get_s3_prefix(self) -> str:
+        """
+        Get S3 path prefix for current environment
+        
+        Returns:
+            S3 prefix (e.g., 'dev', 'test', 'staging', 'production')
+        """
+        return self.get('s3_prefix', self.environment)
+    
+    def get_channel(self) -> str:
+        """
+        Get release channel for current environment
+        
+        Returns:
+            Channel name (e.g., 'dev', 'beta', 'stable', 'lts')
+        """
+        return self.get('channel', 'stable')
     
     def get_s3_url(self, path: str) -> str:
         """
-        Get S3 URL for a path
+        Construct S3 URL for a given path
         
         Args:
-            path: Path relative to bucket root
+            path: Path relative to environment prefix (e.g., 'releases/v1.0.0/...')
             
         Returns:
-            Full S3 URL
+            Full S3 URL with base path and environment prefix
+            
+        Example:
+            get_s3_url('releases/v1.0.0/macos/aarch64/eCan.pkg')
+            → https://ecan-releases.s3.us-east-1.amazonaws.com/releases/production/releases/v1.0.0/macos/aarch64/eCan.pkg
         """
         if not self.enabled:
             return ""
         
-        s3_bucket = self.get('s3_bucket')
+        s3_bucket = self.get_common('s3_bucket', 'ecan-releases')
         s3_region = self.get_common('s3_region', 'us-east-1')
+        s3_base_path = self.get_common('s3_base_path', '')
+        s3_prefix = self.get_s3_prefix()
         
-        return f"https://{s3_bucket}.s3.{s3_region}.amazonaws.com/{path}"
+        # Combine: bucket + base_path + environment prefix + path
+        # Example: ecan-releases/releases/production/releases/v1.0.0/...
+        if s3_base_path:
+            full_path = f"{s3_base_path}/{s3_prefix}/{path}"
+        else:
+            full_path = f"{s3_prefix}/{path}"
+        
+        return f"https://{s3_bucket}.s3.{s3_region}.amazonaws.com/{full_path}"
     
     def is_dev_mode(self) -> bool:
         """Check if running in development mode"""

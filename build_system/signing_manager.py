@@ -360,6 +360,14 @@ class OTASigningManager:
                         "file_size": len(file_data)
                     }
                     
+                    # Also save signature to .sig file for upload
+                    # Sparkle-compatible format: base64 Ed25519 signature in .sig file
+                    # Our self-contained OTA system reads this format
+                    sig_file = artifact.with_suffix(artifact.suffix + '.sig')
+                    with open(sig_file, 'w', encoding='utf-8') as f:
+                        f.write(signature_b64)
+                    print(f"[OTA-SIGN] [OK] Created signature file: {sig_file.name}")
+                    
                     print(f"[OTA-SIGN] [OK] Signed: {artifact.name}")
                 except Exception as e:
                     print(f"[OTA-SIGN] [ERROR] Signing failed: {artifact.name} - {e}")

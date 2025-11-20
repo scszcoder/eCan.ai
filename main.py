@@ -355,40 +355,13 @@ try:
     from datetime import datetime
 
     def _print_startup_banner(logger, app_info):
-        """Print a beautiful startup banner"""
+        """Print a beautiful startup banner using unified build_info module"""
         try:
-            version = getattr(app_info, 'version', '1.0.0')
-            app_name = 'eCan.AI'
-            platform_name = platform.system()
-            platform_release = platform.release()
-            python_version = platform.python_version()
-            is_frozen = getattr(sys, 'frozen', False)
-            build_mode = 'Production' if is_frozen else 'Development'
-            startup_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-            # Format platform info
-            platform_info = f"{platform_name} {platform_release}"
-
-            # Calculate padding for centered text (box width is 78 chars)
-            box_width = 78
-            app_name_padding = (box_width - len(app_name)) // 2
-            version_text = f"Version {version}"
-            version_padding = (box_width - len(version_text)) // 2
-
-            banner = f"""
-╔{'═' * box_width}╗
-║{' ' * box_width}║
-║{' ' * app_name_padding}{app_name}{' ' * (box_width - app_name_padding - len(app_name))}║
-║{' ' * box_width}║
-║{' ' * version_padding}{version_text}{' ' * (box_width - version_padding - len(version_text))}║
-║{' ' * box_width}║
-╠{'═' * box_width}╣
-║  Platform:     {platform_info:<61}║
-║  Python:       {python_version:<61}║
-║  Build Mode:   {build_mode:<61}║
-║  Startup Time: {startup_time:<61}║
-╚{'═' * box_width}╝
-"""
+            from config.build_info import get_startup_banner
+            
+            # Get and display the unified startup banner
+            # Note: Banner already shows "(Local Dev)" if using fallback data
+            banner = get_startup_banner()
             logger.info(banner)
         except Exception as e:
             # If banner printing fails, just log a simple startup message

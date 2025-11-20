@@ -4,11 +4,11 @@ Contains update manager, platform adapters and other core components
 """
 
 from .updater import OTAUpdater
-from .platforms import SparkleUpdater, WinSparkleUpdater, GenericUpdater
+from .platforms import MacOSUpdater, WindowsUpdater, GenericUpdater
 
 __all__ = [
     "OTAUpdater",
-    "SparkleUpdater", 
-    "WinSparkleUpdater",
+    "MacOSUpdater", 
+    "WindowsUpdater",
     "GenericUpdater"
 ] 

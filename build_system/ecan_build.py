@@ -728,53 +728,8 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
             else:
                 print(f"[WARNING] Standardized installer not found: {installer_std.name}")
 
-            # Bundle winSparkle DLL to expected locations for validation and runtime
-            try:
-                self._bundle_winsparkle_dll()
-            except Exception as e:
-                print(f"[WARNING] Failed to bundle winSparkle DLL: {e}")
-
         except Exception as e:
             print(f"[WARNING] Failed to create standardized Windows artifacts: {e}")
-
-    def _bundle_winsparkle_dll(self) -> None:
-        """Ensure winSparkle DLL is copied into app bundle for OTA updates.
-
-        Sources:
-          - project_root/third_party/winsparkle/winsparkle.dll (installed by setup-ota-deps)
-
-        Target:
-          - dist/eCan/third_party/winsparkle/winsparkle.dll (included by Inno Setup when using onedir)
-        
-        Note: Only copies to the app bundle directory, not dist/third_party/ (removes redundancy)
-        """
-        third_party_dir = self.project_root / "third_party" / "winsparkle"
-        src_dll = third_party_dir / "winsparkle.dll"
-        if not src_dll.exists():
-            # Also try ota build output as fallback
-            alt_src = self.project_root / "ota" / "build" / "winsparkle" / "winsparkle.dll"
-            if alt_src.exists():
-                src_dll = alt_src
-        if not src_dll.exists():
-            print("[OTA] [WARN] winSparkle source DLL not found; skipping bundle")
-            return
-
-        # Only copy to app bundle directory (dist/eCan/third_party/)
-        # This is what gets packaged into the installer
-        app_bundle_dir = self.dist_dir / "eCan"
-        if not app_bundle_dir.exists():
-            print("[OTA] [WARN] App bundle directory not found, skipping winSparkle copy")
-            return
-            
-        dst_winsparkle = app_bundle_dir / "third_party" / "winsparkle"
-        dst_winsparkle.mkdir(parents=True, exist_ok=True)
-        
-        import shutil
-        try:
-            shutil.copy2(src_dll, dst_winsparkle / "winsparkle.dll")
-            print(f"[OTA] [OK] Copied winSparkle to {dst_winsparkle / 'winsparkle.dll'}")
-        except Exception as e:
-            print(f"[OTA] [ERROR] Failed to copy winSparkle: {e}")
 
     def _build_macos_installer(self) -> bool:
         """Build macOS PKG installer"""
@@ -1798,91 +1753,6 @@ exit 0
 
 
 
-    def _check_ota_dependencies(self):
-        """Check if OTA dependencies are available in third_party directory"""
-        third_party_dir = self.project_root / "third_party"
-        sparkle_dir = third_party_dir / "sparkle"
-        winsparkle_dir = third_party_dir / "winsparkle"
-
-        if not third_party_dir.exists():
-            print("[OTA] Third-party dependencies directory not found")
-            print("[OTA] OTA functionality will use fallback HTTP updates")
-            return
-
-        # Check for platform-specific dependencies
-        platform = "darwin" if self.env.is_macos else "windows" if self.env.is_windows else "unknown"
-
-        if platform == "darwin" and sparkle_dir.exists():
-            install_info_file = sparkle_dir / "install_info.json"
-        elif platform == "windows" and winsparkle_dir.exists():
-            install_info_file = winsparkle_dir / "install_info.json"
-        else:
-            print(f"[OTA] No OTA dependencies found for platform: {platform}")
-            print("[OTA] OTA functionality will use fallback HTTP updates")
-            return
-
-        if not install_info_file.exists():
-            print("[OTA] OTA install info not found")
-            print("[OTA] Dependencies may not be properly installed")
-            return
-        
-        try:
-            with open(install_info_file, 'r') as f:
-                install_info = json.load(f)
-            
-            platform = install_info.get("platform", "unknown")
-            install_method = install_info.get("install_method", "unknown")
-            installed_deps = install_info.get("installed_dependencies", {})
-            
-            print(f"[OTA] Dependencies installed via {install_method} for {platform}")
-            
-            for name, dep_info in installed_deps.items():
-                if dep_info.get("installed", False):
-                    print(f"[OTA] {name} v{dep_info.get('version', 'unknown')}")
-                else:
-                    print(f"[OTA] {name} not properly installed")
-            
-            # Sparkle specific verification
-            self._verify_sparkle_installation(sparkle_dir if platform == "darwin" else winsparkle_dir, platform)
-            
-            if not installed_deps:
-                print("[OTA] No dependencies found for current platform")
-                
-        except Exception as e:
-            print(f"[OTA] Failed to read install info: {e}")
-    
-    def _verify_sparkle_installation(self, deps_dir: Path, platform: str):
-        """Verify Sparkle/winSparkle installation"""
-        if platform == "darwin":
-            # Check Sparkle.framework
-            sparkle_framework = deps_dir / "Sparkle.framework"
-            if sparkle_framework.exists():
-                print("[OTA] [OK] Sparkle.framework found")
-
-                # Check key files
-                sparkle_binary = sparkle_framework / "Versions" / "Current" / "Sparkle"
-                sparkle_cli = deps_dir / "sparkle-cli"  # CLI is now in the sparkle directory root
-
-                if sparkle_binary.exists():
-                    print("[OTA] [OK] Sparkle binary verified")
-                else:
-                    print("[OTA] [WARN] Sparkle binary not found")
-
-                if sparkle_cli.exists():
-                    print("[OTA] [OK] Sparkle CLI verified")
-                else:
-                    print("[OTA] [WARN] Sparkle CLI not found")
-            else:
-                print("[OTA] [ERROR] Sparkle.framework not found")
-
-        elif platform == "windows":
-            # Check winSparkle
-            winsparkle_dll = deps_dir / "winsparkle.dll"
-            if winsparkle_dll.exists():
-                print("[OTA] [OK] winSparkle DLL verified")
-            else:
-                print("[OTA] [ERROR] winSparkle DLL not found")
-    
     def _verify_pkg_integrity(self, pkg_file: Path, app_name: str) -> bool:
         """Verify PKG package integrity and contents"""
         try:
@@ -1946,58 +1816,6 @@ exit 0
             print(f"[PKG] [WARNING] Package verification failed: {e}")
             return False
 
-    def _verify_sparkle_environment(self) -> bool:
-        """Verify if Sparkle environment is complete"""
-        third_party_dir = self.project_root / "third_party"
-
-        if not third_party_dir.exists():
-            print("[SPARKLE] [ERROR] Third-party dependencies directory not found")
-            return False
-        
-        platform = "darwin" if self.env.is_macos else "windows" if self.env.is_windows else "unknown"
-        
-        if platform == "darwin":
-            # Verify Sparkle.framework
-            sparkle_dir = third_party_dir / "sparkle"
-            sparkle_framework = sparkle_dir / "Sparkle.framework"
-            if not sparkle_framework.exists():
-                print("[SPARKLE] [ERROR] Sparkle.framework not found")
-                return False
-
-            # Check key components
-            required_files = [
-                sparkle_framework / "Versions" / "Current" / "Sparkle",
-                sparkle_framework / "Versions" / "Current" / "Resources" / "Info.plist",
-            ]
-
-            for file_path in required_files:
-                if not file_path.exists():
-                    print(f"[SPARKLE] [ERROR] Required file missing: {file_path.name}")
-                    return False
-
-            print("[SPARKLE] [OK] Sparkle.framework verification passed")
-            return True
-
-        elif platform == "windows":
-            # Verify winSparkle
-            winsparkle_dir = third_party_dir / "winsparkle"
-            if not winsparkle_dir.exists():
-                print("[SPARKLE] [ERROR] winSparkle directory not found")
-                return False
-            
-            # Check key files
-            winsparkle_dll = winsparkle_dir / "winsparkle.dll"
-            if not winsparkle_dll.exists():
-                print("[SPARKLE] [ERROR] winsparkle.dll not found")
-                return False
-            
-            print("[SPARKLE] [OK] winSparkle verification passed")
-            return True
-        
-        else:
-            print(f"[SPARKLE] [WARN] Unsupported platform: {platform}")
-            return True  # Don't block build
-    
     def _show_result(self, start_time: float):
         """Display build results"""
         build_time = time.time() - start_time

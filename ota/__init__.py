@@ -1,10 +1,13 @@
 """
-ECBot OTA (Over-The-Air) Update Package
+eCan OTA (Over-The-Air) Update Package
 
-Provides cross-platform automatic update functionality, supporting:
-- macOS (Sparkle)
-- Windows (winSparkle) 
-- Linux (Generic HTTP API)
+Self-contained cross-platform automatic update system, supporting:
+- macOS (native PKG installer with privilege elevation)
+- Windows (native EXE/MSI installer with silent mode)
+- Linux (generic HTTP-based updater)
+
+Uses Sparkle-compatible appcast XML format but with independent implementation.
+No external OTA framework dependencies required.
 """
 
 from .core.updater import OTAUpdater

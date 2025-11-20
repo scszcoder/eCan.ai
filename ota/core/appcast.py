@@ -1,9 +1,14 @@
 """
-Sparkle/winSparkle Appcast parsing utilities.
+Appcast XML parsing utilities.
 
-- Parse appcast XML (Sparkle 1.x/2.x style)
+Self-contained implementation that parses Sparkle-compatible appcast XML format.
+No external Sparkle/WinSparkle framework dependencies required.
+
+Features:
+- Parse appcast XML (Sparkle 1.x/2.x compatible format)
 - Select best item for current platform/arch
-- Compare versions with a simple, dependency-free semver-ish comparison
+- Compare versions with simple, dependency-free semver-ish comparison
+- Support Ed25519 signature verification
 """
 from __future__ import annotations
 
