@@ -777,6 +777,13 @@ jobs:
           $size = [math]::Round((Get-Item $setupFile).Length / 1MB, 2)
           Write-Host "Copied installer: ${size} MB"
           $artifactCount++
+          
+          # Copy signature file if exists
+          $sigFile = "${setupFile}.sig"
+          if (Test-Path $sigFile) {
+            Copy-Item $sigFile "artifacts/" -Force
+            Write-Host "Copied signature: $(Split-Path -Leaf $sigFile)"
+          }
         } else {
           Write-Host "WARNING: Setup file not found: $setupFile" -ForegroundColor Yellow
         }
@@ -786,6 +793,13 @@ jobs:
           Copy-Item $_.FullName "artifacts/" -Force
           Write-Host "Copied MSI: $($_.Name)"
           $artifactCount++
+          
+          # Copy signature file if exists
+          $sigFile = "$($_.FullName).sig"
+          if (Test-Path $sigFile) {
+            Copy-Item $sigFile "artifacts/" -Force
+            Write-Host "Copied signature: $(Split-Path -Leaf $sigFile)"
+          }
         }
 
         # Verify artifacts were copied

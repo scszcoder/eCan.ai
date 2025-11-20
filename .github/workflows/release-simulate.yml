@@ -180,9 +180,16 @@ jobs:
           echo "Note: Real workflow always builds frontend (no skip logic)"
           VERSION="${{ needs.validate-tag.outputs.version }}"
           mkdir -p dist artifacts
+          
+          # Create fake installer
           echo "fake windows installer" > "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe"
           cp "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe" artifacts/
-          echo "✅ Windows build simulated"
+          
+          # Create fake signature file
+          echo "fake_ed25519_signature_for_simulation" > "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe.sig"
+          cp "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe.sig" artifacts/
+          
+          echo "✅ Windows build simulated (with signature)"
       
       # ------------------------------------------------------------------------
       # OTA Signing Simulation
@@ -316,9 +323,16 @@ jobs:
           VERSION="${{ needs.validate-tag.outputs.version }}"
           ARCH="${{ matrix.arch }}"
           mkdir -p dist artifacts
+          
+          # Create fake installer
           echo "fake macos installer" > "dist/eCan-${VERSION}-macos-${ARCH}.pkg"
           cp "dist/eCan-${VERSION}-macos-${ARCH}.pkg" artifacts/
-          echo "✅ macOS ${{ matrix.arch }} build simulated"
+          
+          # Create fake signature file
+          echo "fake_ed25519_signature_for_simulation" > "dist/eCan-${VERSION}-macos-${ARCH}.pkg.sig"
+          cp "dist/eCan-${VERSION}-macos-${ARCH}.pkg.sig" artifacts/
+          
+          echo "✅ macOS ${{ matrix.arch }} build simulated (with signature)"
       
       # ------------------------------------------------------------------------
       # OTA Signing Simulation

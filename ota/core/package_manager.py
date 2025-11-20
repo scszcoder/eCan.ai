@@ -35,9 +35,10 @@ class UpdatePackage:
     """Update package information"""
     
     def __init__(self, version: str, download_url: str, file_size: int, 
-                 signature: str, description: str = ""):
+                 signature: str, description: str = "", alternate_url: str = None):
         self.version = version
         self.download_url = download_url
+        self.alternate_url = alternate_url  # Accelerated/alternate download URL
         self.file_size = file_size
         self.signature = signature
         self.description = description
@@ -64,68 +65,83 @@ class PackageManager:
         self._cleanup_old_packages()
     
     def download_package(self, package: UpdatePackage, progress_callback=None, max_retries=3) -> bool:
-        """Download update package"""
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"Downloading update package: {package.version} (attempt {attempt + 1}/{max_retries})")
-                
-                # Create download path
-                filename = self._get_filename_from_url(package.download_url)
-                download_path = self.download_dir / filename
-                
-                # If file already exists, delete it
-                if download_path.exists():
-                    download_path.unlink()
-                
-                # Start download
-                response = requests.get(package.download_url, stream=True, timeout=30)
-                response.raise_for_status()
-                
-                total_size = int(response.headers.get('content-length', 0))
-                downloaded_size = 0
-                
-                with open(download_path, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-                            downloaded_size += len(chunk)
-                            
-                            if progress_callback and total_size > 0:
-                                progress = int((downloaded_size / total_size) * 100)
-                                progress_callback(progress)
-                
-                package.download_path = download_path
-                package.is_downloaded = True
-                self._downloaded_files.append(download_path)  # Track downloaded files
-                
-                # Verify file size
-                if package.file_size > 0 and download_path.stat().st_size != package.file_size:
-                    logger.error(f"File size mismatch: expected {package.file_size}, got {download_path.stat().st_size}")
+        """Download update package with automatic fallback to alternate URL"""
+        # Try primary URL first, then alternate URL if available
+        urls_to_try = [package.download_url]
+        if package.alternate_url:
+            urls_to_try.append(package.alternate_url)
+        
+        for url_index, download_url in enumerate(urls_to_try):
+            url_type = "primary" if url_index == 0 else "alternate (accelerated)"
+            logger.info(f"Trying {url_type} URL: {download_url}")
+            
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"Downloading update package: {package.version} from {url_type} URL (attempt {attempt + 1}/{max_retries})")
+                    
+                    # Create download path
+                    filename = self._get_filename_from_url(package.download_url)
+                    download_path = self.download_dir / filename
+                    
+                    # If file already exists, delete it
+                    if download_path.exists():
+                        download_path.unlink()
+                    
+                    # Start download
+                    response = requests.get(download_url, stream=True, timeout=30)
+                    response.raise_for_status()
+                    
+                    total_size = int(response.headers.get('content-length', 0))
+                    downloaded_size = 0
+                    
+                    with open(download_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+                                downloaded_size += len(chunk)
+                                
+                                if progress_callback and total_size > 0:
+                                    progress = int((downloaded_size / total_size) * 100)
+                                    progress_callback(progress)
+                    
+                    package.download_path = download_path
+                    package.is_downloaded = True
+                    self._downloaded_files.append(download_path)  # Track downloaded files
+                    
+                    # Verify file size
+                    if package.file_size > 0 and download_path.stat().st_size != package.file_size:
+                        logger.error(f"File size mismatch: expected {package.file_size}, got {download_path.stat().st_size}")
+                        if attempt < max_retries - 1:
+                            logger.info("Retrying download...")
+                            continue
+                        # Try next URL if available
+                        break
+                    
+                    # Set as current package for installation
+                    self.current_package = package
+                    
+                    logger.info(f"Package downloaded successfully from {url_type} URL: {download_path}")
+                    return True
+                    
+                except requests.exceptions.RequestException as e:
+                    logger.error(f"Network error during download from {url_type} URL (attempt {attempt + 1}): {e}")
                     if attempt < max_retries - 1:
-                        logger.info("Retrying download...")
+                        wait_time = 2 ** attempt  # Exponential backoff
+                        logger.info(f"Waiting {wait_time} seconds before retry...")
+                        time.sleep(wait_time)
                         continue
+                    # Try next URL if available
+                    logger.warning(f"All {max_retries} attempts failed for {url_type} URL")
+                    break
+                except IOError as e:
+                    logger.error(f"File I/O error during download: {e}")
                     return False
-                
-                # Set as current package for installation
-                self.current_package = package
-                
-                logger.info(f"Package downloaded successfully: {download_path}")
-                return True
-                
-            except requests.exceptions.RequestException as e:
-                logger.error(f"Network error during download (attempt {attempt + 1}): {e}")
-                if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt  # Exponential backoff
-                    logger.info(f"Waiting {wait_time} seconds before retry...")
-                    time.sleep(wait_time)
-                    continue
-            except IOError as e:
-                logger.error(f"File I/O error during download: {e}")
-                return False
-            except Exception as e:
-                logger.error(f"Unexpected error during download: {e}")
-                if attempt < max_retries - 1:
-                    continue
+                except Exception as e:
+                    logger.error(f"Unexpected error during download from {url_type} URL: {e}")
+                    if attempt < max_retries - 1:
+                        continue
+                    # Try next URL if available
+                    break
                 
         logger.error(f"Failed to download package after {max_retries} attempts")
         return False

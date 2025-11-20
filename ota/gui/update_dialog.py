@@ -105,7 +105,8 @@ class DownloadWorker(QThread):
                 download_url=self.update_info.get('download_url', ''),
                 file_size=self.update_info.get('file_size', 0),
                 signature=self.update_info.get('signature', ''),
-                description=self.update_info.get('description', '')
+                description=self.update_info.get('description', ''),
+                alternate_url=self.update_info.get('alternate_url', None)
             )
             
             self.status_updated.emit(_tr.tr("downloading"))
