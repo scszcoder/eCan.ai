@@ -286,20 +286,30 @@ class OTAUpdater:
                     log.info("[OTA] OTA is disabled (ota_enabled=false)")
                     return
                 
+                # ✅ Check development environment OTA check switch
+                # In development environment, even if ota_enabled is true,
+                # we can still control OTA check with dev_ota_check_enabled
+                current_env = ota_config.get("environment", "development")
+                if current_env == "development":
+                    dev_ota_enabled = ota_config.get("dev_ota_check_enabled", True)
+                    if not dev_ota_enabled:
+                        log.info("[OTA] Development OTA check is disabled (dev_ota_check_enabled=false)")
+                        return
+                
                 if not ota_config.get("auto_check", True):
                     log.info("[OTA] Auto check disabled by config")
                     return
 
                 # Delay OTA startup to avoid impacting application startup and login
-                default_delay = 5 # 60  # Default delay: 1 minute
-                delay = ota_config.get("auto_check_initial_delay", default_delay)
+                # Read from config: development=5s, others=120s (2 minutes)
+                delay = ota_config.get("auto_check_initial_delay", 120)
                 try:
                     delay = float(delay)
                 except (TypeError, ValueError):
-                    delay = default_delay
+                    delay = 120  # Default: 2 minutes
                 if delay > 0:
                     log.info(
-                        f"[OTA] Delaying OTA auto check startup by {delay} seconds"
+                        f"[OTA] Delaying OTA auto check startup by {delay} seconds (environment: {current_env})"
                     )
                     time.sleep(delay)
 
