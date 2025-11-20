@@ -66,29 +66,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install boto3 pyyaml
       
-      - name: Download Windows artifacts
-        if: inputs.windows-build-result == 'success'
+      - name: Download all artifacts for S3 transfer
         uses: actions/download-artifact@v4
         with:
-          pattern: windows-*
+          pattern: '*-s3-transfer'
           path: dist/
           merge-multiple: true
-      
-      - name: Download macOS amd64 artifacts
-        if: inputs.macos-build-result == 'success'
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-amd64-installer
-          path: dist/
-        continue-on-error: true
-      
-      - name: Download macOS aarch64 artifacts
-        if: inputs.macos-build-result == 'success'
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-aarch64-installer
-          path: dist/
-        continue-on-error: true
       
       - name: List downloaded artifacts
         run: |

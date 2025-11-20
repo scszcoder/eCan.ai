@@ -295,7 +295,7 @@ class InstallConfirmDialog(QDialog):
         # Add flexible space
         layout.addItem(QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Expanding))
         
-        # 按钮
+        # Buttons
         button_layout = QHBoxLayout()
         
         self.cancel_button = QPushButton(_tr.tr("cancel"))
@@ -347,7 +347,7 @@ class UpdateDialog(QDialog):
         self.setup_ui()
         self.setup_connections()
         
-        # 设置窗口属性 - 遵循ECBot标准
+        # Set window properties - Follow ECBot standard
         self.setWindowTitle(_tr.tr("window_title"))
         self.setModal(False)  # Changed to non-modal to allow background operation
         self.setFixedSize(600, 600)
@@ -365,7 +365,7 @@ class UpdateDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
         
-        # Title区域
+        # Title area
         title_label = QLabel(_tr.tr("window_title"))
         title_font = QFont()
         title_font.setPointSize(16)
@@ -418,7 +418,7 @@ class UpdateDialog(QDialog):
         # Installation progress bar (separate from download)
         self.install_progress_bar = QProgressBar()
         self.install_progress_bar.setVisible(False)
-        self.install_progress_bar.setFormat("安装进度: %p%")
+        self.install_progress_bar.setFormat(_tr.tr("install_progress") + ": %p%")
         progress_layout.addWidget(self.install_progress_bar)
         
         # Installation phase label
@@ -523,7 +523,7 @@ class UpdateDialog(QDialog):
         self.speed_label.setVisible(True)
         self.remaining_label.setVisible(True)
         
-        # 创建下载工作线程
+        # Create download worker thread
         self.download_worker = DownloadWorker(self.ota_updater, self.update_info)
         self.download_worker.progress_updated.connect(self.update_progress)
         self.download_worker.download_completed.connect(self.download_finished)
@@ -986,15 +986,6 @@ class UpdateDialog(QDialog):
             
             # Show install confirmation dialog
             self._show_download_complete_dialog()
-            
-        elif download_manager.state == DownloadState.INSTALLING:
-            # Installing
-            self.progress_bar.setVisible(False)
-            self.install_progress_bar.setVisible(True)
-            self.install_phase_label.setVisible(True)
-            self.cancel_button.setVisible(False)
-            self.status_label.setText(_tr.tr("installing"))
-            
         else:
             # Other states (idle, failed, etc.)
             logger.warning(f"[UpdateDialog] Unexpected state when restoring: {download_manager.state}")
@@ -1004,7 +995,7 @@ class UpdateDialog(QDialog):
         super().showEvent(event)
         
         # If download manager has an active state, restore it
-        if download_manager.state in [DownloadState.DOWNLOADING, DownloadState.COMPLETED, DownloadState.INSTALLING]:
+        if download_manager.state in [DownloadState.DOWNLOADING, DownloadState.COMPLETED]:
             logger.info(f"[UpdateDialog] Dialog shown, restoring state: {download_manager.state}")
             self._restore_download_state()
     

@@ -92,8 +92,8 @@ environments:
     # Appcast 基础 URL（从 S3 读取）
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/test"
     
-    # 签名验证（测试环境可选）
-    signature_required: false
+    # 签名验证（测试环境必须）
+    signature_required: true
     signature_verification: true
     
     # 自动更新

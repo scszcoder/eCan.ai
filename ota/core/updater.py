@@ -1,8 +1,6 @@
 import os
 import platform
-import subprocess
 import threading
-import time
 import time
 from typing import Optional, Callable
 from threading import Lock, Event
@@ -14,18 +12,26 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+# Import logger first so it can be used in exception handlers
+from utils.logger_helper import logger_helper as logger
+
 try:
     from config.app_info import app_info
-    from config.constants import APP_NAME
 except ImportError:
     # If import fails, use default values
     class DefaultAppInfo:
         def __init__(self):
             self.app_home_path = str(Path.cwd())
-
+            self.version = '1.0.0'
+    
     app_info = DefaultAppInfo()
-    APP_NAME = 'ecbot'
-from utils.logger_helper import logger_helper as logger
+    logger.warning("Failed to import config.app_info, using default values")
+
+try:
+    from config.constants import APP_NAME
+except ImportError:
+    APP_NAME = 'eCan'
+    logger.warning("Failed to import APP_NAME from config.constants, using default 'eCan'")
 
 from ota.config.loader import ota_config
 from .package_manager import package_manager, UpdatePackage
