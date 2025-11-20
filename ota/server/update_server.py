@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-简单的OTA更新服务器
-用于测试和开发，支持动态生成 appcast.xml
+Simple OTA Update Server
+For testing and development, supports dynamic appcast.xml generation
 """
 
 import logging
@@ -34,36 +34,103 @@ SERVER_CONFIG = {
     "debug": False
 }
 
-def _find_installation_package(requested_filename: str, dist_dir: Path) -> Path:
+def _markdown_to_html(markdown_text: str) -> str:
     """
-    智能查找安装包文件
-    
-    策略：
-    1. 直接匹配文件名
-    2. 模糊匹配（忽略版本号）
-    3. 匹配平台和架构
+    Simple Markdown to HTML conversion
+    Supports: ### headings, - lists, **bold**, `code`
     
     Args:
-        requested_filename: 请求的文件名
-        dist_dir: dist 目录路径
+        markdown_text: Markdown text
     
     Returns:
-        Path: 找到的文件路径，如果未找到返回 None
+        HTML text
+    """
+    import re
+    html_lines = []
+    current_list = []
+    
+    for line in markdown_text.split('\n'):
+        line = line.strip()
+        
+        if not line:
+            # Empty line: end current list
+            if current_list:
+                html_lines.append('<ul>')
+                html_lines.extend(current_list)
+                html_lines.append('</ul>')
+                current_list = []
+            continue
+        
+        # ### heading
+        if line.startswith('### '):
+            if current_list:
+                html_lines.append('<ul>')
+                html_lines.extend(current_list)
+                html_lines.append('</ul>')
+                current_list = []
+            title = line[4:].strip()
+            html_lines.append(f'<h3>{title}</h3>')
+        
+        # - list item
+        elif line.startswith('- '):
+            item = line[2:].strip()
+            # Handle **bold**
+            item = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', item)
+            # Handle `code`
+            item = re.sub(r'`(.*?)`', r'<code>\1</code>', item)
+            current_list.append(f'  <li>{item}</li>')
+        
+        # Regular paragraph
+        else:
+            if current_list:
+                html_lines.append('<ul>')
+                html_lines.extend(current_list)
+                html_lines.append('</ul>')
+                current_list = []
+            # Handle **bold**
+            line = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', line)
+            # Handle `code`
+            line = re.sub(r'`(.*?)`', r'<code>\1</code>', line)
+            html_lines.append(f'<p>{line}</p>')
+    
+    # Handle final list
+    if current_list:
+        html_lines.append('<ul>')
+        html_lines.extend(current_list)
+        html_lines.append('</ul>')
+    
+    return '\n'.join(html_lines)
+
+def _find_installation_package(requested_filename: str, dist_dir: Path) -> Path:
+    """
+    Intelligently find installation package file
+    
+    Strategy:
+    1. Direct filename match
+    2. Fuzzy match (ignore version number)
+    3. Match platform and architecture
+    
+    Args:
+        requested_filename: Requested filename
+        dist_dir: dist directory path
+    
+    Returns:
+        Path: Found file path, returns None if not found
     """
     if not dist_dir.exists():
         logger.warning(f"Dist directory not found: {dist_dir}")
         return None
     
-    # 1. 直接匹配
+    # 1. Direct match
     direct_path = dist_dir / requested_filename
     if direct_path.exists():
         logger.info(f"Found exact match: {direct_path}")
         return direct_path
     
-    # 2. 提取请求文件的关键信息
+    # 2. Extract key information from requested file
     import re
     
-    # 提取平台和架构信息
+    # Extract platform and architecture information
     platform_patterns = {
         'macos': r'(macos|darwin)',
         'windows': r'windows',
@@ -76,17 +143,17 @@ def _find_installation_package(requested_filename: str, dist_dir: Path) -> Path:
         'x86': r'(x86|i386)'
     }
     
-    # 提取扩展名
+    # Extract file extension
     ext = Path(requested_filename).suffix
     
-    # 检测平台
+    # Detect platform
     detected_platform = None
     for platform, pattern in platform_patterns.items():
         if re.search(pattern, requested_filename, re.IGNORECASE):
             detected_platform = platform
             break
     
-    # 检测架构
+    # Detect architecture
     detected_arch = None
     for arch, pattern in arch_patterns.items():
         if re.search(pattern, requested_filename, re.IGNORECASE):
@@ -95,7 +162,7 @@ def _find_installation_package(requested_filename: str, dist_dir: Path) -> Path:
     
     logger.info(f"Searching for: platform={detected_platform}, arch={detected_arch}, ext={ext}")
     
-    # 3. 在 dist 目录中查找匹配的文件
+    # 3. Search for matching files in dist directory
     candidates = []
     
     for file_path in dist_dir.glob(f"*{ext}"):
@@ -105,27 +172,27 @@ def _find_installation_package(requested_filename: str, dist_dir: Path) -> Path:
         filename = file_path.name
         score = 0
         
-        # 匹配平台
+        # Match platform
         if detected_platform:
             for pattern in platform_patterns[detected_platform].split('|'):
                 if pattern.strip('()') in filename.lower():
                     score += 10
                     break
         
-        # 匹配架构
+        # Match architecture
         if detected_arch:
             for pattern in arch_patterns[detected_arch].split('|'):
                 if pattern.strip('()') in filename.lower():
                     score += 5
                     break
         
-        # 匹配扩展名（已经通过 glob 过滤）
+        # Match extension (already filtered by glob)
         score += 1
         
         if score > 0:
             candidates.append((score, file_path))
     
-    # 按分数排序，返回最佳匹配
+    # Sort by score and return best match
     if candidates:
         candidates.sort(key=lambda x: x[0], reverse=True)
         best_match = candidates[0][1]
@@ -136,31 +203,13 @@ def _find_installation_package(requested_filename: str, dist_dir: Path) -> Path:
     return None
 
 # Update information configuration
+# NOTE: This legacy config is no longer used. 
+# The system now uses dynamic appcast generation from /appcast.xml endpoint.
+# Keeping this for backward compatibility with /api/check endpoint.
 UPDATE_CONFIG = {
-    "latest_version": "1.1.0",
+    "latest_version": "1.0.0",  # Read from VERSION file or dist directory
     "min_version": "1.0.0",
-    "updates": {
-        "1.1.0": {
-            "version": "1.1.0",
-            "description": "<h2>What's New in eCan 1.1.0</h2><ul><li>Added OTA update functionality</li><li>Bug fixes and performance improvements</li><li>Enhanced UI/UX</li></ul>",
-            "release_date": "2024-01-01",
-            "download_urls": {
-                "windows": f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-1.0.0-windows-amd64-Setup.exe",
-                "darwin": f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-1.0.0-macos-aarch64.pkg",
-                "linux": f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-1.0.0-linux-amd64.tar.gz"
-            },
-            "file_sizes": {
-                "windows": 0,  # Will be calculated dynamically
-                "darwin": 0,
-                "linux": 0
-            },
-            "signatures": {
-                "windows": "",
-                "darwin": "",
-                "linux": ""
-            }
-        }
-    }
+    "updates": {}  # Dynamically populated from dist directory
 }
 
 @app.route('/api/check', methods=['GET'])
@@ -176,8 +225,26 @@ def check_update():
         
         logger.info(f"Update check: {app_name} v{current_version} on {platform}-{arch}")
         
-        # Check if update is available
-        latest_version = UPDATE_CONFIG['latest_version']
+        # Check if update is available - read from VERSION file
+        try:
+            project_root = Path(__file__).parent.parent.parent
+            version_file = project_root / "VERSION"
+            if version_file.exists():
+                base_version = version_file.read_text().strip()
+                # For testing: increment patch version to simulate available update
+                # e.g., 1.0.0 -> 1.0.1
+                import re
+                match = re.match(r'(\d+)\.(\d+)\.(\d+)', base_version)
+                if match:
+                    major, minor, patch = match.groups()
+                    latest_version = f"{major}.{minor}.{int(patch) + 1}"
+                    logger.info(f"[TEST MODE] Simulating update: {base_version} -> {latest_version}")
+                else:
+                    latest_version = base_version
+            else:
+                latest_version = UPDATE_CONFIG['latest_version']
+        except Exception:
+            latest_version = UPDATE_CONFIG['latest_version']
         # Semantic version comparison (simplified implementation without third-party dependencies)
         def _to_version_tuple(v: str):
             import re
@@ -202,9 +269,43 @@ def check_update():
         }
         
         if has_update:
-            update_info = UPDATE_CONFIG['updates'].get(latest_version, {})
+            # ✅ Dynamically read description from CHANGELOG.md
+            description = ""
+            try:
+                project_root = Path(__file__).parent.parent.parent
+                changelog_path = project_root / "CHANGELOG.md"
+                
+                logger.info(f"[CHECK] Reading CHANGELOG from: {changelog_path}")
+                
+                if not changelog_path.exists():
+                    logger.warning(f"[CHECK] CHANGELOG not found at: {changelog_path}")
+                    description = f"<h2>eCan.ai {latest_version}</h2><p>Release notes not available.</p>"
+                else:
+                    with open(changelog_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # Parse Markdown and extract content for the specified version
+                    import re
+                    pattern = rf'## \[{re.escape(latest_version)}\].*?\n(.*?)(?=\n## \[|\Z)'
+                    match = re.search(pattern, content, re.DOTALL)
+                    
+                    if not match:
+                        logger.warning(f"[CHECK] Version {latest_version} not found in CHANGELOG")
+                        description = f"<h2>eCan.ai {latest_version}</h2><p>Release notes not available.</p>"
+                    else:
+                        notes_markdown = match.group(1).strip()
+                        
+                        # Simple Markdown to HTML conversion
+                        html = _markdown_to_html(notes_markdown)
+                        
+                        description = f"<h2>eCan.ai {latest_version}</h2>{html}"
+                        logger.info(f"[CHECK] Successfully loaded release notes for version {latest_version}")
+                        
+            except Exception as e:
+                logger.error(f"[CHECK] Error loading release notes: {e}", exc_info=True)
+                description = f"<h2>eCan.ai {latest_version}</h2><p>Release notes not available.</p>"
             
-            # ✅ 动态扫描 dist 目录获取文件信息
+            # ✅ Dynamically scan dist directory to get file information
             signature = ""
             file_size = 0
             
@@ -212,7 +313,7 @@ def check_update():
                 project_root = Path(__file__).parent.parent.parent
                 dist_dir = project_root / "dist"
                 
-                # 根据平台查找对应的文件
+                # Find corresponding file based on platform
                 patterns = {
                     'darwin': ["eCan-*-macos-*.pkg", "eCan-*-macos-*.dmg"],
                     'windows': ["eCan-*-windows-*-Setup.exe", "eCan-*-windows-*.msi"],
@@ -222,10 +323,10 @@ def check_update():
                 if platform in patterns:
                     for pattern in patterns[platform]:
                         for pkg_file in dist_dir.glob(pattern):
-                            # 计算文件大小
+                            # Calculate file size
                             file_size = pkg_file.stat().st_size
                             
-                            # 计算 SHA256
+                            # Calculate SHA256
                             import hashlib
                             sha256_hash = hashlib.sha256()
                             with open(pkg_file, "rb") as f:
@@ -241,10 +342,10 @@ def check_update():
                 logger.warning(f"Failed to scan dist directory: {e}")
             
             response.update({
-                "description": update_info.get('description', ''),
-                "release_date": update_info.get('release_date', ''),
-                "download_url": update_info.get('download_urls', {}).get(platform, ''),
-                "file_size": file_size or update_info.get('file_sizes', {}).get(platform, 0),
+                "description": description,
+                "release_date": "",  # Can be extracted from CHANGELOG if needed
+                "download_url": f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-{latest_version}-{platform}-{arch}.pkg",
+                "file_size": file_size,
                 "signature": signature
             })
         
@@ -273,13 +374,34 @@ def download_latest():
 
 @app.route('/appcast.xml', methods=['GET'])
 def appcast():
-    """Dynamically generate Sparkle/winSparkle appcast file by scanning dist directory"""
+    """Dynamically generate Sparkle/winSparkle appcast file by scanning dist directory (with i18n support)"""
     try:
         # Get request parameters
         version = request.args.get('version')  # Specified version
         base_url = request.args.get('base_url', f"http://{request.host}")
         
-        logger.info(f"[APPCAST] Request received: version={version}, base_url={base_url}")
+        # Auto-detect language if not specified
+        language = request.args.get('language')
+        if not language:
+            # Try to detect from i18n system
+            try:
+                from ota.gui.i18n import _tr
+                detected_lang = _tr.language  # e.g., 'zh-CN' or 'en-US'
+                if detected_lang.startswith('zh'):
+                    language = 'zh-CN'
+                else:
+                    language = 'en-US'
+                logger.info(f"[APPCAST] Auto-detected language from i18n: {language}")
+            except Exception as e:
+                # Fallback to Accept-Language header
+                accept_lang = request.headers.get('Accept-Language', '')
+                if 'zh' in accept_lang.lower():
+                    language = 'zh-CN'
+                else:
+                    language = 'en-US'
+                logger.info(f"[APPCAST] Auto-detected language from Accept-Language: {language}")
+        
+        logger.info(f"[APPCAST] Request received: version={version}, base_url={base_url}, language={language}")
         
         # Get dist directory
         project_root = Path(__file__).parent.parent.parent
@@ -290,7 +412,8 @@ def appcast():
         xml_content = appcast_gen.generate_dynamic(
             base_url=base_url,
             dist_dir=dist_dir,
-            version=version
+            version=version,
+            language=language
         )
         
         if not xml_content:
@@ -358,14 +481,14 @@ def download_file(filename):
         project_root = Path(__file__).parent.parent.parent
         dist_dir = project_root / "dist"
         
-        # ✅ 智能查找文件
+        # ✅ Intelligently find file
         actual_file = _find_installation_package(filename, dist_dir)
         
         if not actual_file:
             logger.warning(f"File not found: {filename}")
             return jsonify({"error": f"File not found: {filename}"}), 404
         
-        # 提供文件下载
+        # Provide file download
         file_size = actual_file.stat().st_size
         logger.info(f"✅ Serving file: {actual_file.name} ({file_size / 1024 / 1024:.2f} MB)")
         
@@ -377,12 +500,12 @@ def download_file(filename):
 
 @app.route('/health', methods=['GET'])
 def health():
-    """健康检查"""
+    """Health check"""
     return jsonify({"status": "ok", "service": "eCan.ai Update Server"})
 
 @app.route('/', methods=['GET'])
 def index():
-    """首页"""
+    """Home page"""
     return jsonify({
         "service": "eCan.ai Update Server",
         "endpoints": [
@@ -394,24 +517,24 @@ def index():
     })
 
 def check_dependencies():
-    """检查依赖"""
+    """Check dependencies"""
     try:
         import flask
-        logger.info("✓ Flask已安装")
+        logger.info("✓ Flask installed")
         return True
     except ImportError:
-        logger.error("✗ Flask未安装，请运行: pip install flask")
+        logger.error("✗ Flask not installed, please run: pip install flask")
         return False
 
 def main():
-    """主函数"""
+    """Main function"""
     print("=" * 50)
-    print("eCan.ai 本地OTA测试服务器")
+    print("eCan.ai Local OTA Test Server")
     print("=" * 50)
     
-    # 检查依赖
+    # Check dependencies
     if not check_dependencies():
-        logger.error("依赖检查失败，无法启动服务器")
+        logger.error("Dependency check failed, cannot start server")
         return
     
     logger.info("Starting eCan.ai Update Server...")
@@ -419,16 +542,16 @@ def main():
     for rule in app.url_map.iter_rules():
         logger.info(f"  - {rule.methods} {rule.rule}")
     
-    print("\n服务器信息:")
-    print(f"  - 地址: http://127.0.0.1:{SERVER_CONFIG['port']}")
-    print("  - 端点:")
-    print("    * GET /api/check-update - 检查更新")
-    print("    * GET /appcast.xml - Sparkle appcast文件") 
-    print("    * GET /health - 健康检查")
-    print("    * GET / - 服务器信息")
+    print("\nServer Information:")
+    print(f"  - Address: http://127.0.0.1:{SERVER_CONFIG['port']}")
+    print("  - Endpoints:")
+    print("    * GET /api/check-update - Check for updates")
+    print("    * GET /appcast.xml - Sparkle appcast file") 
+    print("    * GET /health - Health check")
+    print("    * GET / - Server information")
     
-    print("\n正在启动服务器...")
-    print("按 Ctrl+C 停止服务器")
+    print("\nStarting server...")
+    print("Press Ctrl+C to stop server")
     print("-" * 50)
     
     try:
@@ -438,7 +561,7 @@ def main():
             debug=SERVER_CONFIG["debug"]
         )
     except KeyboardInterrupt:
-        logger.info("服务器已停止")
+        logger.info("Server stopped")
 
 if __name__ == "__main__":
     main()

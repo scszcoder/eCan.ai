@@ -1665,46 +1665,67 @@ class WebGUI(QMainWindow):
             self._update_dialog_showing = True
             
             try:
-                # Create message box
-                msg_box = QMessageBox(self)
-                msg_box.setWindowTitle(_tr.tr("software_update"))
+                # Create custom dialog for better control
+                from PySide6.QtWidgets import QDialog, QTextEdit, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QCheckBox
+                from PySide6.QtCore import Qt
                 
-                # Set icon
-                msg_box.setIcon(QMessageBox.Icon.Information)
+                dialog = QDialog(self)
+                dialog.setWindowTitle(_tr.tr("software_update"))
+                dialog.setMinimumWidth(500)
                 
-                # Set text
-                text = f"<h3>{_tr.tr('new_version_available').format(version=version)}</h3>"
-                text += f"<p>{_tr.tr('current_version_label').format(version=self._get_current_version())}</p>"
+                layout = QVBoxLayout()
+                layout.setSpacing(15)
+                layout.setContentsMargins(20, 20, 20, 20)
+                
+                # Header
+                header_label = QLabel(f"<h3>{_tr.tr('new_version_available').format(version=version)}</h3>")
+                header_label.setTextFormat(Qt.RichText)
+                layout.addWidget(header_label)
+                
+                # Current version
+                current_version_label = QLabel(_tr.tr('current_version_label').format(version=self._get_current_version()))
+                layout.addWidget(current_version_label)
+                
+                # Scrollable description area
                 if update_info.get('description'):
-                    text += f"<p>{update_info['description']}</p>"
-                text += f"<p>{_tr.tr('would_you_like_to_update')}</p>"
-                msg_box.setText(text)
+                    description_widget = QTextEdit()
+                    description_widget.setHtml(update_info['description'])
+                    description_widget.setReadOnly(True)
+                    description_widget.setMaximumHeight(300)
+                    description_widget.setMinimumHeight(150)
+                    layout.addWidget(description_widget)
                 
-                # Add buttons
-                update_btn = msg_box.addButton(
-                    _tr.tr("update_now"),
-                    QMessageBox.ButtonRole.AcceptRole
-                )
-                later_btn = msg_box.addButton(
-                    _tr.tr("remind_later"),
-                    QMessageBox.ButtonRole.RejectRole
-                )
+                # Question
+                question_label = QLabel(_tr.tr('would_you_like_to_update'))
+                layout.addWidget(question_label)
                 
-                # Add "Don't remind again" checkbox (only for auto-check)
+                # "Don't remind again" checkbox (only for auto-check)
                 dont_remind_checkbox = None
                 if not is_manual:
-                    dont_remind_checkbox = QCheckBox(
-                        _tr.tr("dont_remind_this_version"),
-                        msg_box
-                    )
-                    msg_box.setCheckBox(dont_remind_checkbox)
+                    dont_remind_checkbox = QCheckBox(_tr.tr("dont_remind_this_version"))
+                    layout.addWidget(dont_remind_checkbox)
+                
+                # Buttons
+                button_layout = QHBoxLayout()
+                button_layout.addStretch()
+                
+                later_btn = QPushButton(_tr.tr("remind_later"))
+                later_btn.clicked.connect(dialog.reject)
+                button_layout.addWidget(later_btn)
+                
+                update_btn = QPushButton(_tr.tr("update_now"))
+                update_btn.clicked.connect(dialog.accept)
+                update_btn.setDefault(True)
+                button_layout.addWidget(update_btn)
+                
+                layout.addLayout(button_layout)
+                dialog.setLayout(layout)
                 
                 # Show dialog
-                msg_box.exec()
-                clicked_button = msg_box.clickedButton()
+                result = dialog.exec()
                 
                 # Handle user choice
-                if clicked_button == update_btn:
+                if result == QDialog.Accepted:
                     # User chose to update
                     logger.info(f"[OTA] User confirmed update to version {version}")
                     self._start_ota_update(version, update_info)

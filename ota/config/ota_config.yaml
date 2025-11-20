@@ -3,37 +3,37 @@
 # ============================================
 
 # ============================================
-# OTA 功能开关
-# 设置为 false 可以完全禁用 OTA 功能
+# OTA Feature Toggle
+# Set to false to completely disable OTA functionality
 # ============================================
 ota_enabled: true
 
 # ============================================
-# 当前环境
-# 可选值: development, test, staging, production
-# 注意: 这个值应该在构建时设置，不要手动修改
+# Current Environment
+# Valid values: development, test, staging, production
+# Note: This value should be set during build time, do not modify manually
 # ============================================
 environment: development
 
 # ============================================
-# 通用配置
+# Common Configuration
 # ============================================
 common:
   app_name: "eCan"
   
-  # 单一 S3 Bucket（所有环境共用）
+  # Single S3 Bucket (shared across all environments)
   s3_bucket: "ecan-releases"
   s3_region: "us-east-1"
   
-  # S3 基础路径（可选，默认为空）
+  # S3 base path (optional, defaults to empty)
   s3_base_path: ""
   
-  # 支持的平台
+  # Supported platforms
   platforms:
     - macos
     - windows
   
-  # 支持的架构
+  # Supported architectures
   architectures:
     macos:
       - aarch64
@@ -42,161 +42,161 @@ common:
       - amd64
 
 # ============================================
-# 环境配置
+# Environment Configuration
 # ============================================
 environments:
   # ------------------------------------------
-  # 开发环境
+  # Development Environment
   # ------------------------------------------
   development:
-    # S3 路径前缀
+    # S3 path prefix
     s3_prefix: "dev"
     
-    # 发布渠道
+    # Release channel
     channel: "dev"
     
-    # OTA 服务器地址（本地开发）
+    # OTA server address (local development)
     ota_server: "http://127.0.0.1:8080"
     
-    # Appcast 基础 URL（开发环境使用本地服务器）
+    # Appcast base URL (development environment uses local server)
     appcast_base: "http://127.0.0.1:8080"
     
-    # 签名验证
+    # Signature verification
     signature_required: false
     signature_verification: false
     
-    # 自动更新
+    # Automatic updates
     auto_check: true
-    check_interval: 300  # 5 分钟（秒）
-    auto_check_initial_delay: 5  # 启动后延迟检查（秒）- 开发环境快速检查
+    check_interval: 300  # 5 minutes (seconds)
+    auto_check_initial_delay: 5  # Delay after startup (seconds) - fast check for dev environment
     silent_mode: false
     
-    # 开发环境 OTA 检查开关
-    # 即使 ota_enabled 为 true，也可以通过此开关单独控制开发环境的 OTA 检查
+    # Development environment OTA check toggle
+    # Even if ota_enabled is true, this switch can independently control OTA checks in dev environment
     dev_ota_check_enabled: false
     
-    # 安全设置
+    # Security settings
     allow_http: true
     
-    # 开发模式
+    # Development mode
     dev_mode: true
   
   # ------------------------------------------
-  # 测试环境
+  # Test Environment
   # ------------------------------------------
   test:
-    # S3 路径前缀
+    # S3 path prefix
     s3_prefix: "test"
     
-    # 发布渠道
+    # Release channel
     channel: "beta"
     
-    # OTA 服务器地址
+    # OTA server address
     ota_server: "https://updates-test.ecan.ai"
     
-    # Appcast 基础 URL（从 S3 读取）
+    # Appcast base URL (read from S3)
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/test"
     
-    # 签名验证（测试环境必须）
+    # Signature verification (required for test environment)
     signature_required: true
     signature_verification: true
     
-    # 自动更新
+    # Automatic updates
     auto_check: true
-    check_interval: 1800  # 30 分钟（秒）
-    auto_check_initial_delay: 120  # 启动后延迟检查（秒）- 2 分钟
+    check_interval: 1800  # 30 minutes (seconds)
+    auto_check_initial_delay: 120  # Delay after startup (seconds) - 2 minutes
     silent_mode: false
     
-    # 安全设置
+    # Security settings
     allow_http: true
     
-    # 开发模式
+    # Development mode
     dev_mode: false
   
   # ------------------------------------------
-  # 预发布环境
+  # Staging Environment
   # ------------------------------------------
   staging:
-    # S3 路径前缀
+    # S3 path prefix
     s3_prefix: "staging"
     
-    # 发布渠道
+    # Release channel
     channel: "stable"
     
-    # OTA 服务器地址
+    # OTA server address
     ota_server: "https://updates-staging.ecan.ai"
     
-    # Appcast 基础 URL（从 S3 读取）
+    # Appcast base URL (read from S3)
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/staging"
     
-    # 签名验证（预发布必须）
+    # Signature verification (required for staging)
     signature_required: true
     signature_verification: true
     
-    # 自动更新
+    # Automatic updates
     auto_check: true
-    check_interval: 3600  # 1 小时（秒）
-    auto_check_initial_delay: 120  # 启动后延迟检查（秒）- 2 分钟
+    check_interval: 3600  # 1 hour (seconds)
+    auto_check_initial_delay: 120  # Delay after startup (seconds) - 2 minutes
     silent_mode: false
     
-    # 安全设置
+    # Security settings
     allow_http: false
     
-    # 开发模式
+    # Development mode
     dev_mode: false
   
   # ------------------------------------------
-  # 生产环境
+  # Production Environment
   # ------------------------------------------
   production:
-    # S3 路径前缀
+    # S3 path prefix
     s3_prefix: "production"
     
-    # 发布渠道
+    # Release channel
     channel: "stable"
     
-    # OTA 服务器地址
+    # OTA server address
     ota_server: "https://updates.ecan.ai"
     
-    # Appcast 基础 URL（从 S3 读取）
+    # Appcast base URL (read from S3)
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/production"
     
-    # 签名验证（生产必须）
+    # Signature verification (required for production)
     signature_required: true
     signature_verification: true
     
-    # 自动更新
+    # Automatic updates
     auto_check: true
-    check_interval: 14400  # 4 小时（秒）
-    auto_check_initial_delay: 120  # 启动后延迟检查（秒）- 2 分钟
+    check_interval: 14400  # 4 hours (seconds)
+    auto_check_initial_delay: 120  # Delay after startup (seconds) - 2 minutes
     silent_mode: true
     
-    # 安全设置
+    # Security settings
     allow_http: false
     
-    # 开发模式
+    # Development mode
     dev_mode: false
 
 # ============================================
-# 高级配置（可选）
+# Advanced Configuration (Optional)
 # ============================================
 advanced:
-  # 下载路径（留空使用默认）
+  # Download path (leave empty to use default)
   download_path: null
   
-  # 备份设置
+  # Backup settings
   backup_enabled: true
   
-  # 公钥路径（用于签名验证）
+  # Public key path (for signature verification)
   public_key_path: null
   
-  # UI 更新行为
-  # 可选值: notification, dialog, badge, notification+badge
+  # UI update behavior
+  # Valid values: notification, dialog, badge, notification+badge
   ui_update_behavior: "notification"
   
-  # macOS DMG 安装目标目录
+  # macOS DMG installation target directory
   dmg_target_dir: "/Applications"
   
-  # 开发环境安装器设置
+  # Development environment installer settings
   dev_installer_enabled: false
   dev_installer_quiet: true
