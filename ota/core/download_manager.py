@@ -8,6 +8,10 @@ Manages download progress and state across the application
 from typing import Optional, Callable, Dict, Any
 from PySide6.QtCore import QObject, Signal
 from utils.logger_helper import logger_helper as logger
+from ota.gui.i18n import get_translator
+
+# Get translator instance
+_tr = get_translator()
 
 
 class DownloadState:
@@ -141,27 +145,35 @@ class DownloadManager(QObject):
         """Check if currently downloading"""
         return self.state == DownloadState.DOWNLOADING
     
-    def get_status_text(self, lang: str = "en-US") -> str:
-        """Get status text for display"""
+    def get_status_text(self, lang: str = None) -> str:
+        """
+        Get status text for display
+        
+        Args:
+            lang: Language code (deprecated, kept for compatibility)
+            
+        Returns:
+            Translated status text
+        """
         if self.state == DownloadState.IDLE:
-            return "检查更新..." if lang == "zh-CN" else "Check for Updates..."
+            return _tr.tr("check_for_updates")
         elif self.state == DownloadState.CHECKING:
-            return "正在检查更新..." if lang == "zh-CN" else "Checking for updates..."
+            return _tr.tr("checking_for_updates")
         elif self.state == DownloadState.DOWNLOADING:
             if self.progress > 0:
-                return f"下载中... {self.progress}%" if lang == "zh-CN" else f"Downloading... {self.progress}%"
+                return _tr.tr("downloading_progress").format(progress=self.progress)
             else:
-                return "准备下载..." if lang == "zh-CN" else "Preparing download..."
+                return _tr.tr("preparing_download_state")
         elif self.state == DownloadState.VERIFYING:
-            return "验证中..." if lang == "zh-CN" else "Verifying..."
+            return _tr.tr("verifying_state")
         elif self.state == DownloadState.COMPLETED:
-            return "下载完成" if lang == "zh-CN" else "Download complete"
+            return _tr.tr("download_complete_state")
         elif self.state == DownloadState.FAILED:
-            return "下载失败" if lang == "zh-CN" else "Download failed"
+            return _tr.tr("download_failed_state")
         elif self.state == DownloadState.CANCELLED:
-            return "已取消" if lang == "zh-CN" else "Cancelled"
+            return _tr.tr("cancelled_state")
         else:
-            return "检查更新..." if lang == "zh-CN" else "Check for Updates..."
+            return _tr.tr("check_for_updates")
 
 
 # Global instance

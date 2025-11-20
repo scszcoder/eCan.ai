@@ -13,6 +13,10 @@ from typing import Optional, Dict, Any
 
 from utils.logger_helper import logger_helper as logger
 from ota.config.loader import ota_config
+from ota.gui.i18n import get_translator
+
+# Get translator instance
+_tr = get_translator()
 
 
 class InstallationManager:
@@ -794,9 +798,11 @@ rm "$0"
             if 'PHASE:' in status_line:
                 phase = status_line.split('PHASE:')[-1].strip()
                 if phase:
-                    dialog.setLabelText(f"正在安装更新... {int(progress)}%\n{phase}")
+                    text = _tr.tr("installing_update_with_phase").format(progress=int(progress), phase=phase)
+                    dialog.setLabelText(text)
             else:
-                dialog.setLabelText(f"正在安装更新... {int(progress)}%")
+                text = _tr.tr("installing_update_progress").format(progress=int(progress))
+                dialog.setLabelText(text)
             
             # Process events to update UI
             app = QApplication.instance()

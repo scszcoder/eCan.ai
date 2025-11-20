@@ -15,7 +15,7 @@ class OTATranslations:
     TRANSLATIONS = {
         'en-US': {
             # Window titles
-            'window_title': 'ECBot Software Update',
+            'window_title': 'eCan.ai Software Update',
             'confirm_install_title': 'Confirm Update Installation',
             
             # Labels
@@ -31,6 +31,7 @@ class OTATranslations:
             'install_options': 'Installation Options',
             'speed': 'Speed',
             'remaining_time': 'Remaining Time',
+            'install_progress': 'Installation Progress',
             
             # Status messages
             'preparing_download': 'Preparing download...',
@@ -97,10 +98,24 @@ class OTATranslations:
             'installing_update': 'Installing update...',
             'installer_launched_status': 'Installer launched!',
             'installation_failed_status': 'Installation failed',
+            
+            # Download manager states
+            'check_for_updates': 'Check for Updates...',
+            'checking_for_updates': 'Checking for updates...',
+            'downloading_progress': 'Downloading... {progress}%',
+            'preparing_download_state': 'Preparing download...',
+            'verifying_state': 'Verifying...',
+            'download_complete_state': 'Download complete',
+            'download_failed_state': 'Download failed',
+            'cancelled_state': 'Cancelled',
+            
+            # Installer progress
+            'installing_update_progress': 'Installing update... {progress}%',
+            'installing_update_with_phase': 'Installing update... {progress}%\n{phase}',
         },
         'zh-CN': {
             # Window titles
-            'window_title': 'ECBot 软件更新',
+            'window_title': 'eCan.ai 软件更新',
             'confirm_install_title': '确认安装更新',
             
             # Labels
@@ -116,6 +131,7 @@ class OTATranslations:
             'install_options': '安装选项',
             'speed': '速度',
             'remaining_time': '剩余时间',
+            'install_progress': '安装进度',
             
             # Status messages
             'preparing_download': '准备下载...',
@@ -182,6 +198,20 @@ class OTATranslations:
             'installing_update': '正在安装更新...',
             'installer_launched_status': '安装器已启动！',
             'installation_failed_status': '安装失败',
+            
+            # Download manager states
+            'check_for_updates': '检查更新...',
+            'checking_for_updates': '正在检查更新...',
+            'downloading_progress': '下载中... {progress}%',
+            'preparing_download_state': '准备下载...',
+            'verifying_state': '验证中...',
+            'download_complete_state': '下载完成',
+            'download_failed_state': '下载失败',
+            'cancelled_state': '已取消',
+            
+            # Installer progress
+            'installing_update_progress': '正在安装更新... {progress}%',
+            'installing_update_with_phase': '正在安装更新... {progress}%\n{phase}',
         }
     }
     
