@@ -59,7 +59,7 @@ environments:
   development:
     ota_server: "http://127.0.0.1:8080"
   production:
-    ota_server: "https://updates.ecbot.com"
+    ota_server: "https://updates.ecan.ai"
 ```
 
 ---

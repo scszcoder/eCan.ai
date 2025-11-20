@@ -1,5 +1,5 @@
 """
-ECBot OTA Update Dialog Module
+eCan.ai OTA Update Dialog Module
 Provides standard update dialog components
 """
 

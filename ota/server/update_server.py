@@ -169,7 +169,7 @@ def check_update():
     """Check update API"""
     try:
         # Get client information
-        app_name = request.args.get('app', 'ecbot')
+        app_name = request.args.get('app', 'ecan')
         current_version = request.args.get('version', '1.0.0')
         platform = request.args.get('platform', 'windows')
         arch = request.args.get('arch', 'x64')
@@ -378,13 +378,13 @@ def download_file(filename):
 @app.route('/health', methods=['GET'])
 def health():
     """健康检查"""
-    return jsonify({"status": "ok", "service": "ECBot Update Server"})
+    return jsonify({"status": "ok", "service": "eCan.ai Update Server"})
 
 @app.route('/', methods=['GET'])
 def index():
     """首页"""
     return jsonify({
-        "service": "ECBot Update Server",
+        "service": "eCan.ai Update Server",
         "endpoints": [
             "/api/check-update",
             "/api/download-latest", 
@@ -406,7 +406,7 @@ def check_dependencies():
 def main():
     """主函数"""
     print("=" * 50)
-    print("ECBot 本地OTA测试服务器")
+    print("eCan.ai 本地OTA测试服务器")
     print("=" * 50)
     
     # 检查依赖
@@ -414,7 +414,7 @@ def main():
         logger.error("依赖检查失败，无法启动服务器")
         return
     
-    logger.info("Starting ECBot Update Server...")
+    logger.info("Starting eCan.ai Update Server...")
     logger.info("Available endpoints:")
     for rule in app.url_map.iter_rules():
         logger.info(f"  - {rule.methods} {rule.rule}")

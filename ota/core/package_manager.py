@@ -53,7 +53,7 @@ class PackageManager:
     """Update package manager"""
     
     def __init__(self, download_dir: Optional[str] = None):
-        self.download_dir = Path(download_dir) if download_dir else Path(tempfile.gettempdir()) / "ecbot_updates"
+        self.download_dir = Path(download_dir) if download_dir else Path(tempfile.gettempdir()) / "ecan_updates"
         self.download_dir.mkdir(parents=True, exist_ok=True)
         self.current_package: Optional[UpdatePackage] = None
         self._downloaded_files = []  # Track downloaded files

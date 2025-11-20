@@ -227,7 +227,7 @@ class OTAConfig:
     def is_dev_mode(self) -> bool:
         """Check if running in development mode"""
         # Check environment variable or configuration
-        if os.environ.get('ECBOT_DEV_MODE', '').lower() in ['true', '1', 'yes']:
+        if os.environ.get('ECAN_DEV_MODE', '').lower() in ['true', '1', 'yes']:
             return True
         return self.environment == 'development' or self.get('dev_mode', False)
     

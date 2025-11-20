@@ -323,7 +323,7 @@ class GenericUpdater:
             # Use JSON API for checking
             update_url = f"{base_url.rstrip('/')}/api/check"
             params = {
-                "app": "ecbot",
+                "app": "ecan",
                 "version": self.ota_manager.app_version,
                 "platform": platform.system().lower(),
                 "arch": platform.machine(),

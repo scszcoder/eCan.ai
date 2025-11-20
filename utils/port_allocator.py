@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Thread-safe port allocator for ECBot agent system
+Thread-safe port allocator for eCan.ai agent system
 Solves the concurrent port allocation conflict during parallel agent initialization
 """
 

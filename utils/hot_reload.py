@@ -67,7 +67,7 @@ def start_watching(watch_paths, loop):
     :param loop: asyncio event loop, used to schedule reload tasks in the loop (if needed).
                    Current implementation reloads directly, loop is not used.
     """
-    project_root = Path(__file__).resolve().parent.parent  # Project root directory (ecbot)
+    project_root = Path(__file__).resolve().parent.parent  # Project root directory (ecan.ai)
 
     event_handler = PythonFileEventHandler(base_path=project_root)
     observer = Observer()
