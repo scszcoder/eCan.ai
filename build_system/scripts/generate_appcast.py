@@ -5,6 +5,8 @@ Generate Appcast XML files from S3 artifacts (Single Bucket Design)
 Usage:
     python3 build_system/scripts/generate_appcast.py --env production
     python3 build_system/scripts/generate_appcast.py --env test --channel beta
+
+Note: This script is independent of application code and only requires boto3 and PyYAML.
 """
 
 import argparse
@@ -17,9 +19,8 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from xml.etree import ElementTree as ET
 
-# Add project root to path
+# Project root
 project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
 
 try:
     import boto3
@@ -28,7 +29,11 @@ except ImportError:
     print("❌ Error: boto3 is required. Install it with: pip install boto3")
     sys.exit(1)
 
-from ota.config.loader import ota_config
+try:
+    import yaml
+except ImportError:
+    print("❌ Error: PyYAML is required. Install it with: pip install PyYAML")
+    sys.exit(1)
 
 
 class AppcastGenerator:
@@ -44,10 +49,10 @@ class AppcastGenerator:
         """
         self.environment = environment
         
-        # Load configuration
-        ota_config.environment = environment
-        self.bucket = ota_config.get_common('s3_bucket', 'ecan-releases')
-        self.region = ota_config.get_common('s3_region', 'us-east-1')
+        # Load configuration directly from YAML file
+        config = self._load_config()
+        self.bucket = config['common']['s3_bucket']
+        self.region = config['common']['s3_region']
         
         # Handle S3_BASE_PATH environment variable
         # GitHub Actions may set S3_BASE_PATH="releases", but we need it to be empty
@@ -57,16 +62,39 @@ class AppcastGenerator:
             self.base_path = ''
         else:
             # Use config file value or environment variable
-            self.base_path = env_base_path or ota_config.get_common('s3_base_path', '')
+            self.base_path = env_base_path or config['common'].get('s3_base_path', '')
         
-        self.prefix = ota_config.get_s3_prefix()
-        self.channel = channel or ota_config.get_channel()
+        # Get environment-specific configuration
+        env_config = config['environments'].get(environment, {})
+        self.prefix = env_config.get('s3_prefix', environment)
+        self.channel = channel or env_config.get('channel', 'stable')
         
         # Initialize S3 client
         try:
             self.s3 = boto3.client('s3', region_name=self.region)
         except NoCredentialsError:
             print("❌ Error: AWS credentials not found")
+            sys.exit(1)
+    
+    def _load_config(self) -> dict:
+        """
+        Load OTA configuration from YAML file
+        
+        Returns:
+            Configuration dictionary
+        """
+        config_file = project_root / 'ota' / 'config' / 'ota_config.yaml'
+        
+        if not config_file.exists():
+            print(f"❌ Error: Configuration file not found: {config_file}")
+            sys.exit(1)
+        
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+            return config
+        except Exception as e:
+            print(f"❌ Error loading configuration: {e}")
             sys.exit(1)
     
     def parse_version(self, version_str: str) -> Tuple[int, int, int]:
