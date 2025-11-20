@@ -1303,7 +1303,7 @@ if sys.platform == 'darwin':
             # Check if Python library exists and is valid
             if python_lib.exists() and not python_lib.is_symlink():
                 size_mb = python_lib.stat().st_size / (1024 * 1024)
-                print(f"[MINIBUILD] ✓ Python shared library found: {python_lib}")
+                print(f"[MINIBUILD] [OK] Python shared library found: {python_lib}")
                 print(f"[MINIBUILD]   Size: {size_mb:.1f} MB")
                 return
             
@@ -1353,10 +1353,10 @@ if sys.platform == 'darwin':
                     import shutil
                     shutil.copy2(str(source_lib), str(python_lib))
                     size_mb = python_lib.stat().st_size / (1024 * 1024)
-                    print(f"[MINIBUILD] ✓ Copied Python shared library: {python_lib} ({size_mb:.1f} MB)")
+                    print(f"[MINIBUILD] [OK] Copied Python shared library: {python_lib} ({size_mb:.1f} MB)")
                     return
                 else:
-                    print(f"[MINIBUILD] ✗ Could not find source Python library to fix broken symlink")
+                    print(f"[MINIBUILD] [ERROR] Could not find source Python library to fix broken symlink")
             
             # Check if file was placed in nested Frameworks directory
             nested_python = frameworks_dir / "Frameworks" / "Python"
@@ -1380,11 +1380,11 @@ if sys.platform == 'darwin':
                     nested_frameworks.rmdir()
                     print(f"[MINIBUILD] Removed empty nested Frameworks directory")
                 
-                print(f"[MINIBUILD] ✓ Python shared library fixed: {python_lib} ({size_mb:.1f} MB)")
+                print(f"[MINIBUILD] [OK] Python shared library fixed: {python_lib} ({size_mb:.1f} MB)")
                 return
             
             # Library not found anywhere
-            print(f"[MINIBUILD] ✗ ERROR: Python shared library NOT FOUND")
+            print(f"[MINIBUILD] [ERROR] Python shared library NOT FOUND")
             print(f"[MINIBUILD]   Expected at: {python_lib}")
             print(f"[MINIBUILD]   Also checked: {nested_python}")
             print(f"[MINIBUILD]   The app will fail to start with 'Failed to load Python shared library' error")
@@ -1553,7 +1553,7 @@ if sys.platform == 'darwin':
             with open(info_plist_path, 'wb') as f:
                 plistlib.dump(plist_data, f)
             
-            print(f"[MINIBUILD] ✓ Updated Info.plist with {len(url_types)} URL scheme(s):")
+            print(f"[MINIBUILD] [OK] Updated Info.plist with {len(url_types)} URL scheme(s):")
             for scheme_config in url_schemes:
                 print(f"[MINIBUILD]   - {scheme_config['scheme']}:// → {scheme_config.get('name', 'URL')}")
             

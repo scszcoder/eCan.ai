@@ -109,7 +109,7 @@ BUILD_DATA = {{
     with open(config_file, 'w', encoding='utf-8') as f:
         f.write(content)
     
-    print(f"✅ Generated: {config_file}")
+    print(f"[OK] Generated: {config_file}")
     return config_file
 
 
@@ -123,7 +123,7 @@ def inject_version_file(version: str):
     with open(version_file, 'w', encoding='utf-8') as f:
         f.write(version)
     
-    print(f"✅ Updated: {version_file}")
+    print(f"[OK] Updated: {version_file}")
     return version_file
 
 
@@ -137,10 +137,10 @@ def get_version_from_file() -> str:
     version_file = project_root / 'VERSION'
     if version_file.exists():
         version = version_file.read_text().strip()
-        print(f"📖 Read version from VERSION file: {version}")
+        print(f"[INFO] Read version from VERSION file: {version}")
         return version
     else:
-        print("⚠️  VERSION file not found, using default: 0.0.0")
+        print("[WARN] VERSION file not found, using default: 0.0.0")
         return "0.0.0"
 
 
@@ -193,7 +193,7 @@ def main():
     
     print()
     print("=" * 60)
-    print("✅ Build information injected successfully!")
+    print("[OK] Build information injected successfully!")
     print("=" * 60)
     print()
     print("Usage in Python:")

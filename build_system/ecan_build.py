@@ -777,7 +777,7 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
             use_productbuild = pkg_config.get("use_productbuild", not fast_pkg_mode)
 
             if fast_pkg_mode:
-                print("[PKG] ⚡ FAST mode enabled - optimizing for speed")
+                print("[PKG] [FAST] FAST mode enabled - optimizing for speed")
                 if fix_permissions_flag or prune_payload_flag:
                     print("[PKG] Skipping payload optimizations for faster build")
                 fix_permissions_flag = False  # Skip permission fixes

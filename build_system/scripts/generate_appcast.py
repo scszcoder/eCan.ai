@@ -26,13 +26,13 @@ try:
     import boto3
     from botocore.exceptions import ClientError, NoCredentialsError
 except ImportError:
-    print("❌ Error: boto3 is required. Install it with: pip install boto3")
+    print("[ERROR] boto3 is required. Install it with: pip install boto3")
     sys.exit(1)
 
 try:
     import yaml
 except ImportError:
-    print("❌ Error: PyYAML is required. Install it with: pip install PyYAML")
+    print("[ERROR] PyYAML is required. Install it with: pip install PyYAML")
     sys.exit(1)
 
 
@@ -83,7 +83,7 @@ def get_release_notes_from_changelog(version: str, changelog_path: Optional[Path
         return f"<h2>eCan.ai {version}</h2>{html}"
     
     except Exception as e:
-        print(f"⚠️  Warning: Could not read release notes from CHANGELOG: {e}")
+        print(f"[WARN] Could not read release notes from CHANGELOG: {e}")
         return f"<h2>eCan.ai {version}</h2><p>Release notes not available.</p>"
 
 
@@ -191,7 +191,7 @@ class AppcastGenerator:
         try:
             self.s3 = boto3.client('s3', region_name=self.region)
         except NoCredentialsError:
-            print("❌ Error: AWS credentials not found")
+            print("[ERROR] AWS credentials not found")
             sys.exit(1)
     
     def _load_config(self) -> dict:
@@ -204,7 +204,7 @@ class AppcastGenerator:
         config_file = project_root / 'ota' / 'config' / 'ota_config.yaml'
         
         if not config_file.exists():
-            print(f"❌ Error: Configuration file not found: {config_file}")
+            print(f"[ERROR] Configuration file not found: {config_file}")
             sys.exit(1)
         
         try:
@@ -212,7 +212,7 @@ class AppcastGenerator:
                 config = yaml.safe_load(f)
             return config
         except Exception as e:
-            print(f"❌ Error loading configuration: {e}")
+            print(f"[ERROR] Error loading configuration: {e}")
             sys.exit(1)
     
     def parse_version(self, version_str: str) -> Tuple[int, int, int]:
@@ -238,7 +238,7 @@ class AppcastGenerator:
         Returns:
             List of version strings sorted by version number
         """
-        print(f"\n🔍 Scanning S3 for versions in {self.environment}...")
+        print(f"\n[INFO] Scanning S3 for versions in {self.environment}...")
         
         if self.base_path:
             prefix = f"{self.base_path}/{self.prefix}/releases/"
@@ -276,7 +276,7 @@ class AppcastGenerator:
             return versions
             
         except ClientError as e:
-            print(f"  ❌ Failed to list versions: {e}")
+            print(f"  [ERROR] Failed to list versions: {e}")
             return []
     
     def get_package_info(self, version: str, platform: str, arch: str) -> Optional[Dict]:
@@ -362,7 +362,7 @@ class AppcastGenerator:
             return None
             
         except ClientError as e:
-            print(f"  ⚠️  Failed to get package info for {version}/{platform}/{arch}: {e}")
+            print(f"  [WARN] Failed to get package info for {version}/{platform}/{arch}: {e}")
             return None
     
     def generate_appcast_xml(self, platform: str, arch: str, max_versions: int = 10, language: str = 'en-US') -> str:
@@ -378,7 +378,7 @@ class AppcastGenerator:
         Returns:
             XML string
         """
-        print(f"\n📝 Generating appcast for {platform}-{arch}...")
+        print(f"\n[INFO] Generating appcast for {platform}-{arch}...")
         
         # Get all versions
         versions = self.list_versions()
@@ -389,10 +389,10 @@ class AppcastGenerator:
             pkg_info = self.get_package_info(version, platform, arch)
             if pkg_info:
                 items.append(pkg_info)
-                print(f"  ✓ Added {version}")
+                print(f"  [OK] Added {version}")
         
         if not items:
-            print(f"  ⚠️  No packages found for {platform}-{arch}")
+            print(f"  [WARN] No packages found for {platform}-{arch}")
             return None
         
         # Create XML
@@ -430,19 +430,19 @@ class AppcastGenerator:
             if self.environment == 'development':
                 description += "<div style='background-color: #fff3cd; border: 1px solid #ffc107; padding: 10px; margin-top: 10px;'>"
                 if language == 'zh-CN':
-                    description += "<p><strong>⚠️ 开发版本</strong></p>"
+                    description += "<p><strong>[WARN] 开发版本</strong></p>"
                     description += "<p>这是一个开发版本，仅供测试使用。可能包含错误和未完成的功能。</p>"
                 else:
-                    description += "<p><strong>⚠️ Development Build</strong></p>"
+                    description += "<p><strong>[WARN] Development Build</strong></p>"
                     description += "<p>This is a development build for testing purposes only. It may contain bugs and incomplete features.</p>"
                 description += "</div>"
             elif self.environment == 'test':
                 description += "<div style='background-color: #d1ecf1; border: 1px solid #0c5460; padding: 10px; margin-top: 10px;'>"
                 if language == 'zh-CN':
-                    description += "<p><strong>ℹ️ 测试版本</strong></p>"
+                    description += "<p><strong>[INFO] 测试版本</strong></p>"
                     description += "<p>这是一个测试版本，如遇到问题请及时反馈。</p>"
                 else:
-                    description += "<p><strong>ℹ️ Beta Release</strong></p>"
+                    description += "<p><strong>[INFO] Beta Release</strong></p>"
                     description += "<p>This is a beta release. Please report any issues you encounter.</p>"
                 description += "</div>"
             
@@ -520,20 +520,20 @@ class AppcastGenerator:
             )
             
             url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{s3_key}"
-            print(f"  ✓ Uploaded: {url}")
+            print(f"  [OK] Uploaded: {url}")
             return True
             
         except ClientError as e:
-            print(f"  ❌ Failed to upload appcast: {e}")
+            print(f"  [ERROR] Failed to upload appcast: {e}")
             return False
     
     def generate_latest_json(self) -> bool:
         """Generate and upload latest.json with current version info"""
-        print(f"\n📄 Generating latest.json...")
+        print(f"\n[INFO] Generating latest.json...")
         
         versions = self.list_versions()
         if not versions:
-            print("  ⚠️  No versions found")
+            print("  [WARN] No versions found")
             return False
         
         latest_version = versions[0]
@@ -546,25 +546,26 @@ class AppcastGenerator:
             'platforms': {}
         }
         
-        # Add download URLs for each platform/arch
+        # Add platform-specific info
         for platform in ['macos', 'windows']:
-            latest_data['platforms'][platform] = {}
-            
-            arches = ['amd64', 'aarch64'] if platform == 'macos' else ['amd64']
-            for arch in arches:
+            for arch in ['amd64', 'aarch64']:
                 pkg_info = self.get_package_info(latest_version, platform, arch)
                 if pkg_info:
-                    latest_data['platforms'][platform][arch] = {
-                        'download_url': pkg_info['download_url'],
+                    platform_key = f"{platform}-{arch}"
+                    latest_data['platforms'][platform_key] = {
+                        'version': pkg_info['version'],
+                        'url': pkg_info['download_url'],
+                        'accelerated_url': pkg_info.get('accelerated_url'),
                         'file_size': pkg_info['file_size'],
-                        'sha256': pkg_info['sha256']
+                        'sha256': pkg_info['sha256'],
+                        'signature': pkg_info['signature']
                     }
         
         # Upload to S3
         if self.base_path:
-            s3_key = f"{self.base_path}/{self.prefix}/channels/{self.channel}/latest.json"
+            s3_key = f"{self.base_path}/{self.prefix}/latest.json"
         else:
-            s3_key = f"{self.prefix}/channels/{self.channel}/latest.json"
+            s3_key = f"{self.prefix}/latest.json"
         
         try:
             self.s3.put_object(
@@ -576,17 +577,17 @@ class AppcastGenerator:
             )
             
             url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{s3_key}"
-            print(f"  ✓ Uploaded: {url}")
+            print(f"  [OK] Uploaded: {url}")
             return True
             
         except ClientError as e:
-            print(f"  ❌ Failed to upload latest.json: {e}")
+            print(f"  [ERROR] Failed to upload latest.json: {e}")
             return False
     
     def run(self) -> bool:
         """Run the appcast generation process"""
         print("=" * 60)
-        print("📡 Appcast Generator - Single Bucket Design")
+        print("[INFO] Appcast Generator - Single Bucket Design")
         print("=" * 60)
         print(f"Environment: {self.environment}")
         print(f"Channel:     {self.channel}")
@@ -623,9 +624,9 @@ class AppcastGenerator:
         # Summary
         print("\n" + "=" * 60)
         if success_count == total_count:
-            print("✅ All appcasts generated successfully!")
+            print("[OK] All appcasts generated successfully!")
         else:
-            print(f"⚠️  Generated {success_count}/{total_count} appcasts")
+            print(f"[WARN] Generated {success_count}/{total_count} appcasts")
         print("=" * 60)
         
         return success_count > 0

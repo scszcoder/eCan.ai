@@ -266,7 +266,7 @@ class UnifiedBuildSystem:
                     print("[TEST] All installer tests passed")
                     return True
                 else:
-                    print(f"[TEST] ✗ {failed_count} installer test(s) failed")
+                    print(f"[TEST] [ERROR] {failed_count} installer test(s) failed")
                     return False
                     
             finally:
@@ -372,12 +372,12 @@ class UnifiedBuildSystem:
             
             # Add visual bar
             bar_length = int(percentage / 5)  # Scale to 20 chars max
-            bar = "█" * bar_length + "░" * (20 - bar_length)
+            bar = "#" * bar_length + "-" * (20 - bar_length)
             
-            print(f"{stage_name:12} │ {bar} │ {duration:6.2f}s ({percentage:5.1f}%)")
+            print(f"{stage_name:12} | {bar} | {duration:6.2f}s ({percentage:5.1f}%)")
         
         print("=" * 50)
-        print(f"{'Total':12} │ {'█' * 20} │ {total_time:6.2f}s (100.0%)")
+        print(f"{'Total':12} | {'#' * 20} | {total_time:6.2f}s (100.0%)")
         print("=" * 50)
     
     def build(self, mode: str = "prod", version: str = None, **kwargs) -> int:
