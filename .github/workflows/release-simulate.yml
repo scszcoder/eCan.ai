@@ -68,25 +68,24 @@ on:
         default: 'master'
         type: string
       
+      # Note: Environment is LOCKED to 'simulation' for safety
+      # This prevents accidental uploads to production/staging/test environments
       environment:
-        description: 'Target environment'
+        description: 'Target environment (LOCKED to simulation for safety)'
         required: false
-        default: 'production'
+        default: 'simulation'
         type: choice
         options:
-          - production
-          - staging
-          - test
-          - development
+          - simulation
       
+      # Note: Channel is LOCKED to 'simulation' for safety
       channel:
-        description: 'Release channel'
+        description: 'Release channel (LOCKED to simulation for safety)'
         required: false
-        default: 'stable'
+        default: 'simulation'
         type: choice
         options:
-          - stable
-          - beta
+          - simulation
       
       upload_artifacts:
         description: 'Upload artifacts to GitHub Artifacts (debug only)'
@@ -169,74 +168,26 @@ jobs:
         run: |
           REF_NAME="${{ steps.out.outputs.ref_name }}"
           VERSION="${{ steps.out.outputs.version }}"
-          INPUT_ENV="${{ github.event.inputs.environment }}"
-          INPUT_CHANNEL="${{ github.event.inputs.channel }}"
           
-          echo "=== Detecting Environment (Simulation) ==="
+          echo "=== Environment Configuration (Simulation Workflow) ==="
           echo "Ref: $REF_NAME"
           echo "Version: $VERSION"
-          echo "Input Environment: $INPUT_ENV"
-          echo "Input Channel: $INPUT_CHANNEL"
           
-          # Use manual selection if provided
-          if [[ -n "$INPUT_ENV" ]]; then
-            ENV="$INPUT_ENV"
-            echo "Using manual environment: $ENV"
-          else
-            # Auto-detect environment based on ref and version (same logic as release.yml)
-            if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              # Production: Clean version tag (e.g., v1.0.0)
-              ENV="production"
-            elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\. ]]; then
-              # Staging: Release candidate (e.g., v1.0.0-rc.1)
-              ENV="staging"
-            elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta ]]; then
-              # Test: Beta version (e.g., v1.0.0-beta.1)
-              ENV="test"
-            elif [[ "$REF_NAME" == "develop" || "$REF_NAME" == "dev" ]]; then
-              # Development: develop branch
-              ENV="development"
-            elif [[ "$REF_NAME" == "staging" ]]; then
-              # Staging: staging branch
-              ENV="staging"
-            elif [[ "$REF_NAME" == "main" || "$REF_NAME" == "master" ]]; then
-              # Production: main/master branch
-              ENV="production"
-            else
-              # Default: development for other branches
-              ENV="development"
-            fi
-            echo "Auto-detected environment: $ENV"
-          fi
-          
-          # Use manual channel if provided
-          if [[ -n "$INPUT_CHANNEL" ]]; then
-            CHANNEL="$INPUT_CHANNEL"
-            echo "Using manual channel: $CHANNEL"
-          else
-            # Auto-detect channel based on environment
-            case "$ENV" in
-              production)
-                CHANNEL="stable"
-                ;;
-              staging)
-                CHANNEL="beta"
-                ;;
-              test|development)
-                CHANNEL="dev"
-                ;;
-              *)
-                CHANNEL="dev"
-                ;;
-            esac
-            echo "Auto-detected channel: $CHANNEL"
-          fi
+          # SAFETY: Force simulation environment and channel
+          # This prevents accidental uploads to production/staging/test
+          ENV="simulation"
+          CHANNEL="simulation"
           
           echo "environment=$ENV" >> $GITHUB_OUTPUT
           echo "channel=$CHANNEL" >> $GITHUB_OUTPUT
-          echo "=== Final Configuration ==="
-          echo "Environment: $ENV"
-          echo "Channel: $CHANNEL"
+          
+          echo "=== Final Configuration (LOCKED for Safety) ==="
+          echo "Environment: $ENV (LOCKED)"
+          echo "Channel: $CHANNEL (LOCKED)"
+          echo "S3 Path: s3://ecan-releases/simulation/"
+          echo ""
+          echo "⚠️  This workflow is ISOLATED from production environments"
+          echo "⚠️  All uploads go to: simulation/ prefix only"
 
   # ============================================================================
   # BUILD LAYER: Windows amd64 (Simulation)
@@ -256,6 +207,9 @@ jobs:
     steps:
       # Note: Frontend is always built in real workflow (no change detection)
       # Simulation doesn't need frontend build steps
+      - name: Checkout code for signing
+        uses: actions/checkout@v4
+      
       - name: Simulate Windows build
         run: |
           echo "=== Simulating Windows amd64 Build ==="
@@ -269,35 +223,37 @@ jobs:
           echo "fake windows installer" > "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe"
           cp "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe" artifacts/
           
-          # Create fake signature file
-          echo "fake_ed25519_signature_for_simulation" > "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe.sig"
-          cp "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe.sig" artifacts/
+          echo "✅ Windows build simulated"
+      
+      - name: Generate real Ed25519 signature
+        run: |
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          INSTALLER="dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe"
           
-          echo "✅ Windows build simulated (with signature)"
+          # Install OpenSSL if needed
+          if ! command -v openssl &> /dev/null; then
+            echo "Installing OpenSSL..."
+            sudo apt-get update && sudo apt-get install -y openssl
+          fi
+          
+          # Generate real Ed25519 signature
+          if [ -f "build_system/certificates/ed25519_private_key.pem" ]; then
+            echo "Generating real Ed25519 signature..."
+            openssl pkeyutl -sign -inkey build_system/certificates/ed25519_private_key.pem \
+              -rawin -in "$INSTALLER" -out "${INSTALLER}.sig"
+            cp "${INSTALLER}.sig" artifacts/
+            echo "✅ Real signature generated"
+          else
+            echo "⚠️  Private key not found, creating placeholder signature"
+            echo "simulation_signature" > "${INSTALLER}.sig"
+            cp "${INSTALLER}.sig" artifacts/
+          fi
       
       # ------------------------------------------------------------------------
       # OTA Signing Simulation
       # In real workflow, OTA signing is REQUIRED for test/staging/production
       # ------------------------------------------------------------------------
-      - name: Simulate OTA signing check (test/staging/production requirement)
-        if: |
-          needs.validate-tag.outputs.environment == 'test' ||
-          needs.validate-tag.outputs.environment == 'staging' ||
-          needs.validate-tag.outputs.environment == 'production'
-        run: |
-          echo "=== Simulating OTA Signing Requirement Check ==="
-          echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
-          echo "In real workflow: Ed25519 private key REQUIRED"
-          echo "  - build_system/certificates/ed25519_private_key.pem"
-          echo "✅ Simulation: Skipping actual OTA signing check"
-      
-      - name: Simulate OTA signing execution
-        run: |
-          echo "=== Simulating OTA Signing ==="
-          echo "In real workflow: Ed25519 signature generation"
-          echo "  - Creates .sig files for installers"
-          echo "  - Generates signatures.json"
-          echo "✅ Simulation: OTA signing skipped"
+      # Note: OTA signing is now done in the build step above with real signatures
 
       # ------------------------------------------------------------------------
       # Code Signing Simulation
@@ -397,6 +353,10 @@ jobs:
 
       # Note: Frontend is always built in real workflow (no change detection)
       # Simulation doesn't need frontend build steps
+      - name: Checkout code for signing
+        if: steps.arch_check.outputs.should_build == 'true'
+        uses: actions/checkout@v4
+      
       - name: Simulate macOS build
         if: steps.arch_check.outputs.should_build == 'true'
         run: |
@@ -412,37 +372,39 @@ jobs:
           echo "fake macos installer" > "dist/eCan-${VERSION}-macos-${ARCH}.pkg"
           cp "dist/eCan-${VERSION}-macos-${ARCH}.pkg" artifacts/
           
-          # Create fake signature file
-          echo "fake_ed25519_signature_for_simulation" > "dist/eCan-${VERSION}-macos-${ARCH}.pkg.sig"
-          cp "dist/eCan-${VERSION}-macos-${ARCH}.pkg.sig" artifacts/
+          echo "✅ macOS ${{ matrix.arch }} build simulated"
+      
+      - name: Generate real Ed25519 signature
+        if: steps.arch_check.outputs.should_build == 'true'
+        run: |
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          ARCH="${{ matrix.arch }}"
+          INSTALLER="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
           
-          echo "✅ macOS ${{ matrix.arch }} build simulated (with signature)"
+          # Install OpenSSL if needed
+          if ! command -v openssl &> /dev/null; then
+            echo "Installing OpenSSL..."
+            sudo apt-get update && sudo apt-get install -y openssl
+          fi
+          
+          # Generate real Ed25519 signature
+          if [ -f "build_system/certificates/ed25519_private_key.pem" ]; then
+            echo "Generating real Ed25519 signature..."
+            openssl pkeyutl -sign -inkey build_system/certificates/ed25519_private_key.pem \
+              -rawin -in "$INSTALLER" -out "${INSTALLER}.sig"
+            cp "${INSTALLER}.sig" artifacts/
+            echo "✅ Real signature generated for macOS ${{ matrix.arch }}"
+          else
+            echo "⚠️  Private key not found, creating placeholder signature"
+            echo "simulation_signature" > "${INSTALLER}.sig"
+            cp "${INSTALLER}.sig" artifacts/
+          fi
       
       # ------------------------------------------------------------------------
       # OTA Signing Simulation
       # In real workflow, OTA signing is REQUIRED for test/staging/production
       # ------------------------------------------------------------------------
-      - name: Simulate OTA signing check (test/staging/production requirement)
-        if: |
-          steps.arch_check.outputs.should_build == 'true' &&
-          (needs.validate-tag.outputs.environment == 'test' ||
-           needs.validate-tag.outputs.environment == 'staging' ||
-           needs.validate-tag.outputs.environment == 'production')
-        run: |
-          echo "=== Simulating OTA Signing Requirement Check ==="
-          echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
-          echo "In real workflow: Ed25519 private key REQUIRED"
-          echo "  - build_system/certificates/ed25519_private_key.pem"
-          echo "✅ Simulation: Skipping actual OTA signing check"
-      
-      - name: Simulate OTA signing execution
-        if: steps.arch_check.outputs.should_build == 'true'
-        run: |
-          echo "=== Simulating OTA Signing ==="
-          echo "In real workflow: Ed25519 signature generation"
-          echo "  - Creates .sig files for installers"
-          echo "  - Generates signatures.json"
-          echo "✅ Simulation: OTA signing skipped"
+      # Note: OTA signing is now done in the build step above with real signatures
 
       # ------------------------------------------------------------------------
       # Code Signing and Notarization Simulation
