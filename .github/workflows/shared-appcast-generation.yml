@@ -26,11 +26,11 @@ on:
   workflow_call:
     inputs:
       environment:
-        description: 'Target environment (dev/test/staging/production)'
+        description: 'Target environment (dev/test/staging/production/simulation)'
         required: true
         type: string
       channel:
-        description: 'Release channel (dev/beta/stable/lts)'
+        description: 'Release channel (dev/beta/stable/lts/simulation)'
         required: false
         type: string
         default: ''

@@ -691,9 +691,9 @@ Examples:
         """
     )
     
-    parser.add_argument('--env', required=True, choices=['dev', 'test', 'staging', 'production'],
+    parser.add_argument('--env', required=True, choices=['dev', 'test', 'staging', 'production', 'simulation'],
                        help='Target environment')
-    parser.add_argument('--channel', choices=['dev', 'beta', 'stable', 'lts'],
+    parser.add_argument('--channel', choices=['dev', 'beta', 'stable', 'lts', 'simulation'],
                        help='Release channel (overrides environment default)')
     parser.add_argument('--platform', choices=['all', 'macos', 'windows'],
                        default='all', help='Target platform (default: all)')

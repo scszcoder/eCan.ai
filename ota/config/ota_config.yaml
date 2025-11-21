@@ -146,6 +146,38 @@ environments:
     dev_mode: false
   
   # ------------------------------------------
+  # Simulation Environment (for testing release workflow)
+  # ------------------------------------------
+  simulation:
+    # S3 path prefix (isolated from all other environments)
+    s3_prefix: "simulation"
+    
+    # Release channel (isolated simulation channel)
+    channel: "simulation"
+    
+    # OTA server address (simulation only)
+    ota_server: "https://simulation.ecan.ai"
+    
+    # Appcast base URL (isolated S3 path)
+    appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/simulation"
+    
+    # Signature verification (same as production for testing)
+    signature_required: true
+    signature_verification: true
+    
+    # Automatic updates (disabled for simulation)
+    auto_check: false
+    check_interval: 86400  # 24 hours (seconds)
+    auto_check_initial_delay: 300  # 5 minutes
+    silent_mode: false
+    
+    # Security settings (allow HTTP for local testing)
+    allow_http: true
+    
+    # Development mode
+    dev_mode: true
+  
+  # ------------------------------------------
   # Production Environment
   # ------------------------------------------
   production:
