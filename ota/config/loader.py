@@ -249,6 +249,31 @@ class OTAConfig:
         """Check if signature verification is enabled"""
         return self.get('signature_verification', self.get('signature_required', False))
     
+    def get_public_key_path(self) -> Optional[str]:
+        """
+        Get public key path for signature verification
+        
+        Returns:
+            Path to public key file, or None if not configured
+        """
+        # Try to find public key in ota/certificates directory
+        current_file = Path(__file__).parent.parent  # Go up to ota directory
+        public_key_path = current_file / "certificates" / "ed25519_public_key.pem"
+        
+        if public_key_path.exists():
+            return str(public_key_path)
+        
+        # Try project root
+        current = Path.cwd()
+        for _ in range(5):  # Search up to 5 levels
+            public_key_path = current / "ota" / "certificates" / "ed25519_public_key.pem"
+            if public_key_path.exists():
+                return str(public_key_path)
+            current = current.parent
+        
+        logger.warning("[OTA Config] Public key not found, signature verification may fail")
+        return None
+    
     def is_auto_check_enabled(self) -> bool:
         """Check if auto check is enabled"""
         return self.get('auto_check', True)
