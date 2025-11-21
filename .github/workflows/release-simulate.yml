@@ -512,6 +512,7 @@ jobs:
     with:
       environment: ${{ needs.validate-tag.outputs.environment }}
       channel: ${{ needs.validate-tag.outputs.channel }}
+      version: ${{ needs.validate-tag.outputs.version }}
     secrets: inherit
 
   # ----------------------------------------------------------------------------

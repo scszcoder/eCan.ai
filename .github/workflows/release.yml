@@ -324,6 +324,27 @@ jobs:
           echo "Auto-detected channel: $CHANNEL"
         fi
         
+        # Safety check: Prevent branch builds in production/staging
+        IS_BRANCH="${{ steps.validate.outputs.is_branch }}"
+        if [[ "$IS_BRANCH" == "true" ]] && [[ "$ENV" == "production" || "$ENV" == "staging" ]]; then
+          echo "======================================================"
+          echo "❌ ERROR: Branch builds cannot be deployed to $ENV"
+          echo "======================================================"
+          echo "Current ref: $REF_NAME (branch)"
+          echo "Target environment: $ENV"
+          echo ""
+          echo "Production and staging environments require version tags."
+          echo ""
+          echo "To fix:"
+          echo "  1. Create a version tag: git tag v1.0.1"
+          echo "  2. Push the tag: git push origin v1.0.1"
+          echo "  3. Use the tag as ref: v1.0.1"
+          echo ""
+          echo "Or change environment to 'development' or 'test' for branch builds."
+          echo "======================================================"
+          exit 1
+        fi
+        
         echo "environment=$ENV" >> $GITHUB_OUTPUT
         echo "channel=$CHANNEL" >> $GITHUB_OUTPUT
         echo "Final environment: $ENV"
@@ -1518,6 +1539,7 @@ jobs:
     with:
       environment: ${{ needs.validate-tag.outputs.environment }}
       channel: ${{ needs.validate-tag.outputs.channel }}
+      version: ${{ needs.validate-tag.outputs.version }}
       platform: ${{ github.event.inputs.platform || 'all' }}
       arch: ${{ github.event.inputs.arch || 'all' }}
     secrets: inherit
