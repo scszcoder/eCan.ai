@@ -240,6 +240,13 @@ class S3Uploader:
             if self.upload_file(pkg, s3_key):
                 count += 1
                 
+                # Upload Ed25519 signature (.sig) if exists
+                sig_file = pkg.with_suffix(pkg.suffix + '.sig')
+                if sig_file.exists():
+                    sig_key = f"{s3_key}.sig"
+                    if self.upload_file(sig_file, sig_key, 'text/plain'):
+                        print(f"  [OK] Uploaded signature: {sig_file.name}")
+                
                 # Upload SHA256 checksum
                 sha256 = self.calculate_sha256(pkg)
                 sha256_key = f"{s3_key}.sha256"
