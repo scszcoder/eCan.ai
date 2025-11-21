@@ -155,8 +155,8 @@ environments:
     # Release channel (isolated simulation channel)
     channel: "simulation"
     
-    # OTA server address (simulation only)
-    ota_server: "https://simulation.ecan.ai"
+    # OTA server address (not used - simulation uses appcast only)
+    ota_server: "https://ecan-releases.s3.us-east-1.amazonaws.com/simulation"
     
     # Appcast base URL (isolated S3 path)
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/simulation"
@@ -171,11 +171,14 @@ environments:
     auto_check_initial_delay: 300  # 5 minutes
     silent_mode: false
     
-    # Security settings (allow HTTP for local testing)
-    allow_http: true
+    # Security settings
+    allow_http: false
     
-    # Development mode
-    dev_mode: true
+    # Development mode (false to use platform-specific updater)
+    dev_mode: false
+    
+    # Force use of platform-specific updater (not generic)
+    force_generic_updater_in_dev: false
   
   # ------------------------------------------
   # Production Environment
