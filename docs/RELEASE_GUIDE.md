@@ -143,13 +143,56 @@ git push origin main
 
 1. 访问：`Actions → Release Build eCan → Run workflow`
 2. 配置参数：
-   - **Use workflow from**: 选择分支（如 `gui-v2`）
+   - **Use workflow from**: 选择工作流来源分支
    - **platform**: `all` / `windows` / `macos`
    - **arch**: `all` / `amd64` / `aarch64`
-   - **ref**: 输入分支名或标签（如 `gui-v2`, `v1.0.0`）
+   - **ref**: 输入构建目标分支名或标签（**留空则自动使用 workflow branch**）
    - **environment**: 选择环境（可选，会自动检测）
    - **channel**: 选择渠道（可选，会自动检测）
 3. 点击 **Run workflow**
+
+💡 **提示**：`ref` 参数支持自动同步！
+- ✅ **留空**：自动使用 "Use workflow from" 选择的分支
+- ✅ **填写**：使用指定的分支/标签（可以与 workflow branch 不同）
+
+#### **参数说明**
+
+**Use workflow from vs ref 的区别：**
+
+| 参数 | 作用 | 示例 |
+|------|------|------|
+| **Use workflow from** | 使用哪个分支的工作流文件 | `main` = 使用 main 分支的 `.github/workflows/release.yml` |
+| **ref** | 构建哪个分支/标签的代码 | `gui-v2` = 构建 gui-v2 分支的代码 |
+
+**常见配置：**
+
+```yaml
+# 最简单：自动同步（推荐）
+Use workflow from: main
+ref: (留空)                              # ✅ 自动使用 main
+
+# 功能分支测试：自动同步（推荐）
+Use workflow from: gui-v2
+ref: (留空)                              # ✅ 自动使用 gui-v2
+
+# 正常发布：指定标签
+Use workflow from: main
+ref: v1.0.0                              # ✅ 明确指定标签
+
+# 测试新工作流（特殊情况：两者不同）
+Use workflow from: feature/workflow-fix  # 使用新工作流
+ref: main                                # 但构建 main 的代码
+
+# 重建旧版本（特殊情况：两者不同）
+Use workflow from: main                  # 使用最新工作流
+ref: v0.9.0                             # 但构建旧版本代码
+```
+
+**建议**：
+- ✅ **最简单**：`ref` 留空，自动同步 workflow branch
+- ✅ **生产发布**：明确指定标签（如 `v1.0.0`）
+- ✅ **分支测试**：`ref` 留空，自动使用功能分支
+- ⚠️ **特殊情况**：只在测试工作流修改或重建旧版本时才手动指定不同的 ref
 
 ---
 
