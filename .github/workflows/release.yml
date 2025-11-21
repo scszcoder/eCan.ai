@@ -74,10 +74,23 @@ name: Release Build eCan
 #
 # Method 3: Manual Trigger (for testing or branch builds)
 #   1. Go to: Actions → Release Build eCan → Run workflow
-#   2. Select branch: main, gui-v2, etc.
-#   3. Enter ref: branch name or tag (e.g., v1.0.0, gui-v2)
+#   2. Use workflow from: Select branch
+#   3. Enter ref: branch/tag (leave EMPTY to auto-sync with workflow branch)
 #   4. Select platform and architecture
 #   5. Click "Run workflow"
+#
+#   IMPORTANT: "Use workflow from" vs "ref"
+#   - Use workflow from: Which branch's workflow file to use
+#   - ref: Which branch/tag's code to build (EMPTY = auto-sync)
+#   
+#   AUTO-SYNC FEATURE:
+#   - If ref is empty, it automatically uses the workflow branch
+#   - Example: Use workflow from=main, ref=(empty) → builds main
+#   - Example: Use workflow from=gui-v2, ref=(empty) → builds gui-v2
+#   
+#   MANUAL OVERRIDE:
+#   - Example: Use workflow from=main, ref=v1.0.0 → builds v1.0.0 tag
+#   - Example: Use workflow from=feature/fix, ref=main → test new workflow
 #
 # EXAMPLES:
 #   Production:  git tag v1.0.0 && git push origin v1.0.0
@@ -125,9 +138,9 @@ on:
           - amd64
           - aarch64
       ref:
-        description: 'Git ref to build (branch name or tag, e.g., master, gui-v2, v0.0.4)'
-        required: true
-        default: 'master'
+        description: 'Git ref to build (leave empty to use same as workflow branch)'
+        required: false
+        default: ''
         type: string
       
       environment:
@@ -184,7 +197,7 @@ jobs:
         ref: ${{ github.event.inputs.ref || github.ref }}
         fetch-depth: 0  # Fetch all history for tags and branches
 
-    - name: Validate ref and compute version
+    - name: Validate and extract version
       id: validate
       shell: bash
       run: |
@@ -193,10 +206,13 @@ jobs:
         REF_FULL="${GITHUB_REF}"
 
         # Determine the actual ref to use
+        # If ref is empty, use the workflow branch (auto-sync)
         if [ -n "$INPUT_REF" ]; then
           REF_NAME="$INPUT_REF"
+          echo "✅ Using manual ref: $REF_NAME"
         else
           REF_NAME="${REF_FULL#refs/*/}"
+          echo "✅ Auto-sync: Using workflow branch as ref: $REF_NAME"
         fi
 
         echo "ref_name=$REF_NAME" >> $GITHUB_OUTPUT
