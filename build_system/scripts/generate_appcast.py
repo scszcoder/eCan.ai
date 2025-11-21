@@ -276,8 +276,10 @@ class AppcastGenerator:
                 if version == 'latest':
                     continue
                 
-                # Note: We include simulation builds (-sim suffix) in all environments
-                # This allows testing the full release workflow with simulated builds
+                # Filter simulation builds in non-simulation environments
+                if self.environment != 'simulation' and '-sim' in version:
+                    print(f"  [SKIP] Simulation build {version} (not allowed in {self.environment} environment)")
+                    continue
                 
                 versions.append(version)
             
@@ -405,9 +407,13 @@ class AppcastGenerator:
         for version in versions[:max_versions]:
             pkg_info = self.get_package_info(version, platform, arch)
             if pkg_info:
-                # Warn about fake signatures but don't skip (for simulation testing)
+                # Filter fake signatures in non-simulation environments
                 if pkg_info.get('signature') == 'fake_ed25519_signature_for_simulation':
-                    print(f"  [OK] Added {version} (⚠️  simulation build with fake signature)")
+                    if self.environment != 'simulation':
+                        print(f"  [SKIP] {version} (fake signature not allowed in {self.environment} environment)")
+                        continue
+                    else:
+                        print(f"  [OK] Added {version} (⚠️  simulation build with fake signature)")
                 else:
                     print(f"  [OK] Added {version}")
                 
