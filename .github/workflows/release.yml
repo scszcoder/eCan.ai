@@ -1443,6 +1443,8 @@ jobs:
     with:
       environment: ${{ needs.validate-tag.outputs.environment }}
       channel: ${{ needs.validate-tag.outputs.channel }}
+      platform: ${{ github.event.inputs.platform || 'all' }}
+      arch: ${{ github.event.inputs.arch || 'all' }}
     secrets: inherit
 
   # ----------------------------------------------------------------------------
