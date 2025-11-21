@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import time
 import sys
+import threading
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 from urllib.parse import urlparse
@@ -64,20 +65,30 @@ class PackageManager:
         # Clean up old downloaded packages on startup
         self._cleanup_old_packages()
     
-    def download_package(self, package: UpdatePackage, progress_callback=None, max_retries=3) -> bool:
-        """Download update package with automatic fallback to alternate URL"""
-        # Try primary URL first, then alternate URL if available
-        urls_to_try = [package.download_url]
-        if package.alternate_url:
-            urls_to_try.append(package.alternate_url)
+    def download_package(self, package: UpdatePackage, progress_callback=None, cancel_check=None, max_retries=3) -> bool:
+        """Download update package with automatic fallback to alternate URL
         
-        for url_index, download_url in enumerate(urls_to_try):
-            url_type = "primary" if url_index == 0 else "alternate (accelerated)"
-            logger.info(f"Trying {url_type} URL: {download_url}")
+        Args:
+            package: Update package to download
+            progress_callback: Optional callback for progress updates
+            cancel_check: Optional callable that returns True if download should be cancelled
+            max_retries: Maximum number of retry attempts
+        """
+        # Try primary URL first, then alternate URL if available
+        urls_to_try = []
+        urls_to_try.append((package.download_url, "primary"))
+        if package.alternate_url:
+            urls_to_try.append((package.alternate_url, "alternate (accelerated)"))
+            logger.info(f"Alternate URL available for fallback: {package.alternate_url}")
+        
+        logger.info(f"[DOWNLOAD] Starting download with {len(urls_to_try)} URL(s) to try")
+        
+        for url_index, (download_url, url_type) in enumerate(urls_to_try):
+            logger.info(f"[DOWNLOAD] Trying {url_type} URL: {download_url}")
             
             for attempt in range(max_retries):
                 try:
-                    logger.info(f"Downloading update package: {package.version} from {url_type} URL (attempt {attempt + 1}/{max_retries})")
+                    logger.info(f"[DOWNLOAD] Downloading update package: {package.version} from {url_type} URL (attempt {attempt + 1}/{max_retries})")
                     
                     # Create download path
                     filename = self._get_filename_from_url(package.download_url)
@@ -112,22 +123,163 @@ class PackageManager:
                                     file_deleted = True  # Not deleted, but we have a new path
                                     break
                     
-                    # Start download
-                    response = requests.get(download_url, stream=True, timeout=30)
-                    response.raise_for_status()
+                    # Start download with aggressive timeout settings
+                    logger.info(f"Initiating HTTP request to download URL...")
+                    import socket
+                    
+                    # Use shorter timeouts to detect slow connections quickly
+                    connect_timeout = 30  # 30s to establish connection
+                    read_timeout = 15     # 15s between data chunks (aggressive!)
+                    
+                    try:
+                        # Use simple requests.get with timeout tuple
+                        response = requests.get(
+                            download_url, 
+                            stream=True, 
+                            timeout=(connect_timeout, read_timeout)
+                        )
+                        response.raise_for_status()
+                        logger.info(f"HTTP connection established (connect_timeout={connect_timeout}s, read_timeout={read_timeout}s)")
+                    except requests.exceptions.Timeout as e:
+                        logger.warning(f"Connection/read timeout after {connect_timeout}s/{read_timeout}s: {e}")
+                        logger.warning(f"Switching to alternate URL if available...")
+                        raise
+                    except requests.exceptions.RequestException as e:
+                        logger.error(f"Request failed: {e}")
+                        raise
                     
                     total_size = int(response.headers.get('content-length', 0))
                     downloaded_size = 0
+                    logger.info(f"Download started: total size = {total_size / (1024*1024):.2f} MB")
+                    
+                    # Track download progress for logging
+                    last_log_progress = -1
+                    download_start_time = time.time()
+                    chunk_count = 0
+                    slow_download_timeout = read_timeout  # Use same timeout for slow download detection
+                    # Thread-safe progress tracking
+                    progress_lock = threading.Lock()
+                    last_progress_size = 0
+                    download_stalled = threading.Event()
+                    
+                    def monitor_progress():
+                        """Background thread to monitor download progress"""
+                        nonlocal last_progress_size
+                        monitor_start = time.time()
+                        logger.info(f"[MONITOR] Progress monitor started, will check every {read_timeout}s")
+                        
+                        # Minimum acceptable speed: 100 KB/s (about 1.5 MB per 15s)
+                        min_bytes_per_interval = 100 * 1024 * read_timeout  # 100 KB/s
+                        
+                        while not download_stalled.is_set():
+                            time.sleep(read_timeout)
+                            
+                            with progress_lock:
+                                current_size = downloaded_size
+                            
+                            elapsed = time.time() - monitor_start
+                            bytes_downloaded_this_interval = current_size - last_progress_size
+                            
+                            if current_size == last_progress_size:
+                                # No progress in the last interval
+                                logger.warning(f"[MONITOR] No progress detected after {read_timeout}s!")
+                                logger.warning(f"[MONITOR] Downloaded: {current_size} bytes in {elapsed:.1f}s")
+                                logger.warning(f"[MONITOR] Triggering download abort to switch URL...")
+                                download_stalled.set()
+                                # Close the response to trigger exception in iter_content
+                                try:
+                                    response.close()
+                                except:
+                                    pass
+                                break
+                            elif bytes_downloaded_this_interval < min_bytes_per_interval:
+                                # Progress too slow
+                                speed_kbps = bytes_downloaded_this_interval / (1024 * read_timeout)
+                                logger.warning(f"[MONITOR] Download too slow: {speed_kbps:.1f} KB/s (minimum: 100 KB/s)")
+                                logger.warning(f"[MONITOR] Downloaded {bytes_downloaded_this_interval} bytes in {read_timeout}s")
+                                logger.warning(f"[MONITOR] Triggering download abort to switch to faster URL...")
+                                download_stalled.set()
+                                try:
+                                    response.close()
+                                except:
+                                    pass
+                                break
+                            else:
+                                speed_kbps = bytes_downloaded_this_interval / (1024 * read_timeout)
+                                logger.info(f"[MONITOR] Progress OK: {current_size} bytes ({current_size/(1024*1024):.2f} MB, speed: {speed_kbps:.1f} KB/s)")
+                                last_progress_size = current_size
+                    
+                    # Start progress monitor thread
+                    monitor_thread = threading.Thread(target=monitor_progress, daemon=True)
+                    monitor_thread.start()
                     
                     with open(download_path, 'wb') as f:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            if chunk:
-                                f.write(chunk)
-                                downloaded_size += len(chunk)
+                        try:
+                            logger.info(f"[DOWNLOAD] Starting iter_content loop with background monitor...")
+                            for chunk in response.iter_content(chunk_size=8192):
+                                # Check if monitor detected stall
+                                if download_stalled.is_set():
+                                    logger.warning(f"[DOWNLOAD] Monitor detected stall, aborting download")
+                                    raise requests.exceptions.Timeout("Download stalled: no progress detected by monitor")
                                 
-                                if progress_callback and total_size > 0:
-                                    progress = int((downloaded_size / total_size) * 100)
-                                    progress_callback(progress)
+                                chunk_count += 1
+                                current_time = time.time()
+                                
+                                # Check for cancellation
+                                if cancel_check and cancel_check():
+                                    logger.info("Download cancelled by user")
+                                    # Stop monitor thread
+                                    download_stalled.set()
+                                    logger.info(f"[MONITOR] Stopped due to user cancellation")
+                                    f.close()
+                                    try:
+                                        download_path.unlink()
+                                        logger.info(f"Cleaned up partial download: {download_path}")
+                                    except Exception as e:
+                                        logger.warning(f"Failed to clean up partial download: {e}")
+                                    return False
+                                
+                                # Check for slow download (0% progress after timeout)
+                                if downloaded_size == 0:
+                                    elapsed = current_time - download_start_time
+                                    if elapsed > slow_download_timeout:
+                                        logger.warning(f"Download too slow: 0% progress after {slow_download_timeout}s (received {chunk_count} chunks)")
+                                        logger.warning(f"Switching to alternate URL if available...")
+                                        f.close()
+                                        try:
+                                            download_path.unlink()
+                                            logger.info(f"Cleaned up slow download: {download_path}")
+                                        except Exception as e:
+                                            logger.warning(f"Failed to clean up: {e}")
+                                        raise requests.exceptions.Timeout(f"Download stalled: 0% progress after {slow_download_timeout}s")
+                                
+                                if chunk:
+                                    f.write(chunk)
+                                    downloaded_size += len(chunk)
+                                    last_chunk_time = current_time
+                                    if progress_callback and total_size > 0:
+                                        progress = int((downloaded_size / total_size) * 100)
+                                        progress_callback(progress)
+                                        
+                                        # Log every 10% progress
+                                        if progress >= last_log_progress + 10:
+                                            logger.info(f"Download progress: {progress}% ({downloaded_size / (1024*1024):.2f} MB / {total_size / (1024*1024):.2f} MB)")
+                                            last_log_progress = progress
+                        except socket.timeout:
+                            logger.warning(f"Socket timeout after {slow_download_timeout}s - no data received")
+                            logger.warning(f"Downloaded {downloaded_size} bytes ({chunk_count} chunks) before timeout")
+                            logger.warning(f"Switching to alternate URL if available...")
+                            f.close()
+                            try:
+                                download_path.unlink()
+                                logger.info(f"Cleaned up timed-out download: {download_path}")
+                            except Exception as e:
+                                logger.warning(f"Failed to clean up: {e}")
+                            raise requests.exceptions.Timeout(f"Socket timeout: no data for {slow_download_timeout}s")
+                        finally:
+                            # Stop the monitor thread
+                            download_stalled.set()
+                            logger.info(f"[MONITOR] Stopping progress monitor")
                     
                     package.download_path = download_path
                     package.is_downloaded = True
