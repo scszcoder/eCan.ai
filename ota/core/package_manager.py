@@ -83,9 +83,34 @@ class PackageManager:
                     filename = self._get_filename_from_url(package.download_url)
                     download_path = self.download_dir / filename
                     
-                    # If file already exists, delete it
+                    # If file already exists, try to delete it (with retry for locked files)
                     if download_path.exists():
-                        download_path.unlink()
+                        max_delete_attempts = 3  # Reduced to 3 attempts
+                        file_deleted = False
+                        
+                        for delete_attempt in range(max_delete_attempts):
+                            try:
+                                download_path.unlink()
+                                logger.info(f"Deleted existing file: {download_path}")
+                                file_deleted = True
+                                break
+                            except PermissionError as e:
+                                if delete_attempt < max_delete_attempts - 1:
+                                    wait_time = 1  # Fixed 1 second wait
+                                    logger.warning(f"File is locked, waiting {wait_time}s before retry ({delete_attempt + 1}/{max_delete_attempts}): {e}")
+                                    time.sleep(wait_time)
+                                else:
+                                    # If still locked after retries, use a different filename
+                                    logger.warning(f"File is locked after {max_delete_attempts} attempts, using alternative filename")
+                                    import uuid
+                                    base_name = download_path.stem
+                                    extension = download_path.suffix
+                                    unique_id = str(uuid.uuid4())[:8]
+                                    new_filename = f"{base_name}_{unique_id}{extension}"
+                                    download_path = self.download_dir / new_filename
+                                    logger.info(f"Using alternative download path: {download_path}")
+                                    file_deleted = True  # Not deleted, but we have a new path
+                                    break
                     
                     # Start download
                     response = requests.get(download_url, stream=True, timeout=30)

@@ -89,6 +89,10 @@ class DownloadWorker(QThread):
         self.start_time = None
         self.last_update_time = None
         self.last_downloaded = 0
+        self.speed_samples = []  # Store recent speed samples for moving average
+        self.max_speed_samples = 5  # Keep last 5 samples
+        self.last_speed = ""  # Cache last calculated speed
+        self.last_remaining = ""  # Cache last calculated remaining time
         
     def run(self):
         """Execute download"""
@@ -147,30 +151,56 @@ class DownloadWorker(QThread):
         # For progress >= 95% or 100%, always update immediately to ensure completion visibility
         force_update = progress >= 95
         
+        # Initialize on first call
+        if not self.start_time:
+            self.start_time = current_time
+            self.last_update_time = current_time
+            self.progress_updated.emit(progress, _tr.tr("calculating"), _tr.tr("calculating"))
+            return
+        
         # Calculate download speed
         if self.last_update_time and current_time > self.last_update_time:
             time_diff = current_time - self.last_update_time
             # Update every 0.5 seconds, or immediately if near completion
             if time_diff >= 0.5 or force_update:
-                # Estimate current downloaded bytes (simplified calculation)
+                # Estimate current downloaded bytes
                 total_size = self.update_info.get('file_size', 0)
+                if total_size <= 0:
+                    # If file size unknown, just show progress without speed/time
+                    self.progress_updated.emit(progress, "-", "-")
+                    return
+                
                 current_downloaded = int((progress / 100) * total_size)
                 
-                if self.last_downloaded > 0:
+                if self.last_downloaded > 0 and current_downloaded > self.last_downloaded:
+                    # Calculate instantaneous speed
                     bytes_diff = current_downloaded - self.last_downloaded
-                    speed_bps = bytes_diff / time_diff
-                    speed_text = self._format_speed(speed_bps)
+                    instant_speed = bytes_diff / time_diff
                     
-                    # Calculate remaining time
+                    # Add to speed samples for moving average
+                    self.speed_samples.append(instant_speed)
+                    if len(self.speed_samples) > self.max_speed_samples:
+                        self.speed_samples.pop(0)
+                    
+                    # Use moving average for smoother speed display
+                    avg_speed = sum(self.speed_samples) / len(self.speed_samples)
+                    speed_text = self._format_speed(avg_speed)
+                    
+                    # Calculate remaining time using average speed
                     remaining_bytes = total_size - current_downloaded
-                    if speed_bps > 0:
-                        remaining_seconds = remaining_bytes / speed_bps
+                    if avg_speed > 0:
+                        remaining_seconds = remaining_bytes / avg_speed
                         remaining_text = self._format_time(remaining_seconds)
                     else:
-                        remaining_text = _tr.tr("calculating")
+                        remaining_text = self.last_remaining or _tr.tr("calculating")
+                    
+                    # ✅ Cache the calculated values
+                    self.last_speed = speed_text
+                    self.last_remaining = remaining_text
                 else:
-                    speed_text = _tr.tr("calculating")
-                    remaining_text = _tr.tr("calculating")
+                    # ✅ Keep showing last calculated values instead of "Calculating..."
+                    speed_text = self.last_speed or _tr.tr("calculating")
+                    remaining_text = self.last_remaining or _tr.tr("calculating")
                 
                 self.progress_updated.emit(progress, speed_text, remaining_text)
                 self.last_update_time = current_time
@@ -534,8 +564,9 @@ class UpdateDialog(QDialog):
         self.remaining_label.setText(f"{_tr.tr('remaining_time')}: {remaining}")
         
         # Update global download manager (only if this is from download worker, not from global manager)
-        if not hasattr(self, '_updating_from_global'):
+        if not getattr(self, '_updating_from_global', False):
             download_manager.update_progress(progress, speed, remaining)
+            logger.debug(f"[UpdateDialog] Updated download_manager progress: {progress}%")
     
     def update_status(self, status):
         """Update status"""
@@ -689,15 +720,47 @@ class UpdateDialog(QDialog):
             )
     
     def cancel_download(self):
-        """Cancel download"""
+        """Cancel download - non-blocking"""
         if self.download_worker:
+            # Set cancel flag
             self.download_worker.cancel()
-            self.download_worker.wait()  # Wait for thread to finish
-            self.download_worker = None
+            
+            # ✅ Don't wait() - it blocks the main thread!
+            # Instead, connect to finished signal for cleanup
+            def cleanup_worker():
+                # ✅ Give worker time to close file handles
+                # Need more time for large files (600MB)
+                import time
+                time.sleep(2.0)  # Increased from 0.5 to 2.0 seconds
+                
+                if self.download_worker:
+                    self.download_worker.deleteLater()
+                    self.download_worker = None
+                logger.info("[UpdateDialog] Download worker cleaned up after cancellation")
+                
+                # ✅ Reset download manager to IDLE state after cleanup
+                # This allows starting a new download
+                download_manager.reset()
+                logger.info("[UpdateDialog] Download manager reset to IDLE")
+            
+            # ✅ Safely disconnect existing connections
+            try:
+                # Try to disconnect all slots from finished signal
+                self.download_worker.finished.disconnect()
+                logger.debug("[UpdateDialog] Disconnected finished signal")
+            except (RuntimeError, TypeError) as e:
+                # Signal already disconnected or has no connections, ignore
+                logger.debug(f"[UpdateDialog] Signal disconnect info (safe to ignore): {e}")
+            
+            # Connect cleanup to finished signal
+            self.download_worker.finished.connect(cleanup_worker)
+            
+            logger.info("[UpdateDialog] Download cancellation requested")
         
         # Update global download manager
         download_manager.cancel_download()
         
+        # ✅ Immediately update UI to show cancellation
         self.status_label.setText(_tr.tr("download_cancelled"))
         self.cancel_button.setVisible(False)
         
@@ -705,6 +768,8 @@ class UpdateDialog(QDialog):
         self.progress_bar.setVisible(False)
         self.speed_label.setVisible(False)
         self.remaining_label.setVisible(False)
+        
+        logger.info("[UpdateDialog] Download cancelled, UI updated")
     
     def install_update(self):
         """Install update - called automatically after download"""
@@ -931,6 +996,17 @@ class UpdateDialog(QDialog):
         
         self.update_info = download_manager.update_info
         
+        # Show update information if available
+        if self.update_info:
+            version = self.update_info.get('latest_version', 'Unknown')
+            description = self.update_info.get('description', _tr.tr('no_update_notes'))
+            
+            # Format and display update info
+            html_content = f"<p><b>{_tr.tr('latest_version')}: {version}</b></p>{description}"
+            self.info_text.setHtml(html_content)
+            self.info_group.setVisible(True)
+            logger.info(f"[UpdateDialog] Restored update info for version {version}")
+        
         # Check current state
         if download_manager.state == DownloadState.DOWNLOADING:
             # Still downloading
@@ -947,6 +1023,12 @@ class UpdateDialog(QDialog):
             # Reconnect to existing download worker if available
             if download_manager.download_worker:
                 self.download_worker = download_manager.download_worker
+                
+                # Reset worker's progress calculation state to ensure accurate speed/time
+                self.download_worker.last_update_time = None
+                self.download_worker.last_downloaded = 0
+                self.download_worker.speed_samples = []
+                
                 # Reconnect signals to this dialog
                 try:
                     self.download_worker.progress_updated.disconnect()
@@ -965,7 +1047,7 @@ class UpdateDialog(QDialog):
                 self.download_worker.progress_updated.connect(self.update_progress)
                 self.download_worker.download_completed.connect(self.download_finished)
                 self.download_worker.status_updated.connect(self.update_status)
-                logger.info("[UpdateDialog] Reconnected to existing download worker")
+                logger.info("[UpdateDialog] Reconnected to existing download worker and reset progress state")
             
         elif download_manager.state == DownloadState.COMPLETED:
             # Download completed
