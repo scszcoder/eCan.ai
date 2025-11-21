@@ -292,7 +292,7 @@ jobs:
         with:
           name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
           path: artifacts/
-          retention-days: 30
+          retention-days: 7
           compression-level: 6
 
   # ============================================================================
@@ -467,7 +467,7 @@ jobs:
         with:
           name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
           path: artifacts/
-          retention-days: 30
+          retention-days: 7
           compression-level: 6
 
   # ============================================================================
