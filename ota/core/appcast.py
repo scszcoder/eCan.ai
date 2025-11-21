@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 import xml.etree.ElementTree as ET
 
+from utils.logger_helper import logger_helper as logger
+
 
 @dataclass
 class AppcastItem:
@@ -67,6 +69,11 @@ def parse_appcast(xml_text: str) -> List[AppcastItem]:
         content_type = enclosure.get('type')
         ed_sig = enclosure.get(f"{{{ns['sparkle']}}}edSignature") or None
         alternate_url = enclosure.get(f"{{{ns['sparkle']}}}alternateUrl") or None
+        
+        # Debug: Log all enclosure attributes
+        logger.debug(f"[APPCAST] Enclosure attributes for version {version}:")
+        for key, value in enclosure.attrib.items():
+            logger.debug(f"[APPCAST]   {key} = {value}")
 
         # Description may be CDATA/HTML
         desc_el = item.find('description')
