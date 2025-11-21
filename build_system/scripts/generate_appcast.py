@@ -265,7 +265,6 @@ class AppcastGenerator:
             )
             
             versions = []
-            skipped_sim = []
             for common_prefix in response.get('CommonPrefixes', []):
                 version_path = common_prefix['Prefix']
                 # Extract version from path (e.g., 'dev/releases/v1.0.0/' → '1.0.0')
@@ -277,10 +276,8 @@ class AppcastGenerator:
                 if version == 'latest':
                     continue
                 
-                # Skip simulation builds (versions with -sim suffix)
-                if '-sim' in version:
-                    skipped_sim.append(version)
-                    continue
+                # Note: We include simulation builds (-sim suffix) in all environments
+                # This allows testing the full release workflow with simulated builds
                 
                 versions.append(version)
             
@@ -292,14 +289,6 @@ class AppcastGenerator:
                 print(f"    • {v}")
             if len(versions) > 5:
                 print(f"    ... and {len(versions) - 5} more")
-            
-            # Report skipped simulation builds
-            if skipped_sim:
-                print(f"  Skipped {len(skipped_sim)} simulation build(s):")
-                for v in skipped_sim[:3]:  # Show first 3
-                    print(f"    ⊗ {v} (simulation)")
-                if len(skipped_sim) > 3:
-                    print(f"    ... and {len(skipped_sim) - 3} more")
             
             return versions
             
@@ -416,13 +405,13 @@ class AppcastGenerator:
         for version in versions[:max_versions]:
             pkg_info = self.get_package_info(version, platform, arch)
             if pkg_info:
-                # Double-check: skip packages with fake signatures (simulation builds)
+                # Warn about fake signatures but don't skip (for simulation testing)
                 if pkg_info.get('signature') == 'fake_ed25519_signature_for_simulation':
-                    print(f"  [SKIP] {version} (fake signature detected)")
-                    continue
+                    print(f"  [OK] Added {version} (⚠️  simulation build with fake signature)")
+                else:
+                    print(f"  [OK] Added {version}")
                 
                 items.append(pkg_info)
-                print(f"  [OK] Added {version}")
         
         if not items:
             print(f"  [WARN] No packages found for {platform}-{arch}")
