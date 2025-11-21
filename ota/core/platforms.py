@@ -107,19 +107,34 @@ class MacOSUpdater:
                 fallback_accelerated = fallback_url.replace('.s3.', '.s3-accelerate.')
                 urls_to_try.append((fallback_accelerated, "English appcast (accelerated)"))
             
-            # Try each URL in sequence
+            # Try each URL in sequence with retry
             last_error = None
+            max_retries_per_url = 2  # Retry each URL once if it fails
             for url, description in urls_to_try:
-                try:
-                    logger.info(f"[OTA] Trying {description}: {url}")
-                    response = requests.get(url, timeout=10)
-                    response.raise_for_status()
-                    logger.info(f"[OTA] Successfully fetched {description}")
-                    break  # Success, exit loop
-                except Exception as e:
-                    logger.warning(f"[OTA] Failed to fetch {description}: {e}")
-                    last_error = e
-                    continue  # Try next URL
+                for retry in range(max_retries_per_url):
+                    try:
+                        retry_suffix = f" (retry {retry + 1}/{max_retries_per_url})" if retry > 0 else ""
+                        logger.info(f"[OTA] Trying {description}: {url}{retry_suffix}")
+                        # Use longer timeout for first attempt (60s for slow networks)
+                        # Shorter timeout for retry (30s to fail fast if real issue)
+                        timeout = 60 if retry == 0 else 30
+                        response = requests.get(url, timeout=timeout)
+                        response.raise_for_status()
+                        logger.info(f"[OTA] Successfully fetched {description}")
+                        break  # Success, exit retry loop
+                    except Exception as e:
+                        logger.warning(f"[OTA] Failed to fetch {description}{retry_suffix}: {e}")
+                        last_error = e
+                        if retry < max_retries_per_url - 1:
+                            import time
+                            time.sleep(1)  # Wait 1 second before retry
+                            continue
+                        # All retries for this URL failed, try next URL
+                        break
+                
+                # If we got a successful response, exit URL loop
+                if response is not None:
+                    break
             
             # If all attempts failed, raise the last error
             if response is None:
@@ -151,11 +166,20 @@ class MacOSUpdater:
                 logger.info(f"[OTA]    File size:        {selected.length or 0} bytes")
                 logger.info(f"[OTA]    Has signature:    {'Yes' if selected.ed_signature else 'No'}")
                 
+                # Auto-generate S3 accelerate URL if not provided
+                alternate_url = selected.alternate_url
+                logger.debug(f"[OTA] Checking alternate URL: alternate_url={alternate_url}, url contains '.s3.'={'.s3.' in selected.url}")
+                if not alternate_url and '.s3.' in selected.url and 'amazonaws.com' in selected.url:
+                    alternate_url = selected.url.replace('.s3.', '.s3-accelerate.')
+                    logger.info(f"[OTA]    Alternate URL (auto-generated): {alternate_url}")
+                elif alternate_url:
+                    logger.info(f"[OTA]    Alternate URL (configured): {alternate_url}")
+                
                 update_info = {
                     "update_available": True,
                     "latest_version": selected.version,
                     "download_url": selected.url,
-                    "alternate_url": selected.alternate_url,
+                    "alternate_url": alternate_url,
                     "file_size": selected.length or 0,
                     "signature": selected.ed_signature or "",
                     "description": selected.description_html or "",
@@ -334,19 +358,34 @@ class WindowsUpdater:
                 fallback_accelerated = fallback_url.replace('.s3.', '.s3-accelerate.')
                 urls_to_try.append((fallback_accelerated, "English appcast (accelerated)"))
             
-            # Try each URL in sequence
+            # Try each URL in sequence with retry
             last_error = None
+            max_retries_per_url = 2  # Retry each URL once if it fails
             for url, description in urls_to_try:
-                try:
-                    logger.info(f"[OTA] Trying {description}: {url}")
-                    response = requests.get(url, timeout=10)
-                    response.raise_for_status()
-                    logger.info(f"[OTA] Successfully fetched {description}")
-                    break  # Success, exit loop
-                except Exception as e:
-                    logger.warning(f"[OTA] Failed to fetch {description}: {e}")
-                    last_error = e
-                    continue  # Try next URL
+                for retry in range(max_retries_per_url):
+                    try:
+                        retry_suffix = f" (retry {retry + 1}/{max_retries_per_url})" if retry > 0 else ""
+                        logger.info(f"[OTA] Trying {description}: {url}{retry_suffix}")
+                        # Use longer timeout for first attempt (60s for slow networks)
+                        # Shorter timeout for retry (30s to fail fast if real issue)
+                        timeout = 60 if retry == 0 else 30
+                        response = requests.get(url, timeout=timeout)
+                        response.raise_for_status()
+                        logger.info(f"[OTA] Successfully fetched {description}")
+                        break  # Success, exit retry loop
+                    except Exception as e:
+                        logger.warning(f"[OTA] Failed to fetch {description}{retry_suffix}: {e}")
+                        last_error = e
+                        if retry < max_retries_per_url - 1:
+                            import time
+                            time.sleep(1)  # Wait 1 second before retry
+                            continue
+                        # All retries for this URL failed, try next URL
+                        break
+                
+                # If we got a successful response, exit URL loop
+                if response is not None:
+                    break
             
             # If all attempts failed, raise the last error
             if response is None:
@@ -378,11 +417,20 @@ class WindowsUpdater:
                 logger.info(f"[OTA]    File size:        {selected.length or 0} bytes")
                 logger.info(f"[OTA]    Has signature:    {'Yes' if selected.ed_signature else 'No'}")
                 
+                # Auto-generate S3 accelerate URL if not provided
+                alternate_url = selected.alternate_url
+                logger.debug(f"[OTA] Checking alternate URL: alternate_url={alternate_url}, url contains '.s3.'={'.s3.' in selected.url}")
+                if not alternate_url and '.s3.' in selected.url and 'amazonaws.com' in selected.url:
+                    alternate_url = selected.url.replace('.s3.', '.s3-accelerate.')
+                    logger.info(f"[OTA]    Alternate URL (auto-generated): {alternate_url}")
+                elif alternate_url:
+                    logger.info(f"[OTA]    Alternate URL (configured): {alternate_url}")
+                
                 update_info = {
                     "update_available": True,
                     "latest_version": selected.version,
                     "download_url": selected.url,
-                    "alternate_url": selected.alternate_url,
+                    "alternate_url": alternate_url,
                     "file_size": selected.length or 0,
                     "signature": selected.ed_signature or "",
                     "description": selected.description_html or "",

@@ -115,10 +115,11 @@ class DownloadWorker(QThread):
             
             self.status_updated.emit(_tr.tr("downloading"))
             
-            # Start download with progress callback
+            # Start download with progress callback and cancel check
             success = package_manager.download_package(
                 package, 
-                progress_callback=self._progress_callback
+                progress_callback=self._progress_callback,
+                cancel_check=lambda: self.is_cancelled
             )
             
             if success and not self.is_cancelled:
@@ -143,9 +144,8 @@ class DownloadWorker(QThread):
     
     def _progress_callback(self, progress):
         """Download progress callback"""
-        if self.is_cancelled:
-            return
-            
+        # Note: Cancellation is now checked in download_package loop
+        # This callback only handles progress updates
         current_time = time.time()
         
         # For progress >= 95% or 100%, always update immediately to ensure completion visibility
@@ -745,10 +745,13 @@ class UpdateDialog(QDialog):
             
             # ✅ Safely disconnect existing connections
             try:
-                # Try to disconnect all slots from finished signal
-                self.download_worker.finished.disconnect()
-                logger.debug("[UpdateDialog] Disconnected finished signal")
-            except (RuntimeError, TypeError) as e:
+                # Check if signal has any connections before disconnecting
+                if self.download_worker.finished.receivers() > 0:
+                    self.download_worker.finished.disconnect()
+                    logger.debug("[UpdateDialog] Disconnected finished signal")
+                else:
+                    logger.debug("[UpdateDialog] No connections to disconnect")
+            except (RuntimeError, TypeError, AttributeError) as e:
                 # Signal already disconnected or has no connections, ignore
                 logger.debug(f"[UpdateDialog] Signal disconnect info (safe to ignore): {e}")
             
