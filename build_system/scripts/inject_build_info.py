@@ -155,7 +155,7 @@ def main():
     parser.add_argument(
         '--environment',
         required=True,
-        choices=['development', 'test', 'staging', 'production'],
+        choices=['development', 'test', 'staging', 'production', 'simulation'],
         help='Target environment'
     )
     parser.add_argument(
