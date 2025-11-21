@@ -10,7 +10,7 @@ ota_enabled: true
 
 # ============================================
 # Current Environment
-# Valid values: development, test, staging, production
+# Valid values: simulation, development, test, staging, production
 # Note: This value should be set during build time, do not modify manually
 # ============================================
 environment: development

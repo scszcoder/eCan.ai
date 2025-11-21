@@ -31,6 +31,65 @@ name: Release Build eCan
 #   - GitHub Artifacts: OPTIONAL (default: disabled) - only for debugging
 #   - Cost Saving: GitHub Artifacts ~$0.008/GB/day, S3 is much cheaper
 #
+# AUTOMATIC CLEANUP (Cost Optimization):
+#   - S3 transfer artifacts: retention-days: 1 (auto-delete after 1 day)
+#   - User download artifacts: retention-days: 7 (only if enabled)
+#   - Compression: level 6 (balance between size and speed)
+#   - Estimated cost: ~$0.14/month (10 builds, S3 transfer only)
+#
+# See: docs/GITHUB_ARTIFACTS_COST_OPTIMIZATION.md for details
+#
+# ============================================================================
+# Tag and Release Format Guide
+# ============================================================================
+# 
+# VERSION TAG FORMAT:
+#   Production Release:  v1.0.0, v1.2.3, v2.0.0
+#   Release Candidate:   v1.0.0-rc.1, v1.0.0-rc.2
+#   Beta Release:        v1.0.0-beta.1, v1.0.0-beta.2
+#   Alpha Release:       v1.0.0-alpha.1
+#
+# ENVIRONMENT AUTO-DETECTION:
+#   v1.0.0           → production environment, stable channel
+#   v1.0.0-rc.1      → staging environment, stable channel
+#   v1.0.0-beta.1    → test environment, beta channel
+#   v1.0.0-alpha.1   → development environment, dev channel
+#   staging branch   → staging environment, stable channel
+#   main/master      → production environment, stable channel
+#   develop/dev      → development environment, dev channel
+#   other branches   → development environment, dev channel
+#
+# HOW TO CREATE A RELEASE:
+#
+# Method 1: Create Git Tag (Recommended for production)
+#   git tag -a v1.0.0 -m "Release version 1.0.0"
+#   git push origin v1.0.0
+#
+# Method 2: Create GitHub Release
+#   1. Go to: https://github.com/your-org/eCan.ai/releases/new
+#   2. Tag version: v1.0.0
+#   3. Release title: eCan.ai v1.0.0
+#   4. Description: Copy from CHANGELOG.md
+#   5. Click "Publish release"
+#
+# Method 3: Manual Trigger (for testing or branch builds)
+#   1. Go to: Actions → Release Build eCan → Run workflow
+#   2. Select branch: main, gui-v2, etc.
+#   3. Enter ref: branch name or tag (e.g., v1.0.0, gui-v2)
+#   4. Select platform and architecture
+#   5. Click "Run workflow"
+#
+# EXAMPLES:
+#   Production:  git tag v1.0.0 && git push origin v1.0.0
+#   RC:          git tag v1.0.0-rc.1 && git push origin v1.0.0-rc.1
+#   Beta:        git tag v1.0.0-beta.1 && git push origin v1.0.0-beta.1
+#   Branch:      Manual trigger with ref=gui-v2
+#
+# VERSION CALCULATION:
+#   - Tag (v1.0.0):           → 1.0.0
+#   - Branch (gui-v2):        → 1.0.1-gui-v2-abc1234 (from VERSION file + branch + commit)
+#   - Branch (main):          → 1.0.1-main-abc1234
+#
 # ============================================================================
 # Trigger Examples
 # ============================================================================
@@ -830,7 +889,7 @@ jobs:
       with:
         name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
         path: artifacts/
-        retention-days: 30
+        retention-days: 7
         compression-level: 6
 
   # ============================================================================
@@ -1392,7 +1451,7 @@ jobs:
       with:
         name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
         path: artifacts/
-        retention-days: 30
+        retention-days: 7
         compression-level: 6
         if-no-files-found: error
 
