@@ -167,17 +167,22 @@ def markdown_to_html(markdown_text: str) -> str:
 
 
 class AppcastGenerator:
-    """Generate Sparkle-compatible appcast XML from S3 artifacts for self-contained OTA system"""
+    """
+    Generate Appcast XML files from S3 artifacts
+    """
     
-    def __init__(self, environment: str, channel: Optional[str] = None):
+    def __init__(self, environment: str, channel: str = None, specific_version: str = None):
         """
-        Initialize appcast generator
+        Initialize the appcast generator
         
         Args:
-            environment: Target environment (dev/test/staging/production)
+            environment: Target environment (dev, test, staging, production, simulation)
             channel: Release channel (overrides environment default)
+            specific_version: Specific version to generate appcast for (e.g., '1.0.1')
+                            If None, scans all versions on S3
         """
         self.environment = environment
+        self.specific_version = specific_version
         
         # Load configuration directly from YAML file
         config = self._load_config()
@@ -227,29 +232,58 @@ class AppcastGenerator:
             print(f"[ERROR] Error loading configuration: {e}")
             sys.exit(1)
     
-    def parse_version(self, version_str: str) -> Tuple[int, int, int]:
+    def parse_version(self, version_str: str) -> Tuple[int, int, int, int]:
         """
         Parse version string to tuple for comparison
         
         Args:
-            version_str: Version string (e.g., '1.0.0', '1.0.0-rc.1')
+            version_str: Version string (e.g., '1.0.0', '1.0.0-rc.1', '1.0.0-gui-v2-abc')
             
         Returns:
-            Version tuple (major, minor, patch)
+            Version tuple (major, minor, patch, priority)
+            Priority: 1000 = standard, 900 = rc, 800 = beta, 0 = branch builds
         """
-        # Extract numeric parts only
+        # Extract numeric parts
         match = re.match(r'(\d+)\.(\d+)\.(\d+)', version_str)
-        if match:
-            return tuple(map(int, match.groups()))
-        return (0, 0, 0)
+        if not match:
+            return (0, 0, 0, 0)
+        
+        major, minor, patch = map(int, match.groups())
+        
+        # Determine priority based on suffix
+        remainder = version_str[match.end():]
+        
+        if not remainder:
+            # Standard version (e.g., '1.0.0')
+            priority = 1000
+        elif remainder.startswith('-rc.'):
+            # Release candidate (e.g., '1.0.0-rc.1')
+            priority = 900
+        elif remainder.startswith('-beta.'):
+            # Beta version (e.g., '1.0.0-beta.1')
+            priority = 800
+        else:
+            # Branch builds or other suffixes (e.g., '1.0.0-gui-v2-abc')
+            priority = 0
+        
+        return (major, minor, patch, priority)
     
     def list_versions(self) -> List[str]:
         """
-        List all versions in the environment
+        List versions to include in appcast
         
         Returns:
-            List of version strings sorted by version number
+            List of version strings
+            - If specific_version is set, returns only that version
+            - Otherwise, scans S3 and returns all versions sorted by version number
         """
+        # If specific version is provided, use only that version
+        if self.specific_version:
+            version = self.specific_version.lstrip('v')
+            print(f"\n[INFO] Using specific version: {version}")
+            return [version]
+        
+        # Otherwise, scan S3 for all versions
         print(f"\n[INFO] Scanning S3 for versions in {self.environment}...")
         
         if self.base_path:
@@ -701,6 +735,8 @@ Examples:
                        help='Target environment')
     parser.add_argument('--channel', choices=['dev', 'beta', 'stable', 'lts', 'simulation'],
                        help='Release channel (overrides environment default)')
+    parser.add_argument('--version', 
+                       help='Specific version to generate appcast for (e.g., 1.0.1). If not provided, scans all versions.')
     parser.add_argument('--platform', choices=['all', 'macos', 'windows'],
                        default='all', help='Target platform (default: all)')
     parser.add_argument('--arch', choices=['all', 'amd64', 'aarch64'],
@@ -709,7 +745,7 @@ Examples:
     args = parser.parse_args()
     
     # Create generator and run
-    generator = AppcastGenerator(args.env, args.channel)
+    generator = AppcastGenerator(args.env, args.channel, specific_version=args.version)
     success = generator.run(platform_filter=args.platform, arch_filter=args.arch)
     
     sys.exit(0 if success else 1)

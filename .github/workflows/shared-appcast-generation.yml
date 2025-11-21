@@ -34,6 +34,11 @@ on:
         required: false
         type: string
         default: ''
+      version:
+        description: 'Specific version to generate appcast for (e.g., 1.0.1). If empty, scans all versions.'
+        required: false
+        type: string
+        default: ''
       platform:
         description: 'Target platform (all/macos/windows)'
         required: false
@@ -84,12 +89,14 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           CHANNEL: ${{ inputs.channel }}
+          VERSION: ${{ inputs.version }}
           PLATFORM: ${{ inputs.platform }}
           ARCH: ${{ inputs.arch }}
         run: |
           echo "=== Generating Appcast ==="
           echo "Environment: $ENVIRONMENT"
           echo "Channel: $CHANNEL"
+          echo "Version: $VERSION"
           echo "Platform: $PLATFORM"
           echo "Architecture: $ARCH"
           
@@ -98,6 +105,10 @@ jobs:
           
           if [ -n "$CHANNEL" ]; then
             CMD="$CMD --channel $CHANNEL"
+          fi
+          
+          if [ -n "$VERSION" ]; then
+            CMD="$CMD --version $VERSION"
           fi
           
           if [ -n "$PLATFORM" ]; then
