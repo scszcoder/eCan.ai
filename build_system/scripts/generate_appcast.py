@@ -547,8 +547,8 @@ class AppcastGenerator:
             self.s3.put_object(
                 Bucket=self.bucket,
                 Key=s3_key,
-                Body=xml_content,
-                ContentType='application/rss+xml',
+                Body=xml_content.encode('utf-8'),
+                ContentType='application/rss+xml; charset=utf-8',
                 CacheControl='max-age=300'  # 5 minutes cache
             )
             
@@ -604,8 +604,8 @@ class AppcastGenerator:
             self.s3.put_object(
                 Bucket=self.bucket,
                 Key=s3_key,
-                Body=json.dumps(latest_data, indent=2),
-                ContentType='application/json',
+                Body=json.dumps(latest_data, indent=2, ensure_ascii=False).encode('utf-8'),
+                ContentType='application/json; charset=utf-8',
                 CacheControl='max-age=300'
             )
             

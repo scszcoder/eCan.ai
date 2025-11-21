@@ -43,16 +43,20 @@ class MacOSUpdater:
             Language code (e.g., 'en-US', 'zh-CN')
         """
         try:
-            from ota.gui.i18n import _tr
-            # Get language from translator (already normalized)
-            lang = _tr.language  # e.g., 'zh-CN' or 'en-US'
-            # Convert to appcast language format
-            if lang.startswith('zh'):
-                return 'zh-CN'
-            else:
-                return 'en-US'
+            # Use unified language detection from utils.i18n_helper
+            from utils.i18n_helper import detect_language
+            
+            # Detect language with supported languages
+            detected = detect_language(
+                default_lang='en-US',
+                supported_languages=['zh-CN', 'en-US']
+            )
+            
+            logger.debug(f"[OTA] Detected user language: {detected}")
+            return detected
+                
         except Exception as e:
-            logger.debug(f"[OTA] Could not get user language: {e}, using 'en-US'")
+            logger.debug(f"[OTA] Could not detect user language: {e}, using 'en-US'")
             return 'en-US'
 
     def check_for_updates(self, silent: bool = False, return_info: bool = False):
@@ -74,7 +78,7 @@ class MacOSUpdater:
             logger.info(f"[OTA] Requesting appcast for language: {language}")
             
             # Get appcast URL using new configuration method (with language support)
-            appcast_url = ota_config.get_appcast_url(arch, language=language)
+            appcast_url = ota_config.get_appcast_url('macos', arch, language=language)
 
             if not appcast_url:
                 raise PlatformError(
@@ -83,39 +87,70 @@ class MacOSUpdater:
                     {"platform_config": plat_config}
                 )
 
-            # Get appcast content with fallback to English
+            # Get appcast content with multiple fallback strategies
             response = None
-            try:
-                response = requests.get(appcast_url, timeout=10)
-                response.raise_for_status()
-                logger.info(f"[OTA] Successfully fetched appcast for language: {language}")
-            except Exception as e:
-                # Fallback to English if localized version not found
-                if language != 'en-US':
-                    logger.warning(f"[OTA] Failed to fetch localized appcast ({language}): {e}")
-                    logger.info(f"[OTA] Falling back to English appcast")
-                    fallback_url = ota_config.get_appcast_url(arch, language='en-US')
-                    try:
-                        response = requests.get(fallback_url, timeout=10)
-                        response.raise_for_status()
-                        logger.info(f"[OTA] Successfully fetched fallback English appcast")
-                    except Exception as fallback_error:
-                        logger.error(f"[OTA] Failed to fetch fallback appcast: {fallback_error}")
-                        raise
-                else:
-                    # Already trying English, no fallback available
-                    raise
+            urls_to_try = []
+            
+            # Strategy 1: Try localized version with standard URL
+            urls_to_try.append((appcast_url, f"{language} appcast"))
+            
+            # Strategy 2: Try localized version with accelerated URL
+            accelerated_url = appcast_url.replace('.s3.', '.s3-accelerate.')
+            urls_to_try.append((accelerated_url, f"{language} appcast (accelerated)"))
+            
+            # Strategy 3: Fallback to English if not already English
+            if language != 'en-US':
+                fallback_url = ota_config.get_appcast_url('macos', arch, language='en-US')
+                urls_to_try.append((fallback_url, "English appcast"))
+                
+                # Strategy 4: English with accelerated URL
+                fallback_accelerated = fallback_url.replace('.s3.', '.s3-accelerate.')
+                urls_to_try.append((fallback_accelerated, "English appcast (accelerated)"))
+            
+            # Try each URL in sequence
+            last_error = None
+            for url, description in urls_to_try:
+                try:
+                    logger.info(f"[OTA] Trying {description}: {url}")
+                    response = requests.get(url, timeout=10)
+                    response.raise_for_status()
+                    logger.info(f"[OTA] Successfully fetched {description}")
+                    break  # Success, exit loop
+                except Exception as e:
+                    logger.warning(f"[OTA] Failed to fetch {description}: {e}")
+                    last_error = e
+                    continue  # Try next URL
+            
+            # If all attempts failed, raise the last error
+            if response is None:
+                logger.error(f"[OTA] All appcast fetch attempts failed")
+                raise last_error if last_error else Exception("Failed to fetch appcast")
 
             # Parse appcast
+            logger.info(f"[OTA] Parsing appcast XML...")
             items = parse_appcast(response.text)
+            logger.info(f"[OTA] Found {len(items)} version(s) in appcast")
+            
+            # Log current version
+            current_version = self.ota_manager.app_version
+            logger.info(f"[OTA] Current version: {current_version}")
+            
+            # Select latest version
             selected = select_latest_for_platform(
                 items,
                 None,
-                self.ota_manager.app_version,
+                current_version,
                 arch_tag=arch
             )
 
             if selected:
+                logger.info(f"[OTA] ✅ Update available!")
+                logger.info(f"[OTA]    Current version:  {current_version}")
+                logger.info(f"[OTA]    Latest version:   {selected.version}")
+                logger.info(f"[OTA]    Download URL:     {selected.url}")
+                logger.info(f"[OTA]    File size:        {selected.length or 0} bytes")
+                logger.info(f"[OTA]    Has signature:    {'Yes' if selected.ed_signature else 'No'}")
+                
                 update_info = {
                     "update_available": True,
                     "latest_version": selected.version,
@@ -128,6 +163,9 @@ class MacOSUpdater:
                 }
                 return (True, update_info) if return_info else True
             else:
+                logger.info(f"[OTA] ℹ️  No update available")
+                logger.info(f"[OTA]    Current version: {current_version}")
+                logger.info(f"[OTA]    You are running the latest version")
                 return (False, None) if return_info else False
 
         except Exception as e:
@@ -232,16 +270,20 @@ class WindowsUpdater:
             Language code (e.g., 'en-US', 'zh-CN')
         """
         try:
-            from ota.gui.i18n import _tr
-            # Get language from translator (already normalized)
-            lang = _tr.language  # e.g., 'zh-CN' or 'en-US'
-            # Convert to appcast language format
-            if lang.startswith('zh'):
-                return 'zh-CN'
-            else:
-                return 'en-US'
+            # Use unified language detection from utils.i18n_helper
+            from utils.i18n_helper import detect_language
+            
+            # Detect language with supported languages
+            detected = detect_language(
+                default_lang='en-US',
+                supported_languages=['zh-CN', 'en-US']
+            )
+            
+            logger.debug(f"[OTA] Detected user language: {detected}")
+            return detected
+                
         except Exception as e:
-            logger.debug(f"[OTA] Could not get user language: {e}, using 'en-US'")
+            logger.debug(f"[OTA] Could not detect user language: {e}, using 'en-US'")
             return 'en-US'
 
     def check_for_updates(self, silent: bool = False, return_info: bool = False):
@@ -263,7 +305,7 @@ class WindowsUpdater:
             logger.info(f"[OTA] Requesting appcast for language: {language}")
             
             # Get appcast URL using new configuration method (with language support)
-            appcast_url = ota_config.get_appcast_url(arch, language=language)
+            appcast_url = ota_config.get_appcast_url('windows', arch, language=language)
 
             if not appcast_url:
                 raise PlatformError(
@@ -272,39 +314,70 @@ class WindowsUpdater:
                     {"platform_config": plat_config}
                 )
 
-            # Get appcast content with fallback to English
+            # Get appcast content with multiple fallback strategies
             response = None
-            try:
-                response = requests.get(appcast_url, timeout=10)
-                response.raise_for_status()
-                logger.info(f"[OTA] Successfully fetched appcast for language: {language}")
-            except Exception as e:
-                # Fallback to English if localized version not found
-                if language != 'en-US':
-                    logger.warning(f"[OTA] Failed to fetch localized appcast ({language}): {e}")
-                    logger.info(f"[OTA] Falling back to English appcast")
-                    fallback_url = ota_config.get_appcast_url(arch, language='en-US')
-                    try:
-                        response = requests.get(fallback_url, timeout=10)
-                        response.raise_for_status()
-                        logger.info(f"[OTA] Successfully fetched fallback English appcast")
-                    except Exception as fallback_error:
-                        logger.error(f"[OTA] Failed to fetch fallback appcast: {fallback_error}")
-                        raise
-                else:
-                    # Already trying English, no fallback available
-                    raise
+            urls_to_try = []
+            
+            # Strategy 1: Try localized version with standard URL
+            urls_to_try.append((appcast_url, f"{language} appcast"))
+            
+            # Strategy 2: Try localized version with accelerated URL
+            accelerated_url = appcast_url.replace('.s3.', '.s3-accelerate.')
+            urls_to_try.append((accelerated_url, f"{language} appcast (accelerated)"))
+            
+            # Strategy 3: Fallback to English if not already English
+            if language != 'en-US':
+                fallback_url = ota_config.get_appcast_url('windows', arch, language='en-US')
+                urls_to_try.append((fallback_url, "English appcast"))
+                
+                # Strategy 4: English with accelerated URL
+                fallback_accelerated = fallback_url.replace('.s3.', '.s3-accelerate.')
+                urls_to_try.append((fallback_accelerated, "English appcast (accelerated)"))
+            
+            # Try each URL in sequence
+            last_error = None
+            for url, description in urls_to_try:
+                try:
+                    logger.info(f"[OTA] Trying {description}: {url}")
+                    response = requests.get(url, timeout=10)
+                    response.raise_for_status()
+                    logger.info(f"[OTA] Successfully fetched {description}")
+                    break  # Success, exit loop
+                except Exception as e:
+                    logger.warning(f"[OTA] Failed to fetch {description}: {e}")
+                    last_error = e
+                    continue  # Try next URL
+            
+            # If all attempts failed, raise the last error
+            if response is None:
+                logger.error(f"[OTA] All appcast fetch attempts failed")
+                raise last_error if last_error else Exception("Failed to fetch appcast")
 
             # Parse appcast
+            logger.info(f"[OTA] Parsing appcast XML...")
             items = parse_appcast(response.text)
+            logger.info(f"[OTA] Found {len(items)} version(s) in appcast")
+            
+            # Log current version
+            current_version = self.ota_manager.app_version
+            logger.info(f"[OTA] Current version: {current_version}")
+            
+            # Select latest version
             selected = select_latest_for_platform(
                 items,
                 None,
-                self.ota_manager.app_version,
+                current_version,
                 arch_tag=arch
             )
 
             if selected:
+                logger.info(f"[OTA] ✅ Update available!")
+                logger.info(f"[OTA]    Current version:  {current_version}")
+                logger.info(f"[OTA]    Latest version:   {selected.version}")
+                logger.info(f"[OTA]    Download URL:     {selected.url}")
+                logger.info(f"[OTA]    File size:        {selected.length or 0} bytes")
+                logger.info(f"[OTA]    Has signature:    {'Yes' if selected.ed_signature else 'No'}")
+                
                 update_info = {
                     "update_available": True,
                     "latest_version": selected.version,
@@ -317,6 +390,9 @@ class WindowsUpdater:
                 }
                 return (True, update_info) if return_info else True
             else:
+                logger.info(f"[OTA] ℹ️  No update available")
+                logger.info(f"[OTA]    Current version: {current_version}")
+                logger.info(f"[OTA]    You are running the latest version")
                 return (False, None) if return_info else False
 
         except Exception as e:
