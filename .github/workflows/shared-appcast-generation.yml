@@ -26,7 +26,7 @@ on:
   workflow_call:
     inputs:
       environment:
-        description: 'Target environment (dev/test/staging/production/simulation)'
+        description: 'Target environment (dev/test/staging/production)'
         required: true
         type: string
       channel:
