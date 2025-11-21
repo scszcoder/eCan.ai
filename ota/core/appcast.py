@@ -70,7 +70,14 @@ def parse_appcast(xml_text: str) -> List[AppcastItem]:
 
         # Description may be CDATA/HTML
         desc_el = item.find('description')
-        desc_html = desc_el.text if desc_el is not None else None
+        if desc_el is not None:
+            # Get text content (CDATA is automatically unwrapped by ET)
+            desc_html = ''.join(desc_el.itertext()).strip()
+            # Remove any trailing ]]> that might be included
+            if desc_html.endswith(']]>'):
+                desc_html = desc_html[:-3].strip()
+        else:
+            desc_html = None
         pub_date_el = item.find('pubDate')
         pub_date = pub_date_el.text if pub_date_el is not None else None
 

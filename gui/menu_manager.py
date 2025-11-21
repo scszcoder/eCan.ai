@@ -554,6 +554,7 @@ class MenuManager:
             from ota.core.download_manager import download_manager
             
             if not self.check_update_action:
+                logger.warning("[MenuManager] check_update_action is None, cannot update progress")
                 return
             
             # Get current language
@@ -567,6 +568,9 @@ class MenuManager:
                     text = f"● Downloading... {progress}%"
                 
                 self.check_update_action.setText(text)
+                logger.info(f"[MenuManager] Updated menu progress: {text}")
+            else:
+                logger.debug(f"[MenuManager] Progress is 0, not updating menu")
         except Exception as e:
             logger.warning(f"[MenuManager] Failed to update download progress: {e}")
         
@@ -1092,19 +1096,53 @@ class MenuManager:
             if manual:
                 logger.info("[OTA] Manual update check initiated")
                 
-                # Temporarily disable callback to avoid duplicate dialogs
-                original_callback = ota_updater.update_callback
-                ota_updater.update_callback = None
+                # ✅ Show progress dialog immediately
+                from PySide6.QtWidgets import QProgressDialog
+                progress = QProgressDialog(
+                    "Checking for updates..." if _get_menu_messages().current_lang != 'zh-CN' else "正在检查更新...",
+                    "Cancel" if _get_menu_messages().current_lang != 'zh-CN' else "取消",
+                    0, 0,
+                    self.main_window
+                )
+                progress.setWindowTitle(_get_menu_messages().get('check_updates'))
+                progress.setWindowModality(Qt.WindowModality.WindowModal)
+                progress.setCancelButton(None)  # No cancel button for now
+                progress.setMinimumDuration(0)  # Show immediately
+                progress.show()
                 
-                try:
-                    # Perform update check
-                    has_update, update_info = ota_updater.check_for_updates(return_info=True)
+                # ✅ Perform check in background thread
+                from PySide6.QtCore import QThread, Signal
+                
+                class CheckUpdateThread(QThread):
+                    check_completed = Signal(bool, object)  # has_update, update_info
+                    check_failed = Signal(str)  # error_message
+                    
+                    def __init__(self, updater):
+                        super().__init__()
+                        self.updater = updater
+                    
+                    def run(self):
+                        try:
+                            # Temporarily disable callback
+                            original_callback = self.updater.update_callback
+                            self.updater.update_callback = None
+                            
+                            try:
+                                has_update, update_info = self.updater.check_for_updates(return_info=True)
+                                self.check_completed.emit(has_update, update_info)
+                            finally:
+                                self.updater.update_callback = original_callback
+                        except Exception as e:
+                            self.check_failed.emit(str(e))
+                
+                def on_check_completed(has_update, update_info):
+                    progress.close()
                     
                     if has_update and update_info:
                         version = update_info.get('latest_version') or update_info.get('version')
                         logger.info(f"[OTA] Manual check found update: {version}")
                         
-                        # For manual check, show confirmation dialog (ignore "don't remind" setting)
+                        # Show confirmation dialog
                         try:
                             web_gui = getattr(ctx, "web_gui", None) if 'ctx' in locals() else None
                             if web_gui and hasattr(web_gui, '_show_update_confirmation'):
@@ -1124,9 +1162,26 @@ class MenuManager:
                             "您已经在使用最新版本。" if _get_menu_messages().current_lang == 'zh-CN' 
                             else "You are already running the latest version."
                         )
-                finally:
-                    # Restore original callback
-                    ota_updater.update_callback = original_callback
+                
+                def on_check_failed(error_msg):
+                    progress.close()
+                    logger.error(f"[OTA] Manual check failed: {error_msg}")
+                    QMessageBox.warning(
+                        self.main_window,
+                        _get_menu_messages().get('error_title'),
+                        f"Failed to check for updates: {error_msg}"
+                    )
+                
+                # Create and start check thread
+                check_thread = CheckUpdateThread(ota_updater)
+                check_thread.check_completed.connect(on_check_completed)
+                check_thread.check_failed.connect(on_check_failed)
+                check_thread.start()
+                
+                # Store thread reference to prevent garbage collection
+                self._check_thread = check_thread
+                
+                return  # ✅ Return immediately, don't block
         except Exception as e:
             logger.error(f"Failed to show update dialog: {e}")
             QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'),
