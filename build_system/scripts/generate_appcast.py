@@ -41,7 +41,7 @@ def get_release_notes_from_changelog(version: str, changelog_path: Optional[Path
     Read release notes from CHANGELOG.md for specified version (with i18n support)
     
     Args:
-        version: Version number (e.g., "1.0.1")
+        version: Version number (e.g., "1.0.1", "1.0.0-sim", "1.0.0-gui-v2-eefbe438")
         changelog_path: Path to CHANGELOG.md file, defaults to project root
         language: Language code (e.g., 'en-US', 'zh-CN')
     
@@ -67,9 +67,20 @@ def get_release_notes_from_changelog(version: str, changelog_path: Optional[Path
         with open(changelog_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        # Parse Markdown and extract content for the specified version
+        # Extract base version number (remove suffixes like -sim, -gui-v2-eefbe438)
+        # Examples:
+        #   1.0.0 → 1.0.0
+        #   1.0.0-sim → 1.0.0
+        #   1.0.0-gui-v2-eefbe438 → 1.0.0
+        base_version_match = re.match(r'(\d+\.\d+\.\d+)', version)
+        if base_version_match:
+            base_version = base_version_match.group(1)
+        else:
+            base_version = version
+        
+        # Parse Markdown and extract content for the base version
         # Match format: ## [1.0.1] - 2025-11-21
-        pattern = rf'## \[{re.escape(version)}\].*?\n(.*?)(?=\n## \[|\Z)'
+        pattern = rf'## \[{re.escape(base_version)}\].*?\n(.*?)(?=\n## \[|\Z)'
         match = re.search(pattern, content, re.DOTALL)
         
         if not match:
@@ -80,6 +91,7 @@ def get_release_notes_from_changelog(version: str, changelog_path: Optional[Path
         # Simple Markdown to HTML conversion
         html = markdown_to_html(notes_markdown)
         
+        # Display full version in title, but use base version's changelog
         return f"<h2>eCan.ai {version}</h2>{html}"
     
     except Exception as e:
@@ -253,6 +265,7 @@ class AppcastGenerator:
             )
             
             versions = []
+            skipped_sim = []
             for common_prefix in response.get('CommonPrefixes', []):
                 version_path = common_prefix['Prefix']
                 # Extract version from path (e.g., 'dev/releases/v1.0.0/' → '1.0.0')
@@ -261,8 +274,15 @@ class AppcastGenerator:
                     version = version[1:]
                 
                 # Skip 'latest' directory
-                if version != 'latest':
-                    versions.append(version)
+                if version == 'latest':
+                    continue
+                
+                # Skip simulation builds (versions with -sim suffix)
+                if '-sim' in version:
+                    skipped_sim.append(version)
+                    continue
+                
+                versions.append(version)
             
             # Sort by version number (descending)
             versions.sort(key=self.parse_version, reverse=True)
@@ -272,6 +292,14 @@ class AppcastGenerator:
                 print(f"    • {v}")
             if len(versions) > 5:
                 print(f"    ... and {len(versions) - 5} more")
+            
+            # Report skipped simulation builds
+            if skipped_sim:
+                print(f"  Skipped {len(skipped_sim)} simulation build(s):")
+                for v in skipped_sim[:3]:  # Show first 3
+                    print(f"    ⊗ {v} (simulation)")
+                if len(skipped_sim) > 3:
+                    print(f"    ... and {len(skipped_sim) - 3} more")
             
             return versions
             
@@ -388,6 +416,11 @@ class AppcastGenerator:
         for version in versions[:max_versions]:
             pkg_info = self.get_package_info(version, platform, arch)
             if pkg_info:
+                # Double-check: skip packages with fake signatures (simulation builds)
+                if pkg_info.get('signature') == 'fake_ed25519_signature_for_simulation':
+                    print(f"  [SKIP] {version} (fake signature detected)")
+                    continue
+                
                 items.append(pkg_info)
                 print(f"  [OK] Added {version}")
         
@@ -584,8 +617,13 @@ class AppcastGenerator:
             print(f"  [ERROR] Failed to upload latest.json: {e}")
             return False
     
-    def run(self) -> bool:
-        """Run the appcast generation process"""
+    def run(self, platform_filter: str = 'all', arch_filter: str = 'all') -> bool:
+        """Run the appcast generation process
+        
+        Args:
+            platform_filter: Platform filter ('all', 'macos', 'windows')
+            arch_filter: Architecture filter ('all', 'amd64', 'aarch64')
+        """
         print("=" * 60)
         print("[INFO] Appcast Generator - Single Bucket Design")
         print("=" * 60)
@@ -594,17 +632,32 @@ class AppcastGenerator:
         print(f"S3 Bucket:   {self.bucket}")
         print(f"S3 Region:   {self.region}")
         print(f"S3 Prefix:   {self.prefix}")
+        if platform_filter != 'all' or arch_filter != 'all':
+            print(f"Filter:      platform={platform_filter}, arch={arch_filter}")
         print("=" * 60)
         
         success_count = 0
         total_count = 0
         
-        # Generate appcasts for each platform/arch/language combination
-        combinations = [
+        # All possible platform/arch combinations
+        all_combinations = [
             ('macos', 'amd64'),
             ('macos', 'aarch64'),
             ('windows', 'amd64')
         ]
+        
+        # Apply filters
+        combinations = []
+        for platform, arch in all_combinations:
+            if platform_filter != 'all' and platform != platform_filter:
+                continue
+            if arch_filter != 'all' and arch != arch_filter:
+                continue
+            combinations.append((platform, arch))
+        
+        if not combinations:
+            print("[WARN] No platform/arch combinations match the filters")
+            return False
         
         # Supported languages
         languages = ['en-US', 'zh-CN']
@@ -649,16 +702,20 @@ Examples:
         """
     )
     
-    parser.add_argument('--env', required=True, choices=['dev', 'test', 'staging', 'production'],
+    parser.add_argument('--env', required=True, choices=['dev', 'test', 'staging', 'production', 'simulation'],
                        help='Target environment')
     parser.add_argument('--channel', choices=['dev', 'beta', 'stable', 'lts'],
                        help='Release channel (overrides environment default)')
+    parser.add_argument('--platform', choices=['all', 'macos', 'windows'],
+                       default='all', help='Target platform (default: all)')
+    parser.add_argument('--arch', choices=['all', 'amd64', 'aarch64'],
+                       default='all', help='Target architecture (default: all)')
     
     args = parser.parse_args()
     
     # Create generator and run
     generator = AppcastGenerator(args.env, args.channel)
-    success = generator.run()
+    success = generator.run(platform_filter=args.platform, arch_filter=args.arch)
     
     sys.exit(0 if success else 1)
 

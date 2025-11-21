@@ -26,7 +26,7 @@ on:
   workflow_call:
     inputs:
       environment:
-        description: 'Target environment (dev/test/staging/production)'
+        description: 'Target environment (dev/test/staging/production/simulation)'
         required: true
         type: string
       channel:
@@ -34,6 +34,16 @@ on:
         required: false
         type: string
         default: ''
+      platform:
+        description: 'Target platform (all/macos/windows)'
+        required: false
+        type: string
+        default: 'all'
+      arch:
+        description: 'Target architecture (all/amd64/aarch64)'
+        required: false
+        type: string
+        default: 'all'
     outputs:
       appcast-generated:
         description: 'Whether appcast generation was successful'
@@ -74,16 +84,28 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           CHANNEL: ${{ inputs.channel }}
+          PLATFORM: ${{ inputs.platform }}
+          ARCH: ${{ inputs.arch }}
         run: |
           echo "=== Generating Appcast ==="
           echo "Environment: $ENVIRONMENT"
           echo "Channel: $CHANNEL"
+          echo "Platform: $PLATFORM"
+          echo "Architecture: $ARCH"
           
           # Build command
           CMD="python3 build_system/scripts/generate_appcast.py --env $ENVIRONMENT"
           
           if [ -n "$CHANNEL" ]; then
             CMD="$CMD --channel $CHANNEL"
+          fi
+          
+          if [ -n "$PLATFORM" ]; then
+            CMD="$CMD --platform $PLATFORM"
+          fi
+          
+          if [ -n "$ARCH" ]; then
+            CMD="$CMD --arch $ARCH"
           fi
           
           # Run generation script

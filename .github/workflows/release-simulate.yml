@@ -71,9 +71,10 @@ on:
       environment:
         description: 'Target environment'
         required: false
-        default: 'production'
+        default: 'simulation'
         type: choice
         options:
+          - simulation
           - production
           - staging
           - test
