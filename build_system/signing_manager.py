@@ -111,12 +111,30 @@ class SigningManager:
         config = self.config.get("platforms", {}).get("windows", {}).get("sign", {})
         signtool = config.get("tool", "signtool")
         
+        # Check if certificate exists before attempting to sign
+        cert_path = config.get("certificate", "")
+        if cert_path and not Path(cert_path).exists():
+            print(f"[SIGN] Certificate file not found: {cert_path}")
+            print(f"[SIGN] Skipping Windows code signing (certificate not available)")
+            return True
+        
+        if not cert_path:
+            print(f"[SIGN] No certificate configured, skipping Windows code signing")
+            return True
+        
         if not self._check_tool_available(signtool):
             print(f"[SIGN] Warning: {signtool} not available, skipping signing")
             return True
         
         # Find files to sign
-        files_to_sign = list(self.dist_dir.rglob("*.exe")) + list(self.dist_dir.rglob("*.dll"))
+        all_files = list(self.dist_dir.rglob("*.exe")) + list(self.dist_dir.rglob("*.dll"))
+        
+        # Filter out system DLLs that should not be signed
+        files_to_sign = [f for f in all_files if not self._is_system_dll(f)]
+        
+        skipped_count = len(all_files) - len(files_to_sign)
+        if skipped_count > 0:
+            print(f"[SIGN] Skipped {skipped_count} system DLL(s) (already signed by Microsoft)")
         
         if not files_to_sign:
             print("[SIGN] No Windows files found to sign")
@@ -130,10 +148,20 @@ class SigningManager:
     def _sign_windows_file(self, file_path: Path, config: Dict[str, Any]) -> bool:
         """Sign single Windows file"""
         try:
+            # Check if certificate file exists
+            cert_path = config.get("certificate", "")
+            if cert_path and not Path(cert_path).exists():
+                print(f"[SIGN] Certificate file not found: {cert_path}, skipping signing")
+                return True  # Not a failure, just skip signing
+            
+            if not cert_path:
+                print(f"[SIGN] No certificate configured, skipping signing")
+                return True
+            
             # Build signing command
             cmd = [
                 config.get("tool", "signtool"), "sign",
-                "/f", config.get("certificate", ""),
+                "/f", cert_path,
                 "/fd", "SHA256",
                 "/tr", "http://timestamp.digicert.com",
                 "/td", "SHA256",
@@ -169,12 +197,25 @@ class SigningManager:
         
         config = self.config.get("platforms", {}).get("macos", {}).get("codesign", {})
         
+        # Check if signing identity is configured
+        identity = config.get("identity", "")
+        if not identity:
+            print(f"[SIGN] Signing identity not configured, skipping macOS code signing")
+            return True
+        
         if not self._check_tool_available("codesign"):
             print("[SIGN] Warning: codesign not available, skipping signing")
             return True
         
         # Find files to sign
-        files_to_sign = list(self.dist_dir.rglob("*.app")) + list(self.dist_dir.rglob("*.dylib"))
+        all_files = list(self.dist_dir.rglob("*.app")) + list(self.dist_dir.rglob("*.dylib")) + list(self.dist_dir.rglob("*.framework"))
+        
+        # Filter out system frameworks and libraries that should not be signed
+        files_to_sign = [f for f in all_files if not self._is_system_framework(f)]
+        
+        skipped_count = len(all_files) - len(files_to_sign)
+        if skipped_count > 0:
+            print(f"[SIGN] Skipped {skipped_count} system framework(s)/library(ies) (already signed by Apple)")
         
         if not files_to_sign:
             print("[SIGN] No macOS files found to sign")
@@ -190,8 +231,8 @@ class SigningManager:
         try:
             identity = config.get("identity", "")
             if not identity:
-                print(f"[SIGN] Warning: Signing identity not configured")
-                return False
+                print(f"[SIGN] Signing identity not configured, skipping signing")
+                return True  # Not a failure, just skip signing
             
             cmd = ["codesign", "--sign", identity, "--force", "--timestamp", str(file_path)]
             
@@ -207,6 +248,122 @@ class SigningManager:
         except Exception as e:
             print(f"[SIGN] [ERROR] Signing exception: {file_path.name} - {e}")
             return False
+    
+    def _is_system_dll(self, file_path: Path) -> bool:
+        """
+        Check if a DLL/EXE is a Windows system file that should not be signed
+        
+        System files are already signed by Microsoft/vendors and should not be re-signed.
+        These include:
+        - api-ms-win-*.dll (Windows API sets)
+        - ucrtbase.dll (Universal C Runtime)
+        - vcruntime*.dll (Visual C++ Runtime)
+        - msvcp*.dll (Microsoft C++ Standard Library)
+        - Third-party bundled apps (Playwright browsers, etc.)
+        """
+        path_str = str(file_path).lower()
+        filename = file_path.name.lower()
+        
+        # Check if it's in a third-party directory
+        third_party_paths = [
+            'third_party\\',     # Third-party bundled components (Windows path)
+            'third_party/',      # Third-party bundled components (Unix-style path)
+            'ms-playwright\\',   # Playwright browsers (Windows path)
+            'ms-playwright/',    # Playwright browsers (Unix-style path)
+        ]
+        
+        # Check third-party paths first
+        if any(tp_path in path_str for tp_path in third_party_paths):
+            return True
+        
+        # List of system DLL patterns
+        system_dll_patterns = [
+            'api-ms-win-',      # Windows API sets (e.g., api-ms-win-core-file-l1-1-0.dll)
+            'api-ms-win-crt-',  # Windows CRT API sets
+            'ucrtbase',         # Universal C Runtime base
+            'vcruntime',        # Visual C++ Runtime
+            'msvcp',            # Microsoft C++ Standard Library
+            'concrt',           # Concurrency Runtime
+            'vccorlib',         # Visual C++ Core Library
+        ]
+        
+        # Third-party bundled applications (already signed by vendors)
+        third_party_apps = [
+            'chrome.exe',       # Playwright Chromium
+            'chrome.dll',       # Chromium libraries
+            'firefox.exe',      # Playwright Firefox
+            'webkit.exe',       # Playwright WebKit
+        ]
+        
+        # Check system DLL patterns
+        if any(filename.startswith(pattern) for pattern in system_dll_patterns):
+            return True
+        
+        # Check third-party apps
+        if any(app in filename for app in third_party_apps):
+            return True
+        
+        return False
+    
+    def _is_system_framework(self, file_path: Path) -> bool:
+        """
+        Check if a file is a macOS system framework/library that should not be signed
+        
+        System frameworks are already signed by Apple/vendors and should not be re-signed.
+        These include:
+        - Qt frameworks (from PySide6/PyQt)
+        - Python system libraries
+        - macOS system frameworks
+        - Third-party bundled apps (Playwright Chromium, etc.)
+        """
+        path_str = str(file_path).lower()
+        filename = file_path.name.lower()
+        
+        # Check if it's in a system or third-party framework directory
+        system_paths = [
+            '/system/library/frameworks/',
+            '/library/frameworks/',
+            'python3.',  # Python system libraries
+            'site-packages',  # Third-party packages
+            '.framework/versions/',  # System frameworks
+            'third_party/',  # Third-party bundled components
+            'ms-playwright/',  # Playwright browsers
+        ]
+        
+        # Qt frameworks from PySide6/PyQt (already signed)
+        qt_frameworks = [
+            'qtcore',
+            'qtgui',
+            'qtwidgets',
+            'qtnetwork',
+            'qtwebengine',
+            'qtwebenginecore',
+            'qtwebenginewidgets',
+            'qtprintsupport',
+            'qtdbus',
+            'qtopengl',
+        ]
+        
+        # Third-party bundled applications (already signed by vendors)
+        third_party_apps = [
+            'chromium',  # Playwright Chromium
+            'firefox',   # Playwright Firefox
+            'webkit',    # Playwright WebKit
+        ]
+        
+        # Check system paths
+        if any(sys_path in path_str for sys_path in system_paths):
+            return True
+        
+        # Check Qt frameworks
+        if any(qt_fw in filename for qt_fw in qt_frameworks):
+            return True
+        
+        # Check third-party apps
+        if any(app in filename for app in third_party_apps):
+            return True
+        
+        return False
     
     def _check_tool_available(self, tool: str) -> bool:
         """Check if signing tool is available"""
@@ -247,7 +404,9 @@ class SigningManager:
             print("[VERIFY] signtool not available, skipping verification")
             return True
         
-        signed_files = list(self.dist_dir.rglob("*.exe")) + list(self.dist_dir.rglob("*.dll"))
+        # Find all files and filter out system DLLs
+        all_files = list(self.dist_dir.rglob("*.exe")) + list(self.dist_dir.rglob("*.dll"))
+        signed_files = [f for f in all_files if not self._is_system_dll(f)]
         
         if not signed_files:
             print("[VERIFY] No files found to verify")
@@ -278,7 +437,9 @@ class SigningManager:
             print("[VERIFY] codesign not available, skipping verification")
             return True
         
-        signed_files = list(self.dist_dir.rglob("*.app")) + list(self.dist_dir.rglob("*.dylib"))
+        # Find all files and filter out system frameworks
+        all_files = list(self.dist_dir.rglob("*.app")) + list(self.dist_dir.rglob("*.dylib")) + list(self.dist_dir.rglob("*.framework"))
+        signed_files = [f for f in all_files if not self._is_system_framework(f)]
         
         if not signed_files:
             print("[VERIFY] No files found to verify")
