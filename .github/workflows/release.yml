@@ -1000,10 +1000,9 @@ jobs:
         if (Test-Path $setupFile) {
           Write-Host "Generating signature for: $(Split-Path -Leaf $setupFile)" -ForegroundColor Yellow
           
-          # Use OpenSSL to generate Ed25519 signature
-          # Note: Ed25519 doesn't need -rawin flag, it signs the raw file directly
+          # Use signing_manager.py for Ed25519 signing (OpenSSL pkeyutl doesn't support Ed25519 in all versions)
           $sigFile = "${setupFile}.sig"
-          openssl pkeyutl -sign -inkey $keyPath -in $setupFile -out $sigFile
+          python build_system/signing_manager.py $setupFile $keyPath $sigFile
           
           if (Test-Path $sigFile) {
             $sigSize = (Get-Item $sigFile).Length
@@ -1026,7 +1025,7 @@ jobs:
         Get-ChildItem "dist\*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
           Write-Host "Generating signature for: $($_.Name)" -ForegroundColor Yellow
           $sigFile = "$($_.FullName).sig"
-          openssl pkeyutl -sign -inkey $keyPath -in $_.FullName -out $sigFile
+          python build_system/signing_manager.py $_.FullName $keyPath $sigFile
           
           if (Test-Path $sigFile) {
             $sigSize = (Get-Item $sigFile).Length
@@ -1736,13 +1735,12 @@ jobs:
         if [ -f "$PKG_FILE" ]; then
           echo "Generating signature for: $(basename $PKG_FILE)"
           
-          # Use OpenSSL to generate Ed25519 signature
-          # Note: Ed25519 doesn't need -rawin flag, it signs the raw file directly
+          # Use signing_manager.py for Ed25519 signing (OpenSSL pkeyutl doesn't support Ed25519 in all versions)
           SIG_FILE="${PKG_FILE}.sig"
-          openssl pkeyutl -sign -inkey "$KEY_PATH" -in "$PKG_FILE" -out "$SIG_FILE"
+          python build_system/signing_manager.py "$PKG_FILE" "$KEY_PATH" "$SIG_FILE"
           
           if [ -f "$SIG_FILE" ]; then
-            SIG_SIZE=$(wc -c < "$SIG_FILE")
+            SIG_SIZE=$(wc -c < "$SIG_FILE" | tr -d ' ')
             echo "  ✓ Signature generated: $SIG_SIZE bytes"
             
             # Verify signature size (Ed25519 signatures are always 64 bytes)

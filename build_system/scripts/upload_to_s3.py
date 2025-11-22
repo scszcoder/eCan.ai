@@ -182,7 +182,8 @@ class S3Uploader:
                     sig_file = pkg.with_suffix(pkg.suffix + '.sig')
                     if sig_file.exists():
                         sig_key = f"{s3_key}.sig"
-                        if self.upload_file(sig_file, sig_key, 'text/plain'):
+                        # Signature is binary (64 bytes), not text
+                        if self.upload_file(sig_file, sig_key, 'application/octet-stream'):
                             print(f"  [OK] Uploaded signature: {sig_file.name}")
                     
                     # Upload SHA256 checksum

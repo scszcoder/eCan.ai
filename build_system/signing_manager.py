@@ -521,13 +521,19 @@ class OTASigningManager:
                         "file_size": len(file_data)
                     }
                     
-                    # Also save signature to .sig file for upload
-                    # Sparkle-compatible format: base64 Ed25519 signature in .sig file
-                    # Our self-contained OTA system reads this format
+                    # Save signature to .sig file for upload
+                    # Save as binary (64 bytes) for Sparkle compatibility
+                    # The generate_appcast.py script will read this binary and base64 encode it
                     sig_file = artifact.with_suffix(artifact.suffix + '.sig')
-                    with open(sig_file, 'w', encoding='utf-8') as f:
-                        f.write(signature_b64)
-                    print(f"[OTA-SIGN] [OK] Created signature file: {sig_file.name}")
+                    with open(sig_file, 'wb') as f:
+                        f.write(signature)  # Write raw 64-byte signature
+                    
+                    # Verify signature file size
+                    if sig_file.stat().st_size == 64:
+                        print(f"[OTA-SIGN] [OK] Created signature file: {sig_file.name} (64 bytes)")
+                    else:
+                        print(f"[OTA-SIGN] [ERROR] Invalid signature size: {sig_file.stat().st_size} bytes (expected 64)")
+                        continue
                     
                     print(f"[OTA-SIGN] [OK] Signed: {artifact.name}")
                 except Exception as e:
@@ -572,3 +578,132 @@ def create_signing_manager(project_root: Path = None, config: Dict[str, Any] = N
 def create_ota_signing_manager(project_root: Path = None) -> OTASigningManager:
     """Create OTA signing manager instance"""
     return OTASigningManager(project_root)
+
+def sign_single_file_ed25519(file_path: str, private_key_path: str, output_sig_path: str = None) -> bool:
+    """
+    Sign a single file with Ed25519 (command-line interface)
+    
+    Args:
+        file_path: Path to file to sign
+        private_key_path: Path to Ed25519 private key (PEM format)
+        output_sig_path: Path to output signature file (default: file_path + '.sig')
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ed25519
+    except ImportError:
+        print("❌ Error: cryptography library not installed")
+        print("Install with: pip install cryptography")
+        return False
+    
+    # Convert to Path objects
+    file_path = Path(file_path)
+    private_key_path = Path(private_key_path)
+    output_sig_path = Path(output_sig_path) if output_sig_path else file_path.with_suffix(file_path.suffix + '.sig')
+    
+    # Validate inputs
+    if not file_path.exists():
+        print(f"❌ Error: File not found: {file_path}")
+        return False
+    
+    if not private_key_path.exists():
+        print(f"❌ Error: Private key not found: {private_key_path}")
+        return False
+    
+    try:
+        # Read private key
+        print(f"📖 Reading private key: {private_key_path}")
+        with open(private_key_path, 'rb') as f:
+            private_key = serialization.load_pem_private_key(f.read(), password=None)
+        
+        # Verify it's an Ed25519 key
+        if not isinstance(private_key, ed25519.Ed25519PrivateKey):
+            print(f"❌ Error: Key is not Ed25519 (got {type(private_key).__name__})")
+            return False
+        
+        print(f"✅ Private key loaded successfully")
+        
+        # Read file to sign
+        print(f"📖 Reading file to sign: {file_path}")
+        with open(file_path, 'rb') as f:
+            file_data = f.read()
+        
+        file_size_mb = len(file_data) / (1024 * 1024)
+        print(f"✅ File loaded: {file_size_mb:.2f} MB")
+        
+        # Generate signature
+        print(f"🔐 Generating Ed25519 signature...")
+        signature = private_key.sign(file_data)
+        
+        # Verify signature size (Ed25519 signatures are always 64 bytes)
+        if len(signature) != 64:
+            print(f"❌ Error: Invalid signature size: {len(signature)} bytes (expected 64)")
+            return False
+        
+        print(f"✅ Signature generated: {len(signature)} bytes")
+        
+        # Write signature to file
+        print(f"💾 Writing signature to: {output_sig_path}")
+        with open(output_sig_path, 'wb') as sig_file:
+            sig_file.write(signature)
+        
+        print(f"✅ Signature file created successfully")
+        
+        # Verify the signature was written correctly
+        if output_sig_path.exists():
+            sig_size = output_sig_path.stat().st_size
+            if sig_size == 64:
+                print(f"✅ Verification: Signature file is 64 bytes")
+                return True
+            else:
+                print(f"❌ Error: Signature file size mismatch: {sig_size} bytes")
+                return False
+        else:
+            print(f"❌ Error: Signature file was not created")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Error during signing: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+# Command-line interface
+if __name__ == '__main__':
+    import sys
+    
+    if len(sys.argv) >= 3:
+        file_path = sys.argv[1]
+        private_key_path = sys.argv[2]
+        output_sig_path = sys.argv[3] if len(sys.argv) > 3 else None
+        
+        print("=" * 60)
+        print("Ed25519 File Signing")
+        print("=" * 60)
+        print(f"File to sign: {file_path}")
+        print(f"Private key:  {private_key_path}")
+        print(f"Output sig:   {output_sig_path or file_path + '.sig'}")
+        print("=" * 60)
+        print()
+        
+        success = sign_single_file_ed25519(file_path, private_key_path, output_sig_path)
+        
+        print()
+        print("=" * 60)
+        if success:
+            print("✅ Signing completed successfully")
+            print("=" * 60)
+            sys.exit(0)
+        else:
+            print("❌ Signing failed")
+            print("=" * 60)
+            sys.exit(1)
+    else:
+        print("Usage: python signing_manager.py <file_to_sign> <private_key_path> [output_sig_path]")
+        print()
+        print("Example:")
+        print("  python signing_manager.py dist/eCan-1.0.0.pkg build_system/certificates/ed25519_private_key.pem")
+        sys.exit(1)
