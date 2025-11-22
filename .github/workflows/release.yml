@@ -1001,12 +1001,19 @@ jobs:
           Write-Host "Generating signature for: $(Split-Path -Leaf $setupFile)" -ForegroundColor Yellow
           
           # Use OpenSSL to generate Ed25519 signature
+          # Note: Ed25519 doesn't need -rawin flag, it signs the raw file directly
           $sigFile = "${setupFile}.sig"
-          openssl pkeyutl -sign -inkey $keyPath -rawin -in $setupFile -out $sigFile
+          openssl pkeyutl -sign -inkey $keyPath -in $setupFile -out $sigFile
           
           if (Test-Path $sigFile) {
             $sigSize = (Get-Item $sigFile).Length
             Write-Host "  ✓ Signature generated: $sigSize bytes" -ForegroundColor Green
+            
+            # Verify signature size (Ed25519 signatures are always 64 bytes)
+            if ($sigSize -ne 64) {
+              Write-Host "  ✗ Invalid signature size: expected 64 bytes, got $sigSize bytes" -ForegroundColor Red
+              exit 1
+            }
           } else {
             Write-Host "  ✗ Failed to generate signature" -ForegroundColor Red
             exit 1
@@ -1019,11 +1026,16 @@ jobs:
         Get-ChildItem "dist\*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
           Write-Host "Generating signature for: $($_.Name)" -ForegroundColor Yellow
           $sigFile = "$($_.FullName).sig"
-          openssl pkeyutl -sign -inkey $keyPath -rawin -in $_.FullName -out $sigFile
+          openssl pkeyutl -sign -inkey $keyPath -in $_.FullName -out $sigFile
           
           if (Test-Path $sigFile) {
             $sigSize = (Get-Item $sigFile).Length
             Write-Host "  ✓ Signature generated: $sigSize bytes" -ForegroundColor Green
+            
+            # Verify signature size (Ed25519 signatures are always 64 bytes)
+            if ($sigSize -ne 64) {
+              Write-Host "  ✗ Invalid signature size: expected 64 bytes, got $sigSize bytes" -ForegroundColor Red
+            }
           } else {
             Write-Host "  ✗ Failed to generate signature" -ForegroundColor Red
           }
@@ -1725,12 +1737,19 @@ jobs:
           echo "Generating signature for: $(basename $PKG_FILE)"
           
           # Use OpenSSL to generate Ed25519 signature
+          # Note: Ed25519 doesn't need -rawin flag, it signs the raw file directly
           SIG_FILE="${PKG_FILE}.sig"
-          openssl pkeyutl -sign -inkey "$KEY_PATH" -rawin -in "$PKG_FILE" -out "$SIG_FILE"
+          openssl pkeyutl -sign -inkey "$KEY_PATH" -in "$PKG_FILE" -out "$SIG_FILE"
           
           if [ -f "$SIG_FILE" ]; then
             SIG_SIZE=$(wc -c < "$SIG_FILE")
             echo "  ✓ Signature generated: $SIG_SIZE bytes"
+            
+            # Verify signature size (Ed25519 signatures are always 64 bytes)
+            if [ "$SIG_SIZE" -ne 64 ]; then
+              echo "  ✗ Invalid signature size: expected 64 bytes, got $SIG_SIZE bytes"
+              exit 1
+            fi
           else
             echo "  ✗ Failed to generate signature"
             exit 1
