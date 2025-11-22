@@ -232,7 +232,8 @@ jobs:
         if: |
           needs.validate-tag.outputs.environment == 'production' || 
           needs.validate-tag.outputs.environment == 'staging' ||
-          needs.validate-tag.outputs.environment == 'test'
+          needs.validate-tag.outputs.environment == 'test' ||
+          needs.validate-tag.outputs.environment == 'simulation'
         env:
           OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
         run: |
@@ -411,7 +412,8 @@ jobs:
           steps.arch_check.outputs.should_build == 'true' && (
             needs.validate-tag.outputs.environment == 'production' || 
             needs.validate-tag.outputs.environment == 'staging' ||
-            needs.validate-tag.outputs.environment == 'test'
+            needs.validate-tag.outputs.environment == 'test' ||
+            needs.validate-tag.outputs.environment == 'simulation'
           )
         env:
           OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
