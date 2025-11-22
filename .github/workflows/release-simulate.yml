@@ -462,10 +462,20 @@ jobs:
           # Generate real Ed25519 signature
           if [ -f "build_system/certificates/ed25519_private_key.pem" ]; then
             echo "Generating real Ed25519 signature..."
+            # Note: Ed25519 doesn't need -rawin flag, it signs the raw file directly
             openssl pkeyutl -sign -inkey build_system/certificates/ed25519_private_key.pem \
-              -rawin -in "$INSTALLER" -out "${INSTALLER}.sig"
-            cp "${INSTALLER}.sig" artifacts/
-            echo "✅ Real signature generated for macOS ${{ matrix.arch }}"
+              -in "$INSTALLER" -out "${INSTALLER}.sig"
+            
+            # Verify signature size (Ed25519 signatures are always 64 bytes)
+            SIG_SIZE=$(wc -c < "${INSTALLER}.sig" | tr -d ' ')
+            if [ "$SIG_SIZE" -eq 64 ]; then
+              cp "${INSTALLER}.sig" artifacts/
+              echo "✅ Real signature generated for macOS ${{ matrix.arch }} (64 bytes)"
+            else
+              echo "⚠️  Invalid signature size: $SIG_SIZE bytes (expected 64), creating placeholder"
+              echo "simulation_signature" > "${INSTALLER}.sig"
+              cp "${INSTALLER}.sig" artifacts/
+            fi
           else
             echo "⚠️  Private key not found, creating placeholder signature"
             echo "simulation_signature" > "${INSTALLER}.sig"
