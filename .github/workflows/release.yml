@@ -972,6 +972,69 @@ jobs:
         }
 
     # ------------------------------------------------------------------------
+    # Step: Generate Ed25519 Signatures for OTA Updates
+    # ------------------------------------------------------------------------
+    - name: Generate Ed25519 signatures
+      if: |
+        needs.validate-tag.outputs.environment == 'production' || 
+        needs.validate-tag.outputs.environment == 'staging' ||
+        needs.validate-tag.outputs.environment == 'test'
+      shell: pwsh
+      run: |
+        Write-Host "=== Generating Ed25519 Signatures ===" -ForegroundColor Cyan
+        $version = "${{ needs.validate-tag.outputs.version }}"
+        $arch = "$env:BUILD_ARCH"
+        
+        # Check if private key exists
+        $keyPath = "build_system\certificates\ed25519_private_key.pem"
+        if (-not (Test-Path $keyPath)) {
+          Write-Host "[ERROR] Private key not found: $keyPath" -ForegroundColor Red
+          Write-Host "[ERROR] OTA signatures cannot be generated" -ForegroundColor Red
+          exit 1
+        }
+        
+        Write-Host "[OK] Private key found: $keyPath" -ForegroundColor Green
+        
+        # Generate signature for main installer
+        $setupFile = "dist\eCan-${version}-windows-${arch}-Setup.exe"
+        if (Test-Path $setupFile) {
+          Write-Host "Generating signature for: $(Split-Path -Leaf $setupFile)" -ForegroundColor Yellow
+          
+          # Use OpenSSL to generate Ed25519 signature
+          $sigFile = "${setupFile}.sig"
+          openssl pkeyutl -sign -inkey $keyPath -rawin -in $setupFile -out $sigFile
+          
+          if (Test-Path $sigFile) {
+            $sigSize = (Get-Item $sigFile).Length
+            Write-Host "  ✓ Signature generated: $sigSize bytes" -ForegroundColor Green
+          } else {
+            Write-Host "  ✗ Failed to generate signature" -ForegroundColor Red
+            exit 1
+          }
+        } else {
+          Write-Host "[WARN] Setup file not found: $setupFile" -ForegroundColor Yellow
+        }
+        
+        # Generate signatures for MSI files if they exist
+        Get-ChildItem "dist\*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
+          Write-Host "Generating signature for: $($_.Name)" -ForegroundColor Yellow
+          $sigFile = "$($_.FullName).sig"
+          openssl pkeyutl -sign -inkey $keyPath -rawin -in $_.FullName -out $sigFile
+          
+          if (Test-Path $sigFile) {
+            $sigSize = (Get-Item $sigFile).Length
+            Write-Host "  ✓ Signature generated: $sigSize bytes" -ForegroundColor Green
+          } else {
+            Write-Host "  ✗ Failed to generate signature" -ForegroundColor Red
+          }
+        }
+        
+        Write-Host ""
+        Write-Host "============================================" -ForegroundColor Green
+        Write-Host "  ✓ All signatures generated successfully" -ForegroundColor Green
+        Write-Host "============================================" -ForegroundColor Green
+
+    # ------------------------------------------------------------------------
     # Step Group 8: Artifact Preparation and Upload
     # ------------------------------------------------------------------------
     - name: Compress Windows artifacts for upload
@@ -999,6 +1062,8 @@ jobs:
           if (Test-Path $sigFile) {
             Copy-Item $sigFile "artifacts/" -Force
             Write-Host "Copied signature: $(Split-Path -Leaf $sigFile)"
+          } else {
+            Write-Host "WARNING: Signature file not found: $sigFile" -ForegroundColor Yellow
           }
         } else {
           Write-Host "WARNING: Setup file not found: $setupFile" -ForegroundColor Yellow
@@ -1624,6 +1689,62 @@ jobs:
         echo "[OK] Build validation passed"
 
     # ------------------------------------------------------------------------
+    # Step: Generate Ed25519 Signatures for OTA Updates
+    # ------------------------------------------------------------------------
+    - name: Generate Ed25519 signatures
+      if: |
+        steps.arch_check.outputs.should_build == 'true' && (
+          needs.validate-tag.outputs.environment == 'production' || 
+          needs.validate-tag.outputs.environment == 'staging' ||
+          needs.validate-tag.outputs.environment == 'test'
+        )
+      run: |
+        echo "=== Generating Ed25519 Signatures ==="
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        ARCH="${{ matrix.arch }}"
+        
+        # Check if private key exists
+        KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+        if [ ! -f "$KEY_PATH" ]; then
+          echo "[ERROR] Private key not found: $KEY_PATH"
+          echo "[ERROR] OTA signatures cannot be generated"
+          exit 1
+        fi
+        
+        echo "[OK] Private key found: $KEY_PATH"
+        
+        # Install OpenSSL if needed
+        if ! command -v openssl &> /dev/null; then
+          echo "Installing OpenSSL..."
+          brew install openssl
+        fi
+        
+        # Generate signature for main PKG file
+        PKG_FILE="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+        if [ -f "$PKG_FILE" ]; then
+          echo "Generating signature for: $(basename $PKG_FILE)"
+          
+          # Use OpenSSL to generate Ed25519 signature
+          SIG_FILE="${PKG_FILE}.sig"
+          openssl pkeyutl -sign -inkey "$KEY_PATH" -rawin -in "$PKG_FILE" -out "$SIG_FILE"
+          
+          if [ -f "$SIG_FILE" ]; then
+            SIG_SIZE=$(wc -c < "$SIG_FILE")
+            echo "  ✓ Signature generated: $SIG_SIZE bytes"
+          else
+            echo "  ✗ Failed to generate signature"
+            exit 1
+          fi
+        else
+          echo "[WARN] PKG file not found: $PKG_FILE"
+        fi
+        
+        echo ""
+        echo "============================================"
+        echo "  ✓ All signatures generated successfully"
+        echo "============================================"
+
+    # ------------------------------------------------------------------------
     # Step Group 7: Artifact Preparation and Upload
     # ------------------------------------------------------------------------
     - name: Compress macOS artifacts for upload
@@ -1650,6 +1771,8 @@ jobs:
           if [ -f "$SIG_FILE" ]; then
             cp "$SIG_FILE" artifacts/
             echo "Copied signature: $(basename $SIG_FILE)"
+          else
+            echo "WARNING: Signature file not found: $SIG_FILE"
           fi
         else
           echo "[ERROR] PKG file not found: $PKG_FILE"
