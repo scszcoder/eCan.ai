@@ -627,6 +627,98 @@ jobs:
         echo "=== Injecting Build Info ==="
         python build_system/scripts/inject_build_info.py --version ${{ needs.validate-tag.outputs.version }} --environment ${{ needs.validate-tag.outputs.environment }}
 
+    # ------------------------------------------------------------------------
+    # Step: Setup OTA Signing Key from GitHub Secrets
+    # ------------------------------------------------------------------------
+    - name: Setup OTA signing key
+      if: |
+        needs.validate-tag.outputs.environment == 'production' || 
+        needs.validate-tag.outputs.environment == 'staging' ||
+        needs.validate-tag.outputs.environment == 'test'
+      env:
+        OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+      shell: pwsh
+      run: |
+        Write-Host "=== Setting up OTA signing key ===" -ForegroundColor Cyan
+        Write-Host "Environment: ${{ needs.validate-tag.outputs.environment }}" -ForegroundColor Gray
+        Write-Host ""
+        
+        # Create certificates directory
+        $certDir = "build_system\certificates"
+        if (-not (Test-Path $certDir)) {
+          New-Item -ItemType Directory -Force -Path $certDir | Out-Null
+          Write-Host "[OK] Created directory: $certDir" -ForegroundColor Green
+        }
+        
+        # Check if secret is available
+        if ([string]::IsNullOrEmpty($env:OTA_PRIVATE_KEY)) {
+          Write-Host "[ERROR] ========================================" -ForegroundColor Red
+          Write-Host "[ERROR] OTA_ED25519_PRIVATE_KEY secret is NOT configured" -ForegroundColor Red
+          Write-Host "[ERROR] ========================================" -ForegroundColor Red
+          Write-Host ""
+          Write-Host "To fix this issue:" -ForegroundColor Yellow
+          Write-Host "1. Run: .\prepare_github_secret.ps1" -ForegroundColor Gray
+          Write-Host "2. Go to: GitHub repository -> Settings -> Secrets -> Actions" -ForegroundColor Gray
+          Write-Host "3. Add secret:" -ForegroundColor Gray
+          Write-Host "   Name:  OTA_ED25519_PRIVATE_KEY" -ForegroundColor Gray
+          Write-Host "   Value: [paste from clipboard]" -ForegroundColor Gray
+          Write-Host ""
+          Write-Host "See: OTA_SIGNING_COMPLETE_GUIDE.md for detailed instructions" -ForegroundColor Gray
+          Write-Host ""
+          exit 1
+        }
+        
+        # Decode base64 and write private key
+        $keyPath = "$certDir\ed25519_private_key.pem"
+        Write-Host "[1/3] Decoding base64 private key..." -ForegroundColor Yellow
+        try {
+          $keyBytes = [Convert]::FromBase64String($env:OTA_PRIVATE_KEY)
+          $keyContent = [System.Text.Encoding]::UTF8.GetString($keyBytes)
+          Set-Content -Path $keyPath -Value $keyContent -NoNewline
+          Write-Host "  ✓ Base64 decoded successfully" -ForegroundColor Green
+        } catch {
+          Write-Host "  ✗ Failed to decode base64: $_" -ForegroundColor Red
+          exit 1
+        }
+        
+        # Verify key format
+        Write-Host "[2/3] Verifying key format..." -ForegroundColor Yellow
+        $keyCheck = Get-Content $keyPath -Raw
+        if ($keyCheck -match "BEGIN PRIVATE KEY") {
+          Write-Host "  ✓ Key format verified (PEM)" -ForegroundColor Green
+        } else {
+          Write-Host "  ✗ Invalid key format (expected PEM)" -ForegroundColor Red
+          Write-Host "  Key should start with: -----BEGIN PRIVATE KEY-----" -ForegroundColor Gray
+          exit 1
+        }
+        
+        # Set file permissions
+        Write-Host "[3/3] Setting file permissions..." -ForegroundColor Yellow
+        try {
+          $acl = Get-Acl $keyPath
+          $acl.SetAccessRuleProtection($true, $false)
+          $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            [System.Security.Principal.WindowsIdentity]::GetCurrent().Name,
+            "Read",
+            "Allow"
+          )
+          $acl.SetAccessRule($rule)
+          Set-Acl $keyPath $acl
+          Write-Host "  ✓ File permissions set (read-only)" -ForegroundColor Green
+        } catch {
+          Write-Host "  ⚠ Warning: Could not set file permissions: $_" -ForegroundColor Yellow
+        }
+        
+        Write-Host ""
+        Write-Host "============================================" -ForegroundColor Green
+        Write-Host "  ✓ OTA signing key configured successfully" -ForegroundColor Green
+        Write-Host "============================================" -ForegroundColor Green
+        Write-Host "Key path: $keyPath" -ForegroundColor Gray
+        Write-Host ""
+
+    # ------------------------------------------------------------------------
+    # Step Group 6: Build Application
+    # ------------------------------------------------------------------------
     - name: Build Windows EXE
       shell: pwsh
       env:
@@ -1116,6 +1208,76 @@ jobs:
         echo "=== Injecting Build Info ==="
         python build_system/scripts/inject_build_info.py --version ${{ needs.validate-tag.outputs.version }} --environment ${{ needs.validate-tag.outputs.environment }}
 
+    # ------------------------------------------------------------------------
+    # Step: Setup OTA Signing Key from GitHub Secrets
+    # ------------------------------------------------------------------------
+    - name: Setup OTA signing key
+      if: |
+        steps.arch_check.outputs.should_build == 'true' && (
+          needs.validate-tag.outputs.environment == 'production' || 
+          needs.validate-tag.outputs.environment == 'staging' ||
+          needs.validate-tag.outputs.environment == 'test'
+        )
+      env:
+        OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+      run: |
+        echo "=== Setting up OTA signing key ==="
+        echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+        echo ""
+        
+        # Create certificates directory
+        mkdir -p build_system/certificates
+        echo "[OK] Created directory: build_system/certificates"
+        
+        # Check if secret is available
+        if [ -z "$OTA_PRIVATE_KEY" ]; then
+          echo "[ERROR] ========================================"
+          echo "[ERROR] OTA_ED25519_PRIVATE_KEY secret is NOT configured"
+          echo "[ERROR] ========================================"
+          echo ""
+          echo "To fix this issue:"
+          echo "1. Run: ./prepare_github_secret.ps1 (on Windows)"
+          echo "2. Go to: GitHub repository → Settings → Secrets → Actions"
+          echo "3. Add secret:"
+          echo "   Name:  OTA_ED25519_PRIVATE_KEY"
+          echo "   Value: [paste from clipboard]"
+          echo ""
+          echo "See: OTA_SIGNING_COMPLETE_GUIDE.md for detailed instructions"
+          echo ""
+          exit 1
+        fi
+        
+        # Decode base64 and write private key
+        KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+        echo "[1/3] Decoding base64 private key..."
+        echo "$OTA_PRIVATE_KEY" | base64 -d > "$KEY_PATH"
+        echo "  ✓ Base64 decoded successfully"
+        
+        # Verify key format
+        echo "[2/3] Verifying key format..."
+        if grep -q "BEGIN PRIVATE KEY" "$KEY_PATH"; then
+          echo "  ✓ Key format verified (PEM)"
+        else
+          echo "  ✗ Invalid key format (expected PEM)"
+          echo "  Key should start with: -----BEGIN PRIVATE KEY-----"
+          exit 1
+        fi
+        
+        # Set file permissions
+        echo "[3/3] Setting file permissions..."
+        chmod 600 "$KEY_PATH"
+        echo "  ✓ File permissions set (600)"
+        
+        echo ""
+        echo "============================================"
+        echo "  ✓ OTA signing key configured successfully"
+        echo "============================================"
+        echo "Key path: $KEY_PATH"
+        echo ""
+
+    # ------------------------------------------------------------------------
+    # Step: Build Application
+    # ------------------------------------------------------------------------
     - name: Build macOS App
       if: steps.arch_check.outputs.should_build == 'true'
       env:
