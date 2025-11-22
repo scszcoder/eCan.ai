@@ -225,6 +225,35 @@ jobs:
           
           echo "✅ Windows build simulated"
       
+      # ------------------------------------------------------------------------
+      # Step: Setup OTA Signing Key from GitHub Secrets
+      # ------------------------------------------------------------------------
+      - name: Setup OTA signing key
+        if: |
+          needs.validate-tag.outputs.environment == 'production' || 
+          needs.validate-tag.outputs.environment == 'staging' ||
+          needs.validate-tag.outputs.environment == 'test'
+        env:
+          OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+        run: |
+          echo "=== Setting up OTA signing key ==="
+          echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+          
+          # Create certificates directory
+          mkdir -p build_system/certificates
+          
+          # Check if secret is available
+          if [ -z "$OTA_PRIVATE_KEY" ]; then
+            echo "[WARNING] OTA_ED25519_PRIVATE_KEY secret is NOT configured"
+            echo "Signature generation will be skipped"
+          else
+            # Decode base64 and write private key
+            KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+            echo "$OTA_PRIVATE_KEY" | base64 -d > "$KEY_PATH"
+            chmod 600 "$KEY_PATH"
+            echo "✓ OTA signing key configured successfully"
+          fi
+      
       - name: Generate real Ed25519 signature
         run: |
           VERSION="${{ needs.validate-tag.outputs.version }}"
@@ -373,6 +402,37 @@ jobs:
           cp "dist/eCan-${VERSION}-macos-${ARCH}.pkg" artifacts/
           
           echo "✅ macOS ${{ matrix.arch }} build simulated"
+      
+      # ------------------------------------------------------------------------
+      # Step: Setup OTA Signing Key from GitHub Secrets
+      # ------------------------------------------------------------------------
+      - name: Setup OTA signing key
+        if: |
+          steps.arch_check.outputs.should_build == 'true' && (
+            needs.validate-tag.outputs.environment == 'production' || 
+            needs.validate-tag.outputs.environment == 'staging' ||
+            needs.validate-tag.outputs.environment == 'test'
+          )
+        env:
+          OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+        run: |
+          echo "=== Setting up OTA signing key ==="
+          echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+          
+          # Create certificates directory
+          mkdir -p build_system/certificates
+          
+          # Check if secret is available
+          if [ -z "$OTA_PRIVATE_KEY" ]; then
+            echo "[WARNING] OTA_ED25519_PRIVATE_KEY secret is NOT configured"
+            echo "Signature generation will be skipped"
+          else
+            # Decode base64 and write private key
+            KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+            echo "$OTA_PRIVATE_KEY" | base64 -d > "$KEY_PATH"
+            chmod 600 "$KEY_PATH"
+            echo "✓ OTA signing key configured successfully"
+          fi
       
       - name: Generate real Ed25519 signature
         if: steps.arch_check.outputs.should_build == 'true'

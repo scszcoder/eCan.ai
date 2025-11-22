@@ -61,7 +61,11 @@ environments:
     # Appcast base URL (development environment uses local server)
     appcast_base: "http://127.0.0.1:8080"
     
-    # Signature verification
+    # Signature verification (disabled by default for key security)
+    # To enable signature verification:
+    # 1. Ensure private key exists: build_system/certificates/ed25519_private_key.pem
+    # 2. Ensure public key exists: ota/certificates/ed25519_public_key.pem
+    # 3. Set both options below to true
     signature_required: false
     signature_verification: false
     
