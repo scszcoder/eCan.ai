@@ -432,7 +432,7 @@ Examples:
     )
     
     parser.add_argument('--version', required=True, help='Version number (e.g., 1.0.0, 1.0.0-rc.1)')
-    parser.add_argument('--env', required=True, choices=['dev', 'test', 'staging', 'production', 'simulation'],
+    parser.add_argument('--env', required=True, choices=['dev', 'development', 'test', 'staging', 'production', 'simulation'],
                        help='Target environment')
     parser.add_argument('--platform', choices=['macos', 'windows'],
                        help='Only upload this platform (optional)')
