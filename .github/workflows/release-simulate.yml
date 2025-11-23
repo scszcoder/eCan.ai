@@ -225,6 +225,36 @@ jobs:
           
           echo "✅ Windows build simulated"
       
+      # ------------------------------------------------------------------------
+      # Step: Setup OTA Signing Key from GitHub Secrets
+      # ------------------------------------------------------------------------
+      - name: Setup OTA signing key
+        if: |
+          needs.validate-tag.outputs.environment == 'production' || 
+          needs.validate-tag.outputs.environment == 'staging' ||
+          needs.validate-tag.outputs.environment == 'test' ||
+          needs.validate-tag.outputs.environment == 'simulation'
+        env:
+          OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+        run: |
+          echo "=== Setting up OTA signing key ==="
+          echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+          
+          # Create certificates directory
+          mkdir -p build_system/certificates
+          
+          # Check if secret is available
+          if [ -z "$OTA_PRIVATE_KEY" ]; then
+            echo "[WARNING] OTA_ED25519_PRIVATE_KEY secret is NOT configured"
+            echo "Signature generation will be skipped"
+          else
+            # Decode base64 and write private key
+            KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+            echo "$OTA_PRIVATE_KEY" | base64 -d > "$KEY_PATH"
+            chmod 600 "$KEY_PATH"
+            echo "✓ OTA signing key configured successfully"
+          fi
+      
       - name: Generate real Ed25519 signature
         run: |
           VERSION="${{ needs.validate-tag.outputs.version }}"
@@ -239,10 +269,28 @@ jobs:
           # Generate real Ed25519 signature
           if [ -f "build_system/certificates/ed25519_private_key.pem" ]; then
             echo "Generating real Ed25519 signature..."
-            openssl pkeyutl -sign -inkey build_system/certificates/ed25519_private_key.pem \
-              -rawin -in "$INSTALLER" -out "${INSTALLER}.sig"
-            cp "${INSTALLER}.sig" artifacts/
-            echo "✅ Real signature generated"
+            # Use signing_manager.py for Ed25519 signing (OpenSSL pkeyutl doesn't support Ed25519 in all versions)
+            python build_system/signing_manager.py \
+              "$INSTALLER" \
+              "build_system/certificates/ed25519_private_key.pem" \
+              "${INSTALLER}.sig"
+            
+            # Check if signature was generated successfully
+            if [ -f "${INSTALLER}.sig" ]; then
+              SIG_SIZE=$(wc -c < "${INSTALLER}.sig" | tr -d ' ')
+              if [ "$SIG_SIZE" -eq 64 ]; then
+                cp "${INSTALLER}.sig" artifacts/
+                echo "✅ Real signature generated (64 bytes)"
+              else
+                echo "⚠️  Invalid signature size: $SIG_SIZE bytes (expected 64), creating placeholder"
+                echo "simulation_signature" > "${INSTALLER}.sig"
+                cp "${INSTALLER}.sig" artifacts/
+              fi
+            else
+              echo "⚠️  Signature generation failed, creating placeholder"
+              echo "simulation_signature" > "${INSTALLER}.sig"
+              cp "${INSTALLER}.sig" artifacts/
+            fi
           else
             echo "⚠️  Private key not found, creating placeholder signature"
             echo "simulation_signature" > "${INSTALLER}.sig"
@@ -374,6 +422,38 @@ jobs:
           
           echo "✅ macOS ${{ matrix.arch }} build simulated"
       
+      # ------------------------------------------------------------------------
+      # Step: Setup OTA Signing Key from GitHub Secrets
+      # ------------------------------------------------------------------------
+      - name: Setup OTA signing key
+        if: |
+          steps.arch_check.outputs.should_build == 'true' && (
+            needs.validate-tag.outputs.environment == 'production' || 
+            needs.validate-tag.outputs.environment == 'staging' ||
+            needs.validate-tag.outputs.environment == 'test' ||
+            needs.validate-tag.outputs.environment == 'simulation'
+          )
+        env:
+          OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+        run: |
+          echo "=== Setting up OTA signing key ==="
+          echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+          
+          # Create certificates directory
+          mkdir -p build_system/certificates
+          
+          # Check if secret is available
+          if [ -z "$OTA_PRIVATE_KEY" ]; then
+            echo "[WARNING] OTA_ED25519_PRIVATE_KEY secret is NOT configured"
+            echo "Signature generation will be skipped"
+          else
+            # Decode base64 and write private key
+            KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+            echo "$OTA_PRIVATE_KEY" | base64 -d > "$KEY_PATH"
+            chmod 600 "$KEY_PATH"
+            echo "✓ OTA signing key configured successfully"
+          fi
+      
       - name: Generate real Ed25519 signature
         if: steps.arch_check.outputs.should_build == 'true'
         run: |
@@ -390,10 +470,28 @@ jobs:
           # Generate real Ed25519 signature
           if [ -f "build_system/certificates/ed25519_private_key.pem" ]; then
             echo "Generating real Ed25519 signature..."
-            openssl pkeyutl -sign -inkey build_system/certificates/ed25519_private_key.pem \
-              -rawin -in "$INSTALLER" -out "${INSTALLER}.sig"
-            cp "${INSTALLER}.sig" artifacts/
-            echo "✅ Real signature generated for macOS ${{ matrix.arch }}"
+            # Use signing_manager.py for Ed25519 signing (OpenSSL pkeyutl doesn't support Ed25519 in all versions)
+            python build_system/signing_manager.py \
+              "$INSTALLER" \
+              "build_system/certificates/ed25519_private_key.pem" \
+              "${INSTALLER}.sig"
+            
+            # Check if signature was generated successfully
+            if [ -f "${INSTALLER}.sig" ]; then
+              SIG_SIZE=$(wc -c < "${INSTALLER}.sig" | tr -d ' ')
+              if [ "$SIG_SIZE" -eq 64 ]; then
+                cp "${INSTALLER}.sig" artifacts/
+                echo "✅ Real signature generated for macOS ${{ matrix.arch }} (64 bytes)"
+              else
+                echo "⚠️  Invalid signature size: $SIG_SIZE bytes (expected 64), creating placeholder"
+                echo "simulation_signature" > "${INSTALLER}.sig"
+                cp "${INSTALLER}.sig" artifacts/
+              fi
+            else
+              echo "⚠️  Signature generation failed, creating placeholder"
+              echo "simulation_signature" > "${INSTALLER}.sig"
+              cp "${INSTALLER}.sig" artifacts/
+            fi
           else
             echo "⚠️  Private key not found, creating placeholder signature"
             echo "simulation_signature" > "${INSTALLER}.sig"
