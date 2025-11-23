@@ -207,6 +207,7 @@ class AgentTaskManager(InMemoryTaskManager):
                 if msg_js.metadata["mtype"] == "send_chat":
                     agent_wait_response = self._agent.runner.sync_task_wait_in_line("human_chat", request)
                 elif msg_js.metadata["mtype"] == "dev_send_chat":
+                    logger.debug("human chat for development task......")
                     agent_wait_response = self._agent.runner.sync_task_wait_in_line("dev_human_chat", request)
                 else:
                     agent_wait_response = {}

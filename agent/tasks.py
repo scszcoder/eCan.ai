@@ -38,6 +38,12 @@ from agent.tasks_resume import build_general_resume_payload, build_node_transfer
 from enum import Enum
 from gui.ipc.api import IPCAPI
 ipc = IPCAPI.get_instance()
+
+# Dev/Run timeouts and polling intervals for queue-based resumes
+# These can be tuned via environment variables during verification and later reduced/noised down
+DEV_EVENT_TIMEOUT_SEC = int(os.getenv("DEV_EVENT_TIMEOUT_SEC", "300"))
+DEV_EVENT_POLL_INTERVAL_SEC = float(os.getenv("DEV_EVENT_POLL_INTERVAL_SEC", "0.5"))
+RUN_EVENT_TIMEOUT_SEC = int(os.getenv("RUN_EVENT_TIMEOUT_SEC", "600"))
 # self.REPEAT_TYPES = ["none", "by seconds", "by minutes", "by hours", "by days", "by weeks", "by months", "by years"]
 # self.WEEK_DAY_TYPES = ["M", "Tu", "W", "Th", "F", "Sa", "Su"]
 # self.MONTH_TYPES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -1092,7 +1098,7 @@ class TaskRunner(Generic[Context]):
         except Exception:
             etype = event_type
 
-        logger.debug("normalized event:", event)
+        logger.debug("normalized event:", etype, event)
 
         # First, try task-specific routing based on each task's skill mapping_rules
         try:
@@ -1104,24 +1110,30 @@ class TaskRunner(Generic[Context]):
                     continue
                 skill = t.skill
                 rules = getattr(skill, "mapping_rules", None)
+                print("rules:", rules)
                 if not isinstance(rules, dict):
+                    print("rules not dict?")
                     continue
                 # event_routing can be at top-level; also tolerate run_mode nesting
                 event_routing = rules.get("event_routing")
                 if not isinstance(event_routing, dict):
+                    print("event_routing not dict0?", event_routing)
                     run_mode = getattr(skill, "run_mode", None)
                     if run_mode and isinstance(rules.get(run_mode), dict):
                         event_routing = rules.get(run_mode, {}).get("event_routing")
                 if not isinstance(event_routing, dict):
+                    print("event_routing not dict1?", event_routing)
                     continue
 
                 rule = event_routing.get(etype)
                 if not isinstance(rule, dict):
+                    print("rule not dict?", rule)
                     continue
 
                 selector = rule.get("task_selector") or ""
                 sel_ok = False
                 try:
+                    print("selector:", selector)
                     if selector.startswith("id:"):
                         task_id_to_match = selector.split(":", 1)[1].strip()
                         sel_ok = (t.id or "").strip() == task_id_to_match
@@ -1855,8 +1867,7 @@ class TaskRunner(Generic[Context]):
                                 if not updated:
                                     logger.debug("_build_resume_payload: checkpoint values not updated due to unexpected type/immutability")
                             except Exception as _e:
-                                err_msg = get_traceback(_e, "ErrorBuildResumePayloadV2")
-                                logger.debug(f"_build_resume_payload: failed to set merged values on checkpoint: {err_msg}")
+                                logger.debug(f"_build_resume_payload: failed to set merged values on checkpoint: {_e}")
 
                             logger.debug("_build_resume_payload resume cp===>", resume_cp)
                     # Always include state_patch in resume payload so nodes can merge it on resume
@@ -1958,7 +1969,7 @@ class TaskRunner(Generic[Context]):
             logger.error(f"{ex_stat}")
 
 
-    def launch_unified_run(self, task2run=None, trigger_type="queue"):
+    def launch_unified_run(self, task2run=None, trigger_type="queue", *, dev_init_state=None, dev_single_run: bool = False):
         """
         Unified task execution loop supporting all trigger types.
         
@@ -1974,6 +1985,13 @@ class TaskRunner(Generic[Context]):
         """
         # CRITICAL: Log IMMEDIATELY at function entry
         logger.info(f"[WORKER_THREAD] *** FUNCTION ENTRY *** agent={self.agent.card.name}, trigger_type={trigger_type}")
+        if trigger_type == "dev":
+            logger.info(f"[DEV] launch_unified_run started in DEV MODE: single_run={dev_single_run}, has_init_state={isinstance(dev_init_state, dict)}")
+            # Local dev-exit flag scoped to this invocation
+            try:
+                self._dev_exit_requested = False
+            except Exception:
+                pass
         
         justStarted = True
         consecutive_errors = 0
@@ -1983,8 +2001,10 @@ class TaskRunner(Generic[Context]):
         
         loop_count = 0
         while not self._stop_event.is_set():
+            # print("in task main loop......0")
             loop_count += 1
             msg = None  # Reset message for each iteration
+            message_taken_from_queue = False  # Track if we actually consumed a queue item
             # High-frequency tick for My Twin Agent only to verify loop progress and queue binding
             try:
                 if "Twin" in self.agent.card.name:
@@ -2002,7 +2022,7 @@ class TaskRunner(Generic[Context]):
             # Log every 10 iterations to show thread is alive
             # if loop_count % 10 == 0:
             #     logger.debug(f"[WORKER_THREAD] Still alive: trigger_type={trigger_type}, agent={self.agent.card.name}, loop_count={loop_count}")
-
+            # print("in task main loop......1")
             try:
                 # Log entry into try block for My Twin Agent
                 if loop_count == 1 and "Twin" in self.agent.card.name:
@@ -2020,7 +2040,8 @@ class TaskRunner(Generic[Context]):
                     logger.debug(f"Scheduled task ready: {current_task.name}")
                     msg = None  # Scheduled tasks don't have input messages
                     
-                elif trigger_type in ("a2a_queue", "chat_queue", "message"):
+                elif trigger_type in ("a2a_queue", "chat_queue", "message", "dev"):
+                    # print("in task main loop......2")
                     # Queue-based tasks: wait for messages
                     if not current_task:
                         logger.warning(f"[WORKER_THREAD] No current_task for trigger_type={trigger_type}")
@@ -2041,11 +2062,39 @@ class TaskRunner(Generic[Context]):
                             )
                         except Exception:
                             pass
+                    # print("in task main loop......3")
+                    # DEV MODE: kick off initial run immediately without waiting for queue
+                    dev_initial_kickoff = False
+                    if trigger_type == "dev":
+                        try:
+                            # Initialize task state structure if missing
+                            if current_task.id not in self._task_states:
+                                self._task_states[current_task.id] = {'justStarted': True}
+                            is_initial_run_probe = self._task_states[current_task.id].get('justStarted', True)
+                        except Exception:
+                            is_initial_run_probe = True
+                        if is_initial_run_probe:
+                            dev_initial_kickoff = True
+                            msg = {"__dev_kickoff__": True}
+                            logger.info("[DEV] Initial dev run: bypassing queue wait and executing immediately")
 
                     try:
-                        msg = current_task.queue.get(timeout=0.5)
-                        logger.info(f"[WORKER_THREAD] Queue NOT empty! Processing message for task={current_task.name}")
-                        logger.info(f"[WORKER_THREAD] {trigger_type} message received: {type(msg)}")
+                        if not dev_initial_kickoff:
+                            msg = current_task.queue.get(timeout=0.5 if trigger_type != "dev" else DEV_EVENT_POLL_INTERVAL_SEC)
+                            message_taken_from_queue = True
+                            logger.info(f"[WORKER_THREAD] Queue NOT empty! Processing message for task={current_task.name}")
+                            logger.info(f"[WORKER_THREAD] {trigger_type} message received: {type(msg)} | {msg}")
+                        # Handle shutdown sentinel early for dev mode
+                        if trigger_type == "dev" and isinstance(msg, dict) and msg.get("__shutdown__"):
+                            logger.info("[DEV] Received shutdown signal on queue; exiting dev run.")
+                            try:
+                                # Store a result and request exit
+                                if current_task and current_task.id in getattr(self, "_task_states", {}):
+                                    self._task_states[current_task.id]['last_response'] = {"success": False, "error": "Shutdown"}
+                                self._dev_exit_requested = True
+                            except Exception:
+                                pass
+                            break
 
                         # For chat queue, find the appropriate chatter task
                         if trigger_type == "chat_queue":
@@ -2065,6 +2114,9 @@ class TaskRunner(Generic[Context]):
                                     except:
                                         pass
                                 continue
+                        elif trigger_type == "a2a_queue":
+                                logger.debug(f"[WORKER_THREAD] a2a queued message")
+
                     except Empty:
                         # No message this cycle; allow cooperative stop and continue quickly
                         if "Twin" in self.agent.card.name:
@@ -2073,7 +2125,47 @@ class TaskRunner(Generic[Context]):
                                 logger.trace(f"[WORKER_THREAD][Twin] queue.get timeout (no message), loop={loop_count}, qid={id(current_task.queue)}, qsize_now={qsz_now}")
                             except Exception:
                                 pass
+                        # Enforce pending timeout logic
+                        try:
+                            # print("in task main loop......4")
+                            state = self._task_states.get(current_task.id, {})
+                            pending_since = state.get('pending_since')
+                            # print("in task main loop......5", pending_since)
+                            if pending_since:
+                                if trigger_type == "dev":
+                                    if (time.time() - pending_since) > DEV_EVENT_TIMEOUT_SEC:
+                                        msg = f"[DEV] Timed out waiting for event after {DEV_EVENT_TIMEOUT_SEC}s for task_id={current_task.id}."
+                                        logger.error(msg)
+                                        ipc.send_skill_editor_log("error", msg)
+                                        try:
+                                            current_task.status.state = TaskState.FAILED
+                                        except Exception:
+                                            pass
+                                        try:
+                                            state['last_response'] = {"success": False, "error": "TimeoutWaitingForEvent"}
+                                        except Exception:
+                                            pass
+                                        try:
+                                            self._dev_exit_requested = True
+                                        except Exception:
+                                            pass
+                                else:
+                                    if (time.time() - pending_since) > RUN_EVENT_TIMEOUT_SEC:
+                                        logger.error(f"[RUN] Timed out waiting for event after {RUN_EVENT_TIMEOUT_SEC}s for task_id={current_task.id}. Marking failed and resetting.")
+                                        try:
+                                            current_task.status.state = TaskState.FAILED
+                                        except Exception:
+                                            pass
+                                        try:
+                                            state['justStarted'] = True
+                                            state['pending_since'] = None
+                                        except Exception:
+                                            pass
+                        except Exception:
+                            print("in task main loop......6 pass")
+                            pass
                         if self._stop_event.wait(timeout=0.5):
+                            print("in task main loop......6 break")
                             break
                         continue
                 else:
@@ -2081,7 +2173,7 @@ class TaskRunner(Generic[Context]):
                     if self._stop_event.wait(timeout=1.0):
                         break
                     continue
-                
+                print("in task main loop......7")
                 # Validate task exists before proceeding
                 if not current_task:
                     logger.warning(f"No valid task for trigger_type={trigger_type}")
@@ -2127,53 +2219,130 @@ class TaskRunner(Generic[Context]):
                 
                 # Capture state for this specific message execution
                 is_initial_run = self._task_states[current_task.id]['justStarted']
+                pending_since = self._task_states[current_task.id].get('pending_since')
+                logger.debug(f"[WORKER_THREAD] is_initial_run={is_initial_run}, pending_since={pending_since}, trigger_type={trigger_type}")
                 
                 # Submit skill execution to background thread
                 def _execute_skill():
                     try:
                         t_skill_start = time.time()
-                        if is_initial_run:
-                            # Initial run
-                            logger.debug(f"[EXECUTOR] Initial run: {current_task.skill.name}")
-                            t_prep = time.time()
-                            current_task.metadata["state"] = prep_skills_run(
-                                current_task.skill,
-                                self.agent, 
-                                current_task.id, 
-                                msg, 
-                                None
-                            )
-                            logger.debug(f"[PERF] _execute_skill - prep_skills_run: {time.time()-t_prep:.3f}s")
-                            t_run = time.time()
-                            response = current_task.stream_run()
-                            logger.debug(f"[PERF] _execute_skill - initial stream_run: {time.time()-t_run:.3f}s")
-                            logger.debug(f"[PERF] _execute_skill - TOTAL: {time.time()-t_skill_start:.3f}s")
-                            logger.debug(f"[EXECUTOR] Initial run response: {response}")
-                            return response, True  # (response, task_completed)
-                        else:
-                            # Resume run
-                            logger.debug(f"[EXECUTOR] Resume run: {current_task.skill.name}")
-                            t_resume = time.time()
-                            resume_payload, cp = self._build_resume_payload(current_task, msg)
-                            logger.debug(f"[PERF] _execute_skill - build_resume_payload: {time.time()-t_resume:.3f}s")
-                            logger.debug(f"[EXECUTOR] Resume payload: {resume_payload}")
-                            
-                            t_run = time.time()
-                            if cp:
-                                response = current_task.stream_run(
-                                    Command(resume=resume_payload), 
-                                    checkpoint=cp, 
-                                    stream_mode="updates"
-                                )
+                        if trigger_type == "dev":
+                            if is_initial_run:
+                                logger.info(f"[DEV][EXECUTOR] Initial dev run for task={current_task.name} ({current_task.id}). Seeding init_state: {isinstance(dev_init_state, dict)}")
+                                prepared_state = None
+                                # Prepare baseline state via prep_skills_run to mirror normal runs
+                                try:
+                                    t_prep = time.time()
+                                    prep_msg = msg if msg not in (None, {"__dev_kickoff__": True}) else None
+                                    prepared_state = prep_skills_run(
+                                        current_task.skill,
+                                        self.agent,
+                                        current_task.id,
+                                        prep_msg,
+                                        None
+                                    )
+                                    logger.debug(f"[DEV][PERF] prep_skills_run: {time.time()-t_prep:.3f}s  prepared_state: {prepared_state}")
+                                except Exception as prep_err:
+                                    logger.error(f"[DEV][EXECUTOR] prep_skills_run failed: {prep_err}")
+                                    logger.error(traceback.format_exc())
+
+                                def _merge_dev_state(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+                                    try:
+                                        merged = dict(base or {})
+                                        for k, v in (override or {}).items():
+                                            existing = merged.get(k)
+                                            if isinstance(existing, dict) and isinstance(v, dict):
+                                                merged[k] = _merge_dev_state(existing, v)
+                                            elif isinstance(existing, (list, tuple)):
+                                                if isinstance(v, (list, tuple)) and any(v):
+                                                    merged[k] = type(existing)(v)
+                                                elif not existing and v:
+                                                    merged[k] = v
+                                                else:
+                                                    merged[k] = existing
+                                            elif isinstance(v, (list, tuple)):
+                                                if v or existing is None:
+                                                    merged[k] = v
+                                            else:
+                                                if v not in (None, "", [], {}):
+                                                    merged[k] = v
+                                                elif existing is None:
+                                                    merged[k] = v
+                                        return merged
+                                    except Exception:
+                                        return override or base or {}
+
+                                final_state: Dict[str, Any] = {}
+                                if isinstance(prepared_state, dict):
+                                    final_state = prepared_state
+                                if isinstance(dev_init_state, dict):
+                                    final_state = _merge_dev_state(final_state, dev_init_state)
+                                if not final_state:
+                                    # Fallback to provided init state or existing metadata state
+                                    if isinstance(dev_init_state, dict):
+                                        final_state = dev_init_state
+                                    else:
+                                        final_state = current_task.metadata.get("state") or {}
+
+                                try:
+                                    current_task.metadata["state"] = final_state
+                                except Exception:
+                                    pass
+                                t_run = time.time()
+                                logger.debug(f"[DEV][EXECUTOR] final initial state to start the workflow run: {final_state}")
+                                response = current_task.stream_run(final_state)
+                                logger.info(f"[DEV][PERF] initial stream_run: {time.time()-t_run:.3f}s (TOTAL {time.time()-t_skill_start:.3f}s)")
+                                logger.debug(f"[DEV][EXECUTOR] Initial run response: {response}")
+                                return response, True
                             else:
-                                response = current_task.stream_run(
-                                    Command(resume=resume_payload), 
-                                    stream_mode="updates"
+                                logger.info(f"[DEV][EXECUTOR] Resume dev run for task={current_task.name} ({current_task.id})")
+                                t_resume = time.time()
+                                resume_payload, cp = self._build_resume_payload(current_task, msg)
+                                logger.debug(f"[DEV][PERF] build_resume_payload: {time.time()-t_resume:.3f}s")
+                                logger.debug(f"[DEV][EXECUTOR] Resume payload: {resume_payload}")
+                                t_run = time.time()
+                                if cp:
+                                    response = current_task.stream_run(Command(resume=resume_payload), checkpoint=cp)
+                                else:
+                                    response = current_task.stream_run(Command(resume=resume_payload))
+                                logger.info(f"[DEV][PERF] resume stream_run: {time.time()-t_run:.3f}s (TOTAL {time.time()-t_skill_start:.3f}s)")
+                                logger.debug(f"[DEV][EXECUTOR] Resume run response: {response}")
+                                return response, False
+                        else:
+                            if is_initial_run:
+                                # Initial run (normal mode)
+                                logger.debug(f"[EXECUTOR] Initial run: {current_task.skill.name}")
+                                t_prep = time.time()
+                                current_task.metadata["state"] = prep_skills_run(
+                                    current_task.skill,
+                                    self.agent,
+                                    current_task.id,
+                                    msg,
+                                    None
                                 )
-                            logger.debug(f"[PERF] _execute_skill - resume stream_run: {time.time()-t_run:.3f}s")
-                            logger.debug(f"[PERF] _execute_skill - TOTAL: {time.time()-t_skill_start:.3f}s")
-                            logger.debug(f"[EXECUTOR] Resume run response: {response}")
-                            return response, False  # (response, task_interrupted)
+                                logger.debug(f"[PERF] _execute_skill - prep_skills_run: {time.time()-t_prep:.3f}s")
+                                t_run = time.time()
+                                response = current_task.stream_run()
+                                logger.debug(f"[PERF] _execute_skill - initial stream_run: {time.time()-t_run:.3f}s")
+                                logger.debug(f"[PERF] _execute_skill - TOTAL: {time.time()-t_skill_start:.3f}s")
+                                logger.debug(f"[EXECUTOR] Initial run response: {response}")
+                                return response, True
+                            else:
+                                # Resume run (normal mode)
+                                logger.debug(f"[EXECUTOR] Resume run: {current_task.skill.name}")
+                                t_resume = time.time()
+                                resume_payload, cp = self._build_resume_payload(current_task, msg)
+                                logger.debug(f"[PERF] _execute_skill - build_resume_payload: {time.time()-t_resume:.3f}s")
+                                logger.debug(f"[EXECUTOR] Resume payload: {resume_payload}")
+                                t_run = time.time()
+                                if cp:
+                                    response = current_task.stream_run(Command(resume=resume_payload), checkpoint=cp, stream_mode="updates")
+                                else:
+                                    response = current_task.stream_run(Command(resume=resume_payload), stream_mode="updates")
+                                logger.debug(f"[PERF] _execute_skill - resume stream_run: {time.time()-t_run:.3f}s")
+                                logger.debug(f"[PERF] _execute_skill - TOTAL: {time.time()-t_skill_start:.3f}s")
+                                logger.debug(f"[EXECUTOR] Resume run response: {response}")
+                                return response, False
                     except Exception as e:
                         logger.error(f"[EXECUTOR] Skill execution failed: {e}")
                         logger.error(traceback.format_exc())
@@ -2231,7 +2400,7 @@ class TaskRunner(Generic[Context]):
                 # Submit to executor with callback
                 future = self._skill_executor.submit(_execute_skill)
                 future.add_done_callback(_on_skill_complete)
-                logger.info(f"[NON_BLOCKING] Skill execution submitted, continuing to poll queue")
+                logger.info(f"[NON_BLOCKING] Skill execution submitted, continuing to poll queue (trigger_type={trigger_type})")
                 
                 # Reset justStarted for next iteration (will be set correctly per message)
                 # Note: justStarted is now effectively stateless per-message
@@ -2259,7 +2428,7 @@ class TaskRunner(Generic[Context]):
             
             finally:
                 # Ensure queue task is marked as done
-                if trigger_type in ("a2a_queue", "chat_queue"):
+                if trigger_type in ("a2a_queue", "chat_queue", "dev") and message_taken_from_queue:
                     if current_task and current_task.queue:
                         try:
                             current_task.queue.task_done()
@@ -2270,6 +2439,12 @@ class TaskRunner(Generic[Context]):
                                     pass
                         except:
                             pass
+
+            # Dev single-run exit check after each loop iteration
+            if trigger_type == "dev" and dev_single_run:
+                if getattr(self, "_dev_exit_requested", False):
+                    logger.info("[DEV] Exit requested; breaking unified loop.")
+                    break
             
             # Loop delay - use interruptible wait
             if self._stop_event.wait(timeout=1.0):
@@ -2310,18 +2485,11 @@ class TaskRunner(Generic[Context]):
         This method is invoked in a background thread from EC_Agent, so it's safe to run synchronously.
         """
         try:
-            log_msg = f"launch_dev_run..."
+            log_msg = f"launch_dev_run (delegating to unified runner in DEV mode)..."
             logger.info(log_msg)
             ipc.send_skill_editor_log("log", log_msg)
             self._dev_task = dev_task
-            # Merge provided initial state
-            if isinstance(init_state, dict):
-                try:
-                    cur = getattr(dev_task, "state", {}) or {}
-                    dev_task.state = {**cur, **init_state}
-                except Exception:
-                    pass
-            # Ensure it is runnable
+            # Ensure it is runnable and has a queue
             try:
                 dev_task.pause_event.set()
             except Exception:
@@ -2331,20 +2499,18 @@ class TaskRunner(Generic[Context]):
                     dev_task.status.state = TaskState.WORKING
                 except Exception:
                     pass
+            if not hasattr(dev_task, "queue") or dev_task.queue is None:
+                try:
+                    logger.info("[DEV] Creating queue for dev_task as it was missing")
+                    dev_task.queue = Queue()
+                except Exception:
+                    pass
 
-            # Execute the dev run synchronously using the sync stream API
-            try:
-                result = dev_task.stream_run(init_state)
-                log_msg = f"Dev run finished with result: {result}"
-                logger.info(log_msg)
-                ipc.send_skill_editor_log("log", log_msg)
-
-                return {"success": True, "result": result}
-            except Exception as run_exc:
-                ex_stat = "ErrorDevRunExecute:" + traceback.format_exc() + " " + str(run_exc)
-                logger.error(ex_stat)
-                ipc.send_skill_editor_log("error", ex_stat)
-                return {"success": False, "error": ex_stat}
+            # Delegate to unified runner in DEV mode and return its response
+            logger.info("[DEV] Delegating to launch_unified_run(trigger_type='dev') with single_run=True")
+            result = self.launch_unified_run(task2run=dev_task, trigger_type="dev", dev_init_state=init_state, dev_single_run=True)
+            logger.info(f"[DEV] Unified runner returned: {result}")
+            return {"success": True, "result": result} if isinstance(result, dict) else {"success": False, "error": "NoResultFromUnifiedRunner"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

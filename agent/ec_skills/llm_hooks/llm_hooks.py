@@ -381,8 +381,8 @@ def run_pre_llm_hook(node_name, agent, state, prompt_src="cloud", prompt_data=No
         logger.debug(f"node_name: {node_name} {agent.card.name}")
         skill_name = node_name.split(":")[1]
         this_skill = next((sk for sk in mainwin.agent_skills if sk.name == skill_name), None)
-        askid = this_skill.askid
-        logger.debug(f"[run_pre_llm_hook] askid: {askid}")
+        # askid = this_skill.askid
+        # logger.debug(f"[run_pre_llm_hook] askid: {askid}")
         askid = "skid0"
         logger.debug(f"pre llm hook node name: {node_name} {askid}")
         # Try exact match first
@@ -409,6 +409,7 @@ def run_post_llm_hook(node_name, agent, state, response):
     try:
         mainwin = agent.mainwin
         skill_name = node_name.split(":")[1]
+        print("skill_name:", node_name, skill_name)
         this_skill = next((sk for sk in mainwin.agent_skills if sk.name == skill_name), None)
         askid = this_skill.askid
         # first run standard stuff, then then the individual func for a specific skill node.
