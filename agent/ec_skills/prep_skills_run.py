@@ -41,8 +41,11 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
                     elif part.type == "file":
                         attachments.append({"filename": part.file.name, "file_url": part.file.uri, "mime_type": part.file.mimeType,
                                     "file_data": part.file.bytes})
-            chat_id = msg.params.metadata["params"]["chatId"]
-            form = msg.params.metadata.get("form", {})
+                chat_id = msg.params.metadata["params"]["chatId"]
+                form = msg.params.metadata.get("form", {})
+            else:
+                chat_id = ""
+                form = {}
             method = getattr(msg, "method", "")
             human = False
             msg_id = getattr(msg, "id", "")

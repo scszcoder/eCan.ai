@@ -26,7 +26,7 @@ chat between human and agents and between human and agents over the internet.
 ### Multi-Agent, Multi-Task
 
 eCan.ai has built-in agents for several e-commerce tasks, but you can easily create your own agents, and assign tasks for them to do.
-tasks can be run on a pre-assigned schedule, for example routine daily task can be created to run at certain time each day. Each task will run in its own thread.
+tasks can be run on either upon human commands or a pre-assigned one-time or recurring schedule, for example routine daily task can be created to run at certain time each day. Each task will run in its own thread.
 A task doesn't just run by itself, it requires a skill to run, a skill is a work-flow description. So one must associate a task with an skill for it to run correctly.
 
 <img src="resource/images/icons/ast0.png" alt="" style="width:480px;"/>
@@ -46,13 +46,14 @@ Once you created a workflow graphically. You can also run/cancel/pause/resume/si
 be added on nodes to pause at certain nodes, and upon pausing, you can inspect the state of the langgraph run, or even modify the state 
 attributes and then resume the run. Flowgram based visual programming of langgraph allows you to focus more effort on work flow rather than
 coding up the langgraph. Here is a feature list of eCan.ai's skill editor:
-* packaged functional nodes enables building workflow with no code or low code.
-* code editor integrated into code node, can edit code directly on canvas.
-* can run/pause/resume all on canvas.
-* can add/clear breakpoints on nodes to pause at certain nodes.
-* support multi-sheets to make large complicated workflow modular
-* node can be left-right mirrored, or top-down mirrored, to support feedback workflow and ease of edge placement.
-* supports bidirectional translation between flowgram and langgraph. Which means you can load graphically view, re-layout, a langgraph created by coded.
+
+* ✅ packaged functional nodes enables building workflow with no code or low code.
+* ✅ code editor integrated into code node, can edit code directly on canvas.
+* ✅ can run/pause/resume all on canvas.
+* ✅ can add/clear breakpoints on nodes to pause at certain nodes.
+* ✅ support multi-sheets to make large complicated workflow modular
+* ✅ node can be left-right mirrored, or top-down mirrored, to support feedback workflow and ease of edge placement.
+* ✅ supports bidirectional translation between flowgram and langgraph. Which means you can load, graphically view, re-layout, a langgraph created by direct python code.
 
 For more detailed user guide of the skill editor, please refer to [skill editor](gui_v2/src/modules/skill-editor/doc/skill_editor_help.md).
 
@@ -65,17 +66,18 @@ These includes:
  * [Browsebase](https://github.com/browserbase) -- to be added.
 
 While playwright is a state-of-art web automation tool, and pretty much become the de-facto standard for web automation,
-we do realize it is still not the same as some of the popular fingerprint browser, to enable their use, we have added 
+we do realize it is still not the same as some of the popular fingerprint browser used by e-Commerce sellers, to enable their use, we have added 
 a rich set of tools based on selenium and webdriver (chromedriver) so that you can automate web interface with browsers 
 such as [AdsPower](https://github.com/AdsPower)
 
-In browser actions are nice, but they are some times not enough, pop-ups, captchas, etc., sometimes we need computer vision (CV) guided mouse 
+In-browser actions are nice, but they are some times not enough, pop-ups, captchas, etc., sometimes we need computer vision (CV) guided mouse 
 and keyboard actions, we have made a state-of-art OCR service to allow CV guided screen understanding and actions, further allowing you
 to fully control your browser or any other app in that matter.
 
 
 ### MCP
 We have a rich set of ready to use MCP tools to work with LLM, refer to more details [here](docs/eCanMCP.md)
+
 ### RAG
 We have RAG (Retrieve Augmented Generation) functionality built in to our app, so you can easily put your product related files, policy related files, 
 or any business related files into vector DB and retrieve them to generate response for your customers.
