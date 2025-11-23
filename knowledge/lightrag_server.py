@@ -37,12 +37,16 @@ class LightragServer:
         import platform
         is_windows = platform.system().lower().startswith('win')
 
-        # In PyInstaller environment, disable parent process monitoring by default to avoid issues
-        if self.is_frozen:
-            logger.info("[LightragServer] Running in PyInstaller environment, disabling parent monitoring by default")
-            self.disable_parent_monitoring = True
-            self.parent_pid = None
-        else:
+        # IMPORTANT: Disable parent process monitoring by default to prevent premature exit
+        # The parent process check can cause false positives during application startup
+        # or when the main process is busy with initialization
+        # Users can explicitly enable it via ENABLE_PARENT_MONITORING=true if needed
+        
+        # Check if parent process monitoring should be explicitly enabled
+        enable_monitoring = self.extra_env.get("ENABLE_PARENT_MONITORING", "false").lower() == "true"
+        
+        if enable_monitoring:
+            # Only enable monitoring if explicitly requested
             if is_windows:
                 try:
                     import psutil
@@ -52,9 +56,14 @@ class LightragServer:
                     self.parent_pid = os.getppid()
             else:
                 self.parent_pid = os.getppid()
-
-            # Check if parent process monitoring should be disabled
-            self.disable_parent_monitoring = self.extra_env.get("DISABLE_PARENT_MONITORING", "false").lower() == "true"
+            
+            self.disable_parent_monitoring = False
+            logger.info(f"[LightragServer] Parent process monitoring ENABLED (PID: {self.parent_pid})")
+        else:
+            # Default: disable parent monitoring to avoid false positives
+            self.disable_parent_monitoring = True
+            self.parent_pid = None
+            logger.info("[LightragServer] Parent process monitoring DISABLED by default (use ENABLE_PARENT_MONITORING=true to enable)")
 
         self._monitor_running = False
         self._monitor_thread = None
