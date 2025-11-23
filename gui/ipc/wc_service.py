@@ -225,7 +225,7 @@ class IPCWCService(QObject):
                 callback(response)
                 # Delete callback after processing
                 del self._request_callbacks[response['id']]
-                logger.info(f"[IPCWCService] Response handled for request: {response['id']} handle finished")
+                logger.trace(f"[IPCWCService] Response handled for request: {response['id']} handle finished")
             else:
                 logger.warning(f"[IPCWCService] No callback found for response: {response['id']}")
         except Exception as e:
@@ -253,7 +253,7 @@ class IPCWCService(QObject):
             # Register callback if provided
             if callback:
                 self._request_callbacks[request['id']] = callback
-                logger.debug(f"[IPCWCService] Callback registered for request: {request['id']}")
+                logger.trace(f"[IPCWCService] Callback registered for request: {request['id']}")
 
             # Send request
             self.python_to_web.emit(json.dumps(request))

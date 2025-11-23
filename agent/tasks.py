@@ -535,7 +535,7 @@ class ManagedTask(Task):
 
         except Exception as e:
             ex_stat = "ErrorAstreamRun:" + traceback.format_exc() + " " + str(e)
-            print(f"{ex_stat}")
+            logger.error(f"{ex_stat}")
             return {"success": False, "Error": ex_stat}
 
         finally:
@@ -761,7 +761,7 @@ class ManagedTask(Task):
 
         except Exception as e:
             ex_stat = "ErrorAstreamRun:" + traceback.format_exc() + " " + str(e)
-            print(f"{ex_stat}")
+            logger.error(f"{ex_stat}")
             return {"success": False, "Error": ex_stat}
 
         finally:
@@ -2001,6 +2001,11 @@ class TaskRunner(Generic[Context]):
         
         loop_count = 0
         while not self._stop_event.is_set():
+            # Check specific task cancellation
+            if current_task and hasattr(current_task, "cancellation_event") and current_task.cancellation_event.is_set():
+                logger.info(f"[WORKER_THREAD] Task {current_task.name} cancellation requested. Exiting unified loop.")
+                break
+
             # print("in task main loop......0")
             loop_count += 1
             msg = None  # Reset message for each iteration
@@ -2073,9 +2078,10 @@ class TaskRunner(Generic[Context]):
                             is_initial_run_probe = self._task_states[current_task.id].get('justStarted', True)
                         except Exception:
                             is_initial_run_probe = True
-                        if is_initial_run_probe:
+                        if is_initial_run_probe and not self._task_states[current_task.id].get('dev_auto_started'):
                             dev_initial_kickoff = True
                             msg = {"__dev_kickoff__": True}
+                            self._task_states[current_task.id]['dev_auto_started'] = True
                             logger.info("[DEV] Initial dev run: bypassing queue wait and executing immediately")
 
                     try:
@@ -2162,10 +2168,10 @@ class TaskRunner(Generic[Context]):
                                         except Exception:
                                             pass
                         except Exception:
-                            print("in task main loop......6 pass")
+                            logger.error("in task main loop......6 pass")
                             pass
                         if self._stop_event.wait(timeout=0.5):
-                            print("in task main loop......6 break")
+                            logger.info("in task main loop......6 break")
                             break
                         continue
                 else:
@@ -2508,6 +2514,13 @@ class TaskRunner(Generic[Context]):
 
             # Delegate to unified runner in DEV mode and return its response
             logger.info("[DEV] Delegating to launch_unified_run(trigger_type='dev') with single_run=True")
+            
+            # Reset task state for new dev run to ensure auto-kickoff triggers
+            if dev_task.id not in self._task_states:
+                self._task_states[dev_task.id] = {}
+            self._task_states[dev_task.id]['dev_auto_started'] = False
+            self._task_states[dev_task.id]['justStarted'] = True
+            
             result = self.launch_unified_run(task2run=dev_task, trigger_type="dev", dev_init_state=init_state, dev_single_run=True)
             logger.info(f"[DEV] Unified runner returned: {result}")
             return {"success": True, "result": result} if isinstance(result, dict) else {"success": False, "error": "NoResultFromUnifiedRunner"}
