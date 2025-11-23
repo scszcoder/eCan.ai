@@ -412,6 +412,7 @@ class ProxyManager:
                     '172.16.0.0/12',
                     '192.168.0.0/16',
                     '47.120.48.82',  # Cloud API server
+                    '52.204.81.197',  # Cloud API server
                 ]
                 no_proxy = ','.join(no_proxy_list)
                 os.environ['NO_PROXY'] = no_proxy
@@ -812,6 +813,7 @@ def initialize_proxy_environment(
                     '172.16.0.0/12',
                     '192.168.0.0/16',
                     '47.120.48.82',  # Cloud API server
+                    '52.204.81.197',  # Cloud API server
                 ]
                 no_proxy = ','.join(no_proxy_list)
                 os.environ['NO_PROXY'] = no_proxy

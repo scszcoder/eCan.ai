@@ -117,7 +117,7 @@ const StyledRefreshButton = styled(Button)`
 // OCR 配置预设
 const OCR_PRESETS = {
   lan: {
-    ocr_api_endpoint: 'http://47.120.48.82:8848/graphql/reqScreenTxtRead',
+    ocr_api_endpoint: 'http://52.204.81.197:8848/graphql/reqScreenTxtRead',
     ocr_api_key: ''
   },
   wan: {
@@ -171,7 +171,7 @@ const initialSettings: Settings = {
   schedule_engine: 'wan',
   
   // OCR
-  ocr_api_endpoint: 'http://47.120.48.82:8848/graphql/reqScreenTxtRead',
+  ocr_api_endpoint: 'http://52.204.81.197:8848/graphql/reqScreenTxtRead',
   
   // LLM
   default_llm: 'ChatOpenAI',
@@ -785,7 +785,7 @@ const Settings: React.FC = () => {
                   <Input 
                     size="small" 
                     placeholder={form.getFieldValue('network_api_engine') === 'lan' 
-                      ? 'http://47.120.48.82:8848/graphql/reqScreenTxtRead' 
+                      ? 'http://52.204.81.197:8848/graphql/reqScreenTxtRead' 
                       : 'Enter WAN OCR endpoint'
                     }
                     suffix={
