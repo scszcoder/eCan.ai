@@ -439,7 +439,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             logger.debug(log_msg)
                             web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
-                            logger.debug("llm_to_use:", llm_to_use)
+                            logger.debug(f"llm_to_use: {llm_to_use}")
                             result = llm_to_use.invoke(recent_context)
                             result_queue.put(result)
 

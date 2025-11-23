@@ -5,7 +5,7 @@ from agent.agent_service import get_agent_by_id
 from agent.ec_skills.llm_utils.llm_utils import *
 
 # try to set up prompts right, with the right parameters
-def pre_more_analysis_app_hook(askid, full_node_name, agent, state):
+def pre_more_analysis_app_hook(askid, full_node_name, agent, state, prompt_src="cloud", prompt_data=None):
     try:
         agent_id = state["messages"][0]
         agent = get_agent_by_id(agent_id)
@@ -26,7 +26,7 @@ def pre_more_analysis_app_hook(askid, full_node_name, agent, state):
         logger.debug(err_trace)
 
 
-def pre_examine_filled_specs(askid, full_node_name, agent, state):
+def pre_examine_filled_specs(askid, full_node_name, agent, state, prompt_src="cloud", prompt_data=None):
     try:
         agent_id = state["messages"][0]
         agent = get_agent_by_id(agent_id)
@@ -47,7 +47,7 @@ def pre_examine_filled_specs(askid, full_node_name, agent, state):
 
 
 
-def pre_confirm_FOM(askid, full_node_name, agent, state):
+def pre_confirm_FOM(askid, full_node_name, agent, state, prompt_src="cloud", prompt_data=None):
     try:
         agent_id = state["messages"][0]
         agent = get_agent_by_id(agent_id)
