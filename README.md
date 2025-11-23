@@ -47,13 +47,13 @@ be added on nodes to pause at certain nodes, and upon pausing, you can inspect t
 attributes and then resume the run. Flowgram based visual programming of langgraph allows you to focus more effort on work flow rather than
 coding up the langgraph. Here is a feature list of eCan.ai's skill editor:
 
-✅ packaged functional nodes enables building workflow with no code or low code.
-✅ code editor integrated into code node, can edit code directly on canvas.
-✅ can run/pause/resume all on canvas.
-✅ can add/clear breakpoints on nodes to pause at certain nodes.
-✅ support multi-sheets to make large complicated workflow modular
-✅ node can be left-right mirrored, or top-down mirrored, to support feedback workflow and ease of edge placement.
-✅ supports bidirectional translation between flowgram and langgraph. Which means you can load, graphically view, re-layout, a langgraph created by direct python code.
+* ✅ packaged functional nodes enables building workflow with no code or low code.
+* ✅ code editor integrated into code node, can edit code directly on canvas.
+* ✅ can run/pause/resume all on canvas.
+* ✅ can add/clear breakpoints on nodes to pause at certain nodes.
+* ✅ support multi-sheets to make large complicated workflow modular
+* ✅ node can be left-right mirrored, or top-down mirrored, to support feedback workflow and ease of edge placement.
+* ✅ supports bidirectional translation between flowgram and langgraph. Which means you can load, graphically view, re-layout, a langgraph created by direct python code.
 
 For more detailed user guide of the skill editor, please refer to [skill editor](gui_v2/src/modules/skill-editor/doc/skill_editor_help.md).
 
