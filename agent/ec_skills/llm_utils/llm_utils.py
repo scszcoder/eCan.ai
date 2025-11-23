@@ -2169,12 +2169,6 @@ def get_recent_context(history: list, max_tokens: int = CONTEXT_WINDOW_SIZE) -> 
             continue  # Already added
 
         msg = history[idx]
-        
-        # Handle ActionMessage (type='action') by converting to AIMessage
-        # This prevents "Got unknown type" errors in langchain_openai
-        if getattr(msg, "type", "") == "action":
-            content = msg.content if hasattr(msg, "content") else str(msg)
-            msg = AIMessage(content=content)
             
         msg_tokens = estimate_tokens(msg)
 
