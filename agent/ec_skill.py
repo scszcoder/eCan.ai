@@ -292,6 +292,7 @@ class NodeState(TypedDict):
     summary: RunningSummary | None
     messages: List[Any]
     threads: List[dict]
+    events: List[dict]
     this_node: str
     attributes: dict
     result: dict
