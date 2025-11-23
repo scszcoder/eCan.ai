@@ -26,7 +26,7 @@ chat between human and agents and between human and agents over the internet.
 ### Multi-Agent, Multi-Task
 
 eCan.ai has built-in agents for several e-commerce tasks, but you can easily create your own agents, and assign tasks for them to do.
-tasks can be run on a pre-assigned schedule, for example routine daily task can be created to run at certain time each day. Each task will run in its own thread.
+tasks can be run on either upon human commands or a pre-assigned one-time or recurring schedule, for example routine daily task can be created to run at certain time each day. Each task will run in its own thread.
 A task doesn't just run by itself, it requires a skill to run, a skill is a work-flow description. So one must associate a task with an skill for it to run correctly.
 
 <img src="resource/images/icons/ast0.png" alt="" style="width:480px;"/>
@@ -46,6 +46,7 @@ Once you created a workflow graphically. You can also run/cancel/pause/resume/si
 be added on nodes to pause at certain nodes, and upon pausing, you can inspect the state of the langgraph run, or even modify the state 
 attributes and then resume the run. Flowgram based visual programming of langgraph allows you to focus more effort on work flow rather than
 coding up the langgraph. Here is a feature list of eCan.ai's skill editor:
+
 * packaged functional nodes enables building workflow with no code or low code.
 * code editor integrated into code node, can edit code directly on canvas.
 * can run/pause/resume all on canvas.
@@ -76,6 +77,7 @@ to fully control your browser or any other app in that matter.
 
 ### MCP
 We have a rich set of ready to use MCP tools to work with LLM, refer to more details [here](docs/eCanMCP.md)
+
 ### RAG
 We have RAG (Retrieve Augmented Generation) functionality built in to our app, so you can easily put your product related files, policy related files, 
 or any business related files into vector DB and retrieve them to generate response for your customers.
