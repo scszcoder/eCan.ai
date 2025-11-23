@@ -181,16 +181,105 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
         if isinstance(msg, dict):
             event_type = msg.get("method", "")
         else:
-            event_type = msg.method
+            event_type = getattr(msg, "method", "")
 
+    # Start with a minimal envelope
     event: Dict[str, Any] = {
         "type": event_type,
-        "source": src,
-        "tag": tag,
+        "source": src or "",
+        "tag": tag or "",
         "timestamp": "",
-        "data": msg,
-        "context": ctx,
+        "data": {},
+        "context": dict(ctx) if isinstance(ctx, dict) else {},
     }
+
+    try:
+        # Extract message and metadata in a shape-agnostic way
+        if hasattr(msg, "params"):
+            p = msg.params
+            message = getattr(p, "message", None)
+            metadata = getattr(p, "metadata", {}) or {}
+            event["context"].update({
+                "id": getattr(p, "id", None),
+                "sessionId": getattr(p, "sessionId", None),
+            })
+        elif isinstance(msg, dict):
+            message = _safe_get(msg, "params.message") or msg.get("message")
+            metadata = _safe_get(msg, "params.metadata") or msg.get("metadata") or {}
+            event["context"].update({
+                "id": _safe_get(msg, "params.id") or msg.get("id"),
+                "sessionId": _safe_get(msg, "params.sessionId"),
+            })
+        else:
+            message, metadata = None, {}
+
+        # Metadata-derived fields: tag/i_tag, timestamp, context details
+        if isinstance(metadata, dict):
+            meta_params = metadata.get("params") if isinstance(metadata.get("params"), dict) else {}
+            # Tag/i_tag
+            inferred_tag = (
+                tag
+                or metadata.get("i_tag")
+                or metadata.get("tag")
+                or (meta_params.get("i_tag") if isinstance(meta_params, dict) else None)
+                or ""
+            )
+            if inferred_tag:
+                event["tag"] = inferred_tag
+                event["i_tag"] = inferred_tag  # backward compatibility for consumers checking i_tag
+
+            # Timestamp (support both timestamp and createAt shapes)
+            event["timestamp"] = metadata.get("timestamp") or (meta_params.get("createAt") if isinstance(meta_params, dict) else "") or ""
+
+            # Enrich context
+            event["context"].update({
+                "chatId": meta_params.get("chatId") if isinstance(meta_params, dict) else metadata.get("chatId"),
+                "msgId": meta_params.get("msgId") if isinstance(meta_params, dict) else metadata.get("msgId"),
+                "senderId": meta_params.get("senderId") if isinstance(meta_params, dict) else metadata.get("senderId"),
+                "senderName": meta_params.get("senderName") if isinstance(meta_params, dict) else metadata.get("senderName"),
+            })
+
+            # Event type/source best-effort
+            mtype = metadata.get("mtype")
+            if not event["type"]:
+                event["type"] = _infer_event_type(mtype)
+            if not event["source"]:
+                event["source"] = (meta_params.get("senderId") if isinstance(meta_params, dict) else None) or metadata.get("senderId") or ""
+
+        # Extract human text from message.parts
+        human_text = None
+        if message is not None:
+            parts = getattr(message, "parts", None)
+            if isinstance(parts, list) and parts:
+                first = parts[0]
+                text = getattr(first, "text", None)
+                if text:
+                    human_text = text
+                elif isinstance(first, dict):
+                    human_text = first.get("text")
+            elif isinstance(message, dict):
+                p = message.get("parts")
+                if isinstance(p, list) and p:
+                    first = p[0]
+                    if isinstance(first, dict):
+                        human_text = first.get("text")
+
+        data: Dict[str, Any] = {}
+        if human_text is not None:
+            data["human_text"] = human_text
+        if isinstance(metadata, dict):
+            data["metadata"] = metadata
+        # Always include raw for debugging if nothing else
+        if not data:
+            data["raw"] = msg
+        event["data"] = data
+    except Exception as e:
+        try:
+            logger.debug(f"normalize_event error: {e}")
+        except Exception:
+            pass
+        event["data"] = {"raw": msg}
+
     logger.debug("normalized event:", event)
 
     return event
@@ -726,11 +815,63 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
     e_tag = event.get("i_tag") if isinstance(event, dict) and "i_tag" in event else event.get("tag")
     logger.debug("build resume load, normalized event>>>>", event)
     cp = select_checkpoint(task, e_tag)
+    if not e_tag and cp:
+        try:
+            # If tag missing, try to reuse latest checkpoint tag so downstream logic keeps context
+            if isinstance(cp, dict):
+                inferred_tag = _safe_get(cp, "values.attributes.i_tag") or _safe_get(cp, "values.attributes.cloud_task_id")
+            else:
+                inferred_tag = None
+                try:
+                    vals = getattr(cp, "values", None)
+                    if isinstance(vals, dict):
+                        inferred_tag = vals.get("attributes", {}).get("i_tag") or vals.get("attributes", {}).get("cloud_task_id")
+                except Exception:
+                    inferred_tag = None
+            if inferred_tag:
+                event["tag"] = inferred_tag
+                event["i_tag"] = inferred_tag
+                e_tag = inferred_tag
+        except Exception:
+            pass
 
     mapping = load_mapping_for_task(task)
     current_state = (task.metadata or {}).get("state") or {}
     logger.debug("build resume load, current_state>>>>", current_state)
+    logger.debug("build resume load, mapping>>>>", mapping)
     resume_payload, state_patch = build_resume_from_mapping(event, current_state, node_output=None, mapping=mapping)
+
+    # Fallback enrichment when mapping rules do not produce payload
+    try:
+        # Capture chat metadata for send_chat events
+        message_mtype = (
+            _safe_get(msg, "params.message.metadata.mtype")
+            or _safe_get(msg, "params.metadata.mtype")
+            or event.get("data", {}).get("metadata", {}).get("mtype")
+        ) if isinstance(event, dict) else None
+
+        if isinstance(message_mtype, str) and "send_chat" in message_mtype.lower():
+            chat_params = _safe_get(msg, "params.metadata.params") or {}
+            chat_attrs = {"mtype": message_mtype}
+            for key in ("chatId", "senderId", "content", "receiverId", "attachments"):
+                value = chat_params.get(key)
+                if value is not None:
+                    chat_attrs[key] = value
+            if chat_attrs:
+                resume_payload.setdefault("chat_attributes", {}).update(chat_attrs)
+
+        event_data = event.get("data", {}) if isinstance(event, dict) else {}
+        human_text = event_data.get("human_text")
+        if human_text and not resume_payload.get("human_text"):
+            resume_payload["human_text"] = human_text
+        if human_text and not _safe_get(state_patch, "attributes.human.last_message"):
+            _write(state_patch, "attributes.human.last_message", human_text, on_conflict="overwrite")
+
+        metadata = event_data.get("metadata") if isinstance(event_data, dict) else None
+        if metadata and not _safe_get(state_patch, "attributes.debug.last_event_metadata"):
+            _write(state_patch, "attributes.debug.last_event_metadata", metadata, on_conflict="overwrite")
+    except Exception:
+        pass
 
     logger.debug("build_general_resume_payload===>", resume_payload)
     logger.debug("state_patch===>", state_patch)

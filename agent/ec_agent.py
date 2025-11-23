@@ -60,7 +60,7 @@ class EC_Agent(Agent):
 		self.task_lock = threading.Lock()
 		self.skills = skills if skills is not None else []  # Use skills (unified naming)
 		self._stop_event = asyncio.Event()
-		
+
 		# Save card before calling super().__init__() to ensure it's preserved
 		self.card = card
 
@@ -114,11 +114,11 @@ class EC_Agent(Agent):
 		except (ValueError, IndexError):
 			logger.error(f"Failed to extract port from card URL: {card.url}")
 			return None
-		
+
 		self.mainwin = mainwin
 		self.card = card
 		server_host = "0.0.0.0"  # Bind to all interfaces for both local and remote access
-		
+
 		self.a2a_client = A2AClient(self.card)
 		notification_sender_auth = PushNotificationSenderAuth()
 		notification_sender_auth.generate_jwk()
@@ -141,13 +141,13 @@ class EC_Agent(Agent):
 	def to_dict(self, owner: str = None):
 		"""
 		Convert agent to dict for frontend/API consumption
-		
+
 		Unified serialization that matches DBAgent.to_dict() structure
 		to ensure consistency across the application.
-		
+
 		Args:
 			owner: Optional owner username/email to include in the dict
-		
+
 		Returns:
 			dict: Agent structure compatible with frontend expectations
 		"""
@@ -163,7 +163,7 @@ class EC_Agent(Agent):
 					elif isinstance(item, str):
 						result.append({'id': item, 'name': item})
 			return result
-		
+
 		# Build the unified structure
 		return {
 			# Card information (nested for frontend compatibility)
@@ -425,8 +425,9 @@ class EC_Agent(Agent):
 					msg_parts.append(FilePart(type="file", file=fc))
 
 
-			if msg_text.lstrip().startswith("dev>"):
+			if msg_text.lstrip().lower().startswith("dev>"):
 				mtype = "dev_send_chat"
+				print("sending dev mode chat.......")
 			else:
 				mtype = "send_chat"
 

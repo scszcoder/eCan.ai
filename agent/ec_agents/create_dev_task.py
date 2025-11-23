@@ -10,7 +10,7 @@ def create_skill_dev_task(mainwin):
 
     dev_skill = next((sk for sk in agent_skills if sk.name == "test skill under development"), None)
     run_task = next((task for task in agent_tasks if task.name == "dev:run task for skill under development"), None)
-
+    print("dev task dev_skill: ", dev_skill)
     if not run_task:
         task_schedule = TaskSchedule(
             repeat_type=Repeat_Types.BY_DAYS,

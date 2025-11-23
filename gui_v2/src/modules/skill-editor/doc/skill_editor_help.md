@@ -149,6 +149,9 @@ Multi-sheet flows let you organize logic across multiple canvases (sheets). Use 
 
 ## Run And Debug
 
+When run and debug a skill under-development, the skill will still be assigned to a task and to an agent to run, this 
+task will be a special development task run by a tester agent. And if your workflow involves chat (which likely will 
+always be the case), when chatting with the tester agent, be sure to always have "dev>" prefix in your chat message.
 ### Breakpoints
 
 - Go to a node's upper right corner menu to toggle on/off a breakpoint on this node(will break at pre-execution instance). you can set multiple breakpoints on multiple node.

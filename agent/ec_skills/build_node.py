@@ -21,6 +21,67 @@ from langchain_deepseek import ChatDeepSeek
 from app_context import AppContext
 web_gui = AppContext.get_web_gui()
 
+
+from typing import Any, Literal, cast, overload
+
+from langchain_core.messages import content as types
+from langchain_core.messages.base import BaseMessage, BaseMessageChunk
+
+
+class ActionMessage(BaseMessage):
+    """Message for capture action and action result.
+
+    The action message is use for recording action in history
+
+    Example:
+        ```python
+        from build_node import ActionMessage
+
+        messages = [
+            SystemMessage(content="You are a helpful assistant! Your name is Bob."),
+            HumanMessage(content="What is your name?"),
+            ActionMessage(content="action: search; result: found 10 results")
+        ]
+
+        # Define a chat model and invoke it with the messages
+        print(model.invoke(messages))
+        ```
+    """
+
+    type: Literal["action"] = "action"
+    """The type of the message (used for serialization)."""
+
+    @overload
+    def __init__(
+        self,
+        content: str | list[str | dict],
+        **kwargs: Any,
+    ) -> None: ...
+
+    @overload
+    def __init__(
+        self,
+        content: str | list[str | dict] | None = None,
+        content_blocks: list[types.ContentBlock] | None = None,
+        **kwargs: Any,
+    ) -> None: ...
+
+    def __init__(
+        self,
+        content: str | list[str | dict] | None = None,
+        content_blocks: list[types.ContentBlock] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Specify `content` as positional arg or `content_blocks` for typing."""
+        if content_blocks is not None:
+            super().__init__(
+                content=cast("str | list[str | dict]", content_blocks),
+                **kwargs,
+            )
+        else:
+            super().__init__(content=content, **kwargs)
+
+
 try:
     from langchain_google_genai import ChatGoogleGenerativeAI
 except Exception:
@@ -114,6 +175,9 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         'baidu qianfan': 'baidu_qianfan',
         '百度千帆': 'baidu_qianfan',
     }
+    print(f"llm config: system_prompt_template='{system_prompt_template}' user_prompt_template='{user_prompt_template}' ")
+    print(f"llm config: model_name={model_name} api_host={api_host} api_key={api_key} model_provider={model_provider} llm_provider={llm_provider}")
+
     llm_provider = provider_mapping.get(llm_provider, llm_provider)
 
     # This is the actual function that will be executed as the node in the graph
@@ -122,6 +186,10 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         The runtime callable for the LLM node. It formats prompts, invokes the LLM,
         and updates the state with the response.
         """
+        from agent.ec_skills.llm_hooks.llm_hooks import run_pre_llm_hook, run_post_llm_hook
+        from agent.agent_service import get_agent_by_id
+        from agent.ec_skills.llm_utils.llm_utils import get_recent_context
+
         log_msg = f"🤖 Executing LLM node: {node_name}"
         logger.info(log_msg)
         web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
@@ -173,284 +241,295 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             messages.append(SystemMessage(content=final_system_prompt))
         messages.append(HumanMessage(content=final_user_prompt))
 
+        print("llm node state messages:", state["messages"])
+        if state["messages"]:
+            agent_id = state["messages"][0]
+            agent = get_agent_by_id(agent_id)
+            run_pre_llm_hook(full_node_name, agent, state, prompt_src="local", prompt_data=messages)
 
-        run_pre_llm_hook(full_node_name, agent, state, prompt_src="local", prompt_data=messages)
+            logger.debug(f"Forming context......")
+            recent_context = get_recent_context(state.get("history", []))
 
-        logger.debug(f"Forming contexgt......")
-        recent_context = get_recent_context(state.get("history", []))
+            log_msg = f"recent_context: [{len(recent_context)} messages] {recent_context}"
+            logger.debug(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
-        log_msg = f"recent_context: [{len(recent_context)} messages] {recent_context}"
-        logger.debug(log_msg)
-        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
-
-        # Build LLM from node config (do NOT depend on mainwin.llm)
-        llm = None
-        try:
-            # Helper: resolve API key (prefer node config; fallback to secure store)
-            def _resolve_api_key(provider: str, provided_key: str) -> str | None:
-                if isinstance(provided_key, str) and provided_key.strip():
-                    return provided_key.strip()
-                provider_l = (provider or "").lower()
-                try:
-                    username = get_current_username()
-                except Exception:
-                    username = None
-                def gs(name: str) -> str | None:
+            # Build LLM from node config (do NOT depend on mainwin.llm)
+            llm = None
+            try:
+                # Helper: resolve API key (prefer node config; fallback to secure store)
+                def _resolve_api_key(provider: str, provided_key: str) -> str | None:
+                    if isinstance(provided_key, str) and provided_key.strip():
+                        return provided_key.strip()
+                    provider_l = (provider or "").lower()
+                    print(f"provider_l: {provider_l}, {provider}, {provided_key}")
                     try:
-                        return secure_store.get(name, username=username)
+                        username = get_current_username()
                     except Exception:
-                        return None
-                if provider_l in ("openai",):
-                    return gs("OPENAI_API_KEY")
-                if provider_l in ("anthropic", "claude"):
-                    return gs("ANTHROPIC_API_KEY")
-                if provider_l in ("google", "gemini"):
-                    return gs("GEMINI_API_KEY")
-                if provider_l in ("deepseek",):
-                    return gs("DEEPSEEK_API_KEY")
-                if provider_l in ("dashscope", "qwen", "qwq"):
-                    return gs("DASHSCOPE_API_KEY")
-                if provider_l in ("bytedance", "doubao"):
-                    return gs("ARK_API_KEY")
-                if provider_l in ("baidu", "qianfan", "baidu_qianfan"):
-                    return gs("BAIDU_API_KEY")
-                if provider_l in ("azure", "azure_openai"):
-                    # Azure uses a different key name
-                    return gs("AZURE_OPENAI_API_KEY")
-                return None
+                        username = None
 
-            key = _resolve_api_key(llm_provider, api_key)
-            host = (api_host or "").strip()
-            prov = llm_provider
+                    print(f"username: {username}")
+                    def gs(name: str) -> str | None:
+                        try:
+                            return secure_store.get(name, username=username)
+                        except Exception:
+                            return None
+                    if provider_l in ("openai",):
+                        return gs("OPENAI_API_KEY")
+                    if provider_l in ("anthropic", "claude"):
+                        return gs("ANTHROPIC_API_KEY")
+                    if provider_l in ("google", "gemini"):
+                        return gs("GEMINI_API_KEY")
+                    if provider_l in ("deepseek",):
+                        return gs("DEEPSEEK_API_KEY")
+                    if provider_l in ("dashscope", "qwen", "qwq"):
+                        return gs("DASHSCOPE_API_KEY")
+                    if provider_l in ("bytedance", "doubao"):
+                        return gs("ARK_API_KEY")
+                    if provider_l in ("baidu", "qianfan", "baidu_qianfan"):
+                        return gs("BAIDU_API_KEY")
+                    if provider_l in ("azure", "azure_openai"):
+                        # Azure uses a different key name
+                        return gs("AZURE_OPENAI_API_KEY")
+                    return None
 
-            # Provider-specific construction
-            if prov in ("azure", "azure_openai"):
-                azure_endpoint = host or (secure_store.get("AZURE_ENDPOINT", username=get_current_username()) if key else None)
-                if not azure_endpoint or not key:
-                    raise ValueError("Azure OpenAI requires AZURE_ENDPOINT and API key")
-                llm = AzureChatOpenAI(
-                    azure_endpoint=azure_endpoint,
-                    api_key=key,
-                    azure_deployment=model_name,
-                    api_version="2024-02-15-preview",
-                    temperature=temperature
-                )
-            elif prov in ("openai",):
-                kwargs = {"model": model_name, "api_key": key, "temperature": temperature}
-                if host:
-                    kwargs["base_url"] = host
-                llm = ChatOpenAI(**kwargs)
-            elif prov in ("anthropic", "claude"):
-                if not key:
-                    raise ValueError("Anthropic API key missing")
-                llm = ChatAnthropic(model=model_name, api_key=key, temperature=temperature)
-            elif prov in ("google", "gemini"):
-                if ChatGoogleGenerativeAI is None:
-                    raise ImportError("langchain-google-genai not installed")
-                if not key:
-                    raise ValueError("Gemini API key missing")
-                llm = ChatGoogleGenerativeAI(model=model_name or "gemini-pro", google_api_key=key, temperature=temperature)
-            elif prov in ("deepseek",):
-                if not key:
-                    raise ValueError("DeepSeek API key missing")
-                base_url = host or "https://api.deepseek.com"
-                sync_client, async_client = _create_no_proxy_http_client()
-                llm = ChatDeepSeek(
-                    model=model_name or "deepseek-chat",
-                    api_key=key,
-                    base_url=base_url,
-                    temperature=temperature,
-                    http_client=sync_client,
-                    http_async_client=async_client
-                )
-            elif prov in ("dashscope", "qwen", "qwq"):
-                if ChatQwQ is None:
-                    raise ImportError("langchain-qwq not installed")
-                if not key:
-                    raise ValueError("DashScope (Qwen/QwQ) API key missing")
-                base_url = host or "https://dashscope.aliyuncs.com/compatible-mode/v1"
-                sync_client, async_client = _create_no_proxy_http_client()
-                kw = {
-                    "model": model_name or "qwq-plus",
-                    "api_key": key,
-                    "base_url": base_url,
-                    "temperature": temperature
-                }
-                if sync_client:
-                    kw["http_client"] = sync_client
-                if async_client:
-                    kw["http_async_client"] = async_client
-                llm = ChatQwQ(**kw)
-            elif prov in ("bytedance", "doubao"):
-                if not key:
-                    raise ValueError("Bytedance (Doubao/ARK) API key missing")
-                base_url = host or "https://ark.cn-beijing.volces.com/api/v3"
-                sync_client, async_client = _create_no_proxy_http_client()
-                kwargs = {
-                    "model": model_name or "doubao-pro-256k",
-                    "api_key": key,
-                    "base_url": base_url,
-                    "temperature": temperature
-                }
-                if sync_client:
-                    kwargs["http_client"] = sync_client
-                if async_client:
-                    kwargs["http_async_client"] = async_client
-                llm = ChatOpenAI(**kwargs)
-            elif prov in ("baidu", "qianfan", "baidu_qianfan"):
-                if not key:
-                    raise ValueError("Baidu Qianfan API key missing")
-                base_url = host or "https://qianfan.baidubce.com/v2"
-                sync_client, async_client = _create_no_proxy_http_client()
-                kwargs = {
-                    "model": model_name or "ernie-4.0-8k",
-                    "api_key": key,
-                    "base_url": base_url,
-                    "temperature": temperature
-                }
-                if sync_client:
-                    kwargs["http_client"] = sync_client
-                if async_client:
-                    kwargs["http_async_client"] = async_client
-                llm = ChatOpenAI(**kwargs)
-            elif prov in ("ollama",):
-                base_url = host or "http://localhost:11434"
-                llm = ChatOllama(model=model_name or "llama3.2", base_url=base_url, temperature=temperature)
-            else:
-                # Default to OpenAI-compatible
-                kwargs = {"model": model_name, "api_key": key, "temperature": temperature}
-                if host:
-                    kwargs["base_url"] = host
-                llm = ChatOpenAI(**kwargs)
+                key = _resolve_api_key(llm_provider, api_key)
+                host = (api_host or "").strip()
+                prov = llm_provider
 
-        except Exception as e:
-            err = f"Failed to create LLM from node config (provider={llm_provider}, model={model_name}): {e}"
-            logger.error(f"[build_llm_node] {err}")
-            web_gui.get_ipc_api().send_skill_editor_log("error", f"[build_llm_node] {err}")
-            state['error'] = err
-            return state
+                print(f"real llm settings: api_key={key} host={host} llm_provider={prov}")
+                # Provider-specific construction
+                if prov in ("azure", "azure_openai"):
+                    azure_endpoint = host or (secure_store.get("AZURE_ENDPOINT", username=get_current_username()) if key else None)
+                    if not azure_endpoint or not key:
+                        raise ValueError("Azure OpenAI requires AZURE_ENDPOINT and API key")
+                    llm = AzureChatOpenAI(
+                        azure_endpoint=azure_endpoint,
+                        api_key=key,
+                        azure_deployment=model_name,
+                        api_version="2024-02-15-preview",
+                        temperature=temperature
+                    )
+                elif prov in ("openai",):
+                    print("setting up for openai......")
+                    kwargs = {"model": model_name, "api_key": key, "temperature": temperature}
+                    if host:
+                        kwargs["base_url"] = host
+                    llm = ChatOpenAI(**kwargs)
+                elif prov in ("anthropic", "claude"):
+                    if not key:
+                        raise ValueError("Anthropic API key missing")
+                    llm = ChatAnthropic(model=model_name, api_key=key, temperature=temperature)
+                elif prov in ("google", "gemini"):
+                    if ChatGoogleGenerativeAI is None:
+                        raise ImportError("langchain-google-genai not installed")
+                    if not key:
+                        raise ValueError("Gemini API key missing")
+                    llm = ChatGoogleGenerativeAI(model=model_name or "gemini-pro", google_api_key=key, temperature=temperature)
+                elif prov in ("deepseek",):
+                    if not key:
+                        raise ValueError("DeepSeek API key missing")
+                    base_url = host or "https://api.deepseek.com"
+                    sync_client, async_client = _create_no_proxy_http_client()
+                    llm = ChatDeepSeek(
+                        model=model_name or "deepseek-chat",
+                        api_key=key,
+                        base_url=base_url,
+                        temperature=temperature,
+                        http_client=sync_client,
+                        http_async_client=async_client
+                    )
+                elif prov in ("dashscope", "qwen", "qwq"):
+                    if ChatQwQ is None:
+                        raise ImportError("langchain-qwq not installed")
+                    if not key:
+                        raise ValueError("DashScope (Qwen/QwQ) API key missing")
+                    base_url = host or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                    sync_client, async_client = _create_no_proxy_http_client()
+                    kw = {
+                        "model": model_name or "qwq-plus",
+                        "api_key": key,
+                        "base_url": base_url,
+                        "temperature": temperature
+                    }
+                    if sync_client:
+                        kw["http_client"] = sync_client
+                    if async_client:
+                        kw["http_async_client"] = async_client
+                    llm = ChatQwQ(**kw)
+                elif prov in ("bytedance", "doubao"):
+                    if not key:
+                        raise ValueError("Bytedance (Doubao/ARK) API key missing")
+                    base_url = host or "https://ark.cn-beijing.volces.com/api/v3"
+                    sync_client, async_client = _create_no_proxy_http_client()
+                    kwargs = {
+                        "model": model_name or "doubao-pro-256k",
+                        "api_key": key,
+                        "base_url": base_url,
+                        "temperature": temperature
+                    }
+                    if sync_client:
+                        kwargs["http_client"] = sync_client
+                    if async_client:
+                        kwargs["http_async_client"] = async_client
+                    llm = ChatOpenAI(**kwargs)
+                elif prov in ("baidu", "qianfan", "baidu_qianfan"):
+                    if not key:
+                        raise ValueError("Baidu Qianfan API key missing")
+                    base_url = host or "https://qianfan.baidubce.com/v2"
+                    sync_client, async_client = _create_no_proxy_http_client()
+                    kwargs = {
+                        "model": model_name or "ernie-4.0-8k",
+                        "api_key": key,
+                        "base_url": base_url,
+                        "temperature": temperature
+                    }
+                    if sync_client:
+                        kwargs["http_client"] = sync_client
+                    if async_client:
+                        kwargs["http_async_client"] = async_client
+                    llm = ChatOpenAI(**kwargs)
+                elif prov in ("ollama",):
+                    base_url = host or "http://localhost:11434"
+                    llm = ChatOllama(model=model_name or "llama3.2", base_url=base_url, temperature=temperature)
+                else:
+                    # Default to OpenAI-compatible
+                    kwargs = {"model": model_name, "api_key": key, "temperature": temperature}
+                    if host:
+                        kwargs["base_url"] = host
+                    llm = ChatOpenAI(**kwargs)
 
-        # so far we have get API key, LLM model setup among difference possible choices.
+            except Exception as e:
+                err = f"Failed to create LLM from node config (provider={llm_provider}, model={model_name}): {e}"
+                logger.error(f"[build_llm_node] {err}")
+                web_gui.get_ipc_api().send_skill_editor_log("error", f"[build_llm_node] {err}")
+                state['error'] = err
+                return state
 
-        # Log LLM configuration for debugging
-        log_msg = f"🔧 LLM Config (node_config): provider={llm_provider}, model={model_name}, temperature={temperature}"
-        logger.info(log_msg)
-        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            # so far we have get API key, LLM model setup among difference possible choices.
 
-        log_msg = f"📝 Prompt length: system={len(final_system_prompt)}, user={len(final_user_prompt)}"
-        logger.debug(log_msg)
-        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
-
-        # Invoke the LLM and update the state
-        try:
-            import time
-            import threading
-            import queue
-
-            def _invoke_with_thread(llm_to_use, timeout_sec: float):
-                result_queue = queue.Queue()
-                exception_queue = queue.Queue()
-
-                def invoke_llm():
-                    try:
-                        log_msg = "🔄 LLM invocation thread started"
-                        logger.debug(log_msg)
-                        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
-
-                        result = llm_to_use.invoke(recent_context)
-                        result_queue.put(result)
-
-                        log_msg = "✅ LLM invocation thread completed"
-                        logger.debug(log_msg)
-                        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
-                    except Exception as e:
-                        err_msg = get_traceback(e, "ErrorInvokeWithThread❌")
-                        logger.error(err_msg)
-                        web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
-                        exception_queue.put(exc)
-
-                start_time = time.time()
-                th = threading.Thread(target=invoke_llm, daemon=True)
-                th.start()
-                th.join(timeout=timeout_sec)
-                elapsed = time.time() - start_time
-
-                if th.is_alive():
-                    err_msg = f"⏱️ LLM request timed out after {timeout_sec}s (thread still running)"
-                    logger.error(err_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
-                    raise TimeoutError(err_msg)
-                if not exception_queue.empty():
-                    raise exception_queue.get()
-                if result_queue.empty():
-                    raise RuntimeError("❌ LLM thread completed but no result available")
-                resp = result_queue.get()
-                log_msg = f"⏱️ Request completed in {elapsed:.2f}s"
-                logger.debug(log_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
-                return resp
-
-            # Single attempt (node-configured llm, no fallback)
-            response = _invoke_with_thread(llm, 150.0)
-
-            log_msg = f"✅ LLM response received from {llm_provider}"
+            # Log LLM configuration for debugging
+            log_msg = f"🔧 LLM Config (node_config): provider={llm_provider}, model={model_name}, temperature={temperature}"
             logger.info(log_msg)
             web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
-            # It's good practice to put results in specific keys
-            run_post_llm_hook(full_node_name, agent, state, response)
-            logger.debug(f"llm_node finished..... {state}")
+            log_msg = f"📝 Prompt length: system={len(final_system_prompt)}, user={len(final_user_prompt)}"
+            logger.debug(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
-        except Exception as e:
-            error_type = type(e).__name__
-            error_str = get_traceback(e, "ErrorLLMNodeCallable")
+            # Invoke the LLM and update the state
+            try:
+                import time
+                import threading
+                import queue
 
-            # Detect specific error types and provide helpful messages
-            if "AuthenticationError" in error_type or "authentication" in error_str.lower():
-                err_msg = (f"❌ LLM Authentication Failed: Invalid API key for {llm_provider}. "
-                                 "Please check your API key configuration.")
-                logger.error(f"{err_msg} | Original error: {error_str}")
-                web_gui.get_ipc_api().send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
-            elif "RateLimitError" in error_type or "rate limit" in error_str.lower() or "quota" in error_str.lower():
-                err_msg = (f"❌ LLM Rate Limit Exceeded: {llm_provider} quota exhausted or rate limit reached. "
-                                 "Please check your usage limits.")
-                logger.error(f"{err_msg} | Original error: {error_str}")
-                web_gui.get_ipc_api().send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
-            elif "timeout" in error_str.lower() or "timed out" in error_str.lower():
-                err_msg = (f"⏱️ LLM Request Timeout: Connection to {llm_provider} timed out. "
-                                 "This may be due to network issues or API endpoint unreachable.")
-                logger.error(f"{err_msg} | Original error: {error_str}")
-                web_gui.get_ipc_api().send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
-            elif "connection" in error_str.lower() or "network" in error_str.lower():
-                err_msg = (f"🌐 LLM Connection Error: Cannot connect to {llm_provider} API. "
-                                 "Please check your network connection and API endpoint configuration.")
-                logger.error(f"{err_msg} | Original error: {error_str}")
-                web_gui.get_ipc_api().send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
-            elif "InvalidRequestError" in error_type or "invalid" in error_str.lower() or "model" in error_str.lower():
-                err_msg = (f"⚠️ LLM Invalid Request: The request to {llm_provider} was invalid. "
-                                 f"Model: '{model_name}'. Error: {error_str}")
-                logger.error(f"{err_msg}")
-                web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
-                # Check if it's a model not found error
-                if "model" in error_str.lower() and ("not found" in error_str.lower() or "does not exist" in error_str.lower()):
-                    err_msg = f"💡 Hint: Model '{model_name}' does not exist. Common OpenAI models: gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo"
+                def _invoke_with_thread(llm_to_use, timeout_sec: float):
+                    result_queue = queue.Queue()
+                    exception_queue = queue.Queue()
+
+                    def invoke_llm():
+                        try:
+                            log_msg = "🔄 LLM invocation thread started"
+                            logger.debug(log_msg)
+                            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
+                            print("llm_to_use:", llm_to_use)
+                            print()
+                            result = llm_to_use.invoke(recent_context)
+                            result_queue.put(result)
+
+                            log_msg = f"✅ LLM invocation thread completed {result}"
+                            logger.debug(log_msg)
+                            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                        except Exception as e:
+                            err_msg = get_traceback(e, "ErrorInvokeWithThread❌")
+                            logger.error(err_msg)
+                            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                            exception_queue.put(exc)
+
+                    start_time = time.time()
+                    th = threading.Thread(target=invoke_llm, daemon=True)
+                    th.start()
+                    th.join(timeout=timeout_sec)
+                    elapsed = time.time() - start_time
+
+                    if th.is_alive():
+                        err_msg = f"⏱️ LLM request timed out after {timeout_sec}s (thread still running)"
+                        logger.error(err_msg)
+                        web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                        raise TimeoutError(err_msg)
+                    if not exception_queue.empty():
+                        raise exception_queue.get()
+                    if result_queue.empty():
+                        raise RuntimeError("❌ LLM thread completed but no result available")
+                    resp = result_queue.get()
+                    log_msg = f"⏱️ Request completed in {elapsed:.2f}s"
+                    logger.debug(log_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    return resp
+
+                # Single attempt (node-configured llm, no fallback)
+                response = _invoke_with_thread(llm, 150.0)
+
+                log_msg = f"✅ LLM response received from {llm_provider}"
+                logger.info(log_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
+                # It's good practice to put results in specific keys
+                run_post_llm_hook(full_node_name, agent, state, response)
+                logger.debug(f"llm_node finished..... {state}")
+
+            except Exception as e:
+                error_type = type(e).__name__
+                error_str = get_traceback(e, "ErrorLLMNodeCallable")
+
+                # Detect specific error types and provide helpful messages
+                if "AuthenticationError" in error_type or "authentication" in error_str.lower():
+                    err_msg = (f"❌ LLM Authentication Failed: Invalid API key for {llm_provider}. "
+                                     "Please check your API key configuration.")
+                    logger.error(f"{err_msg} | Original error: {error_str}")
+                    web_gui.get_ipc_api().send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
+                elif "RateLimitError" in error_type or "rate limit" in error_str.lower() or "quota" in error_str.lower():
+                    err_msg = (f"❌ LLM Rate Limit Exceeded: {llm_provider} quota exhausted or rate limit reached. "
+                                     "Please check your usage limits.")
+                    logger.error(f"{err_msg} | Original error: {error_str}")
+                    web_gui.get_ipc_api().send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
+                elif "timeout" in error_str.lower() or "timed out" in error_str.lower():
+                    err_msg = (f"⏱️ LLM Request Timeout: Connection to {llm_provider} timed out. "
+                                     "This may be due to network issues or API endpoint unreachable.")
+                    logger.error(f"{err_msg} | Original error: {error_str}")
+                    web_gui.get_ipc_api().send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
+                elif "connection" in error_str.lower() or "network" in error_str.lower():
+                    err_msg = (f"🌐 LLM Connection Error: Cannot connect to {llm_provider} API. "
+                                     "Please check your network connection and API endpoint configuration.")
+                    logger.error(f"{err_msg} | Original error: {error_str}")
+                    web_gui.get_ipc_api().send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
+                elif "InvalidRequestError" in error_type or "invalid" in error_str.lower() or "model" in error_str.lower():
+                    err_msg = (f"⚠️ LLM Invalid Request: The request to {llm_provider} was invalid. "
+                                     f"Model: '{model_name}'. Error: {error_str}")
+                    logger.error(f"{err_msg}")
+                    web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                    # Check if it's a model not found error
+                    if "model" in error_str.lower() and ("not found" in error_str.lower() or "does not exist" in error_str.lower()):
+                        err_msg = f"💡 Hint: Model '{model_name}' does not exist. Common OpenAI models: gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo"
+                        logger.error(err_msg)
+                        web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                else:
+                    # Generic error with full details
+                    err_msg = f"❌ LLM Invocation Failed  for {llm_provider}/{model_name}: ({error_type}): {error_str}"
                     logger.error(err_msg)
                     web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
-            else:
-                # Generic error with full details
-                err_msg = f"❌ LLM Invocation Failed  for {llm_provider}/{model_name}: ({error_type}): {error_str}"
-                logger.error(err_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
-            state['error'] = err_msg
+                state['error'] = err_msg
 
-            # Add detailed error info for debugging
-            state['error_details'] = {
-                'error_type': error_type,
-                'provider': llm_provider,
-                'model': model_name,
-                'original_error': error_str
-            }
-
+                # Add detailed error info for debugging
+                state['error_details'] = {
+                    'error_type': error_type,
+                    'provider': llm_provider,
+                    'model': model_name,
+                    'original_error': error_str
+                }
+        else:
+            logger.error("ERROR LLM NODE: messages empty ")
         return state
 
     full_node_callable = node_builder(llm_node_callable, node_name, skill_name, owner, bp_manager)
@@ -919,6 +998,8 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     fh.close()
                 except Exception:
                     pass
+
+            add_to_history(state, ActionMessage(content=f"action: api call to {api_endpoint}; result: {response}"))
         return state
 
     # Define the asynchronous version of the callable
@@ -949,6 +1030,9 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     fh.close()
                 except Exception:
                     pass
+
+            add_to_history(state, ActionMessage(content=f"action: api call to {api_endpoint}; result: {response}"))
+
         return state
 
     # return sync_api_callable if is_sync else async_api_callable
@@ -1197,6 +1281,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             # Add the result to the state (result is a dict, not a list)
             state['tool_result'] = tool_result
 
+            tool_call_summary = ActionMessage(content=f"action: mcp call to {tool_name}; result: {tool_result}")
+            add_to_history(state, tool_call_summary)
+
             # Also update attributes for easier access by subsequent nodes
             log_msg = f"state tool_result: {state['tool_result']}"
             logger.debug(log_msg)
@@ -1262,7 +1349,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
     def _pend(state: dict, *, runtime=None, store=None, **kwargs):
 
         current_node_name = runtime.context["this_node"].get("name")
-        log_msg = f"[Pending For Event Node] pend_for_human_fill_FOM_node: {current_node_name}, {state}"
+        log_msg = f"[Pending For Event Node] pend_for_event_node: {current_node_name}, {state}"
         logger.debug(log_msg)
         web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
         if state.get("metadata"):
@@ -1281,7 +1368,12 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         }
         resume_payload = interrupt(info)
 
+        from agent.ec_skills.llm_utils.llm_utils import try_parse_json
         # If resumer supplied a state patch (e.g., via Command(resume={... "_state_patch": {...}})), merge it
+        log_msg = f"[pend_event_node] resume payload immediately after resuming: {resume_payload}"
+        logger.debug(log_msg)
+        # web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
         try:
             if isinstance(resume_payload, dict) and "_state_patch" in resume_payload:
                 patch = resume_payload.get("_state_patch")
@@ -1306,7 +1398,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         except Exception:
             pass
 
-        log_msg = f"[pend_event_node] resume payload received: {resume_payload}"
+        log_msg = f"[pend_event_node] resume payload after deep merge: {resume_payload}"
         logger.debug(log_msg)
         web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
@@ -1333,6 +1425,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                 logger.debug(f"[{node_name}] saving filled fom form......",
                              state["metadata"]["filled_fom_form"])
 
+        logger.debug(f"[{node_name}] exit state: {state}")
         return state
 
     return node_builder(_pend, node_name, skill_name, owner, bp_manager)
@@ -1348,49 +1441,28 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
     msg_tpl = (config_metadata or {}).get("message") or ""
     wait_for_reply = bool((config_metadata or {}).get("wait_for_reply", False))
     def _chat(state: dict, *, runtime=None, store=None, **kwargs):
+        from agent.ec_skills.llm_utils.llm_utils import send_response_back
         attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
-        try:
-            message = msg_tpl.format(**attrs) if isinstance(msg_tpl, str) else str(msg_tpl)
-        except Exception:
-            message = str(msg_tpl)
+        logger.debug("in chat node....", state)
 
-        if not isinstance(state.get("messages"), list):
-            state["messages"] = []
-        state["messages"].append({"role": role, "content": message})
 
         # Try to deliver to GUI via TaskRunner helpers
         try:
-            mainwin = AppContext.get_main_window()
-            # choose the first available agent/runner for now
-            agent = next((ag for ag in getattr(mainwin, 'agents', []) or []), None)
-            runner = getattr(agent, 'runner', None) if agent else None
-            # locate chatId from state metadata/attributes
-            chat_id = None
-            try:
-                chat_id = (state.get('metadata') or {}).get('chatId')
-                if not chat_id:
-                    chat_id = (state.get('attributes') or {}).get('chatId')
-            except Exception:
-                chat_id = None
-            chat_id = chat_id or 'default_chat'
+            llm_output = state["result"].get("llm_result", {})
+            response = llm_output.get("next_prompt", "some is not right....")
 
-            recipient_agent = next((ag for ag in mainwin.agents if "twin" in ag.card.name.lower()), None)
+            state["job_related"] = state["result"].get("job_related", False)
+            state["result"]["llm_result"] = response
 
-            if role == 'assistant':
-                runner and runner.sendChatMessageToGUI(agent, chat_id, message)
-            elif role == 'system':
-                runner and runner.sendChatNotificationToGUI(agent, chat_id, {"title": "system", "text": message})
-            else:  # user role -> treat as message
-                send_result = agent.a2a_send_chat_message(recipient_agent, message)
+            # Clean up the response
+            send_result = send_response_back(state)
 
-                runner and runner.sendChatMessageToGUI(agent, chat_id, message)
+
         except Exception as e:
             err_msg = get_traceback(e, "ErrorBuildChatNode")
             logger.error(err_msg)
             web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
 
-        if wait_for_reply:
-            interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": message})
         return state
 
     return node_builder(_chat, node_name, skill_name, owner, bp_manager)
@@ -1405,6 +1477,7 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
     query_path = (config_metadata or {}).get("query_path") or "attributes.query"
     def _rag(state: dict, *, runtime=None, store=None, **kwargs):
         # Resolve dotted path from state
+        err_msg = ""
         cur = state
         for part in query_path.split("."):
             try:
@@ -1444,10 +1517,14 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
                 err_msg = _gt(_e, "ErrorRAGNodeToolResult")
                 logger.error(err_msg)
                 web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
-            except Exception:
-                logger.debug(f"RAG node tool_result set failed: {_e}")
-                web_gui.get_ipc_api().send_skill_editor_log("error", f"RAG node tool_result set failed: {_e}")
-            state["error"] = f"rag node failed to set tool_result: {_e}"
+            except Exception as _e_:
+                err_msg = get_traceback(_e_, "ErrorRAGNodeToolResult")
+                logger.debug(f"RAG node tool_result set failed: {err_msg}")
+                web_gui.get_ipc_api().send_skill_editor_log("error", f"RAG node tool_result set failed: {err_msg}")
+            state["error"] = f"rag node failed to set tool_result: {err_msg}"
+
+        add_to_history(state, ActionMessage(content=f"action: rag {str(query)}; result: {resp}; {err_msg}"))
+
         return state
 
     return node_builder(_rag, node_name, skill_name, owner, bp_manager)
@@ -1522,6 +1599,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 web_gui.get_ipc_api().send_skill_editor_log("error", f"[build_browser_automation_node] {err_msg}")
                 state.setdefault("tool_result", {})
                 state["tool_result"][node_name] = {"provider": provider, "task": task_text, "error": err_msg}
+
+                add_to_history(state, ActionMessage(content=f"action: browser-use {task_text}; result: {err_msg}"))
+
                 return state
             
             info = {}
@@ -1534,12 +1614,18 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # Optionally interrupt if downstream needs human check
             if wait_for_done and info.get("error"):
                 interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Automation pending: {action}"})
+
+            add_to_history(state, ActionMessage(content=f"action: browser-use {task_text}; result: {info}"))
+
             return state
         # Fallback: record intent for other providers
         intents = state.setdefault("metadata", {}).setdefault("automation_intents", [])
         intents.append({"node": node_name, "provider": provider, "action": action, "params": params, "task": task_text})
         if wait_for_done:
             interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Please perform automation: {action}"})
+
+        add_to_history(state, ActionMessage(content=f"action: non browser-use {task_text}; result: {info}"))
+
         return state
 
     return node_builder(_auto, node_name, skill_name, owner, bp_manager)

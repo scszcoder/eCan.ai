@@ -2110,3 +2110,72 @@ def step3(state): return {"c": state["b"] * 2}
 # 复制代码
 # bp_manager.clear_breakpoint("step2")
 
+# Token limit for context window (adjust based on your model's limits and cost considerations)
+CONTEXT_WINDOW_SIZE = 25536  # Conservative limit for GPT-4
+
+
+def get_recent_context(history: list, max_tokens: int = CONTEXT_WINDOW_SIZE) -> list:
+    """
+    Returns a subset of chat history that fits within the token limit.
+
+    Strategy:
+    1. Always include the most recent SystemMessage (if exists) for context
+    2. Include as many recent messages as possible within the token limit
+    3. Estimate ~4 characters per token (conservative estimate)
+
+    Args:
+        history: List of LangChain message objects (SystemMessage, HumanMessage, AIMessage)
+        max_tokens: Maximum number of tokens to include
+
+    Returns:
+        List of messages that fit within the token limit
+    """
+    if not history or not isinstance(history, list):
+        return []
+
+    from langchain_core.messages import SystemMessage
+
+    # Simple token estimation: ~4 chars per token (conservative)
+    def estimate_tokens(msg) -> int:
+        try:
+            content = msg.content if hasattr(msg, 'content') else str(msg)
+            return len(str(content)) // 4
+        except Exception:
+            return 0
+
+    # Find the most recent SystemMessage
+    system_msg = None
+    system_msg_idx = -1
+    for idx in range(len(history) - 1, -1, -1):
+        if isinstance(history[idx], SystemMessage):
+            system_msg = history[idx]
+            system_msg_idx = idx
+            break
+
+    # Start with system message if it exists and fits
+    result = []
+    token_count = 0
+
+    if system_msg:
+        system_tokens = estimate_tokens(system_msg)
+        if system_tokens < max_tokens:
+            result.append(system_msg)
+            token_count += system_tokens
+
+    # Add messages from the end (most recent) going backwards
+    # Skip the system message if we already added it
+    for idx in range(len(history) - 1, -1, -1):
+        if idx == system_msg_idx:
+            continue  # Already added
+
+        msg = history[idx]
+        msg_tokens = estimate_tokens(msg)
+
+        if token_count + msg_tokens > max_tokens:
+            break  # Would exceed limit
+
+        result.insert(1 if system_msg else 0, msg)  # Insert after system message
+        token_count += msg_tokens
+
+    logger.debug(f"Context window: {len(result)} messages, ~{token_count} tokens (limit: {max_tokens})")
+    return result

@@ -52,7 +52,7 @@ coding up the langgraph. Here is a feature list of eCan.ai's skill editor:
 * can add/clear breakpoints on nodes to pause at certain nodes.
 * support multi-sheets to make large complicated workflow modular
 * node can be left-right mirrored, or top-down mirrored, to support feedback workflow and ease of edge placement.
-* supports bidirectional translation between flowgram and langgraph. Which means you can load graphically view, re-layout, a langgraph created by coded.
+* supports bidirectional translation between flowgram and langgraph. Which means you can load, graphically view, re-layout, a langgraph created by direct python code.
 
 For more detailed user guide of the skill editor, please refer to [skill editor](gui_v2/src/modules/skill-editor/doc/skill_editor_help.md).
 
@@ -65,11 +65,11 @@ These includes:
  * [Browsebase](https://github.com/browserbase) -- to be added.
 
 While playwright is a state-of-art web automation tool, and pretty much become the de-facto standard for web automation,
-we do realize it is still not the same as some of the popular fingerprint browser, to enable their use, we have added 
+we do realize it is still not the same as some of the popular fingerprint browser used by e-Commerce sellers, to enable their use, we have added 
 a rich set of tools based on selenium and webdriver (chromedriver) so that you can automate web interface with browsers 
 such as [AdsPower](https://github.com/AdsPower)
 
-In browser actions are nice, but they are some times not enough, pop-ups, captchas, etc., sometimes we need computer vision (CV) guided mouse 
+In-browser actions are nice, but they are some times not enough, pop-ups, captchas, etc., sometimes we need computer vision (CV) guided mouse 
 and keyboard actions, we have made a state-of-art OCR service to allow CV guided screen understanding and actions, further allowing you
 to fully control your browser or any other app in that matter.
 
