@@ -52,7 +52,7 @@
   "network_api_engine": "lan",
   "schedule_engine": "wan",
   
-  "ocr_api_endpoint": "http://47.120.48.82:8848/graphql/reqScreenTxtRead",
+  "ocr_api_endpoint": "http://52.204.81.197:8848/graphql/reqScreenTxtRead",
   
   "default_llm": "openai",
   "default_llm_model": "gpt-5",

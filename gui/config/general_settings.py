@@ -353,7 +353,7 @@ class GeneralSettings:
     @property
     def ocr_api_endpoint(self) -> str:
         """OCR API endpoint"""
-        return self._data.get("ocr_api_endpoint", "http://47.120.48.82:8848/graphql/reqScreenTxtRead")
+        return self._data.get("ocr_api_endpoint", "http://52.204.81.197:8848/graphql/reqScreenTxtRead")
 
     @ocr_api_endpoint.setter
     def ocr_api_endpoint(self, value: str):
