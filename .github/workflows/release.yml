@@ -267,9 +267,38 @@ jobs:
         echo "Input Environment: $INPUT_ENV"
         echo "Input Channel: $INPUT_CHANNEL"
         
+        # Determine if this is a production-eligible ref (for safety checks)
+        IS_PRODUCTION_ELIGIBLE=false
+        if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+.*$ ]] || \
+           [[ "$REF_NAME" == "main" ]] || [[ "$REF_NAME" == "master" ]]; then
+          IS_PRODUCTION_ELIGIBLE=true
+        fi
+        
         # Use manual selection if provided
         if [[ -n "$INPUT_ENV" ]]; then
           ENV="$INPUT_ENV"
+          
+          # Safety check: Prevent feature branches from using production/staging
+          if [[ "$IS_PRODUCTION_ELIGIBLE" == "false" ]] && [[ "$ENV" == "production" || "$ENV" == "staging" ]]; then
+            echo "======================================================"
+            echo "❌ ERROR: Branch '$REF_NAME' cannot use '$ENV' environment"
+            echo "======================================================"
+            echo "Only the following refs can use production/staging:"
+            echo "  - Version tags: v1.0.0, v1.0.0-rc.1, v1.0.0-beta.1"
+            echo "  - Main branches: main, master"
+            echo ""
+            echo "Current ref: $REF_NAME (feature branch)"
+            echo "Requested environment: $ENV"
+            echo ""
+            echo "Allowed environments for this branch:"
+            echo "  - development"
+            echo "  - test"
+            echo ""
+            echo "💡 Tip: Create a version tag to enable production/staging deployment"
+            echo "======================================================"
+            exit 1
+          fi
+          
           echo "Using manual environment: $ENV"
         else
           # Auto-detect environment based on ref and version
@@ -292,7 +321,7 @@ jobs:
             # Production: main/master branch
             ENV="production"
           else
-            # Default: development for other branches
+            # Other branches: default to development
             ENV="development"
           fi
           echo "Auto-detected environment: $ENV"
@@ -627,6 +656,98 @@ jobs:
         echo "=== Injecting Build Info ==="
         python build_system/scripts/inject_build_info.py --version ${{ needs.validate-tag.outputs.version }} --environment ${{ needs.validate-tag.outputs.environment }}
 
+    # ------------------------------------------------------------------------
+    # Step: Setup OTA Signing Key from GitHub Secrets
+    # ------------------------------------------------------------------------
+    - name: Setup OTA signing key
+      if: |
+        needs.validate-tag.outputs.environment == 'production' || 
+        needs.validate-tag.outputs.environment == 'staging' ||
+        needs.validate-tag.outputs.environment == 'test'
+      env:
+        OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+      shell: pwsh
+      run: |
+        Write-Host "=== Setting up OTA signing key ===" -ForegroundColor Cyan
+        Write-Host "Environment: ${{ needs.validate-tag.outputs.environment }}" -ForegroundColor Gray
+        Write-Host ""
+        
+        # Create certificates directory
+        $certDir = "build_system\certificates"
+        if (-not (Test-Path $certDir)) {
+          New-Item -ItemType Directory -Force -Path $certDir | Out-Null
+          Write-Host "[OK] Created directory: $certDir" -ForegroundColor Green
+        }
+        
+        # Check if secret is available
+        if ([string]::IsNullOrEmpty($env:OTA_PRIVATE_KEY)) {
+          Write-Host "[ERROR] ========================================" -ForegroundColor Red
+          Write-Host "[ERROR] OTA_ED25519_PRIVATE_KEY secret is NOT configured" -ForegroundColor Red
+          Write-Host "[ERROR] ========================================" -ForegroundColor Red
+          Write-Host ""
+          Write-Host "To fix this issue:" -ForegroundColor Yellow
+          Write-Host "1. Run: .\prepare_github_secret.ps1" -ForegroundColor Gray
+          Write-Host "2. Go to: GitHub repository -> Settings -> Secrets -> Actions" -ForegroundColor Gray
+          Write-Host "3. Add secret:" -ForegroundColor Gray
+          Write-Host "   Name:  OTA_ED25519_PRIVATE_KEY" -ForegroundColor Gray
+          Write-Host "   Value: [paste from clipboard]" -ForegroundColor Gray
+          Write-Host ""
+          Write-Host "See: OTA_SIGNING_COMPLETE_GUIDE.md for detailed instructions" -ForegroundColor Gray
+          Write-Host ""
+          exit 1
+        }
+        
+        # Decode base64 and write private key
+        $keyPath = "$certDir\ed25519_private_key.pem"
+        Write-Host "[1/3] Decoding base64 private key..." -ForegroundColor Yellow
+        try {
+          $keyBytes = [Convert]::FromBase64String($env:OTA_PRIVATE_KEY)
+          $keyContent = [System.Text.Encoding]::UTF8.GetString($keyBytes)
+          Set-Content -Path $keyPath -Value $keyContent -NoNewline
+          Write-Host "  ✓ Base64 decoded successfully" -ForegroundColor Green
+        } catch {
+          Write-Host "  ✗ Failed to decode base64: $_" -ForegroundColor Red
+          exit 1
+        }
+        
+        # Verify key format
+        Write-Host "[2/3] Verifying key format..." -ForegroundColor Yellow
+        $keyCheck = Get-Content $keyPath -Raw
+        if ($keyCheck -match "BEGIN PRIVATE KEY") {
+          Write-Host "  ✓ Key format verified (PEM)" -ForegroundColor Green
+        } else {
+          Write-Host "  ✗ Invalid key format (expected PEM)" -ForegroundColor Red
+          Write-Host "  Key should start with: -----BEGIN PRIVATE KEY-----" -ForegroundColor Gray
+          exit 1
+        }
+        
+        # Set file permissions
+        Write-Host "[3/3] Setting file permissions..." -ForegroundColor Yellow
+        try {
+          $acl = Get-Acl $keyPath
+          $acl.SetAccessRuleProtection($true, $false)
+          $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            [System.Security.Principal.WindowsIdentity]::GetCurrent().Name,
+            "Read",
+            "Allow"
+          )
+          $acl.SetAccessRule($rule)
+          Set-Acl $keyPath $acl
+          Write-Host "  ✓ File permissions set (read-only)" -ForegroundColor Green
+        } catch {
+          Write-Host "  ⚠ Warning: Could not set file permissions: $_" -ForegroundColor Yellow
+        }
+        
+        Write-Host ""
+        Write-Host "============================================" -ForegroundColor Green
+        Write-Host "  ✓ OTA signing key configured successfully" -ForegroundColor Green
+        Write-Host "============================================" -ForegroundColor Green
+        Write-Host "Key path: $keyPath" -ForegroundColor Gray
+        Write-Host ""
+
+    # ------------------------------------------------------------------------
+    # Step Group 6: Build Application
+    # ------------------------------------------------------------------------
     - name: Build Windows EXE
       shell: pwsh
       env:
@@ -851,6 +972,80 @@ jobs:
         }
 
     # ------------------------------------------------------------------------
+    # Step: Generate Ed25519 Signatures for OTA Updates
+    # ------------------------------------------------------------------------
+    - name: Generate Ed25519 signatures
+      if: |
+        needs.validate-tag.outputs.environment == 'production' || 
+        needs.validate-tag.outputs.environment == 'staging' ||
+        needs.validate-tag.outputs.environment == 'test'
+      shell: pwsh
+      run: |
+        Write-Host "=== Generating Ed25519 Signatures ===" -ForegroundColor Cyan
+        $version = "${{ needs.validate-tag.outputs.version }}"
+        $arch = "$env:BUILD_ARCH"
+        
+        # Check if private key exists
+        $keyPath = "build_system\certificates\ed25519_private_key.pem"
+        if (-not (Test-Path $keyPath)) {
+          Write-Host "[ERROR] Private key not found: $keyPath" -ForegroundColor Red
+          Write-Host "[ERROR] OTA signatures cannot be generated" -ForegroundColor Red
+          exit 1
+        }
+        
+        Write-Host "[OK] Private key found: $keyPath" -ForegroundColor Green
+        
+        # Generate signature for main installer
+        $setupFile = "dist\eCan-${version}-windows-${arch}-Setup.exe"
+        if (Test-Path $setupFile) {
+          Write-Host "Generating signature for: $(Split-Path -Leaf $setupFile)" -ForegroundColor Yellow
+          
+          # Use signing_manager.py for Ed25519 signing (OpenSSL pkeyutl doesn't support Ed25519 in all versions)
+          $sigFile = "${setupFile}.sig"
+          python build_system/signing_manager.py $setupFile $keyPath $sigFile
+          
+          if (Test-Path $sigFile) {
+            $sigSize = (Get-Item $sigFile).Length
+            Write-Host "  ✓ Signature generated: $sigSize bytes" -ForegroundColor Green
+            
+            # Verify signature size (Ed25519 signatures are always 64 bytes)
+            if ($sigSize -ne 64) {
+              Write-Host "  ✗ Invalid signature size: expected 64 bytes, got $sigSize bytes" -ForegroundColor Red
+              exit 1
+            }
+          } else {
+            Write-Host "  ✗ Failed to generate signature" -ForegroundColor Red
+            exit 1
+          }
+        } else {
+          Write-Host "[WARN] Setup file not found: $setupFile" -ForegroundColor Yellow
+        }
+        
+        # Generate signatures for MSI files if they exist
+        Get-ChildItem "dist\*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
+          Write-Host "Generating signature for: $($_.Name)" -ForegroundColor Yellow
+          $sigFile = "$($_.FullName).sig"
+          python build_system/signing_manager.py $_.FullName $keyPath $sigFile
+          
+          if (Test-Path $sigFile) {
+            $sigSize = (Get-Item $sigFile).Length
+            Write-Host "  ✓ Signature generated: $sigSize bytes" -ForegroundColor Green
+            
+            # Verify signature size (Ed25519 signatures are always 64 bytes)
+            if ($sigSize -ne 64) {
+              Write-Host "  ✗ Invalid signature size: expected 64 bytes, got $sigSize bytes" -ForegroundColor Red
+            }
+          } else {
+            Write-Host "  ✗ Failed to generate signature" -ForegroundColor Red
+          }
+        }
+        
+        Write-Host ""
+        Write-Host "============================================" -ForegroundColor Green
+        Write-Host "  ✓ All signatures generated successfully" -ForegroundColor Green
+        Write-Host "============================================" -ForegroundColor Green
+
+    # ------------------------------------------------------------------------
     # Step Group 8: Artifact Preparation and Upload
     # ------------------------------------------------------------------------
     - name: Compress Windows artifacts for upload
@@ -878,6 +1073,8 @@ jobs:
           if (Test-Path $sigFile) {
             Copy-Item $sigFile "artifacts/" -Force
             Write-Host "Copied signature: $(Split-Path -Leaf $sigFile)"
+          } else {
+            Write-Host "WARNING: Signature file not found: $sigFile" -ForegroundColor Yellow
           }
         } else {
           Write-Host "WARNING: Setup file not found: $setupFile" -ForegroundColor Yellow
@@ -1116,6 +1313,76 @@ jobs:
         echo "=== Injecting Build Info ==="
         python build_system/scripts/inject_build_info.py --version ${{ needs.validate-tag.outputs.version }} --environment ${{ needs.validate-tag.outputs.environment }}
 
+    # ------------------------------------------------------------------------
+    # Step: Setup OTA Signing Key from GitHub Secrets
+    # ------------------------------------------------------------------------
+    - name: Setup OTA signing key
+      if: |
+        steps.arch_check.outputs.should_build == 'true' && (
+          needs.validate-tag.outputs.environment == 'production' || 
+          needs.validate-tag.outputs.environment == 'staging' ||
+          needs.validate-tag.outputs.environment == 'test'
+        )
+      env:
+        OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+      run: |
+        echo "=== Setting up OTA signing key ==="
+        echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+        echo ""
+        
+        # Create certificates directory
+        mkdir -p build_system/certificates
+        echo "[OK] Created directory: build_system/certificates"
+        
+        # Check if secret is available
+        if [ -z "$OTA_PRIVATE_KEY" ]; then
+          echo "[ERROR] ========================================"
+          echo "[ERROR] OTA_ED25519_PRIVATE_KEY secret is NOT configured"
+          echo "[ERROR] ========================================"
+          echo ""
+          echo "To fix this issue:"
+          echo "1. Run: ./prepare_github_secret.ps1 (on Windows)"
+          echo "2. Go to: GitHub repository → Settings → Secrets → Actions"
+          echo "3. Add secret:"
+          echo "   Name:  OTA_ED25519_PRIVATE_KEY"
+          echo "   Value: [paste from clipboard]"
+          echo ""
+          echo "See: OTA_SIGNING_COMPLETE_GUIDE.md for detailed instructions"
+          echo ""
+          exit 1
+        fi
+        
+        # Decode base64 and write private key
+        KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+        echo "[1/3] Decoding base64 private key..."
+        echo "$OTA_PRIVATE_KEY" | base64 -d > "$KEY_PATH"
+        echo "  ✓ Base64 decoded successfully"
+        
+        # Verify key format
+        echo "[2/3] Verifying key format..."
+        if grep -q "BEGIN PRIVATE KEY" "$KEY_PATH"; then
+          echo "  ✓ Key format verified (PEM)"
+        else
+          echo "  ✗ Invalid key format (expected PEM)"
+          echo "  Key should start with: -----BEGIN PRIVATE KEY-----"
+          exit 1
+        fi
+        
+        # Set file permissions
+        echo "[3/3] Setting file permissions..."
+        chmod 600 "$KEY_PATH"
+        echo "  ✓ File permissions set (600)"
+        
+        echo ""
+        echo "============================================"
+        echo "  ✓ OTA signing key configured successfully"
+        echo "============================================"
+        echo "Key path: $KEY_PATH"
+        echo ""
+
+    # ------------------------------------------------------------------------
+    # Step: Build Application
+    # ------------------------------------------------------------------------
     - name: Build macOS App
       if: steps.arch_check.outputs.should_build == 'true'
       env:
@@ -1433,6 +1700,68 @@ jobs:
         echo "[OK] Build validation passed"
 
     # ------------------------------------------------------------------------
+    # Step: Generate Ed25519 Signatures for OTA Updates
+    # ------------------------------------------------------------------------
+    - name: Generate Ed25519 signatures
+      if: |
+        steps.arch_check.outputs.should_build == 'true' && (
+          needs.validate-tag.outputs.environment == 'production' || 
+          needs.validate-tag.outputs.environment == 'staging' ||
+          needs.validate-tag.outputs.environment == 'test'
+        )
+      run: |
+        echo "=== Generating Ed25519 Signatures ==="
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        ARCH="${{ matrix.arch }}"
+        
+        # Check if private key exists
+        KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+        if [ ! -f "$KEY_PATH" ]; then
+          echo "[ERROR] Private key not found: $KEY_PATH"
+          echo "[ERROR] OTA signatures cannot be generated"
+          exit 1
+        fi
+        
+        echo "[OK] Private key found: $KEY_PATH"
+        
+        # Install OpenSSL if needed
+        if ! command -v openssl &> /dev/null; then
+          echo "Installing OpenSSL..."
+          brew install openssl
+        fi
+        
+        # Generate signature for main PKG file
+        PKG_FILE="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+        if [ -f "$PKG_FILE" ]; then
+          echo "Generating signature for: $(basename $PKG_FILE)"
+          
+          # Use signing_manager.py for Ed25519 signing (OpenSSL pkeyutl doesn't support Ed25519 in all versions)
+          SIG_FILE="${PKG_FILE}.sig"
+          python build_system/signing_manager.py "$PKG_FILE" "$KEY_PATH" "$SIG_FILE"
+          
+          if [ -f "$SIG_FILE" ]; then
+            SIG_SIZE=$(wc -c < "$SIG_FILE" | tr -d ' ')
+            echo "  ✓ Signature generated: $SIG_SIZE bytes"
+            
+            # Verify signature size (Ed25519 signatures are always 64 bytes)
+            if [ "$SIG_SIZE" -ne 64 ]; then
+              echo "  ✗ Invalid signature size: expected 64 bytes, got $SIG_SIZE bytes"
+              exit 1
+            fi
+          else
+            echo "  ✗ Failed to generate signature"
+            exit 1
+          fi
+        else
+          echo "[WARN] PKG file not found: $PKG_FILE"
+        fi
+        
+        echo ""
+        echo "============================================"
+        echo "  ✓ All signatures generated successfully"
+        echo "============================================"
+
+    # ------------------------------------------------------------------------
     # Step Group 7: Artifact Preparation and Upload
     # ------------------------------------------------------------------------
     - name: Compress macOS artifacts for upload
@@ -1459,6 +1788,8 @@ jobs:
           if [ -f "$SIG_FILE" ]; then
             cp "$SIG_FILE" artifacts/
             echo "Copied signature: $(basename $SIG_FILE)"
+          else
+            echo "WARNING: Signature file not found: $SIG_FILE"
           fi
         else
           echo "[ERROR] PKG file not found: $PKG_FILE"

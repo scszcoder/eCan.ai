@@ -386,8 +386,12 @@ class AppcastGenerator:
                 sig_key = f"{key}.sig"
                 try:
                     sig_obj = self.s3.get_object(Bucket=self.bucket, Key=sig_key)
-                    signature = sig_obj['Body'].read().decode('utf-8').strip()
-                except:
+                    sig_data = sig_obj['Body'].read()
+                    # Signature is binary, need to base64 encode for Sparkle
+                    import base64
+                    signature = base64.b64encode(sig_data).decode('utf-8')
+                except Exception as e:
+                    print(f"  [WARNING] Failed to read signature for {key}: {e}")
                     pass
                 
                 # Build download URLs
@@ -731,7 +735,7 @@ Examples:
         """
     )
     
-    parser.add_argument('--env', required=True, choices=['dev', 'test', 'staging', 'production', 'simulation'],
+    parser.add_argument('--env', required=True, choices=['dev', 'development', 'test', 'staging', 'production', 'simulation'],
                        help='Target environment')
     parser.add_argument('--channel', choices=['dev', 'beta', 'stable', 'lts', 'simulation'],
                        help='Release channel (overrides environment default)')

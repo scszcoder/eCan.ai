@@ -182,7 +182,8 @@ class S3Uploader:
                     sig_file = pkg.with_suffix(pkg.suffix + '.sig')
                     if sig_file.exists():
                         sig_key = f"{s3_key}.sig"
-                        if self.upload_file(sig_file, sig_key, 'text/plain'):
+                        # Signature is binary (64 bytes), not text
+                        if self.upload_file(sig_file, sig_key, 'application/octet-stream'):
                             print(f"  [OK] Uploaded signature: {sig_file.name}")
                     
                     # Upload SHA256 checksum
@@ -432,7 +433,7 @@ Examples:
     )
     
     parser.add_argument('--version', required=True, help='Version number (e.g., 1.0.0, 1.0.0-rc.1)')
-    parser.add_argument('--env', required=True, choices=['dev', 'test', 'staging', 'production', 'simulation'],
+    parser.add_argument('--env', required=True, choices=['dev', 'development', 'test', 'staging', 'production', 'simulation'],
                        help='Target environment')
     parser.add_argument('--platform', choices=['macos', 'windows'],
                        help='Only upload this platform (optional)')

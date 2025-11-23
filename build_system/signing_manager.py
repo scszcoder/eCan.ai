@@ -111,12 +111,30 @@ class SigningManager:
         config = self.config.get("platforms", {}).get("windows", {}).get("sign", {})
         signtool = config.get("tool", "signtool")
         
+        # Check if certificate exists before attempting to sign
+        cert_path = config.get("certificate", "")
+        if cert_path and not Path(cert_path).exists():
+            print(f"[SIGN] Certificate file not found: {cert_path}")
+            print(f"[SIGN] Skipping Windows code signing (certificate not available)")
+            return True
+        
+        if not cert_path:
+            print(f"[SIGN] No certificate configured, skipping Windows code signing")
+            return True
+        
         if not self._check_tool_available(signtool):
             print(f"[SIGN] Warning: {signtool} not available, skipping signing")
             return True
         
         # Find files to sign
-        files_to_sign = list(self.dist_dir.rglob("*.exe")) + list(self.dist_dir.rglob("*.dll"))
+        all_files = list(self.dist_dir.rglob("*.exe")) + list(self.dist_dir.rglob("*.dll"))
+        
+        # Filter out system DLLs that should not be signed
+        files_to_sign = [f for f in all_files if not self._is_system_dll(f)]
+        
+        skipped_count = len(all_files) - len(files_to_sign)
+        if skipped_count > 0:
+            print(f"[SIGN] Skipped {skipped_count} system DLL(s) (already signed by Microsoft)")
         
         if not files_to_sign:
             print("[SIGN] No Windows files found to sign")
@@ -130,10 +148,20 @@ class SigningManager:
     def _sign_windows_file(self, file_path: Path, config: Dict[str, Any]) -> bool:
         """Sign single Windows file"""
         try:
+            # Check if certificate file exists
+            cert_path = config.get("certificate", "")
+            if cert_path and not Path(cert_path).exists():
+                print(f"[SIGN] Certificate file not found: {cert_path}, skipping signing")
+                return True  # Not a failure, just skip signing
+            
+            if not cert_path:
+                print(f"[SIGN] No certificate configured, skipping signing")
+                return True
+            
             # Build signing command
             cmd = [
                 config.get("tool", "signtool"), "sign",
-                "/f", config.get("certificate", ""),
+                "/f", cert_path,
                 "/fd", "SHA256",
                 "/tr", "http://timestamp.digicert.com",
                 "/td", "SHA256",
@@ -169,12 +197,25 @@ class SigningManager:
         
         config = self.config.get("platforms", {}).get("macos", {}).get("codesign", {})
         
+        # Check if signing identity is configured
+        identity = config.get("identity", "")
+        if not identity:
+            print(f"[SIGN] Signing identity not configured, skipping macOS code signing")
+            return True
+        
         if not self._check_tool_available("codesign"):
             print("[SIGN] Warning: codesign not available, skipping signing")
             return True
         
         # Find files to sign
-        files_to_sign = list(self.dist_dir.rglob("*.app")) + list(self.dist_dir.rglob("*.dylib"))
+        all_files = list(self.dist_dir.rglob("*.app")) + list(self.dist_dir.rglob("*.dylib")) + list(self.dist_dir.rglob("*.framework"))
+        
+        # Filter out system frameworks and libraries that should not be signed
+        files_to_sign = [f for f in all_files if not self._is_system_framework(f)]
+        
+        skipped_count = len(all_files) - len(files_to_sign)
+        if skipped_count > 0:
+            print(f"[SIGN] Skipped {skipped_count} system framework(s)/library(ies) (already signed by Apple)")
         
         if not files_to_sign:
             print("[SIGN] No macOS files found to sign")
@@ -190,8 +231,8 @@ class SigningManager:
         try:
             identity = config.get("identity", "")
             if not identity:
-                print(f"[SIGN] Warning: Signing identity not configured")
-                return False
+                print(f"[SIGN] Signing identity not configured, skipping signing")
+                return True  # Not a failure, just skip signing
             
             cmd = ["codesign", "--sign", identity, "--force", "--timestamp", str(file_path)]
             
@@ -207,6 +248,122 @@ class SigningManager:
         except Exception as e:
             print(f"[SIGN] [ERROR] Signing exception: {file_path.name} - {e}")
             return False
+    
+    def _is_system_dll(self, file_path: Path) -> bool:
+        """
+        Check if a DLL/EXE is a Windows system file that should not be signed
+        
+        System files are already signed by Microsoft/vendors and should not be re-signed.
+        These include:
+        - api-ms-win-*.dll (Windows API sets)
+        - ucrtbase.dll (Universal C Runtime)
+        - vcruntime*.dll (Visual C++ Runtime)
+        - msvcp*.dll (Microsoft C++ Standard Library)
+        - Third-party bundled apps (Playwright browsers, etc.)
+        """
+        path_str = str(file_path).lower()
+        filename = file_path.name.lower()
+        
+        # Check if it's in a third-party directory
+        third_party_paths = [
+            'third_party\\',     # Third-party bundled components (Windows path)
+            'third_party/',      # Third-party bundled components (Unix-style path)
+            'ms-playwright\\',   # Playwright browsers (Windows path)
+            'ms-playwright/',    # Playwright browsers (Unix-style path)
+        ]
+        
+        # Check third-party paths first
+        if any(tp_path in path_str for tp_path in third_party_paths):
+            return True
+        
+        # List of system DLL patterns
+        system_dll_patterns = [
+            'api-ms-win-',      # Windows API sets (e.g., api-ms-win-core-file-l1-1-0.dll)
+            'api-ms-win-crt-',  # Windows CRT API sets
+            'ucrtbase',         # Universal C Runtime base
+            'vcruntime',        # Visual C++ Runtime
+            'msvcp',            # Microsoft C++ Standard Library
+            'concrt',           # Concurrency Runtime
+            'vccorlib',         # Visual C++ Core Library
+        ]
+        
+        # Third-party bundled applications (already signed by vendors)
+        third_party_apps = [
+            'chrome.exe',       # Playwright Chromium
+            'chrome.dll',       # Chromium libraries
+            'firefox.exe',      # Playwright Firefox
+            'webkit.exe',       # Playwright WebKit
+        ]
+        
+        # Check system DLL patterns
+        if any(filename.startswith(pattern) for pattern in system_dll_patterns):
+            return True
+        
+        # Check third-party apps
+        if any(app in filename for app in third_party_apps):
+            return True
+        
+        return False
+    
+    def _is_system_framework(self, file_path: Path) -> bool:
+        """
+        Check if a file is a macOS system framework/library that should not be signed
+        
+        System frameworks are already signed by Apple/vendors and should not be re-signed.
+        These include:
+        - Qt frameworks (from PySide6/PyQt)
+        - Python system libraries
+        - macOS system frameworks
+        - Third-party bundled apps (Playwright Chromium, etc.)
+        """
+        path_str = str(file_path).lower()
+        filename = file_path.name.lower()
+        
+        # Check if it's in a system or third-party framework directory
+        system_paths = [
+            '/system/library/frameworks/',
+            '/library/frameworks/',
+            'python3.',  # Python system libraries
+            'site-packages',  # Third-party packages
+            '.framework/versions/',  # System frameworks
+            'third_party/',  # Third-party bundled components
+            'ms-playwright/',  # Playwright browsers
+        ]
+        
+        # Qt frameworks from PySide6/PyQt (already signed)
+        qt_frameworks = [
+            'qtcore',
+            'qtgui',
+            'qtwidgets',
+            'qtnetwork',
+            'qtwebengine',
+            'qtwebenginecore',
+            'qtwebenginewidgets',
+            'qtprintsupport',
+            'qtdbus',
+            'qtopengl',
+        ]
+        
+        # Third-party bundled applications (already signed by vendors)
+        third_party_apps = [
+            'chromium',  # Playwright Chromium
+            'firefox',   # Playwright Firefox
+            'webkit',    # Playwright WebKit
+        ]
+        
+        # Check system paths
+        if any(sys_path in path_str for sys_path in system_paths):
+            return True
+        
+        # Check Qt frameworks
+        if any(qt_fw in filename for qt_fw in qt_frameworks):
+            return True
+        
+        # Check third-party apps
+        if any(app in filename for app in third_party_apps):
+            return True
+        
+        return False
     
     def _check_tool_available(self, tool: str) -> bool:
         """Check if signing tool is available"""
@@ -247,7 +404,9 @@ class SigningManager:
             print("[VERIFY] signtool not available, skipping verification")
             return True
         
-        signed_files = list(self.dist_dir.rglob("*.exe")) + list(self.dist_dir.rglob("*.dll"))
+        # Find all files and filter out system DLLs
+        all_files = list(self.dist_dir.rglob("*.exe")) + list(self.dist_dir.rglob("*.dll"))
+        signed_files = [f for f in all_files if not self._is_system_dll(f)]
         
         if not signed_files:
             print("[VERIFY] No files found to verify")
@@ -278,7 +437,9 @@ class SigningManager:
             print("[VERIFY] codesign not available, skipping verification")
             return True
         
-        signed_files = list(self.dist_dir.rglob("*.app")) + list(self.dist_dir.rglob("*.dylib"))
+        # Find all files and filter out system frameworks
+        all_files = list(self.dist_dir.rglob("*.app")) + list(self.dist_dir.rglob("*.dylib")) + list(self.dist_dir.rglob("*.framework"))
+        signed_files = [f for f in all_files if not self._is_system_framework(f)]
         
         if not signed_files:
             print("[VERIFY] No files found to verify")
@@ -360,13 +521,19 @@ class OTASigningManager:
                         "file_size": len(file_data)
                     }
                     
-                    # Also save signature to .sig file for upload
-                    # Sparkle-compatible format: base64 Ed25519 signature in .sig file
-                    # Our self-contained OTA system reads this format
+                    # Save signature to .sig file for upload
+                    # Save as binary (64 bytes) for Sparkle compatibility
+                    # The generate_appcast.py script will read this binary and base64 encode it
                     sig_file = artifact.with_suffix(artifact.suffix + '.sig')
-                    with open(sig_file, 'w', encoding='utf-8') as f:
-                        f.write(signature_b64)
-                    print(f"[OTA-SIGN] [OK] Created signature file: {sig_file.name}")
+                    with open(sig_file, 'wb') as f:
+                        f.write(signature)  # Write raw 64-byte signature
+                    
+                    # Verify signature file size
+                    if sig_file.stat().st_size == 64:
+                        print(f"[OTA-SIGN] [OK] Created signature file: {sig_file.name} (64 bytes)")
+                    else:
+                        print(f"[OTA-SIGN] [ERROR] Invalid signature size: {sig_file.stat().st_size} bytes (expected 64)")
+                        continue
                     
                     print(f"[OTA-SIGN] [OK] Signed: {artifact.name}")
                 except Exception as e:
@@ -411,3 +578,132 @@ def create_signing_manager(project_root: Path = None, config: Dict[str, Any] = N
 def create_ota_signing_manager(project_root: Path = None) -> OTASigningManager:
     """Create OTA signing manager instance"""
     return OTASigningManager(project_root)
+
+def sign_single_file_ed25519(file_path: str, private_key_path: str, output_sig_path: str = None) -> bool:
+    """
+    Sign a single file with Ed25519 (command-line interface)
+    
+    Args:
+        file_path: Path to file to sign
+        private_key_path: Path to Ed25519 private key (PEM format)
+        output_sig_path: Path to output signature file (default: file_path + '.sig')
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ed25519
+    except ImportError:
+        print("❌ Error: cryptography library not installed")
+        print("Install with: pip install cryptography")
+        return False
+    
+    # Convert to Path objects
+    file_path = Path(file_path)
+    private_key_path = Path(private_key_path)
+    output_sig_path = Path(output_sig_path) if output_sig_path else file_path.with_suffix(file_path.suffix + '.sig')
+    
+    # Validate inputs
+    if not file_path.exists():
+        print(f"❌ Error: File not found: {file_path}")
+        return False
+    
+    if not private_key_path.exists():
+        print(f"❌ Error: Private key not found: {private_key_path}")
+        return False
+    
+    try:
+        # Read private key
+        print(f"📖 Reading private key: {private_key_path}")
+        with open(private_key_path, 'rb') as f:
+            private_key = serialization.load_pem_private_key(f.read(), password=None)
+        
+        # Verify it's an Ed25519 key
+        if not isinstance(private_key, ed25519.Ed25519PrivateKey):
+            print(f"❌ Error: Key is not Ed25519 (got {type(private_key).__name__})")
+            return False
+        
+        print(f"✅ Private key loaded successfully")
+        
+        # Read file to sign
+        print(f"📖 Reading file to sign: {file_path}")
+        with open(file_path, 'rb') as f:
+            file_data = f.read()
+        
+        file_size_mb = len(file_data) / (1024 * 1024)
+        print(f"✅ File loaded: {file_size_mb:.2f} MB")
+        
+        # Generate signature
+        print(f"🔐 Generating Ed25519 signature...")
+        signature = private_key.sign(file_data)
+        
+        # Verify signature size (Ed25519 signatures are always 64 bytes)
+        if len(signature) != 64:
+            print(f"❌ Error: Invalid signature size: {len(signature)} bytes (expected 64)")
+            return False
+        
+        print(f"✅ Signature generated: {len(signature)} bytes")
+        
+        # Write signature to file
+        print(f"💾 Writing signature to: {output_sig_path}")
+        with open(output_sig_path, 'wb') as sig_file:
+            sig_file.write(signature)
+        
+        print(f"✅ Signature file created successfully")
+        
+        # Verify the signature was written correctly
+        if output_sig_path.exists():
+            sig_size = output_sig_path.stat().st_size
+            if sig_size == 64:
+                print(f"✅ Verification: Signature file is 64 bytes")
+                return True
+            else:
+                print(f"❌ Error: Signature file size mismatch: {sig_size} bytes")
+                return False
+        else:
+            print(f"❌ Error: Signature file was not created")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Error during signing: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+# Command-line interface
+if __name__ == '__main__':
+    import sys
+    
+    if len(sys.argv) >= 3:
+        file_path = sys.argv[1]
+        private_key_path = sys.argv[2]
+        output_sig_path = sys.argv[3] if len(sys.argv) > 3 else None
+        
+        print("=" * 60)
+        print("Ed25519 File Signing")
+        print("=" * 60)
+        print(f"File to sign: {file_path}")
+        print(f"Private key:  {private_key_path}")
+        print(f"Output sig:   {output_sig_path or file_path + '.sig'}")
+        print("=" * 60)
+        print()
+        
+        success = sign_single_file_ed25519(file_path, private_key_path, output_sig_path)
+        
+        print()
+        print("=" * 60)
+        if success:
+            print("✅ Signing completed successfully")
+            print("=" * 60)
+            sys.exit(0)
+        else:
+            print("❌ Signing failed")
+            print("=" * 60)
+            sys.exit(1)
+    else:
+        print("Usage: python signing_manager.py <file_to_sign> <private_key_path> [output_sig_path]")
+        print()
+        print("Example:")
+        print("  python signing_manager.py dist/eCan-1.0.0.pkg build_system/certificates/ed25519_private_key.pem")
+        sys.exit(1)
