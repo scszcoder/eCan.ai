@@ -28,7 +28,18 @@ async def create_test_dev_skill(mainwin):
                     "on_conflict": "merge_deep"
                 }
             ],
-            "options": {"strict": False}
+            "options": {"strict": False},
+            "event_routing": {
+                "human_chat": {"task_selector": "name_contains:chatter", "queue": ""},
+                "dev_human_chat": {"task_selector": "name_contains:development", "queue": "chat_queue"},
+                "a2a": {"task_selector": "name_contains:chatter", "queue": ""},
+                "api_response": {"task_selector": "id:11111", "queue": ""},
+                "web_hook": {"task_selector": "id:11111", "queue": ""},
+                "cloud_websocket": {"task_selector": "name:search_digikey_chatter", "queue": ""},
+                "web_sse": {"task_selector": "name:abc", "queue": ""},
+                "rerank_search_results": {"task_selector": "name:search_digikey_chatter", "queue": ""},
+                "": {"task_selector": "name:search_digikey_chatter", "queue": ""}
+            }
         }
     except Exception as e:
         err_msg = get_traceback(e, "ErrorCreateTestDevSkill")
