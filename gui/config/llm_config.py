@@ -279,6 +279,50 @@ class LLMConfig:
 
         return result
 
+    def get_max_tokens(self, provider_identifier: str, model_name: str) -> int:
+        """
+        Get max tokens for a specific provider (by canonical identifier) and model.
+        
+        Args:
+            provider_identifier: Canonical provider identifier (e.g., "baidu_qianfan", "openai")
+            model_name: Model name/ID
+            
+        Returns:
+            Max tokens limit, or a default safe value (25536) if not found
+        """
+        try:
+            provider_id_lower = (provider_identifier or "").strip().lower()
+            target_provider_config = None
+            
+            # Find provider config by matching canonical identifier
+            for p_name, p_conf in self._providers.items():
+                if p_conf.provider.value == provider_id_lower:
+                    target_provider_config = p_conf
+                    break
+            
+            if not target_provider_config:
+                return 25536  # Default
+                
+            target_model = model_name or target_provider_config.default_model
+            if not target_model:
+                return 25536
+
+            # Look up model config using provider's lookup name (p_conf.name)
+            # Since _models is keyed by provider name (e.g. "百度千帆")
+            model_conf = self.get_model(target_provider_config.name, target_model)
+            
+            if model_conf and model_conf.max_tokens:
+                return model_conf.max_tokens
+                
+            # Fallback for specific providers if model config missing
+            if provider_id_lower in ("baidu", "qianfan", "baidu_qianfan"):
+                return 4000
+                
+            return 25536
+        except Exception as e:
+            logger.error(f"Error getting max tokens: {e}")
+            return 25536
+
     def get_provider_summary(self) -> Dict[str, Any]:
         """Get a summary of all providers and their status"""
         summary = {

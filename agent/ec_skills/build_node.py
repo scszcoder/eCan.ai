@@ -175,8 +175,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         'baidu qianfan': 'baidu_qianfan',
         '百度千帆': 'baidu_qianfan',
     }
-    print(f"llm config: system_prompt_template='{system_prompt_template}' user_prompt_template='{user_prompt_template}' ")
-    print(f"llm config: model_name={model_name} api_host={api_host} api_key={api_key} model_provider={model_provider} llm_provider={llm_provider}")
+    logger.info(f"llm config: system_prompt_template='{system_prompt_template}' user_prompt_template='{user_prompt_template}' ")
+    logger.info(f"llm config: model_name={model_name} api_host={api_host} api_key={api_key} model_provider={model_provider} llm_provider={llm_provider}")
 
     llm_provider = provider_mapping.get(llm_provider, llm_provider)
 
@@ -241,14 +241,20 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             messages.append(SystemMessage(content=final_system_prompt))
         messages.append(HumanMessage(content=final_user_prompt))
 
-        print("llm node state messages:", state["messages"])
+        logger.debug("llm node state messages:", state["messages"])
         if state["messages"]:
             agent_id = state["messages"][0]
             agent = get_agent_by_id(agent_id)
             run_pre_llm_hook(full_node_name, agent, state, prompt_src="local", prompt_data=messages)
 
-            logger.debug(f"Forming context......")
-            recent_context = get_recent_context(state.get("history", []))
+            # Adjust context window based on provider limitations
+            # Fetch max_tokens from LLM config (gui/config/llm_providers.json)
+            from gui.config.llm_config import llm_config
+            context_limit = llm_config.get_max_tokens(llm_provider, model_name)
+            logger.debug(f"Using max_tokens={context_limit} from config for {llm_provider}/{model_name}")
+            
+            logger.debug(f"Forming context (limit={context_limit})......")
+            recent_context = get_recent_context(state.get("history", []), max_tokens=context_limit)
 
             log_msg = f"recent_context: [{len(recent_context)} messages] {recent_context}"
             logger.debug(log_msg)
@@ -262,13 +268,13 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     if isinstance(provided_key, str) and provided_key.strip():
                         return provided_key.strip()
                     provider_l = (provider or "").lower()
-                    print(f"provider_l: {provider_l}, {provider}, {provided_key}")
+                    logger.debug(f"provider_l: {provider_l}, {provider}, {provided_key}")
                     try:
                         username = get_current_username()
                     except Exception:
                         username = None
 
-                    print(f"username: {username}")
+                    logger.debug(f"username: {username}")
                     def gs(name: str) -> str | None:
                         try:
                             return secure_store.get(name, username=username)
@@ -297,7 +303,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 host = (api_host or "").strip()
                 prov = llm_provider
 
-                print(f"real llm settings: api_key={key} host={host} llm_provider={prov}")
+                logger.debug(f"real llm settings: api_key={key} host={host} llm_provider={prov}")
                 # Provider-specific construction
                 if prov in ("azure", "azure_openai"):
                     azure_endpoint = host or (secure_store.get("AZURE_ENDPOINT", username=get_current_username()) if key else None)
@@ -311,7 +317,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         temperature=temperature
                     )
                 elif prov in ("openai",):
-                    print("setting up for openai......")
+                    logger.debug("setting up for openai......")
                     kwargs = {"model": model_name, "api_key": key, "temperature": temperature}
                     if host:
                         kwargs["base_url"] = host
@@ -433,8 +439,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             logger.debug(log_msg)
                             web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
-                            print("llm_to_use:", llm_to_use)
-                            print()
+                            logger.debug("llm_to_use:", llm_to_use)
                             result = llm_to_use.invoke(recent_context)
                             result_queue.put(result)
 
@@ -445,7 +450,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             err_msg = get_traceback(e, "ErrorInvokeWithThread❌")
                             logger.error(err_msg)
                             web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
-                            exception_queue.put(exc)
+                            exception_queue.put(e)
 
                     start_time = time.time()
                     th = threading.Thread(target=invoke_llm, daemon=True)
@@ -1478,6 +1483,7 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
     def _rag(state: dict, *, runtime=None, store=None, **kwargs):
         # Resolve dotted path from state
         err_msg = ""
+        resp = None
         cur = state
         for part in query_path.split("."):
             try:
@@ -1523,7 +1529,7 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
                 web_gui.get_ipc_api().send_skill_editor_log("error", f"RAG node tool_result set failed: {err_msg}")
             state["error"] = f"rag node failed to set tool_result: {err_msg}"
 
-        add_to_history(state, ActionMessage(content=f"action: rag {str(query)}; result: {resp}; {err_msg}"))
+        add_to_history(state, ActionMessage(content=f"action: rag {str(query)}; result: {results}; {err_msg}"))
 
         return state
 
