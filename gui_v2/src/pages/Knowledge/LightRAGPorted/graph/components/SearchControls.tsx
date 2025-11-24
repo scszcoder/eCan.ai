@@ -22,21 +22,28 @@ const SearchControls: React.FC = () => {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
-    background: '#ffffff',
-    border: `1px solid rgba(0, 0, 0, 0.08)`,
-    borderRadius: 12,
-    padding: '10px 16px',
-    height: 44,
-    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)',
+    // 在深色模式下用更淡的半透明浅色背景
+    background: isDark ? 'rgba(255, 255, 255, 0.06)' : token.colorBgContainer,
+    border: isDark
+      ? '1px solid rgba(255, 255, 255, 0.12)'
+      : `1px solid ${token.colorBorder}`,
+    borderRadius: 999,
+    padding: '8px 14px',
+    height: 40,
+    boxShadow: isDark
+      ? '0 6px 20px rgba(0, 0, 0, 0.25)'
+      : token.boxShadowSecondary,
     transition: 'all 0.2s ease',
+    flex: 1,
+    minWidth: 260,
   };
 
   const inputStyle: React.CSSProperties = {
     border: 'none',
     outline: 'none',
     background: 'transparent',
-    color: '#000000',
-    width: 200,
+    color: token.colorText,
+    width: '100%',
     fontSize: 14,
     fontWeight: 500,
   };
@@ -80,17 +87,17 @@ const SearchControls: React.FC = () => {
   }, [graph, nodeQuery, selectAndZoom]);
 
   return (
-    <div style={{ display: 'flex', gap: 10 }}>
-      <form 
+    <div style={{ display: 'flex', gap: 10, width: '100%' }}>
+      <form
         onSubmit={onSearchLabels} 
         style={inputWrap}
         onFocus={(e) => {
           e.currentTarget.style.borderColor = token.colorPrimary;
-          e.currentTarget.style.boxShadow = `0 2px 12px ${token.colorPrimary}30, 0 1px 4px ${token.colorPrimary}20`;
+          e.currentTarget.style.boxShadow = `0 0 0 2px ${token.colorPrimaryBg}`;
         }}
         onBlur={(e) => {
-          e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.08)';
-          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)';
+          e.currentTarget.style.borderColor = token.colorBorder;
+          e.currentTarget.style.boxShadow = token.boxShadowSecondary;
         }}
       >
         <Search size={18} color={token.colorPrimary} strokeWidth={2.5} />
@@ -101,16 +108,16 @@ const SearchControls: React.FC = () => {
           onChange={(e) => setLabelQuery(e.target.value)}
         />
       </form>
-      <form 
+      <form
         onSubmit={onSearchNode} 
         style={inputWrap}
         onFocus={(e) => {
           e.currentTarget.style.borderColor = token.colorPrimary;
-          e.currentTarget.style.boxShadow = `0 2px 12px ${token.colorPrimary}30, 0 1px 4px ${token.colorPrimary}20`;
+          e.currentTarget.style.boxShadow = `0 0 0 2px ${token.colorPrimaryBg}`;
         }}
         onBlur={(e) => {
-          e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.08)';
-          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)';
+          e.currentTarget.style.borderColor = token.colorBorder;
+          e.currentTarget.style.boxShadow = token.boxShadowSecondary;
         }}
       >
         <Search size={18} color={token.colorPrimary} strokeWidth={2.5} />

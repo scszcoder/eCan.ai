@@ -171,8 +171,42 @@ class LightragClient:
             if not file_paths:
                 return {"status": "error", "message": "No files found in directory"}
 
-            # Use ingest_files to process all files
-            return self.ingest_files(file_paths, options)
+            # Upload each file individually to ensure the backend processes all of them
+            results = []
+            success_count = 0
+            failure_count = 0
+
+            for path in file_paths:
+                try:
+                    resp = self.ingest_files([path], options)
+                except Exception as e:  # Safety net, though ingest_files already catches
+                    err = get_traceback(e, "LightragClient.ingest_directory.single_file")
+                    logger.error(err)
+                    resp = {"status": "error", "message": str(e)}
+
+                if resp.get("status") == "success":
+                    success_count += 1
+                else:
+                    failure_count += 1
+
+                results.append({
+                    "file_path": path,
+                    "result": resp,
+                })
+
+            overall_status = "success" if success_count and not failure_count else (
+                "partial_success" if success_count and failure_count else "error"
+            )
+
+            summary = {
+                "status": overall_status,
+                "total_files": len(file_paths),
+                "success_count": success_count,
+                "failure_count": failure_count,
+                "files": results,
+            }
+
+            return {"status": "success", "data": summary}
         except Exception as e:
             err = get_traceback(e, "LightragClient.ingest_directory")
             logger.error(err)
@@ -206,17 +240,36 @@ class LightragClient:
         try:
             payload = {"query": text}
             if options:
-                # Map all supported parameters
-                for key in ['mode', 'only_need_context', 'only_need_prompt', 'response_type',
-                           'top_k', 'chunk_top_k', 'max_entity_tokens', 'max_relation_tokens',
-                           'max_total_tokens', 'conversation_history', 'history_turns', 'ids',
-                           'user_prompt', 'enable_rerank']:
+                # Map all supported parameters as defined in QueryRequest schema
+                for key in [
+                    'mode',
+                    'only_need_context',
+                    'only_need_prompt',
+                    'response_type',
+                    'top_k',
+                    'chunk_top_k',
+                    'max_entity_tokens',
+                    'max_relation_tokens',
+                    'max_total_tokens',
+                    'conversation_history',
+                    'user_prompt',
+                    'enable_rerank',
+                    'include_references',
+                    'stream',
+                ]:
                     if key in options:
                         payload[key] = options[key]
             
             # Use JSON content type
             headers = {'Content-Type': 'application/json'}
             r = self.session.post(f"{self.base_url}/query", json=payload, headers=headers, timeout=180)
+
+            if r.status_code >= 400:
+                # Log full error body to help debug FastAPI validation errors
+                logger.error(
+                    f"LightragClient.query HTTP error {r.status_code}: {r.text}"
+                )
+
             r.raise_for_status()
             result = r.json()
             return {"status": "success", "data": result}
@@ -357,17 +410,30 @@ class LightragClient:
         """
         payload = {"query": text}
         if options:
-            # Map all query parameters
-            for key in ['mode', 'only_need_context', 'only_need_prompt', 'response_type',
-                       'top_k', 'chunk_top_k', 'max_entity_tokens', 'max_relation_tokens',
-                       'max_total_tokens', 'conversation_history', 'history_turns', 'ids',
-                       'user_prompt', 'enable_rerank']:
+            # Map all supported parameters as defined in QueryRequest schema
+            for key in [
+                'mode',
+                'only_need_context',
+                'only_need_prompt',
+                'response_type',
+                'top_k',
+                'chunk_top_k',
+                'max_entity_tokens',
+                'max_relation_tokens',
+                'max_total_tokens',
+                'conversation_history',
+                'user_prompt',
+                'enable_rerank',
+                'include_references',
+                'stream',
+            ]:
                 if key in options:
                     payload[key] = options[key]
         
         headers = {
             'Content-Type': 'application/json',
-            'Accept': 'text/event-stream'
+            # LightRAG's /query/stream endpoint uses NDJSON streaming
+            'Accept': 'application/x-ndjson',
         }
         
         try:
@@ -378,12 +444,18 @@ class LightragClient:
                 stream=True,
                 timeout=180
             ) as r:
+                if r.status_code >= 400:
+                    # Log full error body to help debug FastAPI validation errors
+                    logger.error(
+                        f"LightragClient.query_stream HTTP error {r.status_code}: {r.text}"
+                    )
+
                 r.raise_for_status()
                 for line in r.iter_lines():
                     if line:
                         line_str = line.decode('utf-8')
-                        if line_str.startswith('data: '):
-                            yield line_str[6:]  # Remove 'data: ' prefix
+                        # /query/stream returns pure NDJSON lines, no 'data: ' prefix
+                        yield line_str
         except requests.exceptions.RequestException as e:
             logger.error(f"Error in stream query: {e}")
             raise
@@ -483,15 +555,19 @@ class LightragClient:
             return {"status": "error", "message": str(e)}
 
     def query_graphs(self, label: str, max_depth: int, max_nodes: int) -> Dict[str, Any]:
-        """Query graph nodes and edges."""
+        """Query graph nodes and edges via GET /graphs.
+
+        This aligns with LightRAG's OpenAPI where:
+          - endpoint: GET /graphs
+          - params: label (str, required), max_depth (int), max_nodes (int)
+        """
         try:
-            payload = {
+            params = {
                 "label": label,
                 "max_depth": max_depth,
-                "max_nodes": max_nodes
+                "max_nodes": max_nodes,
             }
-            # Using POST to send parameters
-            r = self.session.post(f"{self.base_url}/graph/query", json=payload, timeout=60)
+            r = self.session.get(f"{self.base_url}/graphs", params=params, timeout=60)
             r.raise_for_status()
             result = r.json()
             return {"status": "success", "data": result}

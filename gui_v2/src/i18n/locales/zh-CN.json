@@ -1369,6 +1369,28 @@
         "retrieval": "检索",
         "settings": "设置"
       },
+      "graph": {
+        "title": "知识图谱",
+        "subtitle": "知识关系的交互式可视化",
+        "loading": "正在加载图数据...",
+        "empty": "当前标签下没有可视化的图数据",
+        "summary": "标签: {{label}} · 节点: {{nodes}} · 边: {{edges}}",
+        "truncated": "结果已截断，请缩小范围或减少最大节点数",
+        "searchLabels": "搜索标签",
+        "searchNode": "搜索节点",
+        "refreshing": "刷新中...",
+        "refreshGlobal": "刷新全局数据",
+        "refreshCurrentLabel": "刷新标签: {{label}}",
+        "noLabels": "无标签",
+        "selectLabel": "选择标签",
+        "labelPlaceholder": "选择或搜索标签...",
+        "circularLayout": "环形布局",
+        "randomLayout": "随机布局",
+        "noverlapLayout": "去重叠布局",
+        "forceAtlas2Layout": "力导向布局",
+        "zoomIn": "放大",
+        "zoomOut": "缩小"
+      },
       "documents": {
         "title": "文档管理",
         "subtitle": "管理和导入文档到知识库",

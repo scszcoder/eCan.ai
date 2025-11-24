@@ -861,7 +861,7 @@ class MainWindow:
                     platform.node(),
                 ])
             candidates.append(system_info.get('machine_name'))
-            print("candidates:", candidates)
+            logger.info("candidates:", candidates)
             _mn = next((x for x in candidates if isinstance(x, str) and x.strip()), None)
             if isinstance(_mn, str):
                 _mn = _mn.strip().strip('"').strip("'").replace("’", "'")
@@ -1346,33 +1346,6 @@ class MainWindow:
             logger.error(f"[MainGUI] Error accessing MainWindow: {e}")
             return False
 
-    def _start_lightrag_deferred(self):
-        """Start LightRAG server in deferred mode."""
-        try:
-            from knowledge.lightrag_server import LightragServer
-            from utils.env.secure_store import secure_store
-            
-            # Prepare environment variables for LightRAG server
-            lightrag_env = {"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"}
-            
-            # Ensure OPENAI_API_KEY is passed to LightRAG server from secure store with user isolation
-            from utils.env.secure_store import get_current_username
-            username = get_current_username()
-            openai_api_key = secure_store.get('OPENAI_API_KEY', username=username)
-            if openai_api_key and openai_api_key.strip():
-                lightrag_env['OPENAI_API_KEY'] = openai_api_key
-                logger.info("[MainWindow] 🔑 OPENAI_API_KEY found in secure store and will be passed to LightRAG server (deferred)")
-            else:
-                logger.warning("[MainWindow] ⚠️ OPENAI_API_KEY not found in secure store (deferred)")
-
-            self.lightrag_server = LightragServer(extra_env=lightrag_env)
-            # Start server process but don't wait for it to be ready
-            self.lightrag_server.start(wait_ready=False)
-            logger.info("[MainWindow] LightRAG server started (deferred, non-blocking)")
-        except Exception as e:
-            logger.warning(f"[MainWindow] Deferred LightRAG start failed: {e}")
-
-
     def stop_lightrag_server(self):
         self.lightrag_server.stop()
         self.lightrag_server = None
@@ -1523,9 +1496,16 @@ class MainWindow:
             # but run the actual server start in executor for non-blocking behavior
             from knowledge.lightrag_server import LightragServer
             from utils.env.secure_store import secure_store
+            from config.app_info import app_info
             
             # Prepare environment variables for LightRAG server
-            lightrag_env = {"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"}
+            # APP_DATA_PATH is used for LightRAG's own data directory
+            # LOG_DIR is aligned with main process runlogs so all logs live in the same folder
+            runlogs_dir = os.path.join(app_info.appdata_path, "runlogs")
+            lightrag_env = {
+                "APP_DATA_PATH": ecb_data_homepath + "/lightrag_data",
+                "LOG_DIR": runlogs_dir,
+            }
             
             # Ensure OPENAI_API_KEY is passed to LightRAG server from secure store with user isolation
             from utils.env.secure_store import get_current_username
@@ -1623,7 +1603,7 @@ class MainWindow:
             masked_token = token[:15] + "..." + token[-4:] if len(token) > 20 else "***"
             logger.info("ws_host", ws_host, "token:", masked_token if token else "", "ws_endpoint:", ws_endpoint)
             acctSiteID = self.getAcctSiteID()
-            print("acct site id:", acctSiteID)
+            logger.debug("acct site id:", acctSiteID)
             
             # Start the server process in executor and save references for cleanup
             ws, thread = await asyncio.get_event_loop().run_in_executor(
@@ -1667,7 +1647,7 @@ class MainWindow:
             masked_token = token[:15] + "..." + token[-4:] if len(token) > 20 else "***"
             logger.info("ws_host", ws_host, "token:", masked_token if token else "", "ws_endpoint:", ws_endpoint)
             acctSiteID = self.getAcctSiteID()
-            print("acct site id:", acctSiteID)
+            logger.debug("acct site id:", acctSiteID)
 
             # Start the server process in executor and save references for cleanup
             ws, thread = await asyncio.get_event_loop().run_in_executor(
@@ -3503,7 +3483,7 @@ class MainWindow:
 
             if len(self.vehicles) > 0:
                 v_host_names = [v.getName().split(":")[0] for v in self.vehicles]
-                print("existing vehicle "+json.dumps(v_host_names))
+                logger.debug("existing vehicle "+json.dumps(v_host_names))
             else:
                 vids = []
 
@@ -3516,7 +3496,7 @@ class MainWindow:
                 newVehicle.setVid(vip.split(".")[3])
                 newVehicle.setName(vname+":")
                 if found_fl:
-                    print("found_fl IP:", found_fl["ip"])
+                    logger.debug("found_fl IP:", found_fl["ip"])
                     newVehicle.setFieldLink(found_fl)
                     newVehicle.setStatus("connecting")
                 self.saveVehicle(newVehicle)
@@ -3530,7 +3510,7 @@ class MainWindow:
                 foundV.setIP(vip)
                 foundV.setStatus("connecting")
                 if found_fl:
-                    print("found_fl IP:", found_fl["ip"])
+                    logger.debug("found_fl IP:", found_fl["ip"])
                     foundV.setFieldLink(found_fl)
 
                 resultV = foundV
@@ -3545,7 +3525,7 @@ class MainWindow:
                 ex_stat = "ErrorAddConnectingVehicle: traceback information not available:" + str(e)
 
             self.showMsg(ex_stat)
-        print("added connecting vehicle:", resultV.getName(), resultV.getStatus())
+        logger.debug("added connecting vehicle:", resultV.getName(), resultV.getStatus())
         return resultV
 
 
@@ -3556,9 +3536,9 @@ class MainWindow:
         self.showMsg("marking vehicle offline: "+vip+" "+json.dumps([v.getIP()+":"+v.getName() for v in self.vehicles]))
 
         found_v_idx = next((i for i, v in enumerate(self.vehicles) if lostName in v.getName()), -1)
-        print("found_v_idx", found_v_idx)
+        logger.debug("found_v_idx", found_v_idx)
         if found_v_idx > 0:
-            print("markingoff......")
+            logger.debug("markingoff......")
             found_v = self.vehicles[found_v_idx]
             found_v.setStatus("offline")
 
@@ -3571,7 +3551,7 @@ class MainWindow:
         
         self.showMsg("adding self as a vehicle if is Commander.....")
         existing_names = [v.getName().split(":")[0] for v in self.vehicles]
-        print("existing v names:", existing_names)
+        logger.debug("existing v names:", existing_names)
         if self.machine_role == "Commander":
             # Check if this machine is already in the vehicle list
             if self.machine_name not in existing_names:
@@ -3770,10 +3750,10 @@ class MainWindow:
 
     def translateVehiclesJson(self, vjds):
         all_vnames = [v.getName() for v in self.vehicles]
-        print("vehicles names in the vehicle json file:", all_vnames)
+        logger.debug("vehicles names in the vehicle json file:", all_vnames)
         for vjd in vjds:
             if vjd["name"] not in all_vnames:
-                print("add new vehicle to local vehicle data structure but no yet added to GUI", vjd["name"])
+                logger.debug("add new vehicle to local vehicle data structure but no yet added to GUI", vjd["name"])
                 new_v = VEHICLE(self)
                 new_v.loadJson(vjd)
                 new_v.setStatus("offline")      # always set to offline when load from file. will self correct as we update it later....
@@ -3850,7 +3830,7 @@ class MainWindow:
         for jl in json_list:
             jl["file_link"] = file_path
 
-        print("READ XLSX::", json_list)
+        logger.debug("READ XLSX::", json_list)
         return json_list
 
     def update_original_xlsx_file(self, file_path, mission_data):
@@ -3882,7 +3862,7 @@ class MainWindow:
         # Save the updated DataFrame to a new file
         df.to_excel(new_file_path, index=False)
 
-        print(f"File saved as {new_file_name}")
+        logger.debug(f"File saved as {new_file_name}")
 
 
 
@@ -3917,7 +3897,7 @@ class MainWindow:
             "tz": str(tzlocal.get_localzone())
         }
 
-        print("v timezone:", tzlocal.get_localzone())
+        logger.debug("v timezone:", tzlocal.get_localzone())
         # add self to the compute resource pool
         if self.host_role == "Commander":
             if self.platform == "win":
@@ -3940,7 +3920,7 @@ class MainWindow:
                     # Process all available messages in the queue
                     while not msgQueue.empty():
                         net_message = await msgQueue.get()
-                        print("received net message:", type(net_message), net_message)
+                        logger.debug("received net message:", type(net_message), net_message)
                         if isinstance(net_message, str):
                             if len(net_message) > 256:
                                 mlen = 256
@@ -3949,14 +3929,14 @@ class MainWindow:
                             self.showMsg(
                                 "received queued msg from platoon..... [" + str(msgQueue.qsize()) + "]" + net_message[:mlen])
 
-                            print("platoon server received message from queu...")
+                            logger.debug("platoon server received message from queu...")
                             # Parse the message into parts
                             msg_parts = net_message.split("!")
                             if len(msg_parts) >= 3:  # Check for valid message structure
                                 if msg_parts[1] == "net data":
                                     await self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
                                 elif msg_parts[1] == "connection":
-                                    print("received connection message: " + msg_parts[0] + " " + msg_parts[2])
+                                    logger.debug("received connection message: " + msg_parts[0] + " " + msg_parts[2])
 
                                     addedV = self.addConnectingVehicle(msg_parts[2], msg_parts[0])
                                     # await asyncio.sleep(8)
@@ -3964,7 +3944,7 @@ class MainWindow:
                                     #     print("pinging platoon: " + str(len(self.vehicles) - 1) + msg_parts[0])
                                     #     self.sendToVehicleByVip(msg_parts[0])
                                 elif msg_parts[1] == "net loss":
-                                    print("received net loss")
+                                    logger.debug("received net loss")
                                     found_vehicle = self.markVehicleOffline(msg_parts[0], msg_parts[2])
                                     vehicle_report = self.prepVehicleReportData(found_vehicle)
                                     resp = send_report_vehicles_to_cloud(
@@ -3975,27 +3955,22 @@ class MainWindow:
                                     )
                                     self.saveVehiclesJsonFile()
                         elif isinstance(net_message, dict):
-                            print("process json from queue:")
+                            logger.debug("process json from queue:")
 
                         msgQueue.task_done()
 
                 except asyncio.QueueEmpty:
-                    print("Queue unexpectedly empty when trying to get message.")
+                    logger.warning("Queue unexpectedly empty when trying to get message.")
                 except Exception as e:
-                    print(f"Error processing Commander message: {e}")
+                    logger.error(f"Error processing Commander message: {e}")
 
             else:
                 # if nothing on queue, do a quick check if any vehicle needs a ping-pong check
                 for v in self.vehicles:
                     if "connecting" in v.getStatus():
-                        print("pinging platoon: " + v.getIP())
+                        logger.debug("pinging platoon: " + v.getIP())
                         self.sendToVehicleByVip(v.getIP())
             await asyncio.sleep(1)  # Short sleep to avoid busy-waiting
-
-
-
-
-
 
 
     # msg in json format
@@ -4021,7 +3996,7 @@ class MainWindow:
                     self.showMsg("recevied a vehicle introduction/pong:" + msg["content"]["name"] + ":" + msg["content"]["os"] + ":"+ msg["content"]["machine"])
 
                     if found_vehicle:
-                        print("found a vehicle to set.... "+found_vehicle.getOS())
+                        logger.debug("found a vehicle to set.... "+found_vehicle.getOS())
                         if "connecting" in found_vehicle.getStatus():
                             found_vehicle.setStatus("running_idle")
 
@@ -4035,7 +4010,7 @@ class MainWindow:
                             found_vehicle.setOS("Linux")
                             found_vehicle.setName(msg["content"]["name"] + ":linux")
 
-                        print("now found vehicle" + found_vehicle.getName() + " " + found_vehicle.getOS())
+                        logger.debug("now found vehicle" + found_vehicle.getName() + " " + found_vehicle.getOS())
                         # this is a good juncture to update vehicle status on cloud and local DB and JSON file.
                         #  now
                         vehicle_report = self.prepVehicleReportData(found_vehicle)
@@ -4076,7 +4051,7 @@ class MainWindow:
 
                     self.updateMStats(mStats)
                 else:
-                    print("WARN: status contents empty.")
+                    logger.warning("WARN: status contents empty.")
 
             elif msg["type"] == "report":
                 # collect report, the report should be already organized in json format and ready to submit to the network.
@@ -4140,19 +4115,19 @@ class MainWindow:
                     if vname in self.unassigned_scheduled_task_groups:
                         p_task_groups = self.unassigned_scheduled_task_groups[vname]
                     else:
-                        print(f"{vname} not found in unassigned_scheduled_task_groups empty")
-                        print("keys:", list(self.unassigned_scheduled_task_groups.keys()))
+                        logger.debug(f"{vname} not found in unassigned_scheduled_task_groups empty")
+                        logger.debug("keys:", list(self.unassigned_scheduled_task_groups.keys()))
                         p_task_groups = []
                 else:
                     if self.todays_scheduled_task_groups:
                         if vname in self.todays_scheduled_task_groups:
                             p_task_groups = self.todays_scheduled_task_groups[vname]
                         else:
-                            print(f"{vname} not found in todays_scheduled_task_groups empty")
-                            print("keys:", list(self.todays_scheduled_task_groups.keys()))
+                            logger.debug(f"{vname} not found in todays_scheduled_task_groups empty")
+                            logger.debug("keys:", list(self.todays_scheduled_task_groups.keys()))
                             p_task_groups = []
                     else:
-                        print("time stamp "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]+" todays_scheduled_task_groups empty")
+                        logger.debug("time stamp "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]+" todays_scheduled_task_groups empty")
                         p_task_groups = []
                 await self.vehicleSetupWorkSchedule(found_vehicle, p_task_groups)
 
@@ -4335,7 +4310,7 @@ class MainWindow:
         return thisAgentIdsString
 
     def prepFullVehicleReportData(self):
-        print("prepFullVehicleReportData...")
+        logger.debug("prepFullVehicleReportData...")
         report = []
         try:
             for v in self.vehicles:
@@ -4373,7 +4348,7 @@ class MainWindow:
                         "created_at": ""
                     }
                 report.append(vinfo)
-            print("vnames:", [v["vname"] for v in report])
+            logger.debug("vnames:", [v["vname"] for v in report])
             if (self.machine_name+":"+self.os_short) not in [v["vname"] for v in report]:
                 if "Only" not in self.host_role and "Staff" not in self.host_role:
                     # add myself as a vehicle resource too.
@@ -4392,7 +4367,7 @@ class MainWindow:
                     }
 
                     report.append(vinfo)
-                    print("report:", report)
+                    logger.debug("report:", report)
 
         except Exception as e:
             # Get the traceback information
@@ -4402,7 +4377,7 @@ class MainWindow:
                 ex_stat = "ErrorPrepFullVReport:" + traceback.format_exc() + " " + str(e)
             else:
                 ex_stat = "ErrorPrepFullVReport traceback information not available:" + str(e)
-            print(ex_stat)
+            logger.error(ex_stat)
 
         return report
 
@@ -4477,13 +4452,13 @@ class MainWindow:
                 message = await monitor_msg_queue.get()
                 self.showMsg(f"RPA Monitor message: {message}")
                 if type(message) != str:
-                    print("GUI v")
+                    logger.debug("GUI v")
 
                 monitor_msg_queue.task_done()
 
             logger.trace("running monitoring Task....", ticks)
             await asyncio.sleep(1)
-        print("RPA monitor ended!!!")
+        logger.debug("RPA monitor ended!!!")
 
 
 
@@ -4491,8 +4466,8 @@ class MainWindow:
         try:
             for bi, batch in enumerate(orders):
                 if batch['file']:
-                    print("batch....", batch)
-                    print("about to download....", batch['file'])
+                    logger.debug("batch....", batch)
+                    logger.debug("about to download....", batch['file'])
 
                     local_file = download_file(self.session, self.my_ecb_data_homepath, batch['dir'] + "/" + batch['file'],
                                                "", self.get_auth_token(),
@@ -4502,8 +4477,8 @@ class MainWindow:
                     worklink['dir'] = os.path.dirname(local_file)
 
 
-                    print("local file....", local_file)
-                    print("local dir:", os.path.dirname(local_file))
+                    logger.debug("local file....", local_file)
+                    logger.debug("local dir:", os.path.dirname(local_file))
 
         except Exception as e:
             # Get the traceback information
@@ -4513,7 +4488,7 @@ class MainWindow:
                 ex_stat = "ErrorDownloadForFullfillGenECBLabels:" + traceback.format_exc() + " " + str(e)
             else:
                 ex_stat = "ErrorDownloadForFullfillGenECBLabels traceback information not available:" + str(e)
-            print(ex_stat)
+            logger.error(ex_stat)
 
 
     # do any download if needed by the missions ONLY IF the mission will be run on this computer.
@@ -4525,7 +4500,7 @@ class MainWindow:
                 if self.machine_name in first_v:
                     self.downloadForFullfillGenECBLabels(new_works['added_missions'][0]['config'][1], new_works['task_groups'][first_v]['eastern'][0]['other_works'][0]['config'][1][0])
 
-                print("updated new work:", new_works)
+                logger.debug("updated new work:", new_works)
 
         except Exception as e:
             # Get the traceback information
@@ -4535,7 +4510,7 @@ class MainWindow:
                 ex_stat = "ErrorPrepareMissionRunAsServer:" + traceback.format_exc() + " " + str(e)
             else:
                 ex_stat = "ErrorPrepareMissionRunAsServer traceback information not available:" + str(e)
-            print(ex_stat)
+            logger.error(ex_stat)
 
     # note recipient could be a group ID.
     def sendBotChatMessage(self, sender, recipient, text):
@@ -4760,9 +4735,9 @@ class MainWindow:
             })
             length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
             if len(json_data) < 128:
-                print("About to send botsADSProfilesBatchUpdate to commander: "+json_data)
+                logger.debug("About to send botsADSProfilesBatchUpdate to commander: "+json_data)
             else:
-                print("About to send botsADSProfilesBatchUpdate to commander: ..." + json_data[-127:])
+                logger.debug("About to send botsADSProfilesBatchUpdate to commander: ..." + json_data[-127:])
 
             if commander_link and not commander_link.is_closing():
                 commander_link.write(length_prefix + json_data.encode('utf-8'))
@@ -4783,12 +4758,12 @@ class MainWindow:
                 logger.debug("ErrorSendFilesToCommander: TCP link doesn't exist", "sendLAN", self)
                 return
 
-            print("# files", len(file_paths))
+            logger.debug("# files", len(file_paths))
             profiles = []
             for file_name_full_path in file_paths:
-                print("checking", file_name_full_path)
+                logger.debug("checking", file_name_full_path)
                 if os.path.exists(file_name_full_path):
-                    print("exists!")
+                    logger.debug("exists!")
                     # logger.debug(f"Sending File [{file_name_full_path}] to commander: {self.commanderIP}", "gatherFingerPrints", self)
                     # print(f"Sending File [{file_name_full_path}] to commander: {self.commanderIP}")
                     with open(file_name_full_path, 'rb') as fileTBSent:
@@ -4807,10 +4782,9 @@ class MainWindow:
 
                 else:
                     logger.debug(f"Warning: ADS Profile [{file_name_full_path}] not found", "sendLAN", self)
-                    print(f"Warning: ADS Profile [{file_name_full_path}] not found")
 
             # Send data
-            print("profiles ready")
+            logger.debug("profiles ready")
             json_data = json.dumps({
                 "cmd": "botsADSProfilesBatchUpdate",
                 "ip": self.ip,
@@ -4818,9 +4792,9 @@ class MainWindow:
             })
 
             if len(json_data) < 128:
-                print("About to send botsADSProfilesBatchUpdate to platoon: " + json_data)
+                logger.debug("About to send botsADSProfilesBatchUpdate to platoon: " + json_data)
             else:
-                print("About to send botsADSProfilesBatchUpdate to platoon: ..." + json_data[-127:])
+                logger.debug("About to send botsADSProfilesBatchUpdate to platoon: ..." + json_data[-127:])
 
 
             length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
@@ -4922,7 +4896,7 @@ class MainWindow:
                     # Process all available messages in the queue
                     while not msgQueue.empty():
                         net_message = await msgQueue.get()
-                        print("received net message from platoon:", type(net_message), net_message)
+                        logger.debug("received net message from platoon:", type(net_message), net_message)
                         if isinstance(net_message, str):
                             if len(net_message) > 256:
                                 mlen = 256
@@ -4955,7 +4929,7 @@ class MainWindow:
             self_chat_id = self.user.replace("@", "_").replace(".", "_") + "_StaffOfficer"
         else:
             self_chat_id = self.user.replace("@", "_").replace(".", "_") + "_Commander"
-        print("Self:", self_chat_id)
+        logger.debug("Self:", self_chat_id)
         ping_msg = {
             "chatID": self_chat_id,
             "sender": self.chat_id,
@@ -5081,7 +5055,7 @@ class MainWindow:
 
     def send_heartbeat(self):
         if "Commander" in self.host_role:
-            print("sending wan heartbeat")
+            logger.debug("sending wan heartbeat")
             asyncio.ensure_future(self.wan_send_heartbeat())
 
 
@@ -5194,7 +5168,7 @@ class MainWindow:
         return stateInfo
 
     def vRunnable(self, vehicle):
-        print("vname", vehicle.getName(), self.machine_name, self.host_role)
+        logger.debug("vname", vehicle.getName(), self.machine_name, self.host_role)
         runnable = True
         if self.machine_name in vehicle.getName() and self.host_role == "Commander Only":
             runnable = False
@@ -5206,8 +5180,6 @@ class MainWindow:
         for key in dict1.keys():
             merged_dict[key] = dict1[key] + dict2.get(key, [])
         return merged_dict
-
-
 
     def encrypt_string(self, key: bytes, plaintext: str) -> str:
         """Encrypt the given plaintext using the derived key."""
@@ -5221,14 +5193,8 @@ class MainWindow:
         decrypted = fernet.decrypt(encrypted_text.encode())  # Decrypt the text
         return decrypted.decode()  # Return as a string
 
-
-
-
-
     def isPlatoon(self):
         return (self.machine_role == "Platoon")
-
-
 
     def isValidAddr(self, addr):
         val = True

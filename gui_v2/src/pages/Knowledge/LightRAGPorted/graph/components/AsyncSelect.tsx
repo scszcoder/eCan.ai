@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Select, Spin, theme } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import type { SelectProps } from 'antd';
+import { useTheme } from '@/contexts/ThemeContext';
 
 interface AsyncSelectProps<T> {
   fetcher: (query?: string) => Promise<T[]>;
@@ -45,6 +46,8 @@ export function AsyncSelect<T>({
   clearable = true
 }: AsyncSelectProps<T>) {
   const { token } = theme.useToken();
+  const { theme: currentTheme } = useTheme();
+  const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [options, setOptions] = useState<T[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchValue, setSearchValue] = useState('');
@@ -134,8 +137,9 @@ export function AsyncSelect<T>({
       filterOption={false}
       notFoundContent={loading ? <Spin size="small" /> : (notFound || noResultsMessage)}
       className={className}
+      // Use Ant Design v5 classNames API instead of deprecated popupClassName
       // @ts-ignore
-      popupClassName="lightrag-async-select-dropdown"
+      classNames={{ popup: 'lightrag-async-select-dropdown' }}
       aria-label={ariaLabel}
       suffixIcon={<SearchOutlined style={{ color: token.colorTextPlaceholder }} />}
       style={{ width: '100%' }}
@@ -143,8 +147,10 @@ export function AsyncSelect<T>({
       styles={{
         popup: {
           borderRadius: token.borderRadiusLG,
-          boxShadow: token.boxShadowSecondary
-        } as any
+          boxShadow: token.boxShadowSecondary,
+          backgroundColor: token.colorBgElevated,
+          border: `1px solid ${token.colorBorder}`,
+        } as any,
       }}
       options={selectOptions}
     />
