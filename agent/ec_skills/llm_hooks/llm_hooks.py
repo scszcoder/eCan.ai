@@ -280,7 +280,7 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
         # we really shouldn't send the reponse back here, instead we should update state and other node takes care of what to do with the results.
         post_hook_result = None
         state["result"] = response
-        logger.debug(f"[LLM_HOOKS] post llm hook input response: {type(response)} {response}")
+        logger.debug(f"[STANDARD_LLM_POST_HOOKS] post llm hook input response: {type(response)} {response}")
         state["metadata"] = _deep_merge(state["metadata"], response["llm_result"].get("meta_data", {}))
         state["messages"].append(f"llm:{response['llm_result'].get('next_prompt', '')}")
 
@@ -291,7 +291,7 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
         prelim = response['llm_result'].get('preliminary_info', [{}])[0]
         if work_related:
             if prelim:
-                logger.debug(f"[LLM_HOOKS] prelim: {prelim}")
+                logger.debug(f"[STANDARD_LLM_POST_HOOKS] prelim: {prelim}")
                 if "part name" in prelim:
                     apps = prelim.get('applications_usage', "")
                     # "part name": "string", "oems": ["string"], "model_part_numbers": ["string"], "applications_usage": ["string"]
@@ -311,11 +311,19 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
 
         if next_prompt_text:
             ai_message = AIMessage(content=next_prompt_text)
+        # else:
+        #     ai_message = AIMessage(content=json.dumps(response['llm_result']))
+
             if not isinstance(state.get("history"), list):
                 state["history"] = []
             state["history"].append(ai_message)
             msgs = state["prompts"].append(ai_message)
-            logger.debug(f"[LLM_HOOKS] Added AIMessage to history: {next_prompt_text[:100]}...")  # Log first 100 chars
+
+            if next_prompt_text:
+                max_text = 100 if len(next_prompt_text) > 100 else len(next_prompt_text)
+                logger.debug(f"[STANDARD_LLM_POST_HOOKS] Added AIMessage to history: {next_prompt_text[:max_text]}...")  # Log first 100 chars
+            else:
+                logger.debug(f"[STANDARD_LLM_POST_HOOKS] WARNING: next_prompt_text empty.")
 
         # save this back-and-forth message pair to memory
         for msg in state["prompts"]:
@@ -325,7 +333,7 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
             mem_item = to_memory_item(msg, ns, msg_id)
             agent.mem_manager.put(mem_item)
 
-        logger.debug(f"[LLM_HOOKS] standard_post_llm_hook: {post_hook_result}")
+        logger.debug(f"[STANDARD_LLM_POST_HOOKS] standard_post_llm_hook: {state}")
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPostLLMHook")
         logger.error(err_trace)
@@ -410,18 +418,18 @@ def run_post_llm_hook(node_name, agent, state, response):
     try:
         mainwin = agent.mainwin
         skill_name = node_name.split(":")[1]
-        logger.debug("[LLM_HOOKS] skill_name:", node_name, skill_name)
+        logger.debug("[LLM_POST_HOOKS] skill_name:", node_name, skill_name)
         this_skill = next((sk for sk in mainwin.agent_skills if sk.name == skill_name), None)
         if this_skill:
             askid = this_skill.askid
         else:
             askid = "skid0"
-            logger.warning(f"[LLM_HOOKS] Skill '{skill_name}' not found in agent_skills, using default askid '{askid}'")
+            logger.warning(f"[LLM_POST_HOOKS] Skill '{skill_name}' not found in agent_skills, using default askid '{askid}'")
 
         # first run standard stuff, then then the individual func for a specific skill node.
         parsed_response = standard_post_llm_func(askid, node_name, state, response)
 
-        logger.debug(f"[LLM_HOOKS] post llm hook  name: {node_name} {askid} {type(parsed_response)} {parsed_response}")
+        logger.debug(f"[LLM_POST_HOOKS] post llm hook  name: {node_name} {askid} {type(parsed_response)} {parsed_response}")
         # Try exact match first
         if node_name in POST_LLM_HOOKS_TABLE:
             return POST_LLM_HOOKS_TABLE[node_name](askid, node_name, agent, state, parsed_response)
