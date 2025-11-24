@@ -1380,6 +1380,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         # web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
         try:
+            state["events"].append({"event_type": resume_payload["event_type"]})
             if isinstance(resume_payload, dict) and "_state_patch" in resume_payload:
                 patch = resume_payload.get("_state_patch")
                 if isinstance(patch, dict):

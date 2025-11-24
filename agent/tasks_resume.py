@@ -849,7 +849,7 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
             or _safe_get(msg, "params.metadata.mtype")
             or event.get("data", {}).get("metadata", {}).get("mtype")
         ) if isinstance(event, dict) else None
-
+        resume_payload["event_type"] = message_mtype
         if isinstance(message_mtype, str) and "send_chat" in message_mtype.lower():
             chat_params = _safe_get(msg, "params.metadata.params") or {}
             chat_attrs = {"mtype": message_mtype}
