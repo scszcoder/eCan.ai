@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { theme } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { theme, message } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import { FolderOpenOutlined, SaveOutlined, DatabaseOutlined, ApiOutlined, SettingOutlined } from '@ant-design/icons';
@@ -13,32 +13,74 @@ const SettingsTab: React.FC = () => {
   const [maxTokenSize, setMaxTokenSize] = useState('9000');
   const [embeddingDim, setEmbeddingDim] = useState('3072');
   const [workingDir, setWorkingDir] = useState('');
+  const [loading, setLoading] = useState(false);
   
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const { theme: currentTheme } = useTheme();
   const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
-  const openFolderDialog = async () => {
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const loadSettings = async () => {
     try {
-      const api = get_ipc_api();
-      const result: any = await api.fs?.selectDirectory?.({});
-      if (result && result.path) setWorkingDir(result.path);
-    } catch {
-      // no-op
+      const response = await get_ipc_api().lightragApi.getSettings();
+      if (response.success && response.data) {
+        const res = response.data as any;
+        if (res && !res.error) {
+            if (res.vectorDB) setVectorDB(res.vectorDB);
+            if (res.embeddingModel) setEmbeddingModel(res.embeddingModel);
+            if (res.llmModel) setLlmModel(res.llmModel);
+            if (res.rerankModel) setRerankModel(res.rerankModel);
+            if (res.maxTokenSize) setMaxTokenSize(res.maxTokenSize);
+            if (res.embeddingDim) setEmbeddingDim(res.embeddingDim);
+            if (res.workingDir) setWorkingDir(res.workingDir);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load settings:', e);
     }
   };
 
-  const handleSave = () => {
-    console.log('Saving settings...', {
-      vectorDB,
-      embeddingModel,
-      llmModel,
-      rerankModel,
-      maxTokenSize,
-      embeddingDim,
-      workingDir
-    });
+  const openFolderDialog = async () => {
+    try {
+      // 5 minutes timeout for user interaction
+      const response = await get_ipc_api().executeRequest<any>('fs.selectDirectory', {}, 300000);
+      if (response.success && response.data) {
+          const result = response.data;
+          if (result && result.path) setWorkingDir(result.path);
+      }
+    } catch (e) {
+      console.error('Failed to select directory:', e);
+    }
+  };
+
+  const handleSave = async () => {
+    try {
+      setLoading(true);
+      const settings = {
+        vectorDB,
+        embeddingModel,
+        llmModel,
+        rerankModel,
+        maxTokenSize,
+        embeddingDim,
+        workingDir
+      };
+      
+      const response = await get_ipc_api().lightragApi.saveSettings(settings);
+      if (response.success) {
+          message.success(t('pages.knowledge.settings.saveSuccess', 'Settings saved successfully'));
+      } else {
+          throw new Error(response.error?.message || 'Unknown error');
+      }
+    } catch (e: any) {
+      message.error(t('pages.knowledge.settings.saveError', 'Failed to save settings') + ': ' + (e.message || String(e)));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -83,8 +125,8 @@ const SettingsTab: React.FC = () => {
             </p>
           </div>
         </div>
-        <button className="ec-btn ec-btn-primary" onClick={handleSave}>
-          <SaveOutlined /> {t('pages.knowledge.settings.saveSettings')}
+        <button className="ec-btn ec-btn-primary" onClick={handleSave} disabled={loading}>
+          <SaveOutlined /> {loading ? 'Saving...' : t('pages.knowledge.settings.saveSettings')}
         </button>
       </div>
 

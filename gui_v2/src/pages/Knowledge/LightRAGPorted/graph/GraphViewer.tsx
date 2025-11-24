@@ -8,6 +8,9 @@ import GraphControl from './components/GraphControl';
 import PropertiesView from './components/PropertiesView';
 import SearchControls from './components/SearchControls';
 import IconToolbar from './components/IconToolbar';
+import FocusOnNode from './components/FocusOnNode';
+import GraphLabels from './components/GraphLabels';
+import Legend from './components/Legend';
 import { useSettingsStore } from './stores/settings';
 
 const InitGraph: React.FC = () => {
@@ -61,16 +64,21 @@ const GraphViewer: React.FC = () => {
   // Fetch and populate graph from backend via IPC
   useLightragGraph();
   const showPropertyPanel = useSettingsStore(s => s.showPropertyPanel);
+  const showLegend = useSettingsStore(s => s.showLegend);
+  const selectedNode = useGraphStore(s => s.selectedNode);
+  const moveToSelectedNode = useGraphStore(s => s.moveToSelectedNode);
   
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', background: '#ffffff' }}>
       <SigmaContainer className="!size-full" style={{ width: '100%', height: '100%', background: '#ffffff' }} settings={{ allowInvalidContainer: true }}>
         <InitGraph />
         <GraphControl />
+        <FocusOnNode node={selectedNode} move={moveToSelectedNode} />
         <ResizeHandler />
 
-        {/* Top-left overlay: search controls */}
-        <div style={{ position: 'absolute', top: 8, left: 8, display: 'flex', gap: 8 }}>
+        {/* Top-left: Graph Labels selector and search controls */}
+        <div style={{ position: 'absolute', top: 8, left: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <GraphLabels />
           <SearchControls />
         </div>
 
@@ -85,6 +93,9 @@ const GraphViewer: React.FC = () => {
             <PropertiesView />
           </div>
         )}
+
+        {/* Bottom-right: Legend */}
+        {showLegend && <Legend />}
       </SigmaContainer>
     </div>
   );

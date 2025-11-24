@@ -219,23 +219,23 @@ def handle_delete_document(request: IPCRequest, params: Optional[Dict[str, Any]]
     Handle document deletion request.
     
     Expected params:
-    - filePath: str - Path of the document to delete
+    - id: str - ID of the document to delete
     """
     try:
-        is_valid, data, error = validate_params(params, ['filePath'])
+        is_valid, data, error = validate_params(params, ['id'])
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
         
-        file_path = data['filePath']
+        doc_id = data['id']
         
-        if not isinstance(file_path, str) or not file_path.strip():
-            return create_error_response(request, 'INVALID_PARAMS', 'filePath must be a non-empty string')
+        if not isinstance(doc_id, str) or not doc_id.strip():
+            return create_error_response(request, 'INVALID_PARAMS', 'id must be a non-empty string')
         
         # Get LightRAG client
         client = get_client()
         
         # Call delete_document method
-        result = client.delete_document(file_path)
+        result = client.delete_document(doc_id)
         
         if result.get('status') == 'error':
             return create_error_response(request, 'DELETE_ERROR', result.get('message', 'Failed to delete document'))
@@ -485,3 +485,160 @@ def handle_select_directory(request: IPCRequest, params: Optional[Dict[str, Any]
     except Exception as e:
         logger.error(f"Error in select_directory handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'SELECT_DIRECTORY_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.updateEntity')
+def handle_update_entity(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle entity update request."""
+    try:
+        is_valid, data, error = validate_params(params, ['entity_name', 'updated_data'])
+        if not is_valid:
+            return create_error_response(request, 'INVALID_PARAMS', error)
+            
+        client = get_client()
+        result = client.update_entity(
+            data['entity_name'],
+            data['updated_data'],
+            data.get('allow_rename', False),
+            data.get('allow_merge', False)
+        )
+        
+        if result.get('status') == 'error':
+            return create_error_response(request, 'UPDATE_ENTITY_ERROR', result.get('message', 'Failed to update entity'))
+            
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"Error in update_entity handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'UPDATE_ENTITY_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.updateRelation')
+def handle_update_relation(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle relation update request."""
+    try:
+        is_valid, data, error = validate_params(params, ['source_id', 'target_id', 'updated_data'])
+        if not is_valid:
+            return create_error_response(request, 'INVALID_PARAMS', error)
+            
+        client = get_client()
+        result = client.update_relation(
+            data['source_id'],
+            data['target_id'],
+            data['updated_data']
+        )
+        
+        if result.get('status') == 'error':
+            return create_error_response(request, 'UPDATE_RELATION_ERROR', result.get('message', 'Failed to update relation'))
+            
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"Error in update_relation handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'UPDATE_RELATION_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.getGraphLabelList')
+def handle_get_graph_label_list(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle get graph label list request."""
+    try:
+        client = get_client()
+        result = client.get_graph_label_list()
+        
+        if result.get('status') == 'error':
+            return create_error_response(request, 'GET_LABEL_LIST_ERROR', result.get('message', 'Failed to get label list'))
+            
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"Error in get_graph_label_list handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'GET_LABEL_LIST_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.getDocumentsPaginated')
+def handle_get_documents_paginated(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle paginated documents request."""
+    try:
+        # Default params
+        defaults = {
+            'page': 1,
+            'page_size': 20,
+            'sort_field': 'created_at',
+            'sort_direction': 'desc'
+        }
+        request_params = {**defaults, **(params or {})}
+        
+        client = get_client()
+        result = client.get_documents_paginated(request_params)
+        
+        if result.get('status') == 'error':
+            return create_error_response(request, 'GET_DOCUMENTS_ERROR', result.get('message', 'Failed to get documents'))
+            
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"Error in get_documents_paginated handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'GET_DOCUMENTS_ERROR', str(e))
+
+
+# Settings persistence (simple JSON file)
+SETTINGS_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'lightrag_settings.json')
+
+@IPCHandlerRegistry.handler('lightrag.saveSettings')
+def handle_save_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Save LightRAG settings to local file."""
+    try:
+        import json
+        if not params:
+            return create_error_response(request, 'INVALID_PARAMS', 'No settings provided')
+            
+        with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(params, f, indent=2)
+            
+        return create_success_response(request, {'success': True, 'message': 'Settings saved'})
+    except Exception as e:
+        logger.error(f"Error saving settings: {e}")
+        return create_error_response(request, 'SAVE_SETTINGS_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.getSettings')
+def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Get LightRAG settings from local file."""
+    try:
+        import json
+        if os.path.exists(SETTINGS_FILE):
+            with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+            return create_success_response(request, settings)
+        return create_success_response(request, {})
+    except Exception as e:
+        logger.error(f"Error getting settings: {e}")
+        return create_error_response(request, 'GET_SETTINGS_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.queryGraphs')
+def handle_query_graphs(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """
+    Handle graph query request.
+    Expected params:
+    - label: str - Node label to search for (or '*')
+    - maxDepth: int - Traversal depth
+    - maxNodes: int - Max nodes to return
+    """
+    try:
+        params = params or {}
+        label = params.get('label', '*')
+        max_depth = params.get('maxDepth', 1)
+        max_nodes = params.get('maxNodes', 400)
+        
+        client = get_client()
+        # Call query_graphs method (assumed to be added to client)
+        if hasattr(client, 'query_graphs'):
+            result = client.query_graphs(label, max_depth, max_nodes)
+        else:
+            # Fallback mock if not implemented yet
+            return create_success_response(request, {'nodes': [], 'edges': [], 'is_truncated': False})
+        
+        if isinstance(result, dict) and result.get('status') == 'error':
+            return create_error_response(request, 'QUERY_GRAPH_ERROR', result.get('message', 'Failed to query graph'))
+            
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"Error in query_graphs handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'QUERY_GRAPH_ERROR', str(e))

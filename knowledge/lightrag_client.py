@@ -66,7 +66,8 @@ class LightragClient:
                     logger.warning(f"File not found: {path}")
                     continue
                 try:
-                    files.append(('files', (os.path.basename(path), open(path, 'rb'))))
+                    # Key must be 'file' based on server 422 error: "loc":["body","file"]
+                    files.append(('file', (os.path.basename(path), open(path, 'rb'))))
                 except Exception as e:
                     logger.error(f"Failed to open file {path}: {e}")
                     continue
@@ -76,7 +77,17 @@ class LightragClient:
             
             # Send files to the server using the correct endpoint
             # Note: options are not supported in multipart upload, they should be query params if needed
-            r = self.session.post(f"{self.base_url}/documents/upload", files=files, timeout=300)
+            # Important: Set Content-Type to None to let requests library generate the correct multipart/form-data header with boundary
+            r = self.session.post(
+                f"{self.base_url}/documents/upload", 
+                files=files, 
+                timeout=300,
+                headers={"Content-Type": None}
+            )
+            
+            if r.status_code >= 400:
+                logger.error(f"Upload failed with status {r.status_code}: {r.text}")
+                
             r.raise_for_status()
             
             # Close file handles
@@ -86,36 +97,80 @@ class LightragClient:
             result = r.json()
             # API returns: {"status": "success", "message": "...", "track_id": "..."}
             return {"status": "success", "data": result}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.ingest_files HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
         except Exception as e:
             err = get_traceback(e, "LightragClient.ingest_files")
             logger.error(err)
             return {"status": "error", "message": str(e)}
 
     def ingest_directory(self, dir_path: str, options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Request to ingest all files in a directory.
-        
+        """Request to ingest files in a directory (top-level only, non-recursive).
+
         Args:
             dir_path: Directory path to scan and ingest
             options: Optional configuration for ingestion
-            
+
         Returns:
             Dict with status and job information
         """
         try:
             if not os.path.exists(dir_path) or not os.path.isdir(dir_path):
                 return {"status": "error", "message": f"Directory not found: {dir_path}"}
-            
-            # Collect all files in the directory
-            file_paths = []
-            for root, dirs, files in os.walk(dir_path):
-                for file in files:
-                    # Skip hidden files and common non-document files
-                    if not file.startswith('.') and not file.endswith(('.pyc', '.pyo', '.pyd')):
-                        file_paths.append(os.path.join(root, file))
-            
+
+            # Collect files in the top-level directory only (non-recursive)
+            file_paths: List[str] = []
+
+            # Allowed knowledge document types for RAG ingestion
+            # - PDF
+            # - Office docs: DOC/DOCX/PPT/PPTX/XLS/XLSX
+            # - Text/Markdown/HTML/CSV/JSON
+            # - Common image formats
+            # - Common video formats
+            allowed_extensions = (
+                '.pdf',
+                '.doc', '.docx',
+                '.ppt', '.pptx',
+                '.xls', '.xlsx',
+                '.txt', '.md', '.rst', '.log',
+                '.html', '.htm',
+                '.csv', '.tsv', '.json',
+                '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.webp', '.tif', '.tiff',
+                '.mp4', '.mov', '.m4v', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpg', '.mpeg'
+            )
+            try:
+                entries = os.listdir(dir_path)
+            except Exception as e:
+                return {"status": "error", "message": f"Failed to list directory {dir_path}: {e}"}
+
+            for name in entries:
+                # Skip hidden files
+                if name.startswith('.'):
+                    continue
+
+                full_path = os.path.join(dir_path, name)
+
+                # Only ingest regular files in the top-level directory
+                if not os.path.isfile(full_path):
+                    continue
+
+                # Skip common non-document files we never want to ingest
+                if name.endswith(('.pyc', '.pyo', '.pyd')):
+                    continue
+
+                # Only ingest files with allowed knowledge document extensions
+                lower_name = name.lower()
+                if not lower_name.endswith(allowed_extensions):
+                    logger.debug(f"[LightragClient] Skipping non-knowledge file in directory ingest: {full_path}")
+                    continue
+
+                file_paths.append(full_path)
+
             if not file_paths:
                 return {"status": "error", "message": "No files found in directory"}
-            
+
             # Use ingest_files to process all files
             return self.ingest_files(file_paths, options)
         except Exception as e:
@@ -232,21 +287,31 @@ class LightragClient:
             logger.error(err)
             return {"status": "error", "message": str(e)}
     
-    def delete_document(self, file_path: str) -> Dict[str, Any]:
-        """Delete a document from the knowledge base.
+    def delete_document(self, doc_id: str) -> Dict[str, Any]:
+        """Delete a document from the knowledge base by ID.
         
         Args:
-            file_path: Path of the document to delete
+            doc_id: ID of the document to delete
             
         Returns:
             Dict with deletion status
         """
         try:
-            payload = {"file_path": file_path}
-            r = self.session.delete(f"{self.base_url}/documents/delete_document", json=payload, timeout=10)
+            # Server expects list of doc_ids
+            payload = {"doc_ids": [doc_id]}
+            # Use request with json body for DELETE
+            r = self.session.request("DELETE", f"{self.base_url}/documents/delete_document", json=payload, timeout=10)
+            
+            if r.status_code >= 400:
+                logger.error(f"Delete failed with status {r.status_code}: {r.text}")
+                
             r.raise_for_status()
             result = r.json()
             return {"status": "success", "data": result}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.delete_document HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
         except Exception as e:
             err = get_traceback(e, "LightragClient.delete_document")
             logger.error(err)
@@ -331,12 +396,22 @@ class LightragClient:
             Response with clear status
         """
         try:
+            # Send empty json to satisfy potential pydantic validation
             r = self.session.post(
                 f"{self.base_url}/documents/clear_cache",
+                json={},
                 timeout=30
             )
+            
+            if r.status_code >= 400:
+                logger.error(f"Clear cache failed with status {r.status_code}: {r.text}")
+                
             r.raise_for_status()
             return {"status": "success", "data": r.json()}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.clear_cache HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
         except requests.exceptions.RequestException as e:
             logger.error(f"Error clearing cache: {e}")
             return {"status": "error", "message": str(e)}
@@ -357,6 +432,85 @@ class LightragClient:
             return {"status": "success", "data": r.json()}
         except requests.exceptions.RequestException as e:
             logger.error(f"Error getting status counts: {e}")
+            return {"status": "error", "message": str(e)}
+
+    # ---- Graph Editing ----
+    def update_entity(self, entity_name: str, updated_data: Dict[str, Any], allow_rename: bool = False, allow_merge: bool = False) -> Dict[str, Any]:
+        """Update an entity's properties in the knowledge graph."""
+        try:
+            payload = {
+                "entity_name": entity_name,
+                "updated_data": updated_data,
+                "allow_rename": allow_rename,
+                "allow_merge": allow_merge
+            }
+            r = self.session.post(f"{self.base_url}/graph/entity/edit", json=payload, timeout=30)
+            r.raise_for_status()
+            result = r.json()
+            return {"status": "success", "data": result}
+        except Exception as e:
+            err = get_traceback(e, "LightragClient.update_entity")
+            logger.error(err)
+            return {"status": "error", "message": str(e)}
+
+    def update_relation(self, source_id: str, target_id: str, updated_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update a relation's properties in the knowledge graph."""
+        try:
+            payload = {
+                "source_id": source_id,
+                "target_id": target_id,
+                "updated_data": updated_data
+            }
+            r = self.session.post(f"{self.base_url}/graph/relation/edit", json=payload, timeout=30)
+            r.raise_for_status()
+            result = r.json()
+            return {"status": "success", "data": result}
+        except Exception as e:
+            err = get_traceback(e, "LightragClient.update_relation")
+            logger.error(err)
+            return {"status": "error", "message": str(e)}
+
+    def get_graph_label_list(self) -> Dict[str, Any]:
+        """Get list of all labels in the graph."""
+        try:
+            r = self.session.get(f"{self.base_url}/graph/label/list", timeout=10)
+            r.raise_for_status()
+            result = r.json()
+            return {"status": "success", "data": result}
+        except Exception as e:
+            err = get_traceback(e, "LightragClient.get_graph_label_list")
+            logger.error(err)
+            return {"status": "error", "message": str(e)}
+
+    def query_graphs(self, label: str, max_depth: int, max_nodes: int) -> Dict[str, Any]:
+        """Query graph nodes and edges."""
+        try:
+            payload = {
+                "label": label,
+                "max_depth": max_depth,
+                "max_nodes": max_nodes
+            }
+            # Using POST to send parameters
+            r = self.session.post(f"{self.base_url}/graph/query", json=payload, timeout=60)
+            r.raise_for_status()
+            result = r.json()
+            return {"status": "success", "data": result}
+        except Exception as e:
+            err = get_traceback(e, "LightragClient.query_graphs")
+            logger.error(err)
+            return {"status": "error", "message": str(e)}
+
+    # ---- Document Pagination ----
+    def get_documents_paginated(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Get documents with pagination."""
+        try:
+            r = self.session.post(f"{self.base_url}/documents/paginated", json=params, timeout=30)
+            r.raise_for_status()
+            result = r.json()
+            return {"status": "success", "data": result}
+        except Exception as e:
+            err = get_traceback(e, "LightragClient.get_documents_paginated")
+            logger.error(err)
             return {"status": "error", "message": str(e)}
 
 

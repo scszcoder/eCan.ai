@@ -1,22 +1,30 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { theme } from 'antd';
 import { useTranslation } from 'react-i18next';
-import { lightragIpc } from '@/services/ipc/lightrag';
+import { get_ipc_api } from '@/services/ipc_api';
 import { SendOutlined, ClearOutlined } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
+import ChatMessage from './retrieval/components/ChatMessage';
 
-type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string };
+type MessageState = { 
+  id: string; 
+  role: 'user' | 'assistant'; 
+  content: string;
+  isThinking?: boolean;
+  thinkingTime?: number | null;
+};
 
 const RetrievalTab: React.FC = () => {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<MessageState[]>([]);
   const [input, setInput] = useState('');
   const [mode, setMode] = useState<'naive' | 'local' | 'global' | 'hybrid' | 'mix' | 'bypass'>('mix');
-  const [stream, setStream] = useState(false);
+  const [stream, setStream] = useState(true); // Default to true for better UX
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const { theme: currentTheme } = useTheme();
   const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  // Right panel parameters (subset of LightRAG QuerySettings)
+  
+  // Right panel parameters
   const [onlyNeedContext, setOnlyNeedContext] = useState(false);
   const [onlyNeedPrompt, setOnlyNeedPrompt] = useState(false);
   const [enableRerank, setEnableRerank] = useState(false);
@@ -31,7 +39,14 @@ const RetrievalTab: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   const endRef = useRef<HTMLDivElement>(null);
-  const scrollToEnd = () => endRef.current?.scrollIntoView({ behavior: 'auto' });
+  const thinkingStartTimeRef = useRef<number | null>(null);
+
+  const scrollToEnd = () => {
+    // Use requestAnimationFrame to ensure DOM update is processed
+    requestAnimationFrame(() => {
+        endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    });
+  };
 
   const canSend = useMemo(() => input.trim().length > 0 && !loading, [input, loading]);
 
@@ -52,18 +67,36 @@ const RetrievalTab: React.FC = () => {
     if (historyTurns !== '' && !Number.isNaN(historyTurns)) opts.history_turns = Number(historyTurns);
     if (responseType.trim()) opts.response_type = responseType.trim();
     if (userPrompt.trim()) opts.user_prompt = userPrompt.trim();
+    
+    // Pass history
+    if (historyTurns !== '' && Number(historyTurns) > 0 && messages.length > 0) {
+        opts.conversation_history = messages.slice(-Number(historyTurns) * 2).map(m => ({ role: m.role, content: m.content }));
+    }
+    
     return opts;
   };
 
   const handleSend = async () => {
     if (!canSend) return;
-    const userMsg: ChatMessage = { id: crypto.randomUUID?.() || String(Date.now()), role: 'user', content: input };
+    const userMsg: MessageState = { 
+        id: crypto.randomUUID?.() || String(Date.now()), 
+        role: 'user', 
+        content: input 
+    };
+    
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setLoading(true);
+    thinkingStartTimeRef.current = null;
     
     const assistantId = crypto.randomUUID?.() || String(Date.now() + 1);
-    const assistantMsg: ChatMessage = { id: assistantId, role: 'assistant', content: '' };
+    const assistantMsg: MessageState = { 
+        id: assistantId, 
+        role: 'assistant', 
+        content: '', 
+        isThinking: false,
+        thinkingTime: null
+    };
     setMessages(prev => [...prev, assistantMsg]);
     
     const options = buildOptions();
@@ -71,36 +104,80 @@ const RetrievalTab: React.FC = () => {
     try {
       if (stream) {
         // Use streaming query
-        const res = await lightragIpc.queryStream({ text: userMsg.content, options });
+        const response = await get_ipc_api().lightragApi.queryStream({ text: userMsg.content, options });
         
-        // Handle streaming response
-        if (res && res.chunks && Array.isArray(res.chunks)) {
-          // Simulate typing effect with chunks
-          let currentContent = '';
-          for (const chunk of res.chunks) {
-            currentContent += chunk;
+        if (response.success && response.data) {
+          const res = response.data as any;
+          if (res && res.chunks && Array.isArray(res.chunks)) {
+            let currentContent = '';
+            
+            for (const chunk of res.chunks) {
+              currentContent += chunk;
+              
+              // Track thinking state
+              if (chunk.includes('<think>') && thinkingStartTimeRef.current === null) {
+                  thinkingStartTimeRef.current = Date.now();
+              }
+              
+              let thinkingTime: number | null = null;
+              let isThinking = false;
+              
+              if (thinkingStartTimeRef.current) {
+                  if (chunk.includes('</think>')) {
+                      // Finished thinking
+                      thinkingTime = parseFloat(((Date.now() - thinkingStartTimeRef.current) / 1000).toFixed(2));
+                      thinkingStartTimeRef.current = null;
+                      isThinking = false;
+                  } else {
+                      isThinking = true;
+                  }
+              }
+
+              setMessages(prev => prev.map(m => {
+                if (m.id === assistantId) {
+                    // Keep previous thinking time if already set
+                    const newTime = thinkingTime !== null ? thinkingTime : m.thinkingTime;
+                    return { 
+                        ...m, 
+                        content: currentContent, 
+                        isThinking,
+                        thinkingTime: newTime
+                    };
+                }
+                return m;
+              }));
+              
+              scrollToEnd();
+              // Small delay for smoother rendering
+              await new Promise(resolve => setTimeout(resolve, 10));
+            }
+          } else if (res && res.response) {
+            // Fallback
             setMessages(prev => prev.map(m => 
-              m.id === assistantId ? { ...m, content: currentContent } : m
+              m.id === assistantId ? { ...m, content: String(res.response) } : m
             ));
-            scrollToEnd();
-            // Small delay for typing effect
-            await new Promise(resolve => setTimeout(resolve, 20));
           }
-        } else if (res && res.response) {
-          // Fallback to full response
-          setMessages(prev => prev.map(m => 
-            m.id === assistantId ? { ...m, content: String(res.response) } : m
-          ));
+        } else {
+            throw new Error(response.error?.message || 'Unknown error');
         }
       } else {
         // Use normal query
-        const res = await lightragIpc.query({ text: userMsg.content, options });
-        const content = typeof res === 'object' && res && 'response' in res 
-          ? String((res as any).response) 
-          : JSON.stringify(res);
-        setMessages(prev => prev.map(m => 
-          m.id === assistantId ? { ...m, content } : m
-        ));
+        const response = await get_ipc_api().lightragApi.query({ text: userMsg.content, options });
+        
+        if (response.success && response.data) {
+            const res = response.data as any;
+            // Normal query returns { status: 'success', data: result }
+            // The actual content is inside result
+            const content = typeof res === 'object' && res && 'data' in res 
+              ? (typeof res.data === 'string' ? res.data : JSON.stringify(res.data))
+              : JSON.stringify(res);
+            
+            setMessages(prev => prev.map(m => 
+              m.id === assistantId ? { ...m, content } : m
+            ));
+        } else {
+            throw new Error(response.error?.message || 'Unknown error');
+        }
       }
       scrollToEnd();
     } catch (e: any) {
@@ -109,6 +186,7 @@ const RetrievalTab: React.FC = () => {
       ));
     } finally {
       setLoading(false);
+      thinkingStartTimeRef.current = null;
     }
   };
 
@@ -148,24 +226,15 @@ const RetrievalTab: React.FC = () => {
               <div style={{ fontSize: 13 }}>{t('pages.knowledge.retrieval.startConversationDesc')}</div>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               {messages.map(m => (
-                <div key={m.id} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                  <div style={{ 
-                    maxWidth: '75%', 
-                    whiteSpace: 'pre-wrap', 
-                    background: m.role === 'user' 
-                      ? `linear-gradient(135deg, ${token.colorPrimary} 0%, ${token.colorPrimaryHover} 100%)`
-                      : isDark ? token.colorBgTextHover : token.colorBgLayout,
-                    color: m.role === 'user' ? '#ffffff' : token.colorText,
-                    padding: '10px 14px', 
-                    borderRadius: 12,
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                    lineHeight: 1.6
-                  }}>
-                    {m.content}
-                  </div>
-                </div>
+                <ChatMessage 
+                    key={m.id}
+                    role={m.role}
+                    content={m.content}
+                    isThinking={m.isThinking}
+                    thinkingTime={m.thinkingTime}
+                />
               ))}
               <div ref={endRef} />
             </div>
@@ -365,7 +434,7 @@ const RetrievalTab: React.FC = () => {
         }
         [data-ec-scope="lightrag-ported"] .param-row { 
           display: flex; 
-          flex-direction: column;
+          flex-direction: column; 
           gap: 6px; 
           width: 100%; 
         }

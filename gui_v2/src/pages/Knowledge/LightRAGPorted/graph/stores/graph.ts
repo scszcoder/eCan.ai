@@ -46,6 +46,11 @@ interface GraphState {
   isFetching: boolean;
   graphIsEmpty: boolean;
   moveToSelectedNode: boolean;
+  graphDataVersion: number;
+  searchEngine: any | null; // MiniSearch instance
+  typeColorMap: Map<string, string>;
+  graphDataFetchAttempted: boolean;
+  lastSuccessfulQueryLabel: string;
   // actions
   setSigmaInstance: (s: Sigma | null) => void;
   setSigmaGraph: (g: UndirectedGraph | null) => void;
@@ -57,11 +62,19 @@ interface GraphState {
   setIsFetching: (v: boolean) => void;
   setGraphIsEmpty: (v: boolean) => void;
   setMoveToSelectedNode: (v: boolean) => void;
+  incrementGraphDataVersion: () => void;
+  updateNodeAndSelect: (id: string, entityId: string | undefined, prop: string, val: any) => void;
+  updateEdgeAndSelect: (id: string, dynamicId: string | undefined, source: string, target: string, prop: string, val: any) => void;
+  setSearchEngine: (engine: any) => void;
+  resetSearchEngine: () => void;
+  setTypeColorMap: (map: Map<string, string>) => void;
+  setGraphDataFetchAttempted: (v: boolean) => void;
+  setLastSuccessfulQueryLabel: (label: string) => void;
   clearSelection: () => void;
   reset: () => void;
 }
 
-export const useGraphStore = create<GraphState>((set) => ({
+export const useGraphStore = create<GraphState>((set, get) => ({
   sigmaInstance: null,
   sigmaGraph: null,
   rawGraph: null,
@@ -72,6 +85,11 @@ export const useGraphStore = create<GraphState>((set) => ({
   isFetching: false,
   graphIsEmpty: false,
   moveToSelectedNode: false,
+  graphDataVersion: 0,
+  searchEngine: null,
+  typeColorMap: new Map(),
+  graphDataFetchAttempted: false,
+  lastSuccessfulQueryLabel: '',
   setSigmaInstance: (s) => set({ sigmaInstance: s }),
   setSigmaGraph: (g) => set({ sigmaGraph: g }),
   setRawGraph: (g) => set({ rawGraph: g }),
@@ -82,6 +100,61 @@ export const useGraphStore = create<GraphState>((set) => ({
   setIsFetching: (v) => set({ isFetching: v }),
   setGraphIsEmpty: (v) => set({ graphIsEmpty: v }),
   setMoveToSelectedNode: (v) => set({ moveToSelectedNode: v }),
+  incrementGraphDataVersion: () => set((state) => ({ graphDataVersion: state.graphDataVersion + 1 })),
+  setSearchEngine: (engine) => set({ searchEngine: engine }),
+  resetSearchEngine: () => set({ searchEngine: null }),
+  setTypeColorMap: (map) => set({ typeColorMap: map }),
+  setGraphDataFetchAttempted: (v) => set({ graphDataFetchAttempted: v }),
+  setLastSuccessfulQueryLabel: (label) => set({ lastSuccessfulQueryLabel: label }),
+  
+  updateNodeAndSelect: (id, entityId, prop, val) => {
+    const { rawGraph, sigmaGraph } = get();
+    if (rawGraph) {
+      const node = rawGraph.getNode(id);
+      if (node) {
+        // Update property
+        node.properties[prop] = val;
+        
+        // If renaming entity_id, we might want to update label in sigmaGraph if it matches
+        if (prop === 'entity_id' && sigmaGraph && sigmaGraph.hasNode(id)) {
+           // Assuming label often mirrors entity_id or name
+           // sigmaGraph.setNodeAttribute(id, 'label', val); 
+        }
+      }
+    }
+    set((state) => ({ 
+      graphDataVersion: state.graphDataVersion + 1,
+      selectedNode: id 
+    }));
+  },
+
+  updateEdgeAndSelect: (id, dynamicId, source, target, prop, val) => {
+    const { rawGraph } = get();
+    if (rawGraph) {
+      const edge = rawGraph.getEdge(id); // ID here is raw ID usually
+      if (edge) {
+        edge.properties[prop] = val;
+      }
+    }
+    set((state) => ({ 
+      graphDataVersion: state.graphDataVersion + 1,
+      selectedEdge: id 
+    }));
+  },
+
   clearSelection: () => set({ selectedNode: null, focusedNode: null, selectedEdge: null, focusedEdge: null }),
-  reset: () => set({ sigmaGraph: null, rawGraph: null, selectedNode: null, focusedNode: null, selectedEdge: null, focusedEdge: null, moveToSelectedNode: false })
+  reset: () => set({ 
+    sigmaGraph: null, 
+    rawGraph: null, 
+    selectedNode: null, 
+    focusedNode: null, 
+    selectedEdge: null, 
+    focusedEdge: null, 
+    moveToSelectedNode: false, 
+    graphDataVersion: 0,
+    searchEngine: null,
+    typeColorMap: new Map(),
+    graphDataFetchAttempted: false,
+    lastSuccessfulQueryLabel: ''
+  })
 }));

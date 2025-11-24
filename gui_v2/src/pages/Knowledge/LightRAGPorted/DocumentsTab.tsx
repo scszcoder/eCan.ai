@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
-import { theme } from 'antd';
+import { theme, Pagination, Select, Modal } from 'antd';
 import { useTranslation } from 'react-i18next';
-import { lightragIpc } from '@/services/ipc/lightrag';
 import { get_ipc_api } from '@/services/ipc_api';
 import { ScanOutlined, UnorderedListOutlined, ClearOutlined, FolderOpenOutlined, UploadOutlined } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
+import React, { useState } from 'react';
 
 interface Document {
+  id: string;
   file_path: string;
   status: string;
   content_length?: number;
@@ -15,12 +15,20 @@ interface Document {
 }
 
 const DocumentsTab: React.FC = () => {
+  const [modal, contextHolder] = Modal.useModal();
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [dirPath, setDirPath] = useState('');
   const [log, setLog] = useState<string>('');
   const [documents, setDocuments] = useState<Document[]>([]);
   const [statusCounts, setStatusCounts] = useState({ all: 0, PROCESSED: 0, PROCESSING: 0, PENDING: 0, FAILED: 0 });
   const [loading, setLoading] = useState(false);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [totalDocs, setTotalDocs] = useState(0);
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const { theme: currentTheme } = useTheme();
@@ -31,30 +39,37 @@ const DocumentsTab: React.FC = () => {
   // Load documents on mount
   React.useEffect(() => {
     loadDocuments();
-  }, []);
+    loadStatusCounts();
+  }, [currentPage, pageSize, statusFilter]);
 
   const handleSelectFiles = async () => {
     try {
-      const api: any = get_ipc_api();
-      const result: any = await api.fs?.selectFiles?.({ multiple: true });
-      if (result && result.paths && result.paths.length > 0) {
-        setSelectedFiles(result.paths);
-        appendLog(`Selected ${result.paths.length} file(s)`);
+      // 5 minutes timeout for user interaction
+      const response = await get_ipc_api().executeRequest<any>('fs.selectFiles', { multiple: true }, 300000);
+      if (response.success && response.data) {
+          const result = response.data;
+          if (result && result.paths && result.paths.length > 0) {
+            setSelectedFiles(result.paths);
+            appendLog(t('pages.knowledge.documents.selectFilesWithCount', { count: result.paths.length }));
+          }
       }
     } catch (e: any) {
-      appendLog('Error selecting files: ' + (e?.message || String(e)));
+      appendLog(t('pages.knowledge.documents.errorSelectingFiles') + (e?.message || String(e)));
     }
   };
 
   const handleSelectDirectory = async () => {
     try {
-      const api: any = get_ipc_api();
-      const result: any = await api.fs?.selectDirectory?.({});
-      if (result && result.path) {
-        setDirPath(result.path);
+      // 5 minutes timeout for user interaction
+      const response = await get_ipc_api().executeRequest<any>('fs.selectDirectory', {}, 300000);
+      if (response.success && response.data) {
+          const result = response.data;
+          if (result && result.path) {
+            setDirPath(result.path);
+          }
       }
     } catch (e: any) {
-      appendLog('Error selecting directory: ' + (e?.message || String(e)));
+      appendLog(t('pages.knowledge.documents.errorSelectingDirectory') + (e?.message || String(e)));
     }
   };
 
@@ -65,10 +80,18 @@ const DocumentsTab: React.FC = () => {
     }
     try {
       appendLog(`Ingesting ${selectedFiles.length} file(s)...`);
-      const res = await lightragIpc.ingestFiles({ paths: selectedFiles });
-      appendLog(t('pages.knowledge.documents.ingestSuccess') + ': ' + JSON.stringify(res));
-      // Reload documents after ingestion
-      setTimeout(() => loadDocuments(), 2000);
+      const response = await get_ipc_api().lightragApi.ingestFiles({ paths: selectedFiles });
+      if (response.success && response.data) {
+          const res = response.data as any; // The inner result from backend
+          appendLog(t('pages.knowledge.documents.ingestSuccess') + ': ' + JSON.stringify(res));
+          // Reload documents after ingestion
+          setTimeout(() => {
+            loadDocuments();
+            loadStatusCounts();
+          }, 2000);
+      } else {
+          throw new Error(response.error?.message || 'Unknown error');
+      }
     } catch (e: any) {
       appendLog(t('pages.knowledge.documents.ingestError') + ': ' + (e?.message || String(e)));
     }
@@ -76,41 +99,99 @@ const DocumentsTab: React.FC = () => {
 
   const handleIngestDir = async () => {
     if (!dirPath) {
-      appendLog('Please select a directory first');
+      appendLog(t('pages.knowledge.documents.selectDirectoryFirst'));
       return;
     }
     try {
       appendLog(`Ingesting directory: ${dirPath}...`);
-      const res = await lightragIpc.ingestDirectory({ dirPath });
-      appendLog(t('pages.knowledge.documents.ingestSuccess') + ': ' + JSON.stringify(res));
-      // Reload documents after ingestion
-      setTimeout(() => loadDocuments(), 2000);
+      const response = await get_ipc_api().lightragApi.ingestDirectory({ dirPath });
+      if (response.success && response.data) {
+          const res = response.data as any;
+          appendLog(t('pages.knowledge.documents.ingestSuccess') + ': ' + JSON.stringify(res));
+          // Reload documents after ingestion
+          setTimeout(() => {
+            loadDocuments();
+            loadStatusCounts();
+          }, 2000);
+      } else {
+          throw new Error(response.error?.message || 'Unknown error');
+      }
     } catch (e: any) {
       appendLog(t('pages.knowledge.documents.ingestError') + ': ' + (e?.message || String(e)));
+    }
+  };
+
+  const loadStatusCounts = async () => {
+    try {
+      const response = await get_ipc_api().lightragApi.getStatusCounts();
+      if (response.success && response.data) {
+          const res = response.data as any;
+          if (res && res.data && res.data.status_counts) {
+            const counts = res.data.status_counts;
+            
+            // Normalize keys to uppercase to handle potential case mismatch (e.g. 'failed' vs 'FAILED')
+            const normalizedCounts: Record<string, number> = {};
+            Object.keys(counts).forEach(key => {
+              normalizedCounts[key.toUpperCase()] = counts[key];
+            });
+
+            // Calculate total
+            let all = 0;
+            Object.values(counts).forEach((c: any) => all += (c || 0));
+            
+            setStatusCounts({
+              all,
+              PROCESSED: normalizedCounts.PROCESSED || 0,
+              PROCESSING: normalizedCounts.PROCESSING || 0,
+              PENDING: normalizedCounts.PENDING || 0,
+              FAILED: normalizedCounts.FAILED || 0
+            });
+          }
+      }
+    } catch (e) {
+      console.error('Error loading status counts:', e);
     }
   };
 
   const loadDocuments = async () => {
     try {
       setLoading(true);
-      const res = await lightragIpc.listDocuments();
-      if (res && res.data && res.data.statuses) {
-        // Flatten all documents from different statuses
-        const allDocs: Document[] = [];
-        const counts = { all: 0, PROCESSED: 0, PROCESSING: 0, PENDING: 0, FAILED: 0 };
-        
-        Object.keys(res.data.statuses).forEach((status: string) => {
-          const docs = res.data.statuses[status] || [];
-          docs.forEach((doc: any) => {
-            allDocs.push({ ...doc, status });
-          });
-          counts[status as keyof typeof counts] = docs.length;
-          counts.all += docs.length;
-        });
-        
-        setDocuments(allDocs);
-        setStatusCounts(counts);
-        appendLog(`Loaded ${counts.all} documents`);
+      
+      // Use paginated API
+      const response = await get_ipc_api().lightragApi.getDocumentsPaginated({
+        page: currentPage,
+        page_size: pageSize,
+        status_filter: statusFilter === 'ALL' ? null : statusFilter,
+        sort_field: 'updated_at',
+        sort_direction: 'desc'
+      });
+
+      if (response.success && response.data) {
+          const res = response.data as any;
+          if (res && res.data && res.data.documents) {
+            setDocuments(res.data.documents);
+            setTotalDocs(res.data.pagination?.total_count || 0);
+            appendLog(t('pages.knowledge.documents.loadedDocuments', { count: res.data.documents.length, page: currentPage }));
+          } else if (res && res.data && res.data.statuses) {
+            // Fallback for older API or if pagination not supported fully
+            // Flatten all documents from different statuses
+            const allDocs: Document[] = [];
+            Object.keys(res.data.statuses).forEach((status: string) => {
+              if (statusFilter && statusFilter !== 'ALL' && status !== statusFilter) return;
+              const docs = res.data.statuses[status] || [];
+              docs.forEach((doc: any) => {
+                allDocs.push({ ...doc, status });
+              });
+            });
+            
+            // Manual pagination if backend returns all
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            setDocuments(allDocs.slice(start, end));
+            setTotalDocs(allDocs.length);
+          }
+      } else {
+          appendLog('Error loading documents: ' + (response.error?.message || 'Unknown error'));
       }
     } catch (e: any) {
       appendLog('Error loading documents: ' + (e?.message || String(e)));
@@ -121,55 +202,92 @@ const DocumentsTab: React.FC = () => {
 
   const handleScan = async () => {
     try {
-      appendLog('Starting scan for new documents...');
-      const res = await lightragIpc.scan();
-      appendLog('Scan started: ' + JSON.stringify(res));
-      // Reload documents after scan
-      setTimeout(() => loadDocuments(), 2000);
+      appendLog(t('pages.knowledge.documents.startingScan'));
+      const response = await get_ipc_api().lightragApi.scan();
+      if (response.success && response.data) {
+          const res = response.data as any;
+          appendLog(t('pages.knowledge.documents.scanStarted') + JSON.stringify(res));
+          // Reload documents after scan
+          setTimeout(() => {
+            loadDocuments();
+            loadStatusCounts();
+          }, 2000);
+      } else {
+          throw new Error(response.error?.message || 'Unknown error');
+      }
     } catch (e: any) {
-      appendLog('Error scanning: ' + (e?.message || String(e)));
+      appendLog(t('pages.knowledge.documents.errorScanning') + (e?.message || String(e)));
     }
   };
 
   const handleRefreshStatus = async () => {
-    appendLog('Refreshing document status...');
+    appendLog(t('pages.knowledge.documents.refreshingStatus'));
     await loadDocuments();
+    await loadStatusCounts();
   };
 
-  const handleClearCache = async () => {
-    if (!confirm('Clear all cache? This will remove processed data from the knowledge base.')) return;
-    
-    try {
-      appendLog('Clearing cache...');
-      await lightragIpc.clearCache();
-      appendLog('Cache cleared successfully');
-      // Reload documents after clearing cache
-      await loadDocuments();
-    } catch (e: any) {
-      appendLog('Error clearing cache: ' + (e?.message || String(e)));
-    }
+  const handleClearCache = () => {
+    modal.confirm({
+      title: t('pages.knowledge.documents.clearCache'),
+      content: t('pages.knowledge.documents.clearCacheConfirm'),
+      okText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        try {
+          appendLog(t('pages.knowledge.documents.clearingCache'));
+          const response = await get_ipc_api().lightragApi.clearCache();
+          if (response.success) {
+              appendLog(t('pages.knowledge.documents.cacheCleared'));
+              // Reload documents after clearing cache
+              await loadDocuments();
+              await loadStatusCounts();
+          } else {
+              throw new Error(response.error?.message || 'Unknown error');
+          }
+        } catch (e: any) {
+          appendLog(t('pages.knowledge.documents.errorClearingCache') + (e?.message || String(e)));
+        }
+      }
+    });
   };
   
   const handleClearLog = () => {
     setLog('');
   };
 
-  const handleDeleteDocument = async (filePath: string) => {
-    if (!confirm(`Delete document: ${filePath}?`)) return;
-    
-    try {
-      appendLog(`Deleting document: ${filePath}...`);
-      await lightragIpc.deleteDocument({ filePath });
-      appendLog('Document deleted successfully');
-      // Reload documents
-      await loadDocuments();
-    } catch (e: any) {
-      appendLog('Error deleting document: ' + (e?.message || String(e)));
-    }
+  const handleDeleteDocument = (doc: Document) => {
+    const titleKey = 'pages.knowledge.documents.deleteDocument';
+    const titleTrans = t(titleKey);
+    // If translation is missing (returns key), fallback to Chinese
+    const title = titleTrans === titleKey ? '删除文档' : titleTrans;
+
+    modal.confirm({
+      title: title,
+      content: t('pages.knowledge.documents.deleteDocumentConfirm', { filePath: doc.file_path }),
+      okText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        try {
+          appendLog(t('pages.knowledge.documents.deletingDocument', { filePath: doc.file_path }));
+          // Pass 'id' as required by the updated backend handler
+          const response = await get_ipc_api().lightragApi.deleteDocument({ id: doc.id });
+          if (response.success) {
+              appendLog(t('pages.knowledge.documents.documentDeleted'));
+              // Reload documents
+              await loadDocuments();
+              await loadStatusCounts();
+          } else {
+              throw new Error(response.error?.message || 'Unknown error');
+          }
+        } catch (e: any) {
+          appendLog(t('pages.knowledge.documents.errorDeletingDocument') + (e?.message || String(e)));
+        }
+      }
+    });
   };
 
   const getStatusColor = (status: string) => {
-    switch (status) {
+    switch (status?.toUpperCase()) {
       case 'PROCESSED': return token.colorSuccess;
       case 'PROCESSING': return token.colorWarning;
       case 'PENDING': return token.colorTextTertiary;
@@ -178,11 +296,27 @@ const DocumentsTab: React.FC = () => {
     }
   };
 
+  const getStatusText = (status: string) => {
+    switch (status?.toUpperCase()) {
+      case 'PROCESSED': return t('pages.knowledge.documents.completed');
+      case 'PROCESSING': return t('pages.knowledge.documents.processing');
+      case 'PENDING': return t('pages.knowledge.documents.pending');
+      case 'FAILED': return t('pages.knowledge.documents.failed');
+      default: return status;
+    }
+  };
+
+  const handleStatusFilterChange = (status: string) => {
+    setStatusFilter(status === 'ALL' ? null : status);
+    setCurrentPage(1); // Reset to first page on filter change
+  };
+
   return (
     <div style={{ 
       height: '100%', 
       overflow: 'auto'
     }}>
+      {contextHolder}
       <div style={{ 
         padding: '32px', 
         minHeight: '100%',
@@ -224,11 +358,11 @@ const DocumentsTab: React.FC = () => {
           <button className="ec-btn" onClick={handleRefreshStatus} title={t('pages.knowledge.documents.status')}>
             <UnorderedListOutlined /> {t('pages.knowledge.documents.status')}
           </button>
-          <button className="ec-btn" onClick={handleClearCache} title="Clear Cache">
-            <ClearOutlined /> Clear Cache
+          <button className="ec-btn" onClick={handleClearCache} title={t('pages.knowledge.documents.clearCache')}>
+            <ClearOutlined /> {t('pages.knowledge.documents.clearCache')}
           </button>
-          <button className="ec-btn" onClick={handleClearLog} title="Clear Log">
-            Clear Log
+          <button className="ec-btn" onClick={handleClearLog} title={t('pages.knowledge.documents.clearLog')}>
+            {t('pages.knowledge.documents.clearLog')}
           </button>
         </div>
       </div>
@@ -250,12 +384,36 @@ const DocumentsTab: React.FC = () => {
               <label style={{ fontSize: 13, fontWeight: 600, color: token.colorTextSecondary }}>{t('pages.knowledge.documents.uploadFiles')}</label>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="ec-btn" onClick={handleSelectFiles} style={{ flex: 1 }}>
-                  <FolderOpenOutlined /> Select Files ({selectedFiles.length} selected)
+                  <FolderOpenOutlined /> {t('pages.knowledge.documents.selectFilesWithCount', { count: selectedFiles.length })}
                 </button>
                 <button className="ec-btn ec-btn-primary" onClick={handleIngestFiles} disabled={selectedFiles.length === 0}>
                   <UploadOutlined /> {t('pages.knowledge.documents.ingest')}
                 </button>
               </div>
+              {selectedFiles.length > 0 && (
+                <div style={{ 
+                  marginTop: 8, 
+                  padding: '8px 12px', 
+                  background: token.colorBgLayout, 
+                  borderRadius: 6,
+                  maxHeight: 120,
+                  overflowY: 'auto',
+                  fontSize: 12,
+                  color: token.colorTextSecondary,
+                  border: `1px solid ${token.colorBorderSecondary}`
+                }}>
+                  {selectedFiles.map((path, i) => (
+                    <div key={i} style={{ 
+                      whiteSpace: 'nowrap', 
+                      overflow: 'hidden', 
+                      textOverflow: 'ellipsis',
+                      lineHeight: '20px'
+                    }} title={path}>
+                      {path}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
           <div style={{ height: 1, background: token.colorBorderSecondary }} />
@@ -271,7 +429,7 @@ const DocumentsTab: React.FC = () => {
                   style={{ flex: 1 }}
                 />
                 <button className="ec-btn" onClick={handleSelectDirectory}>
-                  <FolderOpenOutlined /> Browse
+                  <FolderOpenOutlined /> {t('pages.knowledge.documents.browse')}
                 </button>
               </div>
             </div>
@@ -293,18 +451,26 @@ const DocumentsTab: React.FC = () => {
           borderBottom: `1px solid ${token.colorBorderSecondary}`
         }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: token.colorText }}>{t('pages.knowledge.documents.uploadedDocuments')}</h4>
-          <div style={{ display: 'flex', gap: 16, fontSize: 12, color: token.colorTextSecondary }}>
-            <span><strong>{t('pages.knowledge.documents.all')}:</strong> {statusCounts.all}</span>
-            <span style={{ color: token.colorSuccess }}><strong>{t('pages.knowledge.documents.completed')}:</strong> {statusCounts.PROCESSED}</span>
-            <span style={{ color: token.colorWarning }}><strong>{t('pages.knowledge.documents.processing')}:</strong> {statusCounts.PROCESSING}</span>
-            <span style={{ color: token.colorTextTertiary }}><strong>{t('pages.knowledge.documents.pending')}:</strong> {statusCounts.PENDING}</span>
-            <span style={{ color: token.colorError }}><strong>{t('pages.knowledge.documents.failed')}:</strong> {statusCounts.FAILED}</span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Select 
+              defaultValue="ALL" 
+              style={{ width: 160 }} 
+              onChange={handleStatusFilterChange}
+              options={[
+                { value: 'ALL', label: `${t('pages.knowledge.documents.all') || 'All'} (${statusCounts.all})` },
+                { value: 'PROCESSED', label: `${t('pages.knowledge.documents.completed')} (${statusCounts.PROCESSED})` },
+                { value: 'PROCESSING', label: `${t('pages.knowledge.documents.processing')} (${statusCounts.PROCESSING})` },
+                { value: 'PENDING', label: `${t('pages.knowledge.documents.pending')} (${statusCounts.PENDING})` },
+                { value: 'FAILED', label: `${t('pages.knowledge.documents.failed')} (${statusCounts.FAILED})` },
+              ]}
+            />
           </div>
         </div>
 
         {/* Table */}
         <div style={{ 
-          flex: 1,
+          height: '60vh',
+          minHeight: 200,
           border: `1px solid ${token.colorBorder}`, 
           borderRadius: 16, 
           background: token.colorBgContainer,
@@ -315,7 +481,7 @@ const DocumentsTab: React.FC = () => {
         }}>
           <div style={{ 
             display: 'grid', 
-            gridTemplateColumns: '1fr 120px 120px 100px', 
+            gridTemplateColumns: '1fr 120px 150px 100px', 
             gap: 8, 
             padding: '12px 16px',
             background: isDark ? token.colorBgTextHover : token.colorBgLayout,
@@ -325,8 +491,8 @@ const DocumentsTab: React.FC = () => {
             color: token.colorText
           }}>
             <div>{t('pages.knowledge.documents.fileName')}</div>
-            <div style={{ textAlign: 'center' }}>Status</div>
-            <div style={{ textAlign: 'center' }}>Updated</div>
+            <div style={{ textAlign: 'center' }}>{t('common.status')}</div>
+            <div style={{ textAlign: 'center' }}>{t('pages.knowledge.documents.lastUpdated')}</div>
             <div style={{ textAlign: 'center' }}>{t('pages.knowledge.documents.actions')}</div>
           </div>
           
@@ -339,7 +505,7 @@ const DocumentsTab: React.FC = () => {
               padding: '48px 24px',
               color: token.colorTextTertiary
             }}>
-              Loading...
+              {t('common.loading')}
             </div>
           ) : documents.length === 0 ? (
             <div style={{ 
@@ -359,9 +525,9 @@ const DocumentsTab: React.FC = () => {
           ) : (
             <div style={{ flex: 1, overflow: 'auto' }}>
               {documents.map((doc, idx) => (
-                <div key={idx} style={{ 
+                <div key={doc.id || doc.file_path || idx} style={{ 
                   display: 'grid', 
-                  gridTemplateColumns: '1fr 120px 120px 100px', 
+                  gridTemplateColumns: '1fr 120px 150px 100px', 
                   gap: 8, 
                   padding: '12px 16px',
                   borderBottom: `1px solid ${token.colorBorderSecondary}`,
@@ -382,7 +548,7 @@ const DocumentsTab: React.FC = () => {
                     color: getStatusColor(doc.status),
                     fontWeight: 600
                   }}>
-                    {doc.status}
+                    {getStatusText(doc.status)}
                   </div>
                   <div style={{ 
                     textAlign: 'center',
@@ -394,7 +560,7 @@ const DocumentsTab: React.FC = () => {
                   <div style={{ textAlign: 'center' }}>
                     <button 
                       className="ec-btn-small"
-                      onClick={() => handleDeleteDocument(doc.file_path)}
+                      onClick={() => handleDeleteDocument(doc)}
                       style={{
                         padding: '4px 12px',
                         fontSize: 12,
@@ -406,13 +572,33 @@ const DocumentsTab: React.FC = () => {
                         transition: 'all 0.2s'
                       }}
                     >
-                      Delete
+                      {t('common.delete')}
                     </button>
                   </div>
                 </div>
               ))}
             </div>
           )}
+          
+          {/* Pagination Footer */}
+          <div style={{
+            padding: '12px 16px',
+            borderTop: `1px solid ${token.colorBorderSecondary}`,
+            display: 'flex',
+            justifyContent: 'flex-end'
+          }}>
+            <Pagination 
+              current={currentPage} 
+              pageSize={pageSize} 
+              total={totalDocs} 
+              onChange={(page, size) => {
+                setCurrentPage(page);
+                setPageSize(size);
+              }}
+              size="small"
+              showTotal={(total) => t('pages.knowledge.documents.totalItems', { total })}
+            />
+          </div>
         </div>
       </div>
 
@@ -431,7 +617,21 @@ const DocumentsTab: React.FC = () => {
         border: `1px solid ${token.colorBorder}`,
         boxShadow: isDark ? 'inset 0 2px 8px rgba(0, 0, 0, 0.2)' : 'inset 0 2px 8px rgba(0, 0, 0, 0.05)'
       }}>
-        {log || <span style={{ opacity: 0.5, color: token.colorTextTertiary }}>{t('pages.knowledge.documents.consoleOutput')}</span>}
+        {log ? (
+          <pre
+            style={{
+              margin: 0,
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}
+          >
+            {log}
+          </pre>
+        ) : (
+          <span style={{ opacity: 0.5, color: token.colorTextTertiary }}>
+            {t('pages.knowledge.documents.consoleOutput')}
+          </span>
+        )}
       </div>
 
       {/* Scoped styles */}
