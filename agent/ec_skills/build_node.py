@@ -1504,8 +1504,8 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
             state["result"]["llm_result"] = response
 
             # Clean up the response
-            send_result = send_response_back(state)
-
+            # send_result = send_response_back(state)
+            print("just sent response back to GUI....")
 
         except Exception as e:
             err_msg = get_traceback(e, "ErrorBuildChatNode")

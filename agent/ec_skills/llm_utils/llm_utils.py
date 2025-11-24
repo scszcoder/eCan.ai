@@ -1866,13 +1866,26 @@ def send_response_back(state: NodeState) -> NodeState:
         #                 "ext": ext,
         #             }
         # as this is the format the GUI will take and display.
+        print("state result:",state["result"])
+        if isinstance(state["result"], str):
+            next_msg = state["messages"][-1]
+        else:
+            if isinstance(state["result"], dict):
+                llm_result = state["result"].get("llm_result", {})
+                if isinstance(llm_result, str):
+                    next_msg = llm_result
+                else:
+                    next_msg = state["result"].get("llm_result", {}).get("next_prompt", "")
+            else:
+                next_msg = "sorry, I was lost, could you rephrase your question?"
+
         agent_response_message = {
             "id": str(uuid.uuid4()),
             "attributes": {
                 "params": {
                     "content": {
                         "type": msg_type, # "text", "code", "form", "notification", "card
-                        "text": state["result"].get("llm_result", {}).get("next_prompt", ""),
+                        "text": next_msg,
                         "i_tag": i_tag,
                         "dtype": msg_type,
                         "card": {},
