@@ -311,19 +311,21 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
 
         if next_prompt_text:
             ai_message = AIMessage(content=next_prompt_text)
-        # else:
-        #     ai_message = AIMessage(content=json.dumps(response['llm_result']))
+        else:
+            ai_message = AIMessage(content=json.dumps(response['llm_result']))
 
-            if not isinstance(state.get("history"), list):
-                state["history"] = []
-            state["history"].append(ai_message)
-            msgs = state["prompts"].append(ai_message)
+        if not isinstance(state.get("history"), list):
+            state["history"] = []
+        print("ai_message", ai_message)
+        state["history"].append(ai_message)
+        state["messages"].append(json.dumps(response['llm_result']))
+        msgs = state["prompts"].append(ai_message)
 
-            if next_prompt_text:
-                max_text = 100 if len(next_prompt_text) > 100 else len(next_prompt_text)
-                logger.debug(f"[STANDARD_LLM_POST_HOOKS] Added AIMessage to history: {next_prompt_text[:max_text]}...")  # Log first 100 chars
-            else:
-                logger.debug(f"[STANDARD_LLM_POST_HOOKS] WARNING: next_prompt_text empty.")
+        if next_prompt_text:
+            max_text = 100 if len(next_prompt_text) > 100 else len(next_prompt_text)
+            logger.debug(f"[STANDARD_LLM_POST_HOOKS] Added AIMessage to history: {next_prompt_text[:max_text]}...")  # Log first 100 chars
+        else:
+            logger.debug(f"[STANDARD_LLM_POST_HOOKS] WARNING: next_prompt_text empty.")
 
         # save this back-and-forth message pair to memory
         for msg in state["prompts"]:

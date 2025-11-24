@@ -132,7 +132,7 @@ def test2_node(state: NodeState) -> NodeState:
         # use A2A to send results to chatter process, and chatter will send
         # results to supervisor via chat.
         state["result"] = {"status": "success"}
-        print("about to send this result: ", state["result"])
+        print("[test2_node]about to send this result: ", state["result"])
         # adapt results to GUI notification format.
         agent.a2a_send_chat_message(twin_agent, {"type": "test results", "content": state["result"]})
         # send result notification to GUI
