@@ -6,6 +6,7 @@ import { IPCWCClient } from './ipcWCClient';
 import { IPCResponse } from './types';
 import { logger } from '../../utils/logger';
 import { createChatApi } from './chatApi';
+import { createLightRAGApi } from './lightragApi';
 import { logoutManager } from '../LogoutManager';
 
 /**
@@ -42,11 +43,14 @@ export class IPCAPI {
 
     // 新增 chat Field
     public chatApi: ReturnType<typeof createChatApi>;
+    // 新增 lightrag Field
+    public lightragApi: ReturnType<typeof createLightRAGApi>;
 
     private constructor() {
         this.ipcWCClient = IPCWCClient.getInstance();
         // Initialize chat api
         this.chatApi = createChatApi(this);
+        this.lightragApi = createLightRAGApi(this);
         // RegisterlogoutCleanupFunction
         this.registerLogoutCleanup();
     }
@@ -88,18 +92,19 @@ export class IPCAPI {
      * Execute IPC Request - 使用队列机制以避免并发问题
      * @param method - RequestMethod名
      * @param params - RequestParameter
+     * @param timeout - Optional timeout in milliseconds
      * @returns Promise 对象，Parse为 API Response
      */
-    public async executeRequest<T>(method: string, params?: unknown): Promise<APIResponse<T>> {
+    public async executeRequest<T>(method: string, params?: unknown, timeout?: number): Promise<APIResponse<T>> {
         const startTs = Date.now();
-        console.log('[IPCAPI] executeRequest:start', method, { params });
+        console.log('[IPCAPI] executeRequest:start', method, { params, timeout });
         try {
             // 对于 get_initialization_progress，使用 invoke Method以利用队列和并发控制
             let response: IPCResponse;
             if (method === 'get_initialization_progress') {
-                response = await this.ipcWCClient.invoke(method, params) as IPCResponse;
+                response = await this.ipcWCClient.invoke(method, params, { timeout }) as IPCResponse;
             } else {
-                response = await this.ipcWCClient.sendRequest(method, params) as IPCResponse;
+                response = await this.ipcWCClient.sendRequest(method, params, timeout) as IPCResponse;
             }
 
             console.log('[IPCAPI] executeRequest:response', method, { response, durationMs: Date.now() - startTs });

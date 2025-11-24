@@ -7,6 +7,7 @@ interface SettingsState {
   enableNodeDrag: boolean;
   showLegend: boolean;
   enableEdgeEvents: boolean;
+  enableHideUnselectedEdges: boolean;
   showEdgeLabel: boolean;
   showNodeLabel: boolean;
   minEdgeSize: number;
@@ -25,6 +26,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   enableNodeDrag: true,
   showLegend: false,
   enableEdgeEvents: true,
+  enableHideUnselectedEdges: false,
   showEdgeLabel: false,
   showNodeLabel: true,
   minEdgeSize: 1,
