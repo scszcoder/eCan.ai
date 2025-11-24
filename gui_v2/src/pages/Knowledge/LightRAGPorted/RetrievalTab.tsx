@@ -167,11 +167,56 @@ const RetrievalTab: React.FC = () => {
         if (response.success && response.data) {
             const res = response.data as any;
             // Normal query returns { status: 'success', data: result }
-            // The actual content is inside result
-            const content = typeof res === 'object' && res && 'data' in res 
-              ? (typeof res.data === 'string' ? res.data : JSON.stringify(res.data))
-              : JSON.stringify(res);
-            
+            // The actual result is usually inside res.data
+            let resultData: any;
+            if (res && typeof res === 'object' && 'data' in res) {
+              resultData = (res as any).data;
+            } else {
+              resultData = res;
+            }
+
+            let content: string;
+
+            // If backend returns a structured result like { response: string, references: [...] }
+            // show the human-friendly response field instead of raw JSON
+            if (resultData && typeof resultData === 'object' && 'response' in resultData) {
+              const resp = (resultData as any).response;
+              const base = typeof resp === 'string' ? resp : JSON.stringify(resp);
+              const refs = (resultData as any).references;
+              const hasRefs = Array.isArray(refs) && refs.length > 0;
+
+              if (hasRefs) {
+                // Build a simple human-readable reference list
+                const refLines = refs.map((r: any, idx: number) => {
+                  if (!r || typeof r !== 'object') {
+                    return `- [${idx + 1}] ` + String(r);
+                  }
+
+                  const title = (r.title || r.name || r.filename || r.file_name) as string | undefined;
+                  const source = (r.source || r.doc_id || r.document_id || r.id) as string | undefined;
+                  const score = (r.score ?? r.similarity) as number | undefined;
+
+                  let label = title || source || JSON.stringify(r).slice(0, 80) + '...';
+                  if (source && title && source !== title) {
+                    label = `${title} (${source})`;
+                  }
+                  if (score !== undefined) {
+                    return `- [${idx + 1}] ${label}  (score: ${score.toFixed ? score.toFixed(3) : score})`;
+                  }
+                  return `- [${idx + 1}] ${label}`;
+                });
+
+                content = `${base}\n\n参考文档：\n${refLines.join('\n')}`;
+              } else {
+                // When there is no reference, append a friendly hint line
+                content = base + '\n\n(没有检索到相关文档引用)';
+              }
+            } else if (typeof resultData === 'string') {
+              content = resultData;
+            } else {
+              content = JSON.stringify(resultData);
+            }
+
             setMessages(prev => prev.map(m => 
               m.id === assistantId ? { ...m, content } : m
             ));

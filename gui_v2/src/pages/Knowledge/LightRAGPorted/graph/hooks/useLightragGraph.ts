@@ -28,6 +28,7 @@ export default function useLightragGraph() {
           useGraphStore.getState().setSigmaGraph(null);
           useGraphStore.getState().setRawGraph(null);
           useGraphStore.getState().setGraphIsEmpty(true);
+          useGraphStore.getState().setLastQuerySummary(null);
           return;
         }
 
@@ -131,6 +132,12 @@ export default function useLightragGraph() {
         useGraphStore.getState().setSigmaGraph(g as any);
         useGraphStore.getState().setTypeColorMap(typeColorMap);
         useGraphStore.getState().setGraphIsEmpty(g.order === 0);
+        useGraphStore.getState().setLastQuerySummary({
+          label: currentLabel,
+          nodeCount: data.nodes.length,
+          edgeCount: data.edges.length,
+          isTruncated: !!data.is_truncated,
+        });
         
         if (g.order > 0 && currentLabel && currentLabel !== '*') {
           useGraphStore.getState().setLastSuccessfulQueryLabel(currentLabel);
@@ -142,6 +149,7 @@ export default function useLightragGraph() {
           useGraphStore.getState().setSigmaGraph(null);
           useGraphStore.getState().setRawGraph(null);
           useGraphStore.getState().setGraphIsEmpty(true);
+          useGraphStore.getState().setLastQuerySummary(null);
         }
       } finally {
         if (!cancelled) useGraphStore.getState().setIsFetching(false);

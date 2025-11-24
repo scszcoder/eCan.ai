@@ -107,8 +107,32 @@ const DocumentsTab: React.FC = () => {
       const response = await get_ipc_api().lightragApi.ingestDirectory({ dirPath });
       if (response.success && response.data) {
           const res = response.data as any;
-          appendLog(t('pages.knowledge.documents.ingestSuccess') + ': ' + JSON.stringify(res));
-          // Reload documents after ingestion
+          const summary = res && res.data ? res.data : res;
+          if (summary) {
+            const total = summary.total_files ?? summary.totalFiles ?? 0;
+            const successCount = summary.success_count ?? summary.successCount ?? 0;
+            const failureCount = summary.failure_count ?? summary.failureCount ?? 0;
+            const statusText = summary.status || 'unknown';
+
+            appendLog(
+              `${t('pages.knowledge.documents.ingestSuccess')}: ` +
+              `status=${statusText}, total=${total}, success=${successCount}, failed=${failureCount}`
+            );
+
+            if (Array.isArray(summary.files) && summary.files.length > 0) {
+              const maxPreview = 5;
+              const fileNames = summary.files
+                .slice(0, maxPreview)
+                .map((f: any) => (f && f.file_path) || '')
+                .filter((name: string) => !!name);
+              if (fileNames.length > 0) {
+                const moreCount = summary.files.length > maxPreview ? `, ... (+${summary.files.length - maxPreview} more)` : '';
+                appendLog(`Files: ${fileNames.join(', ')}${moreCount}`);
+              }
+            }
+          } else {
+            appendLog(t('pages.knowledge.documents.ingestSuccess') + ': ' + JSON.stringify(res));
+          }
           setTimeout(() => {
             loadDocuments();
             loadStatusCounts();

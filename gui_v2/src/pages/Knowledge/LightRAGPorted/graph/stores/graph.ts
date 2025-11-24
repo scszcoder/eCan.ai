@@ -51,6 +51,12 @@ interface GraphState {
   typeColorMap: Map<string, string>;
   graphDataFetchAttempted: boolean;
   lastSuccessfulQueryLabel: string;
+  lastQuerySummary: {
+    label: string;
+    nodeCount: number;
+    edgeCount: number;
+    isTruncated: boolean;
+  } | null;
   // actions
   setSigmaInstance: (s: Sigma | null) => void;
   setSigmaGraph: (g: UndirectedGraph | null) => void;
@@ -72,6 +78,7 @@ interface GraphState {
   setLastSuccessfulQueryLabel: (label: string) => void;
   clearSelection: () => void;
   reset: () => void;
+  setLastQuerySummary: (summary: GraphState['lastQuerySummary']) => void;
 }
 
 export const useGraphStore = create<GraphState>((set, get) => ({
@@ -90,6 +97,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   typeColorMap: new Map(),
   graphDataFetchAttempted: false,
   lastSuccessfulQueryLabel: '',
+  lastQuerySummary: null,
   setSigmaInstance: (s) => set({ sigmaInstance: s }),
   setSigmaGraph: (g) => set({ sigmaGraph: g }),
   setRawGraph: (g) => set({ rawGraph: g }),
@@ -106,6 +114,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setTypeColorMap: (map) => set({ typeColorMap: map }),
   setGraphDataFetchAttempted: (v) => set({ graphDataFetchAttempted: v }),
   setLastSuccessfulQueryLabel: (label) => set({ lastSuccessfulQueryLabel: label }),
+  setLastQuerySummary: (summary) => set({ lastQuerySummary: summary }),
   
   updateNodeAndSelect: (id, entityId, prop, val) => {
     const { rawGraph, sigmaGraph } = get();
@@ -155,6 +164,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     searchEngine: null,
     typeColorMap: new Map(),
     graphDataFetchAttempted: false,
-    lastSuccessfulQueryLabel: ''
+    lastSuccessfulQueryLabel: '',
+    lastQuerySummary: null
   })
 }));

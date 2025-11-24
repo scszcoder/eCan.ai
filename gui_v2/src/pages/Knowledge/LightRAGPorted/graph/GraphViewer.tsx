@@ -1,4 +1,6 @@
 import React, { useEffect } from 'react';
+import { theme } from 'antd';
+import { useTranslation } from 'react-i18next';
 import { SigmaContainer, useSigma } from '@react-sigma/core';
 import '@react-sigma/core/lib/style.css';
 import { UndirectedGraph } from 'graphology';
@@ -63,10 +65,15 @@ const ResizeHandler: React.FC = () => {
 const GraphViewer: React.FC = () => {
   // Fetch and populate graph from backend via IPC
   useLightragGraph();
+  const { token } = theme.useToken();
+  const { t } = useTranslation();
   const showPropertyPanel = useSettingsStore(s => s.showPropertyPanel);
   const showLegend = useSettingsStore(s => s.showLegend);
   const selectedNode = useGraphStore(s => s.selectedNode);
   const moveToSelectedNode = useGraphStore(s => s.moveToSelectedNode);
+  const isFetching = useGraphStore(s => s.isFetching);
+  const graphIsEmpty = useGraphStore(s => s.graphIsEmpty);
+  const lastQuerySummary = useGraphStore(s => s.lastQuerySummary);
   
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', background: '#ffffff' }}>
@@ -85,6 +92,53 @@ const GraphViewer: React.FC = () => {
         {/* Bottom-left: floating vertical icon toolbar */}
         <div style={{ position: 'absolute', bottom: 8, left: 8 }}>
           <IconToolbar />
+        </div>
+
+        {/* Center-top: lightweight query summary */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 8,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            padding: '6px 12px',
+            borderRadius: 999,
+            background: token.colorBgElevated,
+            border: `1px solid ${token.colorBorder}`,
+            fontSize: 12,
+            color: token.colorTextSecondary,
+            boxShadow: token.boxShadowSecondary,
+            maxWidth: '80%',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {isFetching && !lastQuerySummary && (
+            <span>{t('pages.knowledge.graph.loading') || '正在加载图数据...'}</span>
+          )}
+          {!isFetching && (!lastQuerySummary || graphIsEmpty) && (
+            <span>
+              {t('pages.knowledge.graph.empty', {
+                defaultValue: '当前标签下没有可视化的图数据',
+              })}
+            </span>
+          )}
+          {lastQuerySummary && !graphIsEmpty && (
+            <span>
+              {t('pages.knowledge.graph.summary', {
+                label: lastQuerySummary.label || '*',
+                nodes: lastQuerySummary.nodeCount,
+                edges: lastQuerySummary.edgeCount,
+              }) ||
+                `标签: ${lastQuerySummary.label || '*'} · 节点: ${lastQuerySummary.nodeCount} · 边: ${lastQuerySummary.edgeCount}`}
+              {lastQuerySummary.isTruncated && (
+                <span style={{ marginLeft: 8, color: token.colorError }}>
+                  {t('pages.knowledge.graph.truncated') || '(结果已截断，请缩小范围或减少最大节点数)'}
+                </span>
+              )}
+            </span>
+          )}
         </div>
 
         {/* Right-top properties panel */}

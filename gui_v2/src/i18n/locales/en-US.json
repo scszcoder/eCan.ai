@@ -1372,6 +1372,28 @@
         "retrieval": "Retrieval",
         "settings": "Settings"
       },
+      "graph": {
+        "title": "Knowledge Graph",
+        "subtitle": "Interactive visualization of knowledge relationships",
+        "loading": "Loading graph data...",
+        "empty": "No graph data available for the current label",
+        "summary": "Label: {{label}} · Nodes: {{nodes}} · Edges: {{edges}}",
+        "truncated": "Results truncated, try narrowing the scope or reducing max nodes",
+        "searchLabels": "Search labels",
+        "searchNode": "Search nodes",
+        "refreshing": "Refreshing...",
+        "refreshGlobal": "Refresh global data",
+        "refreshCurrentLabel": "Refresh label: {{label}}",
+        "noLabels": "No labels",
+        "selectLabel": "Select label",
+        "labelPlaceholder": "Select or search labels...",
+        "circularLayout": "Circular layout",
+        "randomLayout": "Random layout",
+        "noverlapLayout": "No-overlap layout",
+        "forceAtlas2Layout": "ForceAtlas2 layout",
+        "zoomIn": "Zoom in",
+        "zoomOut": "Zoom out"
+      },
       "documents": {
         "title": "Document Management",
         "subtitle": "Manage and import documents to knowledge base",
