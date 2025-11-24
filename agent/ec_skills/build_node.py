@@ -1407,6 +1407,50 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         logger.debug(log_msg)
         web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
+        # Enrich state with chat metadata, if available
+        try:
+            chat_attrs = resume_payload.get("chat_attributes") if isinstance(resume_payload, dict) else None
+            if isinstance(chat_attrs, dict) and chat_attrs:
+                attrs = state.setdefault("attributes", {}) if isinstance(state, dict) else {}
+                attrs.setdefault("chat_attributes", {}).update(chat_attrs)
+
+                for key, value in chat_attrs.items():
+                    if value not in (None, "", [], {}):
+                        existing = attrs.get(key)
+                        if existing in (None, "", [], {}):
+                            attrs[key] = value
+
+                msg_list = state.setdefault("messages", []) if isinstance(state, dict) else []
+                if isinstance(msg_list, list):
+                    while len(msg_list) < 5:
+                        msg_list.append("")
+
+                    fill_map = {
+                        0: chat_attrs.get("receiverId"),
+                        1: chat_attrs.get("chatId"),
+                        4: chat_attrs.get("content"),
+                    }
+
+                    metadata = resume_payload.get("_state_patch", {}).get("attributes", {}).get("debug", {}).get("last_event_metadata", {}) if isinstance(resume_payload, dict) else {}
+                    if isinstance(metadata, dict):
+                        params = metadata.get("params") if isinstance(metadata.get("params"), dict) else {}
+                        if params:
+                            fill_map.setdefault(0, params.get("receiverId"))
+                            if params.get("chatId"):
+                                fill_map[1] = fill_map.get(1) or params.get("chatId")
+                            if params.get("msgId"):
+                                fill_map[2] = params.get("msgId")
+                            if params.get("taskId"):
+                                fill_map[3] = params.get("taskId")
+                            if params.get("content"):
+                                fill_map[4] = fill_map.get(4) or params.get("content")
+
+                    for idx, val in fill_map.items():
+                        if val and msg_list[idx] in (None, ""):
+                            msg_list[idx] = val
+        except Exception:
+            pass
+
         log_msg = f"[pend_event_node] resumed, state: {state}"
         logger.debug(log_msg)
         web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
