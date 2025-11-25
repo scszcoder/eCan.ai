@@ -1,7 +1,37 @@
+from utils.logger_helper import get_traceback
+from utils.logger_helper import logger_helper as logger
+
+def ragify_tool(mainwin, args):
+    try:
+        rag_result = None
+        if args['input']:
+            logger.debug(f"[MCP][RAGIFY DOCs]: {args['input']}")
+
+        msg = "completed ragify fileds"
+        result = [TextContent(type="text", text=msg)]
+        result.meta = {"rag_result": rag_result}
+        return [result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorRagifyTool")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 
+def rag_query_tool(mainwin, args):
+    try:
+        answer = ""
+        if args['input']:
+            logger.debug(f"[MCP][RAG QUERY]: {args['input']}")
 
+        msg = "completed rag query"
+        result = [TextContent(type="text", text=msg)]
+        result.meta = {"answer": answer}
+        return [result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorRagQueryTool")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 def add_ragify_tool_schema(tool_schemas):
     import mcp.types as types
