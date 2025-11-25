@@ -517,7 +517,6 @@ class MainWindow:
             loop = asyncio.get_running_loop()
             agents_task = loop.create_task(self.async_agents_init())
             loop.create_task(self._async_setup_browser_manager())
-            loop.create_task(self._async_start_lightrag())
             self.wan_sub_task = loop.create_task(self._async_start_wan_chat())
             self.llm_sub_task = loop.create_task(self._async_start_llm_subscription())
             # self.cloud_show_sub_task = loop.create_task(self._async_start_cloud_show_subscription())
@@ -540,22 +539,19 @@ class MainWindow:
                 # Give system some time to stabilize
                 await asyncio.sleep(1.0)
                 logger.info("[MainWindow] 📋 System stabilization delay completed")
-            
-            # # Now mark system as fully ready since agents are loaded
-            # self._initialization_status['fully_ready'] = True
-
-            # # Notify IPC Registry that system is ready, clear cache to ensure immediate effect
-            # try:
-            #     from gui.ipc.registry import IPCHandlerRegistry
-            #     IPCHandlerRegistry.force_system_ready(True)
-            # except Exception as cache_e:
-            #     logger.warning(f"[MainWindow] Failed to update IPC registry cache: {cache_e}")
-
 
             # Notify update home agents page
             from app_context import AppContext
             web_gui = AppContext.get_web_gui()
             web_gui.get_ipc_api().update_org_agents()
+
+            # Start LightRAG server after agents initialization to ensure managers are ready
+            logger.info("[MainWindow] 🚀 Starting LightRAG server (managers are now ready)...")
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._async_start_lightrag())
+            except RuntimeError as e:
+                logger.error(f"[MainWindow] ⚠️ Failed to start LightRAG server: {e}")
 
             logger.info("[MainWindow] 🎉 System is now fully ready with all data loaded!")
         except Exception as e:
@@ -1485,29 +1481,18 @@ class MainWindow:
     async def _async_start_lightrag(self):
         """
         Asynchronously start LightRAG server in background
+        Note: This should be called after managers are initialized
         """
         try:
-            # Wait a bit to ensure other services are ready
-            await asyncio.sleep(0.5)
-
             logger.info("[MainWindow] 🧠 Starting LightRAG server initialization...")
 
             # Initialize LightRAG server in main thread to allow signal handlers
             # but run the actual server start in executor for non-blocking behavior
             from knowledge.lightrag_server import LightragServer
-            from utils.env.secure_store import secure_store
-            from config.app_info import app_info
             
-            # Prepare environment variables for LightRAG server
-            # APP_DATA_PATH is used for LightRAG's own data directory
-            # LOG_DIR is aligned with main process runlogs so all logs live in the same folder
-            runlogs_dir = os.path.join(app_info.appdata_path, "runlogs")
-            lightrag_env = {
-                "APP_DATA_PATH": ecb_data_homepath + "/lightrag_data",
-                "LOG_DIR": runlogs_dir,
-            }
-            
-            self.lightrag_server = LightragServer(extra_env=lightrag_env)
+            # All configuration is now in lightrag.env file
+            # Managers are guaranteed to be initialized at this point
+            self.lightrag_server = LightragServer(extra_env={})
 
             # Start the server process in executor (this is the blocking part)
             success = await asyncio.get_event_loop().run_in_executor(

@@ -8,7 +8,6 @@ import threading
 import time
 import locale
 from pathlib import Path
-from typing import Optional, Dict
 from utils.logger_helper import logger_helper as logger
 from knowledge.lightrag_config_manager import get_config_manager
 
@@ -157,47 +156,43 @@ class LightragServer:
         if self.is_frozen and not env.get('HOST'):
             env['HOST'] = '127.0.0.1'
 
-        # 6. Path logic
-        # Try to load defaults from app_info if not set
-        if 'APP_DATA_PATH' not in env:
-            try:
-                from config.app_info import app_info
-                env['APP_DATA_PATH'] = os.path.join(app_info.appdata_path, "lightrag_data")
-                # Default LOG_DIR to app_data/runlogs to match legacy behavior if desired, 
-                # or keep it consistent with handler which put it in app_info.appdata_path/runlogs
-                env.setdefault('LOG_DIR', os.path.join(app_info.appdata_path, "runlogs"))
-            except ImportError:
-                pass
-
-        if 'APP_DATA_PATH' in env:
-            app_data_path = env['APP_DATA_PATH']
-            env.setdefault('INPUT_DIR', os.path.join(app_data_path, 'inputs'))
-            env.setdefault('WORKING_DIR', os.path.join(app_data_path, 'rag_storage'))
-            env.setdefault('LOG_DIR', os.path.join(app_data_path, 'runlogs'))
-
-        # 7. Map provider bindings to LightRAG-supported values
+        # 6. Map provider bindings to LightRAG-supported values
         # LightRAG only supports: lollms, ollama, openai, azure_openai, aws_bedrock
-        llm_binding = env.get('LLM_BINDING')
-        if llm_binding:
-            if llm_binding not in ['lollms', 'ollama', 'openai', 'azure_openai', 'aws_bedrock']:
-                if llm_binding == 'bedrock':
-                    env['LLM_BINDING'] = 'aws_bedrock'
-                    logger.info(f"[LightragServer] Mapped LLM binding '{llm_binding}' -> 'aws_bedrock'")
-                else:
-                    # Chinese LLMs and others use OpenAI-compatible API
-                    logger.info(f"[LightragServer] Mapped LLM binding '{llm_binding}' -> 'openai' (OpenAI-compatible)")
-                    env['LLM_BINDING'] = 'openai'
+        # Map all other providers to OpenAI-compatible API
         
+        # Provider mapping table
+        LIGHTRAG_SUPPORTED = ['lollms', 'ollama', 'openai', 'azure_openai', 'aws_bedrock']
+        PROVIDER_MAPPING = {
+            # AWS
+            'bedrock': 'aws_bedrock',
+            # Chinese LLM providers (OpenAI-compatible)
+            'anthropic': 'openai',
+            'google': 'openai',
+            'deepseek': 'openai',
+            'dashscope': 'openai',
+            'bytedance': 'openai',
+            'baidu_qianfan': 'openai',
+            # Embedding providers (OpenAI-compatible)
+            'huggingface': 'openai',
+            'cohere': 'openai',
+            'voyageai': 'openai',
+            'alibaba_qwen': 'openai',
+            'doubao': 'openai',
+        }
+        
+        # Map LLM binding
+        llm_binding = env.get('LLM_BINDING')
+        if llm_binding and llm_binding not in LIGHTRAG_SUPPORTED:
+            mapped = PROVIDER_MAPPING.get(llm_binding, 'openai')
+            logger.info(f"[LightragServer] Mapped LLM binding '{llm_binding}' -> '{mapped}'")
+            env['LLM_BINDING'] = mapped
+        
+        # Map Embedding binding (also supports 'jina')
         embedding_binding = env.get('EMBEDDING_BINDING')
-        if embedding_binding:
-            if embedding_binding not in ['lollms', 'ollama', 'openai', 'azure_openai', 'aws_bedrock', 'jina']:
-                if embedding_binding == 'bedrock':
-                    env['EMBEDDING_BINDING'] = 'aws_bedrock'
-                    logger.info(f"[LightragServer] Mapped Embedding binding '{embedding_binding}' -> 'aws_bedrock'")
-                else:
-                    # Chinese embedding providers use OpenAI-compatible API
-                    logger.info(f"[LightragServer] Mapped Embedding binding '{embedding_binding}' -> 'openai' (OpenAI-compatible)")
-                    env['EMBEDDING_BINDING'] = 'openai'
+        if embedding_binding and embedding_binding not in LIGHTRAG_SUPPORTED + ['jina']:
+            mapped = PROVIDER_MAPPING.get(embedding_binding, 'openai')
+            logger.info(f"[LightragServer] Mapped Embedding binding '{embedding_binding}' -> '{mapped}'")
+            env['EMBEDDING_BINDING'] = mapped
 
         # 8. Clean up empty string values that cause argument parsing errors
         # LightRAG server cannot handle empty strings for numeric/float parameters
@@ -251,9 +246,11 @@ class LightragServer:
         if value is None:
             return "<None>"
 
-        sensitive_markers = ["KEY", "TOKEN", "SECRET", "PASSWORD"]
+        # Only mask if key ends with these sensitive suffixes
+        # This avoids masking config parameters like MAX_TOKENS, TOKEN_LIMIT, etc.
+        sensitive_suffixes = ["_KEY", "_TOKEN", "_SECRET", "_PASSWORD", "_API_KEY"]
         upper_key = str(key).upper()
-        if any(marker in upper_key for marker in sensitive_markers):
+        if any(upper_key.endswith(suffix) for suffix in sensitive_suffixes):
             text = str(value)
             if len(text) <= 8:
                 return "***"
@@ -283,75 +280,6 @@ class LightragServer:
             logger.error(f"[LightragServer] Python executable not found: {python_path}")
             return False
         except Exception: return False
-
-    def _create_simple_lightrag_script(self):
-        try:
-            import tempfile
-            import textwrap
-            script_content = textwrap.dedent(
-                """
-                #!/usr/bin/env python3
-                # -*- coding: utf-8 -*-
-                import sys
-                import os
-                import io
-
-                os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
-                os.environ.setdefault('PYTHONUTF8', '1')
-                os.environ.setdefault('NO_COLOR', '1')
-
-                try:
-                    if hasattr(sys.stdout, 'reconfigure'):
-                        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-                        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-                    else:
-                        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-                        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
-                except Exception: pass
-
-                def main():
-                    try:
-                        print("=" * 50)
-                        print("LightRAG Server Starting...")
-                        print("=" * 50)
-                        
-                        try:
-                            import lightrag
-                            print(f"LightRAG version: {getattr(lightrag, '__version__', 'unknown')}")
-                        except ImportError as e:
-                            print(f"LightRAG not available: {e}")
-                            return 0
-
-                        from lightrag.api.lightrag_server import main as lightrag_main
-                        print("Starting LightRAG API server...")
-
-                        log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
-                        if log_level in ['DEBUG', 'INFO', 'WARNING', 'ERROR']:
-                            sys.argv = ["lightrag_server", "--log-level", log_level.lower()]
-                        
-                        lightrag_main()
-
-                    except KeyboardInterrupt:
-                        return 0
-                    except Exception as e:
-                        print(f"LightRAG server error: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        return 1
-
-                if __name__ == '__main__':
-                    sys.exit(main())
-                """
-            ).lstrip()
-
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
-                f.write(script_content)
-                script_path = f.name
-
-            return script_path
-        except Exception as e:
-            logger.error(f"[LightragServer] Failed to create simple startup script: {e}")
-            return None
 
     def _try_alternative_port(self, original_port):
         try:
@@ -510,16 +438,42 @@ class LightragServer:
             logger.error(f"[LightragServer] Stdout tail:\n{''.join(stdout_lines)}")
 
     def _create_log_files(self):
+        """
+        Create log file handles for LightRAG server subprocess output.
+        Uses fixed filenames (lightrag_server.log) instead of timestamped files
+        to avoid accumulating many log files. Implements simple log rotation
+        when files exceed 10MB.
+        """
         env = self.build_env()
         log_dir = env.get('LOG_DIR', '')
         if not log_dir:
             log_dir = os.path.join(str(Path.cwd()), 'lightrag_data', 'runlogs')
         os.makedirs(log_dir, exist_ok=True)
-        import datetime
-        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_path = os.path.join(log_dir, f"lightrag_server_stdout_{ts}.log")
-        err_path = os.path.join(log_dir, f"lightrag_server_stderr_{ts}.log")
-        return open(out_path, 'w', encoding='utf-8', buffering=1), open(err_path, 'w', encoding='utf-8', buffering=1), out_path, err_path
+        
+        # Use fixed filenames instead of timestamps to avoid log file accumulation
+        out_path = os.path.join(log_dir, "lightrag_server.log")
+        err_path = os.path.join(log_dir, "lightrag_server_error.log")
+        
+        # Simple log rotation: if file > 10MB, rename to .old and start fresh
+        max_size = 10 * 1024 * 1024  # 10MB
+        for path in [out_path, err_path]:
+            if os.path.exists(path) and os.path.getsize(path) > max_size:
+                old_path = path + '.old'
+                try:
+                    if os.path.exists(old_path):
+                        os.remove(old_path)
+                    os.rename(path, old_path)
+                    logger.info(f"[LightragServer] Rotated log file: {path}")
+                except Exception as e:
+                    logger.warning(f"[LightragServer] Failed to rotate log {path}: {e}")
+        
+        # Append mode with line buffering for real-time output
+        return (
+            open(out_path, 'a', encoding='utf-8', buffering=1),
+            open(err_path, 'a', encoding='utf-8', buffering=1),
+            out_path,
+            err_path
+        )
 
     def _close_log_files(self):
         if self._stdout_log_handle:
@@ -552,17 +506,9 @@ class LightragServer:
             python_executable = self._get_virtual_env_python()
             if not self._validate_python_executable(python_executable): return False
 
-            if self.is_frozen:
-                script_path = self._create_simple_lightrag_script()
-                if not script_path: return False
-                self._script_path = script_path
-                env['ECAN_RUN_SCRIPT'] = script_path
-                cmd = [python_executable]
-            else:
-                cmd = [python_executable, "-u", "-m", "lightrag.api.lightrag_server"]
-                log_level = env.get('LOG_LEVEL', 'INFO').upper()
-                if log_level in ['DEBUG', 'INFO', 'WARNING', 'ERROR']:
-                    cmd.extend(["--log-level", log_level])
+            # Use -m module approach for both frozen and non-frozen modes
+            # The environment variables are already properly configured
+            cmd = [python_executable, "-u", "-m", "lightrag.api.lightrag_server"]
 
             # Log final environment variables (masked) for debugging
             try:
