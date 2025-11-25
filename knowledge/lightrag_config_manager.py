@@ -258,6 +258,79 @@ class LightRAGConfigManager:
         
         return len(errors) == 0, errors
 
+    def get_system_api_keys(self) -> Dict[str, str]:
+        """
+        Get active LLM/Embedding API keys from system configuration.
+        This allows LightRAG to use the global system API keys.
+        """
+        keys = {}
+        try:
+            # Import here to avoid circular dependency
+            from app_context import AppContext
+            main_window = AppContext.get_main_window()
+            if not main_window:
+                return keys
+
+            # 1. LLM API Key
+            try:
+                llm_mgr = main_window.config_manager.llm_manager
+                general = main_window.config_manager.general_settings
+                
+                default_llm = general.default_llm
+                if default_llm:
+                    provider = llm_mgr.get_provider(default_llm)
+                    if provider:
+                        for env_var in provider.get('api_key_env_vars', []):
+                            key_val = llm_mgr.retrieve_api_key(env_var)
+                            if key_val:
+                                keys['LLM_BINDING_API_KEY'] = key_val
+                                keys['_SYSTEM_LLM_KEY_SOURCE'] = env_var
+                                # For backward compatibility/fallback, if it's OpenAI, set OPENAI_API_KEY too
+                                if 'OPENAI_API_KEY' in env_var:
+                                    keys['OPENAI_API_KEY'] = key_val
+                                break
+            except Exception as e:
+                logger.warning(f"Failed to get system LLM key: {e}")
+
+            # 2. Embedding API Key
+            try:
+                embed_mgr = main_window.config_manager.embedding_manager
+                general = main_window.config_manager.general_settings
+                
+                default_embed = general.default_embedding
+                if default_embed:
+                    embed_provider = embed_mgr.get_provider(default_embed)
+                    if embed_provider:
+                        for env_var in embed_provider.get('api_key_env_vars', []):
+                            key_val = embed_mgr.retrieve_api_key(env_var)
+                            if key_val:
+                                keys['EMBEDDING_BINDING_API_KEY'] = key_val
+                                keys['_SYSTEM_EMBED_KEY_SOURCE'] = env_var
+                                break
+            except Exception as e:
+                logger.warning(f"Failed to get system Embedding key: {e}")
+                
+        except Exception as e:
+            logger.warning(f"Error in get_system_api_keys: {e}")
+        
+        return keys
+
+    def get_effective_config(self) -> Dict[str, str]:
+        """
+        Get the effective configuration for LightRAG.
+        This merges the .env file configuration with the system API keys.
+        This is the source of truth for both the Server process and the UI display.
+        """
+        # 1. Read from file
+        config = self.read_config()
+        
+        # 2. Overlay system API keys
+        # This ensures we always use the latest keys from the system settings
+        system_keys = self.get_system_api_keys()
+        config.update(system_keys)
+        
+        return config
+
 
 # Global instance for convenience
 _config_manager_instance: Optional[LightRAGConfigManager] = None

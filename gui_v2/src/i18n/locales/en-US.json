@@ -1400,12 +1400,13 @@
         "saveSuccess": "Settings saved successfully",
         "saveError": "Failed to save settings",
         "loadError": "Failed to load settings",
-        "restartPrompt": "Settings saved. Would you like to restart the eCan.ai RAG service now to apply the new configuration?",
-        "restartServer": "Restart Service",
-        "restarting": "Restarting...",
-        "restartSuccess": "Service restarted successfully",
-        "restartError": "Failed to restart service",
-        "restartLater": "Restart Later",
+        "restartPrompt": "Configuration saved. Apply changes to eCan.ai RAG service now?",
+        "restartServer": "Apply Configuration",
+        "restarting": "Applying...",
+        "restartSuccess": "Configuration applied successfully",
+        "restartError": "Failed to apply configuration",
+        "restartLater": "Cancel",
+        "applyNow": "Apply Now",
         "tabs": {
           "basic": "Basic Config",
           "rag": "RAG Parameters",
@@ -1451,7 +1452,10 @@
           "retryBackoff": "Retry Backoff (sec)",
           "poolCloseTimeout": "Pool Close Timeout (sec)",
           "statementCacheSize": "Statement Cache Size",
-          "vectorIndexType": "Vector Index Type"
+          "vectorIndexType": "Vector Index Type",
+          "sendDimensions": "Send Dimensions",
+          "retryMaxBackoff": "Retry Max Backoff (sec)",
+          "verbose": "Verbose Logging"
         },
         "placeholders": {
           "minimal": "Minimal",

@@ -9,8 +9,8 @@
         "OPENAI_API_KEY"
       ],
       "base_url": "https://api.openai.com/v1",
-      "default_model": "gpt-5",
-      "description": "OpenAI GPT-4 family models",
+      "default_model": "o1",
+      "description": "OpenAI models including latest O1 reasoning and GPT-4 family",
       "documentation_url": "https://platform.openai.com/docs",
       "is_local": false,
       "supported_models": [
@@ -181,7 +181,7 @@
         "AZURE_ENDPOINT",
         "AZURE_OPENAI_API_KEY"
       ],
-      "base_url": null,
+      "base_url": "https://your-resource.openai.azure.com",
       "default_model": "gpt-4o",
       "description": "Azure OpenAI Service",
       "documentation_url": "https://docs.microsoft.com/en-us/azure/cognitive-services/openai/",
@@ -358,7 +358,7 @@
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY"
       ],
-      "base_url": null,
+      "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com",
       "default_model": "anthropic.claude-3-5-sonnet-20241022-v2:0",
       "description": "AWS Bedrock Converse API",
       "documentation_url": "https://docs.aws.amazon.com/bedrock/",
@@ -422,7 +422,7 @@
       "api_key_env_vars": [
         "GEMINI_API_KEY"
       ],
-      "base_url": "https://generativelanguage.googleapis.com",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/",
       "default_model": "gemini-2.0-pro",
       "description": "Google Gemini models",
       "documentation_url": "https://ai.google.dev/docs",
@@ -871,23 +871,11 @@
         "BAIDU_API_KEY"
       ],
       "base_url": "https://qianfan.baidubce.com/v2",
-      "default_model": "ernie-4.0-8k",
-      "description": "百度千帆大模型平台，支持文心系列模型",
+      "default_model": "ernie-4.0-128k",
+      "description": "百度千帆大模型平台，支持最新文心 4.0 系列模型",
       "documentation_url": "https://console.bce.baidu.com/iam/#/iam/apikey/list",
       "is_local": false,
       "supported_models": [
-        {
-          "name": "ernie-4.0-8k",
-          "display_name": "ERNIE 4.0 8K",
-          "model_id": "ernie-4.0-8k",
-          "default_temperature": 0.7,
-          "max_tokens": 4000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "百度文心4.0模型，8K上下文"
-        },
         {
           "name": "ernie-4.0-128k",
           "display_name": "ERNIE 4.0 128K",
@@ -898,7 +886,19 @@
           "supports_function_calling": true,
           "supports_vision": true,
           "cost_per_1k_tokens": null,
-          "description": "百度文心4.0模型，128K长上下文"
+          "description": "最新文心4.0模型，128K长上下文，最强性能"
+        },
+        {
+          "name": "ernie-4.0-8k",
+          "display_name": "ERNIE 4.0 8K",
+          "model_id": "ernie-4.0-8k",
+          "default_temperature": 0.7,
+          "max_tokens": 4000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": null,
+          "description": "文心4.0模型，8K上下文"
         },
         {
           "name": "ernie-3.5-8k",

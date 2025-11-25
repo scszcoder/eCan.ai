@@ -1507,25 +1507,18 @@ class MainWindow:
                 "LOG_DIR": runlogs_dir,
             }
             
-            # Ensure OPENAI_API_KEY is passed to LightRAG server from secure store with user isolation
-            from utils.env.secure_store import get_current_username
-            username = get_current_username()
-            openai_api_key = secure_store.get('OPENAI_API_KEY', username=username)
-            if openai_api_key and openai_api_key.strip():
-                lightrag_env['OPENAI_API_KEY'] = openai_api_key
-                logger.info("[MainWindow] 🔑 OPENAI_API_KEY found in secure store and will be passed to LightRAG server")
-            else:
-                logger.warning("[MainWindow] ⚠️ OPENAI_API_KEY not found in secure store")
-            
             self.lightrag_server = LightragServer(extra_env=lightrag_env)
 
             # Start the server process in executor (this is the blocking part)
-            await asyncio.get_event_loop().run_in_executor(
+            success = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: self.lightrag_server.start(wait_ready=False)
+                lambda: self.lightrag_server.start(wait_ready=True)
             )
 
-            logger.info("[MainWindow] ✅ LightRAG server initialization completed!")
+            if success:
+                logger.info("[MainWindow] ✅ LightRAG server initialization completed!")
+            else:
+                logger.error("[MainWindow] ❌ LightRAG server initialization failed - check logs for details")
 
         except Exception as e:
             logger.error(f"❌ LightRAG server initialization failed: {e}")

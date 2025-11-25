@@ -1397,12 +1397,13 @@
         "saveSuccess": "设置已保存",
         "saveError": "保存失败",
         "loadError": "加载失败",
-        "restartPrompt": "配置已保存，是否立即重启 eCan.ai RAG 服务以应用新配置？",
-        "restartServer": "重启服务",
-        "restarting": "重启中...",
-        "restartSuccess": "服务重启成功",
-        "restartError": "服务重启失败",
-        "restartLater": "稍后重启",
+        "restartPrompt": "配置已保存，是否立即应用到 eCan.ai RAG 服务？",
+        "restartServer": "应用配置",
+        "restarting": "正在应用...",
+        "restartSuccess": "配置应用成功",
+        "restartError": "应用配置失败",
+        "restartLater": "取消",
+        "applyNow": "立即应用",
         "tabs": {
           "basic": "基础配置",
           "rag": "RAG参数",
@@ -1447,7 +1448,10 @@
           "retryBackoff": "重试间隔 (秒)",
           "poolCloseTimeout": "连接池关闭超时 (秒)",
           "statementCacheSize": "语句缓存大小",
-          "vectorIndexType": "向量索引类型"
+          "vectorIndexType": "向量索引类型",
+          "sendDimensions": "发送维度参数",
+          "retryMaxBackoff": "最大重试退避 (秒)",
+          "verbose": "详细日志"
         },
         "placeholders": {
           "minimal": "最低",

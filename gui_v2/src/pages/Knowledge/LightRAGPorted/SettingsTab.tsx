@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { theme, message, Tabs, Modal, Tooltip, Input, Select, Checkbox } from 'antd';
+import { theme, message, Tabs, Modal, Tooltip, Input, Select, Switch } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import { 
@@ -22,13 +22,70 @@ import {
   LLM_PROVIDERS, LLM_COMMON_FIELDS,
   EMBEDDING_PROVIDERS, EMBEDDING_COMMON_FIELDS,
   STORAGE_KV_PROVIDERS, STORAGE_VECTOR_PROVIDERS, STORAGE_GRAPH_PROVIDERS, 
-  STORAGE_DOC_STATUS_PROVIDERS, STORAGE_COMMON_POSTGRES
+  STORAGE_DOC_STATUS_PROVIDERS, STORAGE_COMMON_POSTGRES,
+  ProviderConfig
 } from './providerConfig';
 import { Card } from 'antd';
+
+// Helper to merge static providers with system providers
+// Preserves static config (rich UI) for known providers, adds new ones from system, removes missing ones
+const mergeProviders = (staticList: ProviderConfig[], systemList: ProviderConfig[]) => {
+  if (!systemList || !Array.isArray(systemList)) return staticList;
+  
+  const systemMap = new Map(systemList.map(p => [p.id.toLowerCase(), p]));
+  const result: ProviderConfig[] = [];
+
+  // Process static list first to preserve order and rich fields
+  for (const staticP of staticList) {
+    if (systemMap.has(staticP.id.toLowerCase())) {
+      // Keep static config for known providers as it has better UI definitions
+      // BUT we must merge dynamic data (options, defaults, system status) from the system provider
+      const systemP = systemMap.get(staticP.id.toLowerCase())!;
+      
+      // Clone static provider to avoid mutation
+      const mergedP = { ...staticP, fields: [...staticP.fields] };
+      
+      // Merge modelMetadata from system provider (for embedding providers)
+      if (systemP.modelMetadata) {
+        mergedP.modelMetadata = systemP.modelMetadata;
+      }
+      
+      // Update fields with system data
+      mergedP.fields = mergedP.fields.map(staticField => {
+        const systemField = systemP.fields.find(f => f.key === staticField.key);
+        if (systemField) {
+          return {
+            ...staticField,
+            // Merge dynamic properties if they exist in system field
+            options: systemField.options || staticField.options,
+            defaultValue: systemField.defaultValue !== undefined ? systemField.defaultValue : staticField.defaultValue,
+            isSystemManaged: systemField.isSystemManaged,
+            disabled: systemField.disabled !== undefined ? systemField.disabled : staticField.disabled,
+            // If system field changed type (e.g. text -> select), accept it
+            type: (systemField.type === 'select' && staticField.type === 'text') ? 'select' : staticField.type
+          };
+        }
+        return staticField;
+      });
+
+      result.push(mergedP);
+      systemMap.delete(staticP.id.toLowerCase());
+    }
+  }
+
+  // Add remaining new providers from system
+  for (const p of systemMap.values()) {
+    result.push(p);
+  }
+  
+  return result;
+};
 
 const SettingsTab: React.FC = () => {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [llmProviders, setLlmProviders] = useState<ProviderConfig[]>(LLM_PROVIDERS);
+  const [embeddingProviders, setEmbeddingProviders] = useState<ProviderConfig[]>(EMBEDDING_PROVIDERS);
   
   const { t, ready } = useTranslation();
   const { token } = theme.useToken();
@@ -36,8 +93,163 @@ const SettingsTab: React.FC = () => {
   const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
   useEffect(() => {
-    loadSettings();
+    const initializeSettings = async () => {
+      await loadSettings();
+      await loadProviders();
+    };
+    initializeSettings();
   }, []);
+
+  // Validate and clean up mismatched provider fields after providers are loaded
+  useEffect(() => {
+    if (llmProviders.length === 0 || embeddingProviders.length === 0) {
+      return; // Wait until providers are loaded
+    }
+
+    setSettings(prev => {
+      if (Object.keys(prev).length === 0) {
+        return prev; // Settings not loaded yet
+      }
+
+      const updates: Record<string, string> = {};
+      let hasChanges = false;
+
+      // Check LLM provider fields
+      const llmProviderId = prev['LLM_BINDING'];
+      if (llmProviderId) {
+        const llmProvider = llmProviders.find(p => p.id === llmProviderId);
+        if (llmProvider) {
+          // Check if current field values match the provider
+          llmProvider.fields.forEach(field => {
+            const currentValue = prev[field.key];
+            
+            // For model field, validate it's in the provider's options
+            if (field.key === 'LLM_MODEL' && currentValue) {
+              if (field.options && field.options.length > 0) {
+                const isValidModel = field.options.some(opt => opt.value === currentValue);
+                if (!isValidModel) {
+                  // Model not in this provider's list, reset to default
+                  const targetValue = field.defaultValue || '';
+                  if (currentValue !== targetValue) {
+                    updates[field.key] = targetValue;
+                    hasChanges = true;
+                  }
+                }
+              }
+            }
+            // For disabled fields (like API host), always use provider's default if it exists
+            else if (field.disabled && field.defaultValue !== undefined) {
+              const currentValue = prev[field.key] || '';
+              const targetValue = field.defaultValue;
+              if (currentValue !== targetValue) {
+                updates[field.key] = targetValue;
+                hasChanges = true;
+              }
+            }
+          });
+
+          // Validate system key flag
+          const apiKeyField = llmProvider.fields.find(f => f.key === 'LLM_BINDING_API_KEY');
+          if (prev['_SYSTEM_LLM_KEY_SOURCE']) {
+              if (!apiKeyField || !apiKeyField.isSystemManaged) {
+                  updates['_SYSTEM_LLM_KEY_SOURCE'] = '';
+                  if (prev['LLM_BINDING_API_KEY']) {
+                      updates['LLM_BINDING_API_KEY'] = '';
+                  }
+                  hasChanges = true;
+              } else {
+                  // Valid system key. Ensure settings has the masked value if currently empty
+                  const currentKey = prev['LLM_BINDING_API_KEY'];
+                  const defaultKey = apiKeyField.defaultValue;
+                  if (!currentKey && defaultKey) {
+                      updates['LLM_BINDING_API_KEY'] = defaultKey;
+                      hasChanges = true;
+                  }
+              }
+          }
+        }
+      }
+
+      // Check Embedding provider fields
+      const embeddingProviderId = prev['EMBEDDING_BINDING'];
+      if (embeddingProviderId) {
+        const embeddingProvider = embeddingProviders.find(p => p.id === embeddingProviderId);
+        if (embeddingProvider) {
+          embeddingProvider.fields.forEach(field => {
+            const currentValue = prev[field.key];
+            
+            // For model field, validate it's in the provider's options
+            if (field.key === 'EMBEDDING_MODEL' && currentValue) {
+              if (field.options && field.options.length > 0) {
+                const isValidModel = field.options.some(opt => opt.value === currentValue);
+                if (!isValidModel) {
+                  // Model not in this provider's list, reset to default
+                  const targetValue = field.defaultValue || '';
+                  if (currentValue !== targetValue) {
+                    updates[field.key] = targetValue;
+                    hasChanges = true;
+                  }
+                }
+              }
+            }
+            // For disabled fields (like API host, dimensions, token limit), always use provider's default if it exists
+            else if (field.disabled && field.defaultValue !== undefined) {
+              const currentValue = prev[field.key] || '';
+              const targetValue = field.defaultValue;
+              if (currentValue !== targetValue) {
+                updates[field.key] = targetValue;
+                hasChanges = true;
+              }
+            }
+          });
+
+          // Sync dimensions/token limit from metadata if available
+          if (embeddingProvider.modelMetadata) {
+             const currentModel = updates['EMBEDDING_MODEL'] || prev['EMBEDDING_MODEL'] || 
+                                  embeddingProvider.fields.find(f => f.key === 'EMBEDDING_MODEL')?.defaultValue;
+             if (currentModel && embeddingProvider.modelMetadata[currentModel]) {
+                 const meta = embeddingProvider.modelMetadata[currentModel];
+                 if (meta.dimensions && prev['EMBEDDING_DIM'] !== meta.dimensions.toString()) {
+                     updates['EMBEDDING_DIM'] = meta.dimensions.toString();
+                     hasChanges = true;
+                 }
+                 if (meta.max_tokens && prev['EMBEDDING_TOKEN_LIMIT'] !== meta.max_tokens.toString()) {
+                     updates['EMBEDDING_TOKEN_LIMIT'] = meta.max_tokens.toString();
+                     hasChanges = true;
+                 }
+             }
+          }
+
+          // Validate system key flag
+          const apiKeyField = embeddingProvider.fields.find(f => f.key === 'EMBEDDING_BINDING_API_KEY');
+          if (prev['_SYSTEM_EMBED_KEY_SOURCE']) {
+              if (!apiKeyField || !apiKeyField.isSystemManaged) {
+                  updates['_SYSTEM_EMBED_KEY_SOURCE'] = '';
+                  // If we are removing the system flag, we should also clear the key if it looks like a masked value or if we want to force re-entry
+                  if (prev['EMBEDDING_BINDING_API_KEY']) {
+                      updates['EMBEDDING_BINDING_API_KEY'] = '';
+                  }
+                  hasChanges = true;
+              } else {
+                  // Valid system key. Ensure settings has the masked value if currently empty
+                  const currentKey = prev['EMBEDDING_BINDING_API_KEY'];
+                  const defaultKey = apiKeyField.defaultValue;
+                  if (!currentKey && defaultKey) {
+                      updates['EMBEDDING_BINDING_API_KEY'] = defaultKey;
+                      hasChanges = true;
+                  }
+              }
+          }
+        }
+      }
+
+      // Return updated settings if there are changes, otherwise return prev to avoid re-render
+      if (hasChanges) {
+        return { ...prev, ...updates };
+      }
+      return prev;
+    });
+  }, [llmProviders, embeddingProviders]);
 
   // Helper function to get field value (defaultValue or current value)
   const getFieldValue = (field: FieldConfig): string => {
@@ -67,6 +279,21 @@ const SettingsTab: React.FC = () => {
     }
   };
 
+  const loadProviders = async () => {
+    try {
+      const response = await get_ipc_api().executeRequest<any>('lightrag.getSystemProviders', {});
+      if (response.success && response.data) {
+        const systemLlm = response.data.llm_providers as ProviderConfig[];
+        const systemEmbed = response.data.embedding_providers as ProviderConfig[];
+
+        setLlmProviders(mergeProviders(LLM_PROVIDERS, systemLlm));
+        setEmbeddingProviders(mergeProviders(EMBEDDING_PROVIDERS, systemEmbed));
+      }
+    } catch (e) {
+      console.error('Failed to load system providers:', e);
+    }
+  };
+
   const updateSetting = (key: string, value: string) => {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
@@ -92,8 +319,12 @@ const SettingsTab: React.FC = () => {
         // Prompt user to restart server
         Modal.confirm({
           title: t('pages.knowledge.settings.restartServer'),
-          content: t('pages.knowledge.settings.restartPrompt'),
-          okText: t('pages.knowledge.settings.restartServer'),
+          content: (
+            <div style={{ color: token.colorText }}>
+              {t('pages.knowledge.settings.restartPrompt')}
+            </div>
+          ),
+          okText: t('pages.knowledge.settings.applyNow'),
           cancelText: t('pages.knowledge.settings.restartLater'),
           onOk: async () => {
             await handleRestartServer();
@@ -127,10 +358,16 @@ const SettingsTab: React.FC = () => {
 
   // Render field with tooltip support
   const renderField = (field: FieldConfig & { label?: string }) => {
-    const value = getFieldValue(field);
-    const placeholder = getPlaceholder(field);
+    let value = getFieldValue(field);
+    let placeholder = getPlaceholder(field);
     const hasTooltip = !!field.tooltip;
     
+    // Check for system managed keys
+    const isSystemManaged = (field.key === 'LLM_BINDING_API_KEY' && !!settings['_SYSTEM_LLM_KEY_SOURCE']) ||
+                           (field.key === 'EMBEDDING_BINDING_API_KEY' && !!settings['_SYSTEM_EMBED_KEY_SOURCE']);
+    
+    const disabled = field.disabled || isSystemManaged;
+
     // Use label if available (and translate if it's a key), otherwise use key
     const displayLabel = field.label 
       ? (field.label.includes('.') ? t(`pages.knowledge.settings.${field.label}`) : field.label)
@@ -142,6 +379,20 @@ const SettingsTab: React.FC = () => {
         {hasTooltip && (
           <Tooltip title={t(`pages.knowledge.settings.${field.tooltip}`)} placement="top">
             <QuestionCircleOutlined style={{ fontSize: 12, color: token.colorTextSecondary, cursor: 'help' }} />
+          </Tooltip>
+        )}
+        {isSystemManaged && (
+          <Tooltip title={t('pages.knowledge.settings.systemManaged', { defaultValue: 'Managed by System Settings' })} placement="top">
+            <span style={{ 
+              fontSize: 10, 
+              background: token.colorFillSecondary, 
+              color: token.colorTextSecondary, 
+              padding: '1px 6px', 
+              borderRadius: 4,
+              marginLeft: 4
+            }}>
+              System
+            </span>
           </Tooltip>
         )}
       </div>
@@ -162,7 +413,7 @@ const SettingsTab: React.FC = () => {
               onChange={(e) => updateSetting(field.key, e.target.value)}
               style={commonStyle}
               size="small"
-              disabled={field.disabled}
+              disabled={disabled}
             />
           </div>
         );
@@ -224,18 +475,15 @@ const SettingsTab: React.FC = () => {
       case 'boolean':
         return (
           <div key={field.key} style={{ marginBottom: 12 }}>
-            <Checkbox
-              checked={value === 'true' || value === 'True'}
-              onChange={(e) => updateSetting(field.key, e.target.checked ? 'true' : 'false')}
-              disabled={field.disabled}
-            >
-              <span style={{ marginLeft: 8, fontSize: 13 }}>{displayLabel}</span>
-              {hasTooltip && (
-                <Tooltip title={t(`pages.knowledge.settings.${field.tooltip}`)} placement="top">
-                  <QuestionCircleOutlined style={{ marginLeft: 4, color: token.colorTextSecondary, cursor: 'help' }} />
-                </Tooltip>
-              )}
-            </Checkbox>
+            {label}
+            <div style={{ height: 24, display: 'flex', alignItems: 'center' }}>
+              <Switch
+                checked={value === 'true' || value === 'True'}
+                onChange={(checked) => updateSetting(field.key, checked ? 'true' : 'false')}
+                size="small"
+                disabled={disabled}
+              />
+            </div>
           </div>
         );
       
@@ -322,6 +570,101 @@ const SettingsTab: React.FC = () => {
     return icons[key] || <ApiOutlined />;
   };
 
+  // Helper to handle setting changes, including auto-filling defaults when provider changes
+  const createSettingChangeHandler = (bindingKey: string, providers: ProviderConfig[]) => {
+    return (key: string, value: string) => {
+      updateSetting(key, value);
+
+      // If the changed key matches the binding key, it means the provider selection changed
+      if (key === bindingKey) {
+        const oldProviderId = settings[bindingKey];
+        const oldProvider = providers.find(p => p.id === oldProviderId);
+        const newProvider = providers.find(p => p.id === value);
+        
+        // Determine the API key field name based on binding type
+        let apiKeyField = '';
+        let systemFlagKey = '';
+        if (bindingKey === 'LLM_BINDING') {
+          apiKeyField = 'LLM_BINDING_API_KEY';
+          systemFlagKey = '_SYSTEM_LLM_KEY_SOURCE';
+        } else if (bindingKey === 'EMBEDDING_BINDING') {
+          apiKeyField = 'EMBEDDING_BINDING_API_KEY';
+          systemFlagKey = '_SYSTEM_EMBED_KEY_SOURCE';
+        } else if (bindingKey === 'RERANK_BINDING') {
+          apiKeyField = 'RERANK_BINDING_API_KEY';
+        }
+
+        // Clear all old provider-specific fields first
+        if (oldProvider && oldProvider.fields) {
+          oldProvider.fields.forEach(field => {
+            updateSetting(field.key, '');
+          });
+        }
+
+        // Check if new provider has system-managed API key
+        const apiKeyFieldConfig = newProvider?.fields.find(f => f.key === apiKeyField);
+        const isNewProviderSystemManaged = apiKeyFieldConfig?.isSystemManaged;
+
+        // Update system managed flag and API key based on new provider
+        if (systemFlagKey) {
+          if (isNewProviderSystemManaged) {
+            updateSetting(systemFlagKey, 'true');
+            // Set the masked default value if available
+            if (apiKeyFieldConfig?.defaultValue !== undefined) {
+              updateSetting(apiKeyField, apiKeyFieldConfig.defaultValue);
+            }
+          } else {
+            // New provider is not system managed, clear the flag
+            updateSetting(systemFlagKey, '');
+          }
+        }
+
+        // Auto-fill all fields with defaults from the new provider
+        if (newProvider && newProvider.fields) {
+          newProvider.fields.forEach(field => {
+             // Skip API key field if it's system managed (already handled above)
+             if (field.key === apiKeyField && isNewProviderSystemManaged) return;
+             
+             // Set to default value or empty string
+             updateSetting(field.key, field.defaultValue || '');
+          });
+        }
+
+        // For embedding provider change, also update dimensions and token limit based on default model
+        if (bindingKey === 'EMBEDDING_BINDING' && newProvider) {
+          const defaultModel = newProvider.fields.find(f => f.key === 'EMBEDDING_MODEL')?.defaultValue;
+          if (defaultModel && newProvider.modelMetadata && newProvider.modelMetadata[defaultModel]) {
+            const meta = newProvider.modelMetadata[defaultModel];
+            if (meta.dimensions) {
+              updateSetting('EMBEDDING_DIM', meta.dimensions.toString());
+            }
+            if (meta.max_tokens) {
+              updateSetting('EMBEDDING_TOKEN_LIMIT', meta.max_tokens.toString());
+            }
+          }
+        }
+      }
+
+      // Handle Embedding Model change to update dimensions/tokens based on metadata
+      if (bindingKey === 'EMBEDDING_BINDING' && key === 'EMBEDDING_MODEL') {
+          // We need to find the current provider to look up metadata
+          // Use the current settings or the first provider as fallback (logic from ProviderSelector)
+          const currentProviderId = settings[bindingKey] || providers[0]?.id;
+          const provider = providers.find(p => p.id === currentProviderId);
+          
+          if (provider && provider.modelMetadata && provider.modelMetadata[value]) {
+              const meta = provider.modelMetadata[value];
+              if (meta.dimensions) {
+                  updateSetting('EMBEDDING_DIM', meta.dimensions.toString());
+              }
+              if (meta.max_tokens) {
+                  updateSetting('EMBEDDING_TOKEN_LIMIT', meta.max_tokens.toString());
+              }
+          }
+      }
+    };
+  };
+
   // Render provider-based configuration tabs
   const renderProviderTab = (tabKey: string) => {
     switch (tabKey) {
@@ -332,27 +675,27 @@ const SettingsTab: React.FC = () => {
             providers={RERANKING_PROVIDERS}
             commonFields={RERANKING_COMMON_FIELDS}
             settings={settings}
-            onSettingChange={updateSetting}
+            onSettingChange={createSettingChangeHandler("RERANK_BINDING", RERANKING_PROVIDERS)}
           />
         );
       case 'llm':
         return (
           <ProviderSelector
             bindingKey="LLM_BINDING"
-            providers={LLM_PROVIDERS}
+            providers={llmProviders}
             commonFields={LLM_COMMON_FIELDS}
             settings={settings}
-            onSettingChange={updateSetting}
+            onSettingChange={createSettingChangeHandler("LLM_BINDING", llmProviders)}
           />
         );
       case 'embedding':
         return (
           <ProviderSelector
             bindingKey="EMBEDDING_BINDING"
-            providers={EMBEDDING_PROVIDERS}
+            providers={embeddingProviders}
             commonFields={EMBEDDING_COMMON_FIELDS}
             settings={settings}
-            onSettingChange={updateSetting}
+            onSettingChange={createSettingChangeHandler("EMBEDDING_BINDING", embeddingProviders)}
           />
         );
       case 'storage':

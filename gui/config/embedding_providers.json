@@ -15,25 +15,28 @@
       "is_local": false,
       "supported_models": [
         {
-          "name": "text-embedding-3-small",
-          "display_name": "text-embedding-3-small",
-          "model_id": "text-embedding-3-small",
-          "dimensions": 1536,
-          "description": "Smaller, faster embedding model with 1536 dimensions"
-        },
-        {
           "name": "text-embedding-3-large",
           "display_name": "text-embedding-3-large",
           "model_id": "text-embedding-3-large",
           "dimensions": 3072,
-          "description": "Larger, more accurate embedding model with 3072 dimensions"
+          "max_tokens": 8191,
+          "description": "Latest large embedding model with 3072 dimensions, highest accuracy"
+        },
+        {
+          "name": "text-embedding-3-small",
+          "display_name": "text-embedding-3-small",
+          "model_id": "text-embedding-3-small",
+          "dimensions": 1536,
+          "max_tokens": 8191,
+          "description": "Latest small embedding model, faster with good accuracy"
         },
         {
           "name": "text-embedding-ada-002",
           "display_name": "text-embedding-ada-002",
           "model_id": "text-embedding-ada-002",
           "dimensions": 1536,
-          "description": "Previous generation embedding model"
+          "max_tokens": 8191,
+          "description": "Previous generation embedding model (legacy)"
         }
       ]
     },
@@ -46,32 +49,35 @@
         "AZURE_ENDPOINT",
         "AZURE_OPENAI_API_KEY"
       ],
-      "base_url": null,
+      "base_url": "https://your-resource.openai.azure.com",
       "default_model": "text-embedding-3-small",
       "description": "Azure OpenAI embedding models",
       "documentation_url": "https://docs.microsoft.com/en-us/azure/cognitive-services/openai/concepts/embeddings",
       "is_local": false,
       "supported_models": [
         {
-          "name": "text-embedding-3-small",
-          "display_name": "text-embedding-3-small (Azure)",
-          "model_id": "text-embedding-3-small",
-          "dimensions": 1536,
-          "description": "Smaller, faster embedding model via Azure"
-        },
-        {
           "name": "text-embedding-3-large",
           "display_name": "text-embedding-3-large (Azure)",
           "model_id": "text-embedding-3-large",
           "dimensions": 3072,
-          "description": "Larger, more accurate embedding model via Azure"
+          "max_tokens": 8191,
+          "description": "Latest large embedding model via Azure, highest accuracy"
+        },
+        {
+          "name": "text-embedding-3-small",
+          "display_name": "text-embedding-3-small (Azure)",
+          "model_id": "text-embedding-3-small",
+          "dimensions": 1536,
+          "max_tokens": 8191,
+          "description": "Latest small embedding model via Azure, faster"
         },
         {
           "name": "text-embedding-ada-002",
           "display_name": "text-embedding-ada-002 (Azure)",
           "model_id": "text-embedding-ada-002",
           "dimensions": 1536,
-          "description": "Previous generation embedding model via Azure"
+          "max_tokens": 8191,
+          "description": "Previous generation embedding model via Azure (legacy)"
         }
       ]
     },
@@ -94,6 +100,7 @@
           "display_name": "all-MiniLM-L6-v2",
           "model_id": "sentence-transformers/all-MiniLM-L6-v2",
           "dimensions": 384,
+          "max_tokens": 512,
           "description": "Lightweight, fast embedding model"
         },
         {
@@ -101,6 +108,7 @@
           "display_name": "all-mpnet-base-v2",
           "model_id": "sentence-transformers/all-mpnet-base-v2",
           "dimensions": 768,
+          "max_tokens": 512,
           "description": "High quality embedding model"
         },
         {
@@ -108,6 +116,7 @@
           "display_name": "all-MiniLM-L12-v2",
           "model_id": "sentence-transformers/all-MiniLM-L12-v2",
           "dimensions": 384,
+          "max_tokens": 512,
           "description": "Better quality than L6-v2 with similar speed"
         }
       ]
@@ -131,21 +140,24 @@
           "display_name": "embed-english-v3.0",
           "model_id": "embed-english-v3.0",
           "dimensions": 1024,
-          "description": "Latest English embedding model with 1024 dimensions"
+          "max_tokens": 512,
+          "description": "Latest English embedding model, best performance"
         },
         {
           "name": "embed-multilingual-v3.0",
           "display_name": "embed-multilingual-v3.0",
           "model_id": "embed-multilingual-v3.0",
           "dimensions": 1024,
-          "description": "Multilingual embedding model supporting 100+ languages"
+          "max_tokens": 512,
+          "description": "Latest multilingual model supporting 100+ languages"
         },
         {
           "name": "embed-english-light-v3.0",
           "display_name": "embed-english-light-v3.0",
           "model_id": "embed-english-light-v3.0",
           "dimensions": 384,
-          "description": "Lightweight English embedding model"
+          "max_tokens": 512,
+          "description": "Lightweight model, faster inference"
         }
       ]
     },
@@ -158,30 +170,57 @@
         "VOYAGE_API_KEY"
       ],
       "base_url": "https://api.voyageai.com/v1",
-      "default_model": "voyage-2",
+      "default_model": "voyage-3",
       "description": "Voyage AI embedding models optimized for RAG and semantic search",
       "documentation_url": "https://docs.voyageai.com/",
       "is_local": false,
       "supported_models": [
         {
-          "name": "voyage-2",
-          "display_name": "voyage-2",
-          "model_id": "voyage-2",
+          "name": "voyage-3",
+          "display_name": "voyage-3",
+          "model_id": "voyage-3",
           "dimensions": 1024,
-          "description": "Latest general-purpose embedding model"
+          "max_tokens": 32000,
+          "description": "Latest general-purpose model with extended context"
+        },
+        {
+          "name": "voyage-3-lite",
+          "display_name": "voyage-3-lite",
+          "model_id": "voyage-3-lite",
+          "dimensions": 512,
+          "max_tokens": 32000,
+          "description": "Lightweight version of voyage-3, faster inference"
+        },
+        {
+          "name": "voyage-large-2-instruct",
+          "display_name": "voyage-large-2-instruct",
+          "model_id": "voyage-large-2-instruct",
+          "dimensions": 1024,
+          "max_tokens": 16000,
+          "description": "Instruction-tuned large model for better retrieval"
         },
         {
           "name": "voyage-large-2",
           "display_name": "voyage-large-2",
           "model_id": "voyage-large-2",
           "dimensions": 1536,
+          "max_tokens": 16000,
           "description": "Large model with higher accuracy"
+        },
+        {
+          "name": "voyage-2",
+          "display_name": "voyage-2",
+          "model_id": "voyage-2",
+          "dimensions": 1024,
+          "max_tokens": 16000,
+          "description": "Previous generation general-purpose model"
         },
         {
           "name": "voyage-code-2",
           "display_name": "voyage-code-2",
           "model_id": "voyage-code-2",
           "dimensions": 1024,
+          "max_tokens": 16000,
           "description": "Specialized for code embeddings"
         }
       ]
@@ -195,7 +234,7 @@
         "GOOGLE_APPLICATION_CREDENTIALS",
         "GOOGLE_API_KEY"
       ],
-      "base_url": null,
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/",
       "default_model": "textembedding-gecko@003",
       "description": "Google Vertex AI embedding models",
       "documentation_url": "https://cloud.google.com/vertex-ai/docs/generative-ai/embeddings/get-text-embeddings",
@@ -206,6 +245,7 @@
           "display_name": "textembedding-gecko@003",
           "model_id": "textembedding-gecko@003",
           "dimensions": 768,
+          "max_tokens": 2048,
           "description": "Latest Google embedding model"
         },
         {
@@ -213,6 +253,7 @@
           "display_name": "textembedding-gecko@002",
           "model_id": "textembedding-gecko@002",
           "dimensions": 768,
+          "max_tokens": 2048,
           "description": "Previous generation Google embedding model"
         }
       ]
@@ -226,31 +267,42 @@
         "BAIDU_API_KEY"
       ],
       "base_url": "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/embeddings",
-      "default_model": "bge-large-zh",
+      "default_model": "Embedding-V1",
       "description": "百度千帆嵌入模型，支持中文和英文文本嵌入",
       "documentation_url": "https://cloud.baidu.com/doc/WENXINWORKSHOP/s/clntwmv7t",
       "is_local": false,
       "supported_models": [
         {
+          "name": "Embedding-V1",
+          "display_name": "Embedding-V1",
+          "model_id": "Embedding-V1",
+          "dimensions": 1024,
+          "max_tokens": 384,
+          "description": "最新百度文心大模型嵌入，支持中英文"
+        },
+        {
           "name": "bge-large-zh",
           "display_name": "bge-large-zh",
           "model_id": "bge-large-zh",
           "dimensions": 1024,
-          "description": "智源研究院研发的中文嵌入模型，适合中文语义理解"
+          "max_tokens": 512,
+          "description": "智源研究院中文嵌入模型，适合中文语义理解"
         },
         {
           "name": "bge-large-en",
           "display_name": "bge-large-en",
           "model_id": "bge-large-en",
           "dimensions": 1024,
-          "description": "智源研究院研发的英文嵌入模型"
+          "max_tokens": 512,
+          "description": "智源研究院英文嵌入模型"
         },
         {
-          "name": "Embedding-V1",
-          "display_name": "Embedding-V1",
-          "model_id": "Embedding-V1",
+          "name": "tao-8k",
+          "display_name": "tao-8k",
+          "model_id": "tao-8k",
           "dimensions": 1024,
-          "description": "基于百度文心大模型技术的嵌入模型"
+          "max_tokens": 8192,
+          "description": "支持8K上下文的嵌入模型"
         }
       ]
     },
@@ -273,6 +325,7 @@
           "display_name": "text-embedding-v4",
           "model_id": "text-embedding-v4",
           "dimensions": 1536,
+          "max_tokens": 2048,
           "description": "通义千问最新一代文本嵌入模型，性能更优，支持中英文多语言"
         },
         {
@@ -280,6 +333,7 @@
           "display_name": "text-embedding-v3",
           "model_id": "text-embedding-v3",
           "dimensions": 1536,
+          "max_tokens": 2048,
           "description": "通义千问文本嵌入模型，支持中英文"
         }
       ]
@@ -303,6 +357,7 @@
           "display_name": "doubao-embedding",
           "model_id": "doubao-embedding",
           "dimensions": 1024,
+          "max_tokens": 512,
           "description": "豆包嵌入模型，适用于语义搜索和文本相似度计算"
         },
         {
@@ -310,6 +365,7 @@
           "display_name": "seed1.5-embedding",
           "model_id": "seed1.5-embedding",
           "dimensions": 1024,
+          "max_tokens": 512,
           "description": "字节跳动 Seed1.5 嵌入模型"
         }
       ]

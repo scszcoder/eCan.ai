@@ -261,7 +261,25 @@ const DocumentsTab: React.FC = () => {
           appendLog(t('pages.knowledge.documents.clearingCache'));
           const response = await get_ipc_api().lightragApi.clearCache();
           if (response.success) {
-              appendLog(t('pages.knowledge.documents.cacheCleared'));
+              const data = response.data as any;
+              appendLog(data?.message || t('pages.knowledge.documents.cacheCleared'));
+              
+              // Show deleted items if available
+              if (data?.deleted_items && data.deleted_items.length > 0) {
+                appendLog(`Deleted ${data.deleted_items.length} items:`);
+                data.deleted_items.forEach((item: string) => {
+                  appendLog(`  - ${item}`);
+                });
+              }
+              
+              // Show errors if any
+              if (data?.errors && data.errors.length > 0) {
+                appendLog(`Errors (${data.errors.length}):`);
+                data.errors.forEach((error: string) => {
+                  appendLog(`  ⚠️ ${error}`);
+                });
+              }
+              
               // Reload documents after clearing cache
               await loadDocuments();
               await loadStatusCounts();
