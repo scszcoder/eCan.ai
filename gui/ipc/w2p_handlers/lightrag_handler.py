@@ -577,36 +577,95 @@ def handle_get_documents_paginated(request: IPCRequest, params: Optional[Dict[st
         return create_error_response(request, 'GET_DOCUMENTS_ERROR', str(e))
 
 
-# Settings persistence (simple JSON file)
-SETTINGS_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'lightrag_settings.json')
+# Settings persistence using config manager
+from knowledge.lightrag_config_manager import get_config_manager
+
 
 @IPCHandlerRegistry.handler('lightrag.saveSettings')
 def handle_save_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Save LightRAG settings to local file."""
+    """Save LightRAG settings to .env file."""
     try:
-        import json
         if not params:
             return create_error_response(request, 'INVALID_PARAMS', 'No settings provided')
-            
-        with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(params, f, indent=2)
-            
+        
+        config_manager = get_config_manager()
+        success = config_manager.update_config(params)
+        
+        if not success:
+            return create_error_response(request, 'CONFIG_ERROR', 'Failed to save settings')
+        
         return create_success_response(request, {'success': True, 'message': 'Settings saved'})
     except Exception as e:
         logger.error(f"Error saving settings: {e}")
         return create_error_response(request, 'SAVE_SETTINGS_ERROR', str(e))
 
 
+@IPCHandlerRegistry.handler('lightrag.restartServer')
+def handle_restart_server(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Restart LightRAG server to apply new settings."""
+    try:
+        from gui.MainGUI import MainWindow
+        
+        # Get MainWindow instance
+        main_window = MainWindow.get_instance()
+        if not main_window:
+            return create_error_response(request, 'MAIN_WINDOW_NOT_FOUND', 'MainWindow instance not found')
+        
+        # Check if server exists
+        if not hasattr(main_window, 'lightrag_server') or not main_window.lightrag_server:
+            return create_error_response(request, 'SERVER_NOT_RUNNING', 'LightRAG server is not running')
+        
+        # Stop the server
+        logger.info("[LightRAG] Stopping server for restart...")
+        main_window.stop_lightrag_server()
+        
+        # Restart the server asynchronously
+        import asyncio
+        from knowledge.lightrag_server import LightragServer
+        from utils.env.secure_store import secure_store
+        from config.app_info import app_info
+        
+        async def restart_server():
+            try:
+                # Prepare environment variables
+                ecb_data_homepath = app_info.appdata_path
+                runlogs_dir = os.path.join(app_info.appdata_path, "runlogs")
+                lightrag_env = {
+                    "APP_DATA_PATH": ecb_data_homepath + "/lightrag_data",
+                    "LOG_DIR": runlogs_dir,
+                }
+                
+                # Add OpenAI API key if available
+                openai_key = secure_store.get_credential("openai_api_key")
+                if openai_key:
+                    lightrag_env["OPENAI_API_KEY"] = openai_key
+                
+                # Create and start new server instance
+                main_window.lightrag_server = LightragServer(extra_env=lightrag_env)
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: main_window.lightrag_server.start(wait_ready=False)
+                )
+                logger.info("[LightRAG] Server restarted successfully")
+            except Exception as e:
+                logger.error(f"[LightRAG] Error restarting server: {e}")
+        
+        # Schedule restart in the event loop
+        asyncio.create_task(restart_server())
+        
+        return create_success_response(request, {'success': True, 'message': 'Server restart initiated'})
+    except Exception as e:
+        logger.error(f"Error restarting LightRAG server: {e}")
+        return create_error_response(request, 'RESTART_SERVER_ERROR', str(e))
+
+
 @IPCHandlerRegistry.handler('lightrag.getSettings')
 def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Get LightRAG settings from local file."""
+    """Get LightRAG settings from .env file."""
     try:
-        import json
-        if os.path.exists(SETTINGS_FILE):
-            with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
-                settings = json.load(f)
-            return create_success_response(request, settings)
-        return create_success_response(request, {})
+        config_manager = get_config_manager()
+        settings = config_manager.read_config()
+        return create_success_response(request, settings)
     except Exception as e:
         logger.error(f"Error getting settings: {e}")
         return create_error_response(request, 'GET_SETTINGS_ERROR', str(e))

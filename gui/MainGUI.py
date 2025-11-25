@@ -4429,7 +4429,7 @@ class MainWindow:
 
             #ping cloud every 8 second to see whether there is any monitor/control internet. use amazon's sqs
             if ticks % 8 == 0:
-                self.showMsg(f"Access Internet Here with Websocket...")
+                logger.debug(f"Access Internet Here with Websocket...")
 
             if ticks % 180 == 0:
                 self.showMsg(f"report vehicle status")
