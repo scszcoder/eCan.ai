@@ -3,13 +3,11 @@ LightRAG Configuration Manager
 Handles reading, writing, and managing LightRAG .env configuration files
 """
 import os
-import logging
 from typing import Dict, Optional, List
-from pathlib import Path
 
-from knowledge.lightrag_config_utils import get_user_env_path, ensure_user_env_file
+from knowledge.lightrag_config_utils import ensure_user_env_file
 
-logger = logging.getLogger('eCan')
+from utils.logger_helper import logger_helper as logger
 
 
 class LightRAGConfigManager:
