@@ -39,6 +39,30 @@ from agent.mcp.server.scrapers.amazon_seller.amazon_messages_scrape import (
     answer_amazon_messages,
     fetch_amazon_messages,
 )
+from agent.mcp.server.scrapers.amazon_seller.amazon_search import amazon_search
+from agent.mcp.server.scrapers.amazon_seller.amazon_listing import (
+    amazon_add_listings,
+    amazon_remove_listings,
+    amazon_update_listings,
+    amazon_get_listings,
+    amazon_add_listing_templates,
+    amazon_remove_listing_templates,
+    amazon_update_listing_templates,
+)
+from agent.mcp.server.scrapers.amazon_seller.amazon_cancel_return import (
+    amazon_handle_return,
+    amazon_handle_refund,
+)
+from agent.mcp.server.scrapers.amazon_seller.amazon_campaign import (
+    amazon_collect_campaigns_stats,
+    amazon_adjust_campaigns,
+)
+from agent.mcp.server.scrapers.amazon_seller.amazon_performance import (
+    amazon_collect_shop_products_stats,
+)
+from agent.mcp.server.scrapers.amazon_seller.amazon_utils import (
+    amazon_generate_work_summary,
+)
 from agent.mcp.server.scrapers.api_ecan_ai_cloud_search.api_ecan_ai_cloud_search import api_ecan_ai_cloud_search
 from agent.mcp.server.scrapers.ebay_seller.ebay_messages_scrape import ebay_respond_to_message, ebay_read_next_message
 from agent.mcp.server.scrapers.ebay_seller.ebay_orders_scrape import ebay_fullfill_next_order, get_ebay_summary,ebay_cancel_orders
@@ -53,6 +77,30 @@ from agent.mcp.server.scrapers.ebay_seller.ebay_utils import ebay_generate_work_
 
 from agent.mcp.server.scrapers.etsy_seller.etsy_messages_scrape import answer_etsy_messages, fetch_etsy_messages
 from agent.mcp.server.scrapers.etsy_seller.etsy_orders_scrape import fullfill_etsy_orders
+from agent.mcp.server.scrapers.etsy_seller.etsy_search import etsy_search
+from agent.mcp.server.scrapers.etsy_seller.etsy_listing import (
+    etsy_add_listings,
+    etsy_remove_listings,
+    etsy_update_listings,
+    etsy_get_listings,
+    etsy_add_listing_templates,
+    etsy_remove_listing_templates,
+    etsy_update_listing_templates,
+)
+from agent.mcp.server.scrapers.etsy_seller.etsy_cancel_return import (
+    etsy_handle_return,
+    etsy_handle_refund,
+)
+from agent.mcp.server.scrapers.etsy_seller.etsy_campaign import (
+    etsy_collect_campaigns_stats,
+    etsy_adjust_campaigns,
+)
+from agent.mcp.server.scrapers.etsy_seller.etsy_performance import (
+    etsy_collect_shop_products_stats,
+)
+from agent.mcp.server.scrapers.etsy_seller.etsy_utils import (
+    etsy_generate_work_summary,
+)
 from agent.mcp.server.scrapers.eval_util import calculate_score, get_default_fom_form
 from agent.mcp.server.scrapers.pirate_shipping.purchase_label import pirate_shipping_purchase_labels
 from agent.mcp.server.scrapers.selenium_search_component import (
@@ -1737,28 +1785,38 @@ tool_function_mapping = {
         "ebay_gen_labels": ebay_gen_labels,
         "ebay_handle_refund": ebay_handle_refund,
         "ebay_generate_work_summary": ebay_generate_work_summary,
+        "ebay_search": ebay_search,
 
-        # "get_etsy_summary": get_etsy_summary,
-        # "etsy_fullfill_next_order": etsy_fullfill_next_order,
-        # "etsy_read_next_message": etsy_read_next_message,
-        # "etsy_respond_to_message": etsy_respond_to_message,
-        # "etsy_handle_return": etsy_handle_return,
-        # "etsy_cancel_order": etsy_cancel_order,
-        # "etsy_gen_label": etsy_gen_label,
-        # "etsy_handle_refund": etsy_handle_refund,
-        # "etsy_generate_work_summary": etsy_generate_work_summary,
-        #
-        # "get_amazon_summary": get_amazon_summary,
-        # "amazon_fullfill_next_order": amazon_fullfill_next_order,
-        # "amazon_read_next_message": amazon_read_next_message,
-        # "amazon_respond_to_message": amazon_respond_to_message,
-        # "amazon_handle_return": amazon_handle_return,
-        # "amazon_cancel_order": amazon_cancel_order,
-        # "amazon_gen_label": amazon_gen_label,
-        # "amazon_handle_refund": amazon_handle_refund,
-        # "amazon_fullfill_mcn_order": amazon_fullfill_mcn_order,
-        # "amazon_generate_work_summary": amazon_generate_work_summary,
-        #
+        "etsy_search": etsy_search,
+        "etsy_add_listings": etsy_add_listings,
+        "etsy_remove_listings": etsy_remove_listings,
+        "etsy_update_listings": etsy_update_listings,
+        "etsy_get_listings": etsy_get_listings,
+        "etsy_add_listing_templates": etsy_add_listing_templates,
+        "etsy_remove_listing_templates": etsy_remove_listing_templates,
+        "etsy_update_listing_templates": etsy_update_listing_templates,
+        "etsy_handle_return": etsy_handle_return,
+        "etsy_handle_refund": etsy_handle_refund,
+        "etsy_collect_campaigns_stats": etsy_collect_campaigns_stats,
+        "etsy_adjust_campaigns": etsy_adjust_campaigns,
+        "etsy_collect_shop_products_stats": etsy_collect_shop_products_stats,
+        "etsy_generate_work_summary": etsy_generate_work_summary,
+
+        "amazon_search": amazon_search,
+        "amazon_add_listings": amazon_add_listings,
+        "amazon_remove_listings": amazon_remove_listings,
+        "amazon_update_listings": amazon_update_listings,
+        "amazon_get_listings": amazon_get_listings,
+        "amazon_add_listing_templates": amazon_add_listing_templates,
+        "amazon_remove_listing_templates": amazon_remove_listing_templates,
+        "amazon_update_listing_templates": amazon_update_listing_templates,
+        "amazon_handle_return": amazon_handle_return,
+        "amazon_handle_refund": amazon_handle_refund,
+        "amazon_collect_campaigns_stats": amazon_collect_campaigns_stats,
+        "amazon_adjust_campaigns": amazon_adjust_campaigns,
+        "amazon_collect_shop_products_stats": amazon_collect_shop_products_stats,
+        "amazon_generate_work_summary": amazon_generate_work_summary,
+
         # "get_custom_shop_summary": get_custom_shop_summary,
         # "custom_shop_fullfill_next_order": custom_shop_fullfill_next_order,
         # "custom_shop_read_next_message": custom_shop_read_next_message,
