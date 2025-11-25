@@ -2,8 +2,36 @@ import mcp.types as types
 from agent.mcp.server.scrapers.amazon_seller.amazon_orders_scrape import add_get_amazon_summary_tool_schema, add_amazon_fullfill_next_order_tool_schema
 from agent.mcp.server.scrapers.amazon_seller.amazon_messages_scrape import add_amazon_handle_next_message_tool_schema
 
-from agent.mcp.server.scrapers.ebay_seller.ebay_orders_scrape import add_get_ebay_summary_tool_schema, add_ebay_fullfill_next_order_tool_schema
-from agent.mcp.server.scrapers.ebay_seller.ebay_messages_scrape import add_ebay_handle_next_message_tool_schema
+from agent.mcp.server.scrapers.ebay_seller.ebay_orders_scrape import add_get_ebay_summary_tool_schema, add_ebay_fullfill_next_order_tool_schema, add_ebay_cancel_orders_tool_schema
+from agent.mcp.server.scrapers.ebay_seller.ebay_messages_scrape import add_ebay_read_next_message_tool_schema, add_ebay_respond_to_message_tool_schema
+from agent.mcp.server.scrapers.ebay_seller.ebay_search import add_ebay_search_tool_schema
+from agent.mcp.server.scrapers.ebay_seller.ebay_listing import (
+    add_ebay_add_listings_tool_schema,
+    add_ebay_remove_listings_tool_schema,
+    add_ebay_update_listings_tool_schema,
+    add_ebay_get_listings_tool_schema,
+    add_ebay_add_listing_templates_tool_schema,
+    add_ebay_remove_listing_templates_tool_schema,
+    add_ebay_update_listing_templates_tool_schema
+)
+from agent.mcp.server.scrapers.ebay_seller.ebay_labels import (
+    add_ebay_gen_labels_tool_schema,
+    add_ebay_cancel_labels_tool_schema
+)
+from agent.mcp.server.scrapers.ebay_seller.ebay_cancel_return import (
+    add_ebay_handle_return_tool_schema,
+    add_ebay_handle_refund_tool_schema
+)
+from agent.mcp.server.scrapers.ebay_seller.ebay_campaign import (
+    add_ebay_collect_campaigns_stats_tool_schema,
+    add_ebay_adjust_campaigns_tool_schema
+)
+from agent.mcp.server.scrapers.ebay_seller.ebay_performance import (
+    add_ebay_collect_shop_products_stats_tool_schema
+)
+from agent.mcp.server.scrapers.ebay_seller.ebay_utils import (
+    add_ebay_generate_work_summary_tool_schema
+)
 
 from agent.mcp.server.scrapers.etsy_seller.etsy_orders_scrape import add_get_etsy_summary_tool_schema, add_etsy_fullfill_next_order_tool_schema
 from agent.mcp.server.scrapers.etsy_seller.etsy_messages_scrape import add_etsy_handle_next_message_tool_schema
@@ -1692,7 +1720,25 @@ def build_agent_mcp_tools_schemas():
 
     add_get_ebay_summary_tool_schema(tool_schemas)
     add_ebay_fullfill_next_order_tool_schema(tool_schemas)
-    add_ebay_handle_next_message_tool_schema(tool_schemas)
+    add_ebay_cancel_orders_tool_schema(tool_schemas)
+    add_ebay_read_next_message_tool_schema(tool_schemas)
+    add_ebay_respond_to_message_tool_schema(tool_schemas)
+    add_ebay_gen_labels_tool_schema(tool_schemas)
+    add_ebay_cancel_labels_tool_schema(tool_schemas)
+    add_ebay_handle_return_tool_schema(tool_schemas)
+    add_ebay_handle_refund_tool_schema(tool_schemas)
+    add_ebay_add_listings_tool_schema(tool_schemas)
+    add_ebay_remove_listings_tool_schema(tool_schemas)
+    add_ebay_update_listings_tool_schema(tool_schemas)
+    add_ebay_get_listings_tool_schema(tool_schemas)
+    add_ebay_add_listing_templates_tool_schema(tool_schemas)
+    add_ebay_remove_listing_templates_tool_schema(tool_schemas)
+    add_ebay_update_listing_templates_tool_schema(tool_schemas)
+    add_ebay_collect_campaigns_stats_tool_schema(tool_schemas)
+    add_ebay_adjust_campaigns_tool_schema(tool_schemas)
+    add_ebay_collect_shop_products_stats_tool_schema(tool_schemas)
+    add_ebay_generate_work_summary_tool_schema(tool_schemas)
+
 
     add_get_etsy_summary_tool_schema(tool_schemas)
     add_etsy_fullfill_next_order_tool_schema(tool_schemas)
