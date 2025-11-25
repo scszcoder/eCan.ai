@@ -333,18 +333,61 @@ def handle_query_stream(request: IPCRequest, params: Optional[Dict[str, Any]]) -
 def handle_clear_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
     Handle clear cache request.
+    Clears LLM cache and deletes all storage data files (vector DB, graph DB, etc.).
     """
     try:
+        import shutil
+        from pathlib import Path
+        from knowledge.lightrag_config_manager import get_config_manager
+        
         # Get LightRAG client
         client = get_client()
         
-        # Call clear_cache method
+        # Step 1: Call clear_cache API to clear LLM cache
         result = client.clear_cache()
         
         if result.get('status') == 'error':
-            return create_error_response(request, 'CLEAR_CACHE_ERROR', result.get('message', 'Clear cache failed'))
+            logger.warning(f"Clear cache API returned error: {result.get('message')}")
         
-        return create_success_response(request, result)
+        # Step 2: Delete all storage data files
+        config_manager = get_config_manager()
+        working_dir = config_manager.get_value('WORKING_DIR')
+        
+        if working_dir and os.path.exists(working_dir):
+            logger.info(f"[ClearCache] Deleting all data in working directory: {working_dir}")
+            
+            deleted_items = []
+            errors = []
+            
+            # Delete all subdirectories and files in working_dir
+            for item in Path(working_dir).iterdir():
+                try:
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                        deleted_items.append(f"Directory: {item.name}")
+                    else:
+                        item.unlink()
+                        deleted_items.append(f"File: {item.name}")
+                except Exception as e:
+                    error_msg = f"Failed to delete {item.name}: {str(e)}"
+                    errors.append(error_msg)
+                    logger.error(f"[ClearCache] {error_msg}")
+            
+            logger.info(f"[ClearCache] Deleted {len(deleted_items)} items")
+            
+            return create_success_response(request, {
+                'status': 'success',
+                'message': f'Successfully cleared cache and deleted {len(deleted_items)} items',
+                'deleted_items': deleted_items,
+                'errors': errors
+            })
+        else:
+            logger.warning(f"[ClearCache] Working directory not found or not configured: {working_dir}")
+            return create_success_response(request, {
+                'status': 'success',
+                'message': 'Cache cleared (no working directory to clean)',
+                'data': result.get('data', {})
+            })
         
     except Exception as e:
         logger.error(f"Error in clear_cache handler: {e}\n{traceback.format_exc()}")
@@ -588,8 +631,22 @@ def handle_save_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         if not params:
             return create_error_response(request, 'INVALID_PARAMS', 'No settings provided')
         
+        # Filter out system-managed keys to avoid saving them to local env file
+        # This ensures the file remains clean and system settings remain authoritative
+        keys_to_exclude = ['_SYSTEM_LLM_KEY_SOURCE', '_SYSTEM_EMBED_KEY_SOURCE']
+        
+        # Also exclude the actual API key fields if they are system managed
+        # The frontend sends back the system key value (masked or raw), but we must NOT save it
+        if params.get('_SYSTEM_LLM_KEY_SOURCE'):
+            keys_to_exclude.extend(['LLM_BINDING_API_KEY', 'OPENAI_API_KEY'])
+            
+        if params.get('_SYSTEM_EMBED_KEY_SOURCE'):
+            keys_to_exclude.append('EMBEDDING_BINDING_API_KEY')
+        
+        settings_to_save = {k: v for k, v in params.items() if k not in keys_to_exclude}
+        
         config_manager = get_config_manager()
-        success = config_manager.update_config(params)
+        success = config_manager.update_config(settings_to_save)
         
         if not success:
             return create_error_response(request, 'CONFIG_ERROR', 'Failed to save settings')
@@ -604,10 +661,10 @@ def handle_save_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) 
 def handle_restart_server(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Restart LightRAG server to apply new settings."""
     try:
-        from gui.MainGUI import MainWindow
+        from app_context import AppContext
         
         # Get MainWindow instance
-        main_window = MainWindow.get_instance()
+        main_window = AppContext.get_main_window()
         if not main_window:
             return create_error_response(request, 'MAIN_WINDOW_NOT_FOUND', 'MainWindow instance not found')
         
@@ -622,31 +679,22 @@ def handle_restart_server(request: IPCRequest, params: Optional[Dict[str, Any]])
         # Restart the server asynchronously
         import asyncio
         from knowledge.lightrag_server import LightragServer
-        from utils.env.secure_store import secure_store
-        from config.app_info import app_info
         
         async def restart_server():
             try:
-                # Prepare environment variables
-                ecb_data_homepath = app_info.appdata_path
-                runlogs_dir = os.path.join(app_info.appdata_path, "runlogs")
-                lightrag_env = {
-                    "APP_DATA_PATH": ecb_data_homepath + "/lightrag_data",
-                    "LOG_DIR": runlogs_dir,
-                }
-                
-                # Add OpenAI API key if available
-                openai_key = secure_store.get_credential("openai_api_key")
-                if openai_key:
-                    lightrag_env["OPENAI_API_KEY"] = openai_key
-                
                 # Create and start new server instance
-                main_window.lightrag_server = LightragServer(extra_env=lightrag_env)
-                await asyncio.get_event_loop().run_in_executor(
+                # Paths are automatically handled by LightragServer using app_info defaults
+                # API Keys are automatically handled by LightragServer using config_manager
+                main_window.lightrag_server = LightragServer()
+                success = await asyncio.get_event_loop().run_in_executor(
                     None,
-                    lambda: main_window.lightrag_server.start(wait_ready=False)
+                    lambda: main_window.lightrag_server.start(wait_ready=True)
                 )
-                logger.info("[LightRAG] Server restarted successfully")
+                
+                if success:
+                    logger.info("[LightRAG] Server restarted successfully")
+                else:
+                    logger.error("[LightRAG] Server restart failed - check logs for details")
             except Exception as e:
                 logger.error(f"[LightRAG] Error restarting server: {e}")
         
@@ -664,7 +712,8 @@ def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -
     """Get LightRAG settings from .env file."""
     try:
         config_manager = get_config_manager()
-        settings = config_manager.read_config()
+        # Use effective config which includes overlaid system API keys
+        settings = config_manager.get_effective_config()
         return create_success_response(request, settings)
     except Exception as e:
         logger.error(f"Error getting settings: {e}")
@@ -701,3 +750,128 @@ def handle_query_graphs(request: IPCRequest, params: Optional[Dict[str, Any]]) -
     except Exception as e:
         logger.error(f"Error in query_graphs handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'QUERY_GRAPH_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.getSystemProviders')
+def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Get system LLM and Embedding providers for LightRAG configuration."""
+    try:
+        from gui.config.llm_config import llm_config
+        from gui.config.embedding_config import embedding_config
+        from app_context import AppContext
+        
+        # Get manager instances to retrieve API keys
+        main_window = AppContext.get_main_window()
+        llm_manager = main_window.config_manager.llm_manager if main_window else None
+        embedding_manager = main_window.config_manager.embedding_manager if main_window else None
+        
+        system_llm_providers = llm_config.get_all_providers()
+        system_embed_providers = embedding_config.get_all_providers()
+        
+        llm_providers_ui = []
+        for key, p in system_llm_providers.items():
+            # Check if provider has models list
+            model_field = {'key': 'LLM_MODEL', 'label': 'fields.model', 'type': 'text', 'required': True, 'defaultValue': p.default_model or ''}
+            if hasattr(p, 'supported_models') and p.supported_models:
+                model_field['type'] = 'select'
+                model_field['options'] = [{'value': m.model_id, 'label': m.display_name or m.name} for m in p.supported_models]
+            
+            fields = [model_field]
+            
+            if p.base_url or p.is_local:
+                fields.append({'key': 'LLM_BINDING_HOST', 'label': 'fields.apiHost', 'type': 'text', 'defaultValue': p.base_url or '', 'disabled': True})
+            
+            # Always check for API keys
+            if p.api_key_env_vars:
+                field_def = {'key': 'LLM_BINDING_API_KEY', 'label': 'fields.apiKey', 'type': 'password', 'required': True}
+                
+                # Try to retrieve API key using manager
+                if llm_manager:
+                    try:
+                        # Check if any of the env vars has a configured key
+                        api_key = None
+                        for env_var in p.api_key_env_vars:
+                            key_val = llm_manager.retrieve_api_key(env_var)
+                            if key_val:
+                                api_key = key_val
+                                break
+                        
+                        if api_key:
+                            field_def['isSystemManaged'] = True
+                            # Mask the API key
+                            masked = f"{api_key[:3]}...{api_key[-4:]}" if len(api_key) > 8 else "***"
+                            field_def['defaultValue'] = masked
+                    except Exception as e:
+                        logger.warning(f"Failed to retrieve API key for {p.provider.value}: {e}")
+                
+                fields.append(field_def)
+            
+            llm_providers_ui.append({
+                'id': p.provider.value,
+                'name': p.display_name,
+                'description': p.description,
+                'fields': fields
+            })
+            
+        embedding_providers_ui = []
+        for key, p in system_embed_providers.items():
+             # Check if provider has models list
+             model_field = {'key': 'EMBEDDING_MODEL', 'label': 'fields.model', 'type': 'text', 'required': True, 'defaultValue': p.default_model or ''}
+             model_metadata = {}
+             
+             if hasattr(p, 'supported_models') and p.supported_models:
+                 model_field['type'] = 'select'
+                 model_field['options'] = [{'value': m.model_id, 'label': m.display_name or m.name} for m in p.supported_models]
+                 # Build metadata map
+                 for m in p.supported_models:
+                     model_metadata[m.model_id] = {
+                         'dimensions': m.dimensions,
+                         'max_tokens': getattr(m, 'max_tokens', None) # max_tokens might not be in EmbeddingModelConfig
+                     }
+
+             fields = [model_field]
+             fields.append({'key': 'EMBEDDING_DIM', 'label': 'fields.dimensions', 'type': 'number', 'placeholder': '1024', 'disabled': True})
+             fields.append({'key': 'EMBEDDING_TOKEN_LIMIT', 'label': 'fields.tokenLimit', 'type': 'number', 'placeholder': '8192', 'disabled': True})
+
+             if p.base_url or p.is_local:
+                fields.append({'key': 'EMBEDDING_BINDING_HOST', 'label': 'fields.apiHost', 'type': 'text', 'defaultValue': p.base_url or '', 'disabled': True})
+            
+             if p.api_key_env_vars:
+                 field_def = {'key': 'EMBEDDING_BINDING_API_KEY', 'label': 'fields.apiKey', 'type': 'password', 'required': True}
+                 
+                 # Try to retrieve API key using manager
+                 if embedding_manager:
+                     try:
+                         # Check if any of the env vars has a configured key
+                         api_key = None
+                         for env_var in p.api_key_env_vars:
+                             key_val = embedding_manager.retrieve_api_key(env_var)
+                             if key_val:
+                                 api_key = key_val
+                                 break
+                         
+                         if api_key:
+                             field_def['isSystemManaged'] = True
+                             # Mask the API key
+                             masked = f"{api_key[:3]}...{api_key[-4:]}" if len(api_key) > 8 else "***"
+                             field_def['defaultValue'] = masked
+                     except Exception as e:
+                         logger.warning(f"Failed to retrieve API key for {p.provider.value}: {e}")
+                 
+                 fields.append(field_def)
+
+             embedding_providers_ui.append({
+                'id': p.provider.value,
+                'name': p.display_name,
+                'description': p.description,
+                'fields': fields,
+                'modelMetadata': model_metadata
+            })
+
+        return create_success_response(request, {
+            'llm_providers': llm_providers_ui,
+            'embedding_providers': embedding_providers_ui
+        })
+    except Exception as e:
+        logger.error(f"Error getting system providers: {e}")
+        return create_error_response(request, 'GET_PROVIDERS_ERROR', str(e))

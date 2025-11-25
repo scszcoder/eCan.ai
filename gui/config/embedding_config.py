@@ -40,6 +40,7 @@ class EmbeddingModelConfig:
     display_name: str
     model_id: str
     dimensions: Optional[int] = None
+    max_tokens: Optional[int] = None
     description: str = ""
 
 
@@ -121,6 +122,7 @@ class EmbeddingConfig:
                     display_name=model_data.get("display_name", ""),
                     model_id=model_data.get("model_id", ""),
                     dimensions=model_data.get("dimensions"),
+                    max_tokens=model_data.get("max_tokens"),
                     description=model_data.get("description", "")
                 )
                 supported_models.append(model_config)

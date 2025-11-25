@@ -1,6 +1,7 @@
 // Configuration structure for LightRAG settings
 export interface FieldConfig {
   key: string;
+  label?: string; // Optional override for label (i18n key or text)
   type: 'text' | 'number' | 'select' | 'textarea' | 'directory' | 'password' | 'boolean';
   defaultValue?: string;
   placeholder?: string;
@@ -85,7 +86,7 @@ export const BASIC_FIELDS: FieldConfig[] = [
     { value: 'WARNING', label: 'WARNING' },
     { value: 'ERROR', label: 'ERROR' }
   ]},
-  { key: 'VERBOSE', type: 'boolean', placeholder: 'False', section: 'logging' },
+  { key: 'VERBOSE', label: 'fields.verbose', type: 'boolean', placeholder: 'False', section: 'logging' },
   { key: 'LOG_MAX_BYTES', type: 'number', placeholder: '10485760', section: 'logging' },
   { key: 'LOG_BACKUP_COUNT', type: 'number', placeholder: '5', section: 'logging' },
   { key: 'LOG_DIR', type: 'directory', placeholder: '/path/to/log/directory', section: 'logging', disabled: true },

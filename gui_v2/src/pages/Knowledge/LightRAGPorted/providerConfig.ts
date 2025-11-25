@@ -9,6 +9,8 @@ export interface ProviderFieldConfig {
   tooltip?: string;
   options?: Array<{ value: string; label: string }>;
   required?: boolean;
+  isSystemManaged?: boolean;
+  disabled?: boolean;
 }
 
 export interface ProviderConfig {
@@ -16,6 +18,7 @@ export interface ProviderConfig {
   name: string;
   description?: string;
   fields: ProviderFieldConfig[];
+  modelMetadata?: Record<string, { dimensions?: number; max_tokens?: number }>;
 }
 
 // ==================== Reranking Providers ====================
@@ -99,7 +102,7 @@ export const LLM_PROVIDERS: ProviderConfig[] = [
     description: 'Microsoft Azure OpenAI Service',
     fields: [
       { key: 'LLM_MODEL', label: 'Model', type: 'text', placeholder: 'gpt-4o', required: true },
-      { key: 'LLM_BINDING_HOST', label: 'Endpoint', type: 'text', placeholder: 'https://your-resource.openai.azure.com', required: true },
+      { key: 'LLM_BINDING_HOST', label: 'fields.apiHost', type: 'text', placeholder: 'https://your-resource.openai.azure.com', required: true },
       { key: 'LLM_BINDING_API_KEY', label: 'API Key', type: 'password', required: true },
       { key: 'AZURE_OPENAI_API_VERSION', label: 'API Version', type: 'text', placeholder: '2024-08-01-preview' },
       { key: 'AZURE_OPENAI_DEPLOYMENT', label: 'Deployment Name', type: 'text', placeholder: 'my-gpt-deployment', required: true }
@@ -161,7 +164,7 @@ export const EMBEDDING_PROVIDERS: ProviderConfig[] = [
     description: 'Local Ollama embedding models',
     fields: [
       { key: 'EMBEDDING_MODEL', label: 'fields.model', type: 'text', placeholder: 'bge-m3:latest', required: true },
-      { key: 'EMBEDDING_DIM', label: 'fields.dimensions', type: 'number', placeholder: '1024', tooltip: 'tooltips.embeddingDim' },
+      { key: 'EMBEDDING_DIM', label: 'fields.dimensions', type: 'number', placeholder: '1024', defaultValue: '1024', tooltip: 'tooltips.embeddingDim' },
       { key: 'EMBEDDING_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'http://localhost:11434' }
     ]
   },
@@ -171,9 +174,9 @@ export const EMBEDDING_PROVIDERS: ProviderConfig[] = [
     description: 'Azure OpenAI embedding service',
     fields: [
       { key: 'EMBEDDING_MODEL', label: 'Model', type: 'text', placeholder: 'text-embedding-3-large', required: true },
-      { key: 'EMBEDDING_DIM', label: 'Dimensions', type: 'number', placeholder: '3072', tooltip: 'tooltips.embeddingDim' },
-      { key: 'EMBEDDING_BINDING_HOST', label: 'Endpoint', type: 'text', required: true },
-      { key: 'EMBEDDING_BINDING_API_KEY', label: 'API Key', type: 'password', required: true }
+      { key: 'EMBEDDING_DIM', label: 'Dimensions', type: 'number', placeholder: '3072', defaultValue: '3072', tooltip: 'tooltips.embeddingDim' },
+      { key: 'EMBEDDING_BINDING_HOST', label: 'fields.apiHost', type: 'text', placeholder: 'https://your-resource.openai.azure.com', required: true },
+      { key: 'EMBEDDING_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', required: true }
     ]
   },
   {
@@ -182,7 +185,7 @@ export const EMBEDDING_PROVIDERS: ProviderConfig[] = [
     description: 'Google Gemini embedding models',
     fields: [
       { key: 'EMBEDDING_MODEL', label: 'Model', type: 'text', placeholder: 'text-embedding-004', required: true },
-      { key: 'EMBEDDING_DIM', label: 'Dimensions', type: 'number', placeholder: '768', tooltip: 'tooltips.embeddingDim' },
+      { key: 'EMBEDDING_DIM', label: 'Dimensions', type: 'number', placeholder: '768', defaultValue: '768', tooltip: 'tooltips.embeddingDim' },
       { key: 'EMBEDDING_BINDING_API_KEY', label: 'API Key', type: 'password', required: true }
     ]
   },
@@ -192,8 +195,7 @@ export const EMBEDDING_PROVIDERS: ProviderConfig[] = [
     description: 'Jina AI embedding service',
     fields: [
       { key: 'EMBEDDING_MODEL', label: 'Model', type: 'text', placeholder: 'jina-embeddings-v3', required: true },
-      { key: 'EMBEDDING_DIM', label: 'Dimensions', type: 'number', placeholder: '1024', tooltip: 'tooltips.embeddingDim' },
-      { key: 'EMBEDDING_SEND_DIM', label: 'Send Dimension Parameter', type: 'boolean', defaultValue: 'true', tooltip: 'tooltips.embeddingSendDim' },
+      { key: 'EMBEDDING_DIM', label: 'Dimensions', type: 'number', placeholder: '1024', defaultValue: '1024', tooltip: 'tooltips.embeddingDim' },
       { key: 'EMBEDDING_BINDING_HOST', label: 'API Host', type: 'text', defaultValue: 'https://api.jina.ai/v1' },
       { key: 'EMBEDDING_BINDING_API_KEY', label: 'API Key', type: 'password', required: true }
     ]
@@ -204,7 +206,7 @@ export const EMBEDDING_PROVIDERS: ProviderConfig[] = [
     description: 'AWS Bedrock embedding models',
     fields: [
       { key: 'EMBEDDING_MODEL', label: 'Model ID', type: 'text', placeholder: 'amazon.titan-embed-text-v2:0', required: true },
-      { key: 'EMBEDDING_DIM', label: 'Dimensions', type: 'number', placeholder: '1024', tooltip: 'tooltips.embeddingDim' }
+      { key: 'EMBEDDING_DIM', label: 'Dimensions', type: 'number', placeholder: '1024', defaultValue: '1024', tooltip: 'tooltips.embeddingDim' }
     ]
   },
   {
@@ -219,7 +221,8 @@ export const EMBEDDING_PROVIDERS: ProviderConfig[] = [
 ];
 
 export const EMBEDDING_COMMON_FIELDS: ProviderFieldConfig[] = [
-  { key: 'EMBEDDING_TIMEOUT', label: 'fields.requestTimeout', type: 'number', placeholder: '30' }
+  { key: 'EMBEDDING_TIMEOUT', label: 'fields.requestTimeout', type: 'number', placeholder: '30', tooltip: 'tooltips.embeddingTimeout' },
+  { key: 'EMBEDDING_SEND_DIM', label: 'fields.sendDimensions', type: 'boolean', defaultValue: 'false', tooltip: 'tooltips.embeddingSendDim' }
 ];
 
 // ==================== Common Configurations ====================
@@ -241,6 +244,7 @@ export const STORAGE_COMMON_POSTGRES: ProviderFieldConfig[] = [
   ]},
   { key: 'POSTGRES_CONNECTION_RETRIES', label: 'fields.connectionRetries', type: 'number', placeholder: '3', tooltip: 'tooltips.connectionRetries' },
   { key: 'POSTGRES_CONNECTION_RETRY_BACKOFF', label: 'fields.retryBackoff', type: 'number', placeholder: '0.5', tooltip: 'tooltips.retryBackoff' },
+  { key: 'POSTGRES_CONNECTION_RETRY_MAX_BACKOFF', label: 'fields.retryMaxBackoff', type: 'number', placeholder: '5.0' },
   { key: 'POSTGRES_POOL_CLOSE_TIMEOUT', label: 'fields.poolCloseTimeout', type: 'number', placeholder: '5.0' },
   { key: 'POSTGRES_STATEMENT_CACHE_SIZE', label: 'fields.statementCacheSize', type: 'number', placeholder: '100' }
 ];
@@ -300,6 +304,8 @@ export const STORAGE_VECTOR_PROVIDERS: ProviderConfig[] = [
     { key: 'POSTGRES_HNSW_M', label: 'HNSW M', type: 'number', placeholder: '16' },
     { key: 'POSTGRES_HNSW_EF', label: 'HNSW EF', type: 'number', placeholder: '200' },
     { key: 'POSTGRES_IVFFLAT_LISTS', label: 'IVFFlat Lists', type: 'number', placeholder: '100' },
+    { key: 'POSTGRES_VCHORDRQ_BUILD_OPTIONS', label: 'VCHORDRQ Build Options', type: 'text', placeholder: '' },
+    { key: 'POSTGRES_VCHORDRQ_PROBES', label: 'VCHORDRQ Probes', type: 'number', placeholder: '' },
     { key: 'POSTGRES_VCHORDRQ_EPSILON', label: 'VCHORDRQ Epsilon', type: 'number', placeholder: '1.9' }
   ]},
   { 
