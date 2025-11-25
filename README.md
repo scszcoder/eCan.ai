@@ -8,6 +8,9 @@ This will be achieved by allowing sellers to run every aspects of their e-commer
 from marketing research to advertising, from legal counsel to customer service. Hopefully your business can run by agents, so that you can be 
 sitting on the beach :)
 
+<img src="resource/images/videos/demo_clip0.gif" alt="" style="width:960px;"/>
+
+
 # Features
 
 ### Networked Agents
@@ -39,7 +42,8 @@ at least one skill, which is work-flow described by langgraph.
 
 #### Graphic [Flowgram](https://github.com/bytedance/flowgram.ai) based Langgraph IDE
 
-![](resource/images/icons/skill_editor0.png)
+<img src="resource/images/videos/demo_clip1.gif" alt="" style="width:960px;"/>
+
 eCan.ai includes a customized open-source [Flowgram](https://github.com/bytedance/flowgram.ai) editor to provide a graphic way to author a langgraph based workflow.
 you can simply drag and drop nodes to the canvas, connect them with edges, and fill in the necessary parameters and/or codes, and be done 
 Once you created a workflow graphically. You can also run/cancel/pause/resume/single-step(on a per-node basis) through the langgraph based workflow. Breakpoints can
@@ -74,6 +78,9 @@ In-browser actions are nice, but they are some times not enough, pop-ups, captch
 and keyboard actions, we have made a state-of-art OCR service to allow CV guided screen understanding and actions, further allowing you
 to fully control your browser or any other app in that matter.
 
+<img src="resource/images/videos/demo_clip2.gif" alt="" style="width:960px;"/>
+
+<img src="resource/images/videos/demo_clip3.gif" alt="" style="width:960px;"/>
 
 ### MCP
 We have a rich set of ready to use MCP tools to work with LLM, refer to more details [here](docs/eCanMCP.md)
