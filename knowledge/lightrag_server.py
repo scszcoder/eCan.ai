@@ -145,6 +145,24 @@ class LightragServer:
         except Exception as e:
             logger.debug(f"[LightragServer] Atexit cleanup error: {e}")
 
+    def _get_user_env_path(self):
+        """Get user-specific env file path from MainWindow.my_ecb_data_homepath"""
+        from knowledge.lightrag_config_utils import get_user_env_path
+        return get_user_env_path()
+
+    def _get_template_env_path(self):
+        """Get template env file path from app home directory"""
+        from knowledge.lightrag_config_utils import get_template_env_path
+        return get_template_env_path()
+
+    def _ensure_user_env_file(self):
+        """Ensure user env file exists, copy from template if not"""
+        from knowledge.lightrag_config_utils import ensure_user_env_file
+        user_env_path = ensure_user_env_file()
+        if user_env_path:
+            logger.info(f"[LightragServer] Using env file: {user_env_path}")
+        return user_env_path
+
     def _get_env_file_paths(self):
         """Get possible .env file paths for both development and PyInstaller environments"""
         possible_paths = []
@@ -153,25 +171,27 @@ class LightragServer:
             if path and path not in possible_paths:
                 possible_paths.append(path)
 
+        # Priority 1: User-specific env file (from app_info.appdata_path)
+        user_env_path = self._ensure_user_env_file()
+        if user_env_path:
+            add_path(user_env_path)
+
+        # Priority 2: Template env file (fallback)
+        template_path = self._get_template_env_path()
+        if template_path:
+            add_path(template_path)
+
+        # Legacy fallback paths (for compatibility)
         resource_env_name = "lightrag.env"
         add_path(Path.cwd() / "resource" / "data" / resource_env_name)
 
         if self.is_frozen:
             exe_dir = Path(sys.executable).parent
             add_path(exe_dir / "resource" / "data" / resource_env_name)
-            add_path(exe_dir / ".env")
-            add_path(exe_dir / "knowledge" / ".env")
-            add_path(Path.cwd() / ".env")
-            add_path(Path.cwd() / "knowledge" / ".env")
         else:
             script_dir = Path(__file__).parent
             project_root = script_dir.parent
             add_path(project_root / "resource" / "data" / resource_env_name)
-            add_path(script_dir / ".env")
-            add_path(project_root / ".env")
-            add_path(project_root / "knowledge" / ".env")
-            add_path(Path.cwd() / ".env")
-            add_path(Path.cwd() / "knowledge" / ".env")
 
         return possible_paths
 
