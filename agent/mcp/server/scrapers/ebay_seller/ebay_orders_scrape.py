@@ -21,10 +21,41 @@ EBAY_PLACEHOLDER_MODE = True
 #     "n_pages": integer,
 #     "orders_per_page": integer,
 # }
-def scrape_ebay_orders_summary(web_driver):
+
+def get_ebay_summary(mainwin, args):
+    try:
+        ebay_summary = {}
+        if args["input"]:
+            logger.debug(f"[MCP][GET EBAY SUMMARY]: {args['input']}")
+            store_url = args["input"]["store_url"]
+            if not store_url:
+                store_url = "https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT"
+            options = args["input"]["options"]
+            web_driver = mainwin.getWebDriver()
+            if not web_driver:
+                # Use the first site's URL to initialize/connect the driver
+                web_driver = connect_to_adspower(mainwin, store_url)
+                logger.debug(f"WebDriver acquired for ebay work: {type(web_driver)}")
+                ebay_summary = scrape_ebay_orders_summary(web_driver)
+                msg = "completed getting ebay shop summary"
+            else:
+                logger.debug(f"WebDriver acquired for ebay work: {type(web_driver)}")
+                msg = "Error: web driver not available."
+        else:
+            msg = "ERROR: no input provided."
+
+        result = [TextContent(type="text", text=msg)]
+        result.meta = {"ebay_summary": ebay_summary}
+        return [result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorGetEbaySummary")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+def scrape_ebay_orders_summary(web_driver, store_url):
     try:
         # Navigate to eBay Seller Hub orders
-        web_driver.get("https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT")
+        web_driver.get(store_url)
 
         # Initialize wait and ensure logged in
         wait = WebDriverWait(web_driver, 30)
@@ -78,10 +109,35 @@ def scrape_ebay_orders_summary(web_driver):
         except Exception:
             n_pages = 1
 
+        messages_link = ""
+        n_messages = 0
+        try:
+            messages_anchor = wait.until(
+                EC.presence_of_element_located(
+                    (
+                        By.CSS_SELECTOR,
+                        "a.shui-header__button.shui-message-button-regular.fake-btn.fake-btn--small.fake-btn--tertiary",
+                    )
+                )
+            )
+            messages_link = messages_anchor.get_attribute("href") or ""
+            messages_text = (messages_anchor.text or "").strip()
+            match = re.search(r"(\d[\d,]*)", messages_text)
+            if match:
+                try:
+                    n_messages = int(match.group(1).replace(",", ""))
+                except Exception:
+                    logger.warning("[EBAY PAGE]WARNING: Failed to parse n_messages from messages_text: {}".format(messages_text))
+                    n_messages = 0
+        except Exception:
+            pass
+
         summary = {
             "n_new_orders": n_results,
             "n_pages": n_pages,
             "orders_per_page": orders_per_page,
+            "messages_link": messages_link,
+            "n_messages": n_messages,
         }
         logger.debug("new order summary:", summary)
         return summary
@@ -306,20 +362,8 @@ def scrape_bulk_label_orders(webdriver):
         return {"error": err_msg}
 
 
-from datetime import datetime
-import base64
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
-from utils.logger_helper import logger_helper as logger
-from utils.logger_helper import get_traceback
-from mcp.types import CallToolResult, TextContent
 
-
-
-
-async def fullfill_ebay_orders(mainwin, args):  # type: ignore
+async def ebay_fullfill_next_order(mainwin, args):  # type: ignore
     try:
         logger.debug("fullfill_ebay_orders started....", args["input"])
         new_orders = []
@@ -346,6 +390,37 @@ async def fullfill_ebay_orders(mainwin, args):  # type: ignore
         err_trace = get_traceback(e, "ErrorFullfillEbayOrders")
         logger.debug(err_trace)
         return [TextContent(type="text", text=err_trace)]
+
+
+
+async def ebay_cancel_orders(mainwin, args):  # type: ignore
+    try:
+        logger.debug("fullfill_ebay_orders started....", args["input"])
+        new_orders = []
+        fullfilled_orders = []
+        options = args["input"]["options"]
+        if options.get("use_ads", False):
+            webdriver = connect_to_adspower(mainwin, url)
+            if webdriver:
+                mainwin.setWebDriver(webdriver)
+        else:
+            webdriver = mainwin.getWebDriver()
+
+        if webdriver:
+            print("fullfill_ebay_orders:", site)
+            site_results = selenium_search_component(webdriver, pf, sites[site])
+            ebay_new_orders = scrape_ebay_orders(webdriver)
+            logger.debug("ebay_new_orders:", ebay_new_orders)
+
+        msg = f"completed in fullfilling ebay new orders: {len(new_orders)} new orders came in, {len(fullfilled_orders)} orders processed."
+        tool_result = TextContent(type="text", text=msg)
+        tool_result.meta = {"new_orders": new_orders, "fullfilled_orders": fullfilled_orders}
+        return [tool_result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorFullfillEbayOrders")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
 
 
 def add_fullfill_ebay_orders_tool_schema(tool_schemas):
@@ -410,6 +485,35 @@ def add_ebay_fullfill_next_order_tool_schema(tool_schemas):
 
     tool_schema = types.Tool(
         name="ebay_fullfill_next_order",
+        description="full fill next order by clicking on buy shipping to obtain the cheapest shipping label, reformat it, save it, send it to printer, and return the order details info in json format.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["options"],
+                    "properties": {
+                        "options": {
+                            "type": "object",
+                            "description": "some options in json format including printer name, label format, etc. will use default if these info are missing anyways.",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)
+
+
+
+
+def add_ebay_cancel_orders_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="ebay_cancel_orders",
         description="full fill next order by clicking on buy shipping to obtain the cheapest shipping label, reformat it, save it, send it to printer, and return the order details info in json format.",
         inputSchema={
             "type": "object",

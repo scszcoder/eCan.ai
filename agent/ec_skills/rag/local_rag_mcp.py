@@ -1,7 +1,7 @@
 from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
 
-def ragify_tool(mainwin, args):
+def ragify(mainwin, args):
     try:
         rag_result = None
         if args['input']:
@@ -18,7 +18,7 @@ def ragify_tool(mainwin, args):
 
 
 
-def rag_query_tool(mainwin, args):
+def rag_query(mainwin, args):
     try:
         answer = ""
         if args['input']:
