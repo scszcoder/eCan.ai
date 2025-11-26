@@ -1649,7 +1649,7 @@
         "startConversationDesc": "Type your question below and press Send",
         "askQuestion": "Ask a question... (Shift+Enter for new line)",
         "clearConversation": "Clear conversation",
-        "sendMessage": "Send message",
+        "sendMessage": "Send message (Enter)",
         "basic": "Basic",
         "advanced": "Advanced",
         "options": "Options",

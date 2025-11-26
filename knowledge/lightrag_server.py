@@ -224,9 +224,10 @@ class LightragServer:
                 logger.info(f"[LightragServer] Mapped Rerank binding '{rerank_binding}' -> 'aliyun' (Alibaba-compatible API)")
                 env['RERANK_BINDING'] = 'aliyun'
         
-        # # 7. Add SSL/TLS configuration to fix certificate errors
-        # if 'SSL_VERIFY' not in env:
-        #     env['SSL_VERIFY'] = 'false'
+        # 7. Add SSL/TLS configuration to fix certificate errors
+        # Disable SSL verification for development/testing (can be overridden by extra_env)
+        if 'SSL_VERIFY' not in env:
+            env['SSL_VERIFY'] = 'false'
 
         # 8. Clean up empty string values that cause argument parsing errors
         # LightRAG server cannot handle empty strings for numeric/float parameters
@@ -304,20 +305,14 @@ class LightragServer:
     
 
     def _validate_python_executable(self, python_path):
-        try:
-            if self.is_frozen:
-                if os.path.exists(python_path) and os.access(python_path, os.X_OK): return True
-                logger.error(f"[LightragServer] PyInstaller executable not found: {python_path}")
-                return False
-
-            if os.path.isfile(python_path) and os.access(python_path, os.X_OK): return True
+        if not python_path or not os.path.exists(python_path):
             logger.error(f"[LightragServer] Python executable not found: {python_path}")
             return False
-        except Exception: return False
+        return True
 
     def _try_alternative_port(self, original_port):
+        import socket
         try:
-            import socket
             for port in range(original_port, original_port + 10):
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(1)
@@ -542,12 +537,16 @@ class LightragServer:
 
             # Use -m module approach for both frozen and non-frozen modes
             # The environment variables are already properly configured
-            # Use wrapper script to handle SSL patching
-            wrapper_path = os.path.join(os.path.dirname(__file__), "lightrag_wrapper.py")
-            if os.path.exists(wrapper_path):
-                cmd = [python_executable, "-u", wrapper_path]
+            
+            # Use the static launcher script for SSL patching
+            # This script should be distributed with the application
+            launcher_path = os.path.join(os.path.dirname(__file__), "lightrag_launcher.py")
+            
+            if os.path.exists(launcher_path):
+                cmd = [python_executable, "-u", launcher_path]
+                logger.info(f"[LightragServer] Using launcher script: {launcher_path}")
             else:
-                logger.warning(f"[LightragServer] Wrapper not found at {wrapper_path}, falling back to module execution")
+                logger.warning(f"[LightragServer] Launcher not found at {launcher_path}, falling back to -m (SSL patch will NOT be applied)")
                 cmd = [python_executable, "-u", "-m", "lightrag.api.lightrag_server"]
 
             # Log final environment variables (masked) for debugging
