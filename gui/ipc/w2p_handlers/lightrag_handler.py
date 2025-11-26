@@ -39,9 +39,12 @@ def handle_ingest_files(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         result = client.ingest_files(paths, options)
         
         if result.get('status') == 'error':
-            return create_error_response(request, 'INGEST_ERROR', result.get('message', 'Failed to ingest files'))
+            error_msg = result.get('message', 'Failed to ingest files')
+            logger.error(f"Ingest files failed: {error_msg}")
+            return create_error_response(request, 'INGEST_ERROR', error_msg)
         
-        return create_success_response(request, result)
+        data = result.get('data', result)
+        return create_success_response(request, data)
         
     except Exception as e:
         logger.error(f"Error in ingest_files handler: {e}\n{traceback.format_exc()}")
@@ -75,9 +78,12 @@ def handle_ingest_directory(request: IPCRequest, params: Optional[Dict[str, Any]
         result = client.ingest_directory(dir_path, options)
         
         if result.get('status') == 'error':
-            return create_error_response(request, 'INGEST_ERROR', result.get('message', 'Failed to ingest directory'))
+            error_msg = result.get('message', 'Failed to ingest directory')
+            logger.error(f"Ingest directory failed: {error_msg}")
+            return create_error_response(request, 'INGEST_ERROR', error_msg)
         
-        return create_success_response(request, result)
+        data = result.get('data', result)
+        return create_success_response(request, data)
         
     except Exception as e:
         logger.error(f"Error in ingest_directory handler: {e}\n{traceback.format_exc()}")
@@ -124,9 +130,12 @@ def handle_query(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
         result = client.query(text, options)
         
         if result.get('status') == 'error':
-            return create_error_response(request, 'QUERY_ERROR', result.get('message', 'Query failed'))
+            error_msg = result.get('message', 'Query failed')
+            logger.error(f"Query failed: {error_msg}")
+            return create_error_response(request, 'QUERY_ERROR', error_msg)
         
-        return create_success_response(request, result)
+        data = result.get('data', result)
+        return create_success_response(request, data)
         
     except Exception as e:
         logger.error(f"Error in query handler: {e}\n{traceback.format_exc()}")
@@ -158,9 +167,12 @@ def handle_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCR
         result = client.status(job_id)
         
         if result.get('status') == 'error':
-            return create_error_response(request, 'STATUS_ERROR', result.get('message', 'Failed to get status'))
+            error_msg = result.get('message', 'Failed to get status')
+            logger.error(f"Get status failed: {error_msg}")
+            return create_error_response(request, 'STATUS_ERROR', error_msg)
         
-        return create_success_response(request, result)
+        data = result.get('data', result)
+        return create_success_response(request, data)
         
     except Exception as e:
         logger.error(f"Error in status handler: {e}\n{traceback.format_exc()}")
@@ -181,9 +193,13 @@ def handle_scan(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRes
         result = client.scan()
         
         if result.get('status') == 'error':
-            return create_error_response(request, 'SCAN_ERROR', result.get('message', 'Failed to start scan'))
+            error_msg = result.get('message', 'Failed to start scan')
+            logger.error(f"Scan failed: {error_msg}")
+            return create_error_response(request, 'SCAN_ERROR', error_msg)
         
-        return create_success_response(request, result)
+        # Extract data from client response
+        data = result.get('data', result)
+        return create_success_response(request, data)
         
     except Exception as e:
         logger.error(f"Error in scan handler: {e}\n{traceback.format_exc()}")
@@ -204,9 +220,12 @@ def handle_list_documents(request: IPCRequest, params: Optional[Dict[str, Any]])
         result = client.list_documents()
         
         if result.get('status') == 'error':
-            return create_error_response(request, 'LIST_ERROR', result.get('message', 'Failed to list documents'))
+            error_msg = result.get('message', 'Failed to list documents')
+            logger.error(f"List documents failed: {error_msg}")
+            return create_error_response(request, 'LIST_ERROR', error_msg)
         
-        return create_success_response(request, result)
+        data = result.get('data', result)
+        return create_success_response(request, data)
         
     except Exception as e:
         logger.error(f"Error in list_documents handler: {e}\n{traceback.format_exc()}")
@@ -238,9 +257,12 @@ def handle_delete_document(request: IPCRequest, params: Optional[Dict[str, Any]]
         result = client.delete_document(doc_id)
         
         if result.get('status') == 'error':
-            return create_error_response(request, 'DELETE_ERROR', result.get('message', 'Failed to delete document'))
+            error_msg = result.get('message', 'Failed to delete document')
+            logger.error(f"Delete document failed: {error_msg}")
+            return create_error_response(request, 'DELETE_ERROR', error_msg)
         
-        return create_success_response(request, result)
+        data = result.get('data', result)
+        return create_success_response(request, data)
         
     except Exception as e:
         logger.error(f"Error in delete_document handler: {e}\n{traceback.format_exc()}")
@@ -274,9 +296,12 @@ def handle_insert_text(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
         result = client.insert_text(text, metadata)
         
         if result.get('status') == 'error':
-            return create_error_response(request, 'INSERT_ERROR', result.get('message', 'Failed to insert text'))
+            error_msg = result.get('message', 'Failed to insert text')
+            logger.error(f"Insert text failed: {error_msg}")
+            return create_error_response(request, 'INSERT_ERROR', error_msg)
         
-        return create_success_response(request, result)
+        data = result.get('data', result)
+        return create_success_response(request, data)
         
     except Exception as e:
         logger.error(f"Error in insert_text handler: {e}\n{traceback.format_exc()}")
@@ -407,9 +432,12 @@ def handle_get_status_counts(request: IPCRequest, params: Optional[Dict[str, Any
         result = client.get_status_counts()
         
         if result.get('status') == 'error':
-            return create_error_response(request, 'GET_STATUS_COUNTS_ERROR', result.get('message', 'Get status counts failed'))
+            error_msg = result.get('message', 'Get status counts failed')
+            logger.error(f"Get status counts failed: {error_msg}")
+            return create_error_response(request, 'GET_STATUS_COUNTS_ERROR', error_msg)
         
-        return create_success_response(request, result)
+        data = result.get('data', result)
+        return create_success_response(request, data)
         
     except Exception as e:
         logger.error(f"Error in get_status_counts handler: {e}\n{traceback.format_exc()}")
@@ -798,9 +826,8 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
                         
                         if api_key:
                             field_def['isSystemManaged'] = True
-                            # Mask the API key
-                            masked = f"{api_key[:3]}...{api_key[-4:]}" if len(api_key) > 8 else "***"
-                            field_def['defaultValue'] = masked
+                            # Return full API key - frontend Input.Password will handle visibility
+                            field_def['defaultValue'] = api_key
                     except Exception as e:
                         logger.warning(f"Failed to retrieve API key for {p.provider.value}: {e}")
                 
@@ -851,10 +878,9 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
                                  break
                          
                          if api_key:
-                             field_def['isSystemManaged'] = True
-                             # Mask the API key
-                             masked = f"{api_key[:3]}...{api_key[-4:]}" if len(api_key) > 8 else "***"
-                             field_def['defaultValue'] = masked
+                            field_def['isSystemManaged'] = True
+                            # Return full API key - frontend Input.Password will handle visibility
+                            field_def['defaultValue'] = api_key
                      except Exception as e:
                          logger.warning(f"Failed to retrieve API key for {p.provider.value}: {e}")
                  

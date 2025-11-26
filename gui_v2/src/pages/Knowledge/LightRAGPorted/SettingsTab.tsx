@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { theme, message, Tabs, Modal, Tooltip, Input, Select, Switch } from 'antd';
+import { theme, App, Tabs, Tooltip, Input, Select, Switch } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import { 
@@ -91,6 +91,7 @@ const SettingsTab: React.FC = () => {
   const { token } = theme.useToken();
   const { theme: currentTheme } = useTheme();
   const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const { message, modal } = App.useApp();
 
   useEffect(() => {
     const initializeSettings = async () => {
@@ -317,7 +318,7 @@ const SettingsTab: React.FC = () => {
         message.success(t('pages.knowledge.settings.saveSuccess'));
         
         // Prompt user to restart server
-        Modal.confirm({
+        modal.confirm({
           title: t('pages.knowledge.settings.restartServer'),
           content: (
             <div style={{ color: token.colorText }}>
@@ -402,18 +403,32 @@ const SettingsTab: React.FC = () => {
 
     switch (field.type) {
       case 'text':
-      case 'password':
         return (
           <div key={field.key} style={{ marginBottom: 12 }}>
             {label}
             <Input
-              type={field.type === 'password' ? 'password' : 'text'}
               value={value}
               placeholder={placeholder}
               onChange={(e) => updateSetting(field.key, e.target.value)}
               style={commonStyle}
               size="small"
               disabled={disabled}
+            />
+          </div>
+        );
+      
+      case 'password':
+        return (
+          <div key={field.key} style={{ marginBottom: 12 }}>
+            {label}
+            <Input.Password
+              value={value}
+              placeholder={placeholder}
+              onChange={(e) => updateSetting(field.key, e.target.value)}
+              style={commonStyle}
+              size="small"
+              disabled={disabled}
+              visibilityToggle={!disabled}
             />
           </div>
         );

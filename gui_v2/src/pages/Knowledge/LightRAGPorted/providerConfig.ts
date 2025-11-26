@@ -222,7 +222,14 @@ export const EMBEDDING_PROVIDERS: ProviderConfig[] = [
 
 export const EMBEDDING_COMMON_FIELDS: ProviderFieldConfig[] = [
   { key: 'EMBEDDING_TIMEOUT', label: 'fields.requestTimeout', type: 'number', placeholder: '30', tooltip: 'tooltips.embeddingTimeout' },
-  { key: 'EMBEDDING_SEND_DIM', label: 'fields.sendDimensions', type: 'boolean', defaultValue: 'false', tooltip: 'tooltips.embeddingSendDim' }
+  { 
+    key: 'EMBEDDING_SEND_DIM', 
+    label: 'fields.sendDimensions', 
+    type: 'boolean', 
+    defaultValue: 'true', 
+    tooltip: 'tooltips.embeddingSendDim',
+    disabled: true  // Make read-only - auto-determined by provider
+  }
 ];
 
 // ==================== Common Configurations ====================

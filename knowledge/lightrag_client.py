@@ -1,6 +1,4 @@
 import os
-import json
-import time
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -40,8 +38,16 @@ class LightragClient:
     def health(self) -> Dict[str, Any]:
         try:
             r = self.session.get(f"{self.base_url}/health", timeout=10)
+            
+            if r.status_code >= 400:
+                logger.error(f"Health check failed with status {r.status_code}: {r.text}")
+            
             r.raise_for_status()
             return r.json()
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.health HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
         except Exception as e:
             err = get_traceback(e, "LightragClient.health")
             logger.error(err)
@@ -294,9 +300,17 @@ class LightragClient:
         """
         try:
             r = self.session.get(f"{self.base_url}/documents/track_status/{track_id}", timeout=10)
+            
+            if r.status_code >= 400:
+                logger.error(f"Track status failed with status {r.status_code}: {r.text}")
+            
             r.raise_for_status()
             result = r.json()
             return {"status": "success", "data": result}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.track_status HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
         except Exception as e:
             err = get_traceback(e, "LightragClient.track_status")
             logger.error(err)
@@ -315,10 +329,18 @@ class LightragClient:
         """
         try:
             r = self.session.post(f"{self.base_url}/documents/scan", timeout=10)
+            
+            if r.status_code >= 400:
+                logger.error(f"Scan failed with status {r.status_code}: {r.text}")
+            
             r.raise_for_status()
             result = r.json()
             # API returns: {"status": "scanning_started", "message": "...", "track_id": "..."}
             return {"status": "success", "data": result}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.scan HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
         except Exception as e:
             err = get_traceback(e, "LightragClient.scan")
             logger.error(err)
@@ -332,9 +354,17 @@ class LightragClient:
         """
         try:
             r = self.session.get(f"{self.base_url}/documents", timeout=10)
+            
+            if r.status_code >= 400:
+                logger.error(f"List documents failed with status {r.status_code}: {r.text}")
+            
             r.raise_for_status()
             result = r.json()
             return {"status": "success", "data": result}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.list_documents HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
         except Exception as e:
             err = get_traceback(e, "LightragClient.list_documents")
             logger.error(err)
@@ -500,8 +530,16 @@ class LightragClient:
                 f"{self.base_url}/documents/status_counts",
                 timeout=10
             )
+            
+            if r.status_code >= 400:
+                logger.error(f"Get status counts failed with status {r.status_code}: {r.text}")
+            
             r.raise_for_status()
             return {"status": "success", "data": r.json()}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.get_status_counts HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
         except requests.exceptions.RequestException as e:
             logger.error(f"Error getting status counts: {e}")
             return {"status": "error", "message": str(e)}
@@ -517,9 +555,17 @@ class LightragClient:
                 "allow_merge": allow_merge
             }
             r = self.session.post(f"{self.base_url}/graph/entity/edit", json=payload, timeout=30)
+            
+            if r.status_code >= 400:
+                logger.error(f"Update entity failed with status {r.status_code}: {r.text}")
+            
             r.raise_for_status()
             result = r.json()
             return {"status": "success", "data": result}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.update_entity HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
         except Exception as e:
             err = get_traceback(e, "LightragClient.update_entity")
             logger.error(err)
@@ -534,9 +580,17 @@ class LightragClient:
                 "updated_data": updated_data
             }
             r = self.session.post(f"{self.base_url}/graph/relation/edit", json=payload, timeout=30)
+            
+            if r.status_code >= 400:
+                logger.error(f"Update relation failed with status {r.status_code}: {r.text}")
+            
             r.raise_for_status()
             result = r.json()
             return {"status": "success", "data": result}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.update_relation HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
         except Exception as e:
             err = get_traceback(e, "LightragClient.update_relation")
             logger.error(err)
@@ -546,9 +600,17 @@ class LightragClient:
         """Get list of all labels in the graph."""
         try:
             r = self.session.get(f"{self.base_url}/graph/label/list", timeout=10)
+            
+            if r.status_code >= 400:
+                logger.error(f"Get graph label list failed with status {r.status_code}: {r.text}")
+            
             r.raise_for_status()
             result = r.json()
             return {"status": "success", "data": result}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.get_graph_label_list HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
         except Exception as e:
             err = get_traceback(e, "LightragClient.get_graph_label_list")
             logger.error(err)
@@ -568,9 +630,17 @@ class LightragClient:
                 "max_nodes": max_nodes,
             }
             r = self.session.get(f"{self.base_url}/graphs", params=params, timeout=60)
+            
+            if r.status_code >= 400:
+                logger.error(f"Query graphs failed with status {r.status_code}: {r.text}")
+            
             r.raise_for_status()
             result = r.json()
             return {"status": "success", "data": result}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.query_graphs HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
         except Exception as e:
             err = get_traceback(e, "LightragClient.query_graphs")
             logger.error(err)
@@ -581,9 +651,17 @@ class LightragClient:
         """Get documents with pagination."""
         try:
             r = self.session.post(f"{self.base_url}/documents/paginated", json=params, timeout=30)
+            
+            if r.status_code >= 400:
+                logger.error(f"Get documents paginated failed with status {r.status_code}: {r.text}")
+            
             r.raise_for_status()
             result = r.json()
             return {"status": "success", "data": result}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.get_documents_paginated HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
         except Exception as e:
             err = get_traceback(e, "LightragClient.get_documents_paginated")
             logger.error(err)

@@ -178,19 +178,38 @@ class LightragServer:
             'voyageai': 'openai',
             'alibaba_qwen': 'openai',
             'doubao': 'openai',
+            # Provider display names (map to their provider IDs)
+            'Qwen (DashScope)': 'openai',  # alibaba_qwen
+            'Baidu Qianfan': 'openai',  # baidu_qianfan
         }
         
-        # Map LLM binding
+        # Map LLM binding (case-insensitive)
         llm_binding = env.get('LLM_BINDING')
         if llm_binding and llm_binding not in LIGHTRAG_SUPPORTED:
-            mapped = PROVIDER_MAPPING.get(llm_binding, 'openai')
+            # Try case-insensitive matching
+            mapped = None
+            llm_binding_lower = llm_binding.lower()
+            for key, value in PROVIDER_MAPPING.items():
+                if key.lower() == llm_binding_lower:
+                    mapped = value
+                    break
+            if mapped is None:
+                mapped = 'openai'  # Default fallback
             logger.info(f"[LightragServer] Mapped LLM binding '{llm_binding}' -> '{mapped}'")
             env['LLM_BINDING'] = mapped
         
-        # Map Embedding binding (also supports 'jina')
+        # Map Embedding binding (case-insensitive, also supports 'jina')
         embedding_binding = env.get('EMBEDDING_BINDING')
         if embedding_binding and embedding_binding not in LIGHTRAG_SUPPORTED + ['jina']:
-            mapped = PROVIDER_MAPPING.get(embedding_binding, 'openai')
+            # Try case-insensitive matching
+            mapped = None
+            embedding_binding_lower = embedding_binding.lower()
+            for key, value in PROVIDER_MAPPING.items():
+                if key.lower() == embedding_binding_lower:
+                    mapped = value
+                    break
+            if mapped is None:
+                mapped = 'openai'  # Default fallback
             logger.info(f"[LightragServer] Mapped Embedding binding '{embedding_binding}' -> '{mapped}'")
             env['EMBEDDING_BINDING'] = mapped
 
@@ -530,7 +549,7 @@ class LightragServer:
                 if env.get('LLM_BINDING_HOST'):
                     summary.append(f"   LLM Host:          {env.get('LLM_BINDING_HOST')}")
                 if env.get('LLM_BINDING_API_KEY'):
-                    summary.append(f"   LLM Key:           {self._mask_env_value('KEY', env['LLM_BINDING_API_KEY'])}")
+                    summary.append(f"   LLM Key:           {self._mask_env_value('LLM_API_KEY', env['LLM_BINDING_API_KEY'])}")
 
                 # Embedding
                 embed_provider = env.get('EMBEDDING_BINDING', 'Unknown')
@@ -539,6 +558,8 @@ class LightragServer:
                 summary.append(f"   Embedding Model:   {embed_model}")
                 if env.get('EMBEDDING_BINDING_HOST'):
                     summary.append(f"   Embedding Host:    {env.get('EMBEDDING_BINDING_HOST')}")
+                if env.get('EMBEDDING_BINDING_API_KEY'):
+                    summary.append(f"   Embedding Key:     {self._mask_env_value('EMBEDDING_API_KEY', env['EMBEDDING_BINDING_API_KEY'])}")
 
                 # Storage
                 summary.append("-" * 20 + " Storage " + "-" * 20)
