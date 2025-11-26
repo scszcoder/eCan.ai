@@ -23,7 +23,7 @@ EBAY_PLACEHOLDER_MODE = True
 #     "orders_per_page": integer,
 # }
 
-def get_ebay_summary(mainwin, args):
+async def get_ebay_summary(mainwin, args):
     try:
         ebay_summary = {}
         if args["input"]:
@@ -36,17 +36,19 @@ def get_ebay_summary(mainwin, args):
             if not web_driver:
                 # Use the first site's URL to initialize/connect the driver
                 web_driver = connect_to_adspower(mainwin, store_url)
-                logger.debug(f"WebDriver acquired for ebay work: {type(web_driver)}")
-                ebay_summary = scrape_ebay_orders_summary(web_driver)
+                logger.debug(f"[MCP][GET EBAY SUMMARY]:WebDriver acquired for ebay work: {type(web_driver)}")
+                ebay_summary = scrape_ebay_orders_summary(web_driver, store_url)
                 msg = "completed getting ebay shop summary"
             else:
-                logger.debug(f"WebDriver acquired for ebay work: {type(web_driver)}")
+                logger.error(f"[MCP][GET EBAY SUMMARY]:WebDriver acquired for ebay work: {type(web_driver)}")
                 msg = "Error: web driver not available."
         else:
             msg = "ERROR: no input provided."
+            logger.error(f"[MCP][GET EBAY SUMMARY]:{msg}")
 
-        result = [TextContent(type="text", text=msg)]
+        result = TextContent(type="text", text=msg)
         result.meta = {"ebay_summary": ebay_summary}
+        logger.debug("[MCP][GET EBAY SUMMARY]:ebay_summary:", ebay_summary)
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorGetEbaySummary")
@@ -156,7 +158,7 @@ def scrape_ebay_orders_summary(web_driver, store_url):
 # # send the label to printer to print
 # # refresh the page (the just finished order will not be there anymore)
 # # repeat above steps until all done.
-def scrape_ebay_orders(web_driver):
+async def scrape_ebay_orders(web_driver):
     try:
         # open ebay seller orders website
         n_orders_to_be_fullfilled = summary.get("n_new_orders", 0)

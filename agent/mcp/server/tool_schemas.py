@@ -32,7 +32,7 @@ from agent.mcp.server.scrapers.amazon_seller.amazon_utils import (
 )
 
 from agent.mcp.server.scrapers.ebay_seller.ebay_orders_scrape import add_get_ebay_summary_tool_schema, add_ebay_fullfill_next_order_tool_schema, add_ebay_cancel_orders_tool_schema
-from agent.mcp.server.scrapers.ebay_seller.ebay_messages_scrape import add_ebay_read_next_message_tool_schema, add_ebay_respond_to_message_tool_schema
+from agent.mcp.server.scrapers.ebay_seller.ebay_messages_scrape import add_ebay_read_all_messages_tool_schema, add_ebay_read_next_message_tool_schema, add_ebay_respond_to_message_tool_schema
 from agent.mcp.server.scrapers.ebay_seller.ebay_search import add_ebay_search_tool_schema
 from agent.mcp.server.scrapers.ebay_seller.ebay_listing import (
     add_ebay_add_listings_tool_schema,
@@ -1780,6 +1780,7 @@ def build_agent_mcp_tools_schemas():
     add_ebay_fullfill_next_order_tool_schema(tool_schemas)
     add_ebay_cancel_orders_tool_schema(tool_schemas)
     add_ebay_read_next_message_tool_schema(tool_schemas)
+    add_ebay_read_all_messages_tool_schema(tool_schemas)
     add_ebay_respond_to_message_tool_schema(tool_schemas)
     add_ebay_search_tool_schema(tool_schemas)
     add_ebay_gen_labels_tool_schema(tool_schemas)
