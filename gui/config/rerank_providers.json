@@ -1,0 +1,213 @@
+{
+  "providers": {
+    "Cohere": {
+      "name": "Cohere",
+      "display_name": "Cohere",
+      "provider": "cohere",
+      "class_name": "CohereRerank",
+      "api_key_env_vars": [
+        "COHERE_API_KEY"
+      ],
+      "base_url": "https://api.cohere.com/v2/rerank",
+      "default_model": "rerank-v3.5",
+      "description": "Cohere rerank models",
+      "documentation_url": "https://docs.cohere.com/docs/rerank-2",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "rerank-v3.5",
+          "display_name": "Rerank v3.5",
+          "model_id": "rerank-v3.5",
+          "max_chunks_per_doc": 1000,
+          "description": "Latest multilingual rerank model"
+        },
+        {
+          "name": "rerank-english-v3.0",
+          "display_name": "Rerank English v3.0",
+          "model_id": "rerank-english-v3.0",
+          "max_chunks_per_doc": 1000,
+          "description": "English-optimized rerank model"
+        },
+        {
+          "name": "rerank-multilingual-v3.0",
+          "display_name": "Rerank Multilingual v3.0",
+          "model_id": "rerank-multilingual-v3.0",
+          "max_chunks_per_doc": 1000,
+          "description": "Multilingual rerank model"
+        }
+      ]
+    },
+    "Jina AI": {
+      "name": "Jina AI",
+      "display_name": "Jina AI",
+      "provider": "jina",
+      "class_name": "JinaRerank",
+      "api_key_env_vars": [
+        "JINA_API_KEY"
+      ],
+      "base_url": "https://api.jina.ai/v1/rerank",
+      "default_model": "jina-reranker-v2-base-multilingual",
+      "description": "Jina AI rerank models",
+      "documentation_url": "https://jina.ai/reranker",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "jina-reranker-v2-base-multilingual",
+          "display_name": "Jina Reranker v2 Base Multilingual",
+          "model_id": "jina-reranker-v2-base-multilingual",
+          "max_chunks_per_doc": 1000,
+          "description": "Multilingual reranker model"
+        },
+        {
+          "name": "jina-reranker-v1-base-en",
+          "display_name": "Jina Reranker v1 Base EN",
+          "model_id": "jina-reranker-v1-base-en",
+          "max_chunks_per_doc": 1000,
+          "description": "English reranker model"
+        }
+      ]
+    },
+    "Alibaba Qwen": {
+      "name": "Alibaba Qwen",
+      "display_name": "Alibaba Qwen (DashScope)",
+      "provider": "aliyun",
+      "class_name": "AliyunRerank",
+      "api_key_env_vars": [
+        "DASHSCOPE_API_KEY"
+      ],
+      "base_url": "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank",
+      "default_model": "gte-rerank",
+      "description": "Alibaba Qwen rerank models",
+      "documentation_url": "https://help.aliyun.com/zh/model-studio/developer-reference/text-rerank",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "gte-rerank",
+          "display_name": "GTE Rerank",
+          "model_id": "gte-rerank",
+          "max_chunks_per_doc": 1000,
+          "description": "General Text Embeddings rerank model"
+        },
+        {
+          "name": "gte-rerank-hybrid",
+          "display_name": "GTE Rerank Hybrid",
+          "model_id": "gte-rerank-hybrid",
+          "max_chunks_per_doc": 1000,
+          "description": "Hybrid rerank model combining semantic and lexical matching"
+        }
+      ]
+    },
+    "Voyage AI": {
+      "name": "Voyage AI",
+      "display_name": "Voyage AI",
+      "provider": "voyageai",
+      "class_name": "VoyageRerank",
+      "api_key_env_vars": [
+        "VOYAGE_API_KEY"
+      ],
+      "base_url": "https://api.voyageai.com/v1/rerank",
+      "default_model": "rerank-2",
+      "description": "Voyage AI rerank models",
+      "documentation_url": "https://docs.voyageai.com/docs/reranker",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "rerank-2",
+          "display_name": "Voyage Rerank 2",
+          "model_id": "rerank-2",
+          "max_chunks_per_doc": 1000,
+          "description": "General purpose reranker"
+        },
+        {
+          "name": "rerank-lite-1",
+          "display_name": "Voyage Rerank Lite 1",
+          "model_id": "rerank-lite-1",
+          "max_chunks_per_doc": 1000,
+          "description": "Fast and efficient reranker"
+        }
+      ]
+    },
+    "SiliconFlow": {
+      "name": "SiliconFlow",
+      "display_name": "SiliconFlow (BGE)",
+      "provider": "siliconflow",
+      "class_name": "SiliconFlowRerank",
+      "api_key_env_vars": [
+        "SILICONFLOW_API_KEY"
+      ],
+      "base_url": "https://api.siliconflow.cn/v1/rerank",
+      "default_model": "BAAI/bge-reranker-v2-m3",
+      "description": "SiliconFlow BGE rerank models",
+      "documentation_url": "https://docs.siliconflow.cn/api-reference/rerank/rerank",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "BAAI/bge-reranker-v2-m3",
+          "display_name": "BGE Reranker v2 M3",
+          "model_id": "BAAI/bge-reranker-v2-m3",
+          "max_chunks_per_doc": 1000,
+          "description": "Multilingual BGE reranker"
+        },
+        {
+          "name": "BAAI/bge-reranker-large",
+          "display_name": "BGE Reranker Large",
+          "model_id": "BAAI/bge-reranker-large",
+          "max_chunks_per_doc": 1000,
+          "description": "Large BGE reranker"
+        }
+      ]
+    },
+    "Ollama": {
+      "name": "Ollama",
+      "display_name": "Ollama (Local)",
+      "provider": "ollama",
+      "class_name": "OllamaRerank",
+      "api_key_env_vars": [],
+      "base_url": "http://localhost:11434/api/rerank",
+      "default_model": "bge-m3",
+      "description": "Local rerank models via Ollama (Requires compatible endpoint)",
+      "documentation_url": "https://ollama.com",
+      "is_local": true,
+      "supported_models": [
+        {
+          "name": "bge-m3",
+          "display_name": "BGE M3",
+          "model_id": "bge-m3",
+          "max_chunks_per_doc": 1000,
+          "description": "BGE M3 model running on Ollama"
+        },
+        {
+          "name": "bge-reranker-v2-m3",
+          "display_name": "BGE Reranker v2 M3",
+          "model_id": "bge-reranker-v2-m3",
+          "max_chunks_per_doc": 1000,
+          "description": "BGE Reranker v2 M3 running on Ollama"
+        }
+      ]
+    },
+    "Baidu Qianfan": {
+      "name": "Baidu Qianfan",
+      "display_name": "Baidu Qianfan",
+      "provider": "baidu_qianfan",
+      "class_name": "BaiduQianfanRerank",
+      "api_key_env_vars": [
+        "BAIDU_API_KEY"
+      ],
+      "base_url": "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/reranker",
+      "default_model": "bce-reranker-base_v1",
+      "description": "Baidu Qianfan rerank models",
+      "documentation_url": "https://cloud.baidu.com/doc/WENXINWORKSHOP/s/7lq0buxys",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "bce-reranker-base_v1",
+          "display_name": "BCE Reranker Base v1",
+          "model_id": "bce-reranker-base_v1",
+          "max_chunks_per_doc": 1000,
+          "description": "Baidu BCE reranker model"
+        }
+      ]
+    }
+  },
+  "default_provider": "Cohere"
+}

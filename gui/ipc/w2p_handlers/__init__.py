@@ -25,6 +25,14 @@ def _ensure_handlers_loaded():
         logger.error(f"Failed to import embedding_handler: {e}")
         logger.debug(traceback.format_exc())
     
+    # Explicitly import rerank_handler to ensure it's loaded
+    try:
+        from . import rerank_handler  # noqa: F401
+    except Exception as e:
+        import traceback
+        logger.error(f"Failed to import rerank_handler: {e}")
+        logger.debug(traceback.format_exc())
+    
     for loader, name, is_pkg in pkgutil.walk_packages(__path__):
         try:
             # Skip __init__ and already imported modules

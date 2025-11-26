@@ -25,23 +25,21 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
   const currentProviderId = settings[bindingKey] || providers[0]?.id || '';
   const currentProvider = providers.find(p => p.id === currentProviderId);
 
-  const isSystemManaged = (key: string) => {
-    return (key === 'LLM_BINDING_API_KEY' && !!settings['_SYSTEM_LLM_KEY_SOURCE']) ||
-           (key === 'EMBEDDING_BINDING_API_KEY' && !!settings['_SYSTEM_EMBED_KEY_SOURCE']);
-  };
-
   const handleNavigateToSettings = (fieldKey: string) => {
     // Navigate within the app using hash routing (same as onboarding)
     if (fieldKey === 'LLM_BINDING_API_KEY') {
       window.location.hash = '#/settings?tab=llm';
     } else if (fieldKey === 'EMBEDDING_BINDING_API_KEY') {
       window.location.hash = '#/settings?tab=embedding';
+    } else if (fieldKey === 'RERANK_BINDING_API_KEY') {
+      window.location.hash = '#/settings?tab=rerank';
     }
   };
 
   const renderField = (field: ProviderFieldConfig) => {
     const value = settings[field.key] || field.defaultValue || '';
-    const managed = isSystemManaged(field.key);
+    // Use field.isSystemManaged property directly from backend data
+    const managed = field.isSystemManaged || false;
     
     // Translate placeholder only for select type with matching option values
     const placeholder = field.placeholder 
@@ -132,7 +130,9 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
         
       case 'password':
         // Check if this is an API key field that should have a settings button
-        const isApiKeyField = field.key === 'LLM_BINDING_API_KEY' || field.key === 'EMBEDDING_BINDING_API_KEY';
+        const isApiKeyField = field.key === 'LLM_BINDING_API_KEY' || 
+                             field.key === 'EMBEDDING_BINDING_API_KEY' ||
+                             field.key === 'RERANK_BINDING_API_KEY';
         
         return (
           <div key={field.key} style={{ marginBottom: 12 }}>

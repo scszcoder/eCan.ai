@@ -504,6 +504,26 @@ class GeneralSettings:
     def default_embedding_model(self, value: str):
         self._data["default_embedding_model"] = value
 
+    # ==================== Rerank Settings ====================
+    
+    @property
+    def default_rerank(self) -> str:
+        """Default Rerank provider to use"""
+        return self._data.get("default_rerank", "")
+
+    @default_rerank.setter
+    def default_rerank(self, value: str):
+        self._data["default_rerank"] = value
+
+    @property
+    def default_rerank_model(self) -> str:
+        """Default Rerank model for the current default provider"""
+        return self._data.get("default_rerank_model", "")
+
+    @default_rerank_model.setter
+    def default_rerank_model(self, value: str):
+        self._data["default_rerank_model"] = value
+
     @property
     def skill_use_git(self) -> bool:
         """Whether skills use git"""

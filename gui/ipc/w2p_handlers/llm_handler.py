@@ -33,16 +33,22 @@ def get_embedding_manager():
     return main_window.config_manager.embedding_manager
 
 
+def get_rerank_manager():
+    """Get Rerank manager instance"""
+    main_window = AppContext.get_main_window()
+    return main_window.config_manager.rerank_manager
+
+
 def find_shared_providers(env_vars: list, provider_type: str) -> list:
     """
-    Find providers in the other system (LLM/Embedding) that share the same API key env vars.
+    Find providers in the other systems (LLM/Embedding/Rerank) that share the same API key env vars.
     
     Args:
         env_vars: List of environment variable names used by the current provider
-        provider_type: 'llm' or 'embedding' to indicate which system we're updating
+        provider_type: 'llm', 'embedding', or 'rerank' to indicate which system we're updating
     
     Returns:
-        List of provider names that share the same env_vars
+        List of provider dicts that share the same env_vars
     """
     shared_providers = []
     try:
@@ -55,44 +61,33 @@ def find_shared_providers(env_vars: list, provider_type: str) -> list:
             logger.debug("find_shared_providers: config_manager is not available")
             return shared_providers
         
-        if provider_type == 'llm':
-            # Find Embedding providers that share the same env_vars
+        # Helper to check providers in a specific manager
+        def check_manager(manager, type_name):
+            if not manager:
+                return
             try:
-                embedding_manager = get_embedding_manager()
-                if not embedding_manager:
-                    logger.debug("find_shared_providers: embedding_manager is None")
-                    return shared_providers
-                all_embedding_providers = embedding_manager.get_all_providers()
-                for provider in all_embedding_providers:
+                all_providers = manager.get_all_providers()
+                for provider in all_providers:
                     provider_env_vars = provider.get('api_key_env_vars', [])
-                    # Check if there's any overlap in env_vars
                     if any(env_var in provider_env_vars for env_var in env_vars):
                         shared_providers.append({
                             'name': provider.get('provider'),  # Use standard identifier
-                            'type': 'embedding',
+                            'type': type_name,
                             'shared_env_vars': [ev for ev in env_vars if ev in provider_env_vars]
                         })
             except Exception as e:
-                logger.debug(f"Error getting embedding providers: {e}")
-        elif provider_type == 'embedding':
-            # Find LLM providers that share the same env_vars
-            try:
-                llm_manager = get_llm_manager()
-                if not llm_manager:
-                    logger.debug("find_shared_providers: llm_manager is None")
-                    return shared_providers
-                all_llm_providers = llm_manager.get_all_providers()
-                for provider in all_llm_providers:
-                    provider_env_vars = provider.get('api_key_env_vars', [])
-                    # Check if there's any overlap in env_vars
-                    if any(env_var in provider_env_vars for env_var in env_vars):
-                        shared_providers.append({
-                            'name': provider.get('provider'),  # Use standard identifier
-                            'type': 'llm',
-                            'shared_env_vars': [ev for ev in env_vars if ev in provider_env_vars]
-                        })
-            except Exception as e:
-                logger.debug(f"Error getting llm providers: {e}")
+                logger.debug(f"Error checking {type_name} providers: {e}")
+
+        # Check other systems based on current provider type
+        if provider_type != 'embedding':
+            check_manager(get_embedding_manager(), 'embedding')
+            
+        if provider_type != 'llm':
+            check_manager(get_llm_manager(), 'llm')
+            
+        if provider_type != 'rerank':
+            check_manager(get_rerank_manager(), 'rerank')
+
     except Exception as e:
         logger.warning(f"Error finding shared providers: {e}", exc_info=True)
     

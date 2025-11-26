@@ -813,19 +813,25 @@ def handle_query_graphs(request: IPCRequest, params: Optional[Dict[str, Any]]) -
 
 @IPCHandlerRegistry.handler('lightrag.getSystemProviders')
 def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Get system LLM and Embedding providers for LightRAG configuration."""
+    """Get system LLM, Embedding and Rerank providers for LightRAG configuration."""
     try:
         from gui.config.llm_config import llm_config
         from gui.config.embedding_config import embedding_config
+        from gui.config.rerank_config import RerankConfig
         from app_context import AppContext
         
         # Get manager instances to retrieve API keys
         main_window = AppContext.get_main_window()
         llm_manager = main_window.config_manager.llm_manager if main_window else None
         embedding_manager = main_window.config_manager.embedding_manager if main_window else None
+        rerank_manager = main_window.config_manager.rerank_manager if main_window else None
+        
+        # Create fresh RerankConfig instance to ensure latest JSON is loaded
+        rerank_conf_instance = RerankConfig()
         
         system_llm_providers = llm_config.get_all_providers()
         system_embed_providers = embedding_config.get_all_providers()
+        system_rerank_providers = rerank_conf_instance.get_all_providers()
         
         llm_providers_ui = []
         for key, p in system_llm_providers.items():
@@ -925,9 +931,59 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
                 'modelMetadata': model_metadata
             })
 
+        # Build Rerank providers UI
+        rerank_providers_ui = []
+        if not rerank_manager:
+            logger.warning("[SystemProviders] Rerank manager is not available!")
+
+        for key, p in system_rerank_providers.items():
+            # Check if provider has models list
+            model_field = {'key': 'RERANK_MODEL', 'label': 'fields.model', 'type': 'text', 'required': True, 'defaultValue': p.default_model or ''}
+
+            if hasattr(p, 'supported_models') and p.supported_models:
+                model_field['type'] = 'select'
+                model_field['options'] = [{'value': m.model_id, 'label': m.display_name or m.name} for m in p.supported_models]
+            
+            fields = [model_field]
+            
+            if p.base_url or p.is_local:
+                fields.append({'key': 'RERANK_BINDING_HOST', 'label': 'fields.apiHost', 'type': 'text', 'defaultValue': p.base_url or '', 'disabled': True})
+            
+            # Always check for API keys
+            if p.api_key_env_vars:
+                field_def = {'key': 'RERANK_BINDING_API_KEY', 'label': 'fields.apiKey', 'type': 'password', 'required': True}
+                
+                # Try to retrieve API key using manager
+                if rerank_manager:
+                    try:
+                        # Check if any of the env vars has a configured key
+                        api_key = None
+                        for env_var in p.api_key_env_vars:
+                            key_val = rerank_manager.retrieve_api_key(env_var)
+                            if key_val:
+                                api_key = key_val
+                                break
+                        
+                        if api_key:
+                            field_def['isSystemManaged'] = True
+                            # Return full API key - frontend Input.Password will handle visibility
+                            field_def['defaultValue'] = api_key
+                    except Exception as e:
+                        logger.warning(f"Failed to retrieve API key for {p.provider.value}: {e}")
+                
+                fields.append(field_def)
+
+            rerank_providers_ui.append({
+                'id': p.provider.value,
+                'name': p.display_name,
+                'description': p.description,
+                'fields': fields
+            })
+
         return create_success_response(request, {
             'llm_providers': llm_providers_ui,
-            'embedding_providers': embedding_providers_ui
+            'embedding_providers': embedding_providers_ui,
+            'rerank_providers': rerank_providers_ui
         })
     except Exception as e:
         logger.error(f"Error getting system providers: {e}")

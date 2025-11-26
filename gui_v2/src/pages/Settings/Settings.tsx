@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, Form, Select, Switch, Button, App, Input, Row, Col, Tooltip, Divider, Tabs, theme } from 'antd';
-import { ReloadOutlined, FolderOpenOutlined, GlobalOutlined } from '@ant-design/icons';
+import { ReloadOutlined, FolderOpenOutlined, GlobalOutlined, SettingOutlined, RobotOutlined, BlockOutlined, SortAscendingOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useEffectOnActive } from 'keepalive-for-react';
 import { useLocation } from 'react-router-dom';
@@ -10,7 +10,7 @@ import { useUserStore } from '../../stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 
 import type { Settings } from './types';
-import { LLMManagement, EmbeddingManagement } from './components';
+import { LLMManagement, EmbeddingManagement, RerankManagement } from './components';
 
 // Suppress Ant Design useForm warning (form is properly connected in Tab children)
 const originalError = console.error;
@@ -180,6 +180,10 @@ const initialSettings: Settings = {
   // Embedding
   default_embedding: 'OpenAI',
   default_embedding_model: 'text-embedding-3-small',
+  
+  // Rerank
+  default_rerank: '',
+  default_rerank_model: '',
   
   // Skill
   skill_use_git: false,
@@ -376,6 +380,7 @@ const Settings: React.FC = () => {
   // Refs to manage cross-component refresh for shared providers
   const llmManagementRef = React.useRef<{ loadProviders: () => Promise<void> } | null>(null);
   const embeddingManagementRef = React.useRef<{ loadProviders: () => Promise<void> } | null>(null);
+  const rerankManagementRef = React.useRef<{ loadProviders: () => Promise<void> } | null>(null);
 
   // Callback to refresh the other component when shared providers are updated
   const handleSharedProviderUpdate = useCallback((sharedProviders: Array<{ name: string; type: string }>) => {
@@ -386,6 +391,9 @@ const Settings: React.FC = () => {
       if (provider.type === 'embedding' && embeddingManagementRef.current) {
         console.log('🔄 [Settings] Refreshing EmbeddingManagement due to shared provider:', provider.name);
         embeddingManagementRef.current.loadProviders();
+      } else if (provider.type === 'rerank' && rerankManagementRef.current) {
+        console.log('🔄 [Settings] Refreshing RerankManagement due to shared provider:', provider.name);
+        rerankManagementRef.current.loadProviders();
       } else if (provider.type === 'llm' && llmManagementRef.current) {
         console.log('🔄 [Settings] Refreshing LLMManagement due to shared provider:', provider.name);
         llmManagementRef.current.loadProviders();
@@ -429,6 +437,50 @@ const Settings: React.FC = () => {
           })
           .catch(error => {
             console.error('❌ Error saving default Embedding settings:', error);
+          });
+        
+        return updatedSettings;
+      }
+      return prevSettings;
+    });
+  }, [username]);
+
+  // Handle default Rerank change from RerankManagement component
+  const handleDefaultRerankChange = useCallback(async (newDefaultRerank: string, newDefaultModel?: string) => {
+    console.log('🔔 [Settings] handleDefaultRerankChange called:', { newDefaultRerank, newDefaultModel });
+    
+    if (!username) {
+      console.warn('⚠️ No username, skipping settings save');
+      return;
+    }
+
+    // Update local settings data
+    setSettingsData(prevSettings => {
+      console.log('🔄 [Settings] Previous settings:', { default_rerank: prevSettings?.default_rerank, default_rerank_model: prevSettings?.default_rerank_model });
+      
+      if (prevSettings) {
+        const updates: any = { default_rerank: newDefaultRerank };
+        // Also update default_rerank_model if provided
+        if (newDefaultModel !== undefined) {
+          updates.default_rerank_model = newDefaultModel;
+        }
+        console.log('🔄 Updating settings in parent:', updates);
+        
+        // Save updated settings to backend
+        const updatedSettings = { ...prevSettings, ...updates };
+        console.log('✅ [Settings] New settings created:', { default_rerank: updatedSettings.default_rerank, default_rerank_model: updatedSettings.default_rerank_model });
+        
+        // Async save to backend (don't await to avoid blocking UI)
+        get_ipc_api().saveSettings({ username, ...updatedSettings })
+          .then(response => {
+            if (response && response.success) {
+              console.log('✅ Default Rerank settings saved to backend:', { default_rerank: newDefaultRerank, default_rerank_model: newDefaultModel });
+            } else {
+              console.error('❌ Failed to save default Rerank settings:', response);
+            }
+          })
+          .catch(error => {
+            console.error('❌ Error saving default Rerank settings:', error);
           });
         
         return updatedSettings;
@@ -616,7 +668,12 @@ const Settings: React.FC = () => {
           items={[
             {
               key: 'general',
-              label: t('pages.settings.general_tab_title') || 'General',
+              label: (
+                <span>
+                  <SettingOutlined style={{ marginRight: 8 }} />
+                  {t('pages.settings.general_tab_title') || 'General'}
+                </span>
+              ),
               children: (
                 <StyledCard
                   title={t('common.settings')}
@@ -1396,7 +1453,12 @@ const Settings: React.FC = () => {
             },
             {
               key: 'llm',
-              label: t('pages.settings.llm_tab_title') || 'LLM',
+              label: (
+                <span>
+                  <RobotOutlined style={{ marginRight: 8 }} />
+                  {t('pages.settings.llm_tab_title') || 'LLM'}
+                </span>
+              ),
               children: (
                 <LLMManagement
                   ref={llmManagementRef}
@@ -1410,7 +1472,12 @@ const Settings: React.FC = () => {
             },
             {
               key: 'embedding',
-              label: t('pages.settings.embedding_tab_title') || 'Embedding',
+              label: (
+                <span>
+                  <BlockOutlined style={{ marginRight: 8 }} />
+                  {t('pages.settings.embedding_tab_title') || 'Embedding'}
+                </span>
+              ),
               children: (
                 <EmbeddingManagement
                   ref={embeddingManagementRef}
@@ -1418,6 +1485,25 @@ const Settings: React.FC = () => {
                   defaultEmbedding={settingsData?.default_embedding || ''}
                   settingsLoaded={settingsLoaded}
                   onDefaultEmbeddingChange={handleDefaultEmbeddingChange}
+                  onSharedProviderUpdate={handleSharedProviderUpdate}
+                />
+              ),
+            },
+            {
+              key: 'rerank',
+              label: (
+                <span>
+                  <SortAscendingOutlined style={{ marginRight: 8 }} />
+                  {t('pages.settings.rerank_tab_title') || 'Rerank'}
+                </span>
+              ),
+              children: (
+                <RerankManagement
+                  ref={rerankManagementRef}
+                  username={username}
+                  defaultRerank={settingsData?.default_rerank || ''}
+                  settingsLoaded={settingsLoaded}
+                  onDefaultRerankChange={handleDefaultRerankChange}
                   onSharedProviderUpdate={handleSharedProviderUpdate}
                 />
               ),

@@ -144,6 +144,14 @@ class ConfigManager:
             self._embedding_manager = EmbeddingManager(self)
         return self._embedding_manager
 
+    @property
+    def rerank_manager(self):
+        """Rerank manager entity"""
+        if not hasattr(self, '_rerank_manager'):
+            from gui.manager.rerank_manager import RerankManager
+            self._rerank_manager = RerankManager(self)
+        return self._rerank_manager
+
     def save_all_settings(self) -> bool:
         """Save all settings"""
         try:

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { theme } from 'antd';
+import { FileTextOutlined, ShareAltOutlined, SearchOutlined, SettingOutlined } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useTranslation } from 'react-i18next';
 import Header from './Header';
@@ -53,10 +54,22 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', onChange, rend
         position: 'relative',
         minHeight: 52
       }}>
-        <button className={`ec-tab ${active === 'documents' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('documents')}>{t('pages.knowledge.tabs.documents')}</button>
-        <button className={`ec-tab ${active === 'knowledge-graph' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('knowledge-graph')}>{t('pages.knowledge.tabs.knowledgeGraph')}</button>
-        <button className={`ec-tab ${active === 'retrieval' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('retrieval')}>{t('pages.knowledge.tabs.retrieval')}</button>
-        <button className={`ec-tab ${active === 'settings' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('settings')}>{t('pages.knowledge.tabs.settings')}</button>
+        <button className={`ec-tab ${active === 'documents' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('documents')}>
+          <FileTextOutlined style={{ marginRight: 8 }} />
+          {t('pages.knowledge.tabs.documents')}
+        </button>
+        <button className={`ec-tab ${active === 'knowledge-graph' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('knowledge-graph')}>
+          <ShareAltOutlined style={{ marginRight: 8 }} />
+          {t('pages.knowledge.tabs.knowledgeGraph')}
+        </button>
+        <button className={`ec-tab ${active === 'retrieval' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('retrieval')}>
+          <SearchOutlined style={{ marginRight: 8 }} />
+          {t('pages.knowledge.tabs.retrieval')}
+        </button>
+        <button className={`ec-tab ${active === 'settings' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('settings')}>
+          <SettingOutlined style={{ marginRight: 8 }} />
+          {t('pages.knowledge.tabs.settings')}
+        </button>
         {/* API tab is present but invisible per requirement */}
         <button className={`ec-tab ${active === 'api' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('api')} style={{ visibility: 'hidden' }}>API</button>
       </div>
