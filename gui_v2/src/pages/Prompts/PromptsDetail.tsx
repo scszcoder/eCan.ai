@@ -181,7 +181,13 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
 
   // Helpers to localize display-only values (do not mutate underlying data)
   const safeString = (v: any) => (typeof v === 'string' ? v : (v == null ? '' : String(v)));
-  const lx = (path: string, fallback: string) => safeString(t(path, { defaultValue: fallback }));
+  const lx = (path: string, fallback: string) => {
+    const translated = t(path, { defaultValue: fallback }) as unknown as string;
+    if (!translated || translated === path) {
+      return safeString(fallback);
+    }
+    return safeString(translated);
+  };
   const localizeList = (baseKey: string, list: any) => {
     try {
       const arr = Array.isArray(list) ? list : [];

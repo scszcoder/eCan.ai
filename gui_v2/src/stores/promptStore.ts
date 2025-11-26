@@ -7,7 +7,7 @@ interface PromptStoreState {
   loading: boolean;
   error: string | null;
   fetched: boolean;
-  fetch: (username: string) => Promise<void>;
+  fetch: (username: string, force?: boolean) => Promise<void>;
   save: (username: string, prompt: Prompt) => Promise<Prompt | null>;
   remove: (username: string, id: string) => Promise<boolean>;
 }
@@ -17,8 +17,8 @@ export const usePromptStore = create<PromptStoreState>((set, get) => ({
   loading: false,
   error: null,
   fetched: false,
-  fetch: async (username: string) => {
-    if (get().loading) return;
+  fetch: async (username: string, force = false) => {
+    if (get().loading && !force) return;
     set({ loading: true, error: null });
     try {
       const res: APIResponse<{ prompts: Prompt[] }> = await IPCAPI.getInstance().executeRequest('get_prompts', { username });
