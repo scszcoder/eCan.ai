@@ -65,7 +65,7 @@ from agent.mcp.server.scrapers.amazon_seller.amazon_utils import (
     amazon_generate_work_summary,
 )
 from agent.mcp.server.scrapers.api_ecan_ai_cloud_search.api_ecan_ai_cloud_search import api_ecan_ai_cloud_search
-from agent.mcp.server.scrapers.ebay_seller.ebay_messages_scrape import ebay_respond_to_message, ebay_read_next_message
+from agent.mcp.server.scrapers.ebay_seller.ebay_messages_scrape import ebay_read_all_messages, ebay_respond_to_message, ebay_read_next_message
 from agent.mcp.server.scrapers.ebay_seller.ebay_orders_scrape import ebay_fullfill_next_order, get_ebay_summary,ebay_cancel_orders
 from agent.mcp.server.scrapers.ebay_seller.ebay_search import ebay_search
 from agent.mcp.server.scrapers.ebay_seller.ebay_listing import ebay_add_listings, ebay_remove_listings, ebay_update_listings, ebay_get_listings, ebay_add_listing_templates, ebay_remove_listing_templates, ebay_update_listing_templates
@@ -1733,6 +1733,7 @@ tool_function_mapping = {
         "ebay_fullfill_next_order": ebay_fullfill_next_order,
         "ebay_read_next_message": ebay_read_next_message,
         "ebay_respond_to_message": ebay_respond_to_message,
+        "ebay_read_all_messages": ebay_read_all_messages,
         "ebay_handle_return": ebay_handle_return,
         "ebay_cancel_orders": ebay_cancel_orders,
         "ebay_gen_labels": ebay_gen_labels,

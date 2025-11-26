@@ -10,6 +10,7 @@ from utils.logger_helper import get_traceback
 from selenium.common.exceptions import InvalidArgumentException, WebDriverException
 import sys
 import subprocess
+import time
 from utils.subprocess_helper import get_windows_creation_flags
 
 API_CONN = "http://local/adspower.net:50360"
@@ -442,4 +443,6 @@ def connect_to_adspower(mainwin, url):
         logger.error(err_trace)
         webdriver = None
 
+    if webdriver:
+        mainwin.setWebDriver(webdriver)
     return webdriver
