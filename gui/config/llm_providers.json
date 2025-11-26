@@ -9,47 +9,11 @@
         "OPENAI_API_KEY"
       ],
       "base_url": "https://api.openai.com/v1",
-      "default_model": "o1",
+      "default_model": "gpt-5",
       "description": "OpenAI models including latest O1 reasoning and GPT-4 family",
       "documentation_url": "https://platform.openai.com/docs",
       "is_local": false,
       "supported_models": [
-        {
-          "name": "o1",
-          "display_name": "O1",
-          "model_id": "o1",
-          "default_temperature": 1.0,
-          "max_tokens": 100000,
-          "supports_streaming": false,
-          "supports_function_calling": false,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.015,
-          "description": "OpenAI's reasoning model for complex problem-solving"
-        },
-        {
-          "name": "o1-mini",
-          "display_name": "O1 Mini",
-          "model_id": "o1-mini",
-          "default_temperature": 1.0,
-          "max_tokens": 65536,
-          "supports_streaming": false,
-          "supports_function_calling": false,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.003,
-          "description": "Faster and cheaper reasoning model"
-        },
-        {
-          "name": "o1-preview",
-          "display_name": "O1 Preview",
-          "model_id": "o1-preview",
-          "default_temperature": 1.0,
-          "max_tokens": 128000,
-          "supports_streaming": false,
-          "supports_function_calling": false,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.015,
-          "description": "Preview version of O1 reasoning model"
-        },
         {
           "name": "gpt-4o",
           "display_name": "GPT-4o",
@@ -111,54 +75,6 @@
           "description": "Efficient GPT-5.1 Mini model"
         },
         {
-          "name": "gpt-4.1",
-          "display_name": "GPT-4.1",
-          "model_id": "gpt-4.1",
-          "default_temperature": 0.7,
-          "max_tokens": 1000000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "New GPT series with improved coding, instruction-following, and 1M context"
-        },
-        {
-          "name": "gpt-4.1-mini",
-          "display_name": "GPT-4.1 Mini",
-          "model_id": "gpt-4.1-mini",
-          "default_temperature": 0.7,
-          "max_tokens": 1000000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "Smaller, cost‑efficient GPT‑4.1 variant"
-        },
-        {
-          "name": "gpt-4.1-nano",
-          "display_name": "GPT-4.1 Nano",
-          "model_id": "gpt-4.1-nano",
-          "default_temperature": 0.7,
-          "max_tokens": 1000000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "Lightweight GPT‑4.1 for edge/low‑latency scenarios"
-        },
-        {
-          "name": "o3",
-          "display_name": "O3",
-          "model_id": "o3",
-          "default_temperature": 1.0,
-          "max_tokens": 100000,
-          "supports_streaming": false,
-          "supports_function_calling": false,
-          "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "Latest reasoning model in OpenAI o‑series"
-        },
-        {
           "name": "o4-mini",
           "display_name": "O4 Mini",
           "model_id": "o4-mini",
@@ -187,30 +103,6 @@
       "documentation_url": "https://docs.microsoft.com/en-us/azure/cognitive-services/openai/",
       "is_local": false,
       "supported_models": [
-        {
-          "name": "o1",
-          "display_name": "O1 (Azure)",
-          "model_id": "o1",
-          "default_temperature": 1.0,
-          "max_tokens": 100000,
-          "supports_streaming": false,
-          "supports_function_calling": false,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.015,
-          "description": "O1 reasoning model deployed via Azure OpenAI"
-        },
-        {
-          "name": "o1-mini",
-          "display_name": "O1 Mini (Azure)",
-          "model_id": "o1-mini",
-          "default_temperature": 1.0,
-          "max_tokens": 65536,
-          "supports_streaming": false,
-          "supports_function_calling": false,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.003,
-          "description": "O1 Mini reasoning model on Azure"
-        },
         {
           "name": "gpt-4o",
           "display_name": "GPT-4o (Azure)",
@@ -270,47 +162,11 @@
         "ANTHROPIC_API_KEY"
       ],
       "base_url": "https://api.anthropic.com",
-      "default_model": "claude-3-5-sonnet-latest",
+      "default_model": "claude-sonnet-4.5",
       "description": "Anthropic Claude models",
       "documentation_url": "https://docs.anthropic.com/",
       "is_local": false,
       "supported_models": [
-        {
-          "name": "claude-3-5-sonnet-latest",
-          "display_name": "Claude 3.5 Sonnet (Latest)",
-          "model_id": "claude-3-5-sonnet-latest",
-          "default_temperature": 0.7,
-          "max_tokens": 200000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.015,
-          "description": "Claude 3.5 Sonnet latest release with enhanced capabilities"
-        },
-        {
-          "name": "claude-3-5-haiku-latest",
-          "display_name": "Claude 3.5 Haiku",
-          "model_id": "claude-3-5-haiku-latest",
-          "default_temperature": 0.7,
-          "max_tokens": 200000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.0025,
-          "description": "Fast and cost-effective Claude 3.5 Haiku"
-        },
-        {
-          "name": "claude-3-opus-20240229",
-          "display_name": "Claude 3 Opus",
-          "model_id": "claude-3-opus-20240229",
-          "default_temperature": 0.7,
-          "max_tokens": 200000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.075,
-          "description": "Claude 3 Opus for complex reasoning tasks"
-        },
         {
           "name": "claude-opus-4",
           "display_name": "Claude Opus 4",
@@ -359,35 +215,11 @@
         "AWS_SECRET_ACCESS_KEY"
       ],
       "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com",
-      "default_model": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+      "default_model": "anthropic.claude-sonnet-4.5",
       "description": "AWS Bedrock Converse API",
       "documentation_url": "https://docs.aws.amazon.com/bedrock/",
       "is_local": false,
       "supported_models": [
-        {
-          "name": "anthropic.claude-3-5-sonnet-20241022-v2:0",
-          "display_name": "Claude 3.5 Sonnet (Bedrock)",
-          "model_id": "anthropic.claude-3-5-sonnet-20241022-v2:0",
-          "default_temperature": 0.7,
-          "max_tokens": 4096,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.015,
-          "description": "Claude 3.5 Sonnet via AWS Bedrock"
-        },
-        {
-          "name": "anthropic.claude-3-5-haiku-20241022-v1:0",
-          "display_name": "Claude 3.5 Haiku (Bedrock)",
-          "model_id": "anthropic.claude-3-5-haiku-20241022-v1:0",
-          "default_temperature": 0.7,
-          "max_tokens": 4096,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.0025,
-          "description": "Claude 3.5 Haiku via AWS Bedrock"
-        },
         {
           "name": "meta.llama3.1-70b-instruct-v1:0",
           "display_name": "Llama 3.1 70B Instruct",
@@ -423,71 +255,11 @@
         "GEMINI_API_KEY"
       ],
       "base_url": "https://generativelanguage.googleapis.com/v1beta/",
-      "default_model": "gemini-2.0-pro",
+      "default_model": "gemini-3.0-pro",
       "description": "Google Gemini models",
       "documentation_url": "https://ai.google.dev/docs",
       "is_local": false,
       "supported_models": [
-        {
-          "name": "gemini-2.0-pro",
-          "display_name": "Gemini 2.0 Pro",
-          "model_id": "gemini-2.0-pro",
-          "default_temperature": 0.7,
-          "max_tokens": 131072,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.0025,
-          "description": "Latest Gemini 2.0 Pro model with multimodal reasoning"
-        },
-        {
-          "name": "gemini-2.0-flash",
-          "display_name": "Gemini 2.0 Flash",
-          "model_id": "gemini-2.0-flash",
-          "default_temperature": 0.7,
-          "max_tokens": 131072,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.0015,
-          "description": "Gemini 2.0 Flash optimized for low-latency workloads"
-        },
-        {
-          "name": "gemini-1.5-pro",
-          "display_name": "Gemini 1.5 Pro",
-          "model_id": "gemini-1.5-pro",
-          "default_temperature": 0.7,
-          "max_tokens": 1048576,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.003,
-          "description": "Gemini 1.5 Pro with large context window"
-        },
-        {
-          "name": "gemini-1.5-flash",
-          "display_name": "Gemini 1.5 Flash",
-          "model_id": "gemini-1.5-flash",
-          "default_temperature": 0.7,
-          "max_tokens": 1048576,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.001,
-          "description": "Gemini 1.5 Flash for latency-sensitive tasks"
-        },
-        {
-          "name": "gemini-1.5-flash-8b",
-          "display_name": "Gemini 1.5 Flash 8B",
-          "model_id": "gemini-1.5-flash-8b",
-          "default_temperature": 0.7,
-          "max_tokens": 1048576,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.0005,
-          "description": "Compact Gemini 1.5 Flash 8B model"
-        },
         {
           "name": "gemini-2.5-pro",
           "display_name": "Gemini 2.5 Pro",
@@ -687,54 +459,6 @@
           "supports_vision": true,
           "cost_per_1k_tokens": 0.006,
           "description": "Multimodal Qwen VL model"
-        },
-        {
-          "name": "qwen-2.5",
-          "display_name": "Qwen 2.5",
-          "model_id": "qwen-2.5",
-          "default_temperature": 0.7,
-          "max_tokens": 131072,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "Latest Qwen 2.5 series (per technical report)"
-        },
-        {
-          "name": "qwen-2.5-72b-instruct",
-          "display_name": "Qwen 2.5 72B Instruct",
-          "model_id": "qwen-2.5-72b-instruct",
-          "default_temperature": 0.7,
-          "max_tokens": 131072,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.004,
-          "description": "Qwen 2.5 72B open-weights model hosted on DashScope"
-        },
-        {
-          "name": "qwen-2.5-coder-32b-instruct",
-          "display_name": "Qwen 2.5 Coder 32B",
-          "model_id": "qwen-2.5-coder-32b-instruct",
-          "default_temperature": 0.2,
-          "max_tokens": 131072,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.002,
-          "description": "State-of-the-art open code model"
-        },
-        {
-          "name": "qwen-2.5-math-72b-instruct",
-          "display_name": "Qwen 2.5 Math 72B",
-          "model_id": "qwen-2.5-math-72b-instruct",
-          "default_temperature": 0.7,
-          "max_tokens": 131072,
-          "supports_streaming": true,
-          "supports_function_calling": false,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.004,
-          "description": "Specialized math reasoning model"
         }
       ]
     },
@@ -811,60 +535,12 @@
           "supports_vision": false,
           "cost_per_1k_tokens": 0.0003,
           "description": "Doubao Lite with 32K context"
-        },
-        {
-          "name": "doubao-1.5-pro-256k",
-          "display_name": "Doubao 1.5 Pro 256K",
-          "model_id": "doubao-1.5-pro-256k",
-          "default_temperature": 0.7,
-          "max_tokens": 256000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": null,
-          "description": "Doubao 1.5 Pro 256K variant"
-        },
-        {
-          "name": "doubao-1.5-pro-32k",
-          "display_name": "Doubao 1.5 Pro 32K",
-          "model_id": "doubao-1.5-pro-32k",
-          "default_temperature": 0.7,
-          "max_tokens": 32000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": null,
-          "description": "Doubao 1.5 Pro 32K variant"
-        },
-        {
-          "name": "doubao-1.5-vision-pro",
-          "display_name": "Doubao 1.5 Vision Pro",
-          "model_id": "doubao-1.5-vision-pro",
-          "default_temperature": 0.7,
-          "max_tokens": 32000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "Vision-capable Doubao model"
-        },
-        {
-          "name": "doubao-1.5-thinking-pro",
-          "display_name": "Doubao 1.5 Thinking Pro",
-          "model_id": "doubao-1.5-thinking-pro",
-          "default_temperature": 0.7,
-          "max_tokens": 32000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": null,
-          "description": "Enhanced chain-of-thought style 'thinking' model"
         }
       ]
     },
-    "百度千帆": {
-      "name": "百度千帆",
-      "display_name": "百度千帆",
+    "Baidu Qianfan": {
+      "name": "Baidu Qianfan",
+      "display_name": "Baidu Qianfan",
       "provider": "baidu_qianfan",
       "class_name": "ChatBaiduQianfan",
       "api_key_env_vars": [
@@ -911,18 +587,6 @@
           "supports_vision": false,
           "cost_per_1k_tokens": null,
           "description": "百度文心3.5模型，8K上下文"
-        },
-        {
-          "name": "ernie-3.5-128k",
-          "display_name": "ERNIE 3.5 128K",
-          "model_id": "ernie-3.5-128k",
-          "default_temperature": 0.7,
-          "max_tokens": 131072,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": null,
-          "description": "百度文心3.5模型，128K长上下文"
         },
         {
           "name": "ernie-turbo-8k",

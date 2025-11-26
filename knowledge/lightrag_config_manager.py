@@ -291,22 +291,37 @@ class LightRAGConfigManager:
                 logger.warning(f"Failed to get system LLM key: {e}")
 
             # 2. Embedding API Key
+            # Use EMBEDDING_BINDING from .env file instead of system default_embedding
             try:
                 embed_mgr = main_window.config_manager.embedding_manager
-                general = main_window.config_manager.general_settings
                 
-                default_embed = general.default_embedding
-                if default_embed:
-                    embed_provider = embed_mgr.get_provider(default_embed)
+                # Read current .env file to get EMBEDDING_BINDING
+                current_config = self.read_config()
+                embedding_binding = current_config.get('EMBEDDING_BINDING')
+                logger.info(f"[LightRAG Config] EMBEDDING_BINDING from .env = {embedding_binding}")
+                
+                if embedding_binding:
+                    # Try to get provider by the binding value
+                    embed_provider = embed_mgr.get_provider(embedding_binding)
+                    logger.info(f"[LightRAG Config] embed_provider = {embed_provider.get('name') if embed_provider else None}")
+                    
                     if embed_provider:
-                        for env_var in embed_provider.get('api_key_env_vars', []):
+                        api_key_env_vars = embed_provider.get('api_key_env_vars', [])
+                        logger.info(f"[LightRAG Config] api_key_env_vars = {api_key_env_vars}")
+                        for env_var in api_key_env_vars:
                             key_val = embed_mgr.retrieve_api_key(env_var)
+                            logger.info(f"[LightRAG Config] Checking {env_var}: {'Found' if key_val else 'Not found'}")
                             if key_val:
                                 keys['EMBEDDING_BINDING_API_KEY'] = key_val
                                 keys['_SYSTEM_EMBED_KEY_SOURCE'] = env_var
+                                logger.info(f"[LightRAG Config] Using Embedding API key from {env_var}")
                                 break
+                    else:
+                        logger.warning(f"[LightRAG Config] Provider '{embedding_binding}' not found in embedding_manager")
             except Exception as e:
                 logger.warning(f"Failed to get system Embedding key: {e}")
+                import traceback
+                logger.warning(traceback.format_exc())
                 
         except Exception as e:
             logger.warning(f"Error in get_system_api_keys: {e}")
