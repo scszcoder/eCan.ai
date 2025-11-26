@@ -7,6 +7,7 @@ from selenium.common.exceptions import TimeoutException
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from mcp.types import CallToolResult, TextContent
+from agent.mcp.server.ads_power.ads_power import connect_to_adspower
 
 
 def ebay_search(mainwin, args):  # type: ignore
