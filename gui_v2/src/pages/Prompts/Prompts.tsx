@@ -61,6 +61,10 @@ const Prompts: React.FC = () => {
     });
   };
 
+  const handleRefresh = () => {
+    fetch(username, true);
+  };
+
   return (
     <DetailLayout
       listTitle={null}
@@ -74,6 +78,7 @@ const Prompts: React.FC = () => {
           onSearchChange={setSearch}
           onAdd={handleAdd}
           onDelete={handleDelete}
+          onRefresh={handleRefresh}
         />
       }
       detailsContent={<PromptsDetail prompt={selected} onChange={handleChange} />}
