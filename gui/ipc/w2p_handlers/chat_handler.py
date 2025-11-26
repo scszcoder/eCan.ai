@@ -7,7 +7,7 @@ import os
 import threading
 import time
 import traceback
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 import uuid
 from app_context import AppContext
 
@@ -17,6 +17,9 @@ from utils.logger_helper import logger_helper as logger
 from utils.path_manager import path_manager
 from gui.ipc.registry import IPCHandlerRegistry
 import tempfile
+
+if TYPE_CHECKING:
+	from gui.MainGUI import MainWindow
 
 ECHO_REPLY_ENABLED = False  # Switch control
 
@@ -309,7 +312,7 @@ def _do_push_and_echo(chatId, message):
             'attachments': attachments or []
         }
 
-    def push_message(main_window, chatId, msg):
+    def push_message(main_window: MainWindow, chatId, msg):
         """Type dispatch, automatically call db_chat_service.add_xxx_message, push to frontend, and log database write result"""
         logger.info(f"push_message echo_msg: {msg}")
         main_window.db_chat_service.push_message_to_chat(chatId, msg)

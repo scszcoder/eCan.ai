@@ -3,6 +3,7 @@ LightRAG IPC Handler
 Handles knowledge base operations for the LightRAG system.
 """
 import os
+import json
 import traceback
 from typing import Any, Optional, Dict, List
 from gui.ipc.handlers import validate_params
@@ -312,7 +313,7 @@ def handle_insert_text(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
 def handle_query_stream(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
     Handle streaming query request.
-    Streams data back to frontend via response chunks.
+    Streams data back to frontend via events to avoid blocking.
     """
     try:
         if not params:
@@ -324,29 +325,59 @@ def handle_query_stream(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         
         options = params.get('options', {})
         
-        # Get LightRAG client
-        client = get_client()
-        
-        # Start streaming - send initial response
-        initial_response = create_success_response(request, {'status': 'streaming', 'started': True})
-        
-        # Stream chunks back to frontend
-        # Note: This requires IPC framework to support streaming/chunked responses
-        # For now, we'll collect all chunks and send as complete response
-        chunks = []
+        # Get IPC API for sending events
+        from gui.ipc.api import IPCAPI
         try:
-            for chunk in client.query_stream(text, options):
-                chunks.append(chunk)
-        except Exception as stream_error:
-            logger.error(f"Error during streaming: {stream_error}")
-            return create_error_response(request, 'STREAM_ERROR', str(stream_error))
+            ipc_api = IPCAPI.get_instance()
+        except Exception as e:
+             logger.error(f"IPC API not available: {e}")
+             return create_error_response(request, 'IPC_ERROR', 'IPC service not available for streaming')
+
+        # Start background thread for streaming
+        import threading
+        import json
         
-        # Send complete response with all chunks
-        full_response = ''.join(chunks)
+        # Extract ID safely - request might be dict or object
+        request_id = request['id'] if isinstance(request, dict) else request.id
+        
+        def stream_worker():
+            try:
+                client = get_client()
+                # Use captured request_id
+                stream_id = request_id
+                
+                for chunk_str in client.query_stream(text, options):
+                    try:
+                        # Parse JSON chunk
+                        chunk_data = json.loads(chunk_str)
+                        
+                        # Send chunk event
+                        ipc_api.push_lightrag_chunk(stream_id, chunk_data)
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse chunk: {chunk_str}")
+                        # Send raw if parse fails
+                        ipc_api.push_lightrag_chunk(stream_id, {'response': chunk_str})
+                
+                # Send done event
+                ipc_api.push_lightrag_done(stream_id)
+                
+            except Exception as e:
+                logger.error(f"Error in stream worker: {e}")
+                # Try-catch around error sending to prevent recursive errors
+                try:
+                    ipc_api.push_lightrag_error(request_id, str(e))
+                except Exception:
+                    pass
+
+        # Start the worker thread
+        thread = threading.Thread(target=stream_worker)
+        thread.daemon = True
+        thread.start()
+        
+        # Return immediate success to unblock UI
         return create_success_response(request, {
-            'response': full_response,
-            'chunks': chunks,
-            'streaming': True
+            'status': 'streaming_started',
+            'stream_id': request_id
         })
         
     except Exception as e:
@@ -901,3 +932,122 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
     except Exception as e:
         logger.error(f"Error getting system providers: {e}")
         return create_error_response(request, 'GET_PROVIDERS_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.getInputHistory')
+def handle_get_input_history(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Get input history from storage."""
+    try:
+        config_manager = get_config_manager()
+        working_dir = config_manager.get_value('WORKING_DIR')
+        
+        if not working_dir or not os.path.exists(working_dir):
+            return create_success_response(request, [])
+            
+        history_file = os.path.join(working_dir, 'lightrag_input_history.json')
+        if not os.path.exists(history_file):
+            return create_success_response(request, [])
+            
+        with open(history_file, 'r', encoding='utf-8') as f:
+            try:
+                content = f.read().strip()
+                if not content:
+                    history = []
+                else:
+                    history = json.loads(content)
+            except json.JSONDecodeError:
+                logger.warning(f"Corrupted history file found at {history_file}, resetting to empty.")
+                history = []
+            
+        return create_success_response(request, history)
+    except Exception as e:
+        logger.error(f"Error getting input history: {e}")
+        # Return empty list on error to not break UI
+        return create_success_response(request, [])
+
+
+@IPCHandlerRegistry.handler('lightrag.saveInputHistory')
+def handle_save_input_history(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Save input history to storage."""
+    try:
+        history = params.get('history', [])
+        if not isinstance(history, list):
+            return create_error_response(request, 'INVALID_PARAMS', 'History must be a list')
+            
+        config_manager = get_config_manager()
+        working_dir = config_manager.get_value('WORKING_DIR')
+        
+        if not working_dir:
+             return create_error_response(request, 'CONFIG_ERROR', 'Working directory not configured')
+             
+        if not os.path.exists(working_dir):
+            os.makedirs(working_dir, exist_ok=True)
+            
+        history_file = os.path.join(working_dir, 'lightrag_input_history.json')
+        
+        with open(history_file, 'w', encoding='utf-8') as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
+            
+        return create_success_response(request, {'success': True})
+    except Exception as e:
+        logger.error(f"Error saving input history: {e}")
+        return create_error_response(request, 'SAVE_HISTORY_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.getConversationHistory')
+def handle_get_conversation_history(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Get conversation history (messages) from storage."""
+    try:
+        config_manager = get_config_manager()
+        working_dir = config_manager.get_value('WORKING_DIR')
+        
+        if not working_dir or not os.path.exists(working_dir):
+            return create_success_response(request, [])
+            
+        history_file = os.path.join(working_dir, 'lightrag_conversation_history.json')
+        if not os.path.exists(history_file):
+            return create_success_response(request, [])
+            
+        with open(history_file, 'r', encoding='utf-8') as f:
+            try:
+                content = f.read().strip()
+                if not content:
+                    history = []
+                else:
+                    history = json.loads(content)
+            except json.JSONDecodeError:
+                logger.warning(f"Corrupted conversation history file at {history_file}, resetting.")
+                history = []
+            
+        return create_success_response(request, history)
+    except Exception as e:
+        logger.error(f"Error getting conversation history: {e}")
+        return create_success_response(request, [])
+
+
+@IPCHandlerRegistry.handler('lightrag.saveConversationHistory')
+def handle_save_conversation_history(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Save conversation history (messages) to storage."""
+    try:
+        messages = params.get('messages', [])
+        if not isinstance(messages, list):
+            return create_error_response(request, 'INVALID_PARAMS', 'Messages must be a list')
+            
+        config_manager = get_config_manager()
+        working_dir = config_manager.get_value('WORKING_DIR')
+        
+        if not working_dir:
+             return create_error_response(request, 'CONFIG_ERROR', 'Working directory not configured')
+             
+        if not os.path.exists(working_dir):
+            os.makedirs(working_dir, exist_ok=True)
+            
+        history_file = os.path.join(working_dir, 'lightrag_conversation_history.json')
+        
+        with open(history_file, 'w', encoding='utf-8') as f:
+            json.dump(messages, f, ensure_ascii=False, indent=2)
+            
+        return create_success_response(request, {'success': True})
+    except Exception as e:
+        logger.error(f"Error saving conversation history: {e}")
+        return create_error_response(request, 'SAVE_CONVERSATION_ERROR', str(e))

@@ -68,6 +68,11 @@ export class IPCHandlers {
         // Context panel
         this.registerHandler('send_all_contexts', handleSendAllContexts);
         this.registerHandler('update_contexts', handleUpdateContexts);
+
+        // LightRAG streaming events
+        this.registerHandler('lightrag.queryStream.chunk', this.handleLightRagChunk);
+        this.registerHandler('lightrag.queryStream.done', this.handleLightRagDone);
+        this.registerHandler('lightrag.queryStream.error', this.handleLightRagError);
     }
     private registerHandler(method: string, handler: Handler): void {
         this.handlers[method] = handler;
@@ -76,7 +81,27 @@ export class IPCHandlers {
     getHandlers(): HandlerMap {
         return { ...this.handlers };
     }
-/**
+
+    // LightRAG Handlers
+    async handleLightRagChunk(request: IPCRequest): Promise<{ success: boolean }> {
+        const params = request.params as any;
+        eventBus.emit('lightrag:queryStream:chunk', params);
+        return { success: true };
+    }
+
+    async handleLightRagDone(request: IPCRequest): Promise<{ success: boolean }> {
+        const params = request.params as any;
+        eventBus.emit('lightrag:queryStream:done', params);
+        return { success: true };
+    }
+
+    async handleLightRagError(request: IPCRequest): Promise<{ success: boolean }> {
+        const params = request.params as any;
+        eventBus.emit('lightrag:queryStream:error', params);
+        return { success: true };
+    }
+
+    /**
      * Handle onboarding message from backend
      * Standard request handler - delegates to onboarding service
      */

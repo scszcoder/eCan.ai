@@ -125,6 +125,22 @@ export function createLightRAGApi(apiInstance: IPCAPI) {
 
     async queryGraphs<T>(payload: { label: string; maxDepth: number; maxNodes: number }): Promise<APIResponse<T>> {
       return apiInstance.executeRequest<T>('lightrag.queryGraphs', payload);
+    },
+
+    async getInputHistory<T>(): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.getInputHistory', {});
+    },
+
+    async saveInputHistory<T>(history: string[]): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.saveInputHistory', { history });
+    },
+
+    async getConversationHistory<T>(): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.getConversationHistory', {});
+    },
+
+    async saveConversationHistory<T>(messages: any[]): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.saveConversationHistory', { messages });
     }
   };
 }

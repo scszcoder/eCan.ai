@@ -5,12 +5,14 @@ import { oneLight, oneDark } from 'react-syntax-highlighter/dist/cjs/styles/pris
 import { theme, message as antMessage } from 'antd';
 import { Loader2, ChevronDown, Copy, Check } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 interface ChatMessageProps {
   role: 'user' | 'assistant';
   content: string;
   isThinking?: boolean;
   thinkingTime?: number | null;
+  loading?: boolean;
 }
 
 // Helper to parse COT content
@@ -46,7 +48,8 @@ const parseCOTContent = (content: string) => {
   };
 };
 
-const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, isThinking: isThinkingProp, thinkingTime }) => {
+const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, isThinking: isThinkingProp, thinkingTime, loading }) => {
+  const { t } = useTranslation();
   const { token } = theme.useToken();
   const { theme: currentTheme } = useTheme();
   const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -152,7 +155,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, isThinking: is
             >
               {isThinking ? <Loader2 size={12} className="animate-spin" /> : null}
               <span style={{ fontWeight: 500 }}>
-                {isThinking ? 'Thinking...' : `Thought Process ${thinkingTime ? `(${thinkingTime}s)` : ''}`}
+                {isThinking ? t('pages.knowledge.retrieval.thinking') : `Thought Process ${thinkingTime ? `(${thinkingTime}s)` : ''}`}
               </span>
               <ChevronDown size={12} style={{ transform: isThinkingExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
             </div>
@@ -195,7 +198,14 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, isThinking: is
               </ReactMarkdown>
             </div>
           ) : (
-            !thinkingContent && <span style={{ fontStyle: 'italic', color: token.colorTextTertiary }}>Empty response</span>
+            loading ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: token.colorTextSecondary }}>
+                <Loader2 size={14} className="animate-spin" />
+                <span>{t('pages.knowledge.retrieval.searching')}</span>
+              </div>
+            ) : (
+              !thinkingContent && <span style={{ fontStyle: 'italic', color: token.colorTextTertiary }}>{t('pages.knowledge.retrieval.emptyResponse')}</span>
+            )
           )}
 
           {/* Copy Button (Assistant only) */}

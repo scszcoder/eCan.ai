@@ -17,6 +17,9 @@ interface TabsProps {
 
 const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', onChange, renderTab }) => {
   const [active, setActive] = useState<TabKey>(defaultActive);
+  // Keep track of visited tabs to lazy-load them but keep them alive afterwards
+  const [visited, setVisited] = useState<Set<TabKey>>(new Set([defaultActive]));
+  
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const { theme: currentTheme } = useTheme();
@@ -24,6 +27,11 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', onChange, rend
 
   const handleClick = (key: TabKey) => {
     setActive(key);
+    setVisited(prev => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
     onChange?.(key);
   };
 
@@ -31,6 +39,8 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', onChange, rend
   const tabBarBg = token.colorBgContainer;
   const contentBg = token.colorBgLayout;
   
+  const tabKeys: TabKey[] = ['documents', 'knowledge-graph', 'retrieval', 'settings', 'api'];
+
   return (
     <div data-ec-scope="lightrag-ported" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Header />
@@ -50,8 +60,23 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', onChange, rend
         {/* API tab is present but invisible per requirement */}
         <button className={`ec-tab ${active === 'api' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('api')} style={{ visibility: 'hidden' }}>API</button>
       </div>
-      <div style={{ flex: 1, overflow: 'auto', background: contentBg }}>
-        {renderTab(active)}
+      <div style={{ flex: 1, overflow: 'hidden', background: contentBg, position: 'relative' }}>
+        {tabKeys.map(key => {
+          if (!visited.has(key)) return null;
+          return (
+            <div 
+              key={key} 
+              style={{ 
+                height: '100%', 
+                width: '100%', 
+                display: active === key ? 'block' : 'none',
+                overflow: 'auto' // Inner scroll for each tab
+              }}
+            >
+              {renderTab(key)}
+            </div>
+          );
+        })}
       </div>
       <style>{`
         [data-ec-scope="lightrag-ported"] .ec-tab {

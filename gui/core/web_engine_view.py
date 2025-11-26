@@ -199,29 +199,22 @@ class WebEngineView(QWebEngineView):
 
             super().__init__(parent)
 
-            # Use default profile or create a new one with enhanced error handling
+            # Use a persistent named profile
             logger.info("Creating WebEngine profile...")
             try:
-                # Add delay to ensure Qt WebEngine subsystem is ready
-                import time
-                time.sleep(0.1)  # 100ms delay
-
-                profile = QWebEngineProfile.defaultProfile()
-                logger.info("WebEngine profile created successfully")
+                # Create a named profile for persistence
+                # Using a string name makes it persistent (saves cookies, localStorage, cache to disk)
+                profile = QWebEngineProfile("eCanProfile", parent)
+                
+                # Ensure persistence settings are enabled
+                profile.setPersistentCookiesPolicy(QWebEngineProfile.AllowPersistentCookies)
+                profile.setHttpCacheType(QWebEngineProfile.DiskHttpCache)
+                
+                logger.info("WebEngine persistent profile 'eCanProfile' created successfully")
             except Exception as e:
                 logger.error(f"Failed to create WebEngine profile: {e}")
-                import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
-
-                # Try alternative initialization approach
-                logger.info("Attempting alternative WebEngine profile creation...")
-                try:
-                    # Create a custom profile instead of using default
-                    profile = QWebEngineProfile("eCan", parent)
-                    logger.info("Custom WebEngine profile created successfully")
-                except Exception as e2:
-                    logger.error(f"Alternative profile creation also failed: {e2}")
-                    raise RuntimeError(f"WebEngine profile creation failed: {e}") from e
+                # Fallback to default profile if creation fails
+                profile = QWebEngineProfile.defaultProfile()
 
             custom_page = CustomWebEnginePage(profile, self)
             self.setPage(custom_page)
@@ -271,10 +264,7 @@ class WebEngineView(QWebEngineView):
 
             # Configure WebEngine settings - use the profile from page
             profile = page.profile()
-            if profile:
-                profile.setPersistentCookiesPolicy(QWebEngineProfile.NoPersistentCookies)
-                profile.setHttpCacheType(QWebEngineProfile.NoCache)
-            else:
+            if not profile:
                 logger.warning("Could not get profile from page, skipping profile configuration")
 
             # Apply default settings

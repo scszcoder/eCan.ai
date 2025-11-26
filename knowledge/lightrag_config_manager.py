@@ -270,25 +270,46 @@ class LightRAGConfigManager:
                 return keys
 
             # 1. LLM API Key
+            # Use LLM_BINDING from .env file instead of system default_llm
             try:
                 llm_mgr = main_window.config_manager.llm_manager
-                general = main_window.config_manager.general_settings
                 
-                default_llm = general.default_llm
-                if default_llm:
-                    provider = llm_mgr.get_provider(default_llm)
-                    if provider:
-                        for env_var in provider.get('api_key_env_vars', []):
+                # Read current .env file to get LLM_BINDING
+                current_config = self.read_config()
+                llm_binding = current_config.get('LLM_BINDING')
+                logger.info(f"[LightRAG Config] LLM_BINDING from .env = {llm_binding}")
+                
+                if llm_binding:
+                    # Try to get provider by the binding value
+                    llm_provider = llm_mgr.get_provider(llm_binding)
+                    logger.info(f"[LightRAG Config] llm_provider = {llm_provider.get('name') if llm_provider else None}")
+                    
+                    if llm_provider:
+                        # Use provider's base_url if available
+                        base_url = llm_provider.get('base_url')
+                        if base_url:
+                            keys['LLM_BINDING_HOST'] = base_url
+                            logger.info(f"[LightRAG Config] Using LLM base URL: {base_url}")
+                        
+                        api_key_env_vars = llm_provider.get('api_key_env_vars', [])
+                        logger.info(f"[LightRAG Config] LLM api_key_env_vars = {api_key_env_vars}")
+                        for env_var in api_key_env_vars:
                             key_val = llm_mgr.retrieve_api_key(env_var)
+                            logger.info(f"[LightRAG Config] Checking LLM {env_var}: {'Found' if key_val else 'Not found'}")
                             if key_val:
                                 keys['LLM_BINDING_API_KEY'] = key_val
                                 keys['_SYSTEM_LLM_KEY_SOURCE'] = env_var
+                                logger.info(f"[LightRAG Config] Using LLM API key from {env_var}")
                                 # For backward compatibility/fallback, if it's OpenAI, set OPENAI_API_KEY too
                                 if 'OPENAI_API_KEY' in env_var:
                                     keys['OPENAI_API_KEY'] = key_val
                                 break
+                    else:
+                        logger.warning(f"[LightRAG Config] LLM Provider '{llm_binding}' not found in llm_manager")
             except Exception as e:
                 logger.warning(f"Failed to get system LLM key: {e}")
+                import traceback
+                logger.warning(traceback.format_exc())
 
             # 2. Embedding API Key
             # Use EMBEDDING_BINDING from .env file instead of system default_embedding
@@ -306,6 +327,12 @@ class LightRAGConfigManager:
                     logger.info(f"[LightRAG Config] embed_provider = {embed_provider.get('name') if embed_provider else None}")
                     
                     if embed_provider:
+                        # Use provider's base_url if available
+                        base_url = embed_provider.get('base_url')
+                        if base_url:
+                            keys['EMBEDDING_BINDING_HOST'] = base_url
+                            logger.info(f"[LightRAG Config] Using Embedding base URL: {base_url}")
+                        
                         api_key_env_vars = embed_provider.get('api_key_env_vars', [])
                         logger.info(f"[LightRAG Config] api_key_env_vars = {api_key_env_vars}")
                         for env_var in api_key_env_vars:

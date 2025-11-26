@@ -1,10 +1,11 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { theme } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import { SendOutlined, ClearOutlined } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import ChatMessage from './retrieval/components/ChatMessage';
+import { eventBus } from '@/utils/eventBus';
 
 type MessageState = { 
   id: string; 
@@ -37,9 +38,100 @@ const RetrievalTab: React.FC = () => {
   const [responseType, setResponseType] = useState<string>('');
   const [userPrompt, setUserPrompt] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [isHistoryLoaded, setIsHistoryLoaded] = useState(false);
+
+  // Input history state
+  const [inputHistory, setInputHistory] = useState<string[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyMatches, setHistoryMatches] = useState<string[]>([]);
+  const inputWrapperRef = useRef<HTMLDivElement>(null);
 
   const endRef = useRef<HTMLDivElement>(null);
   const thinkingStartTimeRef = useRef<number | null>(null);
+  // Map stream_id (from backend) to message_id (frontend)
+  const streamMapRef = useRef<Map<string, string>>(new Map());
+
+  // Load history on mount
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        const res = await get_ipc_api().lightragApi.getInputHistory();
+        if (res.success && Array.isArray(res.data)) {
+          setInputHistory(res.data as string[]);
+        }
+      } catch (e) {
+        console.error('Failed to load input history from backend', e);
+      }
+    };
+    loadHistory();
+
+    // Click outside handler to close history
+    const handleClickOutside = (event: MouseEvent) => {
+      if (inputWrapperRef.current && !inputWrapperRef.current.contains(event.target as Node)) {
+        setShowHistory(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Load conversation history on mount
+  useEffect(() => {
+    const loadConversation = async () => {
+      try {
+        const res = await get_ipc_api().lightragApi.getConversationHistory();
+        if (res.success && Array.isArray(res.data)) {
+          setMessages(res.data as MessageState[]);
+          // Scroll to end after loading
+          setTimeout(scrollToEnd, 100);
+        }
+      } catch (e) {
+        console.error('Failed to load conversation history', e);
+      } finally {
+        setIsHistoryLoaded(true);
+      }
+    };
+    loadConversation();
+  }, []);
+
+  // Save conversation history when messages change (debounced)
+  useEffect(() => {
+    if (!isHistoryLoaded) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        await get_ipc_api().lightragApi.saveConversationHistory(messages);
+      } catch (e) {
+        console.error('Failed to save conversation history', e);
+      }
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [messages, isHistoryLoaded]);
+
+  // Update matches when input changes
+  useEffect(() => {
+    if (!input.trim()) {
+      setHistoryMatches([]);
+      return;
+    }
+    const matches = inputHistory
+      .filter(h => h.toLowerCase().includes(input.toLowerCase()) && h !== input)
+      .slice(0, 5);
+    setHistoryMatches(matches);
+    setShowHistory(matches.length > 0);
+  }, [input, inputHistory]);
+
+  const saveToHistory = async (text: string) => {
+    if (!text.trim()) return;
+    const newHistory = [text, ...inputHistory.filter(h => h !== text)].slice(0, 50);
+    setInputHistory(newHistory);
+    try {
+      await get_ipc_api().lightragApi.saveInputHistory(newHistory);
+    } catch (e) {
+      console.error('Failed to save input history to backend', e);
+    }
+  };
 
   const scrollToEnd = () => {
     // Use requestAnimationFrame to ensure DOM update is processed
@@ -48,10 +140,100 @@ const RetrievalTab: React.FC = () => {
     });
   };
 
+  useEffect(() => {
+    // Subscribe to LightRAG streaming events
+    const handleChunk = (data: any) => {
+      const { id: streamId, chunk } = data;
+      const messageId = streamMapRef.current.get(streamId);
+      if (!messageId) return;
+
+      const textChunk = typeof chunk === 'string' ? chunk : (chunk.response || '');
+      if (!textChunk) return;
+
+      // Track thinking state logic
+      if (textChunk.includes('<think>') && thinkingStartTimeRef.current === null) {
+          thinkingStartTimeRef.current = Date.now();
+      }
+      
+      let thinkingTime: number | null = null;
+      let isThinking = false;
+      
+      if (thinkingStartTimeRef.current) {
+          if (textChunk.includes('</think>')) {
+              // Finished thinking
+              thinkingTime = parseFloat(((Date.now() - thinkingStartTimeRef.current) / 1000).toFixed(2));
+              thinkingStartTimeRef.current = null;
+              isThinking = false;
+          } else {
+              isThinking = true;
+          }
+      }
+
+      setMessages(prev => prev.map(m => {
+        if (m.id === messageId) {
+            // Keep previous thinking time if already set
+            const newTime = thinkingTime !== null ? thinkingTime : m.thinkingTime;
+            // Check if we are currently inside thinking block (simple heuristic)
+            const currentIsThinking = isThinking || (m.isThinking && !textChunk.includes('</think>'));
+            
+            return { 
+                ...m, 
+                content: m.content + textChunk, 
+                isThinking: currentIsThinking,
+                thinkingTime: newTime
+            };
+        }
+        return m;
+      }));
+      scrollToEnd();
+    };
+
+    const handleDone = (data: any) => {
+      const { id: streamId } = data;
+      const messageId = streamMapRef.current.get(streamId);
+      if (messageId) {
+        streamMapRef.current.delete(streamId);
+        setLoading(false);
+        thinkingStartTimeRef.current = null;
+      }
+    };
+
+    const handleError = (data: any) => {
+      const { id: streamId, error } = data;
+      const messageId = streamMapRef.current.get(streamId);
+      if (messageId) {
+        setMessages(prev => prev.map(m => 
+          m.id === messageId ? { ...m, content: m.content + `\n\n[Error: ${error}]` } : m
+        ));
+        streamMapRef.current.delete(streamId);
+        setLoading(false);
+        thinkingStartTimeRef.current = null;
+      }
+    };
+
+    eventBus.on('lightrag:queryStream:chunk', handleChunk);
+    eventBus.on('lightrag:queryStream:done', handleDone);
+    eventBus.on('lightrag:queryStream:error', handleError);
+
+    return () => {
+      eventBus.off('lightrag:queryStream:chunk', handleChunk);
+      eventBus.off('lightrag:queryStream:done', handleDone);
+      eventBus.off('lightrag:queryStream:error', handleError);
+    };
+  }, []);
+
   const canSend = useMemo(() => input.trim().length > 0 && !loading, [input, loading]);
 
-  const handleClear = () => {
+  const handleClear = async () => {
     setMessages([]);
+    // Also clear input history from backend
+    try {
+      await get_ipc_api().lightragApi.saveInputHistory([]);
+      // Conversation history will be cleared by the useEffect hook
+      setInputHistory([]);
+    } catch (e) {
+      console.error('Failed to clear input history', e);
+    }
   };
 
   const buildOptions = () => {
@@ -78,6 +260,9 @@ const RetrievalTab: React.FC = () => {
 
   const handleSend = async () => {
     if (!canSend) return;
+    saveToHistory(input);
+    setShowHistory(false);
+    
     const userMsg: MessageState = { 
         id: crypto.randomUUID?.() || String(Date.now()), 
         role: 'user', 
@@ -108,60 +293,17 @@ const RetrievalTab: React.FC = () => {
         
         if (response.success && response.data) {
           const res = response.data as any;
-          if (res && res.chunks && Array.isArray(res.chunks)) {
-            let currentContent = '';
-            
-            for (const chunk of res.chunks) {
-              currentContent += chunk;
-              
-              // Track thinking state
-              if (chunk.includes('<think>') && thinkingStartTimeRef.current === null) {
-                  thinkingStartTimeRef.current = Date.now();
-              }
-              
-              let thinkingTime: number | null = null;
-              let isThinking = false;
-              
-              if (thinkingStartTimeRef.current) {
-                  if (chunk.includes('</think>')) {
-                      // Finished thinking
-                      thinkingTime = parseFloat(((Date.now() - thinkingStartTimeRef.current) / 1000).toFixed(2));
-                      thinkingStartTimeRef.current = null;
-                      isThinking = false;
-                  } else {
-                      isThinking = true;
-                  }
-              }
-
-              setMessages(prev => prev.map(m => {
-                if (m.id === assistantId) {
-                    // Keep previous thinking time if already set
-                    const newTime = thinkingTime !== null ? thinkingTime : m.thinkingTime;
-                    return { 
-                        ...m, 
-                        content: currentContent, 
-                        isThinking,
-                        thinkingTime: newTime
-                    };
-                }
-                return m;
-              }));
-              
-              scrollToEnd();
-              // Small delay for smoother rendering
-              await new Promise(resolve => setTimeout(resolve, 10));
-            }
-          } else if (res && res.response) {
-            // Fallback
-            setMessages(prev => prev.map(m => 
-              m.id === assistantId ? { ...m, content: String(res.response) } : m
-            ));
+          // Backend returns { status: 'streaming_started', stream_id: '...' }
+          if (res.stream_id) {
+            streamMapRef.current.set(res.stream_id, assistantId);
+          } else {
+             throw new Error('No stream_id returned from backend');
           }
         } else {
             throw new Error(response.error?.message || 'Unknown error');
         }
       } else {
-        // Use normal query
+        // Use normal query (unchanged)
         const response = await get_ipc_api().lightragApi.query({ text: userMsg.content, options });
         
         if (response.success && response.data) {
@@ -220,6 +362,7 @@ const RetrievalTab: React.FC = () => {
             setMessages(prev => prev.map(m => 
               m.id === assistantId ? { ...m, content } : m
             ));
+            setLoading(false); // Stop loading for normal request
         } else {
             throw new Error(response.error?.message || 'Unknown error');
         }
@@ -229,7 +372,6 @@ const RetrievalTab: React.FC = () => {
       setMessages(prev => prev.map(m => 
         m.id === assistantId ? { ...m, content: `Error: ${e?.message || String(e)}` } : m
       ));
-    } finally {
       setLoading(false);
       thinkingStartTimeRef.current = null;
     }
@@ -272,13 +414,14 @@ const RetrievalTab: React.FC = () => {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {messages.map(m => (
+              {messages.map((m, idx) => (
                 <ChatMessage 
                     key={m.id}
                     role={m.role}
                     content={m.content}
                     isThinking={m.isThinking}
                     thinkingTime={m.thinkingTime}
+                    loading={loading && idx === messages.length - 1 && m.role === 'assistant'}
                 />
               ))}
               <div ref={endRef} />
@@ -296,19 +439,48 @@ const RetrievalTab: React.FC = () => {
           boxShadow: isDark ? '0 4px 16px rgba(0, 0, 0, 0.15)' : '0 4px 16px rgba(0, 0, 0, 0.06)'
         }}>
           <button className="ec-btn" onClick={handleClear} disabled={loading} title={t('pages.knowledge.retrieval.clearConversation')}>
-            <ClearOutlined />
+            <ClearOutlined /> {t('pages.knowledge.documents.clear')}
           </button>
-          <textarea
-            className="ec-input"
-            rows={2}
-            placeholder={t('pages.knowledge.retrieval.askQuestion')}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-            style={{ flex: 1, resize: 'none', border: 'none', padding: '8px 0' }}
-          />
+          <div style={{ flex: 1, position: 'relative' }} ref={inputWrapperRef}>
+            <textarea
+              className="ec-input"
+              rows={2}
+              placeholder={t('pages.knowledge.retrieval.inputPlaceholder')}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onFocus={() => {
+                if (input.trim() && historyMatches.length > 0) setShowHistory(true);
+              }}
+              onKeyDown={(e) => { 
+                if (e.nativeEvent.isComposing) return;
+                if (e.key === 'Enter' && !e.shiftKey) { 
+                  e.preventDefault(); 
+                  handleSend(); 
+                }
+                if (e.key === 'Escape') setShowHistory(false);
+              }}
+              style={{ width: '100%', resize: 'none', border: 'none', padding: '8px 0', background: 'transparent' }}
+            />
+            {showHistory && historyMatches.length > 0 && (
+              <div className="history-dropdown">
+                {historyMatches.map((match, idx) => (
+                  <div 
+                    key={idx} 
+                    className="history-item"
+                    onClick={() => {
+                      setInput(match);
+                      setShowHistory(false);
+                      // Optional: auto-focus back to textarea
+                    }}
+                  >
+                    {match}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <button className="ec-btn ec-btn-primary" onClick={handleSend} disabled={!canSend} title={t('pages.knowledge.retrieval.sendMessage')}>
-            <SendOutlined />
+            <SendOutlined /> {t('common.send')}
           </button>
         </div>
       </div>
@@ -329,7 +501,19 @@ const RetrievalTab: React.FC = () => {
         <div style={{ padding: '20px 24px', borderBottom: `1px solid ${token.colorBorderSecondary}` }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: token.colorText }}>⚙️ {t('pages.knowledge.retrieval.querySettings')}</h4>
         </div>
-        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="param-group">
+            <div className="param-group-title">{t('pages.knowledge.retrieval.customPrompt')}</div>
+            <textarea 
+              className="ec-input" 
+              value={userPrompt} 
+              onChange={e => setUserPrompt(e.target.value)} 
+              placeholder={t('pages.knowledge.retrieval.customPromptPlaceholder')}
+              rows={3}
+              style={{ resize: 'vertical', minHeight: 60 }}
+            />
+          </div>
+
           <div className="param-group">
             <div className="param-group-title">{t('pages.knowledge.retrieval.basic')}</div>
             <div className="param-row">
@@ -396,18 +580,6 @@ const RetrievalTab: React.FC = () => {
               <span>{t('pages.knowledge.retrieval.onlyNeedPrompt')}</span>
             </label>
           </div>
-          
-          <div className="param-group">
-            <div className="param-group-title">{t('pages.knowledge.retrieval.customPrompt')}</div>
-            <textarea 
-              className="ec-input" 
-              value={userPrompt} 
-              onChange={e => setUserPrompt(e.target.value)} 
-              placeholder={t('pages.knowledge.retrieval.customPromptPlaceholder')}
-              rows={4}
-              style={{ resize: 'vertical', minHeight: 80 }}
-            />
-          </div>
         </div>
       </div>
 
@@ -416,10 +588,10 @@ const RetrievalTab: React.FC = () => {
           background: ${token.colorBgContainer};
           color: ${token.colorText};
           border: 1px solid ${token.colorBorder};
-          border-radius: 10px;
-          padding: 10px 14px;
+          border-radius: 8px;
+          padding: 8px 12px;
           box-sizing: border-box;
-          font-size: 14px;
+          font-size: 13px;
           transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
         [data-ec-scope="lightrag-ported"] .ec-input:focus {
@@ -431,15 +603,15 @@ const RetrievalTab: React.FC = () => {
           background: ${token.colorBgContainer};
           color: ${token.colorText};
           border: 1px solid ${token.colorBorder};
-          border-radius: 10px;
-          padding: 10px 14px;
+          border-radius: 8px;
+          padding: 8px 12px;
           cursor: pointer;
-          font-size: 14px;
+          font-size: 13px;
           display: inline-flex;
           align-items: center;
           justify-content: center;
           transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-          min-width: 44px;
+          min-width: 40px;
           box-shadow: ${isDark ? '0 2px 8px rgba(0, 0, 0, 0.15)' : '0 2px 8px rgba(0, 0, 0, 0.05)'};
         }
         [data-ec-scope="lightrag-ported"] .ec-btn:hover {
@@ -467,24 +639,24 @@ const RetrievalTab: React.FC = () => {
         [data-ec-scope="lightrag-ported"] .param-group {
           display: flex;
           flex-direction: column;
-          gap: 12px;
+          gap: 8px;
         }
         [data-ec-scope="lightrag-ported"] .param-group-title {
-          font-size: 12px;
+          font-size: 11px;
           font-weight: 700;
           color: ${token.colorTextSecondary};
           text-transform: uppercase;
-          letter-spacing: 0.8px;
-          margin-bottom: 4px;
+          letter-spacing: 0.5px;
+          margin-bottom: 2px;
         }
         [data-ec-scope="lightrag-ported"] .param-row { 
           display: flex; 
           flex-direction: column; 
-          gap: 6px; 
+          gap: 4px; 
           width: 100%; 
         }
         [data-ec-scope="lightrag-ported"] .param-row > label { 
-          font-size: 13px; 
+          font-size: 12px; 
           font-weight: 500;
           color: ${token.colorTextSecondary};
         }
@@ -497,12 +669,12 @@ const RetrievalTab: React.FC = () => {
           display: flex;
           align-items: center;
           gap: 8px;
-          padding: 8px 12px;
+          padding: 6px 10px;
           background: ${isDark ? token.colorBgElevated : token.colorBgLayout};
-          border-radius: 8px;
+          border-radius: 6px;
           cursor: pointer;
           transition: all 0.2s;
-          font-size: 13px;
+          font-size: 12px;
           color: ${token.colorText};
         }
         [data-ec-scope="lightrag-ported"] .checkbox-label:hover {
@@ -514,6 +686,37 @@ const RetrievalTab: React.FC = () => {
         }
         [data-ec-scope="lightrag-ported"] .ec-select {
           cursor: pointer;
+        }
+        [data-ec-scope="lightrag-ported"] .history-dropdown {
+          position: absolute;
+          bottom: 100%;
+          left: 0;
+          width: 100%;
+          max-height: 200px;
+          overflow-y: auto;
+          background: ${token.colorBgElevated};
+          border: 1px solid ${token.colorBorder};
+          border-radius: 8px;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+          z-index: 1000;
+          margin-bottom: 8px;
+        }
+        [data-ec-scope="lightrag-ported"] .history-item {
+          padding: 8px 12px;
+          cursor: pointer;
+          font-size: 13px;
+          color: ${token.colorText};
+          border-bottom: 1px solid ${token.colorBorderSecondary};
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          transition: background 0.2s;
+        }
+        [data-ec-scope="lightrag-ported"] .history-item:last-child {
+          border-bottom: none;
+        }
+        [data-ec-scope="lightrag-ported"] .history-item:hover {
+          background: ${token.colorBgTextHover};
         }
       `}</style>
     </div>

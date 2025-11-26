@@ -423,10 +423,7 @@ export class IPCWCClient {
      */
     private handleMessage(message: string): void {
         try {
-            // OptimizeLogPrint：超过500字符时只Display前500个字符
-            // const truncatedMessage = message.length > 500 ? message.substring(0, 500) + '...' : message;
-            // console.log('[IPCWCClient] python_to_web message', truncatedMessage);
-            console.log('[IPCWCClient] python_to_web message (FULL)', message);
+            console.trace('[IPCWCClient] python_to_web message (FULL)', message);
 
             const message_obj = JSON.parse(message);
 
@@ -470,7 +467,7 @@ private async handleRequest(request: IPCRequest): Promise<void> {
 
     try {
         const result = await handler(request);
-        console.log('[IPCWCClient] Request handled successfully:', request.method);
+        console.trace('[IPCWCClient] Request handled successfully:', request.method);
         this.sendResponse(request.id, result);
     } catch (error) {
         console.error('[IPCWCClient] Request handling error:', error);
