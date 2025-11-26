@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional, Dict, List
 
@@ -54,6 +55,14 @@ def _normalize_prompt(raw: Any) -> Dict[str, Any]:
 
     for field in LIST_FIELDS:
         prompt[field] = _coerce_list(data.get(field))
+
+    last_modified = data.get("lastModified")
+    if isinstance(last_modified, (int, float)):
+        prompt["lastModified"] = datetime.fromtimestamp(last_modified).isoformat()
+    elif last_modified:
+        prompt["lastModified"] = str(last_modified)
+    else:
+        prompt["lastModified"] = ""
 
     return prompt
 
@@ -121,6 +130,7 @@ def _load_prompts_from_disk() -> List[Dict[str, Any]]:
                         normalized["topic"] = normalized["title"]
                     mtime = file_path.stat().st_mtime
                     pid = normalized["id"]
+                    normalized["lastModified"] = datetime.fromtimestamp(mtime).isoformat()
                     if pid not in by_id or mtime >= mtimes.get(pid, 0):
                         by_id[pid] = normalized
                         mtimes[pid] = mtime
@@ -158,6 +168,8 @@ def _write_prompt_to_file(prompt: Dict[str, Any]) -> Path:
         prompt["title"] = prompt_id
     if not prompt.get("topic"):
         prompt["topic"] = prompt["title"]
+
+    prompt["lastModified"] = datetime.utcnow().isoformat()
 
     id_slug = _slugify(prompt_id) or "prompt"
     base_label = str(prompt.get("title") or prompt.get("topic") or "prompt")
