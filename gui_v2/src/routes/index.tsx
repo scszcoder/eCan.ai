@@ -67,11 +67,19 @@ export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ childr
     return <MainLayout>{children}</MainLayout>;
 };
 
+// 登录路由组件 - 如果已登录则重定向
+const LoginRoute: React.FC = () => {
+    if (isAuthenticated()) {
+        return <Navigate to="/" replace />;
+    }
+    return <LazyWrapper><Login /></LazyWrapper>;
+};
+
 // Public路由
 export const publicRoutes: RouteConfig[] = [
     {
         path: '/login',
-        element: isAuthenticated() ? <Navigate to="/" replace /> : <LazyWrapper><Login /></LazyWrapper>,
+        element: <LoginRoute />,
     },
 ];
 

@@ -38,9 +38,24 @@ export class PageRefreshManager {
         this.registerLogoutCleanup();
         this.isInitialized = true;
         
-        // Always attempt to restore user status from backend, regardless of localStorage data
-        this.isEnabled = true;
-        logger.info('PageRefreshManager initialization completed (always enabled, attempting to restore user status)');
+        // 禁用应用启动时的自动登录，但保留页面刷新后的会话恢复
+        // 通过检查 sessionStorage 来判断是否是应用首次启动
+        const isAppRestart = !sessionStorage.getItem('app_session_active');
+        
+        if (isAppRestart) {
+            // 应用首次启动：清除 localStorage，强制显示登录界面
+            logger.info('App first launch detected, clearing user session data');
+            userStorageManager.clearAllUserData();
+            this.isEnabled = false;
+            // 标记会话已激活
+            sessionStorage.setItem('app_session_active', 'true');
+        } else {
+            // 页面刷新：保留会话恢复功能
+            logger.info('Page refresh detected, session restoration enabled');
+            this.isEnabled = true;
+        }
+        
+        logger.info('PageRefreshManager initialization completed');
     }
 
     // Enable page refresh operations (called after login success)
@@ -253,7 +268,9 @@ export class PageRefreshManager {
                 this.disable(); // Disable page refresh operations
                 this.cleanup(); // Cleanup event listeners
                 this.actions.clear(); // Clear all registered operations
-                logger.info('[PageRefreshManager] Cleanup completed');
+                // 清除 sessionStorage 标记，确保下次启动显示登录界面
+                sessionStorage.removeItem('app_session_active');
+                logger.info('[PageRefreshManager] Cleanup completed (session marker cleared)');
             },
             priority: 20 // Medium priority
         });

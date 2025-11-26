@@ -10,34 +10,10 @@
       ],
       "base_url": "https://api.openai.com/v1",
       "default_model": "gpt-5",
-      "description": "OpenAI models including latest O1 reasoning and GPT-4 family",
-      "documentation_url": "https://platform.openai.com/docs",
+      "description": "OpenAI models including the latest GPT-5 and O-series",
+      "documentation_url": "https://platform.openai.com/docs/models",
       "is_local": false,
       "supported_models": [
-        {
-          "name": "gpt-4o",
-          "display_name": "GPT-4o",
-          "model_id": "gpt-4o",
-          "default_temperature": 0.7,
-          "max_tokens": 128000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.03,
-          "description": "GPT-4o multimodal model for real-time experiences"
-        },
-        {
-          "name": "gpt-4o-mini",
-          "display_name": "GPT-4o Mini",
-          "model_id": "gpt-4o-mini",
-          "default_temperature": 0.7,
-          "max_tokens": 128000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.0015,
-          "description": "Smaller, faster GPT-4o Mini model ideal for scaling"
-        },
         {
           "name": "gpt-5",
           "display_name": "GPT-5",
@@ -47,8 +23,8 @@
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "OpenAI's next‑gen flagship multimodal model (2025)"
+          "cost_per_1k_tokens": 0.003,
+          "description": "OpenAI's 2025 flagship multimodal model"
         },
         {
           "name": "gpt-5.1",
@@ -59,20 +35,8 @@
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": null,
+          "cost_per_1k_tokens": 0.005,
           "description": "Advanced GPT-5.1 model with enhanced reasoning"
-        },
-        {
-          "name": "gpt-5.1-mini",
-          "display_name": "GPT-5.1 Mini",
-          "model_id": "gpt-5.1-mini",
-          "default_temperature": 0.7,
-          "max_tokens": 200000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "Efficient GPT-5.1 Mini model"
         },
         {
           "name": "o4-mini",
@@ -80,76 +44,35 @@
           "model_id": "o4-mini",
           "default_temperature": 1.0,
           "max_tokens": 100000,
-          "supports_streaming": false,
-          "supports_function_calling": false,
+          "supports_streaming": true,
+          "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "Lightweight O‑series reasoning model"
-        }
-      ]
-    },
-    "Azure OpenAI": {
-      "name": "Azure OpenAI",
-      "display_name": "Azure OpenAI",
-      "provider": "azure_openai",
-      "class_name": "AzureOpenAI",
-      "api_key_env_vars": [
-        "AZURE_ENDPOINT",
-        "AZURE_OPENAI_API_KEY"
-      ],
-      "base_url": "https://your-resource.openai.azure.com",
-      "default_model": "gpt-4o",
-      "description": "Azure OpenAI Service",
-      "documentation_url": "https://docs.microsoft.com/en-us/azure/cognitive-services/openai/",
-      "is_local": false,
-      "supported_models": [
+          "cost_per_1k_tokens": 0.001,
+          "description": "Highly efficient O-series reasoning model (AIME 2025 SOTA)"
+        },
+        {
+          "name": "o3-pro",
+          "display_name": "O3 Pro",
+          "model_id": "o3-pro",
+          "default_temperature": 1.0,
+          "max_tokens": 200000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.02,
+          "description": "Powerful reasoning model (June 2025)"
+        },
         {
           "name": "gpt-4o",
-          "display_name": "GPT-4o (Azure)",
+          "display_name": "GPT-4o",
           "model_id": "gpt-4o",
           "default_temperature": 0.7,
           "max_tokens": 128000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": 0.03,
-          "description": "GPT-4o multimodal model on Azure"
-        },
-        {
-          "name": "gpt-4o-mini",
-          "display_name": "GPT-4o Mini (Azure)",
-          "model_id": "gpt-4o-mini",
-          "default_temperature": 0.7,
-          "max_tokens": 128000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.0015,
-          "description": "Lightweight GPT-4o Mini on Azure"
-        },
-        {
-          "name": "gpt-4.1",
-          "display_name": "GPT-4.1 (Azure)",
-          "model_id": "gpt-4.1",
-          "default_temperature": 0.7,
-          "max_tokens": 1000000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "Latest GPT series on Azure"
-        },
-        {
-          "name": "gpt-4.1-mini",
-          "display_name": "GPT-4.1 Mini (Azure)",
-          "model_id": "gpt-4.1-mini",
-          "default_temperature": 0.7,
-          "max_tokens": 1000000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "Cost‑efficient GPT‑4.1 mini on Azure"
+          "cost_per_1k_tokens": 0.0025,
+          "description": "Previous generation flagship"
         }
       ]
     },
@@ -168,81 +91,40 @@
       "is_local": false,
       "supported_models": [
         {
-          "name": "claude-opus-4",
-          "display_name": "Claude Opus 4",
-          "model_id": "claude-opus-4",
+          "name": "claude-opus-4.5",
+          "display_name": "Claude Opus 4.5",
+          "model_id": "claude-opus-4.5",
           "default_temperature": 0.7,
-          "max_tokens": 64000,
+          "max_tokens": 200000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "Claude Opus 4"
-        },
-        {
-          "name": "claude-opus-4.1",
-          "display_name": "Claude Opus 4.1",
-          "model_id": "claude-opus-4.1",
-          "default_temperature": 0.7,
-          "max_tokens": 64000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "Upgrade to Opus 4 emphasizing agentic tasks & reasoning"
+          "cost_per_1k_tokens": 0.02,
+          "description": "Most intelligent Claude model (Nov 2025)"
         },
         {
           "name": "claude-sonnet-4.5",
           "display_name": "Claude Sonnet 4.5",
           "model_id": "claude-sonnet-4.5",
           "default_temperature": 0.7,
-          "max_tokens": 64000,
+          "max_tokens": 200000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "Anthropic’s latest model for agents, coding & computer-use (2025)"
-        }
-      ]
-    },
-    "AWS Bedrock": {
-      "name": "AWS Bedrock",
-      "display_name": "AWS Bedrock",
-      "provider": "bedrock",
-      "class_name": "ChatBedrockConverse",
-      "api_key_env_vars": [
-        "AWS_ACCESS_KEY_ID",
-        "AWS_SECRET_ACCESS_KEY"
-      ],
-      "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com",
-      "default_model": "anthropic.claude-sonnet-4.5",
-      "description": "AWS Bedrock Converse API",
-      "documentation_url": "https://docs.aws.amazon.com/bedrock/",
-      "is_local": false,
-      "supported_models": [
-        {
-          "name": "meta.llama3.1-70b-instruct-v1:0",
-          "display_name": "Llama 3.1 70B Instruct",
-          "model_id": "meta.llama3.1-70b-instruct-v1:0",
-          "default_temperature": 0.7,
-          "max_tokens": 8192,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.01,
-          "description": "Meta Llama 3.1 instruct model via Bedrock"
+          "cost_per_1k_tokens": 0.003,
+          "description": "Balanced intelligence and speed (July 2025)"
         },
         {
-          "name": "anthropic.claude-sonnet-4.5",
-          "display_name": "Claude Sonnet 4.5 (Bedrock)",
-          "model_id": "anthropic.claude-sonnet-4.5",
+          "name": "claude-3-5-sonnet-20241022",
+          "display_name": "Claude 3.5 Sonnet",
+          "model_id": "claude-3-5-sonnet-20241022",
           "default_temperature": 0.7,
-          "max_tokens": 64000,
+          "max_tokens": 200000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "Bedrock hosting of Anthropic’s Sonnet 4.5"
+          "cost_per_1k_tokens": 0.003,
+          "description": "Legacy Sonnet model"
         }
       ]
     },
@@ -261,6 +143,18 @@
       "is_local": false,
       "supported_models": [
         {
+          "name": "gemini-3.0-pro",
+          "display_name": "Gemini 3.0 Pro",
+          "model_id": "gemini-3.0-pro",
+          "default_temperature": 0.7,
+          "max_tokens": 2000000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.0035,
+          "description": "Next-gen Gemini 3.0 Pro model"
+        },
+        {
           "name": "gemini-2.5-pro",
           "display_name": "Gemini 2.5 Pro",
           "model_id": "gemini-2.5-pro",
@@ -269,8 +163,8 @@
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "Flagship reasoning model with longer context"
+          "cost_per_1k_tokens": 0.003,
+          "description": "Gemini 2.5 Pro with long context"
         },
         {
           "name": "gemini-2.5-flash",
@@ -281,44 +175,8 @@
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "Cost-effective 2.5 Flash"
-        },
-        {
-          "name": "gemini-2.5-flash-lite",
-          "display_name": "Gemini 2.5 Flash Lite",
-          "model_id": "gemini-2.5-flash-lite",
-          "default_temperature": 0.7,
-          "max_tokens": 2000000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "Lightweight 2.5 Flash for scale"
-        },
-        {
-          "name": "gemini-3.0-pro",
-          "display_name": "Gemini 3.0 Pro",
-          "model_id": "gemini-3.0-pro",
-          "default_temperature": 0.7,
-          "max_tokens": 2000000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "Next-generation Gemini 3.0 Pro model"
-        },
-        {
-          "name": "gemini-3.0-flash",
-          "display_name": "Gemini 3.0 Flash",
-          "model_id": "gemini-3.0-flash",
-          "default_temperature": 0.7,
-          "max_tokens": 2000000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "High-speed Gemini 3.0 Flash model"
+          "cost_per_1k_tokens": 0.0001,
+          "description": "High-speed Gemini 2.5 Flash"
         }
       ]
     },
@@ -333,44 +191,32 @@
       "base_url": "https://api.deepseek.com",
       "default_model": "deepseek-chat",
       "description": "DeepSeek AI models",
-      "documentation_url": "https://platform.deepseek.com/docs",
+      "documentation_url": "https://platform.deepseek.com/",
       "is_local": false,
       "supported_models": [
         {
           "name": "deepseek-chat",
-          "display_name": "DeepSeek Chat",
+          "display_name": "DeepSeek-V3",
           "model_id": "deepseek-chat",
-          "default_temperature": 0.7,
-          "max_tokens": 64000,
+          "default_temperature": 1.3,
+          "max_tokens": 128000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": false,
-          "cost_per_1k_tokens": 0.0014,
-          "description": "DeepSeek's general-purpose chat model"
-        },
-        {
-          "name": "deepseek-coder",
-          "display_name": "DeepSeek Coder",
-          "model_id": "deepseek-coder",
-          "default_temperature": 0.1,
-          "max_tokens": 64000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.0014,
-          "description": "DeepSeek model optimized for coding tasks"
+          "cost_per_1k_tokens": 0.00014,
+          "description": "DeepSeek-V3: Mixture-of-Experts model (Dec 2024)"
         },
         {
           "name": "deepseek-reasoner",
-          "display_name": "DeepSeek Reasoner",
+          "display_name": "DeepSeek-R1",
           "model_id": "deepseek-reasoner",
-          "default_temperature": 1.0,
-          "max_tokens": 8192,
-          "supports_streaming": false,
+          "default_temperature": 0.6,
+          "max_tokens": 64000,
+          "supports_streaming": true,
           "supports_function_calling": false,
           "supports_vision": false,
-          "cost_per_1k_tokens": 0.002,
-          "description": "DeepSeek's advanced reasoning model (formerly deepseek-r1)"
+          "cost_per_1k_tokens": 0.00055,
+          "description": "DeepSeek-R1: Advanced reasoning model (Jan 2025)"
         }
       ]
     },
@@ -384,8 +230,8 @@
       ],
       "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
       "default_model": "qwen-max",
-      "description": "Alibaba Qwen models via DashScope",
-      "documentation_url": "https://bailian.console.aliyun.com/?tab=model",
+      "description": "Alibaba Qwen models via DashScope (Qwen 3 / 2.5)",
+      "documentation_url": "https://help.aliyun.com/zh/model-studio/getting-started/models",
       "is_local": false,
       "supported_models": [
         {
@@ -397,8 +243,8 @@
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": 0.009,
-          "description": "Latest flagship Qwen Max model"
+          "cost_per_1k_tokens": 0.01,
+          "description": "Flagship Qwen model (Likely Qwen 3 based)"
         },
         {
           "name": "qwen-plus",
@@ -409,8 +255,8 @@
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": 0.006,
-          "description": "Balanced Qwen Plus model"
+          "cost_per_1k_tokens": 0.004,
+          "description": "Balanced Qwen model"
         },
         {
           "name": "qwen-turbo",
@@ -421,44 +267,8 @@
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": false,
-          "cost_per_1k_tokens": 0.003,
-          "description": "Fast and efficient Qwen Turbo model"
-        },
-        {
-          "name": "qwen-long",
-          "display_name": "Qwen Long",
-          "model_id": "qwen-long",
-          "default_temperature": 0.7,
-          "max_tokens": 131072,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.004,
-          "description": "Long context Qwen model"
-        },
-        {
-          "name": "qwen-coder-plus",
-          "display_name": "Qwen Coder Plus",
-          "model_id": "qwen-coder-plus",
-          "default_temperature": 0.2,
-          "max_tokens": 32768,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.004,
-          "description": "Code-specialized Qwen model"
-        },
-        {
-          "name": "qwen-vl-plus",
-          "display_name": "Qwen VL Plus",
-          "model_id": "qwen-vl-plus",
-          "default_temperature": 0.7,
-          "max_tokens": 32768,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.006,
-          "description": "Multimodal Qwen VL model"
+          "cost_per_1k_tokens": 0.002,
+          "description": "Fast Qwen model"
         }
       ]
     },
@@ -471,22 +281,22 @@
         "ARK_API_KEY"
       ],
       "base_url": "https://ark.cn-beijing.volces.com/api/v3",
-      "default_model": "doubao-pro-256k",
+      "default_model": "doubao-pro-32k",
       "description": "Bytedance Doubao models",
       "documentation_url": "https://www.volcengine.com/docs/82379",
       "is_local": false,
       "supported_models": [
         {
-          "name": "doubao-pro-256k",
-          "display_name": "Doubao Pro 256K",
-          "model_id": "doubao-pro-256k",
+          "name": "doubao-pro-32k",
+          "display_name": "Doubao Pro 32K",
+          "model_id": "doubao-pro-32k",
           "default_temperature": 0.7,
-          "max_tokens": 256000,
+          "max_tokens": 32000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": false,
-          "cost_per_1k_tokens": 0.008,
-          "description": "Doubao Pro with 256K context"
+          "cost_per_1k_tokens": 0.0008,
+          "description": "Doubao Pro 32K"
         },
         {
           "name": "doubao-pro-128k",
@@ -498,43 +308,7 @@
           "supports_function_calling": true,
           "supports_vision": false,
           "cost_per_1k_tokens": 0.005,
-          "description": "Doubao Pro with 128K context"
-        },
-        {
-          "name": "doubao-pro-32k",
-          "display_name": "Doubao Pro 32K",
-          "model_id": "doubao-pro-32k",
-          "default_temperature": 0.7,
-          "max_tokens": 32000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.0008,
-          "description": "Doubao Pro with 32K context"
-        },
-        {
-          "name": "doubao-lite-128k",
-          "display_name": "Doubao Lite 128K",
-          "model_id": "doubao-lite-128k",
-          "default_temperature": 0.7,
-          "max_tokens": 128000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.0003,
-          "description": "Doubao Lite with 128K context"
-        },
-        {
-          "name": "doubao-lite-32k",
-          "display_name": "Doubao Lite 32K",
-          "model_id": "doubao-lite-32k",
-          "default_temperature": 0.7,
-          "max_tokens": 32000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.0003,
-          "description": "Doubao Lite with 32K context"
+          "description": "Doubao Pro 128K"
         }
       ]
     },
@@ -547,70 +321,128 @@
         "BAIDU_API_KEY"
       ],
       "base_url": "https://qianfan.baidubce.com/v2",
-      "default_model": "ernie-4.0-128k",
-      "description": "百度千帆大模型平台，支持最新文心 4.0 系列模型",
-      "documentation_url": "https://console.bce.baidu.com/iam/#/iam/apikey/list",
+      "default_model": "ernie-4.0-turbo-128k",
+      "description": "Baidu Wenxin (ERNIE) models - OpenAI compatible API v2",
+      "documentation_url": "https://cloud.baidu.com/doc/WENXINWORKSHOP/s/Hlwerupz6",
       "is_local": false,
       "supported_models": [
         {
-          "name": "ernie-4.0-128k",
-          "display_name": "ERNIE 4.0 128K",
-          "model_id": "ernie-4.0-128k",
+          "name": "ernie-4.0-turbo-128k",
+          "display_name": "ERNIE 4.0 Turbo 128K",
+          "model_id": "ernie-4.0-turbo-128k",
           "default_temperature": 0.7,
           "max_tokens": 131072,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "最新文心4.0模型，128K长上下文，最强性能"
+          "cost_per_1k_tokens": 0.12,
+          "description": "ERNIE 4.0 Turbo with long context"
         },
         {
-          "name": "ernie-4.0-8k",
-          "display_name": "ERNIE 4.0 8K",
-          "model_id": "ernie-4.0-8k",
+          "name": "ernie-4.0-turbo-8k",
+          "display_name": "ERNIE 4.0 Turbo 8K",
+          "model_id": "ernie-4.0-turbo-8k",
           "default_temperature": 0.7,
-          "max_tokens": 4000,
+          "max_tokens": 8192,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": null,
-          "description": "文心4.0模型，8K上下文"
-        },
-        {
-          "name": "ernie-3.5-8k",
-          "display_name": "ERNIE 3.5 8K",
-          "model_id": "ernie-3.5-8k",
-          "default_temperature": 0.7,
-          "max_tokens": 4000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": null,
-          "description": "百度文心3.5模型，8K上下文"
-        },
-        {
-          "name": "ernie-turbo-8k",
-          "display_name": "ERNIE Turbo 8K",
-          "model_id": "ernie-turbo-8k",
-          "default_temperature": 0.7,
-          "max_tokens": 4000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": null,
-          "description": "百度文心Turbo模型，快速响应"
+          "cost_per_1k_tokens": 0.12,
+          "description": "ERNIE 4.0 Turbo"
         },
         {
           "name": "ernie-speed-128k",
           "display_name": "ERNIE Speed 128K",
           "model_id": "ernie-speed-128k",
           "default_temperature": 0.7,
-          "max_tokens": 131072,
+          "max_tokens": 128000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": false,
-          "cost_per_1k_tokens": null,
-          "description": "百度文心Speed模型，128K上下文，高性价比"
+          "cost_per_1k_tokens": 0.0,
+          "description": "ERNIE Speed"
+        }
+      ]
+    },
+    "Azure OpenAI": {
+      "name": "Azure OpenAI",
+      "display_name": "Azure OpenAI",
+      "provider": "azure_openai",
+      "class_name": "AzureOpenAI",
+      "api_key_env_vars": [
+        "AZURE_ENDPOINT",
+        "AZURE_OPENAI_API_KEY"
+      ],
+      "base_url": "https://your-resource.openai.azure.com",
+      "default_model": "gpt-4o",
+      "description": "Azure OpenAI Service",
+      "documentation_url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "gpt-4o",
+          "display_name": "GPT-4o (Azure)",
+          "model_id": "gpt-4o",
+          "default_temperature": 0.7,
+          "max_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.0025,
+          "description": "GPT-4o on Azure"
+        },
+        {
+          "name": "gpt-4o-mini",
+          "display_name": "GPT-4o Mini (Azure)",
+          "model_id": "gpt-4o-mini",
+          "default_temperature": 0.7,
+          "max_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.00015,
+          "description": "GPT-4o Mini on Azure"
+        }
+      ]
+    },
+    "AWS Bedrock": {
+      "name": "AWS Bedrock",
+      "display_name": "AWS Bedrock",
+      "provider": "bedrock",
+      "class_name": "ChatBedrockConverse",
+      "api_key_env_vars": [
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY"
+      ],
+      "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com",
+      "default_model": "anthropic.claude-3-5-sonnet-20240620-v1:0",
+      "description": "AWS Bedrock Converse API",
+      "documentation_url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids.html",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "anthropic.claude-3-5-sonnet-20240620-v1:0",
+          "display_name": "Claude 3.5 Sonnet (Bedrock)",
+          "model_id": "anthropic.claude-3-5-sonnet-20240620-v1:0",
+          "default_temperature": 0.7,
+          "max_tokens": 200000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.003,
+          "description": "Claude 3.5 Sonnet via Bedrock"
+        },
+        {
+          "name": "meta.llama3-1-70b-instruct-v1:0",
+          "display_name": "Llama 3.1 70B Instruct",
+          "model_id": "meta.llama3-1-70b-instruct-v1:0",
+          "default_temperature": 0.7,
+          "max_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.00099,
+          "description": "Meta Llama 3.1 70B via Bedrock"
         }
       ]
     },
@@ -623,7 +455,7 @@
       "base_url": "http://localhost:11434",
       "default_model": "llama3.3:70b",
       "description": "Local Ollama models",
-      "documentation_url": "https://ollama.ai/docs",
+      "documentation_url": "https://ollama.com/library",
       "is_local": true,
       "supported_models": [
         {
@@ -636,7 +468,7 @@
           "supports_function_calling": false,
           "supports_vision": false,
           "cost_per_1k_tokens": 0.0,
-          "description": "Latest Meta Llama 3.3 70B instruct model"
+          "description": "Llama 3.3 70B"
         },
         {
           "name": "llama3.2:latest",
@@ -648,7 +480,7 @@
           "supports_function_calling": false,
           "supports_vision": false,
           "cost_per_1k_tokens": 0.0,
-          "description": "Latest general-purpose Llama 3.2 model"
+          "description": "Llama 3.2"
         },
         {
           "name": "qwen2.5:latest",
@@ -660,39 +492,27 @@
           "supports_function_calling": false,
           "supports_vision": false,
           "cost_per_1k_tokens": 0.0,
-          "description": "Alibaba Qwen2.5 local deployment"
+          "description": "Qwen 2.5"
         },
         {
           "name": "deepseek-r1:latest",
           "display_name": "DeepSeek R1",
           "model_id": "deepseek-r1:latest",
-          "default_temperature": 0.7,
+          "default_temperature": 0.6,
           "max_tokens": 8192,
           "supports_streaming": true,
           "supports_function_calling": false,
           "supports_vision": false,
           "cost_per_1k_tokens": 0.0,
-          "description": "DeepSeek R1 reasoning model for local use"
-        },
-        {
-          "name": "mistral-nemo:latest",
-          "display_name": "Mistral Nemo",
-          "model_id": "mistral-nemo:latest",
-          "default_temperature": 0.7,
-          "max_tokens": 8192,
-          "supports_streaming": true,
-          "supports_function_calling": false,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.0,
-          "description": "Mistral Nemo general-purpose local model"
+          "description": "DeepSeek R1"
         }
       ]
     }
   },
   "metadata": {
-    "version": "1.0.3",
-    "last_updated": "2025-11-03",
-    "description": "LLM provider configurations for eCan.ai - Updated to include latest model releases through Nov 3, 2025",
+    "version": "1.1.1",
+    "last_updated": "2025-11-26",
+    "description": "LLM provider configurations for eCan.ai - Updated for Nov 2025",
     "schema_version": "1.0"
   }
 }

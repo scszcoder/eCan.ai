@@ -259,7 +259,7 @@ class IPCWCService(QObject):
             self.python_to_web.emit(json.dumps(request))
             request_str = json.dumps(request)
             truncated_request = request_str[:800] + "..." if len(request_str) > 500 else request_str
-            logger.debug(f"[IPCWCService] Request sent: {truncated_request}")
+            logger.trace(f"[IPCWCService] Request sent: {truncated_request}")
         except Exception as e:
             logger.error(f"Error sending request: {e}")
             if callback:

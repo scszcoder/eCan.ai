@@ -589,3 +589,54 @@ class IPCAPI:
             },
             callback=log_callback
         )
+
+    def push_lightrag_chunk(
+        self,
+        stream_id: str,
+        chunk_data: Any,
+        callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        Push LightRAG stream chunk to frontend
+        Args:
+            stream_id: Stream ID
+            chunk_data: Chunk data
+            callback: Callback function
+        """
+        self._send_request('lightrag.queryStream.chunk', {
+            'id': stream_id,
+            'chunk': chunk_data
+        }, callback=callback)
+
+    def push_lightrag_done(
+        self,
+        stream_id: str,
+        callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        Push LightRAG stream done event
+        Args:
+            stream_id: Stream ID
+            callback: Callback function
+        """
+        self._send_request('lightrag.queryStream.done', {
+            'id': stream_id
+        }, callback=callback)
+
+    def push_lightrag_error(
+        self,
+        stream_id: str,
+        error: str,
+        callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        Push LightRAG stream error event
+        Args:
+            stream_id: Stream ID
+            error: Error message
+            callback: Callback function
+        """
+        self._send_request('lightrag.queryStream.error', {
+            'id': stream_id,
+            'error': error
+        }, callback=callback)
