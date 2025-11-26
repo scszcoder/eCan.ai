@@ -45,6 +45,9 @@ const RetrievalTab: React.FC = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [historyMatches, setHistoryMatches] = useState<string[]>([]);
   const inputWrapperRef = useRef<HTMLDivElement>(null);
+  
+  // Track composition state for IME handling
+  const isComposingRef = useRef(false);
 
   const endRef = useRef<HTMLDivElement>(null);
   const thinkingStartTimeRef = useRef<number | null>(null);
@@ -64,6 +67,39 @@ const RetrievalTab: React.FC = () => {
       }
     };
     loadHistory();
+
+    // Load default settings from LightRAG env
+    const loadSettings = async () => {
+      try {
+        const res = await get_ipc_api().lightragApi.getSettings();
+        console.log('[RetrievalTab] Loaded settings:', res);
+        
+        // Extract config or use empty object if failed
+        const cfg = (res.success && res.data) ? (res.data as any) : {};
+        
+        // Use backend values if present, otherwise use hardcoded defaults
+        // This ensures the UI always shows a valid value
+        setTopK(Number(cfg.TOP_K ?? 40));
+        setChunkTopK(Number(cfg.CHUNK_TOP_K ?? 20));
+        setMaxEntityTokens(Number(cfg.MAX_ENTITY_TOKENS ?? 6000));
+        setMaxRelationTokens(Number(cfg.MAX_RELATION_TOKENS ?? 8000));
+        setMaxTotalTokens(Number(cfg.MAX_TOTAL_TOKENS ?? 30000));
+        
+        // Also respect RERANK_BY_DEFAULT
+        if (cfg.RERANK_BY_DEFAULT !== undefined) {
+            setEnableRerank(String(cfg.RERANK_BY_DEFAULT).toLowerCase() === 'true');
+        }
+      } catch (e) {
+        console.error('Failed to load default settings, applying fallbacks', e);
+        // Apply fallbacks on error
+        setTopK(40);
+        setChunkTopK(20);
+        setMaxEntityTokens(6000);
+        setMaxRelationTokens(8000);
+        setMaxTotalTokens(30000);
+      }
+    };
+    loadSettings();
 
     // Click outside handler to close history
     const handleClickOutside = (event: MouseEvent) => {
@@ -451,12 +487,18 @@ const RetrievalTab: React.FC = () => {
               onFocus={() => {
                 if (input.trim() && historyMatches.length > 0) setShowHistory(true);
               }}
+              onCompositionStart={() => { isComposingRef.current = true; }}
+              onCompositionEnd={() => { isComposingRef.current = false; }}
               onKeyDown={(e) => { 
-                if (e.nativeEvent.isComposing) return;
+                if (isComposingRef.current || e.nativeEvent.isComposing) return;
+                
+                // Enter to send (prevent default newline)
+                // Allow Shift+Enter for newline
                 if (e.key === 'Enter' && !e.shiftKey) { 
                   e.preventDefault(); 
                   handleSend(); 
                 }
+                
                 if (e.key === 'Escape') setShowHistory(false);
               }}
               style={{ width: '100%', resize: 'none', border: 'none', padding: '8px 0', background: 'transparent' }}

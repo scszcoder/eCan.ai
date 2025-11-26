@@ -75,16 +75,16 @@
       "api_key_env_vars": [
         "DASHSCOPE_API_KEY"
       ],
-      "base_url": "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank",
-      "default_model": "gte-rerank",
+      "base_url": "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank",
+      "default_model": "gte-rerank-v2",
       "description": "Alibaba Qwen rerank models",
       "documentation_url": "https://help.aliyun.com/zh/model-studio/developer-reference/text-rerank",
       "is_local": false,
       "supported_models": [
         {
-          "name": "gte-rerank",
-          "display_name": "GTE Rerank",
-          "model_id": "gte-rerank",
+          "name": "gte-rerank-v2",
+          "display_name": "GTE Rerank v2",
+          "model_id": "gte-rerank-v2",
           "max_chunks_per_doc": 1000,
           "description": "General Text Embeddings rerank model"
         },

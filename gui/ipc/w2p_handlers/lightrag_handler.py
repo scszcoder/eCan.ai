@@ -773,6 +773,12 @@ def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         config_manager = get_config_manager()
         # Use effective config which includes overlaid system API keys
         settings = config_manager.get_effective_config()
+        
+        # Log specific keys for debugging
+        debug_keys = ['TOP_K', 'CHUNK_TOP_K', 'MAX_ENTITY_TOKENS', 'RERANK_BY_DEFAULT']
+        debug_subset = {k: settings.get(k) for k in debug_keys}
+        logger.info(f"[GetSettings] Returning {len(settings)} keys. Sample: {debug_subset}")
+        
         return create_success_response(request, settings)
     except Exception as e:
         logger.error(f"Error getting settings: {e}")

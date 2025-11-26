@@ -1645,7 +1645,7 @@
         "startConversationDesc": "在下方输入您的问题并点击发送",
         "askQuestion": "提出问题...（Shift+Enter 换行）",
         "clearConversation": "清空对话",
-        "sendMessage": "发送消息",
+        "sendMessage": "发送消息 (Enter)",
         "basic": "基础",
         "advanced": "高级",
         "options": "选项",
