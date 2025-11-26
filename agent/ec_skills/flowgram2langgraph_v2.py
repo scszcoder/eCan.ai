@@ -5,6 +5,24 @@ from typing import Dict, List, Optional, Tuple
 from agent.ec_skills.dev_defs import BreakpointManager
 
 from utils.logger_helper import logger_helper as logger
+from utils.user_path_helper import ensure_user_data_dir
+
+
+def _get_debug_workflow_dir() -> str:
+    """Get the directory for workflow debug files.
+    Returns: {log_user}/debug/workflows/
+    
+    Uses centralized user_path_helper to ensure consistency with MainWindow.
+    """
+    try:
+        # Use centralized helper to get user-specific debug directory
+        # This automatically handles user detection and directory creation
+        debug_dir = ensure_user_data_dir(subdir='debug/workflows')
+        return debug_dir
+    except Exception as e:
+        logger.debug(f"[v2][wf] Failed to get debug directory: {e}")
+        # Fallback to current directory
+        return os.getcwd()
 
 
 def _v2_debug_workflow(tag: str, wf: dict, base_name: Optional[str] = None):
@@ -21,7 +39,8 @@ def _v2_debug_workflow(tag: str, wf: dict, base_name: Optional[str] = None):
         logger.debug(f"[v2][wf] {json.dumps(info, ensure_ascii=False)}")
         # Also dump full JSON to file per step for inspection
         if base_name:
-            out_js = f"{base_name}_v2_{tag}.json"
+            debug_dir = _get_debug_workflow_dir()
+            out_js = os.path.join(debug_dir, f"{base_name}_v2_{tag}.json")
             try:
                 with open(out_js, 'w', encoding='utf-8') as f:
                     json.dump({'nodes': nodes, 'edges': edges}, f, ensure_ascii=False, indent=2)
@@ -470,7 +489,8 @@ def _v2_safe_base_name(flow: dict) -> str:
 def _v2_save_mermaid(tag: str, wf: dict, base_name: str):
     try:
         mer = _v2_build_mermaid(wf)
-        out_mmd = f"{base_name}_v2_{tag}.mmd"
+        debug_dir = _get_debug_workflow_dir()
+        out_mmd = os.path.join(debug_dir, f"{base_name}_v2_{tag}.mmd")
         with open(out_mmd, 'w', encoding='utf-8') as f:
             f.write(mer)
         logger.debug(f"[v2][mmd] saved {out_mmd}")
