@@ -54,6 +54,8 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
               <List.Item.Meta
                 title={<span style={{ color: '#fff' }}>
                   {(() => {
+                    const rawTitle = (item.title || '').trim();
+                    if (rawTitle) return rawTitle;
                     const slug = (item.topic || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
                     const titleKey = `pages.prompts.examples.${slug}.title`;
                     const titleText = t(titleKey, { defaultValue: '' });
@@ -62,9 +64,19 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
                   })()}
                 </span>}
                 description={
-                  <div style={{ color: 'rgba(255,255,255,0.65)' }}>
-                    <Badge count={item.usageCount} style={{ backgroundColor: '#3b82f6' }} />
-                    <Typography.Text style={{ marginLeft: 8, color: 'rgba(255,255,255,0.65)' }}>{t('pages.prompts.uses', { defaultValue: 'uses' })}</Typography.Text>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'rgba(255,255,255,0.65)' }}>
+                    <div>
+                      <Badge count={item.usageCount} style={{ backgroundColor: '#3b82f6' }} />
+                      <Typography.Text style={{ marginLeft: 8, color: 'rgba(255,255,255,0.65)' }}>{t('pages.prompts.uses', { defaultValue: 'uses' })}</Typography.Text>
+                    </div>
+                    <Typography.Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>
+                      {(() => {
+                        if (!item.lastModified) return '';
+                        const date = new Date(item.lastModified);
+                        if (Number.isNaN(date.getTime())) return item.lastModified;
+                        return date.toLocaleString();
+                      })()}
+                    </Typography.Text>
                   </div>
                 }
               />

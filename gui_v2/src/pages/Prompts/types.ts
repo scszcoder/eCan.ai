@@ -10,4 +10,5 @@ export interface Prompt {
   instructions: string[];
   sysInputs: string[]; // system prompt: inputs
   humanInputs: string[]; // human prompt: inputs
+  lastModified?: string;
 }
