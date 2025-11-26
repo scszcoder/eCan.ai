@@ -1,6 +1,6 @@
 import React from 'react';
-import { List, Input, Badge, Typography, Button, Dropdown } from 'antd';
-import { SearchOutlined, PlusOutlined, MoreOutlined } from '@ant-design/icons';
+import { List, Input, Badge, Typography, Button, Dropdown, Tooltip } from 'antd';
+import { SearchOutlined, PlusOutlined, MoreOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import type { Prompt } from './types';
 import { useTranslation } from 'react-i18next';
@@ -13,9 +13,10 @@ interface PromptsListProps {
   onSearchChange: (val: string) => void;
   onAdd: () => void;
   onDelete: (id: string) => void;
+  onRefresh: () => void;
 }
 
-const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect, search, onSearchChange, onAdd, onDelete }) => {
+const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect, search, onSearchChange, onAdd, onDelete, onRefresh }) => {
   const { t } = useTranslation();
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -28,6 +29,9 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
           onChange={(e) => onSearchChange(e.target.value)}
         />
         <Button type="primary" icon={<PlusOutlined />} onClick={onAdd}>{t('common.add')}</Button>
+        <Tooltip title={t('common.refresh', { defaultValue: 'Refresh' })}>
+          <Button icon={<ReloadOutlined />} onClick={onRefresh} />
+        </Tooltip>
       </div>
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         <List
@@ -50,6 +54,8 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
               <List.Item.Meta
                 title={<span style={{ color: '#fff' }}>
                   {(() => {
+                    const rawTitle = (item.title || '').trim();
+                    if (rawTitle) return rawTitle;
                     const slug = (item.topic || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
                     const titleKey = `pages.prompts.examples.${slug}.title`;
                     const titleText = t(titleKey, { defaultValue: '' });
@@ -58,9 +64,19 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
                   })()}
                 </span>}
                 description={
-                  <div style={{ color: 'rgba(255,255,255,0.65)' }}>
-                    <Badge count={item.usageCount} style={{ backgroundColor: '#3b82f6' }} />
-                    <Typography.Text style={{ marginLeft: 8, color: 'rgba(255,255,255,0.65)' }}>{t('pages.prompts.uses', { defaultValue: 'uses' })}</Typography.Text>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'rgba(255,255,255,0.65)' }}>
+                    <div>
+                      <Badge count={item.usageCount} style={{ backgroundColor: '#3b82f6' }} />
+                      <Typography.Text style={{ marginLeft: 8, color: 'rgba(255,255,255,0.65)' }}>{t('pages.prompts.uses', { defaultValue: 'uses' })}</Typography.Text>
+                    </div>
+                    <Typography.Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>
+                      {(() => {
+                        if (!item.lastModified) return '';
+                        const date = new Date(item.lastModified);
+                        if (Number.isNaN(date.getTime())) return item.lastModified;
+                        return date.toLocaleString();
+                      })()}
+                    </Typography.Text>
                   </div>
                 }
               />

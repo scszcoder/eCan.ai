@@ -131,6 +131,45 @@ class AdsSettings:
     def ads_profile_dir(self, value: str):
         self._data["ads_profile_dir"] = value
 
+
+    @property
+    def chrome_version(self) -> str:
+        """ADS profile directory"""
+        return self._data.get("chrome_version", "")
+
+    @chrome_version.setter
+    def chrome_version(self, value: str):
+        self._data["chrome_version"] = value
+
+
+    @property
+    def chromedriver_lut(self) -> str:
+        """ADS profile directory"""
+        return self._data.get("chromedriver_lut", "")
+
+    @chromedriver_lut.setter
+    def chromedriver_lut(self, value: str):
+        self._data["chromedriver_lut"] = value
+
+    @property
+    def chromedriver(self) -> str:
+        """ADS profile directory"""
+        return self._data.get("chromedriver", "")
+
+    @chromedriver.setter
+    def chromedriver(self, value: str):
+        self._data["chromedriver"] = value
+
+
+    @property
+    def default_scraper_email(self) -> str:
+        """ADS profile directory"""
+        return self._data.get("default_scraper_email", "")
+
+    @default_scraper_email.setter
+    def default_scraper_email(self, value: str):
+        self._data["default_scraper_email"] = value
+
     # ==================== Convenience Methods ====================
     
     def get_all_data(self) -> dict:
