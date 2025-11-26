@@ -354,6 +354,43 @@ export class IPCAPI {
         return this.executeRequest<T>('get_default_embedding', {});
     }
 
+    // Rerank Management APIs
+    public async getRerankProviders<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_rerank_providers', {});
+    }
+
+    public async setDefaultRerank<T>(name: string, username: string, model?: string): Promise<APIResponse<T>> {
+        const params: any = { name, username };
+        if (model) {
+            params.model = model;
+        }
+        return this.executeRequest<T>('set_default_rerank', params);
+    }
+
+    public async updateRerankProvider<T>(name: string, apiKey: string, azureEndpoint?: string): Promise<APIResponse<T>> {
+        const params: any = { name, api_key: apiKey };
+        if (azureEndpoint) {
+            params.azure_endpoint = azureEndpoint;
+        }
+        return this.executeRequest<T>('update_rerank_provider', params);
+    }
+
+    public async setRerankProviderModel<T>(name: string, model: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('set_rerank_provider_model', { name, model });
+    }
+
+    public async deleteRerankProviderConfig<T>(name: string, username: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('delete_rerank_provider_config', { name, username });
+    }
+
+    public async getRerankProviderApiKey<T>(name: string, showFull: boolean = false): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_rerank_provider_api_key', { name, show_full: showFull });
+    }
+
+    public async getDefaultRerank<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_default_rerank', {});
+    }
+
     public async runTest<T>(tests: TestConfig[]): Promise<APIResponse<T>> {
         return this.executeRequest<T>('run_tests', { tests });
     }

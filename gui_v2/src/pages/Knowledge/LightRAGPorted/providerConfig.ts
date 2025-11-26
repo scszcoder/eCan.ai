@@ -34,8 +34,8 @@ export const RERANKING_PROVIDERS: ProviderConfig[] = [
     name: 'Cohere',
     description: 'Cohere reranking service',
     fields: [
-      { key: 'RERANK_MODEL', label: 'Model', type: 'text', placeholder: 'rerank-english-v3.0', required: true },
-      { key: 'RERANK_BINDING_HOST', label: 'API Host', type: 'text', placeholder: 'https://api.cohere.ai/v1' },
+      { key: 'RERANK_MODEL', label: 'Model', type: 'text', defaultValue: 'rerank-english-v3.0', placeholder: 'rerank-english-v3.0', required: true },
+      { key: 'RERANK_BINDING_HOST', label: 'API Host', type: 'text', defaultValue: 'https://api.cohere.com/v2/rerank', placeholder: 'https://api.cohere.com/v2/rerank' },
       { key: 'RERANK_BINDING_API_KEY', label: 'API Key', type: 'password', placeholder: 'your_cohere_api_key', required: true }
     ]
   },
@@ -44,8 +44,8 @@ export const RERANKING_PROVIDERS: ProviderConfig[] = [
     name: 'Jina AI',
     description: 'Jina AI reranking service',
     fields: [
-      { key: 'RERANK_MODEL', label: 'Model', type: 'text', placeholder: 'jina-reranker-v2-base-multilingual', required: true },
-      { key: 'RERANK_BINDING_HOST', label: 'API Host', type: 'text', placeholder: 'https://api.jina.ai/v1' },
+      { key: 'RERANK_MODEL', label: 'Model', type: 'text', defaultValue: 'jina-reranker-v2-base-multilingual', placeholder: 'jina-reranker-v2-base-multilingual', required: true },
+      { key: 'RERANK_BINDING_HOST', label: 'API Host', type: 'text', defaultValue: 'https://api.jina.ai/v1/rerank', placeholder: 'https://api.jina.ai/v1/rerank' },
       { key: 'RERANK_BINDING_API_KEY', label: 'API Key', type: 'password', placeholder: 'your_jina_api_key', required: true }
     ]
   },
@@ -54,9 +54,38 @@ export const RERANKING_PROVIDERS: ProviderConfig[] = [
     name: 'Aliyun (阿里云)',
     description: 'Aliyun reranking service',
     fields: [
-      { key: 'RERANK_MODEL', label: 'Model', type: 'text', placeholder: 'gte-rerank', required: true },
-      { key: 'RERANK_BINDING_HOST', label: 'API Host', type: 'text', placeholder: 'https://dashscope.aliyuncs.com/api/v1' },
+      { key: 'RERANK_MODEL', label: 'Model', type: 'text', defaultValue: 'gte-rerank', placeholder: 'gte-rerank', required: true },
+      { key: 'RERANK_BINDING_HOST', label: 'API Host', type: 'text', defaultValue: 'https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank', placeholder: 'https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank' },
       { key: 'RERANK_BINDING_API_KEY', label: 'API Key', type: 'password', placeholder: 'your_aliyun_api_key', required: true }
+    ]
+  },
+  {
+    id: 'voyageai',
+    name: 'Voyage AI',
+    description: 'Voyage AI reranking service',
+    fields: [
+      { key: 'RERANK_MODEL', label: 'Model', type: 'text', defaultValue: 'rerank-2', placeholder: 'rerank-2', required: true },
+      { key: 'RERANK_BINDING_HOST', label: 'API Host', type: 'text', defaultValue: 'https://api.voyageai.com/v1/rerank', placeholder: 'https://api.voyageai.com/v1/rerank' },
+      { key: 'RERANK_BINDING_API_KEY', label: 'API Key', type: 'password', placeholder: 'your_voyage_api_key', required: true }
+    ]
+  },
+  {
+    id: 'siliconflow',
+    name: 'SiliconFlow',
+    description: 'SiliconFlow (BGE) reranking service',
+    fields: [
+      { key: 'RERANK_MODEL', label: 'Model', type: 'text', defaultValue: 'BAAI/bge-reranker-v2-m3', placeholder: 'BAAI/bge-reranker-v2-m3', required: true },
+      { key: 'RERANK_BINDING_HOST', label: 'API Host', type: 'text', defaultValue: 'https://api.siliconflow.cn/v1/rerank', placeholder: 'https://api.siliconflow.cn/v1/rerank' },
+      { key: 'RERANK_BINDING_API_KEY', label: 'API Key', type: 'password', placeholder: 'your_siliconflow_api_key', required: true }
+    ]
+  },
+  {
+    id: 'ollama',
+    name: 'Ollama',
+    description: 'Ollama local reranking service',
+    fields: [
+      { key: 'RERANK_MODEL', label: 'Model', type: 'text', defaultValue: 'bge-m3', placeholder: 'bge-m3', required: true },
+      { key: 'RERANK_BINDING_HOST', label: 'API Host', type: 'text', defaultValue: 'http://localhost:11434/api/rerank', placeholder: 'http://localhost:11434/api/rerank' }
     ]
   }
 ];

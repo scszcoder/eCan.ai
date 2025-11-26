@@ -212,6 +212,21 @@ class LightragServer:
                 mapped = 'openai'  # Default fallback
             logger.info(f"[LightragServer] Mapped Embedding binding '{embedding_binding}' -> '{mapped}'")
             env['EMBEDDING_BINDING'] = mapped
+        
+        # Map Rerank binding (LightRAG natively supports: cohere, jina, voyageai, siliconflow, aliyun, ollama)
+        # Map all other providers to 'aliyun' (Alibaba-compatible API)
+        RERANK_NATIVE_SUPPORTED = ['cohere', 'jina', 'aliyun']
+        rerank_binding = env.get('RERANK_BINDING')
+        if rerank_binding and rerank_binding.lower() not in ['null', 'none', '']:
+            rerank_binding_lower = rerank_binding.lower()
+            if rerank_binding_lower not in RERANK_NATIVE_SUPPORTED:
+                # Map unsupported providers to aliyun (Alibaba-compatible)
+                logger.info(f"[LightragServer] Mapped Rerank binding '{rerank_binding}' -> 'aliyun' (Alibaba-compatible API)")
+                env['RERANK_BINDING'] = 'aliyun'
+        
+        # # 7. Add SSL/TLS configuration to fix certificate errors
+        # if 'SSL_VERIFY' not in env:
+        #     env['SSL_VERIFY'] = 'false'
 
         # 8. Clean up empty string values that cause argument parsing errors
         # LightRAG server cannot handle empty strings for numeric/float parameters
@@ -527,7 +542,13 @@ class LightragServer:
 
             # Use -m module approach for both frozen and non-frozen modes
             # The environment variables are already properly configured
-            cmd = [python_executable, "-u", "-m", "lightrag.api.lightrag_server"]
+            # Use wrapper script to handle SSL patching
+            wrapper_path = os.path.join(os.path.dirname(__file__), "lightrag_wrapper.py")
+            if os.path.exists(wrapper_path):
+                cmd = [python_executable, "-u", wrapper_path]
+            else:
+                logger.warning(f"[LightragServer] Wrapper not found at {wrapper_path}, falling back to module execution")
+                cmd = [python_executable, "-u", "-m", "lightrag.api.lightrag_server"]
 
             # Log final environment variables (masked) for debugging
             try:
@@ -560,6 +581,18 @@ class LightragServer:
                     summary.append(f"   Embedding Host:    {env.get('EMBEDDING_BINDING_HOST')}")
                 if env.get('EMBEDDING_BINDING_API_KEY'):
                     summary.append(f"   Embedding Key:     {self._mask_env_value('EMBEDDING_API_KEY', env['EMBEDDING_BINDING_API_KEY'])}")
+
+                # Rerank
+                rerank_provider = env.get('RERANK_BINDING', 'null')
+                rerank_model = env.get('RERANK_MODEL', '')
+                rerank_enabled = env.get('RERANK_BY_DEFAULT', 'false')
+                summary.append(f"🔄 Rerank Provider:    {rerank_provider}")
+                summary.append(f"   Rerank Model:      {rerank_model if rerank_model else 'N/A'}")
+                summary.append(f"   Enabled by Default: {rerank_enabled}")
+                if env.get('RERANK_BINDING_HOST'):
+                    summary.append(f"   Rerank Host:       {env.get('RERANK_BINDING_HOST')}")
+                if env.get('RERANK_BINDING_API_KEY'):
+                    summary.append(f"   Rerank Key:        {self._mask_env_value('RERANK_API_KEY', env['RERANK_BINDING_API_KEY'])}")
 
                 # Storage
                 summary.append("-" * 20 + " Storage " + "-" * 20)

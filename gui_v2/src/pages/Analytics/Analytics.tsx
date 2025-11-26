@@ -5,7 +5,7 @@ import {
     ArrowDownOutlined,
     UserOutlined,
     RobotOutlined,
-    CarOutlined,
+    LaptopOutlined,
     CheckCircleOutlined,
     ReloadOutlined
 } from '@ant-design/icons';
@@ -113,7 +113,7 @@ const Analytics: React.FC = () => {
                         <Statistic
                             title={t('pages.analytics.activeVehicles')}
                             value={8}
-                            prefix={<CarOutlined />}
+                            prefix={<LaptopOutlined />}
                             valueStyle={{ color: '#722ed1' }}
                         />
                         <div style={{ marginTop: 8 }}>

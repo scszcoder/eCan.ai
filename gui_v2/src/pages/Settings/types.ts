@@ -82,6 +82,10 @@ export interface Settings {
   default_embedding: string;
   default_embedding_model: string;
   
+  // Rerank
+  default_rerank: string;
+  default_rerank_model: string;
+  
   // Skill
   skill_use_git: boolean;
   

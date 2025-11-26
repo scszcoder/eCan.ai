@@ -349,6 +349,45 @@ class LightRAGConfigManager:
                 logger.warning(f"Failed to get system Embedding key: {e}")
                 import traceback
                 logger.warning(traceback.format_exc())
+
+            # 3. Rerank API Key
+            # Use RERANK_BINDING from .env file instead of system default_rerank
+            try:
+                rerank_mgr = main_window.config_manager.rerank_manager
+                
+                # Read current .env file to get RERANK_BINDING
+                current_config = self.read_config()
+                rerank_binding = current_config.get('RERANK_BINDING')
+                logger.info(f"[LightRAG Config] RERANK_BINDING from .env = {rerank_binding}")
+                
+                if rerank_binding:
+                    # Try to get provider by the binding value
+                    rerank_provider = rerank_mgr.get_provider(rerank_binding)
+                    logger.info(f"[LightRAG Config] rerank_provider = {rerank_provider.get('name') if rerank_provider else None}")
+                    
+                    if rerank_provider:
+                        # Use provider's base_url if available
+                        base_url = rerank_provider.get('base_url')
+                        if base_url:
+                            keys['RERANK_BINDING_HOST'] = base_url
+                            logger.info(f"[LightRAG Config] Using Rerank base URL: {base_url}")
+                        
+                        api_key_env_vars = rerank_provider.get('api_key_env_vars', [])
+                        logger.info(f"[LightRAG Config] api_key_env_vars = {api_key_env_vars}")
+                        for env_var in api_key_env_vars:
+                            key_val = rerank_mgr.retrieve_api_key(env_var)
+                            logger.info(f"[LightRAG Config] Checking {env_var}: {'Found' if key_val else 'Not found'}")
+                            if key_val:
+                                keys['RERANK_BINDING_API_KEY'] = key_val
+                                keys['_SYSTEM_RERANK_KEY_SOURCE'] = env_var
+                                logger.info(f"[LightRAG Config] Using Rerank API key from {env_var}")
+                                break
+                    else:
+                        logger.warning(f"[LightRAG Config] Provider '{rerank_binding}' not found in rerank_manager")
+            except Exception as e:
+                logger.warning(f"Failed to get system Rerank key: {e}")
+                import traceback
+                logger.warning(traceback.format_exc())
                 
         except Exception as e:
             logger.warning(f"Error in get_system_api_keys: {e}")

@@ -823,6 +823,14 @@
       "embedding_model": "Embedding Model",
       "embedding_updated_successfully": "Embedding updated successfully",
       "embedding_config_deleted": "Embedding configuration deleted",
+      "rerank_management": "Rerank Management",
+      "rerank_provider": "Rerank Provider",
+      "rerank_model": "Rerank Model",
+      "rerank_updated_successfully": "Rerank updated successfully",
+      "rerank_config_deleted": "Rerank configuration deleted",
+      "login_to_view_rerank": "Please login to view rerank settings",
+      "warning_default_rerank_deletion": "This is your default Rerank provider. A new default will be selected automatically.",
+      "rerank_tab_title": "Rerank Management",
       "login_to_view_embedding": "Please login to view embedding settings",
       "auto_set_as_default": "Auto-set as default",
       "reset_to_default_provider": "Reset to default provider (OpenAI)",
@@ -1833,5 +1841,23 @@
     "delete_success": "Avatar deleted successfully",
     "delete_failed": "Failed to delete avatar",
     "delete_no_id": "Cannot delete avatar without ID"
+  },
+  "settings": {
+    "tooltips": {
+      "rerankBinding": "Select the Rerank provider to use",
+      "rerankByDefault": "Whether to enable reranking by default for all queries",
+      "minRerankScore": "Minimum score threshold for reranking results (0.0-1.0)"
+    }
+  },
+  "fields": {
+    "enableByDefault": "Enable by Default",
+    "minRerankScore": "Min Rerank Score"
+  },
+  "tooltips": {
+    "rerankByDefault": "Whether to enable reranking by default for all queries",
+    "minRerankScore": "Minimum score threshold for reranking results (0.0-1.0)"
+  },
+  "providers": {
+    "noneDisabled": "None (Disabled)"
   }
 }

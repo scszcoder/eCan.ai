@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Row, Col, Statistic, Typography, Space, Tag, Alert, Skeleton } from 'antd';
-import { CarOutlined, RobotOutlined, ScheduleOutlined, ToolOutlined, SettingOutlined } from '@ant-design/icons';
+import { LaptopOutlined, ThunderboltOutlined, ScheduleOutlined, ToolOutlined, SettingOutlined, TeamOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useAppDataStore } from '../../stores/appDataStore';
 import {
@@ -131,11 +131,11 @@ const Dashboard: React.FC = () => {
     }, [username]);
 
     const dataCards = [
-        { title: t("pages.dashboard.agentsCount"), value: (agents || []).length, icon: <RobotOutlined />, color: '#3f8600' },
-        { title: t("pages.dashboard.skillsCount"), value: (skills || []).length, icon: <ToolOutlined />, color: '#1890ff' },
-        { title: t("pages.dashboard.toolsCount"), value: (tools || []).length, icon: <SettingOutlined />, color: '#722ed1' },
+        { title: t("pages.dashboard.agentsCount"), value: (agents || []).length, icon: <TeamOutlined />, color: '#3f8600' },
+        { title: t("pages.dashboard.skillsCount"), value: (skills || []).length, icon: <ThunderboltOutlined />, color: '#1890ff' },
+        { title: t("pages.dashboard.toolsCount"), value: (tools || []).length, icon: <ToolOutlined />, color: '#722ed1' },
         { title: t("pages.dashboard.tasksCount"), value: (tasks || []).length, icon: <ScheduleOutlined />, color: '#fa8c16' },
-        { title: t("pages.dashboard.vehiclesCount"), value: (vehicles || []).length, icon: <CarOutlined />, color: '#eb2f96' },
+        { title: t("pages.dashboard.vehiclesCount"), value: (vehicles || []).length, icon: <LaptopOutlined />, color: '#eb2f96' },
         { title: t("pages.dashboard.systemStatus"), value: initialized ? t("pages.dashboard.statusOnline") : t("pages.dashboard.statusOffline"), icon: <SettingOutlined />, color: initialized ? '#52c41a' : '#ff4d4f' }
     ];
 

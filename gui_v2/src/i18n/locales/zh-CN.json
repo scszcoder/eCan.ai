@@ -820,6 +820,14 @@
       "embedding_model": "嵌入模型",
       "embedding_updated_successfully": "嵌入模型更新成功",
       "embedding_config_deleted": "嵌入模型配置已删除",
+      "rerank_management": "重排序管理",
+      "rerank_provider": "重排序提供商",
+      "rerank_model": "重排序模型",
+      "rerank_updated_successfully": "重排序配置更新成功",
+      "rerank_config_deleted": "重排序配置已删除",
+      "login_to_view_rerank": "请登录以查看重排序设置",
+      "warning_default_rerank_deletion": "这是您的默认重排序提供商。将自动选择一个新的默认提供商。",
+      "rerank_tab_title": "重排序管理",
       "login_to_view_embedding": "请登录以查看嵌入模型设置",
       "auto_set_as_default": "自动设置为默认",
       "reset_to_default_provider": "已重置为默认提供商(OpenAI)",
@@ -1829,5 +1837,23 @@
     "delete_success": "头像删除成功",
     "delete_failed": "删除头像失败",
     "delete_no_id": "无法删除没有ID的头像"
+  },
+  "settings": {
+    "tooltips": {
+      "rerankBinding": "选择要使用的重排序提供商",
+      "rerankByDefault": "是否默认对所有查询启用重排序",
+      "minRerankScore": "重排序结果的最低分数阈值 (0.0-1.0)"
+    }
+  },
+  "fields": {
+    "enableByDefault": "默认启用",
+    "minRerankScore": "最低重排序分数"
+  },
+  "tooltips": {
+    "rerankByDefault": "是否默认对所有查询启用重排序",
+    "minRerankScore": "重排序结果的最低分数阈值 (0.0-1.0)"
+  },
+  "providers": {
+    "noneDisabled": "无（禁用）"
   }
 }

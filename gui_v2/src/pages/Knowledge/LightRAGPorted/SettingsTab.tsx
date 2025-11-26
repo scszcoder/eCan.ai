@@ -54,15 +54,14 @@ const mergeProviders = (staticList: ProviderConfig[], systemList: ProviderConfig
       mergedP.fields = mergedP.fields.map(staticField => {
         const systemField = systemP.fields.find(f => f.key === staticField.key);
         if (systemField) {
+          // Start with system field (has runtime data), then overlay static field UI properties
           return {
-            ...staticField,
-            // Merge dynamic properties if they exist in system field
-            options: systemField.options || staticField.options,
-            defaultValue: systemField.defaultValue !== undefined ? systemField.defaultValue : staticField.defaultValue,
-            isSystemManaged: systemField.isSystemManaged,
-            disabled: systemField.disabled !== undefined ? systemField.disabled : staticField.disabled,
-            // If system field changed type (e.g. text -> select), accept it
-            type: (systemField.type === 'select' && staticField.type === 'text') ? 'select' : staticField.type
+            ...systemField,
+            // Preserve static field UI properties
+            label: staticField.label || systemField.label,
+            placeholder: staticField.placeholder || systemField.placeholder,
+            tooltip: staticField.tooltip || systemField.tooltip,
+            required: staticField.required !== undefined ? staticField.required : systemField.required,
           };
         }
         return staticField;
@@ -70,6 +69,9 @@ const mergeProviders = (staticList: ProviderConfig[], systemList: ProviderConfig
 
       result.push(mergedP);
       systemMap.delete(staticP.id.toLowerCase());
+    } else if (staticP.id === 'null') {
+      // Always preserve the 'null' (disabled) option even if not returned by backend
+      result.push(staticP);
     }
   }
 
@@ -86,6 +88,7 @@ const SettingsTab: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [llmProviders, setLlmProviders] = useState<ProviderConfig[]>(LLM_PROVIDERS);
   const [embeddingProviders, setEmbeddingProviders] = useState<ProviderConfig[]>(EMBEDDING_PROVIDERS);
+  const [rerankingProviders, setRerankingProviders] = useState<ProviderConfig[]>(RERANKING_PROVIDERS);
   
   const { t, ready } = useTranslation();
   const { token } = theme.useToken();
@@ -286,9 +289,11 @@ const SettingsTab: React.FC = () => {
       if (response.success && response.data) {
         const systemLlm = response.data.llm_providers as ProviderConfig[];
         const systemEmbed = response.data.embedding_providers as ProviderConfig[];
+        const systemRerank = response.data.rerank_providers as ProviderConfig[];
 
         setLlmProviders(mergeProviders(LLM_PROVIDERS, systemLlm));
         setEmbeddingProviders(mergeProviders(EMBEDDING_PROVIDERS, systemEmbed));
+        setRerankingProviders(mergeProviders(RERANKING_PROVIDERS, systemRerank));
       }
     } catch (e) {
       console.error('Failed to load system providers:', e);
@@ -296,7 +301,27 @@ const SettingsTab: React.FC = () => {
   };
 
   const updateSetting = (key: string, value: string) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
+    setSettings(prev => {
+      const newSettings = { ...prev, [key]: value };
+      
+      // Rerank linkage logic
+      if (key === 'RERANK_BINDING') {
+        if (value && value !== 'null') {
+          // Selecting a provider -> Enable rerank by default
+          newSettings['RERANK_BY_DEFAULT'] = 'true';
+        } else {
+          // Deselecting provider -> Disable rerank by default
+          newSettings['RERANK_BY_DEFAULT'] = 'false';
+        }
+      } else if (key === 'RERANK_BY_DEFAULT') {
+        if (value === 'false') {
+          // Disabling default rerank -> Clear provider
+          newSettings['RERANK_BINDING'] = 'null';
+        }
+      }
+      
+      return newSettings;
+    });
   };
 
   const openFolderDialog = async (key: string) => {
@@ -607,6 +632,7 @@ const SettingsTab: React.FC = () => {
           systemFlagKey = '_SYSTEM_EMBED_KEY_SOURCE';
         } else if (bindingKey === 'RERANK_BINDING') {
           apiKeyField = 'RERANK_BINDING_API_KEY';
+          systemFlagKey = '_SYSTEM_RERANK_KEY_SOURCE';
         }
 
         // Clear all old provider-specific fields first
@@ -687,10 +713,10 @@ const SettingsTab: React.FC = () => {
         return (
           <ProviderSelector
             bindingKey="RERANK_BINDING"
-            providers={RERANKING_PROVIDERS}
+            providers={rerankingProviders}
             commonFields={RERANKING_COMMON_FIELDS}
             settings={settings}
-            onSettingChange={createSettingChangeHandler("RERANK_BINDING", RERANKING_PROVIDERS)}
+            onSettingChange={createSettingChangeHandler("RERANK_BINDING", rerankingProviders)}
           />
         );
       case 'llm':
