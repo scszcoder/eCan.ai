@@ -392,3 +392,52 @@ def genInitialADSProfiles(dataJsons, api_Key, port):
         # this is half done, correct?
 
 
+
+def connect_to_adspower(mainwin, url):
+    try:
+        webdriver_path = mainwin.getWebDriverPath()
+        # global ads_config, local_api_key, local_api_port, sk_work_settings
+        ads_port = mainwin.getADSSettings().get('ads_port', 0)
+        ads_api_key = mainwin.getADSSettings().get('ads_api_key', '')
+        ads_chrome_version = mainwin.getADSSettings().get('chrome_version', '')
+        scraper_email = mainwin.getADSSettings().get("default_scraper_email", "")
+        web_driver_options = ""
+        logger.debug(
+            f'check_browser_and_drivers: ads_port: {ads_port}, ads_api_key: {ads_api_key}, ads_chrome_version: {ads_chrome_version}')
+        profiles = queryAdspowerProfile(ads_api_key, ads_port)
+        loaded_profiles = {}
+        for profile in profiles:
+            loaded_profiles[profile['username']] = {"uid": profile['user_id'], "remark": profile['remark']}
+
+        ads_profile_id = loaded_profiles[scraper_email]['uid']
+        ads_profile_remark = loaded_profiles[scraper_email]['remark']
+        logger.debug(f'ads_profile_id, ads_profile_remark: {ads_profile_id}, {ads_profile_remark}')
+
+        webdriver, result = startADSWebDriver(ads_api_key, ads_port, ads_profile_id, webdriver_path, web_driver_options)
+
+        webdriver.switch_to.window(webdriver.window_handles[0])
+        time.sleep(2)
+        logger.debug(f"openning new tab with URL: {url}")
+        webdriver.execute_script(f"window.open('{url}', '_blank');")
+        time.sleep(2)
+        # Switch to the new tab
+        webdriver.switch_to.window(webdriver.window_handles[-1])
+        time.sleep(3)
+        # Navigate to the new URL in the new tab
+        domTree = {}
+        if url:
+            if not url.startswith("file:///"):
+                logger.debug(f"Navigating to live URL with .get(): {url}")
+                webdriver.get(url)
+                logger.info("opened live URL: " + url)
+            else:
+                logger.debug(f"Local file URL detected. Skipping webdriver.get() as it's already loaded.")
+
+            # time.sleep(5)
+
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorConnectToAdspower")
+        logger.error(err_trace)
+        webdriver = None
+
+    return webdriver
