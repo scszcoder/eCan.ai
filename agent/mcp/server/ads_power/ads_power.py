@@ -395,12 +395,14 @@ def genInitialADSProfiles(dataJsons, api_Key, port):
 
 def connect_to_adspower(mainwin, url):
     try:
+        ads_settings = mainwin.config_manager.ads_settings
         webdriver_path = mainwin.getWebDriverPath()
         # global ads_config, local_api_key, local_api_port, sk_work_settings
-        ads_port = mainwin.getADSSettings().get('ads_port', 0)
-        ads_api_key = mainwin.getADSSettings().get('ads_api_key', '')
-        ads_chrome_version = mainwin.getADSSettings().get('chrome_version', '')
-        scraper_email = mainwin.getADSSettings().get("default_scraper_email", "")
+        ads_port = ads_settings.ads_port
+        ads_api_key = ads_settings.ads_api_key
+        ads_chrome_version = ads_settings.chrome_version
+        scraper_email = ads_settings.default_scraper_email
+        print("[CONN To ADS]ads_settings:", ads_port, ads_api_key, ads_chrome_version, scraper_email, webdriver_path)
         web_driver_options = ""
         logger.debug(
             f'check_browser_and_drivers: ads_port: {ads_port}, ads_api_key: {ads_api_key}, ads_chrome_version: {ads_chrome_version}')
