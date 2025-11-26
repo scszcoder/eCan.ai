@@ -192,7 +192,7 @@ def click_buy_shipping_on_details_page(driver, wait: WebDriverWait, timeout: int
             pass
 
         target_pdf = "/path/to/labels/order_114-8723145-4091425.pdf"
-        ok = save_page_pdf_via_cdp(web_driver, target_pdf, options={
+        ok = save_page_pdf_via_cdp(driver, target_pdf, options={
             "printBackground": True,
             # Optional: "paperWidth": 8.5, "paperHeight": 11, "marginTop": 0.25, ...
         })

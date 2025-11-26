@@ -39,17 +39,75 @@ from agent.mcp.server.scrapers.amazon_seller.amazon_messages_scrape import (
     answer_amazon_messages,
     fetch_amazon_messages,
 )
+from agent.mcp.server.scrapers.amazon_seller.amazon_search import amazon_search
+from agent.mcp.server.scrapers.amazon_seller.amazon_listing import (
+    amazon_add_listings,
+    amazon_remove_listings,
+    amazon_update_listings,
+    amazon_get_listings,
+    amazon_add_listing_templates,
+    amazon_remove_listing_templates,
+    amazon_update_listing_templates,
+)
+from agent.mcp.server.scrapers.amazon_seller.amazon_cancel_return import (
+    amazon_handle_return,
+    amazon_handle_refund,
+)
+from agent.mcp.server.scrapers.amazon_seller.amazon_campaign import (
+    amazon_collect_campaigns_stats,
+    amazon_adjust_campaigns,
+)
+from agent.mcp.server.scrapers.amazon_seller.amazon_performance import (
+    amazon_collect_shop_products_stats,
+)
+from agent.mcp.server.scrapers.amazon_seller.amazon_utils import (
+    amazon_generate_work_summary,
+)
 from agent.mcp.server.scrapers.api_ecan_ai_cloud_search.api_ecan_ai_cloud_search import api_ecan_ai_cloud_search
-from agent.mcp.server.scrapers.ebay_seller.ebay_messages_scrape import answer_ebay_messages, fetch_ebay_messages
-from agent.mcp.server.scrapers.ebay_seller.ebay_orders_scrape import fullfill_ebay_orders
+from agent.mcp.server.scrapers.ebay_seller.ebay_messages_scrape import ebay_respond_to_message, ebay_read_next_message
+from agent.mcp.server.scrapers.ebay_seller.ebay_orders_scrape import ebay_fullfill_next_order, get_ebay_summary,ebay_cancel_orders
+from agent.mcp.server.scrapers.ebay_seller.ebay_search import ebay_search
+from agent.mcp.server.scrapers.ebay_seller.ebay_listing import ebay_add_listings, ebay_remove_listings, ebay_update_listings, ebay_get_listings, ebay_add_listing_templates, ebay_remove_listing_templates, ebay_update_listing_templates
+from agent.mcp.server.scrapers.ebay_seller.ebay_labels import ebay_gen_labels, ebay_cancel_labels
+from agent.mcp.server.scrapers.ebay_seller.ebay_cancel_return import ebay_handle_return, ebay_handle_refund
+from agent.mcp.server.scrapers.ebay_seller.ebay_campaign import ebay_collect_campaigns_stats, ebay_adjust_campaigns
+from agent.mcp.server.scrapers.ebay_seller.ebay_performance import ebay_collect_shop_products_stats
+from agent.mcp.server.scrapers.ebay_seller.ebay_utils import ebay_generate_work_summary
+
+
 from agent.mcp.server.scrapers.etsy_seller.etsy_messages_scrape import answer_etsy_messages, fetch_etsy_messages
 from agent.mcp.server.scrapers.etsy_seller.etsy_orders_scrape import fullfill_etsy_orders
+from agent.mcp.server.scrapers.etsy_seller.etsy_search import etsy_search
+from agent.mcp.server.scrapers.etsy_seller.etsy_listing import (
+    etsy_add_listings,
+    etsy_remove_listings,
+    etsy_update_listings,
+    etsy_get_listings,
+    etsy_add_listing_templates,
+    etsy_remove_listing_templates,
+    etsy_update_listing_templates,
+)
+from agent.mcp.server.scrapers.etsy_seller.etsy_cancel_return import (
+    etsy_handle_return,
+    etsy_handle_refund,
+)
+from agent.mcp.server.scrapers.etsy_seller.etsy_campaign import (
+    etsy_collect_campaigns_stats,
+    etsy_adjust_campaigns,
+)
+from agent.mcp.server.scrapers.etsy_seller.etsy_performance import (
+    etsy_collect_shop_products_stats,
+)
+from agent.mcp.server.scrapers.etsy_seller.etsy_utils import (
+    etsy_generate_work_summary,
+)
 from agent.mcp.server.scrapers.eval_util import calculate_score, get_default_fom_form
 from agent.mcp.server.scrapers.pirate_shipping.purchase_label import pirate_shipping_purchase_labels
 from agent.mcp.server.scrapers.selenium_search_component import (
     selenium_search_component,
     selenium_sort_search_results,
 )
+from agent.ec_skills.rag.local_rag_mcp import ragify, rag_query
 from agent.mcp.server.utils.print_utils import reformat_and_print_labels
 from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
 from app_context import AppContext
@@ -1718,17 +1776,62 @@ tool_function_mapping = {
         "mouse_act_on_screen": mouse_act_on_screen,
         "ecan_local_search_components": ecan_local_search_components,
         "ecan_local_sort_search_results": ecan_local_sort_search_results,
-        "fullfill_ebay_orders": fullfill_ebay_orders,
-        "fullfill_etsy_orders": fullfill_etsy_orders,
-        "fullfill_amazon_fbs_orders": fullfill_amazon_fbs_orders,
-        "fetch_ebay_messages": fetch_ebay_messages,
-        "fetch_etsy_messages": fetch_etsy_messages,
-        "fetch_amazon_messages": fetch_amazon_messages,
-        "answer_ebay_messages": answer_ebay_messages,
-        "answer_etsy_messages": answer_etsy_messages,
-        "answer_amazon_messages": answer_amazon_messages,
+        "get_ebay_summary": get_ebay_summary,
+        "ebay_fullfill_next_order": ebay_fullfill_next_order,
+        "ebay_read_next_message": ebay_read_next_message,
+        "ebay_respond_to_message": ebay_respond_to_message,
+        "ebay_handle_return": ebay_handle_return,
+        "ebay_cancel_orders": ebay_cancel_orders,
+        "ebay_gen_labels": ebay_gen_labels,
+        "ebay_handle_refund": ebay_handle_refund,
+        "ebay_generate_work_summary": ebay_generate_work_summary,
+        "ebay_search": ebay_search,
+
+        "etsy_search": etsy_search,
+        "etsy_add_listings": etsy_add_listings,
+        "etsy_remove_listings": etsy_remove_listings,
+        "etsy_update_listings": etsy_update_listings,
+        "etsy_get_listings": etsy_get_listings,
+        "etsy_add_listing_templates": etsy_add_listing_templates,
+        "etsy_remove_listing_templates": etsy_remove_listing_templates,
+        "etsy_update_listing_templates": etsy_update_listing_templates,
+        "etsy_handle_return": etsy_handle_return,
+        "etsy_handle_refund": etsy_handle_refund,
+        "etsy_collect_campaigns_stats": etsy_collect_campaigns_stats,
+        "etsy_adjust_campaigns": etsy_adjust_campaigns,
+        "etsy_collect_shop_products_stats": etsy_collect_shop_products_stats,
+        "etsy_generate_work_summary": etsy_generate_work_summary,
+
+        "amazon_search": amazon_search,
+        "amazon_add_listings": amazon_add_listings,
+        "amazon_remove_listings": amazon_remove_listings,
+        "amazon_update_listings": amazon_update_listings,
+        "amazon_get_listings": amazon_get_listings,
+        "amazon_add_listing_templates": amazon_add_listing_templates,
+        "amazon_remove_listing_templates": amazon_remove_listing_templates,
+        "amazon_update_listing_templates": amazon_update_listing_templates,
+        "amazon_handle_return": amazon_handle_return,
+        "amazon_handle_refund": amazon_handle_refund,
+        "amazon_collect_campaigns_stats": amazon_collect_campaigns_stats,
+        "amazon_adjust_campaigns": amazon_adjust_campaigns,
+        "amazon_collect_shop_products_stats": amazon_collect_shop_products_stats,
+        "amazon_generate_work_summary": amazon_generate_work_summary,
+
+        # "get_custom_shop_summary": get_custom_shop_summary,
+        # "custom_shop_fullfill_next_order": custom_shop_fullfill_next_order,
+        # "custom_shop_read_next_message": custom_shop_read_next_message,
+        # "custom_shop_respond_to_message": custom_shop_respond_to_message,
+        # "custom_shop_handle_return": custom_shop_handle_return,
+        # "custom_shop_cancel_order": custom_shop_cancel_order,
+        # "custom_shop_gen_label": custom_shop_gen_label,
+        # "custom_shop_handle_refund": custom_shop_handle_refund,
+        # "custom_shop_fullfill_mcn_order": custom_shop_fullfill_mcn_order,
+        # "custom_shop_generate_work_summary": custom_shop_generate_work_summary,
+
         "pirate_shipping_purchase_labels": pirate_shipping_purchase_labels,
-        "reformat_and_print_labels": reformat_and_print_labels
+        "reformat_and_print_labels": reformat_and_print_labels,
+        "ragify": ragify,
+        "rag_query": rag_query
     }
 
 def set_server_main_win(mw):

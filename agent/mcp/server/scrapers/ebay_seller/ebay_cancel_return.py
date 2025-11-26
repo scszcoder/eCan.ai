@@ -9,73 +9,47 @@ from utils.logger_helper import get_traceback
 from mcp.types import CallToolResult, TextContent
 
 
-async def ebay_read_next_message(mainwin, args):  # type: ignore
+async def ebay_handle_refund(mainwin, args):  # type: ignore
     try:
-        logger.debug("eBay read next unread message started....")
+        logger.debug("ebay_handle_refund started....")
         new_messages = []
         options = args["input"]["options"]
         web_driver = mainwin.getWebDriver()
 
-        msg = f"completed in fetching ebay messages: {len(new_messages)} messages fetched."
+        msg = f"completed in ebay refund: {len(new_messages)} messages fetched."
         tool_result = TextContent(type="text", text=msg)
         tool_result.meta = {"new_messages": new_messages}
         return [tool_result]
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorFetchEbayMessages")
+        err_trace = get_traceback(e, "ErrorEBAYHandleRefund")
         logger.debug(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
 
-async def ebay_respond_to_message(mainwin, args):  # type: ignore
+async def ebay_handle_return(mainwin, args):  # type: ignore
     try:
-        logger.debug("ebay_respond_to_message started....")
+        logger.debug("ebay_handle_return started....")
         executed = []
         messages_todos = args["input"]["messages_todos"]
         web_driver = mainwin.getWebDriver()
 
-        msg = f"completed in answering ebay messages: {len(executed)} messages answered."
+        msg = f"completed in ebay return: {len(executed)} messages answered."
         tool_result = TextContent(type="text", text=msg)
         tool_result.meta = {"executed": executed}
         return [tool_result]
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorAnswerEbayMessages")
+        err_trace = get_traceback(e, "ErrorEBAYHandleReturn")
         logger.debug(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
-def add_fetch_ebay_messages_tool_schema(tool_schemas):
+
+def add_ebay_handle_return_tool_schema(tool_schemas):
     import mcp.types as types
 
     tool_schema = types.Tool(
-        name="fetch_ebay_messages",
-        description="fetch ebay newly received messages list.",
-        inputSchema={
-            "type": "object",
-            "required": ["input"],  # the root requires *input*
-            "properties": {
-                "input": {  # nested object
-                    "type": "object",
-                    "required": ["options"],
-                    "properties": {
-                        "options": {
-                            "type": "object",
-                            "description": "some options in json format",
-                        }
-                    },
-                }
-            }
-        },
-    )
-
-    tool_schemas.append(tool_schema)
-
-
-def add_ebay_respond_to_message_tool_schema(tool_schemas):
-    import mcp.types as types
-
-    tool_schema = types.Tool(
-        name="ebay_respond_to_message",
+        name="ebay_handle_return",
         description="Answer ebay messages with text, attachments, and related actions if any (for example, handle return, cancel, refund/partial refund, send replacement items, etc",
         inputSchema={
             "type": "object",
@@ -106,12 +80,12 @@ def add_ebay_respond_to_message_tool_schema(tool_schemas):
     tool_schemas.append(tool_schema)
 
 
-def add_ebay_read_next_message_tool_schema(tool_schemas):
+def add_ebay_handle_refund_tool_schema(tool_schemas):
     import mcp.types as types
 
     tool_schema = types.Tool(
-        name="ebay_read_next_message",
-        description="in ebay seller hub messages page, read next unread message by clicking on the message, read it, summerarize it, reaspond to it, and return the handling details info in json format including ones that require human intervention.",
+        name="ebay_handle_refund",
+        description="ebay handle refunds to customer",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
