@@ -532,22 +532,37 @@ class LightragServer:
                 return False
             env["PORT"] = str(self.extra_env.get("PORT", desired_port))
 
+            from utils.venv_helper import VenvHelper
             python_executable = self._get_virtual_env_python()
-            if not self._validate_python_executable(python_executable): return False
-
-            # Use -m module approach for both frozen and non-frozen modes
-            # The environment variables are already properly configured
             
             # Use the static launcher script for SSL patching
-            # This script should be distributed with the application
             launcher_path = os.path.join(os.path.dirname(__file__), "lightrag_launcher.py")
-            
-            if os.path.exists(launcher_path):
-                cmd = [python_executable, "-u", launcher_path]
-                logger.info(f"[LightragServer] Using launcher script: {launcher_path}")
+
+            if VenvHelper.is_packaged_environment():
+                # PyInstaller Packaged Environment
+                # We cannot use sys.executable as a generic python interpreter to run scripts with arguments
+                # Instead, we use the main application executable with ECAN_RUN_SCRIPT env var
+                # This triggers the worker mode in main.py
+                logger.info(f"[LightragServer] Running in packaged environment via ECAN_RUN_SCRIPT")
+                
+                if os.path.exists(launcher_path):
+                    env['ECAN_RUN_SCRIPT'] = launcher_path
+                    # Use the main executable itself (e.g., eCan.app/Contents/MacOS/eCan)
+                    cmd = [sys.executable]
+                    logger.info(f"[LightragServer] Using launcher script via worker mode: {launcher_path}")
+                else:
+                     logger.error(f"[LightragServer] Critical: Launcher script not found in packaged env: {launcher_path}")
+                     return False
             else:
-                logger.warning(f"[LightragServer] Launcher not found at {launcher_path}, falling back to -m (SSL patch will NOT be applied)")
-                cmd = [python_executable, "-u", "-m", "lightrag.api.lightrag_server"]
+                # Development Environment
+                if not self._validate_python_executable(python_executable): return False
+            
+                if os.path.exists(launcher_path):
+                    cmd = [python_executable, "-u", launcher_path]
+                    logger.info(f"[LightragServer] Using launcher script: {launcher_path}")
+                else:
+                    logger.warning(f"[LightragServer] Launcher not found at {launcher_path}, falling back to -m (SSL patch will NOT be applied)")
+                    cmd = [python_executable, "-u", "-m", "lightrag.api.lightrag_server"]
 
             # Log final environment variables (masked) for debugging
             try:
