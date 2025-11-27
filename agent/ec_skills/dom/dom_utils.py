@@ -935,3 +935,5 @@ def handle_popups(webdriver, timeout: int = 10):
 
     print("Warning: All strategies failed. No popups or banners were closed.")
     return False
+
+
