@@ -24,7 +24,6 @@ web_gui = AppContext.get_web_gui()
 
 from typing import Any, Literal, cast, overload
 
-from langchain_core.messages import content as types
 from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 
 
@@ -62,14 +61,14 @@ class ActionMessage(BaseMessage):
     def __init__(
         self,
         content: str | list[str | dict] | None = None,
-        content_blocks: list[types.ContentBlock] | None = None,
+        content_blocks: list[dict | str] | None = None,
         **kwargs: Any,
     ) -> None: ...
 
     def __init__(
         self,
         content: str | list[str | dict] | None = None,
-        content_blocks: list[types.ContentBlock] | None = None,
+        content_blocks: list[dict | str] | None = None,
         **kwargs: Any,
     ) -> None:
         """Specify `content` as positional arg or `content_blocks` for typing."""
