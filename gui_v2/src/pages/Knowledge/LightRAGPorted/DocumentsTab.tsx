@@ -87,10 +87,9 @@ const DocumentsTab: React.FC = () => {
 
   const appendLog = (line: string) => setLog(prev => prev ? prev + '\n' + line : line);
 
-  // Load documents on mount
+  // Load documents on mount (loadDocuments already updates statusCounts from API response)
   React.useEffect(() => {
     loadDocuments();
-    loadStatusCounts();
   }, [currentPage, pageSize, statusFilter]);
 
   const handleSelectFiles = async () => {
@@ -176,7 +175,6 @@ const DocumentsTab: React.FC = () => {
         // Reload documents after ingestion
         setTimeout(() => {
           loadDocuments();
-          loadStatusCounts();
         }, 2000);
       } else {
         throw new Error(response.error?.message || 'Unknown error');
@@ -219,7 +217,6 @@ const DocumentsTab: React.FC = () => {
       // Reload documents after ingestion
       setTimeout(() => {
         loadDocuments();
-        loadStatusCounts();
       }, 2000);
     } catch (e: any) {
       appendLog(t('pages.knowledge.documents.ingestError') + ': ' + (e?.message || String(e)));
@@ -240,40 +237,6 @@ const DocumentsTab: React.FC = () => {
 
   const handleClearDirs = () => {
     setSelectedDirs([]);
-  };
-
-
-  const loadStatusCounts = async () => {
-    try {
-      const response = await get_ipc_api().lightragApi.getStatusCounts();
-      if (response.success && response.data) {
-          const res = response.data as any;
-          // 支持两种数据结构：res.status_counts 或 res.data.status_counts
-          const counts = res?.status_counts || res?.data?.status_counts;
-          
-          if (counts) {
-            // Normalize keys to uppercase to handle potential case mismatch (e.g. 'failed' vs 'FAILED')
-            const normalizedCounts: Record<string, number> = {};
-            Object.keys(counts).forEach(key => {
-              normalizedCounts[key.toUpperCase()] = counts[key];
-            });
-
-            // Calculate total
-            let all = 0;
-            Object.values(counts).forEach((c: any) => all += (c || 0));
-            
-            setStatusCounts({
-              all,
-              PROCESSED: normalizedCounts.PROCESSED || 0,
-              PROCESSING: normalizedCounts.PROCESSING || 0,
-              PENDING: normalizedCounts.PENDING || 0,
-              FAILED: normalizedCounts.FAILED || 0
-            });
-          }
-      }
-    } catch (e) {
-      console.error('Error loading status counts:', e);
-    }
   };
 
   const loadDocuments = async () => {
@@ -304,16 +267,20 @@ const DocumentsTab: React.FC = () => {
             Object.keys(statusCountsData).forEach(key => {
               normalizedCounts[key.toUpperCase()] = statusCountsData[key];
             });
-            // 计算所有状态的文档总数（包括 PREPROCESSED 等）
-            const all = Object.values(statusCountsData).reduce((sum: number, c: any) => sum + (c || 0), 0);
-            // 只有当 statusFilter 为 ALL 时才更新 all，否则保持原值
-            setStatusCounts(prev => ({
-              all: statusFilter === 'ALL' ? all : prev.all || all,
-              PROCESSED: normalizedCounts.PROCESSED || 0,
-              PROCESSING: normalizedCounts.PROCESSING || 0,
-              PENDING: normalizedCounts.PENDING || 0,
-              FAILED: normalizedCounts.FAILED || 0
-            }));
+            // 只计算 UI 显示的状态总数（PROCESSED, PROCESSING, PENDING, FAILED）
+            // PREPROCESSED 等中间状态不计入，避免数量不一致
+            const processed = normalizedCounts.PROCESSED || 0;
+            const processing = normalizedCounts.PROCESSING || 0;
+            const pending = normalizedCounts.PENDING || 0;
+            const failed = normalizedCounts.FAILED || 0;
+            const all = processed + processing + pending + failed;
+            setStatusCounts({
+              all,
+              PROCESSED: processed,
+              PROCESSING: processing,
+              PENDING: pending,
+              FAILED: failed
+            });
           }
           
           if (Array.isArray(docsArray)) {
@@ -366,7 +333,6 @@ const DocumentsTab: React.FC = () => {
           // Reload documents after scan and start polling for failures
           setTimeout(async () => {
             await loadDocuments();
-            await loadStatusCounts();
             
             // Poll for failed documents - check every 3 seconds for up to 120 seconds
             let pollCount = 0;
@@ -484,7 +450,6 @@ const DocumentsTab: React.FC = () => {
                     
                     // Refresh the document list to show failed status
                     await loadDocuments();
-                    await loadStatusCounts();
                   }
                   
                   // Check for early stop AFTER failure detection
@@ -504,7 +469,6 @@ const DocumentsTab: React.FC = () => {
                     clearInterval(pollInterval);
                     // Force refresh to ensure UI shows latest status
                     await loadDocuments();
-                    await loadStatusCounts();
                     return;
                   }
                 }
@@ -537,7 +501,6 @@ const DocumentsTab: React.FC = () => {
   const handleRefreshStatus = async () => {
     appendLog(t('pages.knowledge.documents.refreshingStatus'));
     await loadDocuments();
-    await loadStatusCounts();
   };
 
   const handleClearCache = () => {
@@ -572,7 +535,6 @@ const DocumentsTab: React.FC = () => {
               
               // Reload documents after clearing cache
               await loadDocuments();
-              await loadStatusCounts();
               message.success(t('pages.knowledge.documents.cacheCleared'));
           } else {
               const errorMsg = response.error?.message || 'Unknown error';
@@ -622,7 +584,6 @@ const DocumentsTab: React.FC = () => {
               message.success(t('pages.knowledge.documents.documentDeleted'));
               // Reload documents
               await loadDocuments();
-              await loadStatusCounts();
           } else {
               const errorMsg = response.error?.message || 'Unknown error';
               appendLog(t('pages.knowledge.documents.errorDeletingDocument') + errorMsg);
