@@ -32,8 +32,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   minEdgeSize: 1,
   maxEdgeSize: 4,
   graphLayoutMaxIterations: 200,
-  graphQueryMaxDepth: 1,
-  graphMaxNodes: 400,
+  graphQueryMaxDepth: 3,
+  graphMaxNodes: 1000,
   queryLabel: '*',
   setQueryLabel: (v) => set({ queryLabel: v }),
 }));

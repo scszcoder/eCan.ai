@@ -26,11 +26,11 @@ export async function queryGraphs(label: string, maxDepth: number, maxNodes: num
  */
 export async function getPopularLabels(limit: number = 10): Promise<string[]> {
   try {
-    const response = await get_ipc_api().lightragApi.getGraphLabelList();
+    const response = await get_ipc_api().lightragApi.getPopularLabels({ limit });
     if (response.success && response.data) {
       const result = response.data as any;
-      if (result && Array.isArray(result.data)) {
-        return result.data.slice(0, limit);
+      if (Array.isArray(result)) {
+        return result;
       }
     }
     return [];
@@ -45,19 +45,49 @@ export async function getPopularLabels(limit: number = 10): Promise<string[]> {
  */
 export async function searchLabels(query: string, limit: number = 20): Promise<string[]> {
   try {
-    const response = await get_ipc_api().lightragApi.getGraphLabelList();
+    const response = await get_ipc_api().lightragApi.searchLabels({ query, limit });
     if (response.success && response.data) {
       const result = response.data as any;
-      if (result && Array.isArray(result.data)) {
-        const normalizedQuery = query.toLowerCase();
-        return result.data
-          .filter((label: string) => label.toLowerCase().includes(normalizedQuery))
-          .slice(0, limit);
+      if (Array.isArray(result)) {
+        return result;
       }
     }
     return [];
   } catch (e) {
     console.error('Search labels error:', e);
     return [];
+  }
+}
+
+/**
+ * 扩展节点 - 查询节点的邻居并添加到图中
+ */
+export async function expandNode(nodeId: string, maxDepth: number = 1, maxNodes: number = 50): Promise<QueryGraphsResult> {
+  try {
+    const response = await get_ipc_api().lightragApi.expandNode({ nodeId, maxDepth, maxNodes });
+    if (response.success && response.data) {
+      return response.data as any;
+    }
+    return { nodes: [], edges: [], is_truncated: false };
+  } catch (e) {
+    console.error('Expand node error:', e);
+    return { nodes: [], edges: [], is_truncated: false };
+  }
+}
+
+/**
+ * 修剪节点 - 从图中移除节点及其相关边
+ */
+export async function pruneNode(nodeId: string): Promise<{ success: boolean; message?: string }> {
+  try {
+    const response = await get_ipc_api().lightragApi.pruneNode({ nodeId });
+    if (response.success) {
+      const data = response.data as any;
+      return { success: true, message: data?.message };
+    }
+    return { success: false, message: response.error?.message };
+  } catch (e: any) {
+    console.error('Prune node error:', e);
+    return { success: false, message: e?.message || 'Unknown error' };
   }
 }

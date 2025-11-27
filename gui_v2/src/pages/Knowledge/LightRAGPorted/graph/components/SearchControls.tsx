@@ -15,7 +15,6 @@ const SearchControls: React.FC = () => {
   const sigma = useSigma();
   const { goto } = useCamera({ duration: 400 });
   const graph = useMemo(() => sigma.getGraph(), [sigma]);
-  const [labelQuery, setLabelQuery] = useState('');
   const [nodeQuery, setNodeQuery] = useState('');
 
   const inputWrap: React.CSSProperties = {
@@ -56,20 +55,6 @@ const SearchControls: React.FC = () => {
     return true;
   }, [graph, sigma, goto]);
 
-  const onSearchLabels = useCallback((e: React.FormEvent) => {
-    e.preventDefault();
-    const q = labelQuery.trim().toLowerCase();
-    if (!q) return;
-    let found: string | null = null;
-    graph.forEachNode((n, attrs) => {
-      if (found) return;
-      const label = String(attrs.label || '');
-      const labelsFromData = label.split(',').map(s => s.trim().toLowerCase());
-      if (labelsFromData.some(l => l.includes(q))) found = n;
-    });
-    if (found) selectAndZoom(found);
-  }, [graph, labelQuery, selectAndZoom]);
-
   const onSearchNode = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     const q = nodeQuery.trim().toLowerCase();
@@ -87,48 +72,26 @@ const SearchControls: React.FC = () => {
   }, [graph, nodeQuery, selectAndZoom]);
 
   return (
-    <div style={{ display: 'flex', gap: 10, width: '100%' }}>
-      <form
-        onSubmit={onSearchLabels} 
-        style={inputWrap}
-        onFocus={(e) => {
-          e.currentTarget.style.borderColor = token.colorPrimary;
-          e.currentTarget.style.boxShadow = `0 0 0 2px ${token.colorPrimaryBg}`;
-        }}
-        onBlur={(e) => {
-          e.currentTarget.style.borderColor = token.colorBorder;
-          e.currentTarget.style.boxShadow = token.boxShadowSecondary;
-        }}
-      >
-        <Search size={18} color={token.colorPrimary} strokeWidth={2.5} />
-        <input
-          style={inputStyle}
-          placeholder={t('pages.knowledge.graph.searchLabels')}
-          value={labelQuery}
-          onChange={(e) => setLabelQuery(e.target.value)}
-        />
-      </form>
-      <form
-        onSubmit={onSearchNode} 
-        style={inputWrap}
-        onFocus={(e) => {
-          e.currentTarget.style.borderColor = token.colorPrimary;
-          e.currentTarget.style.boxShadow = `0 0 0 2px ${token.colorPrimaryBg}`;
-        }}
-        onBlur={(e) => {
-          e.currentTarget.style.borderColor = token.colorBorder;
-          e.currentTarget.style.boxShadow = token.boxShadowSecondary;
-        }}
-      >
-        <Search size={18} color={token.colorPrimary} strokeWidth={2.5} />
-        <input
-          style={inputStyle}
-          placeholder={t('pages.knowledge.graph.searchNode')}
-          value={nodeQuery}
-          onChange={(e) => setNodeQuery(e.target.value)}
-        />
-      </form>
-    </div>
+    <form
+      onSubmit={onSearchNode} 
+      style={inputWrap}
+      onFocus={(e) => {
+        e.currentTarget.style.borderColor = token.colorPrimary;
+        e.currentTarget.style.boxShadow = `0 0 0 2px ${token.colorPrimaryBg}`;
+      }}
+      onBlur={(e) => {
+        e.currentTarget.style.borderColor = token.colorBorder;
+        e.currentTarget.style.boxShadow = token.boxShadowSecondary;
+      }}
+    >
+      <Search size={18} color={token.colorPrimary} strokeWidth={2.5} />
+      <input
+        style={inputStyle}
+        placeholder={t('pages.knowledge.graph.searchNode') || '搜索节点名称...'}
+        value={nodeQuery}
+        onChange={(e) => setNodeQuery(e.target.value)}
+      />
+    </form>
   );
 };
 

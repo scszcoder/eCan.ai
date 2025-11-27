@@ -35,6 +35,7 @@
     "@react-oauth/google": "^0.12.2",
     "@react-sigma/core": "^5.0.4",
     "@react-sigma/graph-search": "^5.0.4",
+    "@react-sigma/layout-circlepack": "^5.0.4",
     "@react-sigma/layout-circular": "^5.0.4",
     "@react-sigma/layout-force": "^5.0.4",
     "@react-sigma/layout-forceatlas2": "^5.0.4",

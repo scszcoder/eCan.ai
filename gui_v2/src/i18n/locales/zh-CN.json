@@ -1607,6 +1607,10 @@
         "pending": "待处理",
         "failed": "失败",
         "fileName": "文件名",
+        "summary": "摘要",
+        "length": "长度",
+        "chunks": "分块",
+        "createdAt": "创建时间",
         "actions": "操作",
         "noDocuments": "暂无文档",
         "noDocumentsDesc": "上传文件或导入目录以开始使用",
@@ -1769,7 +1773,24 @@
     "score": "分数",
     "summary": "摘要",
     "table_view": "表格视图",
-    "view_details": "查看详情"
+    "view_details": "查看详情",
+    "knowledge": {
+      "graph": {
+        "circularLayout": "环形布局",
+        "randomLayout": "随机布局",
+        "noverlapLayout": "无重叠布局",
+        "forceAtlas2Layout": "力导向布局",
+        "layoutGraph": "布局",
+        "zoomIn": "放大",
+        "zoomOut": "缩小",
+        "fullScreen": "全屏",
+        "exitFullScreen": "退出全屏",
+        "toggleLegend": "切换图例",
+        "searchNode": "搜索节点",
+        "noResults": "无结果",
+        "moreResults": "还有 {{count}} 个结果..."
+      }
+    }
   },
   "init": {
     "allReady": "全部就绪",
@@ -1855,5 +1876,104 @@
   },
   "providers": {
     "noneDisabled": "无（禁用）"
+  },
+  "graphPanel": {
+    "settings": {
+      "showPropertyPanel": "显示属性面板",
+      "showSearchBar": "显示搜索栏",
+      "showNodeLabel": "显示节点标签",
+      "enableNodeDrag": "节点可拖动",
+      "showEdgeLabel": "显示边标签",
+      "hideUnselectedEdges": "隐藏未选中的边",
+      "edgeEvents": "边事件",
+      "edgeThicknessRange": "边粗细范围",
+      "maxQueryDepth": "最大查询深度",
+      "maxNodes": "最大返回节点数 (≤ 1000)",
+      "maxLayoutIterations": "最大布局迭代次数"
+    },
+    "legend": {
+      "title": "图例"
+    },
+    "sideBar": {
+      "layoutsControl": {
+        "layoutGraph": "布局图谱",
+        "layouts": {
+          "Circular": "环形布局",
+          "Circlepack": "圆形包布局",
+          "Random": "随机布局",
+          "Noverlaps": "无重叠布局",
+          "Force Directed": "力导向布局",
+          "Force Atlas": "力图集布局"
+        },
+        "startAnimation": "开始动画",
+        "stopAnimation": "停止动画"
+      },
+      "zoomControl": {
+        "rotateClockwise": "顺时针旋转",
+        "rotateCounterClockwise": "逆时针旋转",
+        "reset": "重置视图",
+        "zoomIn": "放大",
+        "zoomOut": "缩小"
+      },
+      "fullScreenControl": {
+        "fullScreen": "全屏",
+        "windowed": "窗口模式"
+      },
+      "legendControl": {
+        "toggleLegend": "切换图例显示"
+      },
+      "settings": {
+        "settings": "设置",
+        "depth": "深",
+        "max": "Max"
+      }
+    },
+    "propertiesView": {
+      "node": {
+        "title": "节点详情",
+        "id": "ID",
+        "labels": "标签",
+        "degree": "度数",
+        "properties": "属性",
+        "relationships": "关系",
+        "relationshipsInSubgraph": "关系（子图内）",
+        "expandNode": "扩展节点",
+        "pruneNode": "修剪节点",
+        "expandSuccess": "已扩展节点",
+        "expandError": "扩展节点失败",
+        "noMoreNodes": "没有更多节点可扩展",
+        "pruneSuccess": "节点已移除",
+        "pruneError": "移除节点失败",
+        "propertyNames": {
+          "description": "描述",
+          "entity_id": "实体ID",
+          "entity_type": "实体类型",
+          "file_path": "文件路径",
+          "source_id": "来源ID",
+          "keywords": "关键词"
+        }
+      },
+      "edge": {
+        "title": "边详情",
+        "id": "ID",
+        "type": "类型",
+        "source": "源节点",
+        "target": "目标节点",
+        "properties": "属性"
+      }
+    },
+    "search": {
+      "labelSearch": {
+        "placeholder": "搜索节点名称...",
+        "searchInDropdown": "搜索节点名称...",
+        "noResults": "无结果",
+        "moreResults": "还有 {{count}} 个结果..."
+      },
+      "nodeSearch": {
+        "placeholder": "页面内搜索节点...",
+        "noResults": "无结果",
+        "moreResults": "还有 {{count}} 个结果..."
+      }
+    }
   }
 }

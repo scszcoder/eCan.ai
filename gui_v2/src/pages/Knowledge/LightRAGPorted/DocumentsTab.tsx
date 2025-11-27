@@ -10,6 +10,8 @@ interface Document {
   file_path: string;
   status: string;
   content_length?: number;
+  chunk_count?: number;
+  summary?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -719,7 +721,7 @@ const DocumentsTab: React.FC = () => {
         }}>
           <div style={{ 
             display: 'grid', 
-            gridTemplateColumns: '1fr 120px 150px 100px', 
+            gridTemplateColumns: '2fr 1.5fr 100px 80px 80px 130px 130px 100px', 
             gap: 8, 
             padding: '12px 16px',
             background: isDark ? token.colorBgTextHover : token.colorBgLayout,
@@ -729,7 +731,11 @@ const DocumentsTab: React.FC = () => {
             color: token.colorText
           }}>
             <div>{t('pages.knowledge.documents.fileName')}</div>
+            <div>{t('pages.knowledge.documents.summary', '摘要')}</div>
             <div style={{ textAlign: 'center' }}>{t('common.status')}</div>
+            <div style={{ textAlign: 'center' }}>{t('pages.knowledge.documents.length', '长度')}</div>
+            <div style={{ textAlign: 'center' }}>{t('pages.knowledge.documents.chunks', '分块')}</div>
+            <div style={{ textAlign: 'center' }}>{t('pages.knowledge.documents.createdAt', '创建时间')}</div>
             <div style={{ textAlign: 'center' }}>{t('pages.knowledge.documents.lastUpdated')}</div>
             <div style={{ textAlign: 'center' }}>{t('pages.knowledge.documents.actions')}</div>
           </div>
@@ -765,7 +771,7 @@ const DocumentsTab: React.FC = () => {
               {documents.map((doc, idx) => (
                 <div key={doc.id || doc.file_path || idx} style={{ 
                   display: 'grid', 
-                  gridTemplateColumns: '1fr 120px 150px 100px', 
+                  gridTemplateColumns: '2fr 1.5fr 100px 80px 80px 130px 130px 100px', 
                   gap: 8, 
                   padding: '12px 16px',
                   borderBottom: `1px solid ${token.colorBorderSecondary}`,
@@ -782,6 +788,15 @@ const DocumentsTab: React.FC = () => {
                     {doc.file_path}
                   </div>
                   <div style={{ 
+                    overflow: 'hidden', 
+                    textOverflow: 'ellipsis', 
+                    whiteSpace: 'nowrap',
+                    color: token.colorTextSecondary,
+                    fontSize: 12
+                  }} title={doc.summary || ''}>
+                    {doc.summary || '-'}
+                  </div>
+                  <div style={{ 
                     textAlign: 'center',
                     color: getStatusColor(doc.status),
                     fontWeight: 600
@@ -793,7 +808,42 @@ const DocumentsTab: React.FC = () => {
                     color: token.colorTextSecondary,
                     fontSize: 12
                   }}>
-                    {doc.updated_at ? new Date(doc.updated_at).toLocaleString() : '-'}
+                    {doc.content_length ? doc.content_length.toLocaleString() : '-'}
+                  </div>
+                  <div style={{ 
+                    textAlign: 'center',
+                    color: token.colorTextSecondary,
+                    fontSize: 12
+                  }}>
+                    {doc.chunk_count || '-'}
+                  </div>
+                  <div style={{ 
+                    textAlign: 'center',
+                    color: token.colorTextSecondary,
+                    fontSize: 12
+                  }}>
+                    {doc.created_at ? new Date(doc.created_at).toLocaleString('zh-CN', { 
+                      year: 'numeric', 
+                      month: '2-digit', 
+                      day: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit'
+                    }) : '-'}
+                  </div>
+                  <div style={{ 
+                    textAlign: 'center',
+                    color: token.colorTextSecondary,
+                    fontSize: 12
+                  }}>
+                    {doc.updated_at ? new Date(doc.updated_at).toLocaleString('zh-CN', { 
+                      year: 'numeric', 
+                      month: '2-digit', 
+                      day: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit'
+                    }) : '-'}
                   </div>
                   <div style={{ textAlign: 'center' }}>
                     <button 

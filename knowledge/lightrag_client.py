@@ -136,13 +136,26 @@ class LightragClient:
             # - Common image formats
             # - Common video formats
             allowed_extensions = (
+                # Documents
                 '.pdf',
                 '.doc', '.docx',
                 '.ppt', '.pptx',
                 '.xls', '.xlsx',
+                '.rtf', '.odt', '.tex', '.epub',
+
+                # Text / Config / Data
                 '.txt', '.md', '.rst', '.log',
                 '.html', '.htm',
                 '.csv', '.tsv', '.json',
+                '.xml', '.yaml', '.yml',
+                '.conf', '.ini', '.properties',
+
+                # Code
+                '.sql', '.bat', '.sh',
+                '.c', '.cpp', '.py', '.java', '.js', '.ts', '.swift', '.go', '.rb', '.php',
+                '.css', '.scss', '.less',
+
+                # Media
                 '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.webp', '.tif', '.tiff',
                 '.mp4', '.mov', '.m4v', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpg', '.mpeg'
             )
@@ -613,6 +626,48 @@ class LightragClient:
             return {"status": "error", "message": error_msg}
         except Exception as e:
             err = get_traceback(e, "LightragClient.get_graph_label_list")
+            logger.error(err)
+            return {"status": "error", "message": str(e)}
+
+    def get_popular_labels(self, limit: int = 300) -> Dict[str, Any]:
+        """Get popular labels by node degree."""
+        try:
+            params = {"limit": limit}
+            r = self.session.get(f"{self.base_url}/graph/label/popular", params=params, timeout=10)
+            
+            if r.status_code >= 400:
+                logger.error(f"Get popular labels failed with status {r.status_code}: {r.text}")
+            
+            r.raise_for_status()
+            result = r.json()
+            return {"status": "success", "data": result}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.get_popular_labels HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
+        except Exception as e:
+            err = get_traceback(e, "LightragClient.get_popular_labels")
+            logger.error(err)
+            return {"status": "error", "message": str(e)}
+
+    def search_labels(self, q: str, limit: int = 50) -> Dict[str, Any]:
+        """Search labels with fuzzy matching."""
+        try:
+            params = {"q": q, "limit": limit}
+            r = self.session.get(f"{self.base_url}/graph/label/search", params=params, timeout=10)
+            
+            if r.status_code >= 400:
+                logger.error(f"Search labels failed with status {r.status_code}: {r.text}")
+            
+            r.raise_for_status()
+            result = r.json()
+            return {"status": "success", "data": result}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.search_labels HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
+        except Exception as e:
+            err = get_traceback(e, "LightragClient.search_labels")
             logger.error(err)
             return {"status": "error", "message": str(e)}
 

@@ -608,7 +608,8 @@ def handle_update_entity(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         if result.get('status') == 'error':
             return create_error_response(request, 'UPDATE_ENTITY_ERROR', result.get('message', 'Failed to update entity'))
             
-        return create_success_response(request, result)
+        data = result.get('data', result)
+        return create_success_response(request, data)
     except Exception as e:
         logger.error(f"Error in update_entity handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'UPDATE_ENTITY_ERROR', str(e))
@@ -632,7 +633,8 @@ def handle_update_relation(request: IPCRequest, params: Optional[Dict[str, Any]]
         if result.get('status') == 'error':
             return create_error_response(request, 'UPDATE_RELATION_ERROR', result.get('message', 'Failed to update relation'))
             
-        return create_success_response(request, result)
+        data = result.get('data', result)
+        return create_success_response(request, data)
     except Exception as e:
         logger.error(f"Error in update_relation handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'UPDATE_RELATION_ERROR', str(e))
@@ -648,10 +650,63 @@ def handle_get_graph_label_list(request: IPCRequest, params: Optional[Dict[str, 
         if result.get('status') == 'error':
             return create_error_response(request, 'GET_LABEL_LIST_ERROR', result.get('message', 'Failed to get label list'))
             
-        return create_success_response(request, result)
+        data = result.get('data', result)
+        return create_success_response(request, data)
     except Exception as e:
         logger.error(f"Error in get_graph_label_list handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'GET_LABEL_LIST_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.getPopularLabels')
+def handle_get_popular_labels(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle get popular labels request."""
+    try:
+        params = params or {}
+        limit = params.get('limit', 300)
+        
+        client = get_client()
+        # Check if client has the method (for backward compatibility)
+        if not hasattr(client, 'get_popular_labels'):
+             return create_error_response(request, 'NOT_IMPLEMENTED', 'get_popular_labels not implemented in client')
+
+        result = client.get_popular_labels(limit=limit)
+        
+        if result.get('status') == 'error':
+            return create_error_response(request, 'GET_POPULAR_LABELS_ERROR', result.get('message', 'Failed to get popular labels'))
+            
+        data = result.get('data', result)
+        return create_success_response(request, data)
+    except Exception as e:
+        logger.error(f"Error in get_popular_labels handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'GET_POPULAR_LABELS_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.searchLabels')
+def handle_search_labels(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle search labels request."""
+    try:
+        params = params or {}
+        query = params.get('query', '')
+        limit = params.get('limit', 50)
+        
+        if not query:
+             return create_error_response(request, 'INVALID_PARAMS', 'query must be provided')
+
+        client = get_client()
+        # Check if client has the method (for backward compatibility)
+        if not hasattr(client, 'search_labels'):
+             return create_error_response(request, 'NOT_IMPLEMENTED', 'search_labels not implemented in client')
+
+        result = client.search_labels(q=query, limit=limit)
+        
+        if result.get('status') == 'error':
+            return create_error_response(request, 'SEARCH_LABELS_ERROR', result.get('message', 'Failed to search labels'))
+            
+        data = result.get('data', result)
+        return create_success_response(request, data)
+    except Exception as e:
+        logger.error(f"Error in search_labels handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'SEARCH_LABELS_ERROR', str(e))
 
 
 @IPCHandlerRegistry.handler('lightrag.getDocumentsPaginated')
@@ -673,7 +728,8 @@ def handle_get_documents_paginated(request: IPCRequest, params: Optional[Dict[st
         if result.get('status') == 'error':
             return create_error_response(request, 'GET_DOCUMENTS_ERROR', result.get('message', 'Failed to get documents'))
             
-        return create_success_response(request, result)
+        data = result.get('data', result)
+        return create_success_response(request, data)
     except Exception as e:
         logger.error(f"Error in get_documents_paginated handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'GET_DOCUMENTS_ERROR', str(e))
@@ -811,7 +867,8 @@ def handle_query_graphs(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         if isinstance(result, dict) and result.get('status') == 'error':
             return create_error_response(request, 'QUERY_GRAPH_ERROR', result.get('message', 'Failed to query graph'))
             
-        return create_success_response(request, result)
+        data = result.get('data', result)
+        return create_success_response(request, data)
     except Exception as e:
         logger.error(f"Error in query_graphs handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'QUERY_GRAPH_ERROR', str(e))
@@ -1113,3 +1170,86 @@ def handle_save_conversation_history(request: IPCRequest, params: Optional[Dict[
     except Exception as e:
         logger.error(f"Error saving conversation history: {e}")
         return create_error_response(request, 'SAVE_CONVERSATION_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.expandNode')
+def handle_expand_node(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """
+    Handle node expansion request - query neighbors of a node.
+    
+    Expected params:
+    - nodeId: str - Node ID to expand
+    - maxDepth: int - Traversal depth (default: 1)
+    - maxNodes: int - Max nodes to return (default: 50)
+    """
+    try:
+        is_valid, data, error = validate_params(params, ['nodeId'])
+        if not is_valid:
+            return create_error_response(request, 'INVALID_PARAMS', error)
+        
+        node_id = data['nodeId']
+        max_depth = data.get('maxDepth', 1)
+        max_nodes = data.get('maxNodes', 50)
+        
+        client = get_client()
+        
+        # Call expand_node method
+        if hasattr(client, 'expand_node'):
+            result = client.expand_node(node_id, max_depth, max_nodes)
+        else:
+            # Fallback: use query_graphs with the node label
+            logger.warning("expand_node not implemented in client, using query_graphs fallback")
+            if hasattr(client, 'query_graphs'):
+                # Try to get node label from node_id
+                result = client.query_graphs(node_id, max_depth, max_nodes)
+            else:
+                return create_success_response(request, {'nodes': [], 'edges': [], 'is_truncated': False})
+        
+        if isinstance(result, dict) and result.get('status') == 'error':
+            return create_error_response(request, 'EXPAND_NODE_ERROR', result.get('message', 'Failed to expand node'))
+        
+        data = result.get('data', result)
+        return create_success_response(request, data)
+        
+    except Exception as e:
+        logger.error(f"Error in expand_node handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'EXPAND_NODE_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.pruneNode')
+def handle_prune_node(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """
+    Handle node pruning request - remove a node from the graph.
+    
+    Expected params:
+    - nodeId: str - Node ID to remove
+    """
+    try:
+        is_valid, data, error = validate_params(params, ['nodeId'])
+        if not is_valid:
+            return create_error_response(request, 'INVALID_PARAMS', error)
+        
+        node_id = data['nodeId']
+        
+        client = get_client()
+        
+        # Call prune_node method
+        if hasattr(client, 'prune_node'):
+            result = client.prune_node(node_id)
+        else:
+            # Fallback: just return success (client-side removal only)
+            logger.warning("prune_node not implemented in client, returning success for client-side removal")
+            return create_success_response(request, {
+                'success': True,
+                'message': 'Node removed from client-side graph (server-side removal not implemented)'
+            })
+        
+        if isinstance(result, dict) and result.get('status') == 'error':
+            return create_error_response(request, 'PRUNE_NODE_ERROR', result.get('message', 'Failed to prune node'))
+        
+        data = result.get('data', result)
+        return create_success_response(request, data)
+        
+    except Exception as e:
+        logger.error(f"Error in prune_node handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'PRUNE_NODE_ERROR', str(e))

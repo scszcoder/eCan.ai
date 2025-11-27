@@ -89,6 +89,22 @@ export class IPCAPI {
     }
 
     /**
+     * Toggle window fullscreen state
+     */
+    public async windowToggleFullscreen(): Promise<boolean> {
+        const response = await this.ipcWCClient.invoke('window_toggle_fullscreen', {});
+        return response?.result?.is_fullscreen ?? response?.data?.is_fullscreen ?? false;
+    }
+
+    /**
+     * Get window fullscreen state
+     */
+    public async windowGetFullscreenState(): Promise<boolean> {
+        const response = await this.ipcWCClient.invoke('window_get_fullscreen_state', {});
+        return response?.result?.is_fullscreen ?? response?.data?.is_fullscreen ?? false;
+    }
+
+    /**
      * Execute IPC Request - 使用队列机制以避免并发问题
      * @param method - RequestMethod名
      * @param params - RequestParameter

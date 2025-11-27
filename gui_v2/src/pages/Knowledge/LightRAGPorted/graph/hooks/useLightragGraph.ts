@@ -68,18 +68,15 @@ export default function useLightragGraph() {
           const y = Math.random();
           const d = degrees[n.id] ?? 0;
           const size = Math.round(minNodeSize + (maxNodeSize - minNodeSize) * Math.pow((d - minD) / range, 0.5));
-          
-          // 获取节点类型（取第一个标签作为主类型）
-          const nodeType = n.labels && n.labels.length > 0 ? n.labels[0] : 'Unknown';
-          const color = getColor(nodeType);
-
+          const nodeType = n.labels?.[0] || 'default'; // 使用第一个 label 作为类型标识
+          const color = getColor(nodeType); // 使用 getColor 函数获取颜色
           g.addNode(n.id, { 
             x, 
             y, 
             size, 
             label: n.id, // 使用 ID 作为默认标签
             color: color,
-            type: nodeType 
+            type: 'circle' // 使用 Sigma 默认支持的节点类型
           });
         }
         
