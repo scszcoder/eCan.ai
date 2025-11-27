@@ -28,7 +28,7 @@ const DragNodes: React.FC = () => {
         // Disable camera movement while dragging
         sigma.getCamera().disable();
         
-        console.log('[DragNodes] Start dragging node:', draggedNode);
+        // Debug: console.log('[DragNodes] Start dragging node:', draggedNode);
       },
       
       mousemove: (e) => {
@@ -48,7 +48,7 @@ const DragNodes: React.FC = () => {
       
       mouseup: () => {
         if (isDragging && draggedNode) {
-          console.log('[DragNodes] Stop dragging node:', draggedNode);
+          // Debug: console.log('[DragNodes] Stop dragging node:', draggedNode);
           
           // Re-enable camera movement
           sigma.getCamera().enable();

@@ -91,6 +91,13 @@ export function AsyncSelect<T>({
 
   // 处理选择
   const handleChange = useCallback((val: string) => {
+    // 即使选择相同的值也触发 onChange（用于刷新）
+    onChange(val);
+    setSearchValue('');
+  }, [onChange]);
+
+  // 处理点击选项（用于处理选择相同值的情况）
+  const handleSelect = useCallback((val: string) => {
     onChange(val);
     setSearchValue('');
   }, [onChange]);
@@ -144,6 +151,7 @@ export function AsyncSelect<T>({
       value={value || undefined}
       placeholder={placeholder}
       onChange={handleChange}
+      onSelect={handleSelect}
       onFocus={handleFocus}
       onOpenChange={handleDropdownVisibleChange}
       loading={loading}

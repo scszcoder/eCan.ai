@@ -1964,6 +1964,29 @@
         "source": "Source Node",
         "target": "Target Node",
         "properties": "Properties"
+      },
+      "editProperty": "Edit {{property}}",
+      "editPropertyDescription": "Update the property value below:",
+      "mergeOptionLabel": "Allow Merge",
+      "mergeOptionDescription": "If checked, renaming to an existing entity name will merge this entity into the existing one.",
+      "success": {
+        "entityUpdated": "Entity updated successfully",
+        "entityMerged": "Entity merged successfully",
+        "relationUpdated": "Relation updated successfully"
+      },
+      "errors": {
+        "duplicateName": "An entity with this name already exists",
+        "updateFailed": "Update failed",
+        "mergeFailed": "Merge failed: {{error}}",
+        "updateSuccessButMergeFailed": "Update succeeded but merge failed: {{error}}"
+      },
+      "mergeDialog": {
+        "title": "Entity Merged",
+        "description": "Entity \"{{source}}\" has been merged into \"{{target}}\".",
+        "refreshHint": "The graph needs to be refreshed to reflect changes.",
+        "keepCurrentStart": "Keep Current View",
+        "useMergedStart": "Switch to Merged Entity",
+        "refreshing": "Refreshing graph..."
       }
     },
     "search": {

@@ -40,6 +40,10 @@ export type UpdateRelationPayload = {
   updated_data: Record<string, any>;
 };
 
+export type CheckEntityExistsPayload = {
+  name: string;
+};
+
 export type DocumentsPaginatedPayload = {
   page: number;
   page_size: number;
@@ -109,6 +113,10 @@ export function createLightRAGApi(apiInstance: IPCAPI) {
 
     async updateRelation<T>(payload: UpdateRelationPayload): Promise<APIResponse<T>> {
       return apiInstance.executeRequest<T>('lightrag.updateRelation', payload);
+    },
+
+    async checkEntityNameExists(payload: CheckEntityExistsPayload): Promise<APIResponse<{ exists: boolean }>> {
+      return apiInstance.executeRequest<{ exists: boolean }>('lightrag.checkEntityNameExists', payload);
     },
 
     async getGraphLabelList<T>(): Promise<APIResponse<T>> {

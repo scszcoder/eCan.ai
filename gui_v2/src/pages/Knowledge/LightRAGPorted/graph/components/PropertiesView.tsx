@@ -104,43 +104,32 @@ const refineNodeProperties = (node: RawNodeType): NodeType => {
   if (state.sigmaGraph && state.rawGraph) {
     try {
       if (!state.sigmaGraph.hasNode(node.id)) {
-        console.log('[PropertiesView] Node not in sigma graph:', node.id);
         return { ...node, relationships: [] };
       }
 
       const edges = state.sigmaGraph.edges(node.id);
-      console.log('[PropertiesView] Node edges:', node.id, edges);
       
       for (const edgeId of edges) {
-        console.log('[PropertiesView] Processing edge:', edgeId);
-        
         if (!state.sigmaGraph.hasEdge(edgeId)) {
-          console.log('[PropertiesView] Edge not in sigma graph:', edgeId);
           continue;
         }
         
-        const edge = state.rawGraph.getEdge(edgeId, true);
-        console.log('[PropertiesView] Edge data:', edge);
+        const edge = state.rawGraph.getEdge(edgeId);
         
         if (!edge) {
-          console.log('[PropertiesView] Edge not found in rawGraph:', edgeId);
           continue;
         }
         
         const isSource = node.id === edge.source;
         const neighbourId = isSource ? edge.target : edge.source;
-        console.log('[PropertiesView] Neighbour ID:', neighbourId, 'isSource:', isSource);
         
         if (!state.sigmaGraph.hasNode(neighbourId)) {
-          console.log('[PropertiesView] Neighbour not in sigma graph:', neighbourId);
           continue;
         }
         
         const neighbour = state.rawGraph.getNode(neighbourId);
-        console.log('[PropertiesView] Neighbour data:', neighbour);
         
         if (!neighbour) {
-          console.log('[PropertiesView] Neighbour not found in rawGraph:', neighbourId);
           continue;
         }
         
@@ -152,10 +141,7 @@ const refineNodeProperties = (node: RawNodeType): NodeType => {
           edgeLabel: relationLabel,
           direction: isSource ? 'outgoing' : 'incoming'
         });
-        console.log('[PropertiesView] Added relationship:', relationships[relationships.length - 1]);
       }
-      
-      console.log('[PropertiesView] Relationships found:', relationships.length, relationships);
     } catch (e) {
       console.error('Error refining node properties:', e);
     }

@@ -1960,6 +1960,29 @@
         "source": "源节点",
         "target": "目标节点",
         "properties": "属性"
+      },
+      "editProperty": "编辑 {{property}}",
+      "editPropertyDescription": "请在下方更新属性值：",
+      "mergeOptionLabel": "允许合并",
+      "mergeOptionDescription": "如果勾选，重命名为已存在的实体名称时，将把当前实体合并到已存在的实体中。",
+      "success": {
+        "entityUpdated": "实体更新成功",
+        "entityMerged": "实体合并成功",
+        "relationUpdated": "关系更新成功"
+      },
+      "errors": {
+        "duplicateName": "已存在同名实体",
+        "updateFailed": "更新失败",
+        "mergeFailed": "合并失败：{{error}}",
+        "updateSuccessButMergeFailed": "更新成功但合并失败：{{error}}"
+      },
+      "mergeDialog": {
+        "title": "实体已合并",
+        "description": "实体 \"{{source}}\" 已合并到 \"{{target}}\"。",
+        "refreshHint": "需要刷新图谱以显示更改。",
+        "keepCurrentStart": "保持当前视图",
+        "useMergedStart": "切换到合并后的实体",
+        "refreshing": "正在刷新图谱..."
       }
     },
     "search": {

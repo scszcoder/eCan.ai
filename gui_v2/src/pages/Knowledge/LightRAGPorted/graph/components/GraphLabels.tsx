@@ -85,7 +85,7 @@ const GraphLabels: React.FC = () => {
     [refreshTrigger] // 依赖 refreshTrigger 以触发重新加载
   );
 
-  // 处理刷新
+  // 处理刷新 - 重置为默认值 '*' 并刷新全局数据
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     
@@ -93,56 +93,46 @@ const GraphLabels: React.FC = () => {
     setTypeColorMap(new Map<string, string>());
 
     try {
-      let currentLabel = label;
-
-      // 如果当前标签为空，设置为 '*'
-      if (!currentLabel || currentLabel.trim() === '') {
-        setQueryLabel('*');
-        currentLabel = '*';
-      }
-
-      if (currentLabel && currentLabel !== '*') {
-        // 有特定标签，刷新当前标签
-        console.log(`Refreshing current label: ${currentLabel}`);
+      // 始终重置为 '*' 并刷新全局数据
+      // Debug: console.log('Refreshing: resetting to * and reloading global data');
+      
+      // 重置标签为 '*'
+      setQueryLabel('*');
+      
+      // 重新加载热门标签
+      try {
+        const popularLabels = await getPopularLabels(POPULAR_LABELS_DEFAULT_LIMIT);
+        SearchHistoryManager.clearHistory();
         
-        setGraphDataFetchAttempted(false);
-        setLastSuccessfulQueryLabel('');
-        incrementGraphDataVersion();
-      } else {
-        // 全局刷新
-        console.log('Refreshing global data and popular labels');
-        
-        try {
-          const popularLabels = await getPopularLabels(POPULAR_LABELS_DEFAULT_LIMIT);
-          SearchHistoryManager.clearHistory();
-          
-          if (popularLabels.length === 0) {
-            const fallbackLabels = ['entity', 'relationship', 'document', 'concept'];
-            await SearchHistoryManager.initializeWithDefaults(fallbackLabels);
-          } else {
-            await SearchHistoryManager.initializeWithDefaults(popularLabels);
-          }
-        } catch (error) {
-          console.error('Failed to reload popular labels:', error);
-          const fallbackLabels = ['entity', 'relationship', 'document'];
-          SearchHistoryManager.clearHistory();
+        if (popularLabels.length === 0) {
+          const fallbackLabels = ['entity', 'relationship', 'document', 'concept'];
           await SearchHistoryManager.initializeWithDefaults(fallbackLabels);
+        } else {
+          await SearchHistoryManager.initializeWithDefaults(popularLabels);
         }
-        
-        setGraphDataFetchAttempted(false);
-        setLastSuccessfulQueryLabel('');
-        incrementGraphDataVersion();
-        
-        // 触发刷新
-        setRefreshTrigger(prev => prev + 1);
-        setSelectKey(prev => prev + 1);
+      } catch (error) {
+        console.error('Failed to reload popular labels:', error);
+        const fallbackLabels = ['entity', 'relationship', 'document'];
+        SearchHistoryManager.clearHistory();
+        await SearchHistoryManager.initializeWithDefaults(fallbackLabels);
       }
+      
+      // 重置图数据获取状态
+      setGraphDataFetchAttempted(false);
+      setLastSuccessfulQueryLabel('');
+      
+      // 强制图重新渲染
+      incrementGraphDataVersion();
+      
+      // 触发下拉框刷新
+      setRefreshTrigger(prev => prev + 1);
+      setSelectKey(prev => prev + 1);
     } catch (error) {
       console.error('Error during refresh:', error);
     } finally {
       setIsRefreshing(false);
     }
-  }, [label, incrementGraphDataVersion, setGraphDataFetchAttempted, setLastSuccessfulQueryLabel, setQueryLabel, setTypeColorMap]);
+  }, [incrementGraphDataVersion, setGraphDataFetchAttempted, setLastSuccessfulQueryLabel, setQueryLabel, setTypeColorMap]);
 
   // 处理下拉框打开前
   const handleDropdownBeforeOpen = useCallback(async () => {
@@ -183,13 +173,9 @@ const GraphLabels: React.FC = () => {
     if (isRefreshing) {
       return t('pages.knowledge.graph.refreshing') || '刷新中...';
     }
-
-    if (!label || label === '*') {
-      return t('pages.knowledge.graph.refreshGlobal') || '刷新全局数据';
-    } else {
-      return t('pages.knowledge.graph.refreshCurrentLabel', { label }) || `刷新标签: ${label}`;
-    }
-  }, [label, t, isRefreshing]);
+    // 刷新按钮始终重置为 '*' 并刷新全局数据
+    return t('pages.knowledge.graph.refreshGlobal') || '重置并刷新全局数据';
+  }, [t, isRefreshing]);
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
