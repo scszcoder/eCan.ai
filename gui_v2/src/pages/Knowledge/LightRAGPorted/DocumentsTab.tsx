@@ -1,7 +1,7 @@
-import { theme, Pagination, Select, Modal, App } from 'antd';
+import { theme, Pagination, Select, Modal, App, Tooltip } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
-import { ScanOutlined, UnorderedListOutlined, ClearOutlined, FolderOpenOutlined, UploadOutlined } from '@ant-design/icons';
+import { ScanOutlined, UnorderedListOutlined, ClearOutlined, FolderOpenOutlined, UploadOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import React, { useState } from 'react';
 
@@ -10,17 +10,65 @@ interface Document {
   file_path: string;
   status: string;
   content_length?: number;
-  chunk_count?: number;
-  summary?: string;
+  chunks_count?: number;  // LightRAG API 返回 chunks_count
+  content_summary?: string;  // LightRAG API 返回 content_summary
   created_at?: string;
   updated_at?: string;
 }
+
+// 目录扫描结果类型
+interface DirScanResult {
+  path: string;
+  files: string[];
+  loading: boolean;
+}
+
+// 根据文件扩展名返回对应图标
+const getFileIcon = (filename: string): string => {
+  const ext = filename.toLowerCase().split('.').pop() || '';
+  
+  // PDF
+  if (ext === 'pdf') return '📕';
+  
+  // Word 文档
+  if (['doc', 'docx', 'odt', 'rtf'].includes(ext)) return '📘';
+  
+  // Excel 表格
+  if (['xls', 'xlsx', 'csv', 'tsv'].includes(ext)) return '📗';
+  
+  // PowerPoint
+  if (['ppt', 'pptx'].includes(ext)) return '📙';
+  
+  // 文本/Markdown
+  if (['txt', 'md', 'rst', 'log'].includes(ext)) return '📝';
+  
+  // 代码文件
+  if (['py', 'js', 'ts', 'tsx', 'jsx', 'java', 'c', 'cpp', 'go', 'rb', 'php', 'swift', 'sql', 'sh', 'bat'].includes(ext)) return '💻';
+  
+  // 网页
+  if (['html', 'htm', 'css', 'scss', 'less'].includes(ext)) return '🌐';
+  
+  // 配置/数据文件
+  if (['json', 'xml', 'yaml', 'yml', 'ini', 'conf', 'properties'].includes(ext)) return '⚙️';
+  
+  // 图片
+  if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'svg', 'webp', 'tif', 'tiff'].includes(ext)) return '🖼️';
+  
+  // 视频
+  if (['mp4', 'mov', 'm4v', 'avi', 'mkv', 'webm', 'flv', 'wmv', 'mpg', 'mpeg'].includes(ext)) return '🎬';
+  
+  // 电子书
+  if (['epub', 'tex'].includes(ext)) return '📚';
+  
+  // 默认文档图标
+  return '📄';
+};
 
 const DocumentsTab: React.FC = () => {
   const { message } = App.useApp();
   const [modal, contextHolder] = Modal.useModal();
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
-  const [dirPath, setDirPath] = useState('');
+  const [selectedDirs, setSelectedDirs] = useState<DirScanResult[]>([]);
   const [log, setLog] = useState<string>('');
   const [documents, setDocuments] = useState<Document[]>([]);
   const [statusCounts, setStatusCounts] = useState({ all: 0, PROCESSED: 0, PROCESSING: 0, PENDING: 0, FAILED: 0 });
@@ -52,7 +100,11 @@ const DocumentsTab: React.FC = () => {
       if (response.success && response.data) {
           const result = response.data;
           if (result && result.paths && result.paths.length > 0) {
-            setSelectedFiles(result.paths);
+            // 追加新文件到现有列表，避免重复
+            setSelectedFiles(prev => {
+              const newPaths = result.paths.filter((p: string) => !prev.includes(p));
+              return [...prev, ...newPaths];
+            });
             appendLog(t('pages.knowledge.documents.selectFilesWithCount', { count: result.paths.length }));
           }
       }
@@ -68,7 +120,39 @@ const DocumentsTab: React.FC = () => {
       if (response.success && response.data) {
           const result = response.data;
           if (result && result.path) {
-            setDirPath(result.path);
+            const dirPath = result.path;
+            // 检查是否已存在
+            if (selectedDirs.some(d => d.path === dirPath)) {
+              appendLog(t('pages.knowledge.documents.directoryAlreadySelected', { path: dirPath }));
+              return;
+            }
+            
+            // 先添加目录，标记为加载中
+            setSelectedDirs(prev => [...prev, { path: dirPath, files: [], loading: true }]);
+            appendLog(t('pages.knowledge.documents.scanningDirectory', { path: dirPath }));
+            
+            // 扫描目录获取文件列表
+            const scanResponse = await get_ipc_api().lightragApi.scanDirectory({ dirPath });
+            if (scanResponse.success && scanResponse.data) {
+              const scanData = scanResponse.data as any;
+              const files = scanData.files || [];
+              const skippedCount = scanData.skipped_count || 0;
+              
+              // 更新目录的文件列表
+              setSelectedDirs(prev => prev.map(d => 
+                d.path === dirPath ? { ...d, files, loading: false } : d
+              ));
+              
+              appendLog(t('pages.knowledge.documents.directoryScanComplete', { 
+                path: dirPath, 
+                count: files.length,
+                skipped: skippedCount
+              }));
+            } else {
+              // 扫描失败，移除目录
+              setSelectedDirs(prev => prev.filter(d => d.path !== dirPath));
+              appendLog(t('pages.knowledge.documents.errorScanningDirectory') + (scanResponse.error?.message || 'Unknown error'));
+            }
           }
       }
     } catch (e: any) {
@@ -76,6 +160,7 @@ const DocumentsTab: React.FC = () => {
     }
   };
 
+  // 导入文件
   const handleIngestFiles = async () => {
     if (!selectedFiles || selectedFiles.length === 0) {
       appendLog(t('pages.knowledge.documents.noFilesSelected'));
@@ -85,77 +170,88 @@ const DocumentsTab: React.FC = () => {
       appendLog(`Ingesting ${selectedFiles.length} file(s)...`);
       const response = await get_ipc_api().lightragApi.ingestFiles({ paths: selectedFiles });
       if (response.success && response.data) {
-          const res = response.data as any; // The inner result from backend
-          appendLog(t('pages.knowledge.documents.ingestSuccess') + ': ' + JSON.stringify(res));
-          // Reload documents after ingestion
-          setTimeout(() => {
-            loadDocuments();
-            loadStatusCounts();
-          }, 2000);
+        const res = response.data as any;
+        appendLog(t('pages.knowledge.documents.ingestSuccess') + ': ' + JSON.stringify(res));
+        setSelectedFiles([]);
+        // Reload documents after ingestion
+        setTimeout(() => {
+          loadDocuments();
+          loadStatusCounts();
+        }, 2000);
       } else {
-          throw new Error(response.error?.message || 'Unknown error');
+        throw new Error(response.error?.message || 'Unknown error');
       }
     } catch (e: any) {
       appendLog(t('pages.knowledge.documents.ingestError') + ': ' + (e?.message || String(e)));
     }
   };
 
-  const handleIngestDir = async () => {
-    if (!dirPath) {
-      appendLog(t('pages.knowledge.documents.selectDirectoryFirst'));
+  // 导入目录（直接导入扫描出的文件）
+  const handleIngestDirs = async () => {
+    if (!selectedDirs || selectedDirs.length === 0) {
+      appendLog(t('pages.knowledge.documents.noDirectorySelected'));
       return;
     }
     try {
-      appendLog(`Ingesting directory: ${dirPath}...`);
-      const response = await get_ipc_api().lightragApi.ingestDirectory({ dirPath });
-      if (response.success && response.data) {
-          const res = response.data as any;
-          const summary = res && res.data ? res.data : res;
-          if (summary) {
-            const total = summary.total_files ?? summary.totalFiles ?? 0;
-            const successCount = summary.success_count ?? summary.successCount ?? 0;
-            const failureCount = summary.failure_count ?? summary.failureCount ?? 0;
-            const statusText = summary.status || 'unknown';
-
-            appendLog(
-              `${t('pages.knowledge.documents.ingestSuccess')}: ` +
-              `status=${statusText}, total=${total}, success=${successCount}, failed=${failureCount}`
-            );
-
-            if (Array.isArray(summary.files) && summary.files.length > 0) {
-              const maxPreview = 5;
-              const fileNames = summary.files
-                .slice(0, maxPreview)
-                .map((f: any) => (f && f.file_path) || '')
-                .filter((name: string) => !!name);
-              if (fileNames.length > 0) {
-                const moreCount = summary.files.length > maxPreview ? `, ... (+${summary.files.length - maxPreview} more)` : '';
-                appendLog(`Files: ${fileNames.join(', ')}${moreCount}`);
-              }
-            }
-          } else {
-            appendLog(t('pages.knowledge.documents.ingestSuccess') + ': ' + JSON.stringify(res));
-          }
-          setTimeout(() => {
-            loadDocuments();
-            loadStatusCounts();
-          }, 2000);
-      } else {
-          throw new Error(response.error?.message || 'Unknown error');
+      // 收集所有目录中的文件
+      const allFiles: string[] = [];
+      for (const dir of selectedDirs) {
+        if (dir.files && dir.files.length > 0) {
+          allFiles.push(...dir.files);
+        }
       }
+      
+      if (allFiles.length === 0) {
+        appendLog(t('pages.knowledge.documents.noFilesInDirectories'));
+        return;
+      }
+      
+      appendLog(`Ingesting ${allFiles.length} file(s) from ${selectedDirs.length} directory(ies)...`);
+      const response = await get_ipc_api().lightragApi.ingestFiles({ paths: allFiles });
+      if (response.success && response.data) {
+        const res = response.data as any;
+        appendLog(t('pages.knowledge.documents.ingestSuccess') + ': ' + JSON.stringify(res));
+      } else {
+        throw new Error(response.error?.message || 'Unknown error');
+      }
+      
+      setSelectedDirs([]);
+      // Reload documents after ingestion
+      setTimeout(() => {
+        loadDocuments();
+        loadStatusCounts();
+      }, 2000);
     } catch (e: any) {
       appendLog(t('pages.knowledge.documents.ingestError') + ': ' + (e?.message || String(e)));
     }
   };
+
+  const handleRemoveFile = (path: string) => {
+    setSelectedFiles(prev => prev.filter(p => p !== path));
+  };
+
+  const handleRemoveDir = (dirPath: string) => {
+    setSelectedDirs(prev => prev.filter(d => d.path !== dirPath));
+  };
+
+  const handleClearFiles = () => {
+    setSelectedFiles([]);
+  };
+
+  const handleClearDirs = () => {
+    setSelectedDirs([]);
+  };
+
 
   const loadStatusCounts = async () => {
     try {
       const response = await get_ipc_api().lightragApi.getStatusCounts();
       if (response.success && response.data) {
           const res = response.data as any;
-          if (res && res.data && res.data.status_counts) {
-            const counts = res.data.status_counts;
-            
+          // 支持两种数据结构：res.status_counts 或 res.data.status_counts
+          const counts = res?.status_counts || res?.data?.status_counts;
+          
+          if (counts) {
             // Normalize keys to uppercase to handle potential case mismatch (e.g. 'failed' vs 'FAILED')
             const normalizedCounts: Record<string, number> = {};
             Object.keys(counts).forEach(key => {
@@ -195,10 +291,37 @@ const DocumentsTab: React.FC = () => {
 
       if (response.success && response.data) {
           const res = response.data as any;
-          if (res && res.data && res.data.documents) {
-            setDocuments(res.data.documents);
-            setTotalDocs(res.data.pagination?.total_count || 0);
-            appendLog(t('pages.knowledge.documents.loadedDocuments', { count: res.data.documents.length, page: currentPage }));
+          // 支持两种数据结构：res.documents 或 res.data.documents
+          const docsArray = res?.documents || res?.data?.documents;
+          const pagination = res?.pagination || res?.data?.pagination;
+          const statusCountsData = res?.status_counts || res?.data?.status_counts;
+          
+          console.log('[DocumentsTab] loadDocuments response:', { res, docsArray, pagination, statusCountsData });
+          
+          // 更新 status counts（如果返回了）
+          if (statusCountsData) {
+            const normalizedCounts: Record<string, number> = {};
+            Object.keys(statusCountsData).forEach(key => {
+              normalizedCounts[key.toUpperCase()] = statusCountsData[key];
+            });
+            // 计算所有状态的文档总数（包括 PREPROCESSED 等）
+            const all = Object.values(statusCountsData).reduce((sum: number, c: any) => sum + (c || 0), 0);
+            // 只有当 statusFilter 为 ALL 时才更新 all，否则保持原值
+            setStatusCounts(prev => ({
+              all: statusFilter === 'ALL' ? all : prev.all || all,
+              PROCESSED: normalizedCounts.PROCESSED || 0,
+              PROCESSING: normalizedCounts.PROCESSING || 0,
+              PENDING: normalizedCounts.PENDING || 0,
+              FAILED: normalizedCounts.FAILED || 0
+            }));
+          }
+          
+          if (Array.isArray(docsArray)) {
+            setDocuments(docsArray);
+            setTotalDocs(pagination?.total_count || docsArray.length);
+            if (docsArray.length > 0) {
+              appendLog(t('pages.knowledge.documents.loadedDocuments', { count: docsArray.length, page: currentPage }));
+            }
           } else if (res && res.data && res.data.statuses) {
             // Fallback for older API or if pagination not supported fully
             // Flatten all documents from different statuses
@@ -589,93 +712,190 @@ const DocumentsTab: React.FC = () => {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="ec-btn" onClick={handleScan} title={t('pages.knowledge.documents.scan')}>
-            <ScanOutlined /> {t('pages.knowledge.documents.scan')}
+          <button className="ec-btn" onClick={handleSelectFiles}>
+            <FolderOpenOutlined /> {t('pages.knowledge.documents.uploadFiles')}
           </button>
-          <button className="ec-btn" onClick={handleRefreshStatus} title={t('pages.knowledge.documents.status')}>
-            <UnorderedListOutlined /> {t('pages.knowledge.documents.status')}
-          </button>
-          <button className="ec-btn" onClick={handleClearCache} title={t('pages.knowledge.documents.clearCache')}>
-            <ClearOutlined /> {t('pages.knowledge.documents.clearCache')}
-          </button>
-          <button className="ec-btn" onClick={handleClearLog} title={t('pages.knowledge.documents.clearLog')}>
-            {t('pages.knowledge.documents.clearLog')}
+          <button className="ec-btn" onClick={handleSelectDirectory}>
+            <FolderOpenOutlined /> {t('pages.knowledge.documents.importDirectory')}
           </button>
         </div>
       </div>
 
-      {/* Ingest section */}
-      <div style={{
-        background: token.colorBgContainer,
-        borderRadius: 16,
-        border: `1px solid ${token.colorBorder}`,
-        overflow: 'hidden',
-        boxShadow: isDark ? '0 4px 16px rgba(0, 0, 0, 0.15)' : '0 4px 16px rgba(0, 0, 0, 0.06)'
-      }}>
-        <div style={{ padding: '20px 24px', borderBottom: `1px solid ${token.colorBorderSecondary}` }}>
-          <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: token.colorText }}>{t('pages.knowledge.documents.importDocuments')}</h4>
-        </div>
-        <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <label style={{ fontSize: 13, fontWeight: 600, color: token.colorTextSecondary }}>{t('pages.knowledge.documents.uploadFiles')}</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="ec-btn" onClick={handleSelectFiles} style={{ flex: 1 }}>
-                  <FolderOpenOutlined /> {t('pages.knowledge.documents.selectFilesWithCount', { count: selectedFiles.length })}
-                </button>
-                <button className="ec-btn ec-btn-primary" onClick={handleIngestFiles} disabled={selectedFiles.length === 0}>
-                  <UploadOutlined /> {t('pages.knowledge.documents.ingest')}
+      {/* Pending files section - only show when files are selected */}
+      {selectedFiles.length > 0 && (
+        <div style={{
+          background: token.colorBgContainer,
+          borderRadius: 12,
+          border: `1px solid ${token.colorBorder}`,
+          overflow: 'hidden',
+          boxShadow: isDark ? '0 2px 8px rgba(0, 0, 0, 0.15)' : '0 2px 8px rgba(0, 0, 0, 0.06)'
+        }}>
+          <div style={{ 
+            padding: '12px 16px', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between',
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            background: isDark ? token.colorBgTextHover : token.colorBgLayout
+          }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: token.colorText }}>
+              {t('pages.knowledge.documents.pendingFiles')} ({selectedFiles.length})
+            </span>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button className="ec-btn" onClick={handleClearFiles}>
+                <ClearOutlined /> {t('pages.knowledge.documents.clear')}
+              </button>
+              <button className="ec-btn ec-btn-primary" onClick={handleIngestFiles}>
+                <UploadOutlined /> {t('pages.knowledge.documents.ingest')}
+              </button>
+            </div>
+          </div>
+          <div style={{ padding: '8px 12px', maxHeight: 120, overflowY: 'auto' }}>
+            {selectedFiles.map((path, i) => (
+              <div 
+                key={i} 
+                style={{ 
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '4px 8px',
+                  borderRadius: 4,
+                  background: i % 2 === 0 ? 'transparent' : (isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)')
+                }}
+              >
+                <span 
+                  style={{ 
+                    flex: 1,
+                    fontSize: 12,
+                    color: token.colorTextSecondary,
+                    whiteSpace: 'nowrap', 
+                    overflow: 'hidden', 
+                    textOverflow: 'ellipsis',
+                    marginRight: 8
+                  }} 
+                  title={path}
+                >
+                  {getFileIcon(path)} {path}
+                </span>
+                <button 
+                  className="ec-btn"
+                  onClick={() => handleRemoveFile(path)}
+                  style={{ padding: '2px 6px', fontSize: 11, minWidth: 'auto', opacity: 0.7 }}
+                  title={t('common.delete')}
+                >
+                  ✕
                 </button>
               </div>
-              {selectedFiles.length > 0 && (
-                <div style={{ 
-                  marginTop: 8, 
-                  padding: '8px 12px', 
-                  background: token.colorBgLayout, 
-                  borderRadius: 6,
-                  maxHeight: 120,
-                  overflowY: 'auto',
-                  fontSize: 12,
-                  color: token.colorTextSecondary,
-                  border: `1px solid ${token.colorBorderSecondary}`
-                }}>
-                  {selectedFiles.map((path, i) => (
-                    <div key={i} style={{ 
-                      whiteSpace: 'nowrap', 
-                      overflow: 'hidden', 
-                      textOverflow: 'ellipsis',
-                      lineHeight: '20px'
-                    }} title={path}>
-                      {path}
-                    </div>
-                  ))}
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Pending directories section - only show when directories are selected */}
+      {selectedDirs.length > 0 && (
+        <div style={{
+          background: token.colorBgContainer,
+          borderRadius: 12,
+          border: `1px solid ${token.colorBorder}`,
+          overflow: 'hidden',
+          boxShadow: isDark ? '0 2px 8px rgba(0, 0, 0, 0.15)' : '0 2px 8px rgba(0, 0, 0, 0.06)'
+        }}>
+          <div style={{ 
+            padding: '12px 16px', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between',
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            background: isDark ? token.colorBgTextHover : token.colorBgLayout
+          }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: token.colorText }}>
+              {t('pages.knowledge.documents.pendingDirs')} ({selectedDirs.length})
+            </span>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button className="ec-btn" onClick={handleClearDirs}>
+                <ClearOutlined /> {t('pages.knowledge.documents.clear')}
+              </button>
+              <button className="ec-btn ec-btn-primary" onClick={handleIngestDirs}>
+                <UploadOutlined /> {t('pages.knowledge.documents.ingest')}
+              </button>
+            </div>
+          </div>
+          <div style={{ padding: '8px 12px', maxHeight: 200, overflowY: 'auto' }}>
+            {selectedDirs.map((dir, i) => (
+              <div key={i} style={{ marginBottom: i < selectedDirs.length - 1 ? 12 : 0 }}>
+                {/* 目录头部 */}
+                <div 
+                  style={{ 
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '6px 8px',
+                    borderRadius: 4,
+                    background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span 
+                      style={{ 
+                        display: 'block',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: token.colorText,
+                        whiteSpace: 'nowrap', 
+                        overflow: 'hidden', 
+                        textOverflow: 'ellipsis'
+                      }} 
+                      title={dir.path}
+                    >
+                      📁 {dir.path}
+                    </span>
+                    <span style={{ fontSize: 11, color: token.colorTextTertiary }}>
+                      {dir.loading 
+                        ? t('pages.knowledge.documents.scanning')
+                        : t('pages.knowledge.documents.filesCount', { count: dir.files.length })
+                      }
+                    </span>
+                  </div>
+                  <button 
+                    className="ec-btn"
+                    onClick={() => handleRemoveDir(dir.path)}
+                    style={{ padding: '2px 6px', fontSize: 11, minWidth: 'auto', opacity: 0.7 }}
+                    title={t('common.delete')}
+                  >
+                    ✕
+                  </button>
                 </div>
-              )}
-            </div>
-          </div>
-          <div style={{ height: 1, background: token.colorBorderSecondary }} />
-          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <label style={{ fontSize: 13, fontWeight: 600, color: token.colorTextSecondary }}>{t('pages.knowledge.documents.importDirectory')}</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input 
-                  className="ec-input" 
-                  placeholder={t('pages.knowledge.documents.enterDirectoryPath')}
-                  value={dirPath} 
-                  onChange={e => setDirPath(e.target.value)}
-                  style={{ flex: 1 }}
-                />
-                <button className="ec-btn" onClick={handleSelectDirectory}>
-                  <FolderOpenOutlined /> {t('pages.knowledge.documents.browse')}
-                </button>
+                {/* 文件列表 */}
+                {!dir.loading && dir.files.length > 0 && (
+                  <div style={{ 
+                    marginTop: 4, 
+                    marginLeft: 16,
+                    paddingLeft: 8,
+                    borderLeft: `2px solid ${token.colorBorderSecondary}`
+                  }}>
+                    {dir.files.map((file, j) => (
+                      <div 
+                        key={j}
+                        style={{ 
+                          fontSize: 11,
+                          color: token.colorTextSecondary,
+                          padding: '2px 0',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }}
+                        title={file}
+                      >
+                        {getFileIcon(file)} {file.split('/').pop()}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-            <button className="ec-btn ec-btn-primary" onClick={handleIngestDir} disabled={!dirPath}>
-              <UploadOutlined /> {t('pages.knowledge.documents.ingest')}
-            </button>
+            ))}
           </div>
         </div>
-      </div>
+      )}
 
       {/* Uploaded Documents section */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -689,8 +909,14 @@ const DocumentsTab: React.FC = () => {
         }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: token.colorText }}>{t('pages.knowledge.documents.uploadedDocuments')}</h4>
           <div style={{ display: 'flex', gap: 8 }}>
+            <button className="ec-btn" onClick={handleScan} title={t('pages.knowledge.documents.scanRetry')}>
+              <ScanOutlined /> {t('pages.knowledge.documents.scanRetry')}
+            </button>
+            <button className="ec-btn" onClick={handleClearCache} title={t('pages.knowledge.documents.clearCache')}>
+              <ClearOutlined /> {t('pages.knowledge.documents.clearCache')}
+            </button>
             <button className="ec-btn" onClick={handleRefreshStatus} title={t('common.refresh')}>
-              <UnorderedListOutlined /> {t('common.refresh') || 'Refresh'}
+              <UnorderedListOutlined /> {t('common.refresh')}
             </button>
             <Select 
               defaultValue="ALL" 
@@ -783,19 +1009,33 @@ const DocumentsTab: React.FC = () => {
                     overflow: 'hidden', 
                     textOverflow: 'ellipsis', 
                     whiteSpace: 'nowrap',
-                    color: token.colorText
+                    color: token.colorText,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
                   }} title={doc.file_path}>
-                    {doc.file_path}
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.file_path}</span>
+                    <Tooltip title={`ID: ${doc.id}`}>
+                      <InfoCircleOutlined style={{ 
+                        color: token.colorTextTertiary, 
+                        fontSize: 12,
+                        cursor: 'pointer',
+                        flexShrink: 0
+                      }} />
+                    </Tooltip>
                   </div>
-                  <div style={{ 
-                    overflow: 'hidden', 
-                    textOverflow: 'ellipsis', 
-                    whiteSpace: 'nowrap',
-                    color: token.colorTextSecondary,
-                    fontSize: 12
-                  }} title={doc.summary || ''}>
-                    {doc.summary || '-'}
-                  </div>
+                  <Tooltip title={doc.content_summary || ''}>
+                    <div style={{ 
+                      overflow: 'hidden', 
+                      textOverflow: 'ellipsis', 
+                      whiteSpace: 'nowrap',
+                      color: token.colorTextSecondary,
+                      fontSize: 12,
+                      cursor: doc.content_summary ? 'pointer' : 'default'
+                    }}>
+                      {doc.content_summary || '-'}
+                    </div>
+                  </Tooltip>
                   <div style={{ 
                     textAlign: 'center',
                     color: getStatusColor(doc.status),
@@ -815,7 +1055,7 @@ const DocumentsTab: React.FC = () => {
                     color: token.colorTextSecondary,
                     fontSize: 12
                   }}>
-                    {doc.chunk_count || '-'}
+                    {doc.chunks_count ?? '-'}
                   </div>
                   <div style={{ 
                     textAlign: 'center',
@@ -893,33 +1133,69 @@ const DocumentsTab: React.FC = () => {
       {/* Log console */}
       <div style={{ 
         background: isDark ? token.colorBgElevated : token.colorBgContainer, 
-        color: token.colorText, 
-        padding: 20, 
         borderRadius: 16, 
-        minHeight: 140,
-        maxHeight: 220,
-        overflow: 'auto',
-        fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-        fontSize: 13,
-        lineHeight: 1.8,
         border: `1px solid ${token.colorBorder}`,
-        boxShadow: isDark ? 'inset 0 2px 8px rgba(0, 0, 0, 0.2)' : 'inset 0 2px 8px rgba(0, 0, 0, 0.05)'
+        overflow: 'hidden'
       }}>
-        {log ? (
-          <pre
+        {/* Console header */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 16px',
+          borderBottom: `1px solid ${token.colorBorderSecondary}`,
+          background: isDark ? token.colorBgTextHover : token.colorBgLayout
+        }}>
+          <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: token.colorText }}>
+            {t('pages.knowledge.documents.console', '控制台')}
+          </h4>
+          <button 
+            className="ec-btn-small" 
+            onClick={handleClearLog} 
+            title={t('pages.knowledge.documents.clearLog')}
             style={{
-              margin: 0,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
+              padding: '4px 12px',
+              fontSize: 12,
+              background: token.colorBgContainer,
+              color: token.colorTextSecondary,
+              border: `1px solid ${token.colorBorder}`,
+              borderRadius: 6,
+              cursor: 'pointer',
+              transition: 'all 0.2s'
             }}
           >
-            {log}
-          </pre>
-        ) : (
-          <span style={{ opacity: 0.5, color: token.colorTextTertiary }}>
-            {t('pages.knowledge.documents.consoleOutput')}
-          </span>
-        )}
+            <ClearOutlined style={{ marginRight: 4 }} />
+            {t('pages.knowledge.documents.clearLog')}
+          </button>
+        </div>
+        {/* Console content */}
+        <div style={{ 
+          padding: 16, 
+          minHeight: 100,
+          maxHeight: 180,
+          overflow: 'auto',
+          fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+          fontSize: 13,
+          lineHeight: 1.8,
+          color: token.colorText,
+          boxShadow: isDark ? 'inset 0 2px 8px rgba(0, 0, 0, 0.2)' : 'inset 0 2px 8px rgba(0, 0, 0, 0.05)'
+        }}>
+          {log ? (
+            <pre
+              style={{
+                margin: 0,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}
+            >
+              {log}
+            </pre>
+          ) : (
+            <span style={{ opacity: 0.5, color: token.colorTextTertiary }}>
+              {t('pages.knowledge.documents.consoleOutput')}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Scoped styles */}

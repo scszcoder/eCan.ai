@@ -52,6 +52,43 @@ def handle_ingest_files(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         return create_error_response(request, 'INGEST_ERROR', str(e))
 
 
+@IPCHandlerRegistry.handler('lightrag.scanDirectory')
+def handle_scan_directory(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """
+    Scan a directory and return list of files that can be ingested.
+    
+    Expected params:
+    - dirPath: str - Directory path to scan
+    """
+    try:
+        is_valid, data, error = validate_params(params, ['dirPath'])
+        if not is_valid:
+            return create_error_response(request, 'INVALID_PARAMS', error)
+        
+        dir_path = data['dirPath']
+        
+        if not isinstance(dir_path, str) or not dir_path.strip():
+            return create_error_response(request, 'INVALID_PARAMS', 'dirPath must be a non-empty string')
+        
+        # Get LightRAG client
+        client = get_client()
+        
+        # Call scan_directory method
+        result = client.scan_directory(dir_path)
+        
+        if result.get('status') == 'error':
+            error_msg = result.get('message', 'Failed to scan directory')
+            logger.error(f"Scan directory failed: {error_msg}")
+            return create_error_response(request, 'SCAN_ERROR', error_msg)
+        
+        data = result.get('data', result)
+        return create_success_response(request, data)
+        
+    except Exception as e:
+        logger.error(f"Error in scan_directory handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'SCAN_ERROR', str(e))
+
+
 @IPCHandlerRegistry.handler('lightrag.ingestDirectory')
 def handle_ingest_directory(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """

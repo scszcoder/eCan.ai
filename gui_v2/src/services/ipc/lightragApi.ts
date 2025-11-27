@@ -13,6 +13,10 @@ export type IngestDirectoryPayload = {
   options?: Record<string, any>;
 };
 
+export type ScanDirectoryPayload = {
+  dirPath: string;
+};
+
 export type QueryPayload = {
   text: string;
   options?: Record<string, any>;
@@ -61,6 +65,10 @@ export function createLightRAGApi(apiInstance: IPCAPI) {
 
     async ingestDirectory<T>(payload: IngestDirectoryPayload): Promise<APIResponse<T>> {
       return apiInstance.executeRequest<T>('lightrag.ingestDirectory', payload);
+    },
+
+    async scanDirectory<T>(payload: ScanDirectoryPayload): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.scanDirectory', payload);
     },
 
     async query<T>(payload: QueryPayload): Promise<APIResponse<T>> {
