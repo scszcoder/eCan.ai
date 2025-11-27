@@ -112,53 +112,48 @@ class LightragClient:
             logger.error(err)
             return {"status": "error", "message": str(e)}
 
-    def ingest_directory(self, dir_path: str, options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Request to ingest files in a directory (top-level only, non-recursive).
+    # Allowed knowledge document types for RAG ingestion
+    ALLOWED_EXTENSIONS = (
+        # Documents
+        '.pdf',
+        '.doc', '.docx',
+        '.ppt', '.pptx',
+        '.xls', '.xlsx',
+        '.rtf', '.odt', '.tex', '.epub',
+
+        # Text / Config / Data
+        '.txt', '.md', '.rst', '.log',
+        '.html', '.htm',
+        '.csv', '.tsv', '.json',
+        '.xml', '.yaml', '.yml',
+        '.conf', '.ini', '.properties',
+
+        # Code
+        '.sql', '.bat', '.sh',
+        '.c', '.cpp', '.py', '.java', '.js', '.ts', '.swift', '.go', '.rb', '.php',
+        '.css', '.scss', '.less',
+
+        # Media
+        '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.webp', '.tif', '.tiff',
+        '.mp4', '.mov', '.m4v', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpg', '.mpeg'
+    )
+
+    def scan_directory(self, dir_path: str) -> Dict[str, Any]:
+        """Scan a directory and return list of files that can be ingested.
 
         Args:
-            dir_path: Directory path to scan and ingest
-            options: Optional configuration for ingestion
+            dir_path: Directory path to scan
 
         Returns:
-            Dict with status and job information
+            Dict with status and list of files
         """
         try:
             if not os.path.exists(dir_path) or not os.path.isdir(dir_path):
                 return {"status": "error", "message": f"Directory not found: {dir_path}"}
 
-            # Collect files in the top-level directory only (non-recursive)
             file_paths: List[str] = []
+            skipped_files: List[str] = []
 
-            # Allowed knowledge document types for RAG ingestion
-            # - PDF
-            # - Office docs: DOC/DOCX/PPT/PPTX/XLS/XLSX
-            # - Text/Markdown/HTML/CSV/JSON
-            # - Common image formats
-            # - Common video formats
-            allowed_extensions = (
-                # Documents
-                '.pdf',
-                '.doc', '.docx',
-                '.ppt', '.pptx',
-                '.xls', '.xlsx',
-                '.rtf', '.odt', '.tex', '.epub',
-
-                # Text / Config / Data
-                '.txt', '.md', '.rst', '.log',
-                '.html', '.htm',
-                '.csv', '.tsv', '.json',
-                '.xml', '.yaml', '.yml',
-                '.conf', '.ini', '.properties',
-
-                # Code
-                '.sql', '.bat', '.sh',
-                '.c', '.cpp', '.py', '.java', '.js', '.ts', '.swift', '.go', '.rb', '.php',
-                '.css', '.scss', '.less',
-
-                # Media
-                '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.webp', '.tif', '.tiff',
-                '.mp4', '.mov', '.m4v', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpg', '.mpeg'
-            )
             try:
                 entries = os.listdir(dir_path)
             except Exception as e:
@@ -171,22 +166,54 @@ class LightragClient:
 
                 full_path = os.path.join(dir_path, name)
 
-                # Only ingest regular files in the top-level directory
+                # Only include regular files in the top-level directory
                 if not os.path.isfile(full_path):
                     continue
 
-                # Skip common non-document files we never want to ingest
+                # Skip common non-document files
                 if name.endswith(('.pyc', '.pyo', '.pyd')):
+                    skipped_files.append(name)
                     continue
 
-                # Only ingest files with allowed knowledge document extensions
+                # Only include files with allowed extensions
                 lower_name = name.lower()
-                if not lower_name.endswith(allowed_extensions):
-                    logger.debug(f"[LightragClient] Skipping non-knowledge file in directory ingest: {full_path}")
+                if not lower_name.endswith(self.ALLOWED_EXTENSIONS):
+                    skipped_files.append(name)
                     continue
 
                 file_paths.append(full_path)
 
+            return {
+                "status": "success",
+                "data": {
+                    "files": file_paths,
+                    "count": len(file_paths),
+                    "skipped": skipped_files,
+                    "skipped_count": len(skipped_files)
+                }
+            }
+        except Exception as e:
+            err = get_traceback(e, "LightragClient.scan_directory")
+            logger.error(err)
+            return {"status": "error", "message": str(e)}
+
+    def ingest_directory(self, dir_path: str, options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Request to ingest files in a directory (top-level only, non-recursive).
+
+        Args:
+            dir_path: Directory path to scan and ingest
+            options: Optional configuration for ingestion
+
+        Returns:
+            Dict with status and job information
+        """
+        try:
+            # Use scan_directory to get filtered file list
+            scan_result = self.scan_directory(dir_path)
+            if scan_result.get("status") == "error":
+                return scan_result
+
+            file_paths = scan_result.get("data", {}).get("files", [])
             if not file_paths:
                 return {"status": "error", "message": "No files found in directory"}
 
