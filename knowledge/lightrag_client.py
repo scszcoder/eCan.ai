@@ -584,6 +584,30 @@ class LightragClient:
             logger.error(err)
             return {"status": "error", "message": str(e)}
 
+    def check_entity_name_exists(self, name: str) -> Dict[str, Any]:
+        """Check if an entity name already exists in the knowledge graph."""
+        try:
+            r = self.session.get(
+                f"{self.base_url}/graph/entity/exists",
+                params={"name": name},
+                timeout=10
+            )
+            
+            if r.status_code >= 400:
+                logger.error(f"Check entity name exists failed with status {r.status_code}: {r.text}")
+            
+            r.raise_for_status()
+            result = r.json()
+            return {"status": "success", "data": result}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.check_entity_name_exists HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
+        except Exception as e:
+            err = get_traceback(e, "LightragClient.check_entity_name_exists")
+            logger.error(err)
+            return {"status": "error", "message": str(e)}
+
     def update_relation(self, source_id: str, target_id: str, updated_data: Dict[str, Any]) -> Dict[str, Any]:
         """Update a relation's properties in the knowledge graph."""
         try:

@@ -94,15 +94,6 @@ const GraphViewer: React.FC = () => {
     (): OptionItem | null => (selectedNode ? { type: 'nodes', id: selectedNode } : null),
     [selectedNode]
   );
-  
-  // 添加调试日志
-  React.useEffect(() => {
-    console.log('[GraphViewer] Component mounted');
-    console.log('[GraphViewer] Body classes:', document.body.className);
-    return () => {
-      console.log('[GraphViewer] Component unmounted');
-    };
-  }, []);
 
   return (
     <div className="graph-viewer-container" style={{ position: 'relative', width: '100%', height: '100%', background: '#ffffff' }}>
@@ -111,134 +102,32 @@ const GraphViewer: React.FC = () => {
         body.graph-fullscreen-active {
           overflow: hidden !important;
         }
-        
-        /* 隐藏所有顶部UI元素 */
-        body.graph-fullscreen-active .ant-layout-header,
-        body.graph-fullscreen-active .ant-layout-sider,
-        body.graph-fullscreen-active .ant-breadcrumb,
-        body.graph-fullscreen-active nav:not(.graph-viewer-container nav),
-        body.graph-fullscreen-active header:not(.graph-viewer-container header),
-        body.graph-fullscreen-active [class*="Header"]:not(.graph-viewer-container [class*="Header"]),
-        body.graph-fullscreen-active [class*="header"]:not(.graph-viewer-container [class*="header"]),
-        body.graph-fullscreen-active [class*="Navigation"]:not(.graph-viewer-container [class*="Navigation"]),
-        body.graph-fullscreen-active [class*="navigation"]:not(.graph-viewer-container [class*="navigation"]),
-        body.graph-fullscreen-active [class*="TopBar"]:not(.graph-viewer-container [class*="TopBar"]),
-        body.graph-fullscreen-active [class*="topbar"]:not(.graph-viewer-container [class*="topbar"]) {
-          display: none !important;
-          visibility: hidden !important;
-          height: 0 !important;
-          overflow: hidden !important;
-        }
-        
-        /* 隐藏知识库页面内的Header和Tabs（前两个子元素） */
-        body.graph-fullscreen-active [data-ec-scope="lightrag-ported"] > *:nth-child(1),
-        body.graph-fullscreen-active [data-ec-scope="lightrag-ported"] > *:nth-child(2),
-        body.graph-fullscreen-active [data-ec-scope="lightrag-ported"] > *:nth-child(4) {
-          display: none !important;
-          visibility: hidden !important;
-          height: 0 !important;
-        }
-        
-        /* 确保第三个子元素（GraphTab）可见并充满 */
-        body.graph-fullscreen-active [data-ec-scope="lightrag-ported"] > *:nth-child(3) {
-          display: flex !important;
-          visibility: visible !important;
-          height: 100% !important;
-          width: 100% !important;
-          flex: 1 !important;
-          opacity: 1 !important;
-        }
-        
-        /* 确保图谱容器可见并充满 */
-        body.graph-fullscreen-active .graph-viewer-container {
-          display: block !important;
-          visibility: visible !important;
-          width: 100% !important;
-          height: 100% !important;
-          opacity: 1 !important;
-        }
-        
-        /* 确保Sigma容器可见 */
-        body.graph-fullscreen-active .graph-viewer-container > *,
-        body.graph-fullscreen-active .sigma-container,
-        body.graph-fullscreen-active .sigma-container > * {
-          display: block !important;
-          visibility: visible !important;
-          opacity: 1 !important;
-        }
-        
-        /* 强制隐藏Layout的header部分 */
-        body.graph-fullscreen-active .ant-layout > .ant-layout-header,
-        body.graph-fullscreen-active .ant-layout > header {
-          display: none !important;
-          visibility: hidden !important;
-          height: 0 !important;
-        }
-        
-        /* 激进方案：隐藏body的所有直接子元素，除了包含图谱的元素 */
-        body.graph-fullscreen-active > *:not(#root) {
-          display: none !important;
-        }
-        
-        /* 隐藏root下的所有直接子元素，除了包含图谱的Layout */
-        body.graph-fullscreen-active #root > *:not(.ant-layout) {
-          display: none !important;
-        }
-        
-        /* 隐藏Layout下的所有直接子元素，除了content */
-        body.graph-fullscreen-active .ant-layout > *:not(.ant-layout-content) {
-          display: none !important;
-          visibility: hidden !important;
-          height: 0 !important;
-        }
-        
-        /* 确保所有父容器不限制大小 */
-        body.graph-fullscreen-active,
-        body.graph-fullscreen-active #root,
-        body.graph-fullscreen-active #root > div,
-        body.graph-fullscreen-active .ant-layout,
-        body.graph-fullscreen-active .ant-layout-content,
-        body.graph-fullscreen-active [data-ec-scope="lightrag-ported"] {
-          height: 100vh !important;
-          width: 100vw !important;
-          padding: 0 !important;
-          margin: 0 !important;
-          overflow: hidden !important;
-        }
-        
-        /* 图谱容器全屏 - 使用更高优先级 */
+
+        /* 图谱容器全屏 - 覆盖在所有内容之上 */
         body.graph-fullscreen-active .graph-viewer-container.graph-fullscreen-mode {
-          display: block !important;
-          visibility: visible !important;
           position: fixed !important;
           top: 0 !important;
           left: 0 !important;
-          right: 0 !important;
-          bottom: 0 !important;
           width: 100vw !important;
           height: 100vh !important;
           z-index: 99999 !important;
+          background: #ffffff !important;
           margin: 0 !important;
           padding: 0 !important;
-          background: #ffffff !important;
-          opacity: 1 !important;
-          border: 5px solid red !important; /* 测试：红色边框 */
+          display: block !important;
+          visibility: visible !important;
         }
         
-        /* 测试：给Sigma容器添加绿色边框 */
-        body.graph-fullscreen-active .sigma-container {
-          border: 5px solid green !important;
-          min-height: 100vh !important;
-          min-width: 100vw !important;
-        }
-        
-        /* 确保 Sigma 容器也充满 */
-        .graph-fullscreen-mode .sigma-container,
-        .graph-fullscreen-mode canvas {
+        /* 确保Sigma容器和画布充满全屏容器 */
+        body.graph-fullscreen-active .sigma-container,
+        body.graph-fullscreen-active canvas {
           width: 100% !important;
           height: 100% !important;
+          min-width: 100vw !important;
+          min-height: 100vh !important;
         }
-        
+
+        /* 样式适配 */
         .graph-search-input input {
           color: #ffffff !important;
           background: transparent !important;

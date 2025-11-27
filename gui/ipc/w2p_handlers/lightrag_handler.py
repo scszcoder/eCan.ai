@@ -91,10 +91,10 @@ def handle_ingest_directory(request: IPCRequest, params: Optional[Dict[str, Any]
         return create_error_response(request, 'INGEST_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('lightrag.query')
-def handle_query(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+@IPCHandlerRegistry.background_handler('lightrag.query')
+async def handle_query(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
-    Handle knowledge query request.
+    Handle knowledge query request (async to avoid blocking UI).
     
     Expected params:
     - text: str - Query text
@@ -124,19 +124,19 @@ def handle_query(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
         if not isinstance(text, str) or not text.strip():
             return create_error_response(request, 'INVALID_PARAMS', 'text must be a non-empty string')
         
-        # Get LightRAG client
+        import asyncio
         client = get_client()
-        
-        # Call query method
-        result = client.query(text, options)
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: client.query(text, options)
+        )
         
         if result.get('status') == 'error':
             error_msg = result.get('message', 'Query failed')
             logger.error(f"Query failed: {error_msg}")
             return create_error_response(request, 'QUERY_ERROR', error_msg)
         
-        data = result.get('data', result)
-        return create_success_response(request, data)
+        response_data = result.get('data', result)
+        return create_success_response(request, response_data)
         
     except Exception as e:
         logger.error(f"Error in query handler: {e}\n{traceback.format_exc()}")
@@ -589,77 +589,110 @@ def handle_select_directory(request: IPCRequest, params: Optional[Dict[str, Any]
         return create_error_response(request, 'SELECT_DIRECTORY_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('lightrag.updateEntity')
-def handle_update_entity(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Handle entity update request."""
+@IPCHandlerRegistry.background_handler('lightrag.updateEntity')
+async def handle_update_entity(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle entity update request (async to avoid blocking UI)."""
     try:
         is_valid, data, error = validate_params(params, ['entity_name', 'updated_data'])
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
-            
+        
+        import asyncio
         client = get_client()
-        result = client.update_entity(
-            data['entity_name'],
-            data['updated_data'],
-            data.get('allow_rename', False),
-            data.get('allow_merge', False)
+        # Run the blocking HTTP call in a thread pool to avoid blocking the event loop
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: client.update_entity(
+                data['entity_name'],
+                data['updated_data'],
+                data.get('allow_rename', False),
+                data.get('allow_merge', False)
+            )
         )
         
         if result.get('status') == 'error':
             return create_error_response(request, 'UPDATE_ENTITY_ERROR', result.get('message', 'Failed to update entity'))
             
-        data = result.get('data', result)
-        return create_success_response(request, data)
+        response_data = result.get('data', result)
+        return create_success_response(request, response_data)
     except Exception as e:
         logger.error(f"Error in update_entity handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'UPDATE_ENTITY_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('lightrag.updateRelation')
-def handle_update_relation(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Handle relation update request."""
+@IPCHandlerRegistry.background_handler('lightrag.checkEntityNameExists')
+async def handle_check_entity_name_exists(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle check entity name exists request (async to avoid blocking UI)."""
+    try:
+        is_valid, data, error = validate_params(params, ['name'])
+        if not is_valid:
+            return create_error_response(request, 'INVALID_PARAMS', error)
+        
+        import asyncio
+        client = get_client()
+        # Run the blocking HTTP call in a thread pool
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: client.check_entity_name_exists(data['name'])
+        )
+        
+        if result.get('status') == 'error':
+            return create_error_response(request, 'CHECK_ENTITY_ERROR', result.get('message', 'Failed to check entity'))
+            
+        return create_success_response(request, result.get('data', result))
+    except Exception as e:
+        logger.error(f"Error in check_entity_name_exists handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'CHECK_ENTITY_ERROR', str(e))
+
+
+@IPCHandlerRegistry.background_handler('lightrag.updateRelation')
+async def handle_update_relation(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle relation update request (async to avoid blocking UI)."""
     try:
         is_valid, data, error = validate_params(params, ['source_id', 'target_id', 'updated_data'])
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
-            
+        
+        import asyncio
         client = get_client()
-        result = client.update_relation(
-            data['source_id'],
-            data['target_id'],
-            data['updated_data']
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: client.update_relation(data['source_id'], data['target_id'], data['updated_data'])
         )
         
         if result.get('status') == 'error':
             return create_error_response(request, 'UPDATE_RELATION_ERROR', result.get('message', 'Failed to update relation'))
             
-        data = result.get('data', result)
-        return create_success_response(request, data)
+        response_data = result.get('data', result)
+        return create_success_response(request, response_data)
     except Exception as e:
         logger.error(f"Error in update_relation handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'UPDATE_RELATION_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('lightrag.getGraphLabelList')
-def handle_get_graph_label_list(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Handle get graph label list request."""
+@IPCHandlerRegistry.background_handler('lightrag.getGraphLabelList')
+async def handle_get_graph_label_list(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle get graph label list request (async to avoid blocking UI)."""
     try:
+        import asyncio
         client = get_client()
-        result = client.get_graph_label_list()
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: client.get_graph_label_list()
+        )
         
         if result.get('status') == 'error':
             return create_error_response(request, 'GET_LABEL_LIST_ERROR', result.get('message', 'Failed to get label list'))
             
-        data = result.get('data', result)
-        return create_success_response(request, data)
+        response_data = result.get('data', result)
+        return create_success_response(request, response_data)
     except Exception as e:
         logger.error(f"Error in get_graph_label_list handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'GET_LABEL_LIST_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('lightrag.getPopularLabels')
-def handle_get_popular_labels(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Handle get popular labels request."""
+@IPCHandlerRegistry.background_handler('lightrag.getPopularLabels')
+async def handle_get_popular_labels(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle get popular labels request (async to avoid blocking UI)."""
     try:
         params = params or {}
         limit = params.get('limit', 300)
@@ -669,21 +702,24 @@ def handle_get_popular_labels(request: IPCRequest, params: Optional[Dict[str, An
         if not hasattr(client, 'get_popular_labels'):
              return create_error_response(request, 'NOT_IMPLEMENTED', 'get_popular_labels not implemented in client')
 
-        result = client.get_popular_labels(limit=limit)
+        import asyncio
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: client.get_popular_labels(limit=limit)
+        )
         
         if result.get('status') == 'error':
             return create_error_response(request, 'GET_POPULAR_LABELS_ERROR', result.get('message', 'Failed to get popular labels'))
             
-        data = result.get('data', result)
-        return create_success_response(request, data)
+        response_data = result.get('data', result)
+        return create_success_response(request, response_data)
     except Exception as e:
         logger.error(f"Error in get_popular_labels handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'GET_POPULAR_LABELS_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('lightrag.searchLabels')
-def handle_search_labels(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Handle search labels request."""
+@IPCHandlerRegistry.background_handler('lightrag.searchLabels')
+async def handle_search_labels(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle search labels request (async to avoid blocking UI)."""
     try:
         params = params or {}
         query = params.get('query', '')
@@ -697,21 +733,24 @@ def handle_search_labels(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         if not hasattr(client, 'search_labels'):
              return create_error_response(request, 'NOT_IMPLEMENTED', 'search_labels not implemented in client')
 
-        result = client.search_labels(q=query, limit=limit)
+        import asyncio
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: client.search_labels(q=query, limit=limit)
+        )
         
         if result.get('status') == 'error':
             return create_error_response(request, 'SEARCH_LABELS_ERROR', result.get('message', 'Failed to search labels'))
             
-        data = result.get('data', result)
-        return create_success_response(request, data)
+        response_data = result.get('data', result)
+        return create_success_response(request, response_data)
     except Exception as e:
         logger.error(f"Error in search_labels handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'SEARCH_LABELS_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('lightrag.getDocumentsPaginated')
-def handle_get_documents_paginated(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Handle paginated documents request."""
+@IPCHandlerRegistry.background_handler('lightrag.getDocumentsPaginated')
+async def handle_get_documents_paginated(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle paginated documents request (async to avoid blocking UI)."""
     try:
         # Default params
         defaults = {
@@ -722,14 +761,17 @@ def handle_get_documents_paginated(request: IPCRequest, params: Optional[Dict[st
         }
         request_params = {**defaults, **(params or {})}
         
+        import asyncio
         client = get_client()
-        result = client.get_documents_paginated(request_params)
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: client.get_documents_paginated(request_params)
+        )
         
         if result.get('status') == 'error':
             return create_error_response(request, 'GET_DOCUMENTS_ERROR', result.get('message', 'Failed to get documents'))
             
-        data = result.get('data', result)
-        return create_success_response(request, data)
+        response_data = result.get('data', result)
+        return create_success_response(request, response_data)
     except Exception as e:
         logger.error(f"Error in get_documents_paginated handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'GET_DOCUMENTS_ERROR', str(e))
@@ -841,10 +883,10 @@ def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         return create_error_response(request, 'GET_SETTINGS_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('lightrag.queryGraphs')
-def handle_query_graphs(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+@IPCHandlerRegistry.background_handler('lightrag.queryGraphs')
+async def handle_query_graphs(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
-    Handle graph query request.
+    Handle graph query request (async to avoid blocking UI).
     Expected params:
     - label: str - Node label to search for (or '*')
     - maxDepth: int - Traversal depth
@@ -856,10 +898,13 @@ def handle_query_graphs(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         max_depth = params.get('maxDepth', 1)
         max_nodes = params.get('maxNodes', 400)
         
+        import asyncio
         client = get_client()
         # Call query_graphs method (assumed to be added to client)
         if hasattr(client, 'query_graphs'):
-            result = client.query_graphs(label, max_depth, max_nodes)
+            result = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: client.query_graphs(label, max_depth, max_nodes)
+            )
         else:
             # Fallback mock if not implemented yet
             return create_success_response(request, {'nodes': [], 'edges': [], 'is_truncated': False})
@@ -867,8 +912,8 @@ def handle_query_graphs(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         if isinstance(result, dict) and result.get('status') == 'error':
             return create_error_response(request, 'QUERY_GRAPH_ERROR', result.get('message', 'Failed to query graph'))
             
-        data = result.get('data', result)
-        return create_success_response(request, data)
+        response_data = result.get('data', result)
+        return create_success_response(request, response_data)
     except Exception as e:
         logger.error(f"Error in query_graphs handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'QUERY_GRAPH_ERROR', str(e))

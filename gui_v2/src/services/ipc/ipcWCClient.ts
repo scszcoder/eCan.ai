@@ -423,7 +423,7 @@ export class IPCWCClient {
      */
     private handleMessage(message: string): void {
         try {
-            console.trace('[IPCWCClient] python_to_web message (FULL)', message);
+            // console.trace('[IPCWCClient] python_to_web message (FULL)', message);
 
             const message_obj = JSON.parse(message);
 

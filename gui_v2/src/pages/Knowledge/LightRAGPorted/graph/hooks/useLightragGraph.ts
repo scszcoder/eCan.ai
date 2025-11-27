@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { UndirectedGraph } from 'graphology';
-import { useGraphStore, RawGraph, RawNodeType, RawEdgeType } from '../stores/graph';
+import { useGraphStore, RawGraph } from '../stores/graph';
 import { useSettingsStore } from '../stores/settings';
 import { queryGraphs } from '../api/lightrag';
 import { maxNodeSize, minNodeSize, nodeColors } from '../lib/constants';
@@ -10,11 +10,16 @@ export default function useLightragGraph() {
   const maxDepth = useSettingsStore(s => s.graphQueryMaxDepth);
   const maxNodes = useSettingsStore(s => s.graphMaxNodes);
   const graphDataVersion = useGraphStore(s => s.graphDataVersion);
+  const lastFetchedVersion = useRef(-1);
 
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
-      if (useGraphStore.getState().isFetching) return;
+      // 如果版本没变且正在获取，跳过
+      if (useGraphStore.getState().isFetching && lastFetchedVersion.current === graphDataVersion) return;
+      
+      // 记录当前版本
+      lastFetchedVersion.current = graphDataVersion;
       useGraphStore.getState().setIsFetching(true);
       try {
         const currentLabel = label || '*';
@@ -83,7 +88,10 @@ export default function useLightragGraph() {
         // 添加边到 Sigma 图
         for (const e of data.edges) {
           if (!g.hasNode(e.source) || !g.hasNode(e.target)) continue;
-          g.addEdge(e.source, e.target, { 
+          // 防止重复边导致报错 (Graphology UndirectedGraph is simple by default)
+          if (g.hasEdge(e.source, e.target)) continue;
+          
+          g.addEdgeWithKey(e.id, e.source, e.target, { 
             size: 1, 
             label: e.properties?.keywords || e.type,
             color: '#e5e7eb' // 默认浅灰色边

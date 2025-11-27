@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { message } from 'antd';
+import { App } from 'antd';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useGraphStore } from '../stores/graph';
-// import { useSettingsStore } from '@/stores/settings'; // Omitted for now
+import { useSettingsStore } from '../stores/settings';
 import { PropertyName, EditIcon, PropertyValue } from './PropertyRowComponents';
 import PropertyEditDialog from './PropertyEditDialog';
 import MergeDialog from './MergeDialog';
@@ -40,6 +40,7 @@ const EditablePropertyRow: React.FC<EditablePropertyRowProps> = ({
   tooltip
 }) => {
   const { t } = useTranslation();
+  const { message } = App.useApp();
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentValue, setCurrentValue] = useState(initialValue);
@@ -82,21 +83,36 @@ const EditablePropertyRow: React.FC<EditablePropertyRowProps> = ({
         const allowMerge = options?.allowMerge ?? false;
 
         if (name === 'entity_id') {
+          // Check if entity name already exists (unless merge is allowed)
+          if (!allowMerge) {
+            try {
+              const existsResponse = await get_ipc_api().lightragApi.checkEntityNameExists({ name: value });
+              if (existsResponse.success && existsResponse.data?.exists) {
+                const errorMsg = t('graphPanel.propertiesView.errors.duplicateName', 'An entity with this name already exists');
+                setErrorMessage(errorMsg);
+                message.error(errorMsg);
+                return;
+              }
+            } catch (err) {
+              console.warn('Failed to check entity name existence:', err);
+              // Continue with update even if check fails
+            }
+          }
           updatedData = { 'entity_name': value };
         }
 
-        const response = await lightragIpc.updateEntity({
+        const response = await get_ipc_api().lightragApi.updateEntity({
             entity_name: entityId,
             updated_data: updatedData,
             allow_rename: true,
             allow_merge: allowMerge
         });
 
-        if (response.status === 'error') {
-            throw new Error(response.message || 'Update failed');
+        if (!response.success) {
+            throw new Error(response.error?.message || 'Update failed');
         }
         
-        const result = response.data || response;
+        const result = response.data as any;
         const operationSummary = result.operation_summary;
         const operationStatus = operationSummary?.operation_status || 'complete_success';
         const finalValue = operationSummary?.final_entity ?? value;
@@ -175,15 +191,33 @@ const EditablePropertyRow: React.FC<EditablePropertyRowProps> = ({
   };
 
   const handleMergeRefresh = (useMergedStart: boolean) => {
-    // This part needs logic to refresh the graph.
-    // Since we don't have the full graph reload logic here yet, we might trigger a global refresh or just close dialog.
-    // For now, close dialog.
+    const info = mergeDialogInfo;
+    const graphState = useGraphStore.getState();
+    const settingsState = useSettingsStore.getState();
+    const currentLabel = settingsState.queryLabel;
+
+    // Clear graph state
+    graphState.clearSelection();
+    graphState.setGraphDataFetchAttempted(false);
+    graphState.setLastSuccessfulQueryLabel('');
+
+    if (useMergedStart && info?.targetEntity) {
+      // Use merged entity as new start point
+      settingsState.setQueryLabel(info.targetEntity);
+    } else {
+      // Keep current start point - refresh by resetting and restoring label
+      settingsState.setQueryLabel('');
+      setTimeout(() => {
+        settingsState.setQueryLabel(currentLabel);
+      }, 50);
+    }
+
+    // Force graph re-render
+    graphState.incrementGraphDataVersion();
+
     setMergeDialogOpen(false);
     setMergeDialogInfo(null);
-    
-    // TODO: Trigger graph refresh
-    // const graphState = useGraphStore.getState();
-    // graphState.incrementGraphDataVersion(); // if exists
+    message.info(t('graphPanel.propertiesView.mergeDialog.refreshing', 'Refreshing graph...'));
   };
 
   return (

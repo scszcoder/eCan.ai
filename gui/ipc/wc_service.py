@@ -201,7 +201,7 @@ class IPCWCService(QObject):
 
         # Wrap as standard response format and send back to frontend
         # final_response = create_success_response(request, result_data)
-        logger.info(f"[IPCWCService] Final response: {result_reponse}")
+        logger.trace(f"[IPCWCService] Final response: {result_reponse}")
         self.python_to_web.emit(json.dumps(result_reponse))
 
     @Slot(object, object)
