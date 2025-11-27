@@ -217,7 +217,8 @@ const GraphLabels: React.FC = () => {
             <div style={{ 
               overflow: 'hidden', 
               textOverflow: 'ellipsis', 
-              whiteSpace: 'nowrap' 
+              whiteSpace: 'nowrap',
+              color: '#ffffff'
             }} title={item}>
               {item}
             </div>
@@ -237,10 +238,10 @@ const GraphLabels: React.FC = () => {
           notFound={<div style={{ padding: '24px 0', textAlign: 'center', fontSize: 14 }}>
             {t('pages.knowledge.graph.noLabels') || '无标签'}
           </div>}
-          ariaLabel={t('pages.knowledge.graph.selectLabel') || '选择标签'}
-          placeholder={t('pages.knowledge.graph.labelPlaceholder') || '选择或搜索标签...'}
-          searchPlaceholder={t('pages.knowledge.graph.labelPlaceholder') || '搜索标签...'}
-          noResultsMessage={t('pages.knowledge.graph.noLabels') || '无标签'}
+          ariaLabel={t('graphPanel.search.labelSearch.placeholder', '搜索节点名称')}
+          placeholder={t('graphPanel.search.labelSearch.placeholder', '搜索节点名称...')}
+          searchPlaceholder={t('graphPanel.search.labelSearch.searchInDropdown', '搜索节点名称...')}
+          noResultsMessage={t('graphPanel.search.labelSearch.noResults', '无结果')}
           value={label !== null ? label : '*'}
           onChange={handleChange}
           clearable={false}

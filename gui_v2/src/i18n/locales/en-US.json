@@ -1611,6 +1611,10 @@
         "pending": "Pending",
         "failed": "Failed",
         "fileName": "File Name",
+        "summary": "Summary",
+        "length": "Length",
+        "chunks": "Chunks",
+        "createdAt": "Created At",
         "actions": "Actions",
         "noDocuments": "No Documents",
         "noDocumentsDesc": "Upload files or ingest a directory to get started",
@@ -1773,7 +1777,24 @@
     "score": "Score",
     "summary": "Summary",
     "table_view": "Table_view",
-    "view_details": "View_details"
+    "view_details": "View_details",
+    "knowledge": {
+      "graph": {
+        "circularLayout": "Circular",
+        "randomLayout": "Random",
+        "noverlapLayout": "Noverlap",
+        "forceAtlas2Layout": "Force Atlas 2",
+        "layoutGraph": "Layout",
+        "zoomIn": "Zoom In",
+        "zoomOut": "Zoom Out",
+        "fullScreen": "Full Screen",
+        "exitFullScreen": "Exit Full Screen",
+        "toggleLegend": "Toggle Legend",
+        "searchNode": "Search nodes",
+        "noResults": "No results",
+        "moreResults": "{{count}} more results..."
+      }
+    }
   },
   "init": {
     "allReady": "All Ready",
@@ -1859,5 +1880,104 @@
   },
   "providers": {
     "noneDisabled": "None (Disabled)"
+  },
+  "graphPanel": {
+    "settings": {
+      "showPropertyPanel": "Show Property Panel",
+      "showSearchBar": "Show Search Bar",
+      "showNodeLabel": "Show Node Labels",
+      "enableNodeDrag": "Enable Node Drag",
+      "showEdgeLabel": "Show Edge Labels",
+      "hideUnselectedEdges": "Hide Unselected Edges",
+      "edgeEvents": "Edge Events",
+      "edgeThicknessRange": "Edge Thickness Range",
+      "maxQueryDepth": "Max Query Depth",
+      "maxNodes": "Max Nodes (≤ 1000)",
+      "maxLayoutIterations": "Max Layout Iterations"
+    },
+    "legend": {
+      "title": "Legend"
+    },
+    "sideBar": {
+      "layoutsControl": {
+        "layoutGraph": "Layout Graph",
+        "layouts": {
+          "Circular": "Circular",
+          "Circlepack": "Circlepack",
+          "Random": "Random",
+          "Noverlaps": "Noverlaps",
+          "Force Directed": "Force Directed",
+          "Force Atlas": "Force Atlas"
+        },
+        "startAnimation": "Start Animation",
+        "stopAnimation": "Stop Animation"
+      },
+      "zoomControl": {
+        "rotateClockwise": "Rotate Clockwise",
+        "rotateCounterClockwise": "Rotate Counter-Clockwise",
+        "reset": "Reset View",
+        "zoomIn": "Zoom In",
+        "zoomOut": "Zoom Out"
+      },
+      "fullScreenControl": {
+        "fullScreen": "Full Screen",
+        "windowed": "Windowed"
+      },
+      "legendControl": {
+        "toggleLegend": "Toggle Legend Display"
+      },
+      "settings": {
+        "settings": "Settings",
+        "depth": "Depth",
+        "max": "Max"
+      }
+    },
+    "propertiesView": {
+      "node": {
+        "title": "Node Details",
+        "id": "ID",
+        "labels": "Labels",
+        "degree": "Degree",
+        "properties": "Properties",
+        "relationships": "Relationships",
+        "relationshipsInSubgraph": "Relationships (In Subgraph)",
+        "expandNode": "Expand Node",
+        "pruneNode": "Prune Node",
+        "expandSuccess": "Node expanded",
+        "expandError": "Failed to expand node",
+        "noMoreNodes": "No more nodes to expand",
+        "pruneSuccess": "Node removed",
+        "pruneError": "Failed to remove node",
+        "propertyNames": {
+          "description": "Description",
+          "entity_id": "Entity ID",
+          "entity_type": "Entity Type",
+          "file_path": "File Path",
+          "source_id": "Source ID",
+          "keywords": "Keywords"
+        }
+      },
+      "edge": {
+        "title": "Edge Details",
+        "id": "ID",
+        "type": "Type",
+        "source": "Source Node",
+        "target": "Target Node",
+        "properties": "Properties"
+      }
+    },
+    "search": {
+      "labelSearch": {
+        "placeholder": "Search node names...",
+        "searchInDropdown": "Search node names...",
+        "noResults": "No results",
+        "moreResults": "{{count}} more results..."
+      },
+      "nodeSearch": {
+        "placeholder": "Search within page...",
+        "noResults": "No results",
+        "moreResults": "{{count}} more results..."
+      }
+    }
   }
 }

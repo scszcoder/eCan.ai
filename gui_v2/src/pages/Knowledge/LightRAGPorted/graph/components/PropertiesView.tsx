@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { theme, Tooltip } from 'antd';
+import { theme, Tooltip, message } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore, RawNodeType, RawEdgeType } from '../stores/graph';
 import { PropertyName, PropertyValue } from './PropertyRowComponents';
 import EditablePropertyRow from './EditablePropertyRow';
 import { BranchesOutlined, ScissorOutlined } from '@ant-design/icons';
+import { expandNode as expandNodeApi, pruneNode as pruneNodeApi } from '../api/lightrag';
 
 const PropertiesView: React.FC = () => {
   const { token } = theme.useToken();
@@ -56,17 +57,17 @@ const PropertiesView: React.FC = () => {
 
   return (
     <div style={{
-      background: token.colorBgElevated,
-      border: `1px solid ${token.colorBorder}`,
+      background: 'rgba(45, 55, 72, 0.95)',
+      border: '2px solid rgba(255, 255, 255, 0.1)',
       borderRadius: 12,
       padding: 12,
       fontSize: 12,
       width: 320,
       maxHeight: '80vh',
       overflow: 'auto',
-      color: token.colorText,
-      boxShadow: token.boxShadowSecondary,
-      backdropFilter: 'blur(8px)',
+      color: '#ffffff',
+      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+      backdropFilter: 'blur(12px)',
       position: 'absolute',
       top: 16,
       right: 16,
@@ -86,6 +87,8 @@ type NodeType = RawNodeType & {
     type: string;
     id: string;
     label: string;
+    edgeLabel?: string;
+    direction?: 'outgoing' | 'incoming';
   }[];
 };
 
@@ -101,28 +104,58 @@ const refineNodeProperties = (node: RawNodeType): NodeType => {
   if (state.sigmaGraph && state.rawGraph) {
     try {
       if (!state.sigmaGraph.hasNode(node.id)) {
+        console.log('[PropertiesView] Node not in sigma graph:', node.id);
         return { ...node, relationships: [] };
       }
 
       const edges = state.sigmaGraph.edges(node.id);
+      console.log('[PropertiesView] Node edges:', node.id, edges);
+      
       for (const edgeId of edges) {
-        if (!state.sigmaGraph.hasEdge(edgeId)) continue;
-        const edge = state.rawGraph.getEdge(edgeId, true);
-        if (edge) {
-          const isTarget = node.id === edge.source;
-          const neighbourId = isTarget ? edge.target : edge.source;
-          if (!state.sigmaGraph.hasNode(neighbourId)) continue;
-          
-          const neighbour = state.rawGraph.getNode(neighbourId);
-          if (neighbour) {
-             relationships.push({
-                type: 'Neighbour',
-                id: neighbourId,
-                label: neighbour.properties['entity_id'] || neighbour.labels.join(', ')
-             });
-          }
+        console.log('[PropertiesView] Processing edge:', edgeId);
+        
+        if (!state.sigmaGraph.hasEdge(edgeId)) {
+          console.log('[PropertiesView] Edge not in sigma graph:', edgeId);
+          continue;
         }
+        
+        const edge = state.rawGraph.getEdge(edgeId, true);
+        console.log('[PropertiesView] Edge data:', edge);
+        
+        if (!edge) {
+          console.log('[PropertiesView] Edge not found in rawGraph:', edgeId);
+          continue;
+        }
+        
+        const isSource = node.id === edge.source;
+        const neighbourId = isSource ? edge.target : edge.source;
+        console.log('[PropertiesView] Neighbour ID:', neighbourId, 'isSource:', isSource);
+        
+        if (!state.sigmaGraph.hasNode(neighbourId)) {
+          console.log('[PropertiesView] Neighbour not in sigma graph:', neighbourId);
+          continue;
+        }
+        
+        const neighbour = state.rawGraph.getNode(neighbourId);
+        console.log('[PropertiesView] Neighbour data:', neighbour);
+        
+        if (!neighbour) {
+          console.log('[PropertiesView] Neighbour not found in rawGraph:', neighbourId);
+          continue;
+        }
+        
+        const relationLabel = edge.properties?.keywords || edge.type || '关系';
+        relationships.push({
+          type: isSource ? '邻接' : '邻接',
+          id: neighbourId,
+          label: neighbour.properties['entity_id'] || neighbour.labels.join(', '),
+          edgeLabel: relationLabel,
+          direction: isSource ? 'outgoing' : 'incoming'
+        });
+        console.log('[PropertiesView] Added relationship:', relationships[relationships.length - 1]);
       }
+      
+      console.log('[PropertiesView] Relationships found:', relationships.length, relationships);
     } catch (e) {
       console.error('Error refining node properties:', e);
     }
@@ -213,10 +246,12 @@ const PropertyRow = ({
     );
   }
 
+  const { token } = theme.useToken();
+  
   return (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, overflow: 'hidden' }}>
       <PropertyName name={name} />
-      <span style={{ color: 'rgba(0,0,0,0.45)' }}>:</span>
+      <span style={{ color: token.colorTextSecondary }}>:</span>
       <PropertyValue
         value={formattedValue}
         onClick={onClick}
@@ -229,13 +264,66 @@ const PropertyRow = ({
 const NodePropertiesView = ({ node }: { node: NodeType }) => {
   const { t } = useTranslation();
   const { token } = theme.useToken();
+  const [expanding, setExpanding] = useState(false);
+  const [pruning, setPruning] = useState(false);
 
-  const handleExpandNode = () => {
-    console.log('Expand node not implemented yet');
+  const handleExpandNode = async () => {
+    setExpanding(true);
+    try {
+      const result = await expandNodeApi(String(node.id), 1, 50);
+      if (result && (result.nodes.length > 0 || result.edges.length > 0)) {
+        // 添加新节点和边到图中
+        const store = useGraphStore.getState();
+        if (store.rawGraph && store.sigmaGraph) {
+          // 合并新数据到现有图中
+          result.nodes.forEach((n: any) => {
+            if (!store.rawGraph!.hasNode(n.id)) {
+              store.rawGraph!.addNode(n.id, n);
+            }
+          });
+          result.edges.forEach((e: any) => {
+            if (!store.rawGraph!.hasEdge(e.id)) {
+              store.rawGraph!.addEdge(e.id, e);
+            }
+          });
+          // 触发图更新
+          store.setRawGraph(store.rawGraph);
+        }
+        message.success(t('graphPanel.propertiesView.node.expandSuccess', `已扩展 ${result.nodes.length} 个节点`));
+      } else {
+        message.info(t('graphPanel.propertiesView.node.noMoreNodes', '没有更多节点可扩展'));
+      }
+    } catch (e: any) {
+      message.error(t('graphPanel.propertiesView.node.expandError', '扩展节点失败') + ': ' + (e?.message || ''));
+    } finally {
+      setExpanding(false);
+    }
   };
   
-  const handlePruneNode = () => {
-     console.log('Prune node not implemented yet');
+  const handlePruneNode = async () => {
+    setPruning(true);
+    try {
+      const result = await pruneNodeApi(String(node.id));
+      if (result.success) {
+        // 从图中移除节点
+        const store = useGraphStore.getState();
+        if (store.rawGraph && store.sigmaGraph) {
+          if (store.rawGraph.hasNode(node.id)) {
+            store.rawGraph.removeNode(node.id);
+          }
+          // 触发图更新
+          store.setRawGraph(store.rawGraph);
+          store.setSelectedNode(null);
+        }
+        message.success(t('graphPanel.propertiesView.node.pruneSuccess', '节点已移除'));
+      } else {
+        message.error(result.message || t('graphPanel.propertiesView.node.pruneError', '移除节点失败'));
+      }
+    } catch (e: any) {
+      message.error(t('graphPanel.propertiesView.node.pruneError', '移除节点失败') + ': ' + (e?.message || ''));
+    } finally {
+      setPruning(false);
+    }
   };
 
   return (
@@ -290,16 +378,31 @@ const NodePropertiesView = ({ node }: { node: NodeType }) => {
       {node.relationships.length > 0 && (
         <>
           <h3 style={{ margin: 0, color: token.colorSuccess, fontWeight: 600 }}>
-            {t('graphPanel.propertiesView.node.relationships', 'Relationships')}
+            {t('graphPanel.propertiesView.node.relationshipsInSubgraph', '关系（子图内）')}
           </h3>
-          <div style={{ background: 'rgba(0,0,0,0.02)', padding: 8, borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 200, overflow: 'auto' }}>
-            {node.relationships.map(({ type, id, label }) => (
-              <PropertyRow
-                key={id}
-                name={type}
-                value={label}
-                onClick={() => useGraphStore.getState().setSelectedNode(id, true)}
-              />
+          <div style={{ background: 'rgba(0,0,0,0.02)', padding: 8, borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflow: 'auto' }}>
+            {node.relationships.map(({ type, id, label, edgeLabel, direction }, index) => (
+              <div key={`${id}-${index}`} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                  <PropertyName name={type} />
+                  <span style={{ color: token.colorTextSecondary }}>:</span>
+                  <PropertyValue
+                    value={label}
+                    onClick={() => useGraphStore.getState().setSelectedNode(id, true)}
+                    tooltip={label}
+                  />
+                </div>
+                {edgeLabel && (
+                  <div style={{ 
+                    fontSize: 11, 
+                    color: token.colorTextTertiary, 
+                    paddingLeft: 12,
+                    fontStyle: 'italic'
+                  }}>
+                    {edgeLabel}
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         </>

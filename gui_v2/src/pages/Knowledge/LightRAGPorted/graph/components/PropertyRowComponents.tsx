@@ -1,6 +1,6 @@
 import React from 'react';
 import { EditOutlined } from '@ant-design/icons';
-import { Tooltip, Typography } from 'antd';
+import { Tooltip, Typography, theme } from 'antd';
 import { useTranslation } from 'react-i18next';
 
 const { Text } = Typography;
@@ -11,17 +11,17 @@ interface PropertyNameProps {
 
 export const PropertyName: React.FC<PropertyNameProps> = ({ name }) => {
   const { t } = useTranslation();
+  const { token } = theme.useToken();
 
   const getPropertyNameTranslation = (propName: string) => {
     // Try to find translation, fallback to propName if not found
-    // Note: Local translation structure might differ, so we use a safe fallback
     const translationKey = `graphPanel.propertiesView.node.propertyNames.${propName}`;
     const translation = t(translationKey);
     return translation === translationKey ? propName : translation;
   };
 
   return (
-    <span style={{ color: 'rgba(0, 0, 0, 0.45)', whiteSpace: 'nowrap' }}>
+    <span style={{ color: token.colorTextSecondary, whiteSpace: 'nowrap', fontWeight: 500 }}>
       {getPropertyNameTranslation(name)}
     </span>
   );
@@ -31,14 +31,17 @@ interface EditIconProps {
   onClick: () => void;
 }
 
-export const EditIcon: React.FC<EditIconProps> = ({ onClick }) => (
-  <div style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
-    <EditOutlined 
-      style={{ fontSize: 12, color: 'rgba(0, 0, 0, 0.45)' }} 
-      onClick={onClick} 
-    />
-  </div>
-);
+export const EditIcon: React.FC<EditIconProps> = ({ onClick }) => {
+  const { token } = theme.useToken();
+  return (
+    <div style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
+      <EditOutlined 
+        style={{ fontSize: 12, color: token.colorTextSecondary }} 
+        onClick={onClick} 
+      />
+    </div>
+  );
+};
 
 interface PropertyValueProps {
   value: any;
@@ -47,6 +50,7 @@ interface PropertyValueProps {
 }
 
 export const PropertyValue: React.FC<PropertyValueProps> = ({ value, onClick, tooltip }) => {
+  const { token } = theme.useToken();
   const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
   
   return (
@@ -55,7 +59,8 @@ export const PropertyValue: React.FC<PropertyValueProps> = ({ value, onClick, to
         <Text 
           style={{ 
             cursor: onClick ? 'pointer' : 'default', 
-            maxWidth: '100%' 
+            maxWidth: '100%',
+            color: token.colorText
           }} 
           ellipsis
           onClick={onClick}

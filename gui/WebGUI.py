@@ -1564,10 +1564,17 @@ class WebGUI(QMainWindow):
         return super().nativeEvent(eventType, message)
 
     def _toggle_fullscreen(self):
-        """Toggle fullscreen mode"""
+        """Toggle fullscreen mode, preserving window state"""
         if self.isFullScreen():
-            self.showNormal()
+            # 退出全屏，恢复之前的状态
+            if hasattr(self, '_was_maximized_before_fullscreen') and self._was_maximized_before_fullscreen:
+                self.showMaximized()
+                delattr(self, '_was_maximized_before_fullscreen')
+            else:
+                self.showNormal()
         else:
+            # 进入全屏前，保存当前是否最大化
+            self._was_maximized_before_fullscreen = self.isMaximized()
             self.showFullScreen()
 
     def handle_oauth_error(self, error: str):

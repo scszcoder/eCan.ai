@@ -368,5 +368,100 @@ def handle_get_initialization_progress(request: IPCRequest, params: Optional[Any
         )
 
 
+@IPCHandlerRegistry.handler('window_toggle_fullscreen')
+def handle_window_toggle_fullscreen(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle window fullscreen toggle request
+    
+    Toggle the main window fullscreen state.
+    
+    Args:
+        request: IPC request object
+        params: Request parameters (optional)
+        
+    Returns:
+        IPCResponse: Response with fullscreen state
+    """
+    try:
+        logger.debug("Window toggle fullscreen called")
+        
+        # Get WebGUI instance (not MainWindow)
+        web_gui = AppContext.get_instance().web_gui
+        if not web_gui:
+            logger.warning("WebGUI not available for fullscreen toggle")
+            return create_error_response(
+                request,
+                'WINDOW_NOT_AVAILABLE',
+                'WebGUI not yet initialized'
+            )
+        
+        # Toggle fullscreen
+        web_gui._toggle_fullscreen()
+        
+        # Get current fullscreen state
+        is_fullscreen = web_gui.isFullScreen()
+        
+        logger.info(f"Window fullscreen toggled, current state: {is_fullscreen}")
+        return create_success_response(request, {
+            'is_fullscreen': is_fullscreen,
+            'message': 'Fullscreen toggled successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in window toggle fullscreen handler: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return create_error_response(
+            request,
+            'FULLSCREEN_ERROR',
+            f"Error toggling fullscreen: {str(e)}"
+        )
+
+
+@IPCHandlerRegistry.handler('window_get_fullscreen_state')
+def handle_window_get_fullscreen_state(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle window fullscreen state query request
+    
+    Get the current fullscreen state of the main window.
+    
+    Args:
+        request: IPC request object
+        params: Request parameters (optional)
+        
+    Returns:
+        IPCResponse: Response with fullscreen state
+    """
+    try:
+        logger.debug("Window get fullscreen state called")
+        
+        # Get WebGUI instance (not MainWindow)
+        web_gui = AppContext.get_instance().web_gui
+        if not web_gui:
+            logger.warning("WebGUI not available for fullscreen state query")
+            return create_error_response(
+                request,
+                'WINDOW_NOT_AVAILABLE',
+                'WebGUI not yet initialized'
+            )
+        
+        # Get current fullscreen state
+        is_fullscreen = web_gui.isFullScreen()
+        
+        logger.debug(f"Window fullscreen state: {is_fullscreen}")
+        return create_success_response(request, {
+            'is_fullscreen': is_fullscreen,
+            'message': 'Fullscreen state retrieved successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in window get fullscreen state handler: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return create_error_response(
+            request,
+            'FULLSCREEN_STATE_ERROR',
+            f"Error getting fullscreen state: {str(e)}"
+        )
+
+
 # Print all registered handlers
 logger.info(f"Registered handlers: {IPCHandlerRegistry.list_handlers()}")

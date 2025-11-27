@@ -115,6 +115,14 @@ export function createLightRAGApi(apiInstance: IPCAPI) {
       return apiInstance.executeRequest<T>('lightrag.getGraphLabelList', {});
     },
 
+    async getPopularLabels<T>(payload: { limit: number }): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.getPopularLabels', payload);
+    },
+
+    async searchLabels<T>(payload: { query: string; limit: number }): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.searchLabels', payload);
+    },
+
     async saveSettings<T>(settings: Record<string, any>): Promise<APIResponse<T>> {
       return apiInstance.executeRequest<T>('lightrag.saveSettings', settings);
     },
@@ -141,6 +149,14 @@ export function createLightRAGApi(apiInstance: IPCAPI) {
 
     async saveConversationHistory<T>(messages: any[]): Promise<APIResponse<T>> {
       return apiInstance.executeRequest<T>('lightrag.saveConversationHistory', { messages });
+    },
+
+    async expandNode<T>(payload: { nodeId: string; maxDepth: number; maxNodes: number }): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.expandNode', payload);
+    },
+
+    async pruneNode<T>(payload: { nodeId: string }): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.pruneNode', payload);
     }
   };
 }

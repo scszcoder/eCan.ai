@@ -1,8 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Select, Spin, theme } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
+import { Select, Spin, Input } from 'antd';
+import { SearchOutlined, DownOutlined } from '@ant-design/icons';
 import type { SelectProps } from 'antd';
-import { useTheme } from '@/contexts/ThemeContext';
 
 interface AsyncSelectProps<T> {
   fetcher: (query?: string) => Promise<T[]>;
@@ -36,18 +35,14 @@ export function AsyncSelect<T>({
   onFocus,
   onBeforeOpen,
   placeholder = '请选择...',
-  searchPlaceholder,
+  searchPlaceholder = '搜索节点名称...',
   noResultsMessage = '无结果',
   notFound,
   ariaLabel,
   className,
-  triggerClassName,
   debounceTime = 300,
   clearable = true
 }: AsyncSelectProps<T>) {
-  const { token } = theme.useToken();
-  const { theme: currentTheme } = useTheme();
-  const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [options, setOptions] = useState<T[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchValue, setSearchValue] = useState('');
@@ -122,13 +117,32 @@ export function AsyncSelect<T>({
     label: renderOption(item)
   }));
 
+  // 自定义下拉渲染，在顶部添加搜索框
+  const popupRender = (menu: React.ReactElement) => (
+    <>
+      <div style={{ padding: '8px 8px 4px 8px' }}>
+        <Input
+          prefix={<SearchOutlined style={{ color: 'rgba(255, 255, 255, 0.6)' }} />}
+          placeholder={searchPlaceholder}
+          value={searchValue}
+          onChange={(e) => handleSearch(e.target.value)}
+          style={{
+            background: 'rgba(100, 116, 139, 0.3)',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            borderRadius: 8,
+            color: '#ffffff'
+          }}
+          className="async-select-search-input"
+        />
+      </div>
+      {menu}
+    </>
+  );
+
   return (
     <Select
-      showSearch
       value={value || undefined}
       placeholder={placeholder}
-      searchValue={searchValue}
-      onSearch={handleSearch}
       onChange={handleChange}
       onFocus={handleFocus}
       onOpenChange={handleDropdownVisibleChange}
@@ -136,20 +150,29 @@ export function AsyncSelect<T>({
       allowClear={clearable}
       filterOption={false}
       notFoundContent={loading ? <Spin size="small" /> : (notFound || noResultsMessage)}
-      className={className}
+      className={`${className} graph-async-select`}
+      popupRender={popupRender}
       // Use Ant Design v5 classNames API instead of deprecated popupClassName
       // @ts-ignore
       classNames={{ popup: 'lightrag-async-select-dropdown' }}
       aria-label={ariaLabel}
-      suffixIcon={<SearchOutlined style={{ color: token.colorTextPlaceholder }} />}
-      style={{ width: '100%' }}
+      suffixIcon={<DownOutlined style={{ color: 'rgba(255, 255, 255, 0.6)' }} />}
+      style={{ 
+        width: '100%',
+        background: 'rgba(100, 116, 139, 0.5)',
+        borderRadius: 999,
+        border: '1px solid rgba(255, 255, 255, 0.15)',
+        color: '#ffffff',
+        height: 40
+      }}
       // @ts-ignore - Antd v5 new API
       styles={{
         popup: {
-          borderRadius: token.borderRadiusLG,
-          boxShadow: token.boxShadowSecondary,
-          backgroundColor: token.colorBgElevated,
-          border: `1px solid ${token.colorBorder}`,
+          borderRadius: 12,
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+          backgroundColor: 'rgba(45, 55, 72, 0.95)',
+          backdropFilter: 'blur(12px)',
+          border: '2px solid rgba(255, 255, 255, 0.1)',
         } as any,
       }}
       options={selectOptions}
