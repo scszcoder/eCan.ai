@@ -2,7 +2,7 @@
  * LLM node custom form: adds Model Provider dropdown above Model Name
  * All LLM configuration is dynamically loaded from backend llm_providers.json
  */
-import { useRef, useState, useEffect } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
 import { Divider, Select, Button, Space, Tag, Tooltip } from '@douyinfe/semi-ui';
 import { IconPaperclip } from '@douyinfe/semi-icons';
@@ -10,6 +10,8 @@ import { defaultFormMeta } from '../default-form-meta';
 import { FormContent, FormHeader, FormItem, FormInputs } from '../../form-components';
 import { DisplayOutputs, createInferInputsPlugin } from '@flowgram.ai/form-materials';
 import { get_ipc_api } from '../../../../services/ipc_api';
+import { usePromptStore } from '../../../../stores/promptStore';
+import { useUserStore } from '../../../../stores/userStore';
 
 // Temporary in-memory storage for user-configured values (per provider)
 // This preserves user settings when switching between providers during the current session
@@ -85,6 +87,8 @@ async function fetchProvidersWithCredentials(): Promise<LLMProvider[]> {
 }
 
 export const FormRender = (_props: FormRenderProps<any>) => {
+  const username = useUserStore((s) => s.username || 'user');
+  const { prompts, fetch, fetched } = usePromptStore();
   const [providers, setProviders] = useState<LLMProvider[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -95,6 +99,27 @@ export const FormRender = (_props: FormRenderProps<any>) => {
       setLoading(false);
     });
   }, []);
+
+  useEffect(() => {
+    if (!fetched && username) {
+      fetch(username);
+    }
+  }, [fetched, fetch, username]);
+
+  const promptOptions = useMemo(() => {
+    const base = prompts.map((prompt) => {
+      const location = prompt.location === 'sample_prompts' ? 'sample' : 'my';
+      const label = `${location}:${prompt.title || prompt.topic || prompt.id}`;
+      return {
+        label,
+        value: prompt.id,
+      };
+    });
+    return [
+      { label: 'In-line Prompt', value: 'inline' as const },
+      ...base,
+    ];
+  }, [prompts]);
 
   // Build provider options
   const providerOptions = providers.map(p => ({ label: p.display_name, value: p.name }));
@@ -152,6 +177,23 @@ export const FormRender = (_props: FormRenderProps<any>) => {
       <FormHeader />
       <FormContent>
         <Divider />
+        <FormItem name="promptSelection" type="string" vertical>
+          <Field<string> name="inputsValues.promptSelection.content">
+            {({ field: promptSelectorField }) => {
+              const selected = (promptSelectorField.value as string) || 'inline';
+              return (
+                <Select
+                  value={selected}
+                  optionList={promptOptions}
+                  onChange={(val) => promptSelectorField.onChange(val as string)}
+                  style={{ width: '100%' }}
+                  size="small"
+                  dropdownMatchSelectWidth
+                />
+              );
+            }}
+          </Field>
+        </FormItem>
         {/* Model Provider selector */}
         <FormItem name="modelProvider" type="string" vertical>
           <Field<string> name="inputsValues.modelProvider.content">
@@ -309,17 +351,16 @@ export const FormRender = (_props: FormRenderProps<any>) => {
             )}
           </Field>
         </FormItem>
-        {/* Attachments section */}
-        <Divider />
-        <FormItem name="attachments" type="array" vertical>
-          <Field<any[]> name="inputsValues.attachments.content">
-            {({ field: attField }) => {
-              const files = Array.isArray(attField.value) ? attField.value : [];
-              const setFiles = (next: any[]) => setTimeout(() => attField.onChange(next), 0);
+        <Field<string> name="inputsValues.promptSelection.content">
+          {({ field: promptSelectorField }) => (
+            <FormItem name="attachments" type="array" vertical>
+              <Field<any[]> name="inputsValues.attachments.content">
+                {({ field: attField }) => {
+                  const files = Array.isArray(attField.value) ? attField.value : [];
+                  const setFiles = (next: any[]) => setTimeout(() => attField.onChange(next), 0);
 
               const handleAdd = async () => {
                 try {
-                  // @ts-ignore
                   if (window.showOpenFilePicker) {
                     // @ts-ignore
                     const handles = await window.showOpenFilePicker({ multiple: true });
@@ -335,26 +376,27 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                       newItems.push({ name: file.name, type: file.type, size: file.size, dataUrl });
                     }
                     setFiles([...(files || []), ...newItems]);
-                  } else {
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.multiple = true;
-                    input.onchange = async () => {
-                      const fl = input.files ? Array.from(input.files) : [];
-                      const newItems: any[] = [];
-                      for (const f of fl) {
-                        const dataUrl = await new Promise<string>((resolve, reject) => {
-                          const reader = new FileReader();
-                          reader.onload = () => resolve(String(reader.result));
-                          reader.onerror = reject;
-                          reader.readAsDataURL(f);
-                        });
-                        newItems.push({ name: f.name, type: f.type, size: f.size, dataUrl });
-                      }
-                      setFiles([...(files || []), ...newItems]);
-                    };
-                    input.click();
+                    return;
                   }
+
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.multiple = true;
+                  input.onchange = async () => {
+                    const fl = input.files ? Array.from(input.files) : [];
+                    const newItems: any[] = [];
+                    for (const f of fl) {
+                      const dataUrl = await new Promise<string>((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(String(reader.result));
+                        reader.onerror = reject;
+                        reader.readAsDataURL(f);
+                      });
+                      newItems.push({ name: f.name, type: f.type, size: f.size, dataUrl });
+                    }
+                    setFiles([...(files || []), ...newItems]);
+                  };
+                  input.click();
                 } catch (e) {
                   console.error('Attachment add failed', e);
                 }
@@ -426,7 +468,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                 }
               };
 
-              return (
+              const attachmentsBlock = (
                 <div style={{ width: '100%' }}>
                   <Space wrap>
                     {(files || []).map((f, idx) => (
@@ -458,9 +500,18 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                   </div>
                 </div>
               );
+
+              // Hide attachments when using external library prompt
+              if ((promptSelectorField.value as string) && promptSelectorField.value !== 'inline') {
+                return null;
+              }
+
+              return attachmentsBlock;
             }}
           </Field>
         </FormItem>
+          )}
+        </Field>
         {/* Render the rest of inputs using the default component */}
         <FormInputs />
         <Divider />
