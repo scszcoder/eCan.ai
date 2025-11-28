@@ -89,6 +89,9 @@ const SettingsContent = styled.div`
         height: 100%;
         overflow: hidden;
         padding: 0;
+      }
+      
+      .ant-tabs-tabpane-active {
         display: flex;
         flex-direction: column;
       }
@@ -642,21 +645,51 @@ const Settings: React.FC = () => {
           .ant-tabs-content-holder {
             background: ${token.colorBgLayout} !important;
           }
-          /* Global scrollbar styles for tab content */
-          .ant-tabs-tabpane div::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
+          /* Auto-hide scrollbar - only show on hover/scroll */
+          .ant-tabs-tabpane > div {
+            scrollbar-width: thin;
+            scrollbar-color: transparent transparent;
           }
-          .ant-tabs-tabpane div::-webkit-scrollbar-track {
-            background: ${token.colorBgContainer};
-            border-radius: 4px;
+          .ant-tabs-tabpane > div:hover {
+            scrollbar-color: ${token.colorBorder} transparent;
           }
-          .ant-tabs-tabpane div::-webkit-scrollbar-thumb {
+          /* Webkit scrollbar styles for direct children only */
+          .ant-tabs-tabpane > div::-webkit-scrollbar {
+            width: 6px;
+          }
+          .ant-tabs-tabpane > div::-webkit-scrollbar-track {
+            background: transparent;
+          }
+          .ant-tabs-tabpane > div::-webkit-scrollbar-thumb {
+            background: transparent;
+            border-radius: 3px;
+          }
+          .ant-tabs-tabpane > div:hover::-webkit-scrollbar-thumb {
             background: ${token.colorBorder};
-            border-radius: 4px;
           }
-          .ant-tabs-tabpane div::-webkit-scrollbar-thumb:hover {
-            background: ${token.colorBorderSecondary};
+          .ant-tabs-tabpane > div::-webkit-scrollbar-thumb:hover {
+            background: ${token.colorTextSecondary};
+          }
+          /* Table body scrollbar */
+          .ant-table-body {
+            scrollbar-width: thin;
+            scrollbar-color: transparent transparent;
+          }
+          .ant-table-body:hover {
+            scrollbar-color: ${token.colorBorder} transparent;
+          }
+          .ant-table-body::-webkit-scrollbar {
+            width: 6px;
+          }
+          .ant-table-body::-webkit-scrollbar-track {
+            background: transparent;
+          }
+          .ant-table-body::-webkit-scrollbar-thumb {
+            background: transparent;
+            border-radius: 3px;
+          }
+          .ant-table-body:hover::-webkit-scrollbar-thumb {
+            background: ${token.colorBorder};
           }
         `}</style>
         <Tabs
@@ -680,11 +713,10 @@ const Settings: React.FC = () => {
                     gap: 8,
                     padding: '12px 24px',
                     flexShrink: 0,
-                    background: token.colorBgLayout, 
                     borderBottom: `1px solid ${token.colorBorderSecondary}`,
                   }}>
                     <Button 
-                      type="primary" 
+                      type="default" 
                       icon={<SaveOutlined />} 
                       onClick={() => form.submit()} 
                       loading={loading}
@@ -705,14 +737,14 @@ const Settings: React.FC = () => {
                     overflowY: 'auto', 
                     padding: '20px 24px',
                   }}>
-                  <Form
-                    key={formKey}
-                    form={form}
-                    layout="vertical"
-                    onFinish={handleSave}
-                    preserve={true}
-                    initialValues={settingsData || initialSettings}
-                  >
+                    <Form
+                      key={formKey}
+                      form={form}
+                      layout="vertical"
+                      onFinish={handleSave}
+                      preserve={true}
+                      initialValues={settingsData || initialSettings}
+                    >
           {/* Base模式Settings */}
           <StyledCard
             title={t('pages.settings.basic_mode_settings')}
@@ -880,9 +912,6 @@ const Settings: React.FC = () => {
                         />
                       </Tooltip>
                     }
-                    style={{
-                      border: 'none'
-                    }}
                   />
                 </StyledFormItem>
               </Col>
@@ -933,9 +962,6 @@ const Settings: React.FC = () => {
                         />
                       </Tooltip>
                     }
-                    style={{
-                      border: 'none'
-                    }}
                   />
                 </StyledFormItem>
               </Col>
@@ -975,9 +1001,6 @@ const Settings: React.FC = () => {
                         />
                       </Tooltip>
                     }
-                    style={{
-                      border: 'none'
-                    }}
                   />
                 </StyledFormItem>
               </Col>
@@ -1025,9 +1048,6 @@ const Settings: React.FC = () => {
                         />
                       </Tooltip>
                     }
-                    style={{
-                      border: 'none'
-                    }}
                   />
                 </StyledFormItem>
               </Col>
@@ -1058,9 +1078,6 @@ const Settings: React.FC = () => {
                         />
                       </Tooltip>
                     }
-                    style={{
-                      border: 'none'
-                    }}
                   />
                 </StyledFormItem>
               </Col>
@@ -1099,9 +1116,6 @@ const Settings: React.FC = () => {
                         />
                       </Tooltip>
                     }
-                    style={{
-                      border: 'none'
-                    }}
                   />
                 </StyledFormItem>
               </Col>
@@ -1129,9 +1143,6 @@ const Settings: React.FC = () => {
                         />
                       </Tooltip>
                     }
-                    style={{
-                      border: 'none'
-                    }}
                   />
                 </StyledFormItem>
               </Col>
@@ -1159,9 +1170,6 @@ const Settings: React.FC = () => {
                         />
                       </Tooltip>
                     }
-                    style={{
-                      border: 'none'
-                    }}
                   />
                 </StyledFormItem>
               </Col>
@@ -1189,9 +1197,6 @@ const Settings: React.FC = () => {
                         />
                       </Tooltip>
                     }
-                    style={{
-                      border: 'none'
-                    }}
                   />
                 </StyledFormItem>
               </Col>
@@ -1219,9 +1224,6 @@ const Settings: React.FC = () => {
                         />
                       </Tooltip>
                     }
-                    style={{
-                      border: 'none'
-                    }}
                   />
                 </StyledFormItem>
               </Col>
@@ -1249,9 +1251,6 @@ const Settings: React.FC = () => {
                         />
                       </Tooltip>
                     }
-                    style={{
-                      border: 'none'
-                    }}
                   />
                 </StyledFormItem>
               </Col>
@@ -1367,9 +1366,6 @@ const Settings: React.FC = () => {
                         />
                       </Tooltip>
                     }
-                    style={{
-                      border: 'none'
-                    }}
                   />
                 </StyledFormItem>
               </Col>
@@ -1462,8 +1458,8 @@ const Settings: React.FC = () => {
           <StyledFormItem>
             {/* Save button moved to top header */}
           </StyledFormItem>
-                </Form>
-                </div>
+                    </Form>
+                  </div>
                 </>
               ),
             },
@@ -1476,16 +1472,14 @@ const Settings: React.FC = () => {
                 </span>
               ),
               children: (
-                <div style={{ height: '100%', overflowY: 'auto', padding: '20px 24px' }}>
-                  <LLMManagement
-                    ref={llmManagementRef}
-                    username={username}
-                    defaultLLM={settingsData?.default_llm || ''}
-                    settingsLoaded={settingsLoaded}
-                    onDefaultLLMChange={handleDefaultLLMChange}
-                    onSharedProviderUpdate={handleSharedProviderUpdate}
-                  />
-                </div>
+                <LLMManagement
+                  ref={llmManagementRef}
+                  username={username}
+                  defaultLLM={settingsData?.default_llm || ''}
+                  settingsLoaded={settingsLoaded}
+                  onDefaultLLMChange={handleDefaultLLMChange}
+                  onSharedProviderUpdate={handleSharedProviderUpdate}
+                />
               ),
             },
             {
@@ -1497,16 +1491,14 @@ const Settings: React.FC = () => {
                 </span>
               ),
               children: (
-                <div style={{ height: '100%', overflowY: 'auto', padding: '20px 24px' }}>
-                  <EmbeddingManagement
-                    ref={embeddingManagementRef}
-                    username={username}
-                    defaultEmbedding={settingsData?.default_embedding || ''}
-                    settingsLoaded={settingsLoaded}
-                    onDefaultEmbeddingChange={handleDefaultEmbeddingChange}
-                    onSharedProviderUpdate={handleSharedProviderUpdate}
-                  />
-                </div>
+                <EmbeddingManagement
+                  ref={embeddingManagementRef}
+                  username={username}
+                  defaultEmbedding={settingsData?.default_embedding || ''}
+                  settingsLoaded={settingsLoaded}
+                  onDefaultEmbeddingChange={handleDefaultEmbeddingChange}
+                  onSharedProviderUpdate={handleSharedProviderUpdate}
+                />
               ),
             },
             {
@@ -1518,16 +1510,14 @@ const Settings: React.FC = () => {
                 </span>
               ),
               children: (
-                <div style={{ height: '100%', overflowY: 'auto', padding: '20px 24px' }}>
-                  <RerankManagement
-                    ref={rerankManagementRef}
-                    username={username}
-                    defaultRerank={settingsData?.default_rerank || ''}
-                    settingsLoaded={settingsLoaded}
-                    onDefaultRerankChange={handleDefaultRerankChange}
-                    onSharedProviderUpdate={handleSharedProviderUpdate}
-                  />
-                </div>
+                <RerankManagement
+                  ref={rerankManagementRef}
+                  username={username}
+                  defaultRerank={settingsData?.default_rerank || ''}
+                  settingsLoaded={settingsLoaded}
+                  onDefaultRerankChange={handleDefaultRerankChange}
+                  onSharedProviderUpdate={handleSharedProviderUpdate}
+                />
               ),
             },
           ]}
