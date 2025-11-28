@@ -657,6 +657,15 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
                 if ec_agent:
                     # Add to main_window.agents
                     main_window.agents.append(ec_agent)
+                    
+                    # Hot-start the new agent
+                    try:
+                        logger.info(f"[agent_handler] Hot-starting new agent '{ec_agent.card.name}'...")
+                        ec_agent.start()
+                        logger.info(f"[agent_handler] ✅ Agent '{ec_agent.card.name}' started successfully")
+                    except Exception as e:
+                        logger.error(f"[agent_handler] ❌ Failed to start new agent: {e}")
+                    
                     logger.info(f"[agent_handler] Created and added EC_Agent '{ec_agent.card.name}' to memory")
                 else:
                     logger.warning(f"[agent_handler] Failed to convert agent to EC_Agent. Frontend will need to refresh.")

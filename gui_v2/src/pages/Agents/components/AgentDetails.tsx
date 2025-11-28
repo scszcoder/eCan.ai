@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { App, Button, Card, Col, DatePicker, Form, Input, Radio, Row, Select, Tag, Tooltip, TreeSelect } from 'antd';
+import { App, Button, Card, Col, DatePicker, Form, Input, Radio, Row, Select, Tag, Tooltip, TreeSelect, Modal } from 'antd';
 import { EditOutlined, SaveOutlined, InfoCircleOutlined, DeleteOutlined, CloseOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
@@ -505,13 +505,15 @@ const AgentDetails: React.FC = () => {
 
   // Monitor defaultOrgId changes to ensure selectedOrgId is synchronized
   useEffect(() => {
-    if (isNew && defaultOrgId && selectedOrgId !== defaultOrgId && organizationTreeData.length > 0) {
+    // Only set default if current selection is empty to avoid overwriting user selection
+    const currentOrg = form.getFieldValue('org_id');
+    if (isNew && defaultOrgId && !currentOrg && organizationTreeData.length > 0) {
       setSelectedOrgId(defaultOrgId);
       // Also update form field
       form.setFieldValue('org_id', defaultOrgId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [defaultOrgId, isNew, selectedOrgId, organizationTreeData.length]);
+  }, [defaultOrgId, isNew, organizationTreeData.length]);
 
   // Get supervisor candidates (agents from current and parent organizations)
   useEffect(() => {
