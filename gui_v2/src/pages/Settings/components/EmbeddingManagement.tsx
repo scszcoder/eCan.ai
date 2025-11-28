@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useImperativeHandle } from "react";
 import {
-  Card,
   Table,
   Button,
   Input,
@@ -677,14 +676,11 @@ const EmbeddingManagement = React.forwardRef<
   // If user is not logged in
   if (!username) {
     return (
-      <Card
-        title={t("pages.settings.embedding_management")}
-        style={{ marginTop: "20px" }}
-      >
+      <div style={{ marginTop: "20px", border: "1px solid #f0f0f0", borderRadius: "8px", background: "#fff" }}>
         <div style={{ textAlign: "center", padding: "40px", color: "#999" }}>
           🔐 {t("pages.settings.login_to_view_embedding")}
         </div>
-      </Card>
+      </div>
     );
   }
 
@@ -951,10 +947,7 @@ const EmbeddingManagement = React.forwardRef<
   ];
 
   return (
-    <Card
-      title={t("pages.settings.embedding_management")}
-      style={{ marginTop: "20px" }}
-    >
+    <div style={{ marginTop: "20px" }}>
       <Table
         columns={columns}
         dataSource={providers}
@@ -963,7 +956,7 @@ const EmbeddingManagement = React.forwardRef<
         pagination={false}
         size="small"
       />
-    </Card>
+    </div>
   );
 });
 

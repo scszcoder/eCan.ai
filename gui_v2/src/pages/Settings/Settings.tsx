@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, Form, Select, Switch, Button, App, Input, Row, Col, Tooltip, Divider, Tabs, theme } from 'antd';
-import { ReloadOutlined, FolderOpenOutlined, GlobalOutlined, SettingOutlined, RobotOutlined, BlockOutlined, SortAscendingOutlined } from '@ant-design/icons';
+import { ReloadOutlined, FolderOpenOutlined, GlobalOutlined, SettingOutlined, RobotOutlined, BlockOutlined, SortAscendingOutlined, SaveOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useEffectOnActive } from 'keepalive-for-react';
 import { useLocation } from 'react-router-dom';
@@ -87,20 +87,10 @@ const SettingsContent = styled.div`
       
       .ant-tabs-tabpane {
         height: 100%;
-        overflow-y: auto;
-        padding: 20px 24px;
-        
-        &::-webkit-scrollbar {
-          width: 8px;
-        }
-        
-        &::-webkit-scrollbar-track {
-          border-radius: 4px;
-        }
-        
-        &::-webkit-scrollbar-thumb {
-          border-radius: 4px;
-        }
+        overflow: hidden;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
       }
     }
   }
@@ -652,13 +642,20 @@ const Settings: React.FC = () => {
           .ant-tabs-content-holder {
             background: ${token.colorBgLayout} !important;
           }
-          .ant-tabs-tabpane::-webkit-scrollbar-track {
+          /* Global scrollbar styles for tab content */
+          .ant-tabs-tabpane div::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+          }
+          .ant-tabs-tabpane div::-webkit-scrollbar-track {
             background: ${token.colorBgContainer};
+            border-radius: 4px;
           }
-          .ant-tabs-tabpane::-webkit-scrollbar-thumb {
+          .ant-tabs-tabpane div::-webkit-scrollbar-thumb {
             background: ${token.colorBorder};
+            border-radius: 4px;
           }
-          .ant-tabs-tabpane::-webkit-scrollbar-thumb:hover {
+          .ant-tabs-tabpane div::-webkit-scrollbar-thumb:hover {
             background: ${token.colorBorderSecondary};
           }
         `}</style>
@@ -675,9 +672,25 @@ const Settings: React.FC = () => {
                 </span>
               ),
               children: (
-                <StyledCard
-                  title={t('common.settings')}
-                  extra={
+                <>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'flex-end', 
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '12px 24px',
+                    flexShrink: 0,
+                    background: token.colorBgLayout, 
+                    borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                  }}>
+                    <Button 
+                      type="primary" 
+                      icon={<SaveOutlined />} 
+                      onClick={() => form.submit()} 
+                      loading={loading}
+                    >
+                      {t('common.save')}
+                    </Button>
                     <Tooltip title={t('common.reload')}>
                       <StyledRefreshButton
                         shape="circle"
@@ -686,16 +699,20 @@ const Settings: React.FC = () => {
                         loading={loading}
                       />
                     </Tooltip>
-                  }
-                >
-                <Form
-                  key={formKey}
-                  form={form}
-                  layout="vertical"
-                  onFinish={handleSave}
-                  preserve={true}
-                  initialValues={settingsData || initialSettings}
-                >
+                  </div>
+                  <div style={{ 
+                    flex: 1, 
+                    overflowY: 'auto', 
+                    padding: '20px 24px',
+                  }}>
+                  <Form
+                    key={formKey}
+                    form={form}
+                    layout="vertical"
+                    onFinish={handleSave}
+                    preserve={true}
+                    initialValues={settingsData || initialSettings}
+                  >
           {/* Base模式Settings */}
           <StyledCard
             title={t('pages.settings.basic_mode_settings')}
@@ -1443,12 +1460,11 @@ const Settings: React.FC = () => {
           </Row>
 
           <StyledFormItem>
-            <Button type="primary" htmlType="submit" loading={loading}>
-              {t('common.save')}
-            </Button>
+            {/* Save button moved to top header */}
           </StyledFormItem>
                 </Form>
-                </StyledCard>
+                </div>
+                </>
               ),
             },
             {
@@ -1460,14 +1476,16 @@ const Settings: React.FC = () => {
                 </span>
               ),
               children: (
-                <LLMManagement
-                  ref={llmManagementRef}
-                  username={username}
-                  defaultLLM={settingsData?.default_llm || ''}
-                  settingsLoaded={settingsLoaded}
-                  onDefaultLLMChange={handleDefaultLLMChange}
-                  onSharedProviderUpdate={handleSharedProviderUpdate}
-                />
+                <div style={{ height: '100%', overflowY: 'auto', padding: '20px 24px' }}>
+                  <LLMManagement
+                    ref={llmManagementRef}
+                    username={username}
+                    defaultLLM={settingsData?.default_llm || ''}
+                    settingsLoaded={settingsLoaded}
+                    onDefaultLLMChange={handleDefaultLLMChange}
+                    onSharedProviderUpdate={handleSharedProviderUpdate}
+                  />
+                </div>
               ),
             },
             {
@@ -1479,14 +1497,16 @@ const Settings: React.FC = () => {
                 </span>
               ),
               children: (
-                <EmbeddingManagement
-                  ref={embeddingManagementRef}
-                  username={username}
-                  defaultEmbedding={settingsData?.default_embedding || ''}
-                  settingsLoaded={settingsLoaded}
-                  onDefaultEmbeddingChange={handleDefaultEmbeddingChange}
-                  onSharedProviderUpdate={handleSharedProviderUpdate}
-                />
+                <div style={{ height: '100%', overflowY: 'auto', padding: '20px 24px' }}>
+                  <EmbeddingManagement
+                    ref={embeddingManagementRef}
+                    username={username}
+                    defaultEmbedding={settingsData?.default_embedding || ''}
+                    settingsLoaded={settingsLoaded}
+                    onDefaultEmbeddingChange={handleDefaultEmbeddingChange}
+                    onSharedProviderUpdate={handleSharedProviderUpdate}
+                  />
+                </div>
               ),
             },
             {
@@ -1498,14 +1518,16 @@ const Settings: React.FC = () => {
                 </span>
               ),
               children: (
-                <RerankManagement
-                  ref={rerankManagementRef}
-                  username={username}
-                  defaultRerank={settingsData?.default_rerank || ''}
-                  settingsLoaded={settingsLoaded}
-                  onDefaultRerankChange={handleDefaultRerankChange}
-                  onSharedProviderUpdate={handleSharedProviderUpdate}
-                />
+                <div style={{ height: '100%', overflowY: 'auto', padding: '20px 24px' }}>
+                  <RerankManagement
+                    ref={rerankManagementRef}
+                    username={username}
+                    defaultRerank={settingsData?.default_rerank || ''}
+                    settingsLoaded={settingsLoaded}
+                    onDefaultRerankChange={handleDefaultRerankChange}
+                    onSharedProviderUpdate={handleSharedProviderUpdate}
+                  />
+                </div>
               ),
             },
           ]}

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useImperativeHandle } from "react";
 import {
-  Card,
   Table,
   Button,
   Input,
@@ -739,14 +738,11 @@ const LLMManagement = React.forwardRef<
   // If user is not logged in
   if (!username) {
     return (
-      <Card
-        title={t("pages.settings.llm_management")}
-        style={{ marginTop: "20px" }}
-      >
+      <div style={{ marginTop: "20px", border: "1px solid #f0f0f0", borderRadius: "8px", background: "#fff" }}>
         <div style={{ textAlign: "center", padding: "40px", color: "#999" }}>
           🔐 {t("pages.settings.login_to_view_llm")}
         </div>
-      </Card>
+      </div>
     );
   }
 
@@ -1049,10 +1045,7 @@ const LLMManagement = React.forwardRef<
   ];
 
   return (
-    <Card
-      title={t("pages.settings.llm_management")}
-      style={{ marginTop: "20px" }}
-    >
+    <div style={{ marginTop: "20px" }}>
       <Table
         columns={columns}
         dataSource={providers}
@@ -1061,7 +1054,7 @@ const LLMManagement = React.forwardRef<
         pagination={false}
         size="small"
       />
-    </Card>
+    </div>
   );
 });
 
