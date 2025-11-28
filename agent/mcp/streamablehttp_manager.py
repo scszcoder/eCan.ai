@@ -1,9 +1,10 @@
-# gui/sse_manager.py  ────────────────────────────────────────────────
 import anyio
 import anyio.abc
 from typing import Optional
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.client.session import ClientSession
+from utils.logger_helper import logger_helper as logger
+from agent.ec_skills.system_proxy import create_mcp_httpx_client
 
 
 class Streamable_HTTP_Manager:
@@ -51,33 +52,43 @@ class Streamable_HTTP_Manager:
                     await tg_to_close.__aexit__(None, None, None)
                 except (RuntimeError, anyio.get_cancelled_exc_class()) as e:
                     # Handle task group exit errors gracefully
-                    print(f"StreamableHTTPManager: Task group exit error (expected during shutdown): {e}")
+                    logger.debug(f"StreamableHTTPManager: Task group exit error (expected during shutdown): {e}")
                 except Exception as e:
-                    print(f"StreamableHTTPManager: Unexpected error during close: {e}")
+                    logger.warning(f"StreamableHTTPManager: Unexpected error during close: {e}")
                     # Don't re-raise to avoid breaking the shutdown process
 
     # -------- internal ----------------------------------------------
     async def _open(self) -> None:
-        print("Streamable_HTTP_Manager: opening persistent session....")
+        logger.debug("Streamable_HTTP_Manager: opening persistent session")
         self._tg = anyio.create_task_group()
         await self._tg.__aenter__()
         self._ready = anyio.Event()
 
         async def _runner() -> None:
-            print("Streamable HTTP client opening................", self._url)
-            async with streamablehttp_client(self._url, terminate_on_close=False) as streams:
-                async with ClientSession(streams[0], streams[1]) as sess:
-                    print("Streamable HTTP client session initing................")
-                    await sess.initialize()
+            logger.debug(f"Streamable HTTP client opening: {self._url}")
+            try:
+                async with streamablehttp_client(self._url, terminate_on_close=False, httpx_client_factory=create_mcp_httpx_client) as streams:
+                    async with ClientSession(streams[0], streams[1]) as sess:
+                        # Only timeout the initialization phase, not the entire session
+                        with anyio.fail_after(30):  # 30 second timeout for initialization
+                            logger.debug("Streamable HTTP client session initializing")
+                            await sess.initialize()
 
-                    print("Streamable HTTP client created................")
-                    self._session = sess
-                    self._ready.set()
-                    try:
-                        await sess.send_ping()
-                    except Exception:
-                        pass
-                    print("Streamable HTTP client ready................")
-                    await anyio.sleep_forever()   # keep everything alive
+                        logger.debug("Streamable HTTP client session created")
+                        self._session = sess
+                        self._ready.set()
+                        try:
+                            await sess.send_ping()
+                        except Exception:
+                            pass
+                        logger.info("Streamable HTTP client ready")
+                        await anyio.sleep_forever()   # keep everything alive (no timeout here!)
+            except TimeoutError:
+                logger.error("Streamable HTTP client initialization timed out after 30s")
+                self._ready.set()  # Unblock waiters on timeout
+            except Exception as e:
+                logger.error(f"Streamable HTTP client error: {e}")
+                self._ready.set()  # Unblock waiters even on error
+                raise
 
         self._tg.start_soon(_runner)
